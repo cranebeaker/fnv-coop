@@ -32,6 +32,9 @@ TWINS = {
     "pair_missing": ("the verdict line does not say which pair ran the test", ["Parallel", "Pipeline.test_pass_prints_one_json_line_and_appends_ledger"]),
     "ram_reserve_ignored": ("the RAM guard lets 4 copies start without the reserve left free", ["Ram"]),
     "watcher_unscoped": ("a copy that died on pair 1 fails the test that runs on pair 0", ["WatcherScope"]),
+    "watcher_forgets_exit": ("the second crash check of one dead copy reports exit -1 (off Windows waitpid has reaped it)", ["WatcherScope"]),
+    "kill_runner_only": ("off Windows, a runner stopped on a timeout leaves the child it started running", ["PosixProcessHelpers"]),
+    "zombie_alive": ("off Windows, an exited copy that was not reaped yet counts as still running", ["PosixProcessHelpers"]),
     "helpers_env_missing": ("a copy prove.py boots does not get NVCOOP_TEST_HELPERS=1", ["BootEnv"]),
     "env_reuse_unchecked": ("a running copy is reused although it was started without the env the test needs", ["BootEnv"]),
     "slot_need_fixed": ("the game slot is asked for a fixed 3 GB instead of the caller's own need", ["SlotRam"]),
@@ -57,6 +60,8 @@ TWINS = {
     "ready_skipped": ("a copy is used as soon as its pipe is up, before the game serves requests", ["PairBuildAndSaves.test_a_copy_that_does_not_serve_requests_yet_is_env_and_is_not_asked_for_methods"]),
     "saves_not_seeded": ("the copies of pair 1 start a scenario with an empty Saves folder", ["PairBuildAndSaves.test_prepare_seeds_the_saves_of_every_copy", "PairBuildAndSaves.test_an_empty_copy_gets_the_save_family_of_a_donor_of_its_own_role"]),
 }
+if os.name == "nt" or not os.path.isdir("/proc/self"):   # their tests are the POSIX branches: PosixProcessHelpers skips here
+    del TWINS["zombie_alive"], TWINS["kill_runner_only"]
 
 
 def run(args, env_extra=None, timeout=900):

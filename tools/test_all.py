@@ -153,11 +153,9 @@ NEEDS = {
 
 
 # Suites that drive Windows processes themselves (kernel32 through ctypes, taskkill, the mbcs codec, C:\ paths), not
-# through MSVC: off Windows they skip with this reason instead of failing on the missing API.
-WINDOWS_ONLY = {
-    "Proof harness: prove.py classifier, packet, ledger, owner-PC safety, --pairs scheduler, RAM guard (fake worlds, stub runners + 22 twins)":
-        "prove.py watches and stops game processes through kernel32 and taskkill",
-}
+# through MSVC: off Windows they skip with this reason instead of failing on the missing API. Empty now: the proof harness
+# answers from /proc off Windows (tools/proof/pf_safety.py, pf_crash.py), so its fake-world tests run on Linux too.
+WINDOWS_ONLY = {}
 
 
 def missing_data(name: str) -> list:

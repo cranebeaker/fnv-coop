@@ -240,10 +240,20 @@ class Behaviour(unittest.TestCase):
 
     def test_windows_only_suites_exist_and_run_on_windows(self):
         self.with_all_data()
-        self.assertTrue(test_all.WINDOWS_ONLY)
         for name in test_all.WINDOWS_ONLY:
             self.assertIn(name, SUITE, "a WINDOWS_ONLY name that is not a suite would never skip anything")
             self.assertEqual(self.decide(name, problems={"cmake": "", "msvc": ""}), ("run", ""), name)
+
+    def test_a_windows_only_suite_skips_off_windows_and_runs_on_windows(self):
+        # The table may be empty; the mechanism is checked with a Python-only suite put into it for the test.
+        self.with_all_data()
+        name = next(n for n, (slow, tools) in SUITE.items() if not tools and not slow)
+        with mock.patch.dict(test_all.WINDOWS_ONLY, {name: "it needs a Windows API"}):
+            with mock.patch.object(test_all, "WINDOWS", False):
+                action, reason = self.decide(name, problems={})
+                self.assertEqual(action, "skip", name)
+                self.assertIn("it needs a Windows API, which is Windows only", reason)
+            self.assertEqual(self.decide(name, problems={}), ("run", ""), name)
 
     def test_off_windows_preflight_checks_nothing_and_prints_nothing(self):
         out = io.StringIO()

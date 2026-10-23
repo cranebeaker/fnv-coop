@@ -168,7 +168,7 @@ def build_problem(instances: Sequence[int], idir_of: Callable[[int], Path], expe
         if "nvcoop_mod.dll" in expected:
             cp = configparser.ConfigParser(strict=False, interpolation=None)
             try:
-                cp.read(plug / "nvcoop.ini", encoding="mbcs")
+                cp.read(plug / "nvcoop.ini", encoding="mbcs" if os.name == "nt" else None)   # mbcs exists on Windows only
             except (OSError, configparser.Error):
                 pass
             core = cp.get("loader", "core", fallback="") if cp.has_section("loader") else ""

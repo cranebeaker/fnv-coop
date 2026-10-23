@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import ntpath
 import os
 import re
 import subprocess
@@ -22,6 +23,9 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 MUTANT = os.environ.get("PROOF_MUTANT", "")   # test-only: one deliberate bug per name (tools/proof/tests/run_tests.py)
 GAME_EXE = "FalloutNV.exe"
+# The game and prove.py's real runs are Windows only. Off Windows the process helpers below answer from /proc instead of kernel32 and
+# tasklist, so the fake-world tests (stub runners, fake copies) run on Linux too. The Windows branches are unchanged.
+WINDOWS = os.name == "nt"
 COPY_GB = 0.7           # resident memory of one game copy (tools/runner/pairs.py COPY_GB)
 RESERVE_GB = 1.5        # left for Windows and the test tools; prove.py --reserve-gb
 GIB = 1 << 30
@@ -35,7 +39,31 @@ class NotOwned(Exception):
 
 
 # ------------------------------------------------------------------ OS access (replaced in tests)
+def _proc_pids() -> List[int]:
+    return [int(d) for d in os.listdir("/proc") if d.isdigit()] if os.path.isdir("/proc") else []
+
+
+def _proc_stat(pid: int) -> Optional[List[str]]:
+    """The fields of /proc/<pid>/stat after the command name (state first), or None."""
+    try:
+        with open("/proc/%d/stat" % pid, encoding="utf-8", errors="replace") as f:
+            return f.read().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
+        return None
+
+
 def list_pids(image: str) -> List[int]:
+    if not WINDOWS:
+        pids = []
+        for pid in _proc_pids():
+            try:
+                with open("/proc/%d/cmdline" % pid, "rb") as f:
+                    argv0 = f.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+            except OSError:
+                continue
+            if argv0 and os.path.basename(argv0.replace("\\", "/")).lower() == image.lower():
+                pids.append(pid)
+        return pids
     out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
     pids = []
     for ln in out.splitlines():
@@ -47,6 +75,11 @@ def list_pids(image: str) -> List[int]:
 
 def image_path(pid: int) -> Optional[str]:
     """Full path of a process exe, or None when Windows will not tell (treated as foreign by the guard)."""
+    if not WINDOWS:
+        try:
+            return os.readlink("/proc/%d/exe" % pid)
+        except OSError:
+            return None
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -63,6 +96,11 @@ def image_path(pid: int) -> Optional[str]:
 
 
 def pid_alive(pid: int) -> bool:
+    if not WINDOWS:
+        st = _proc_stat(pid)
+        if MUTANT == "zombie_alive":
+            return st is not None
+        return st is not None and st[0] not in ("Z", "X")   # an exited child that was not reaped yet is a zombie, not alive
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -79,6 +117,12 @@ def pid_alive(pid: int) -> bool:
 
 
 def taskkill(pid: int) -> None:
+    if not WINDOWS:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+        return
     subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True)
 
 
@@ -93,7 +137,9 @@ def instance_roots(repo: Path, env: Optional[Dict[str, str]] = None) -> List[Pat
 
 
 def _norm(p: str) -> str:
-    return os.path.normcase(os.path.abspath(p)).rstrip("\\/") + os.sep
+    # A Windows path (C:\..., \\server\...) is compared with Windows rules on any OS; on Windows os.path already is ntpath.
+    m = ntpath if re.match(r"^([A-Za-z]:[\\/]|\\\\)", p) else os.path
+    return m.normcase(m.abspath(p)).rstrip("\\/") + m.sep
 
 
 def foreign_game_procs(roots: Iterable[Path], pids: Optional[Callable[[str], List[int]]] = None,
@@ -149,6 +195,14 @@ def parse_loginusers(text: str) -> Optional[float]:
 
 def process_start(pid: int) -> Optional[float]:
     """Creation time of a process as epoch seconds, or None."""
+    if not WINDOWS:
+        st = _proc_stat(pid)
+        try:
+            with open("/proc/stat", encoding="utf-8") as f:
+                btime = next(int(l.split()[1]) for l in f if l.startswith("btime "))
+            return btime + int(st[19]) / os.sysconf("SC_CLK_TCK") if st else None   # field 22 of stat: start time in clock ticks
+        except (OSError, StopIteration, ValueError, IndexError):
+            return None
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -220,6 +274,8 @@ def steam_error_window(titles: Iterable[str]) -> bool:
 
 def window_titles(pid: int) -> List[str]:
     """Titles of the top level windows of a process (visible or not)."""
+    if not WINDOWS:
+        return []   # no Windows windows to look at
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     out: List[str] = []
     proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
