@@ -45,16 +45,20 @@ jobs:
           python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get install -y ninja-build libenet-dev clang
       - name: Twin of the sanitizers themselves
-        # A planted heap overflow, signed overflow and leak must make the process fail with these exact flags and with the
-        # suppressions in .github/lsan.supp loaded (so a suppression that is too wide shows up here too).
+        # A planted heap overflow, signed overflow and leak must each be REPORTED (the report text, not only a non-zero exit) with
+        # these exact flags and with the suppressions in .github/lsan.supp loaded (so a suppression that is too wide shows up here
+        # too). Each program exits 0 when nothing stops it, and the overflow goes through a volatile so the optimizer cannot fold it
+        # away (g++ 16 at -O1 removed the old `(x + 1) > 0` check entirely).
         run: |
           set -u
-          printf 'int main(int c, char**) { int* p = new int[2]; p[c + 1] = 1; return p[0]; }\n' > twin_asan.cpp
-          printf '#include <climits>\nint main(int c, char**) { int x = INT_MAX - 1 + c; return (x + 1) > 0; }\n' > twin_ubsan.cpp
+          printf 'int main(int c, char**) { int* p = new int[2]; p[c + 1] = 1; int r = p[0] * 0; delete[] p; return r; }\n' > twin_asan.cpp
+          printf '#include <climits>\nint main(int c, char**) { volatile int x = INT_MAX; int y = x + c; return y == 0; }\n' > twin_ubsan.cpp
           printf '#include <cstdio>\nint main() { int* p = new int[4]; std::printf("%%p\\n", (void*)p); p = nullptr; return 0; }\n' > twin_lsan.cpp
-          for t in twin_asan twin_ubsan twin_lsan; do
+          for spec in "twin_asan:ERROR: AddressSanitizer|: runtime error: " "twin_ubsan:: runtime error: " "twin_lsan:ERROR: LeakSanitizer"; do
+            t=${spec%%:*}; want=${spec#*:}
             ${{ matrix.cxx }} $SAN_FLAGS $t.cpp -o $t
-            if ./$t; then echo "::error::$t exited 0: the sanitizer did not stop the planted bug"; exit 1; fi
+            if ./$t > $t.out 2>&1; then cat $t.out; echo "::error::$t exited 0: the sanitizer did not stop the planted bug"; exit 1; fi
+            grep -aqE "$want" $t.out || { cat $t.out; echo "::error::$t failed without the sanitizer report ($want)"; exit 1; }
           done
       - name: Configure
         run: >
@@ -65,8 +69,28 @@ jobs:
       # Excluded, with the reason: unit_perf / twin_perf_regression_still_fails / flight_perf have wall-clock budgets, meaningless at
       # sanitizer speed (flight_perf failed under load). twin_unit_async_completion_leak puts the #46 reference cycle back on purpose,
       # so LSan rightly fails it: the next step runs it on its own.
-      # One known leak is suppressed in .github/lsan.supp (runAsync reference cycle, reported in the PR); everything else must be clean.
-      - run: ctest --test-dir build -j 4 --timeout 900 --output-on-failure -E '^(unit_perf|twin_perf_regression_still_fails|flight_perf|twin_unit_async_completion_leak)$'
+      # .github/lsan.supp has no entries: everything must be clean. A report inside a WILL_FAIL test only makes that test exit non-zero,
+      # which WILL_FAIL counts as the expected failure, so the output of EVERY test (ctest -V) is also searched for a report. Not
+      # log_path: g++'s UBSan at -O1 ignores it and writes to stderr.
+      - name: ctest (and no sanitizer report from any test, WILL_FAIL ones included)
+        run: |
+          # -a on every grep of ctest-all.log: some test output holds NUL bytes, and grep would then only say "binary file matches"
+          # instead of showing the lines (tools/lint/check_workflow_inputs.py checks it).
+          reports() { grep -aE "ERROR: (AddressSanitizer|LeakSanitizer)|: runtime error: " "$1"; }
+          # Twin: the planted overflow and signed overflow (built in the twin step above) must be found by the same search.
+          for t in twin_asan twin_ubsan; do
+            ./$t > $t.out 2>&1 || true
+            reports $t.out > /dev/null || { cat $t.out; echo "::error::the report search does not find the planted bug in $t"; exit 1; }
+          done
+          rc=0
+          ctest --test-dir build -V -j 4 --timeout 900 -E '^(unit_perf|twin_perf_regression_still_fails|flight_perf|twin_unit_async_completion_leak)$' > ctest-all.log 2>&1 || rc=$?
+          grep -aE "^[0-9]+/[0-9]+ Test|tests passed|tests failed|\(Failed\)|\(Timeout\)" ctest-all.log | tail -40
+          if reports ctest-all.log > san-hits.txt; then
+            head -40 san-hits.txt
+            echo "::error::$(wc -l < san-hits.txt) sanitizer report line(s) in the output of ctest (see ctest-all.log)"; exit 1
+          fi
+          [ "$rc" -eq 0 ] || { grep -a -B2 -A40 -E "\*\*\*(Failed|Timeout)|Subprocess aborted" ctest-all.log | tail -200; }
+          exit $rc
 
       - name: LSan catches the runAsync cycle of issue #46 (its twin)
         # The twin restores the cyclic capture. With leak checking on it must fail on LSan's report; with it off its own CHECK must pass.
@@ -96,18 +120,19 @@ jobs:
         # PRs and pushes use the same seeds every time (a red run can be reproduced exactly). The weekly run moves to a new block
         # each week; the seed it used is printed, and `fnvcoop_simfuzz --target em --seed N --count 1` replays one session.
         # The manual inputs arrive as environment variables (never pasted into the script) and must be positive integers: a count
-        # of 0 or text would run no session and still pass.
+        # of 0 or text would run no session and still pass. fnvcoop_simfuzz reads --count with atoi (an int) and the mini sweep runs
+        # COUNT * 10, so count has at most 8 digits; the seed is read as 64 bits and may have 10.
         env:
           IN_SEED_BASE: ${{ github.event.inputs.seed_base }}
           IN_COUNT: ${{ github.event.inputs.count }}
           EVENT: ${{ github.event_name }}
         run: |
           set -u
-          positive() { [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "::error::$1 must be a positive integer, got '$2'"; exit 1; }; }
-          if [ -n "$IN_SEED_BASE" ]; then positive seed_base "$IN_SEED_BASE"; base="$IN_SEED_BASE"
+          positive() { [[ "$3" =~ ^[1-9][0-9]{0,$(( $2 - 1 ))}$ ]] || { echo "::error::$1 must be a positive integer of at most $2 digits, got '$3'"; exit 1; }; }
+          if [ -n "$IN_SEED_BASE" ]; then positive seed_base 10 "$IN_SEED_BASE"; base="$IN_SEED_BASE"
           elif [ "$EVENT" = schedule ]; then base=$(( $(date +%s) / 604800 * 100000 + 1 ))
           else base=1; fi
-          count="${IN_COUNT:-300}"; positive count "$count"
+          count="${IN_COUNT:-300}"; positive count 8 "$count"
           echo "SEED_BASE=$base (count $count)"
           echo "SEED_BASE=$base" >> "$GITHUB_ENV"
           echo "COUNT=$count" >> "$GITHUB_ENV"

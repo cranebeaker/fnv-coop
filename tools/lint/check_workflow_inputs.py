@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Workflow inputs stay out of shell source, and the sanitizer soak refuses a manual seed or count that is not a positive integer.
 
-    python -I tools/lint/check_workflow_inputs.py              # the checks on .github/workflows/*.yml (prints N checks, 0 failed)
+    python -I tools/lint/check_workflow_inputs.py              # the checks on .github/workflows/*.yml and *.yaml (prints N checks, 0 failed)
     python -I tools/lint/check_workflow_inputs.py --self-test  # the checker's own tests and twins (prints ALL OK)
 
 1. No `run:` script in any workflow may expand a manual input (`${{ github.event.inputs.X }}`, `${{ inputs.X }}`) or event text
@@ -10,6 +10,8 @@
 2. The "Seed base" step of sanitizers.yml, run with bash: the default and valid manual values pass; a count or seed that is 0,
    negative, not a number or a command substitution fails the step and never runs. A count of 0 would otherwise run no session
    and pass. Skipped with a reason where bash is not installed.
+3. Every `grep` in a `run:` script that reads a log written by `ctest -V` passes `-a`: some test output holds NUL bytes, and
+   GNU grep then prints only "binary file matches" instead of the lines, so a failed run would lose its summary and details.
 The workflow files are read as text (no YAML library: the quick suite needs only the standard library).
 """
 from __future__ import annotations
@@ -61,6 +63,27 @@ def untrusted_in_run(text: str, name: str) -> List[str]:
             for n, s in run_scripts(text) if UNTRUSTED.search(s)]
 
 
+CTEST_V_LOG = re.compile(r"\bctest\b[^>|;]*\s-V\b[^>|;]*>\s*([^\s;|&]+)")
+GREP_OPTIONS = re.compile(r"\bgrep((?:\s+-[^\s]+)*)")
+
+
+def grep_without_text(text: str, name: str) -> List[str]:
+    """A grep that reads a `ctest -V` log without -a (or --text)."""
+    # Quoted text goes first: a pattern's | or ; is not a pipe or a separator. Comments are not commands.
+    lines = [(n, re.sub(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'', '""', s)) for n, s in run_scripts(text) if not s.lstrip().startswith("#")]
+    logs = {m.group(1) for _, s in lines for m in CTEST_V_LOG.finditer(s)}
+    bad = []
+    for n, s in lines:
+        for m in GREP_OPTIONS.finditer(s):
+            rest = s[m.end():].split(";")[0].split("|")[0]
+            log = next((l for l in logs if re.search(r"(^|\s)%s(\s|$)" % re.escape(l), rest)), None)
+            opts = m.group(1).split()
+            text_opt = any(o in ("--text", "--binary-files=text") or (not o.startswith("--") and "a" in o[1:]) for o in opts)
+            if log and not text_opt:
+                bad.append("%s:%d: grep reads the ctest -V log %s without -a: a NUL byte in it hides the lines" % (name, n, log))
+    return bad
+
+
 def step_script(text: str, step_name: str) -> Optional[str]:
     """The `run: |` script of the step called `step_name`, dedented, or None."""
     lines = text.splitlines()
@@ -106,10 +129,13 @@ def seed_step_problems(script: Optional[str], bash: str) -> List[str]:
     rc, got, _ = run_seed_step(script, bash, event="schedule")
     if rc != 0 or not got.get("SEED_BASE", "").isdigit() or int(got["SEED_BASE"]) <= 1:
         bad.append("schedule: want a weekly seed block above 1, got exit %d %s" % (rc, got))
-    for c in ("0", "-3", "abc", "1e3", "12 13"):
+    for c in ("0", "-3", "abc", "1e3", "12 13", "214748365", "999999999"):   # the last two: --count is an int and mini runs COUNT * 10
         rc, got, _ = run_seed_step(script, bash, count=c)
         if rc == 0 or "COUNT" in got:
             bad.append("count %r was accepted (exit %d, %s): the soak would run no session or fail later" % (c, rc, got))
+    rc, got, _ = run_seed_step(script, bash, count="99999999")
+    if rc != 0 or got.get("COUNT") != "99999999":
+        bad.append("the largest allowed count (8 digits) was refused: exit %d %s" % (rc, got))
     rc, got, ran = run_seed_step(script, bash, seed="1$(touch MARK)")
     if ran or rc == 0 or "SEED_BASE" in got:
         bad.append("a seed holding a command substitution was %s" % ("EXECUTED" if ran else "accepted"))
@@ -120,12 +146,18 @@ def find_bash() -> Optional[str]:
     return shutil.which("bash")
 
 
+def workflow_files(d: Path = WORKFLOWS) -> List[Path]:
+    """Every workflow GitHub loads: both extensions."""
+    return sorted(p for p in d.iterdir() if p.is_file() and p.suffix in (".yml", ".yaml")) if d.is_dir() else []
+
+
 def checks() -> Tuple[int, List[str], List[str]]:
     """(number of checks, problems, skip notes)."""
     n, bad, skips = 0, [], []
-    for wf in sorted(WORKFLOWS.glob("*.yml")):
+    for wf in workflow_files():
         n += 1
         bad += untrusted_in_run(wf.read_text(encoding="utf-8"), wf.name)
+        bad += grep_without_text(wf.read_text(encoding="utf-8"), wf.name)
     if SANITIZERS.is_file():
         bash = find_bash()
         if bash:
@@ -152,6 +184,13 @@ SAFE_STEP = '''      - name: Safe
       - run: >
           echo building with ${{ matrix.cxx }}
 '''
+CTEST_STEP = '''      - run: |
+          reports() { grep -aE "runtime error" "$1"; }
+          ctest --test-dir build -V -j 4 > ctest-all.log 2>&1 || rc=$?
+          grep -E "tests passed|tests failed" ctest-all.log | tail -40
+          if reports ctest-all.log > hits.txt; then grep -c x hits.txt; fi
+          [ "$rc" -eq 0 ] || { grep -B2 -A40 -E "Failed" ctest-all.log | tail -200; }
+'''
 UNVALIDATED = '''base="${IN_SEED_BASE:-1}"
 echo "SEED_BASE=$base" >> "$GITHUB_ENV"
 echo "COUNT=${IN_COUNT:-300}" >> "$GITHUB_ENV"
@@ -173,7 +212,30 @@ def self_test() -> int:
     expect("inputs passed through env and matrix values are fine", untrusted_in_run(SAFE_STEP, "safe.yml") == [])
     expect("the block ends where the indentation does",
            untrusted_in_run("      - run: |\n          echo ok\n        env:\n          X: ${{ inputs.x }}\n", "e.yml") == [])
+    twin = grep_without_text(CTEST_STEP, "c.yml")
+    expect("twin: the two diagnostic greps of #59's first ctest step, without -a, are found (lines %s)"
+           % [b.split(":")[1] for b in twin], [b.split(":")[1] for b in twin] == ["4", "6"])
+    expect("grep -a, -aE, -a -B2, --text on a ctest -V log, and grep on other files, are fine",
+           grep_without_text(CTEST_STEP.replace("grep -E", "grep -aE").replace("grep -B2", "grep -a -B2"), "c.yml") == []
+           and grep_without_text("  - run: |\n      ctest -V > l.log\n      grep --text x l.log\n      grep x other.log\n", "d.yml") == [])
+    grep = shutil.which("grep")
+    if grep:
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "ctest-all.log"
+            log.write_bytes(b"1/2 Test #1: a ....\x00 Passed\n100% tests passed, 0 tests failed out of 2\n")
+            plain = subprocess.run([grep, "-E", "tests passed", log.as_posix()], capture_output=True, text=True).stdout
+            text = subprocess.run([grep, "-aE", "tests passed", log.as_posix()], capture_output=True, text=True).stdout
+        expect("why: on a log with a NUL byte, grep without -a hides the summary line and grep -a shows it",
+               "tests passed" not in plain and "tests passed" in text)
+    else:
+        print("skip  the grep behaviour check needs grep")
     real = step_script(SANITIZERS.read_text(encoding="utf-8"), "Seed base") if SANITIZERS.is_file() else None
+    with tempfile.TemporaryDirectory() as d:
+        for name in ("a.yml", "b.yaml", "notes.txt"):
+            (Path(d) / name).write_text("x\n")
+        found = [p.name for p in workflow_files(Path(d))]
+        expect("both workflow extensions are scanned, nothing else (twin: a *.yml glob misses b.yaml)",
+               found == ["a.yml", "b.yaml"] and [p.name for p in sorted(Path(d).glob("*.yml"))] != found)
     expect("the Seed base script is found in sanitizers.yml", real is not None and "positive" in real)
     bash = find_bash()
     if bash and real:
