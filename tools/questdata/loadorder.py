@@ -2,7 +2,8 @@
 import json
 import os
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'loadorder.json')
+# FNVCOOP_LOADORDER picks another order file, e.g. loadorder.ttw.json for Tale of Two Wastelands
+PATH = os.environ.get('FNVCOOP_LOADORDER') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'loadorder.json')
 
 
 def load(path=PATH):

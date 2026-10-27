@@ -898,6 +898,8 @@ void RulesEngine::filter(EffectTxn& t) {
                 }
             } else if constexpr (std::is_same_v<T, CompanionOwner>) {
                 if (q->find("CompanionOwner")) x.owner = t.origin;   // owned by the recruiter
+            } else if constexpr (std::is_same_v<T, ContainerTransfer>) {
+                if (perScene) scene(x.to);   // a character-creation strip (CG03's age jumps) stays with the acting player
             }
         }, e);
     }

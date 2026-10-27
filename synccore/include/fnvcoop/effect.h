@@ -375,16 +375,33 @@ struct RefCommand {
     }
 };
 
+// `RemoveAllItems <target>` with a player on either side: the inventory stash of a quest scene (The Pitt's slave pens, Anchorage's simulation,
+// Mothership Zeta, Tranquility Lane, the Enclave capture, Dead Money's bunker) and its hand-back. Every recipient machine moves ITS OWN player's
+// items into / out of ITS OWN copy of the container (container contents are per machine), so each player gets their own gear back. A side
+// with the player flag set means the local player of the applying machine (its `src` / `dst` ref is ignored); neither flag and an empty `dst`
+// means "clear `src`" for the player-only clear (`player.RemoveAllItems` with no target). Container-to-container moves (the hand-back through a
+// second container) are this effect too, so a stash is never cleared by a replicated RemoveAllItems. A live event: never folded into the
+// baseline or replayed on a late join (moving the items again would duplicate or lose them).
+struct ContainerTransfer {
+    FormRef src, dst;
+    bool srcPlayer = false, dstPlayer = false;
+    Recipient to;
+    bool operator==(const ContainerTransfer& o) const {
+        return src == o.src && dst == o.dst && srcPlayer == o.srcPlayer && dstPlayer == o.dstPlayer && to == o.to;
+    }
+};
+
 // Convenience: the actor-value id the hooks use for experience (RewardXP folds into ModActorValue).
 constexpr uint32_t kAvExperience = 0x10000;
 
+// New effect types go at the END: the index is the wire tag.
 using Effect = std::variant<SetStage, SetObjective, SetGlobal, EnableRef, DisableRef, AddItem, RemoveItem,
                             ModActorValue, ModReputation, ModKarma, StartQuest, StopQuest, MoveRef, KillActor,
                             ResurrectActor, SetScriptVar, SetPlayerControls, PartyTether, SlideshowEnd, SaveSuppress,
                             CompanionOwner, ForcedDialogue, BarrierArrive, BarrierRelease, SayOnceFlag, CompleteQuest,
                             CompleteAllObjectives, SetLock, SetFactionRank, SetPerk, SwapTexture, SetFastTravelLock, FailQuest, SpawnRef, DespawnRef, ObjectState, RefScriptVar, RefAddItem,
                             RefRemoveItem, RemoveAllItems, AddTopic, AddNote, RemoveNote, SetMapMarker, ForceActiveQuest, RequestSave,
-                            SetWeather, SetTimeScale, AdvanceTime, RefAngle, RefCommand>;
+                            SetWeather, SetTimeScale, AdvanceTime, RefAngle, RefCommand, ContainerTransfer>;
 
 const char* effectName(const Effect& e);
 

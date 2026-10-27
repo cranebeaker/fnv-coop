@@ -160,7 +160,10 @@ def missing_data(name: str) -> list:
 # The build scripts call vcvars by this full path, then cmake -G Ninja. vcvars puts the VS-bundled CMake and Ninja on
 # PATH only when the VS component "C++ CMake tools for Windows" is installed. Without CMake every CMake script dies on
 # "'cmake' is not recognized". Without vcvars every C++ script dies on "The system cannot find the path specified".
-VS_ROOT = Path(r"C:\Program Files\Microsoft Visual Studio\2022\Community")
+sys.path.insert(0, str(ROOT / "tools" / "build"))
+import vsroot  # noqa: E402
+
+VS_ROOT = Path(vsroot.find())
 VS_CMAKE_DIR = VS_ROOT / r"Common7\IDE\CommonExtensions\Microsoft\CMake"
 VCVARS_DIR = VS_ROOT / r"VC\Auxiliary\Build"
 VCVARS = ("vcvars32.bat", "vcvars64.bat", "vcvarsall.bat")  # every name a build script calls

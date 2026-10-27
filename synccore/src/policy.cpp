@@ -206,6 +206,11 @@ size_t normalizeTxn(EffectTxn& txn, const SharePolicy& p) {
                 // cause is a quest reward, otherwise the acting player's alone.
                 resolve(x.to, reward || mutations().refCmdPlayerShared, txn.origin, p);
                 keep = x.to.mask != 0 && refOpKnown(x.op);
+            } else if constexpr (std::is_same_v<T, ContainerTransfer>) {
+                // A quest's inventory stash and its hand-back apply to the whole party: each machine moves its own player's items. A
+                // PerPlayerScene (character creation) narrows it to the acting player in the rules engine.
+                resolve(x.to, !mutations().stashOriginOnly, txn.origin, p);
+                keep = x.to.mask != 0;
             } else if constexpr (std::is_same_v<T, ModKarma>) {
                 resolve(x.to, p.karma, txn.origin, p);
                 keep = x.to.mask != 0;

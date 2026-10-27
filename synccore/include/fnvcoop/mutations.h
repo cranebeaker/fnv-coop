@@ -47,6 +47,7 @@ struct Mutations {
     bool angleKeepsFirst = false;     // RefAngle: a later committed angle for the same (ref, axis) is ignored (host order no longer wins)
     bool refCmdKeepsFirst = false;    // RefCommand state ops: a later command for the same key is ignored (host order no longer wins)
     bool refCmdPlayerShared = false;  // a RefCommand on the player is shared with the whole party whatever the cause (a vending machine would pay everybody)
+    bool stashOriginOnly = false;     // a ContainerTransfer (quest inventory stash) reaches only the acting player: the others keep their gear
     bool refCmdNarrow = false;        // wide RefCommand ops (UseWeapon) travel and hash without their extra forms / integer: the receiver fires with the wrong target
     bool refCmdAllState = false;      // RefCommand events are remembered like state ops (a late joiner replays them, an event fires twice)
     bool noGuestSuppression = false;  // guests keep script-originated effects (ghost-death double fire)

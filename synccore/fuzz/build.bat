@@ -1,7 +1,7 @@
 @echo off
 rem Build only (no tests): fnvcoop_simfuzz.exe and fnvcoop_fuzz_tests.exe into build\T2b-fuzz, with the em (engine model) target. FUZZ_EM=0 builds the mini target only, into build\T2b-fuzz-mini.
 setlocal
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
+call "%~dp0..\..\tools\build\vsroot.cmd"
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 set CC=
 set CXX=

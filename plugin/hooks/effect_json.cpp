@@ -56,7 +56,7 @@ static const char* effectNameLocal(const Effect& e) {
                               "CompleteAllObjectives", "SetLock", "SetFactionRank", "SetPerk", "SwapTexture", "SetFastTravelLock",
                               "FailQuest", "SpawnRef", "DespawnRef", "ObjectState", "RefScriptVar", "RefAddItem", "RefRemoveItem",
                               "RemoveAllItems", "AddTopic", "AddNote", "RemoveNote", "SetMapMarker", "ForceActiveQuest", "RequestSave",
-                              "SetWeather", "SetTimeScale", "AdvanceTime", "RefAngle", "RefCommand"};
+                              "SetWeather", "SetTimeScale", "AdvanceTime", "RefAngle", "RefCommand", "ContainerTransfer"};
     static_assert(std::variant_size_v<Effect> == sizeof n / sizeof *n, "effect.h gained/lost an Effect: update effectNameLocal + the JSON codec");
     return e.index() < sizeof n / sizeof *n ? n[e.index()] : "?";
 }
@@ -104,6 +104,11 @@ Value effectToJson(const Effect& e) {
     else if (auto* x = std::get_if<RefAngle>(&e)) { T("RefAngle"); o.set("ref", refToStr(x->ref)).set("axis", (int64_t)x->axis).set("degrees", (double)x->degrees); if (x->hasBefore) o.set("before", (double)x->before); }
     else if (auto* x = std::get_if<SpawnRef>(&e)) { T("SpawnRef"); o.set("ref", refToStr(x->ref())).set("base", refToStr(x->base)).set("cell", x->cell.plugin.empty() ? std::string() : refToStr(x->cell)).set("x", (double)x->x).set("y", (double)x->y).set("z", (double)x->z).set("leveled", x->leveled); }
     else if (auto* x = std::get_if<DespawnRef>(&e)) { T("DespawnRef"); o.set("ref", refToStr(x->ref())); if (x->forget) o.set("forget", true); }
+    else if (auto* x = std::get_if<ContainerTransfer>(&e)) {   // a player side is written "player" (the applying machine's own player)
+        T("ContainerTransfer");
+        o.set("src", x->srcPlayer ? std::string("player") : refToStr(x->src)).set("to", toStr(x->to));
+        if (x->dstPlayer || !x->dst.plugin.empty()) o.set("dst", x->dstPlayer ? std::string("player") : refToStr(x->dst));
+    }
     else if (auto* x = std::get_if<RefCommand>(&e)) {
         T("RefCommand");
         const RefOpInfo* oi = refOpInfo(x->op);
@@ -223,6 +228,17 @@ bool effectFromJson(const Value& v, Effect* out, std::string* err) {
         *out = SetFactionRank{r, f, (int32_t)v.get("rank").asInt()};
     }
     else if (t == "SetPerk") { if (!needRef(v, "perk", &r, err)) return false; *out = SetPerk{r, (int32_t)v.get("rank").asInt(), to}; }
+    else if (t == "ContainerTransfer") {
+        ContainerTransfer ct;
+        ct.to = to;
+        ct.srcPlayer = v.get("src").asString("") == "player";
+        if (!ct.srcPlayer && !needRef(v, "src", &ct.src, err)) return false;
+        const std::string d = v.get("dst").asString("");
+        ct.dstPlayer = d == "player";
+        if (!ct.dstPlayer && !d.empty() && !needRef(v, "dst", &ct.dst, err)) return false;
+        if (ct.srcPlayer && ct.dstPlayer) { if (err) *err = "ContainerTransfer from the player to the player"; return false; }
+        *out = ct;
+    }
     else { if (err) *err = "unknown effect type: " + t; return false; }
     return true;
 }

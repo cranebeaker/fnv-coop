@@ -122,6 +122,31 @@ static Addr foreignJmpTarget(const HookSpec& spec, const uint8_t* cur, Addr deto
     return to;
 }
 
+// The expected bytes past the stolen ones only fingerprint the exe build. Another plugin (ShowOff, Stewie's Tweaks under
+// Tale of Two Wastelands) may have re-pointed a call or jump there; that leaves the opcode in place and moves the target
+// out of the exe image. Such a difference is accepted; a target inside the image (another exe build) is not.
+static bool prologueMatches(const HookSpec& spec, const uint8_t* cur, MemoryOps& mem) {
+    for (unsigned i = 0; i < spec.expectedLen; ++i) {
+        if (cur[i] == spec.expected[i]) continue;
+        if (i < spec.stolen) return false;
+        // i must be a rel32 byte of an E8/E9 that starts past the stolen bytes and is still there
+        unsigned op = 0;
+        bool found = false;
+        for (unsigned j = i; j-- > spec.stolen && j + 4 >= i;) {
+            if ((spec.expected[j] == 0xE8 || spec.expected[j] == 0xE9) && cur[j] == spec.expected[j]) {
+                op = j;
+                found = true;
+                break;
+            }
+        }
+        uint32_t rel;   // read from memory: the operand may run past the expected bytes (E8 at index 12 of 16)
+        if (!found || !mem.read(spec.target + op + 1, &rel, 4)) return false;
+        if (!mem.foreignCode(spec.target + op + 5 + rel)) return false;
+        i = op + 4;   // the whole rel32 is accounted for
+    }
+    return true;
+}
+
 PatchStatus HookRegistry::acquire(const HookSpec& spec, Addr detour, Addr* trampolineOut, Addr* origSlot, bool chainForeignJmp) {
     std::string why;
     if (!specIsValid(spec, &why)) {
@@ -145,7 +170,7 @@ PatchStatus HookRegistry::acquire(const HookSpec& spec, Addr detour, Addr* tramp
         return PatchStatus::ReadFailed;
     }
     Addr chainTo = 0;
-    if (!kMutSkipPrologueCheck && std::memcmp(cur, spec.expected, spec.expectedLen) != 0) {
+    if (!kMutSkipPrologueCheck && !prologueMatches(spec, cur, mem_)) {
         if (chainForeignJmp || chainMut() == 2) chainTo = foreignJmpTarget(spec, cur, detour);
         if (!chainTo) {
             lastError_ = std::string(spec.name) + ": prologue mismatch (wrong exe version or already patched)";

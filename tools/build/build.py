@@ -21,7 +21,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-VSROOT = r"C:\Program Files\Microsoft Visual Studio\2022\Community"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vsroot  # noqa: E402
+
+VSROOT = vsroot.find()
 VSINSTALLER = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer"
 NINJA_DIR = VSROOT + r"\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
 LOCK = ROOT / "out" / "locks" / "build.lock"

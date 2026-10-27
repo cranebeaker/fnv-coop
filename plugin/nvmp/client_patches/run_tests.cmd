@@ -2,12 +2,13 @@
 rem Build + test the nvcoop-side NV:MP client patcher and nvmp.players (x86 MSVC), then the mutation twins, which must FAIL.
 rem NOTE: exe names must not contain patch/setup/install/update: Windows installer-detection demands elevation for them.
 setlocal
+call "%~dp0..\..\..\tools\build\vsroot.cmd"
 set HERE=%~dp0
 set OUT=%HERE%..\..\..\out\nvmp\client_patches
 if not exist "%OUT%" mkdir "%OUT%"
 rem vcvarsall looks for vswhere.exe on PATH: put the VS Installer dir there so it prints nothing
 if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
+call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
 if errorlevel 1 (echo vcvarsall failed & exit /b 2)
 pushd "%HERE%"
 set CL_COMMON=/nologo /std:c++17 /EHsc /W4 /O1 /MT /D_CRT_SECURE_NO_WARNINGS /I..\..\..\tools\mut /Fo"%OUT%\\"

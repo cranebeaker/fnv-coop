@@ -51,6 +51,13 @@ inline bool pinBytesOk(const unsigned char* got, const unsigned char* want, cons
     return FNV_MUT(66) || std::memcmp(tramp, want, 5) == 0;         // twin 66: any jmp is accepted, whatever the trampoline holds
 }
 
+// The kKnownRewrites entry for `addr` when `got` is exactly that rewrite (bots_addrs.h), else null.
+inline const addr::KnownRewrite* knownRewrite(unsigned addr, const unsigned char* got) {
+    for (const addr::KnownRewrite& r : addr::kKnownRewrites)
+        if (r.addr == addr && (FNV_MUT(67) || std::memcmp(got, r.bytes, 16) == 0)) return &r;   // twin 67: any bytes pass as the rewrite
+    return nullptr;
+}
+
 using nvcoop::json::Value;
 using Addr32 = uint32_t;
 

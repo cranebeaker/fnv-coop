@@ -392,6 +392,7 @@ void ioE(Archive& a, SetFactionRank& e) { io(a, e.actor); io(a, e.faction); a.va
 void ioE(Archive& a, SetPerk& e) { io(a, e.perk); a.vari32(e.rank); io(a, e.to); }
 void ioE(Archive& a, SwapTexture& e) { io(a, e.ref); io(a, e.texture); a.u8(e.slot); }
 void ioE(Archive& a, SetFastTravelLock& e) { io(a, e.scope); a.boolean(e.on); }
+void ioE(Archive& a, ContainerTransfer& e) { io(a, e.src); io(a, e.dst); a.boolean(e.srcPlayer); a.boolean(e.dstPlayer); io(a, e.to); }
 
 template <size_t I = 0>
 bool readAlt(Archive& a, size_t idx, Effect& e) {
@@ -423,7 +424,8 @@ const char* effectName(const Effect& e) {
                                   "StopQuest", "MoveRef", "KillActor", "ResurrectActor", "SetScriptVar",
                                   "SetPlayerControls", "PartyTether", "SlideshowEnd", "SaveSuppress", "CompanionOwner",
                                   "ForcedDialogue", "BarrierArrive", "BarrierRelease", "SayOnceFlag", "CompleteQuest",
-                                  "CompleteAllObjectives", "SetLock", "SetFactionRank", "SetPerk", "SwapTexture", "SetFastTravelLock", "FailQuest", "SpawnRef", "DespawnRef", "ObjectState", "RefScriptVar", "RefAddItem", "RefRemoveItem", "RemoveAllItems", "AddTopic", "AddNote", "RemoveNote", "SetMapMarker", "ForceActiveQuest", "RequestSave", "SetWeather", "SetTimeScale", "AdvanceTime", "RefAngle", "RefCommand"};
+                                  "CompleteAllObjectives", "SetLock", "SetFactionRank", "SetPerk", "SwapTexture", "SetFastTravelLock", "FailQuest", "SpawnRef", "DespawnRef", "ObjectState", "RefScriptVar", "RefAddItem", "RefRemoveItem", "RemoveAllItems", "AddTopic", "AddNote", "RemoveNote", "SetMapMarker", "ForceActiveQuest", "RequestSave", "SetWeather", "SetTimeScale", "AdvanceTime", "RefAngle", "RefCommand", "ContainerTransfer"};
+    static_assert(sizeof(names) / sizeof(names[0]) == std::variant_size_v<Effect>, "one name per effect type");
     return names[e.index()];
 }
 

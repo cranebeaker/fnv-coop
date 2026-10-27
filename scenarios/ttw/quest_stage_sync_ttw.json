@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "name": "quest_stage_sync_ttw",
+  "title": "Quest stage sync on a Fallout 3 quest (Tale of Two Wastelands)",
+  "description": "Same steps as quest_stage_sync, on MQ10 Infiltration from Fallout3.esm, for a Tale of Two Wastelands install (tools/questdata/loadorder.ttw.json). Stages are set from both machines; each set must show up on every machine and earlier stages must stay done.",
+  "players": 2,
+  "tags": [
+    "quest",
+    "2p",
+    "ttw"
+  ],
+  "start": {
+    "save": "autosave"
+  },
+  "reset": {
+    "group": "goodsprings"
+  },
+  "forms": {
+    "mq10": {
+      "ref": "Fallout3.esm:014E90",
+      "edid": "MQ10",
+      "sig": "QUST"
+    }
+  },
+  "setup": [
+    {
+      "id": "settle",
+      "op": "wait",
+      "seconds": 1
+    }
+  ],
+  "steps": [
+    {
+      "id": "starts_at_zero",
+      "op": "check",
+      "kind": "stage",
+      "quest": "$mq10",
+      "value": 0
+    },
+    {
+      "id": "host_sets_10",
+      "op": "setstage",
+      "quest": "$mq10",
+      "stage": 10,
+      "on": "host"
+    },
+    {
+      "id": "stage_10_everywhere",
+      "op": "check",
+      "kind": "stage",
+      "quest": "$mq10",
+      "value": 10,
+      "timeout": 10
+    },
+    {
+      "id": "guest_sets_20",
+      "op": "setstage",
+      "quest": "$mq10",
+      "stage": 20,
+      "on": "guest"
+    },
+    {
+      "id": "stage_20_everywhere",
+      "op": "check",
+      "kind": "stage",
+      "quest": "$mq10",
+      "value": 20,
+      "timeout": 10
+    },
+    {
+      "id": "stage_10_stays_done",
+      "op": "check",
+      "kind": "stage_done",
+      "quest": "$mq10",
+      "stage": 10,
+      "value": 1
+    },
+    {
+      "id": "host_sets_100",
+      "op": "setstage",
+      "quest": "$mq10",
+      "stage": 100,
+      "on": "host"
+    },
+    {
+      "id": "stage_100_everywhere",
+      "op": "check",
+      "kind": "stage",
+      "quest": "$mq10",
+      "value": 100,
+      "timeout": 10
+    },
+    {
+      "id": "stage_20_stays_done",
+      "op": "check",
+      "kind": "stage_done",
+      "quest": "$mq10",
+      "stage": 20,
+      "value": 1
+    }
+  ]
+}

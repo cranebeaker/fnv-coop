@@ -21,8 +21,10 @@ FormRef QF(const char* edid) { FormRef f; resolveEdid(edid, f); return f; }
 
 struct Rec : IEffectSink {
     std::vector<Effect> live;
-    void apply(const Effect& e, const Context&) override { live.push_back(e); }
+    std::vector<bool> replay;   // delivered as join history (catch-up / snapshot / baseline), not live
+    void apply(const Effect& e, const Context& c) override { live.push_back(e); replay.push_back(c.catchUp || c.fromSnapshot || c.baseline); }
     size_t count(size_t idx) const { size_t n = 0; for (auto& e : live) n += e.index() == idx; return n; }
+    size_t countLive(size_t idx) const { size_t n = 0; for (size_t i = 0; i < live.size(); ++i) n += live[i].index() == idx && !replay[i]; return n; }
 };
 
 struct Rig {
@@ -809,6 +811,36 @@ TEST(rules, slideshow_barrier_holds_the_controls_until_slideshow_end) { CHECK(sl
 TEST(rules, per_player_scene_routes_to_the_acting_player_and_every_machine_scenes_stay_local) { CHECK(perPlayerSceneHolds()); }
 TEST(rules, per_player_vars_keep_a_copy_per_slot) { CHECK(perPlayerVarsHold()); }
 TEST(rules, topic_result_payment_is_charged_to_the_initiator) { CHECK(paymentChargesInitiator()); }
+
+// Quest inventory stash (ContainerTransfer): a story strip reaches every player (each moves its own items), a PerPlayerScene strip stays with the
+// acting player, and a late joiner never gets it replayed (it would move its items again).
+static bool stashHolds() {
+    RulesDb db;
+    if (!db.load(kMini)) return false;
+    Rig r;
+    r.add(1); r.add(2);
+    RulesEngine eng(r.host, db, resolveEdid);
+    r.connectAll(); r.run(300);
+    const size_t ct = Effect(ContainerTransfer{}).index();
+    ContainerTransfer strip{QF("Box"), FormRef(), true, false, Recipient::dflt()};   // player.RemoveAllItems Box
+    r.host.commit(0, quest("Plain"), {strip});
+    r.run(300);
+    bool ok = r.sinks[0]->count(ct) == 1 && r.sinks[1]->count(ct) == 1;
+    ContainerTransfer back{QF("Box"), FormRef(), false, true, Recipient::dflt()};     // Box.RemoveAllItems player
+    r.host.commit(0, quest("Plain", CauseKind::Script), {back});
+    r.run(300);
+    ok &= r.sinks[0]->count(ct) == 2 && r.sinks[1]->count(ct) == 2;
+    r.host.commit(0, quest("VCG01"), {strip});                                          // character creation: the host's own scene
+    r.run(300);
+    ok &= r.sinks[0]->count(ct) == 2 && r.sinks[1]->count(ct) == 2;
+    r.add(3);
+    r.cs.back()->connect(r.now, 1);
+    r.run(600);
+    ok &= r.sinks[2]->countLive(ct) == 0;                                               // a late joiner only sees it as join history
+    return ok;
+}
+TEST(rules, quest_inventory_stash_reaches_every_player_once) { CHECK(stashHolds()); }
+TEST(twin, stash_origin_only) { Mutations m; m.stashOriginOnly = true; MutationScope s(m); CHECK(!stashHolds()); }
 
 TEST(twin, rules_tether_ignores_anchor) { Mutations m; m.tetherIgnoresAnchor = true; MutationScope s(m); CHECK(!tetherAnchorHolds()); }
 TEST(twin, rules_stages_param_ignored) { Mutations m; m.stagesParamIgnored = true; MutationScope s(m); CHECK(!stageParamsHold()); }

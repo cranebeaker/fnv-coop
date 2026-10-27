@@ -168,6 +168,28 @@ class AdapterAndMergeTests(unittest.TestCase):
         finally:
             M.sanitize_params = real
 
+    def test_ttw_lane_only_when_named(self):
+        seen = []
+
+        def loader(lane):
+            seen.append(lane)
+            raise FileNotFoundError(lane)
+
+        M.collect_ops(loader=loader)
+        self.assertTrue(seen)
+        self.assertFalse(set(seen) & set(M.TTW_LANES), 'plain New Vegas data must not load the TTW lane')
+        seen.clear()
+        M.collect_ops(lanes=list(M.ADAPTERS), loader=loader)
+        self.assertTrue(set(M.TTW_LANES) <= set(seen))
+        self.assertEqual(seen[-1], 'ttw', 'the TTW lane is applied last')
+
+    def test_ttw_lane_file_is_actionlist_shaped(self):
+        d = M.L('ttw')
+        ops = M.adapt_actionlist(d, 'ttw')
+        self.assertTrue(ops)
+        for o in ops:
+            self.assertTrue(all(r['kind'] in M.SCHEMA for r in o['entry']['rules']), o)
+
 
 @unittest.skipUnless(REAL, 'no real questdata')
 class RealMergeTests(unittest.TestCase):
@@ -184,7 +206,7 @@ class RealMergeTests(unittest.TestCase):
     def test_every_lane_adapts(self):
         lanes = {op['lane'] for op in M.collect_ops()}
         have = {s for s in M.ADAPTERS if os.path.exists(os.path.join(model.ROOT, 'questlines', s, 'rules.patch.json'))}
-        self.assertEqual(lanes, have)
+        self.assertEqual(lanes, have - set(M.TTW_LANES))   # TTW lanes load only for TTW data (test_ttw_lane_only_when_named)
 
     def test_every_op_quest_resolves(self):
         for op in M.collect_ops():

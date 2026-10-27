@@ -2,12 +2,13 @@
 rem One-command test run for the nvmp lane (x86 MSVC). Builds the tests, runs them, then builds the
 rem mutation twin (safety checks removed) and requires it to FAIL.
 setlocal
+call "%~dp0..\..\tools\build\vsroot.cmd"
 set HERE=%~dp0
 set OUT=%HERE%..\..\out\nvmp
 if not exist "%OUT%" mkdir "%OUT%"
 rem vcvarsall looks for vswhere.exe on PATH: put the VS Installer dir there so it prints nothing
 if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
+call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
 if errorlevel 1 (echo vcvarsall failed & exit /b 2)
 set SRC="%HERE%tests\test_nvmp.cpp" "%HERE%sigscan.cpp" "%HERE%patches.cpp"
 pushd "%HERE%tests"

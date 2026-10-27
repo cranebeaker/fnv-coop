@@ -11,6 +11,7 @@
 //   i  an integer                                                                          -> RefCommand.i .j .k .l (.m on a wide op)
 //   f  a float                                                                              -> RefCommand.f
 //   s  a text (a char buffer of kStoryTextMax bytes is handed to ExtractArgs)                                         -> RefCommand.s
+//   q  a text that may hold spaces (a file name), put on the console line in quotes; no quote / semicolon / line break  -> RefCommand.s
 //   c  a critical stage (index into g_criticalStageNames, printed as its name)                                            -> an int slot
 //   g  an animation group id (index into the engine's g_animGroupInfos, printed as its name: story_animgroups.h)  -> an int slot
 //   v  an actor value (skill) code                                                          -> an int slot; printed as the skill's name

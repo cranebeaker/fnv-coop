@@ -110,6 +110,8 @@ const RefOpSpec kStorySpecs[] = {
     {fnvcoop::kOpSetActorFullName, "setactorfullname", S_(Cmd_SetActorFullName), "o", "a", 1, REF},   // the name is a Message FORM (param type 0x31), not a text
     // ---- the second shape: nine parameters. weapon, two object refs, an int, four optional ints, an optional object ref (engine param types 21 4 4 1 1 1 1 1 4)
     {fnvcoop::kOpUseWeapon, "useweapon", S_(Cmd_UseWeapon), "oooiiiiio", "abcijklmd", 4, REF | AI},
+    // ---- full-screen video: the file name may hold spaces ("2 weeks later.bik"), so it travels as quoted text
+    {fnvcoop::kOpPlayBink, "playbink", S_(Cmd_PlayBink), "qiiii", "sijkl", 1, 0},
 };
 const size_t kStorySpecCount = sizeof(kStorySpecs) / sizeof(kStorySpecs[0]);
 
@@ -134,6 +136,16 @@ bool plainWord(const std::string& s) {
     if (s.size() > 255) return false;
     for (unsigned char ch : s)
         if (!(std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.' || ch == ':')) return false;
+    return true;
+}
+// A quoted text argument (sig 'q', PlayBink's file name: "2 weeks later.bik") may hold spaces and a few punctuation marks but never a quote,
+// a semicolon or a line break, so it cannot end the string or add a command; it goes onto the line inside quotes.
+bool quotedText(const std::string& s) {
+    if (FNV_MUT(11)) return true;   // twin 11: any text goes onto the console line
+    if (s.empty() || s.size() > 255) return false;
+    for (unsigned char ch : s)
+        if (!(std::isalnum(ch) || ch == ' ' || ch == '_' || ch == '-' || ch == '.' || ch == ',' || ch == '(' || ch == ')' || ch == '!'))
+            return false;
     return true;
 }
 int slotIndex(char c) {   // i j k l m -> 0..4
@@ -200,9 +212,9 @@ bool buildRefCommand(const RefOpSpec& s, uint32_t callingRef, const ArgValue* ar
             fnvcoop::FormRef& dst = formSlot(c, d);
             if (a.form && !toForm(a.form, &dst)) return fail("form argument has no stable name");
             if (!a.form && k < s.minArgs) return fail("required form argument is missing");
-        } else if (t == 's') {
+        } else if (t == 's' || t == 'q') {
             if (a.s.empty() && k < s.minArgs) return fail("required text argument is missing");
-            if (!plainWord(a.s)) return fail("text argument is not a plain word");
+            if (t == 's' ? !plainWord(a.s) : !quotedText(a.s)) return fail("text argument is not a plain word / safe quoted text");
             c.s = a.s;
         } else if (t == 'c') {
             if (a.i < 0 || a.i >= kCriticalStageCount) return fail("critical stage out of range");
@@ -266,7 +278,7 @@ LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fr
     auto isDefault = [&](size_t k) {
         const char t = s->sig[k], d = s->slots[k];
         if (t == 'o') return formOf(c, d).plugin.empty();
-        if (t == 's') return c.s.empty();
+        if (t == 's' || t == 'q') return c.s.empty();
         if (t == 'f') return c.f == 0.f;
         return intOf(c, d) == 0;
     };
@@ -286,6 +298,10 @@ LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fr
         } else if (t == 's') {
             if (c.s.empty() || !plainWord(c.s)) { r.why = "text argument is missing or not a plain word"; return r; }
             line += " " + c.s;
+            continue;
+        } else if (t == 'q') {
+            if (!quotedText(c.s)) { r.why = "quoted text argument is missing or unsafe"; return r; }
+            line += " \"" + c.s + "\"";
             continue;
         } else if (t == 'c') {
             int st = intOf(c, d);

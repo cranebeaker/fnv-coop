@@ -66,6 +66,8 @@ enum RefOp : uint16_t {
     kOpPlayGroup = 73, kOpModFactionRank = 74, kOpPlayIdle = 75, kOpSetCriticalStage = 76, kOpSetActorFullName = 77,
     // the second shape: more parameters than a RefCommand's a / b / i..l slots (refOpIsWide)
     kOpUseWeapon = 78,
+    // full-screen videos (Fallout 3's ending, TTW's train): every player watches
+    kOpPlayBink = 79,
     kOpCount_
 };
 
@@ -151,6 +153,7 @@ inline constexpr RefOpInfo kRefOps[] = {
     FNV_RO_E(kOpSetCriticalStage, "SetCriticalStage", kRcpDefault),
     FNV_RO_S(kOpSetActorFullName, "SetActorFullName", kKeyRef, kRcpDefault),
     FNV_RO_E(kOpUseWeapon, "UseWeapon", kRcpDefault),
+    FNV_RO_E(kOpPlayBink, "PlayBink", kRcpAll),
 };
 #undef FNV_RO_E
 #undef FNV_RO_S

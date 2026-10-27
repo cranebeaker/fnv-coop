@@ -100,6 +100,21 @@ inline constexpr unsigned kMenuSlotGetId = 0x34U;
 inline constexpr CallPin CloseAllMenusCore = {"CloseAllMenusCore", 0x7037E0U, {0x55, 0x8b, 0xec, 0xe8, 0x28, 0x3a, 0xdb, 0xff, 0x85, 0xc0, 0x74, 0x1f, 0xe8, 0x1f, 0x3a, 0xdb}, 0};
 inline constexpr const CallPin* kAllCalls[] = {&PlayerCanTravel, &PendingTravelSet, &TravelObjCtor, &HeapAlloc, &TermClick, &GetContainerData, &ItemTotal, &TopMenuId, &LbSelect, &LbSelected, &ItemInfo, &InfoFlag80, &InfoSpecialB, &InfoSpecialC, &DlgItemClick, &LbAfter, &DlgSpeak, &Tick, &MsgMenuHandleClick,
                                                &GetMenuByType, &TutorialClose, &VatsMenuHandleClick, &VatsQueueCount, &VatsExecute, &CloseAllMenusCore};
+// ---- known in-place rewrites: other xNVSE plugins replace some of these small engine functions with shorter code that does the same
+// thing, and every caller in the game then runs that code. Found under Tale of Two Wastelands (lStewieAl's Tweaks 10.05, Engine
+// Optimizations 1.00; Stewie's Tweaks hard-codes ItemInfo, Tick and VatsQueueCount). Only these exact 16 bytes are accepted for that
+// entry; any other difference still fails the pin.
+struct KnownRewrite { unsigned addr; unsigned char bytes[16]; const char* what; };
+inline constexpr KnownRewrite kKnownRewrites[] = {
+    {0x401000U, {0xff, 0x74, 0x24, 0x04, 0xb9, 0x38, 0x62, 0x1f, 0x01, 0xe8, 0x32, 0x2e, 0x6a, 0x00, 0xc3, 0x2d},
+     "push [esp+4]; mov ecx,11F6238h (game heap); call the heap allocate; ret"},
+    {0x9611E0U, {0x8b, 0x41, 0x18, 0xc3, 0x89, 0x4d, 0xfc, 0x8b, 0x45, 0xfc, 0x8b, 0x40, 0x18, 0x8b, 0xe5, 0x5d},
+     "mov eax,[ecx+18h]; ret (the same getter without the frame)"},
+    {0x825C00U, {0x8b, 0x41, 0x14, 0xc3, 0x89, 0x4d, 0xfc, 0x8b, 0x45, 0xfc, 0x8b, 0x40, 0x14, 0x8b, 0xe5, 0x5d},
+     "mov eax,[ecx+14h]; ret (the same getter without the frame)"},
+    {0x5AE380U, {0x33, 0xd2, 0x85, 0xc9, 0x74, 0x12, 0x83, 0x39, 0x00, 0x8d, 0x42, 0x01, 0x8b, 0x49, 0x04, 0x0f},
+     "a register-only list count loop"},
+};
 // ---- data pins: a dword in the exe image that must hold `value` (vtable slots in .rdata). Checked at init with the call pins.
 struct DataPin { const char* name; unsigned addr; unsigned value; };
 inline constexpr DataPin MsgMenuSlotHandleClick = {"MessageMenu.vtbl[3]", MessageMenuVtbl + kMenuSlotHandleClick, 0x7AA070U};
