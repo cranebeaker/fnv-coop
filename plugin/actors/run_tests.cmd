@@ -4,7 +4,7 @@ rem   the real suite must report "0 failed"; every mutation twin (NVA_MUT=n) mus
 rem Takes the repo-wide compile lock (out\locks\build.lock, atomic mkdir) only while compiling.  Prints ALL OK when everything holds.
 rem Usage: plugin\actors\run_tests.cmd
 setlocal enabledelayedexpansion
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
+call "%~dp0..\..\tools\build\vsroot.cmd"
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 set CC=
 set CXX=

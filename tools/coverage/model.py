@@ -5,7 +5,8 @@ import os
 import re
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-QDIR = os.path.join(ROOT, 'out', 'questdata')
+# FNVCOOP_QUESTDATA points at another run_all.py output, e.g. one generated from a TTW Data folder
+QDIR = os.environ.get('FNVCOOP_QUESTDATA') or os.path.join(ROOT, 'out', 'questdata')
 
 TIERS = ['T0', 'T1', 'T2', 'T3', 'T4']
 # Ordered coverage ladder. 'failing' is not a rung; it is a flag on top of the highest rung proven.
@@ -79,7 +80,25 @@ DLC_NAMES = {
     'OldWorldBlues.esm': 'DLC: Old World Blues',
     'LonesomeRoad.esm': 'DLC: Lonesome Road',
     'GunRunnersArsenal.esm': "DLC: Gun Runners' Arsenal",
+    # Tale of Two Wastelands: the Fallout 3 DLCs and TTW's own quests
+    'Anchorage.esm': 'TTW: Operation Anchorage',
+    'ThePitt.esm': 'TTW: The Pitt',
+    'BrokenSteel.esm': 'TTW: Broken Steel',
+    'PointLookout.esm': 'TTW: Point Lookout',
+    'Zeta.esm': 'TTW: Mothership Zeta',
+    'TaleOfTwoWastelands.esm': 'TTW: Tale of Two Wastelands',
 }
+
+
+def fallout3_questline(edid):
+    """Fallout3.esm quests under TTW: main quest MQ01-MQ12, the Vault 101 prologue CG00-CG04, side quests MS##."""
+    if re.match(r'^MQ\d\d$', edid):
+        return 'TTW: Fallout 3 main quest'
+    if re.match(r'^CG0\d$', edid):
+        return 'TTW: Fallout 3 prologue (Vault 101)'
+    if re.match(r'^MS\d', edid):
+        return 'TTW: Fallout 3 side quests'
+    return 'TTW: Fallout 3 misc'
 
 # Side-quest location buckets (names from quests.json; best-effort, unlisted VMS## fall into "Mojave (other)")
 LOCATIONS = {
@@ -105,6 +124,8 @@ def questline_of(data, q):
     e, plugin = q['edid'], q['plugin']
     if plugin in DLC_NAMES:
         return DLC_NAMES[plugin]
+    if plugin == 'Fallout3.esm':
+        return fallout3_questline(e)
     for path, lst in MAIN_PATHS.items():
         if e in lst:
             return path

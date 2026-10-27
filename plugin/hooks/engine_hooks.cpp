@@ -60,6 +60,14 @@ struct Win32Memory : MemoryOps {
         return reinterpret_cast<Addr>(p);
     }
     void freeExec(Addr a, size_t) override { VirtualFree(reinterpret_cast<void*>(a), 0, MEM_RELEASE); }
+    bool foreignCode(Addr a) override {
+        auto base = reinterpret_cast<Addr>(GetModuleHandleA(nullptr));
+        auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        if (a >= base && a < base + nt->OptionalHeader.SizeOfImage) return false;   // inside the exe: another build, not a detour
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(reinterpret_cast<const void*>(a), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) return false;
+        return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+    }
 };
 
 // ------------------------------------------------------------------ state
@@ -151,6 +159,28 @@ void forQuestVars(F f) {
             if (v.Get()) f(q, v.Get()->id, v.Get()->data);
     }
 }
+// The weak cause of a quest's own script (its GameMode / MenuMode blocks: no stage, no INFO behind it) names the script, but rules are
+// keyed by quest (synccore's tests build such causes with the quest as source). Map a quest script to the one quest that runs it; a
+// script shared by several quests stays the cause (ambiguous). Found under TTW: TTWTrainTripQuest's ride (2026-10-26) never matched
+// its PartyWarp / SetPlayerControls rules because every effect carried TTWTrainTripQuestScript as the source.
+uint32_t questOfScript(uint32_t scriptId) {
+    static std::unordered_map<uint32_t, uint32_t> owner;   // script refID -> quest refID, 0 = shared by several quests
+    static bool built = false;
+    if (!built) {
+        DataHandler* dh = *reinterpret_cast<DataHandler**>(kDataHandlerPtr);
+        if (!dh) return 0;
+        for (auto it = dh->questList.Begin(); !it.End(); ++it) {
+            TESQuest* q = it.Get();
+            if (!q || !q->scriptable.script) continue;
+            auto [slot, fresh] = owner.emplace(refIdOf(q->scriptable.script), refIdOf(q));
+            if (!fresh && slot->second != refIdOf(q)) slot->second = 0;
+        }
+        built = true;
+    }
+    auto it = owner.find(scriptId);
+    return it == owner.end() ? 0 : it->second;
+}
+
 bool g_statePolling = false;
 ChangeTracker g_tracker;
 // A quest whose script is on the GuestLocalRun allow-list is per-machine: its variables are local state on every machine and are never
@@ -547,7 +577,7 @@ bool storyCmd(const RefOpSpec* s, Fn_Cmd o, void* pi, void* sd, void* thisObj, v
     char text[kMaxStoryArgs][kStoryTextMax] = {};   // a text parameter is copied into a buffer (xNVSE: char name[256]; ExtractArgs(..., &name))
     const size_t n = std::strlen(s->sig);
     void* out[kMaxStoryArgs];
-    for (int k = 0; k < kMaxStoryArgs; ++k) out[k] = (static_cast<size_t>(k) < n && s->sig[k] == 's') ? static_cast<void*>(text[k]) : static_cast<void*>(&raw[k]);
+    for (int k = 0; k < kMaxStoryArgs; ++k) out[k] = (static_cast<size_t>(k) < n && (s->sig[k] == 's' || s->sig[k] == 'q')) ? static_cast<void*>(text[k]) : static_cast<void*>(&raw[k]);
     UInt32 off = *opc;  // ExtractArgs advances the offset: work on a copy so the real call sees the original
     // kMaxStoryArgs output pointers whatever the command takes: ExtractArgs fills only as many as the command has parameters
     const bool parsed = n == 0 || extractPadded(extractArgs(), pi, sd, &off, thisObj, contObj, script, ev, {out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7], out[8]});
@@ -559,7 +589,7 @@ bool storyCmd(const RefOpSpec* s, Fn_Cmd o, void* pi, void* sd, void* thisObj, v
             switch (s->sig[k]) {
                 case 'o': av[k].form = raw[k] ? refIdOf(reinterpret_cast<void*>(static_cast<uintptr_t>(raw[k]))) : 0; break;
                 case 'f': std::memcpy(&av[k].f, &raw[k], sizeof(float)); break;
-                case 's': text[k][kStoryTextMax - 1] = 0; av[k].s = text[k]; break;
+                case 's': case 'q': text[k][kStoryTextMax - 1] = 0; av[k].s = text[k]; break;
                 default: av[k].i = static_cast<int32_t>(raw[k]); break;
             }
         }
@@ -767,12 +797,25 @@ bool __cdecl h_Autosave(CMD_ARGS) { return saveCmdHook(o_Autosave, kSaveAuto, pi
 bool __cdecl h_SystemSave(CMD_ARGS) { return saveCmdHook(o_SystemSave, kSaveSystem, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_ForceSave(CMD_ARGS) { return saveCmdHook(o_ForceSave, kSaveForce, pi, sd, thisObj, contObj, script, ev, res, opc); }
 
+// RemoveAllItems [target] [retainOwnership] [flag]. A container with no target is a clear (RemoveAllItems, as before). With a player on either
+// side, or a target container, it is a ContainerTransfer: a quest's inventory stash (`player.RemoveAllItems DLC01PlayerItemContainerREF`), its
+// hand-back (`box.RemoveAllItems player` / into a second container) or the player-only clear of character creation. Each recipient machine then
+// moves its own player's items through its own copy of the container. Before, the player was skipped and a target was ignored, so only the
+// host lost its gear and a replicated hand-back cleared the guest's copy of the stash (measured in The Pitt, 2026-10-26).
 bool __cdecl h_RemoveAllItems(CMD_ARGS) {
     if (blockedNow()) return true;
-    FormRef rr;
-    bool track = capturing() && thisObj && !isPlayer(thisObj) && formRef(thisObj, &rr);
+    if (!capturing() || !thisObj) return CMD_FWD(o_RemoveAllItems);
+    void* target = nullptr;
+    int retain = 0, flag = 0;
+    if (!parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &target, &retain, &flag)) target = nullptr;
+    const bool srcPlayer = isPlayer(thisObj), dstPlayer = target && isPlayer(target);
+    FormRef src, dst;
+    const bool haveSrc = srcPlayer || formRef(thisObj, &src);
+    const bool haveDst = !target || dstPlayer || formRef(target, &dst);
     bool ok = CMD_FWD(o_RemoveAllItems);
-    if (ok && track) g_hub->record(RemoveAllItems{rr});
+    if (!ok || !haveSrc || !haveDst || (srcPlayer && dstPlayer)) return ok;
+    if (!target && !srcPlayer) g_hub->record(RemoveAllItems{src});
+    else g_hub->record(ContainerTransfer{src, dst, srcPlayer, dstPlayer, Recipient::dflt()});
     return ok;
 }
 
@@ -1263,7 +1306,8 @@ InitReport Init(CaptureHub& h, Role role, FormResolver* res) {
         Cause c;
         c.kind = CauseKind::Script;
         FormRef r;
-        if (g_res && g_res->toRef(scriptId, &r)) c.source = r;
+        const uint32_t quest = questOfScript(scriptId);
+        if (g_res && g_res->toRef(quest ? quest : scriptId, &r)) c.source = r;
         return c;
     });
     if (role == Role::Host) h.setScopeObservers(globalsBegin, globalsEnd);

@@ -3,13 +3,14 @@ rem One-command build + test for the server hook (x86 MSVC). Also builds the DLL
 rem DLL into a fake "storyserver" exe (no signatures, so it must abort cleanly), runs the launcher with --dry-run
 rem (never starts a server), then builds the mutation twin and requires it to FAIL.
 setlocal
+call "%~dp0..\..\..\tools\build\vsroot.cmd"
 set HERE=%~dp0
 set NV=%HERE%..
 set OUT=%NV%\..\..\out\nvmp\server_hook
 if not exist "%OUT%" mkdir "%OUT%"
 rem vcvarsall looks for vswhere.exe on PATH: put the VS Installer dir there so it prints nothing
 if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
+call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul 2>&1
 if errorlevel 1 (echo vcvarsall failed & exit /b 2)
 pushd "%HERE%"
 set CL_COMMON=/nologo /std:c++17 /EHsc /W4 /O1 /MT /Fo"%OUT%\\"

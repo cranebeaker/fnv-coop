@@ -88,6 +88,15 @@ struct FakeMemory : MemoryOps {
         heap.erase(a);
         ++freed;
     }
+    // Another plugin's module: code at [kForeign, kForeign + 0x10000) when foreignOn.
+    static constexpr Addr kForeign = 0x60000000;
+    bool foreignOn = false;
+    bool foreignCode(Addr a) override { return foreignOn && a >= kForeign && a < kForeign + 0x10000; }
+    // Re-point the E8 at `off` of the function at `target` to `to` (what ShowOff / Stewie's Tweaks do under TTW).
+    void retarget(Addr target, unsigned off, Addr to) {
+        uint32_t rel = static_cast<uint32_t>(to - (target + off + 5));
+        std::memcpy(&image[target - kImage + off + 1], &rel, 4);
+    }
     // Lay a function (the spec's expected bytes) down at spec.target.
     void place(const HookSpec& s) { std::memcpy(&image[s.target - kImage], s.expected, s.expectedLen); }
     std::vector<uint8_t> bytes(Addr a, size_t n) {
@@ -141,6 +150,64 @@ TEST(wrong_prologue_refuses_and_writes_nothing) {
     CHECK(m.heap.empty());          // no trampoline leaked
     CHECK(reg.installedCount() == 0);
     CHECK(tramp == 0xDEAD);         // output untouched on failure
+}
+
+TEST(call_retargeted_to_another_plugin_past_the_stolen_bytes_is_accepted) {
+    FakeMemory m;
+    m.foreignOn = true;
+    HookSpec s = makeSpec();
+    m.place(s);
+    m.retarget(s.target, 12, FakeMemory::kForeign + 0x100);   // E8 at index 12, its operand runs past the 16 bytes
+    auto theirs = m.bytes(s.target + 12, 5);
+    HookRegistry reg(m);
+    Addr tramp = 0;
+    CHECK(reg.acquire(s, 0x30000000, &tramp) == PatchStatus::Ok);
+    CHECK(m.bytes(s.target + 12, 5) == theirs);                // their call is left as they set it
+    CHECK(std::memcmp(m.bytes(tramp, 6).data(), s.expected, 6) == 0);
+}
+
+TEST(call_retargeted_inside_the_image_still_refuses) {
+    FakeMemory m;
+    m.foreignOn = true;
+    HookSpec s = makeSpec();
+    m.place(s);
+    m.retarget(s.target, 12, FakeMemory::kImage + 0x800);     // another exe build: the call stays in the image
+    auto before = m.image;
+    HookRegistry reg(m);
+    CHECK(reg.acquire(s, 0x30000000, nullptr) == PatchStatus::PrologueMismatch);
+    CHECK(m.image == before);
+}
+
+TEST(call_retargeted_to_another_plugin_refuses_without_image_check) {
+    FakeMemory m;   // foreignOn stays false: the default MemoryOps::foreignCode, every byte must match
+    HookSpec s = makeSpec();
+    m.place(s);
+    m.retarget(s.target, 12, FakeMemory::kForeign + 0x100);
+    HookRegistry reg(m);
+    CHECK(reg.acquire(s, 0x30000000, nullptr) == PatchStatus::PrologueMismatch);
+    CHECK(m.writes == 0);
+}
+
+TEST(stolen_byte_difference_refuses_even_with_a_foreign_call) {
+    FakeMemory m;
+    m.foreignOn = true;
+    HookSpec s = makeSpec();
+    m.place(s);
+    m.retarget(s.target, 12, FakeMemory::kForeign + 0x100);
+    m.image[s.target - FakeMemory::kImage + 3] ^= 0x01;       // a byte we would overwrite differs
+    HookRegistry reg(m);
+    CHECK(reg.acquire(s, 0x30000000, nullptr) == PatchStatus::PrologueMismatch);
+    CHECK(m.writes == 0);
+}
+
+TEST(non_call_byte_past_the_stolen_bytes_still_refuses) {
+    FakeMemory m;
+    m.foreignOn = true;
+    HookSpec s = makeSpec();
+    m.place(s);
+    m.image[s.target - FakeMemory::kImage + 8] ^= 0x01;       // part of `mov ecx,[ebp-8]`, not a call operand
+    HookRegistry reg(m);
+    CHECK(reg.acquire(s, 0x30000000, nullptr) == PatchStatus::PrologueMismatch);
 }
 
 TEST(unrelated_bytes_refuse) {
@@ -1544,6 +1611,13 @@ TEST(muted_hub_ignores_quest_var_of_guest_local_quest_owner) {
 int main() {
     run("install_patches_entry_and_builds_trampoline", install_patches_entry_and_builds_trampoline);
     run("wrong_prologue_refuses_and_writes_nothing", wrong_prologue_refuses_and_writes_nothing);
+    run("call_retargeted_to_another_plugin_past_the_stolen_bytes_is_accepted",
+        call_retargeted_to_another_plugin_past_the_stolen_bytes_is_accepted);
+    run("call_retargeted_inside_the_image_still_refuses", call_retargeted_inside_the_image_still_refuses);
+    run("call_retargeted_to_another_plugin_refuses_without_image_check",
+        call_retargeted_to_another_plugin_refuses_without_image_check);
+    run("stolen_byte_difference_refuses_even_with_a_foreign_call", stolen_byte_difference_refuses_even_with_a_foreign_call);
+    run("non_call_byte_past_the_stolen_bytes_still_refuses", non_call_byte_past_the_stolen_bytes_still_refuses);
     run("unrelated_bytes_refuse", unrelated_bytes_refuse);
     run("foreign_detour_is_reported_not_overwritten", foreign_detour_is_reported_not_overwritten);
     run("bad_specs_are_rejected", bad_specs_are_rejected);

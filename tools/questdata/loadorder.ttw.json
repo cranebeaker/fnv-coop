@@ -1,0 +1,8 @@
+{
+  "_doc": "Tale of Two Wastelands load order (TTW 3.x with YUP for TTW). Select it with FNVCOOP_LOADORDER. Same format as loadorder.json. UNVERIFIED: taken from Mod Organizer 2's plugins.txt, which sets ESM timestamps to this order; confirm with the in-game `plugins` bridge method before trusting runtime FormIDs.",
+  "observed_from": "MO2 profiles/Default/plugins.txt, 2026-10-26 (not yet checked in game)",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+              "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm",
+              "PointLookout.esm", "Zeta.esm", "CaravanPack.esm", "ClassicPack.esm", "MercenaryPack.esm",
+              "TribalPack.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm"]
+}

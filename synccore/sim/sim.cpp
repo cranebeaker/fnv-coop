@@ -245,6 +245,7 @@ private:
     void do_(const SetMapMarker& e) { foldMarker(v.markers, v.origins, e); }
     void do_(const ForceActiveQuest& e) { v.active = e.quest; v.hasActive = true; }
     void do_(const RequestSave&) { ++eventsSeen; }
+    void do_(const ContainerTransfer&) { ++eventsSeen; }   // per-machine stash move: no shared state in the model
     void do_(const SetWeather& e) { foldWeather(v.weather, v.weatherSet, v.weatherForced, v.origins, e); }
     void do_(const SetTimeScale& e) { foldTimeScale(v.timeScale, v.origins, e); }
     void do_(const RefAngle& e) { foldAngle(v.angles, v.angleOrig, e); }

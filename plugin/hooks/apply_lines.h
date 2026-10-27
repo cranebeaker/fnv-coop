@@ -56,6 +56,8 @@ std::string showMapCmd(uint32_t markerRefID, bool travel);
 std::string addItemCmd(uint32_t itemRefID, int count);     // run ON the container
 std::string removeItemCmd(uint32_t itemRefID, int count);
 std::string removeAllItemsCmd();
+// ContainerTransfer, run ON the source (0x14 = this machine's player): into `targetRefID`, into the player, or a plain clear (target 0).
+std::string removeAllItemsToCmd(uint32_t targetRefID, bool toPlayer);
 // Scripted saves: kind 0 autosave, 1 systemsave, 2 forcesave.
 std::string saveCmd(unsigned kind);
 

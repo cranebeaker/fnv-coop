@@ -73,3 +73,4 @@ Cmd_PlayIdle                       0x5cb2d0 stolen=9 bytes16=558bec81ec20020000a
 Cmd_SetCriticalStage               0x5dc010 stolen=6 bytes16=558bec83ec08c745fc000000008d45fc first=['push ebp', 'mov ebp, esp', 'sub esp, 8']
 Cmd_SetActorFullName               0x5d1920 stolen=6 bytes16=558bec83ec10c745fc00000000837d10 first=['push ebp', 'mov ebp, esp', 'sub esp, 0x10']
 Cmd_UseWeapon                      0x5d7a30 stolen=6 bytes16=558bec83ec28c745e400000000c745f4 first=['push ebp', 'mov ebp, esp', 'sub esp, 0x28']
+Cmd_PlayBink                       0x5d15d0 stolen=9 bytes16=558bec81ec18020000a1bc161c0133c5 first=['push ebp', 'mov ebp, esp', 'sub esp, 0x218']

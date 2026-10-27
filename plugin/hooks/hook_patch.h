@@ -41,6 +41,9 @@ struct MemoryOps {
     virtual bool write(Addr a, const void* in, size_t n) = 0;  // handles page protection / icache
     virtual Addr allocExec(size_t n) = 0;                      // 0 on failure
     virtual void freeExec(Addr a, size_t n) = 0;
+    // True when `a` is code outside FalloutNV.exe's image (another xNVSE plugin's detour). acquire() then accepts an
+    // E8/E9 past the stolen bytes whose target was moved there. Default false: every expected byte must match.
+    virtual bool foreignCode(Addr) { return false; }
 };
 
 enum class PatchStatus {

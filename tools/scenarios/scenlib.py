@@ -23,7 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 SCEN_DIR = REPO / "scenarios"
-QDATA = REPO / "out" / "questdata"
+QDATA = Path(os.environ.get("FNVCOOP_QUESTDATA") or REPO / "out" / "questdata")   # e.g. questdata of a TTW install
 sys.path.insert(0, str(REPO / "plugin" / "snapshot" / "tools"))
 import sweep_config  # noqa: E402  (L7 helper: load order, hex8, split_ref, reset ids of a sweep config)
 sys.path.insert(0, str(REPO / "tools" / "runner"))
@@ -133,7 +133,16 @@ def load_forms(root=QDATA):
     key = ("forms", str(root))
     if key not in _CACHE:
         with gzip.open(Path(root) / "forms.json.gz", "rt", encoding="utf-8") as f:
-            _CACHE[key] = json.load(f)
+            forms = json.load(f)
+        # forms.json.gz holds the forms that quests point at, so a quest nothing points at (Fallout3.esm MQ10 under TTW)
+        # is missing there; every quest is in quests.json.
+        qpath = Path(root) / "quests.json"
+        if qpath.exists():
+            for q in load_quests(root).values():
+                if q.get("ref") and q["ref"] not in forms:
+                    forms[q["ref"]] = {"sig": "QUST", "plugin": q["ref"].split(":")[0], "edid": q.get("edid"),
+                                       "name": q.get("name")}
+        _CACHE[key] = forms
     return _CACHE[key]
 
 

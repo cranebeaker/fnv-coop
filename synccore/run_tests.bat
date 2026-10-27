@@ -5,6 +5,7 @@ rem   build lock out\locks\build.lock, sccache if installed), builds "synccore/a
 rem   x64: legacy standalone tree build\L4-x64 (not shared).
 rem Usage: synccore\run_tests.bat [x86|x64]
 setlocal
+call "%~dp0..\tools\build\vsroot.cmd"
 set ARCH=%1
 if "%ARCH%"=="" set ARCH=x86
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
@@ -15,7 +16,6 @@ ctest --test-dir "%REPO%\build\all\synccore" -j 2 --output-on-failure
 exit /b %ERRORLEVEL%
 
 :legacy64
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 set CC=
 set CXX=

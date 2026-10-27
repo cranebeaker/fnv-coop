@@ -270,6 +270,35 @@ def mirror_tree(src_root: Path, dst_root: Path, modes=LINK_MODES) -> Dict[str, i
     return counts
 
 
+def copy_game_plugins(g: Path, plugins: Path, only: Optional[set] = None) -> List[str]:
+    """Copy the game dir's third-party xNVSE plugins (dlls, their ini files and subfolders) into the instance.
+
+    mirror_tree skips Data/NVSE/Plugins so each instance gets its own nvcoop build. A modded game such as Tale of Two
+    Wastelands also needs its own plugins (ttw_nvse.dll, JIP LN, ...). These are real copies, never links, because the
+    instance writes into this folder. nvcoop* files are left to the --plugin-dll handling.
+    only: lower-case file stems to take (jip_nvse, ttw_nvse, ...); None takes all. A game-dir plugin that is not
+    taken is removed from the instance, so narrowing the set between provisions (bisecting a crash) takes effect."""
+    src = g / "Data" / "NVSE" / "Plugins"
+    copied: List[str] = []
+    if not src.is_dir():
+        return copied
+    for dirpath, _dirnames, filenames in os.walk(src):
+        rel = Path(dirpath).relative_to(src)
+        for fn in filenames:
+            if rel == Path(".") and fn.lower().startswith("nvcoop"):
+                continue
+            if rel == Path(".") and only is not None and Path(fn).stem.lower() not in only:
+                stale = plugins / fn
+                if stale.exists() and not stale.is_dir():
+                    stale.unlink()
+                continue
+            dst = plugins / rel / fn
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            _replace(Path(dirpath) / fn, dst)
+            copied.append("Data/NVSE/Plugins/" + (rel / fn).as_posix())
+    return copied
+
+
 def _replace(src: Path, dst: Path) -> None:
     if dst.exists() or dst.is_symlink():
         dst.unlink()
@@ -390,6 +419,10 @@ def provision(i: int, *, role: str = "host", nvse_dir: Optional[Path] = None,
     if appid:
         (d / "steam_appid.txt").write_text(appid, encoding="ascii")
     installed: List[str] = []
+    game_plugins = os.environ.get("NVCOOP_GAME_PLUGINS", "")
+    if game_plugins and game_plugins != "0":  # modded games (TTW): their own xNVSE plugins come along
+        only = None if game_plugins == "1" else {s.strip().lower() for s in game_plugins.split(",") if s.strip()}
+        installed += copy_game_plugins(g, plugins, only)
     if nvse_dir:  # xNVSE: loader + dlls at the instance root
         for f in Path(nvse_dir).iterdir():
             if f.is_file() and f.suffix.lower() in (".exe", ".dll") and f.name.lower().startswith(("nvse", "xnvse")):
@@ -424,6 +457,12 @@ def provision(i: int, *, role: str = "host", nvse_dir: Optional[Path] = None,
                 _replace(data, dst)
             if "Data/NVSE/Plugins/" + data.name not in installed:
                 installed.append("Data/NVSE/Plugins/" + data.name)
+    # The data files of an earlier provision that this build does not ship (nvcoop_rules.json from another dll folder) would still
+    # be loaded: the plugin only reads these, so the instance keeps exactly what this provision installed.
+    for f in sorted(plugins.glob("nvcoop_*.json")):
+        if "Data/NVSE/Plugins/" + f.name not in installed:
+            f.unlink()
+            removed.append("Data/NVSE/Plugins/" + f.name)
     cfg = write_plugin_ini(d, i, role, autoload, autoload_delay_frames, ini_extra)
     meta = {
         "instance": i, "role": role, "dir": str(d), "pipe": rf"\\.\pipe\nvcoop-{i}",

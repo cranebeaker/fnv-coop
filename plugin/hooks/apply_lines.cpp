@@ -69,6 +69,10 @@ std::string removeItemCmd(uint32_t i, int c) {
     return b;
 }
 std::string removeAllItemsCmd() { return "RemoveAllItems"; }
+std::string removeAllItemsToCmd(uint32_t target, bool toPlayer) {
+    if (toPlayer) return "RemoveAllItems player";
+    return target ? fmt1("RemoveAllItems %08X", target) : removeAllItemsCmd();
+}
 std::string saveCmd(unsigned kind) { return kind == 1 ? "SystemSave" : kind == 2 ? "ForceSave" : "Autosave"; }
 
 std::string setPosCmd(char axis, float value) {

@@ -18,7 +18,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SNAP = os.path.abspath(os.path.join(HERE, ".."))
 ROOT = os.path.abspath(os.path.join(SNAP, "..", ".."))
-VCVARS = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+sys.path.insert(0, os.path.join(ROOT, "tools", "build"))
+import vsroot  # noqa: E402
+VCVARS = os.path.join(vsroot.find(), r"VC\Auxiliary\Build\vcvarsall.bat")
 
 
 def run(cmd, **kw):

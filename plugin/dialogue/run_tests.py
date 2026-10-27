@@ -7,7 +7,9 @@ import os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 OUT = os.path.join(REPO, 'out', 'dialogue')
-VC = r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars32.bat'
+sys.path.insert(0, os.path.join(REPO, 'tools', 'build'))
+import vsroot  # noqa: E402
+VC = os.path.join(vsroot.find(), r'VC\Auxiliary\Build\vcvars32.bat')
 SYN = os.path.join(REPO, 'synccore')
 os.makedirs(OUT, exist_ok=True)
 CRLF = chr(13) + chr(10)

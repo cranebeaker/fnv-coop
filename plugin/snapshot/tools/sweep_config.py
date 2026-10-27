@@ -25,7 +25,7 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-LOADORDER = os.path.join(REPO, "tools", "questdata", "loadorder.json")
+LOADORDER = os.environ.get("FNVCOOP_LOADORDER") or os.path.join(REPO, "tools", "questdata", "loadorder.json")
 
 
 def load_loadorder(path=LOADORDER):

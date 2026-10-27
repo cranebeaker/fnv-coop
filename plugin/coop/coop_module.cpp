@@ -101,6 +101,8 @@ public:
         if (std::get_if<fnvcoop::SaveSuppress>(&e) || std::get_if<fnvcoop::PartyTether>(&e) || std::get_if<fnvcoop::BarrierRelease>(&e) ||
             std::get_if<fnvcoop::BarrierArrive>(&e))
             return {true, "Ok"};   // state lives in the shared shadow (coop.status.saveSuppress); nothing to write into the engine
+        // a stash move is an event: during a join (history catch-up, snapshot, baseline) it must not run again, that would move the items twice
+        if (std::get_if<fnvcoop::ContainerTransfer>(&e) && (ctx.catchUp || ctx.fromSnapshot || ctx.baseline)) return {true, "Ok"};
         if (!applier) return {false, "NoApplier"};
         // baseline effects FORCE-SET (may lower a stage, full objective flag byte); live txns merge normally
         nvhooks::ApplyStatus st = ctx.baseline ? applier->applyForce(e) : applier->apply(e);

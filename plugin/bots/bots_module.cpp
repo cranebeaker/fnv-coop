@@ -336,9 +336,18 @@ void CheckPins() {
             const nvhooks::Addr t = nvhooks::trampolineOfAny(p->addr);
             const bool haveTramp = t && g_mem.read(t, tr, 16);
             ok = nvbots::pinBytesOk(got, p->bytes, haveTramp ? tr : nullptr);
+            if (!ok) {
+                if (const nvbots::addr::KnownRewrite* r = nvbots::knownRewrite(p->addr, got)) {
+                    nvcoop::Log("bots: engine pin %s @%08X holds a known rewrite by another plugin (%s): accepted", p->name, p->addr, r->what);
+                    ok = true;
+                }
+            }
         }
         if (!ok) {
-            nvcoop::Log("bots: engine pin %s @%08X does not match this exe: dialogue/menu/inventory glue disabled", p->name, p->addr);
+            char hex[16 * 3 + 1] = {};
+            for (int i = 0; i < 16; ++i) std::snprintf(hex + i * 3, 4, "%02X ", got[i]);
+            nvcoop::Log("bots: engine pin %s @%08X does not match this exe: dialogue/menu/inventory glue disabled; found %s", p->name,
+                        p->addr, hex);
             g_callsOk = false;
         }
     }

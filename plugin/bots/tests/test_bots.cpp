@@ -1278,6 +1278,24 @@ static void pins_accept_an_entry_our_own_hook_detoured() {
     CHECK(!pinBytesOk(wrong, p.bytes, tramp));                          // changed bytes without a jmp: refused whatever the trampoline holds
 }
 
+static void pins_accept_only_the_exact_known_rewrites() {
+    const addr::KnownRewrite& tick = addr::kKnownRewrites[2];
+    CHECK(tick.addr == addr::Tick.addr);
+    CHECK(knownRewrite(tick.addr, tick.bytes) == &tick);                // the rewrite seen under TTW, at its own entry
+    CHECK(knownRewrite(addr::ItemInfo.addr, tick.bytes) == nullptr);    // the same bytes at another entry: not that entry's rewrite
+    unsigned char near[16];
+    std::memcpy(near, tick.bytes, 16);
+    near[2] = 0x18;                                                     // mov eax,[ecx+18h] at Tick: a different getter, refused
+    CHECK(knownRewrite(tick.addr, near) == nullptr);
+    CHECK(knownRewrite(addr::Tick.addr, addr::Tick.bytes) == nullptr);  // untouched code is the pin's job, not a rewrite
+    CHECK(knownRewrite(addr::PendingTravelSet.addr, addr::PendingTravelSet.bytes) == nullptr);   // no rewrite known for this entry
+    for (const addr::KnownRewrite& r : addr::kKnownRewrites) {          // every rewrite belongs to a call pin we check
+        bool pinned = false;
+        for (const addr::CallPin* p : addr::kAllCalls) pinned = pinned || p->addr == r.addr;
+        CHECK(pinned);
+    }
+}
+
 int main() {
     run("held_overrides_real_input_until_released", held_overrides_real_input_until_released);
     run("press_edge_reaches_the_game_exactly_once", press_edge_reaches_the_game_exactly_once);
@@ -1336,6 +1354,7 @@ int main() {
     run("always_run_pins_hold_the_addresses_the_reader_uses", always_run_pins_hold_the_addresses_the_reader_uses);
     run("spec_is_valid_and_installs_and_restores_on_a_fake_image", spec_is_valid_and_installs_and_restores_on_a_fake_image);
     run("pins_accept_an_entry_our_own_hook_detoured", pins_accept_an_entry_our_own_hook_detoured);
+    run("pins_accept_only_the_exact_known_rewrites", pins_accept_only_the_exact_known_rewrites);
     run("pins_match_real_exe_if_available", pins_match_real_exe_if_available);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

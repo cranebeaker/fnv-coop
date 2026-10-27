@@ -2,7 +2,7 @@
 rem One command: build the co-op fuzzer (Win32/x86 MSVC, Ninja, 2 build jobs) into ..\..\build\T2b-fuzz and run its tests.
 rem Prints ALL OK when every test and every mutation twin passes.
 setlocal
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
+call "%~dp0..\..\tools\build\vsroot.cmd"
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 set CC=
 set CXX=

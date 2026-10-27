@@ -70,6 +70,7 @@ uint64_t segmentsOf(const Effect& eff) {
         [](const SetPerk&) { return none; }, [](const SpawnRef&) { return S(30) | S(31); }, [](const DespawnRef&) { return S(30) | S(31); },
         [](const RefAddItem&) { return S(28); }, [](const RefRemoveItem&) { return S(28); }, [](const RemoveAllItems&) { return S(28) | S(29); },
         [](const ForceActiveQuest&) { return none; }, [](const RequestSave&) { return none; }, [](const AdvanceTime&) { return none; },
+        [](const ContainerTransfer&) { return none; },   // per-machine stash move: no shared state
         [](const auto&) { return all; },
     }, eff);
 }
@@ -341,6 +342,8 @@ void ShadowState::applyEffect(const Effect& eff, PlayerId origin, PlayerId me, s
             if (changedMe) emit(e);
         },
         [&](const RequestSave& e) { emit(e); },   // event: no state
+        // event, no state: each recipient moves its own player's items (never replayed on a late join, that would move them twice)
+        [&](const ContainerTransfer& e) { if (toMe(e.to)) emit(e); },
         [&](const SetWeather& e) {
             if (foldWeather(weather, weatherSet, weatherForced, origins, e)) emit(e);
         },

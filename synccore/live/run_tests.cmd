@@ -3,7 +3,7 @@ rem live-core: build only the live targets (Win32/x86, Release, 2 jobs) into bui
 rem Takes the repo-wide compile lock (out\locks\build.lock, atomic mkdir) only while compiling.
 rem Prints ALL OK when every test passes.  Usage: synccore\live\run_tests.bat
 setlocal
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
+call "%~dp0..\..\tools\build\vsroot.cmd"
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 set CC=
 set CXX=

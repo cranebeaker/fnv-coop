@@ -38,7 +38,9 @@ for _k in ALLOWED_KINDS:
     SCHEMA.setdefault(_k, {})
 # lane priority: later wins a conflict. Specialist lanes beat the broad ones.
 LANE_PRIORITY = ['systems', 'act2', 'leftovers', 'towns', 'factions', 'strip', 'prologue', 'deadmoney',
-                 'honesthearts', 'owb', 'lonesomeroad', 'legion', 'ncr', 'yesman', 'house']
+                 'honesthearts', 'owb', 'lonesomeroad', 'legion', 'ncr', 'yesman', 'house', 'ttw']
+# lanes for quests that only exist in a Tale of Two Wastelands install; build_rules.merge skips them for plain New Vegas data
+TTW_LANES = ('ttw',)
 FUNC_CANON = {}
 
 
@@ -107,11 +109,13 @@ def adapt_deadmoney(d, lane):
     return ops
 
 
-def adapt_actionlist(d, lane):             # factions, leftovers
+def adapt_actionlist(d, lane):             # factions, leftovers, ttw
     ops = []
     for q, e in d['quests'].items():
         if e.get('action') == 'add-rules':
             ops += [_mk(lane, 'add_rule', q, rule=_r(r)) for r in e['rules']]
+        elif e.get('action') == 'replace-quest-entry':   # curated full rule set: drops the derived rules it does not repeat
+            ops.append(_entry(lane, q, e, 'replace'))
         else:
             ops.append(_entry(lane, q, e, 'new'))
     return ops
@@ -271,12 +275,14 @@ ADAPTERS = {'act2': adapt_act2, 'deadmoney': adapt_deadmoney, 'factions': adapt_
             'leftovers': adapt_actionlist, 'honesthearts': adapt_honesthearts, 'house': adapt_house,
             'legion': adapt_legion, 'lonesomeroad': adapt_lonesomeroad, 'ncr': adapt_ncr, 'owb': adapt_owb,
             'prologue': adapt_prologue, 'strip': adapt_strip, 'systems': adapt_systems, 'towns': adapt_towns,
-            'yesman': adapt_yesman}
+            'yesman': adapt_yesman, 'ttw': adapt_actionlist}
 
 
 def collect_ops(lanes=None, loader=L):
+    """Ops of `lanes` (default: every New Vegas lane; TTW_LANES only when named, see build_rules.merge)."""
     ops = []
-    for lane in sorted(lanes or ADAPTERS, key=lambda s: LANE_PRIORITY.index(s) if s in LANE_PRIORITY else -1):
+    lanes = lanes or [s for s in ADAPTERS if s not in TTW_LANES]
+    for lane in sorted(lanes, key=lambda s: LANE_PRIORITY.index(s) if s in LANE_PRIORITY else -1):
         try:
             d = loader(lane)
         except FileNotFoundError:

@@ -324,6 +324,13 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
             }
             return run(removeAllItemsCmd(), r);
         }
+        if (auto* x = std::get_if<ContainerTransfer>(&e)) {   // this machine's own player and its own copy of the container
+            uint32_t src = 0x14, dst = 0;   // 0x14: the player
+            if (!x->srcPlayer && !idOf(x->src, &src)) return ApplyStatus::FormMissing;
+            if (!x->dstPlayer && !x->dst.plugin.empty() && !idOf(x->dst, &dst)) return ApplyStatus::FormMissing;
+            gate.reset();
+            return run(removeAllItemsToCmd(dst, x->dstPlayer), src);
+        }
         if (auto* x = std::get_if<AddNote>(&e)) { uint32_t n; if (!idOf(x->note, &n)) return ApplyStatus::FormMissing; gate.reset(); return run(addNoteCmd(n), 0); }
         if (auto* x = std::get_if<RemoveNote>(&e)) { uint32_t n; if (!idOf(x->note, &n)) return ApplyStatus::FormMissing; gate.reset(); return run(removeNoteCmd(n), 0); }
         if (auto* x = std::get_if<SayOnceFlag>(&e)) {   // a client's INFO learns it was spoken (said_once.h)

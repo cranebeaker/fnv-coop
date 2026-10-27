@@ -81,7 +81,8 @@ def merge(data, resolver, loader=M.L, base=None):
         for r in e['rules']:
             if r['kind'] == 'PartyAwareCond':
                 r['params']['funcs'] = {M._canon_func(k): v for k, v in r['params'].get('funcs', {}).items()}
-    ops = M.collect_ops(loader=loader)
+    ttw = any(q['ref'].startswith('TaleOfTwoWastelands.esm:') for q in data['quests'])
+    ops = M.collect_ops(lanes=list(M.ADAPTERS) if ttw else None, loader=loader)
     m = M.run_merge(base, ops, lookup_meta_factory(data))
     rep = F.finalize(m, data, resolver)
     for q, e in m.entries.items():

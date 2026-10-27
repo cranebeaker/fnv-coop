@@ -1,0 +1,420 @@
+{
+  "schema": 1,
+  "doc": "Tale of Two Wastelands (TTW) lane: curated rules for quests that exist only in a TTW install (TaleOfTwoWastelands.esm). Loaded by tools/coverage/build_rules.py only when the quest data contains TaleOfTwoWastelands.esm, so a plain New Vegas rules.json is unchanged. Rule kinds are the existing vocabulary (tools/coverage/rules.py).",
+  "kinds_used": [
+    "Barrier",
+    "CompanionOwner",
+    "InitiatorDialogue",
+    "PartyAwareCond",
+    "PartyTether",
+    "PartyWarp",
+    "PerPlayerScene",
+    "QuestItemDup",
+    "RewardAll",
+    "SaveSuppress",
+    "SetPlayerControls",
+    "ShareKarmaRep"
+  ],
+  "quests": {
+    "TTWTrainTripQuest": {
+      "action": "new-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: travel between the wastelands",
+      "rules": [
+        {
+          "kind": "PartyTether",
+          "params": {
+            "cells": [
+              "TTWTrainEngine01a",
+              "TTWTrainEngine01b"
+            ],
+            "gather": "wait"
+          },
+          "origin": "curated",
+          "why": "TTWTrainTripActivatorScript (TaleOfTwoWastelands.esm:008D20) on the engine-car switch (TTWTrainElectricalSwitch02, refs 0020C8 in TTWTrainEngine01a and 002130 in TTWTrainEngine01b) sets TTWTrainTripQuest.iTravel; the quest script then moves the player to the other wasteland. The party must be in the departing engine car before it leaves."
+        },
+        {
+          "kind": "PartyWarp",
+          "params": {
+            "markers": [
+              "TTWNVTrainEngineXMarker",
+              "TTWDCTrainEngineXMarker",
+              "TTWHoldingCellPlayerXMarkerREF"
+            ],
+            "mode": "slot-offset",
+            "absent": "hold"
+          },
+          "origin": "curated",
+          "why": "TTWTrainTripQuestScript (TaleOfTwoWastelands.esm:008D1F) runs Player.MoveTo TTWNVTrainEngineXMarker (in TTWTrainEngine01a) or TTWDCTrainEngineXMarker (in TTWTrainEngine01b), SetGameHour 336, flips bInDCWasteland / bInNVWasteland / TTWWorldLocation and calls TTWFNEnable/DisableDCWasteland / NVWasteland. When VCG00 has not started (a Fallout 3 start) the same trip is the '3 years later' move into New Vegas: Player.MoveTo TTWHoldingCellPlayerXMarkerREF, player.RemoveAllItems TTWStolenWeaponsRef, StartQuest VCG00. Without a party warp only the host changes wasteland. OPEN (needs a decision): how RemoveAllItems into TTWStolenWeaponsRef should apply to each player's own inventory (Dead Money's bunker has the same pending 'inventory-stash' question)."
+        },
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": [
+              "1 0 0 0 0 0 0"
+            ]
+          },
+          "origin": "curated",
+          "why": "The same script holds DisablePlayerControls 1 0 0 0 0 0 0 for the ride (fade, 2 weeks later / 3 years later video) and releases with EnablePlayerControls 1 1 1 1 1 1 1."
+        }
+      ]
+    },
+    "CG01": {
+      "action": "replace-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: Fallout 3 prologue (Vault 101)",
+      "rules": [
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": [
+              "1 1 1 1 0 0 1",
+              "1 0 0 0 1 1 0"
+            ]
+          },
+          "origin": "curated",
+          "why": "Stages 5 / 12 DisablePlayerControls 1 1 1 1 0 0 1, stages 10 / 20 release."
+        },
+        {
+          "kind": "PerPlayerScene",
+          "params": {},
+          "origin": "curated",
+          "why": "Character creation spread over a childhood: each player builds their own character, like VCG00 / VCG01 (Doc Mitchell). Stage 0 player.setscale .4 and player.moveto CG01PlayerStartMarker (the baby); stage 100 setscale 1."
+        },
+        {
+          "kind": "Barrier",
+          "params": {
+            "step": "all-players-pass"
+          },
+          "origin": "curated",
+          "why": "CG02 starts from stage 100 for the whole party only when every player has finished."
+        },
+        {
+          "kind": "SaveSuppress",
+          "params": {},
+          "origin": "curated",
+          "why": "Stage 5 plays the '1 year later' video inside the scene."
+        },
+        {
+          "kind": "InitiatorDialogue",
+          "params": {},
+          "origin": "curated",
+          "why": "Talking with Dad is per player."
+        }
+      ]
+    },
+    "CG03": {
+      "action": "replace-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: Fallout 3 prologue (Vault 101)",
+      "rules": [
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": [
+              "1 1 1 1 0 0 1",
+              "0 0 1"
+            ]
+          },
+          "origin": "curated",
+          "why": "Stages 5 / 60 DisablePlayerControls; 40 / 50 DisablePlayerControls 0 0 1; 10 / 70 release."
+        },
+        {
+          "kind": "PerPlayerScene",
+          "params": {},
+          "origin": "curated",
+          "why": "Character creation spread over a childhood: each player builds their own character, like VCG00 / VCG01 (Doc Mitchell). The G.O.A.T. exam (CG03Script ShowMessage CG03GoatQuestion01..10 -> setstage CG03Test N) picks each player's tag skills; stages 5 / 100 player.removeallitems + player.additem vaultsuit101 1 1 (the age jumps)."
+        },
+        {
+          "kind": "Barrier",
+          "params": {
+            "step": "all-players-pass"
+          },
+          "origin": "curated",
+          "why": "CG04 starts from stage 100 only when every player has taken the exam."
+        },
+        {
+          "kind": "SaveSuppress",
+          "params": {},
+          "origin": "curated",
+          "why": "Stage 5 plays the '6 years later' video inside the scene."
+        },
+        {
+          "kind": "InitiatorDialogue",
+          "params": {},
+          "origin": "curated",
+          "why": "Per-player conversations in the classroom."
+        }
+      ]
+    },
+    "CG04": {
+      "action": "replace-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: Fallout 3 prologue (Vault 101)",
+      "rules": [
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": [
+              "1 1 1 1 0 0 1"
+            ]
+          },
+          "origin": "curated",
+          "why": "Stage 0 DisablePlayerControls 1 1 1 1 0 0 1 during the '3 years later' video; stage 4 EnablePlayerControls."
+        },
+        {
+          "kind": "PartyWarp",
+          "params": {
+            "markers": [
+              "cg04playerstartmarker"
+            ],
+            "mode": "slot-offset",
+            "absent": "hold"
+          },
+          "origin": "curated",
+          "why": "Stage 0 player.moveto cg04playerstartmarker. (CG04AmataStartMarker / CG04InterrogationAmataMarker / CG04ReactorGuardStartMarker / CG04AmataAtVaultDoorMarker in the derived rule are NPC moves, dropped here.)"
+        },
+        {
+          "kind": "PartyTether",
+          "params": {
+            "cells": [
+              "Vault101",
+              "Vault101b"
+            ],
+            "gather": "auto-warp"
+          },
+          "origin": "curated",
+          "why": "CG04Script advances on player.GetInCell Vault101b and on leaving Vault101: the escape is played together."
+        },
+        {
+          "kind": "PartyAwareCond",
+          "params": {
+            "funcs": {
+              "GetInCell": "entry:all-in,exit:any-in",
+              "IsActionRef": "initiator"
+            }
+          },
+          "origin": "curated",
+          "why": "GetInCell checks in CG04Script; IsActionRef on the vault-door and terminal scripts."
+        },
+        {
+          "kind": "RewardAll",
+          "params": {},
+          "origin": "curated",
+          "why": "Stages 2 / 8 / 10 / 50 player.additem vaultsuit101, weap10mmPistol, ammo10mm, lockpick: every player gets them."
+        },
+        {
+          "kind": "QuestItemDup",
+          "params": {
+            "recipient": "all"
+          },
+          "origin": "curated",
+          "why": "Quest items handed out during the escape go to every player."
+        },
+        {
+          "kind": "ShareKarmaRep",
+          "params": {},
+          "origin": "curated",
+          "why": "Karma choices (Butch, Amata, the Overseer) are shared (one story)."
+        },
+        {
+          "kind": "InitiatorDialogue",
+          "params": {},
+          "origin": "curated",
+          "why": "Whoever starts a conversation picks the lines."
+        }
+      ]
+    },
+    "MQ04": {
+      "action": "replace-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: Fallout 3 main quest",
+      "rules": [
+        {
+          "kind": "PartyTether",
+          "params": {
+            "cells": [
+              "Vault112a"
+            ],
+            "gather": "auto-warp"
+          },
+          "origin": "curated",
+          "why": "MQ04Script acts when player.GetInCell Vault112a: everyone enters the pods together."
+        },
+        {
+          "kind": "PartyWarp",
+          "params": {
+            "markers": [
+              "MQ04StartBench",
+              "MQ04PlayerPod"
+            ],
+            "mode": "slot-offset",
+            "absent": "hold"
+          },
+          "origin": "curated",
+          "why": "MQ04Script Player.moveto MQ04StartBench (into Tranquility Lane); the pod exit uses MQ04PlayerPod. (CitTheDenMARKER in the derived rule is Sarah's move, dropped.) OPEN: Player.RemoveAllItems MQ04PlayerContainerRef has to stash each player's own inventory (same pending 'inventory-stash' question as Dead Money's bunker)."
+        },
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": []
+          },
+          "origin": "curated",
+          "why": "MQ04Script EnablePlayerControls after the move: the release reaches every player."
+        },
+        {
+          "kind": "CompanionOwner",
+          "params": {
+            "owner": "recruiter"
+          },
+          "origin": "curated",
+          "why": "Companions wait outside the simulation; recruiter keeps them."
+        },
+        {
+          "kind": "PartyAwareCond",
+          "params": {
+            "funcs": {
+              "GetInCell": "entry:all-in,exit:any-in",
+              "GetInWorldspace": "any",
+              "IsKiller": "any-party-member",
+              "GetDistance": "min-over-party",
+              "IsActionRef": "initiator",
+              "GetEquipped": "initiator"
+            }
+          },
+          "origin": "curated",
+          "why": "GetInCell / GetInWorldSpace TranquilityLane, IsKiller (Betty's tasks), GetDistance in the quest scripts."
+        },
+        {
+          "kind": "ShareKarmaRep",
+          "params": {},
+          "origin": "curated",
+          "why": "Tranquility Lane's karma choices are one story."
+        },
+        {
+          "kind": "RewardAll",
+          "params": {},
+          "origin": "curated",
+          "why": "player.additem MQ04PlayerOutfit and the XP reward (stage 200 RewardXP 600) go to every player."
+        },
+        {
+          "kind": "QuestItemDup",
+          "params": {
+            "recipient": "all"
+          },
+          "origin": "curated",
+          "why": "Quest items go to every player."
+        },
+        {
+          "kind": "InitiatorDialogue",
+          "params": {},
+          "origin": "curated",
+          "why": "Betty / residents: the initiator picks."
+        }
+      ]
+    },
+    "MQ09": {
+      "action": "replace-quest-entry",
+      "tier": "T4",
+      "questline": "TTW: Fallout 3 main quest",
+      "rules": [
+        {
+          "kind": "PartyWarp",
+          "params": {
+            "markers": [
+              "MQ09PlayerStartMark"
+            ],
+            "mode": "slot-offset",
+            "absent": "hold"
+          },
+          "origin": "curated",
+          "why": "MQ09Script Player.moveto MQ09PlayerStartMark: the Enclave captures the party (the other markers in the derived rule are NPC moves, dropped). OPEN: Player.RemoveAllItems MQ09PlayerContainerRef1 has to stash each player's own items."
+        },
+        {
+          "kind": "SetPlayerControls",
+          "params": {
+            "scope": "all",
+            "release": "host-effect",
+            "timeout_s": 120,
+            "masks": [
+              "1 1 1 1 0 1 1"
+            ]
+          },
+          "origin": "curated",
+          "why": "MQ09Script DisablePlayerControls 1 1 1 1 0 1 1 for Autumn's interrogation."
+        },
+        {
+          "kind": "SaveSuppress",
+          "params": {},
+          "origin": "curated",
+          "why": "No saving inside the capture scene."
+        },
+        {
+          "kind": "CompanionOwner",
+          "params": {
+            "owner": "recruiter"
+          },
+          "origin": "curated",
+          "why": "Fawkes / followers are moved to FawkesWaitMarker; recruiter keeps them."
+        },
+        {
+          "kind": "PartyAwareCond",
+          "params": {
+            "funcs": {
+              "IsActionRef": "initiator",
+              "GetDistance": "min-over-party",
+              "GetInSameCell": "any"
+            }
+          },
+          "origin": "curated",
+          "why": "IsActionRef / GetDistance / GetInSameCell in the quest scripts."
+        },
+        {
+          "kind": "ShareKarmaRep",
+          "params": {},
+          "origin": "curated",
+          "why": "Shared karma."
+        },
+        {
+          "kind": "RewardAll",
+          "params": {},
+          "origin": "curated",
+          "why": "RewardXP 100 / 1100 to every player."
+        },
+        {
+          "kind": "QuestItemDup",
+          "params": {
+            "recipient": "all"
+          },
+          "origin": "curated",
+          "why": "Player.RemoveItem MQ08GECK: the G.E.C.K. is a quest item every player holds; it is taken from all."
+        },
+        {
+          "kind": "InitiatorDialogue",
+          "params": {},
+          "origin": "curated",
+          "why": "Autumn / Eden: the initiator picks."
+        }
+      ]
+    }
+  },
+  "open": [
+    "MQ11 / EndingBinks (Fallout3.esm:068A9F), provisional default: the player who enters the purifier code dies (the original object script MQ11PPurityControlPanelScript, run by the host) and every player sees the ending: EndingBinksScript's PlayBink is the story-capture event op kOpPlayBink (needs [hooks] story_capture=1). Change it if the owner decides otherwise.",
+    "Inventory stash: built as the ContainerTransfer effect (each player's own items through their own copy of the container); proven in game on The Pitt's DLC01Quest02 stage 0 / 170 and on TTWTrainTripQuest's Fallout 3 start branch. Not yet run in game: Operation Anchorage, Mothership Zeta, MQ04, MQ09, Dead Money's bunker."
+  ]
+}

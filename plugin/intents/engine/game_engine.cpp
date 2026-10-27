@@ -4,6 +4,7 @@
 
 #include <Windows.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -298,14 +299,30 @@ public:
     }
 };
 
-bool bytesMatch(unsigned addr, const unsigned char* want) {
-    unsigned char got[16] = {};
+// Executable memory outside FalloutNV.exe's image: another xNVSE plugin's detour or trampoline.
+bool foreignExec(uintptr_t a) {
+    auto base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+    auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    if (a >= base && a < base + nt->OptionalHeader.SizeOfImage) return false;
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (!VirtualQuery(reinterpret_cast<const void*>(a), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) return false;
+    return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
+// We only CALL these functions, so another plugin's 5-byte JMP over the entry is fine: the game's own callers go through
+// it too (found under Tale of Two Wastelands: E9 <detour> at MarkScriptEvent). Every byte after the jump must still match
+// and the jump must leave the exe image; anything else means another exe build.
+bool bytesMatch(unsigned addr, const unsigned char* want, unsigned char* got) {
     __try {
         std::memcpy(got, reinterpret_cast<const void*>(addr), 16);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
-    return std::memcmp(got, want, 16) == 0;
+    if (std::memcmp(got, want, 16) == 0) return true;
+    if (got[0] != 0xE9 || std::memcmp(got + 5, want + 5, 11) != 0) return false;
+    int32_t rel;
+    std::memcpy(&rel, got + 1, 4);
+    return foreignExec(static_cast<uintptr_t>(addr) + 5 + rel);
 }
 
 }  // namespace
@@ -320,8 +337,16 @@ bool pinsOk() {
     if (state == 0) {
         bool ok = true;
         for (const addr::CallSpec* c : addr::kAllCalls) {
-            bool m = bytesMatch(c->addr, c->bytes);
-            if (!m) nvcoop::Log("intents: pin MISMATCH for %s at %08X (a different FalloutNV.exe?): that engine path stays off", c->name, c->addr);
+            unsigned char got[16] = {};
+            bool m = bytesMatch(c->addr, c->bytes, got);
+            if (m && got[0] == 0xE9 && c->bytes[0] != 0xE9)
+                nvcoop::Log("intents: %s at %08X is detoured by another plugin; calling through its jump", c->name, c->addr);
+            if (!m) {
+                char hex[16 * 3 + 1] = {};
+                for (int i = 0; i < 16; ++i) std::snprintf(hex + i * 3, 4, "%02X ", got[i]);
+                nvcoop::Log("intents: pin MISMATCH for %s at %08X (a different FalloutNV.exe?): that engine path stays off; found %s",
+                            c->name, c->addr, hex);
+            }
             ok = ok && m;
         }
         state = ok ? 1 : 2;
