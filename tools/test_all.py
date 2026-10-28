@@ -34,6 +34,7 @@ SUITES = [
     ("lint loot service wiring", [sys.executable, "-I", "tools/lint/check_loot_wiring.py"], False, NO),
     ("lint host engine readers are wired (+ twins)", [sys.executable, "-I", "tools/lint/check_host_readers_wiring.py", "--self-test"], False, NO),
     ("lint host engine readers wiring", [sys.executable, "-I", "tools/lint/check_host_readers_wiring.py"], False, NO),
+    ("test_all takes the readers lint and the Lab generator without the game as passed (+ 2 twins)", [sys.executable, "-I", "tools/test_all_evidence.py"], False, NO),
     ("lint workflow inputs stay out of run scripts, soak seed and count checked (+ twins)", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py", "--self-test"], False, NO),
     ("lint workflow inputs", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py"], False, NO),
     ("lint CI plugin artifact holds what provision installs, the Proton doc downloads it by name, only from the commit's own run (+ 13 twins)", [sys.executable, "-I", "tools/lint/check_plugin_artifact.py", "--self-test"], False, NO),
@@ -228,6 +229,12 @@ EVIDENCE = re.compile(
 NEGATIVE = re.compile(r"^FAILED \((failures|errors)=|\b[1-9]\d* tests failed out of|is not recognized as an internal", re.M)
 
 
+def passed(returncode: int, out: str) -> bool:
+    """A suite passes on exit 0 with proof that tests ran and no failure line. Exit code alone is not trusted: a test exe that
+    never started can still exit 0."""
+    return returncode == 0 and EVIDENCE.search(out) is not None and not NEGATIVE.search(out)
+
+
 # ---- --affected: run only the suites whose sources changed vs git HEAD (build-speed, docs/TOOLS-BRIEF.md) ----
 # Sources that every C++ suite depends on: a change here selects all suites that compile C++.
 SHARED_PREFIXES = (
@@ -243,6 +250,7 @@ EXTRA_DEPS = {
     "canonical nvcoop.dll build": ("plugin/", "synccore/", "tools/runner/build_l1.cmd"),
     "build-speed tooling": ("tools/test_all.py", "tools/mut/", "tools/build/"),
     "test_all preflight": ("tools/test_all.py", "tools/test_all_selftest.py", "plugin/", "synccore/"),   # scans the runner scripts of every suite
+    "test_all takes the readers lint": ("tools/test_all.py", "tools/lint/check_host_readers_wiring.py", "tools/lab/esp/"),   # runs both scripts
     "L4 synccore": ("synccore/",),
     "repo hygiene (": ("synccore/", "plugin/", "tools/lint/"),
     "T2b simfuzz": ("synccore/", "tools/simfuzz/", "scenarios/simfuzz/"),
@@ -381,9 +389,7 @@ def main() -> int:
         t0 = time.time()
         p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
         out = p.stdout + p.stderr
-        # Exit code alone is not trusted: a test exe that never started can still exit 0.
-        evidence = EVIDENCE.search(out)
-        ok = p.returncode == 0 and evidence is not None and not NEGATIVE.search(out)
+        ok = passed(p.returncode, out)
         if p.returncode == 0 and not ok:
             print(f"    (exit 0 but no proof tests ran, or a failure line was printed)")
         print(f"{'PASS' if ok else 'FAIL'} {name} ({time.time() - t0:.0f}s)")

@@ -3,7 +3,8 @@
 1. the unit suite (tests/test_lab_esp.py) must pass on the real code;
 2. every mutation twin (NVLABESP_MUTANT=<name>, one deliberate bug each in build_lab.py or install_lab.py) must make that suite FAIL.
 Tests that read FalloutNV.esm (a read-only copy: FNV_ESM, or <games>/fnv-instances/0/Data) skip without it; then the twins that
-need it are reported as not run and the script ends in SKIPPED (exit 0), never ALL OK. Format and installer tests always run.
+need it are reported as not run and the script ends in SKIPPED (exit 0), never ALL OK, plus a "N twins run, 0 failed" line for the
+part that did run. Format and installer tests always run.
 """
 from __future__ import annotations
 
@@ -67,6 +68,9 @@ def main() -> int:
     print("NVCoopLab.esp generator: tests pass, %d of %d twins caught (%.1fs)" % (len(twins), len(INSTALL_MUTANTS) + len(BUILD_MUTANTS) + len(DECOR_MUTANTS) + len(DECOR_BSA_MUTANTS), time.time() - t0))
     if not have_esm:
         print("SKIPPED: FalloutNV.esm not found, the game-file tests and %d generator twins did not run" % (len(BUILD_MUTANTS) + len(DECOR_MUTANTS) + len(DECOR_BSA_MUTANTS)))
+        # what did run, in a form tools/test_all.py takes as proof (without it a machine with no game, as CI, FAILed the suite)
+        if os.environ.get("NVLABESP_RUNNER_MUTANT") != "no_ran_count":   # twin, tools/test_all_evidence.py
+            print("format and installer part: real suite and %d twins run, 0 failed" % len(twins))
         return 0
     print("ALL OK")
     return 0
