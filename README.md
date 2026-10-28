@@ -15,7 +15,7 @@
 > | Goodsprings story run (two copies play the opening quests start to finish) | 7 of 18 steps pass, including Doc Mitchell's farewell and the gecko fight |
 > | Runs on its own, without NV:MP | yes: own networking, player avatars, NPC and combat sync |
 >
-> The alpha build is being playtested through the rest of the campaign now. Progress updates land here.
+> Alpha 0.1.0 is out as a pre-release ([Releases](../../releases)) and is being playtested through the rest of the campaign. Progress updates land here.
 
 Play the whole **Fallout: New Vegas** story together: 2 to 4 players, one shared world, one shared quest
 state. This repo is the whole co-op mod: an xNVSE plugin plus a game-free sync core. It keeps quests, objectives,
@@ -55,13 +55,13 @@ A step marked **Claimed** is being worked on right now. Want to take one? Open a
 
 ## Play in three steps
 
-**The alpha is in closed playtesting; there is no public download yet.** When there is one, it will be:
+**Alpha 0.1.0 is out as a pre-release for playtesting.** Expect bugs, and report them on the issue tracker or on Discord.
 
-1. Download the zip from [Releases](../../releases) and unzip it.
-2. Run the installer. It finds your New Vegas install and adds the plugin next to xNVSE.
-3. Host starts a session, friends join.
+1. Download `FNV-CoOp-0.1.0-alpha.zip` from [Releases](../../releases) and unzip it.
+2. Run **Install.cmd**. It finds your New Vegas install and adds the plugin next to xNVSE.
+3. Run **Launcher.cmd**: the host picks Host a game, friends pick Join a friend.
 
-Until then, to try it you need to build it yourself (see "Building and tests").
+You need New Vegas 1.4.0.525, xNVSE 6.3.0 or newer and Python 3. `PLAYER-GUIDE.md` in the zip has the details.
 
 ## Status
 
