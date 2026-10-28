@@ -26,6 +26,7 @@ OWN_TWIN(own_transfer_no_ack, transferNoAck, handoffKeepsLastState(1))
 OWN_TWIN(own_no_hysteresis, noHysteresis, noFlap())
 OWN_TWIN(own_follower_ignored, followerIgnored, followerStaysWithRecruiter())
 OWN_TWIN(own_accept_non_owner, acceptNonOwner, churnHolds(1, 400))
+OWN_TWIN(own_commit_to_gone_owner, commitToGoneOwner, commitNothingToHandOverHolds())
 
 ENGINE_TWIN(no_dedupe, noDedupe, questStageSync(1, dupLink()))
 ENGINE_TWIN(hit_no_validation, hitNoValidation, forgedHitsRejected(1))

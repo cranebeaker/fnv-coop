@@ -91,6 +91,11 @@ public:
     // The owner makes a victim dead that an accepted lethal hit left standing (the engine's float health kept a sliver the rounded health did not
     // show, the replay was reduced by armour ...). The actor port then sees the death and declares it. false = could not (default: no engine).
     virtual bool killActor(uint32_t /*victimRef*/) { return false; }
+    // G04 kill attribution (host): the same kill credited to the puppet of the REMOTE player that shot the victim, so the engine stores it as the killer before OnDeath and
+    // `IsKiller player` is true for that guest (production: nvhooks::killWithAttribution, `KillActor <killer>` on the victim). Default: no attribution, the plain kill.
+    virtual bool killActorBy(uint32_t victimRef, uint32_t /*killerRef*/) { return killActor(victimRef); }
+    // ... and for a corpse that is already here (its death reached this machine before the declaration did): writes the killer only (nvhooks::setKillerOf). false = cannot.
+    virtual bool setKiller(uint32_t /*victimRef*/, uint32_t /*killerRef*/) { return false; }
     // Kill XP. killXpOf returns the XP value of the victim, -1 = unknown (then no award; TODO-RE: the engine's per-victim XP).
     virtual int32_t killXpOf(uint32_t victimRef) = 0;
     virtual bool awardXp(int32_t xp) = 0;              // the LOCAL player only

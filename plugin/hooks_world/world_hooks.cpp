@@ -822,6 +822,9 @@ nvhooks::ApplyStatus WorldApplier::run(const Plan& p) {
         case PlanStatus::Ok: break;
     }
     for (const Step& s : p.steps) {
+        // The gate is held per step, not around the whole plan: a console line is a script and a gated Script::Execute only pretends it ran.
+        std::unique_ptr<nvhooks::ScriptGate> stepGate;
+        if (gateSteps_ > 0 && !stepRunsScripts(s.kind)) stepGate.reset(new nvhooks::ScriptGate);
         switch (s.kind) {
             case StepKind::ConsoleOnRef:
             case StepKind::ConsoleGlobal: {
@@ -906,6 +909,14 @@ ApplyStatus toStatus(Outcome o) {
         default: return ApplyStatus::Unsupported;
     }
 }
+// While alive, WorldApplier::run holds a ScriptGate around the steps that must not run scripts (everything but console lines).
+struct GateSteps {
+    int& n;
+    explicit GateSteps(int& counter) : n(counter) { ++n; }
+    ~GateSteps() { --n; }
+    GateSteps(const GateSteps&) = delete;
+    GateSteps& operator=(const GateSteps&) = delete;
+};
 }  // namespace
 
 ApplyStatus WorldApplier::applyAny(const Effect& e) {
@@ -913,11 +924,11 @@ ApplyStatus WorldApplier::applyAny(const Effect& e) {
         if (g_objObserver) g_objObserver(*os);   // the host's word, noted before the apply (the object may not be loaded here yet)
     fnvcoop::EchoGuard echo(&hub_.echo());
     nvhooks::ApplyScope applyScope;
-    nvhooks::ScriptGate gate;
+    GateSteps gs(gateSteps_);
     PlanEnv env{res_, g_ledger, cellIsReady};
     Outcome o = applyRouted(
         e, env, [this](const Plan& p) { return toOutcome(run(p)); },
-        [this](const Effect& x) { return fallback_ ? toOutcome(fallback_(x)) : Outcome::Other; });
+        [this](const Effect& x) { nvhooks::ScriptGate gate; return fallback_ ? toOutcome(fallback_(x)) : Outcome::Other; });
     return toStatus(o);
 }
 
@@ -939,10 +950,10 @@ ApplyStatus WorldApplier::apply(const Effect& e) { return applyAny(e); }
 size_t WorldApplier::tick(bool retry) {
     fnvcoop::EchoGuard echo(&hub_.echo());
     nvhooks::ApplyScope applyScope;
-    nvhooks::ScriptGate gate;
+    GateSteps gs(gateSteps_);
     PlanEnv env{res_, g_ledger, cellIsReady};
     RunPlan runner = [this](const Plan& p) { return toOutcome(run(p)); };
-    FallbackApply other = [this](const Effect& x) { return fallback_ ? toOutcome(fallback_(x)) : Outcome::Other; };
+    FallbackApply other = [this](const Effect& x) { nvhooks::ScriptGate gate; return fallback_ ? toOutcome(fallback_(x)) : Outcome::Other; };
     size_t n = 0;
     for (const Plan& p : planQueuedSpawns(env))
         if (run(p) == ApplyStatus::Ok) ++n;
@@ -957,7 +968,7 @@ size_t WorldApplier::applyBaseline(const BaselineSnapshot& b) {
     {
         fnvcoop::EchoGuard echo(&hub_.echo());
         nvhooks::ApplyScope applyScope;
-        nvhooks::ScriptGate gate;
+        GateSteps gs(gateSteps_);
         PlanEnv env{res_, g_ledger, cellIsReady};
         std::vector<fnvcoop::SpawnRef> live;
         for (const Effect& e : b.effects)

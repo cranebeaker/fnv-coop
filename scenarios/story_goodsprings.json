@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "name": "story_goodsprings",
+  "title": "Story run start: the six Goodsprings quests reset, both players next to Doc Mitchell",
+  "description": "The state tools/story/story.py starts from: the Goodsprings quests (VCG00..VCG03, VMS16, VMS16b) at stage 0 on every machine and both players standing at Doc Mitchell. The story steps bring each quest to the stage they start from themselves (the host's console, recorded in the report) and then play with real actions.",
+  "players": 2,
+  "tags": [
+    "story",
+    "goodsprings",
+    "2p"
+  ],
+  "start": {
+    "save": "autosave"
+  },
+  "reset": {
+    "group": "goodsprings"
+  },
+  "forms": {
+    "vcg01": {
+      "ref": "FalloutNV.esm:104C1C",
+      "edid": "VCG01",
+      "sig": "QUST"
+    },
+    "doc": {
+      "ref": "FalloutNV.esm:104C0F",
+      "edid": "DocMitchellREF",
+      "sig": "ACHR"
+    }
+  },
+  "setup": [
+    {
+      "id": "players_to_doc",
+      "op": "moveto",
+      "who": "player",
+      "to": "$doc",
+      "on": "all"
+    },
+    {
+      "id": "settle",
+      "op": "wait",
+      "seconds": 2
+    }
+  ],
+  "steps": [
+    {
+      "id": "vcg01_stage_0_everywhere",
+      "op": "check",
+      "kind": "stage",
+      "quest": "$vcg01",
+      "value": 0
+    }
+  ]
+}

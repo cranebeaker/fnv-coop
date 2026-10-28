@@ -14,9 +14,9 @@
    "StartQuest 139B8D@falloutnv.esm: host (absent) / client StartQuest 139B8D@falloutnv.esm"
   ],
   "found": {
-   "at_ms": 12689.469,
+   "at_ms": 12267.206,
    "class": "divergence",
-   "detail": "effect 0 of txn seq 1 differs between machines: slot(s) [1] hash 2cc028b215cbd8df; slot(s) [1] hash e80102d23621aebe",
+   "detail": "effect 0 of txn seq 1 differs between machines: slot(s) [1] hash 060308788075b7f0; slot(s) [1] hash 112da1aa785dfd9c; slot(s) [1] hash 2cc028b215cbd8df; slot(s) [1] hash 540f675639dc8ef7; slot(s) [1] hash f8f3bdb81852fc9d",
    "healed": true,
    "key": "txn:1[0]",
    "kind": "txn-hash",
@@ -25,8 +25,8 @@
    ]
   },
   "symptoms": [
-   "digest mismatch x66",
-   "17 repair(s), 1466 effect(s) repaired"
+   "digest mismatch x46",
+   "46 repair(s), 1550 effect(s) repaired"
   ]
  },
  "expect": {
@@ -36,52 +36,52 @@
  },
  "format": "trace-1",
  "headers": {
-  "0": "4e5646520100400000000100060000008086dd69a10100007fd3ef0f0000000000000000000000005d0201000000000000000000000000000000000000000000",
-  "1": "4e5646520100400001010000060000002096dd69a10100002664dc28000000000000000000000000fdd601000000000000000000000000000000000000000000"
+  "0": "4e5646520100400000000000060000004893b463a10100005880112100000000000000000000000084e201000000000000000000000000000000000000000000",
+  "1": "4e564652010040000101000006000000e8a2b463a1010000bd03db20000000000000000000000000780402000000000000000000000000000000000000000000"
  },
  "shrunk": {
   "complete": true,
   "first": {
    "category": "divergence",
-   "key": "txn:122[0]"
+   "key": "txn:18[0]"
   },
-  "oracle_runs": 39,
-  "original_steps": 186714,
+  "oracle_runs": 29,
+  "original_steps": 255740,
   "reduced_steps": 2,
-  "seconds": 2.45,
+  "seconds": 7.45,
   "signature": "divergence txn:#[#]",
   "stages": [
-   "window +-60000ms: 186714 -> 23312 records",
-   "dropped all NetIn (1908 records)",
-   "dropped all NetOut (1918 records)",
-   "dropped all Marker (17139 records)",
-   "dropped all Digest (38 records)",
+   "dropped all NetIn (6997 records)",
+   "dropped all NetOut (7084 records)",
+   "dropped all Marker (239934 records)",
+   "dropped all TxnCaptured (69 records)",
+   "dropped all Digest (315 records)",
    "dropped all Meta (2 records)"
   ],
   "violations": [
-   "divergence txn:122[0]",
-   "divergence txn:122[0]"
+   "divergence txn:18[0]",
+   "divergence txn:18[0]"
   ]
  },
  "source": {
   "failure": "FAIL-1-01-everyone_walks_to_the_raiders",
-  "kind": "settle",
+  "kind": "counters",
   "playbook": "fight",
-  "reason": "machines did not converge within 35.1487s: lastSeq per machine {'host': 3435, 'client1': 3435}, host allSynced=False",
+  "reason": "desync counters rose: host.digestMismatch rose by 1; host.repairs rose by 1; host.effectsRepaired rose by 3",
   "recordings": [
    {
     "dropped": 0,
-    "file": "nvcoop-desync-1792777755438-11.nvfr",
+    "file": "nvcoop-manual-1792674695794-14.nvfr",
     "name": "host",
-    "records": 66141,
+    "records": 123524,
     "role": "host",
     "slot": 0
    },
    {
     "dropped": 0,
-    "file": "nvcoop-manual-1792778177841-12.nvfr",
+    "file": "nvcoop-manual-1792674696415-14.nvfr",
     "name": "client1",
-    "records": 120573,
+    "records": 132216,
     "role": "client",
     "slot": 1
    }
@@ -91,15 +91,15 @@
  },
  "steps": [
   {
-   "at_ms": 64424.2,
-   "hex": "05001c00a70900002e349603000000007a00000000000000010000000000000000000602724f14bd9e776a3e",
+   "at_ms": 145007.803,
+   "hex": "05001c004b070000e4c064080000000012000000000000000200000000000000000006246042b751db067079",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"
   },
   {
-   "at_ms": 72629.766,
-   "hex": "05001c00630b00002c691304000000007a000000000000000200000000000000000006021614c269eade78ff",
+   "at_ms": 305961.501,
+   "hex": "05001c00e90d000046b6fc1100000000120000000000000003000000000000000000062ef9014ed167f8b087",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"

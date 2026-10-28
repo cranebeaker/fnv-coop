@@ -53,7 +53,7 @@ python -I tools/installer/package_release.py verify out/release/FNV-CoOp-1.0.0.z
 ```
 
 Payload (all next to `nvcoop.dll` in `Data/NVSE/Plugins`): `nvcoop.dll` (default `out/L1/nvcoop.dll`), `nvcoop_rules.json`
-(`docs/quest-policies/rules.json`), `nvcoop_edids.json`, `nvcoop_infoquest.json`, `nvcoop_guest_local_run.json` (searched in
+(`docs/quest-policies/rules.json`), `nvcoop_edids.json`, `nvcoop_infoquest.json`, `nvcoop_pack_watch.json` (guest pack facts: the item forms a guest reports), `nvcoop_guest_local_run.json` (searched in
 `--data-dir`, `out/L10/plugin`, `out/L1`, `out/L10/data`), `nvcoop_consent_messages.txt` (`plugin/dialogue/data/consent_messages.txt`),
 `nvcoop_volatile_keys.txt` (`plugin/snapshot/data/volatile_keys.txt`; all required, because the join check compares the rules and the volatile
 list), and a default `nvcoop.ini` with co-op off. The zip also holds `installer\`, `launcher\`, `Install.cmd`, `Uninstall.cmd`,

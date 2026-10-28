@@ -237,7 +237,7 @@ bool readConfig(const IniGetter& get, Config* out, std::string* err) {
     bool ok = B("enable", &c.enable) && B("activate", &c.activate) && B("trigger", &c.trigger) && B("trigger_stay", &c.triggerStay) && B("combat", &c.combat) && B("storage", &c.storage) && B("pickup", &c.pickup) &&
               B("terminal", &c.terminal) && B("container", &c.container) && B("hit", &c.hit) && B("stage", &c.stage) && B("dialogue", &c.dialogue) && B("dialogue_results", &c.dialogueResults) &&
               B("standin", &c.standIn) && B("standin_unsafe", &c.standInUnsafe) && B("require_puppet", &c.requirePuppet) &&
-              B("check_reach", &c.checkReach) && B("save_gate", &c.saveGate) && F("reach_activate", &c.reachActivate, 1, 100000) && F("reach_pickup", &c.reachPickup, 1, 100000) &&
+              B("check_reach", &c.checkReach) && B("run_unloaded", &c.runUnloaded) && B("stand_in_retry", &c.standInRetry) && B("save_gate", &c.saveGate) && F("reach_activate", &c.reachActivate, 1, 100000) && F("reach_pickup", &c.reachPickup, 1, 100000) &&
               F("reach_trigger", &c.reachTrigger, 1, 100000) && F("reach_container", &c.reachContainer, 1, 100000) &&
               F("reach_terminal", &c.reachTerminal, 1, 100000) && F("reach_hit", &c.reachHit, 1, 100000) && F("reach_combat", &c.reachCombat, 1, 100000) &&
               U("stay_keepalive_ms", &c.stayKeepaliveMs, 50, 60000) && U("stay_lease_ms", &c.stayLeaseMs, 200, 600000) && U("stay_raise_ms", &c.stayRaiseMs, 0, 10000) &&

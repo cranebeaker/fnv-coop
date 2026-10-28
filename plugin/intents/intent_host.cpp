@@ -1,6 +1,7 @@
 #include "intents/intent_host.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
 
 #include "fnvcoop_mut.h"
@@ -41,6 +42,70 @@ void IntentHost::count(const Intent& in, Result r) {
     }
 }
 
+namespace {
+constexpr uint64_t kRefusalLogGapMs = 1000;
+
+std::string refText(const FormRef& r) {
+    char b[24];
+    std::snprintf(b, sizeof b, "%X", static_cast<unsigned>(r.localId));
+    return r.plugin.empty() ? std::string("?") : r.plugin + ":" + b;
+}
+std::string posText(const Vec3& v) {
+    char b[80];
+    std::snprintf(b, sizeof b, "(%.0f,%.0f,%.0f)", v.x, v.y, v.z);
+    return b;
+}
+}  // namespace
+
+// What the log line says about the sides of a refusal: the target as the host sees it (class, loaded, cell, position) and the guest's acting player
+// (puppet / ghost ref, its position and cell) and the distance between the two. Read-only: nothing here may change what the host does next.
+std::string IntentHost::refusalDetail(PlayerId slot, const Intent& in) {
+    std::ostringstream o;
+    TargetInfo t;
+    const bool known = in.kind != Kind::SetStage && deps_.eng && deps_.eng->describe(in.target, t);
+    o << "target " << refText(in.target);
+    if (known) {
+        o << " class " << className(t.cls) << (t.loaded ? " loaded" : " NOT-loaded") << (t.disabled ? " disabled" : "") << (t.dead ? " dead" : "") << " cell " << std::hex << t.cell << std::dec;
+        if (t.hasPos) o << " pos " << posText(t.pos);
+    } else if (in.kind != Kind::SetStage) {
+        o << " (not resolvable on the host)";
+    }
+    RefId actor = deps_.puppetOf ? deps_.puppetOf(slot) : 0;
+    const char* what = "puppet";
+    if (!actor && deps_.ghostOf) { actor = deps_.ghostOf(slot); what = "ghost"; }
+    if (!actor) {
+        o << "; no " << what << " for slot " << int(slot);
+        return o.str();
+    }
+    Vec3 p;
+    uint32_t pcell = 0;
+    if (deps_.eng && deps_.eng->position(actor, p, &pcell)) {
+        o << "; " << what << " " << std::hex << actor << std::dec << " pos " << posText(p) << " cell " << std::hex << pcell << std::dec;
+        if (known && t.hasPos) o << "; distance " << static_cast<int>(distance(p, t.pos)) << " (reach " << static_cast<int>(reachOf(cfg_, in.kind)) << ")";
+    } else {
+        o << "; " << what << " " << std::hex << actor << std::dec << " has no position here";
+    }
+    return o.str();
+}
+
+void IntentHost::logRefusal(PlayerId slot, const Intent& in, Result r) {
+    if (!deps_.log || r == Result::Duplicate || FNV_MUT(416)) return;   // MUTANT 416: a refused intent leaves no trace in the log
+    const bool ran = r == Result::Executed;
+    if (ran && (in.kind == Kind::TriggerEnter || in.kind == Kind::TriggerLeave || in.kind == Kind::TriggerStay)) return;   // triggers are frequent and uninteresting when they run
+    const uint64_t t = now();
+    if (refusalGate_.size() > 256) refusalGate_.clear();
+    RefusalGate& g = refusalGate_[std::make_pair(static_cast<uint8_t>(in.kind), static_cast<uint8_t>(r))];
+    if (g.lastMs && t - g.lastMs < kRefusalLogGapMs && !FNV_MUT(417)) {   // MUTANT 417: no rate limit (a guest in a trigger volume writes a line per frame)
+        ++g.skipped; ++stats_.refusalsQuiet; return; }
+    std::ostringstream o;
+    o << "intents: " << (ran ? "ran " : "REFUSED ") << kindName(in.kind) << " from slot " << int(slot) << ": " << resultName(r) << "; " << refusalDetail(slot, in);
+    if (g.skipped) o << "; (" << g.skipped << " more of this kind and reason in the last second)";
+    g.lastMs = t;
+    g.skipped = 0;
+    ++stats_.refusalsLogged;
+    deps_.log(o.str());
+}
+
 void IntentHost::onDatagram(PlayerId from, const uint8_t* data, size_t size) {
     Intent in;
     if (decode(data, size, &in, nullptr) != WireType::Intent) { ++stats_.badDatagrams; return; }
@@ -64,6 +129,7 @@ Verdict IntentHost::handle(PlayerId slot, const Intent& in) {
     if (!deps_.joined || !deps_.joined(slot)) {
         Verdict v = verdictOf(in, Result::NotJoined);
         count(in, v.result);
+        logRefusal(slot, in, v.result);
         return v;   // not a player: no answer, nothing to answer to
     }
     SlotState& s = slots_[slot];
@@ -81,6 +147,7 @@ Verdict IntentHost::handle(PlayerId slot, const Intent& in) {
     if (!rateOk(s, now())) v = verdictOf(in, Result::RateLimited);
     else v = decide(slot, in, false);
     count(in, v.result);
+    logRefusal(slot, in, v.result);
     s.recent.push_back(v);
     while (s.recent.size() > kRecentVerdicts) s.recent.pop_front();
     if (!FNV_MUT(318)) {   // MUTANT 318: the guest never hears back (its pending list fills up and times out)
@@ -99,10 +166,11 @@ Result IntentHost::runLegacy(PlayerId slot, fnvcoop::IntentKind kind, const Form
         case fnvcoop::IntentKind::PickUp: in.kind = Kind::PickUp; break;
         default: return Result::BadTarget;
     }
-    if (!deps_.joined || !deps_.joined(slot)) { count(in, Result::NotJoined); return Result::NotJoined; }
+    if (!deps_.joined || !deps_.joined(slot)) { count(in, Result::NotJoined); logRefusal(slot, in, Result::NotJoined); return Result::NotJoined; }
     SlotState& s = slots_[slot];
     Result r = rateOk(s, now()) ? decide(slot, in, true).result : Result::RateLimited;
     count(in, r);
+    logRefusal(slot, in, r);
     return r;
 }
 
@@ -130,7 +198,7 @@ bool IntentHost::pickActor(PlayerId slot, Kind k, TargetClass cls, Actor* out) {
 Result IntentHost::checkReach(const Actor& a, const TargetInfo& t, Kind k) {
     const float reach = reachOf(cfg_, k);
     Vec3 p;
-    if (!cfg_.checkReach || a.standIn || FNV_MUT(313) || reach <= 0.f || !t.hasPos || !deps_.eng->position(a.ref, p, nullptr)) {   // MUTANT 313: never checked
+    if (!cfg_.checkReach || a.standIn || !t.loaded || FNV_MUT(313) || reach <= 0.f || !t.hasPos || !deps_.eng->position(a.ref, p, nullptr)) {   // MUTANT 313: never checked
         ++stats_.reachUnchecked;
         return Result::Executed;
     }
@@ -161,6 +229,28 @@ Result IntentHost::runScoped(PlayerId slot, const Actor& a, Kind k, const FormRe
         else ++stats_.actedAsStandIn;
     }
     return r;
+}
+
+// A script event for a guest. Three things make a block run as that guest:
+//  * the event's object is the host's player (0x14), not the puppet: `OnTrigger Player` / `OnTriggerEnter Player` / `OnAdd Player` compare the object of the marked event with the
+//    form they name (MarkBaseExtraListScriptEvent adds the mask to the entry of the object and to the entry of "any object"), and a puppet is not that form. Only the blocks that
+//    name no object matched the puppet; the Dead Money return trigger (`OnTrigger Player`) never did.
+//  * the target's script runs now, inside the acting scope: the mark is a flag, the engine runs the block on the reference's next update, when no scope is open and `player`
+//    (and the origin of everything the block does) is the host's.
+//  * a mark the host's own player left pending is run first, outside the scope, so that the guest's run does not eat it (both marks share the 0x14 entry).
+bool IntentHost::raiseNow(const Actor& a, const FormRef& target, uint32_t mask) {
+    if (!deps_.eng->raiseEvent(FNV_MUT(421) ? a.ref : kHostPlayerRef, target, mask)) return false;   // MUTANT 421: the puppet is the event's object (the `Player` filter never matches it)
+    if (FNV_MUT(422)) return true;                                                                                        // MUTANT 422: the block is left to the engine's next update (no scope, `player` is the host)
+    if (deps_.eng->runScript(target)) ++stats_.eventScriptRuns; else ++stats_.eventScriptMissed;
+    return true;
+}
+
+Result IntentHost::raiseFor(PlayerId slot, const Actor& a, Kind k, const FormRef& target, uint32_t mask, bool stash) {
+    if (!FNV_MUT(423) && deps_.eng->eventPending(0, target, 0xFFFFFFFFu)) {   // MUTANT 423: a mark somebody else left pending (the host's own player in the same volume) is eaten by the guest's run
+        deps_.eng->runScript(target);
+        ++stats_.eventsFlushed;
+    }
+    return runScoped(slot, a, k, target, [&](IActingScope&) { return raiseNow(a, target, mask) ? Result::Executed : Result::Failed; }, stash);
 }
 
 // ---- gear stashes (storage_book.h) -------------------------------------------------------------------------------------------------------------
@@ -220,7 +310,15 @@ Verdict IntentHost::decide(PlayerId slot, const Intent& in, bool /*legacy*/) {
     if (in.kind == Kind::ContainerClose) return doContainerClose(slot, in);
     if (in.kind == Kind::SetStage) return doSetStage(slot, in);   // the target is a quest form, not a reference: no describe()
     TargetInfo t;
-    if (!deps_.eng->describe(in.target, t) || !t.loaded) return verdictOf(in, Result::NotLoaded);
+    if (!deps_.eng->describe(in.target, t)) return verdictOf(in, Result::NotLoaded);
+    if (!t.loaded) {
+        // A guest alone in an area the host never loaded (story run 2026-10-28: the Broc flower far from the host): the object's form and its script are still in memory.
+        // An activator's script is all the host has to run, and the guest's own game vouches for the reach, so it runs instead of being lost with a half-done activation
+        // on the guest (XP, no item). Everything that needs the 3D world (a door, a container, a terminal, an NPC) still needs the cell.
+        const bool scriptOnly = cfg_.runUnloaded && t.resident && in.kind == Kind::Activate && (t.cls == TargetClass::Activator || t.cls == TargetClass::Unknown) && !FNV_MUT(418);   // MUTANT 418: an unloaded target is refused as before (the guest's activation is half done)
+        if (!scriptOnly) return verdictOf(in, Result::NotLoaded);
+        ++stats_.ranUnloaded;
+    }
     // plugin/companions: somebody else's companion is not for this guest to use (its wheel opens on its owner's machine only)
     if ((in.kind == Kind::Activate || in.kind == Kind::DialogueStart) && deps_.allowActivation && !FNV_MUT(327)   // MUTANT 327: the question is never asked
         && !deps_.allowActivation(slot, in.target)) {
@@ -258,6 +356,18 @@ Verdict IntentHost::dispatch(PlayerId slot, const Intent& in, const TargetInfo& 
     }
 }
 
+// The stand-in retry runs a script's OnActivate a second time, with the host's own player in it. That is only safe for the scripts the generator listed (retry_list.h): the
+// ones that test `GetActionRef == player` and do nothing that leaves a trace on the host's screen or outside the capture. Every other activator keeps the puppet's run alone.
+bool IntentHost::retryAllowed(const TargetInfo& t) const {
+    if (cfg_.requirePuppet || !cfg_.standIn) return false;
+    if (FNV_MUT(424)) return t.cls == TargetClass::Activator;   // MUTANT 424: every activator is redone (a vending machine's message box pops on the host, a switch is thrown twice)
+    switch (t.cls) {   // the list vouches for the script, whatever form the engine classed the plant as (a flora is no TESObjectACTI); a thing that opens a menu on the host is never redone
+        case TargetClass::Container: case TargetClass::Terminal: case TargetClass::Npc: case TargetClass::Creature: case TargetClass::Item: return false;
+        default: break;
+    }
+    return deps_.retryList && deps_.retryList->contains(t.script);
+}
+
 Verdict IntentHost::doActivate(PlayerId slot, const Intent& in, const TargetInfo& t) {
     TargetClass cls = t.cls;
     if ((cls == TargetClass::Npc || cls == TargetClass::Creature) && t.dead) cls = TargetClass::Container;
@@ -267,7 +377,25 @@ Verdict IntentHost::doActivate(PlayerId slot, const Intent& in, const TargetInfo
     Actor a;
     if (!pickActor(slot, Kind::Activate, cls, &a)) return verdictOf(in, Result::NoPuppet);
     if (Result r = checkReach(a, t, Kind::Activate); r != Result::Executed) return verdictOf(in, r);
-    Result r = runScoped(slot, a, Kind::Activate, in.target, [&](IActingScope&) { return deps_.eng->activate(a.ref, in.target) ? Result::Executed : Result::Failed; });
+    bool noEffect = false;
+    Result r = runScoped(slot, a, Kind::Activate, in.target, [&](IActingScope& sc) {
+        const uint64_t before = sc.recorded();
+        const bool ok = deps_.eng->activate(a.ref, in.target);
+        noEffect = ok && sc.recorded() == before;
+        return ok ? Result::Executed : Result::Failed;
+    });
+    // A puppet is not `player` for the object's script: the Broc flower of Goodsprings is `if State == 0 && GetActionRef == player` and the puppet changed nothing at all
+    // (story run 2026-10-28, S07: the guest got the XP of its own half but no ingredient). Once more with the host's own player standing in, an activator being something
+    // that opens no menu; what that player gains belongs to the guest (the script's `player.AddItem` is captured with the guest as origin) and is taken back from the host.
+    if (r == Result::Executed && noEffect && !a.standIn && cfg_.standInRetry && retryAllowed(t) && !FNV_MUT(419)) {   // MUTANT 419: a puppet's activation to no effect stays lost
+        ++stats_.standInRetries;
+        Actor s;
+        s.ref = kHostPlayerRef;
+        s.standIn = true;
+        const bool watched = deps_.eng->markHostInventory();
+        r = runScoped(slot, s, Kind::Activate, in.target, [&](IActingScope&) { return deps_.eng->activate(s.ref, in.target) ? Result::Executed : Result::Failed; });
+        if (watched && !FNV_MUT(420)) stats_.standInGainsReverted += static_cast<uint64_t>(deps_.eng->revertHostInventory());   // MUTANT 420: the host keeps what the guest's activation gave "the player" (a duplicate)
+    }
     return verdictOf(in, r);
 }
 
@@ -302,7 +430,7 @@ Verdict IntentHost::doPickUp(PlayerId slot, const Intent& in, const TargetInfo& 
             grant.to = fnvcoop::Recipient::origin();   // the guest's inventory only, never the host's
             sc.record(grant);
         }
-        deps_.eng->raiseEvent(a.ref, in.target, ev::OnAdd);   // OnAdd blocks of the item (quest items) run with the guest's puppet as `player`
+        raiseNow(a, in.target, ev::OnAdd);   // OnAdd blocks of the item (quest items) run now, with the guest as `player`
         return Result::Executed;
     });
     if (r == Result::Executed) {
@@ -371,7 +499,7 @@ Verdict IntentHost::doEvent(PlayerId slot, const Intent& in, const TargetInfo& t
     Actor a;
     if (!pickActor(slot, in.kind, t.cls, &a)) return verdictOf(in, Result::NoPuppet);
     if (Result r = checkReach(a, t, in.kind); r != Result::Executed) return verdictOf(in, r);
-    Result r = runScoped(slot, a, in.kind, in.target, [&](IActingScope&) { return deps_.eng->raiseEvent(a.ref, in.target, mask) ? Result::Executed : Result::Failed; });
+    Result r = raiseFor(slot, a, in.kind, in.target, mask);
     if (r == Result::Executed && (mask == ev::OnTriggerEnter || mask == ev::OnStartCombat)) {
         if (lastTrigger_.size() > 2048) lastTrigger_.clear();
         lastTrigger_[std::make_pair(slot, in.target)] = now();
@@ -423,7 +551,7 @@ void IntentHost::raisePresence() {
         if (!deps_.eng->describe(target, ti) || !ti.loaded || ti.disabled) { gone.push_back(kv.first); ++stats_.stayDropped; continue; }
         Actor a;
         if (!pickActor(slot, Kind::TriggerStay, ti.cls, &a)) { gone.push_back(kv.first); ++stats_.stayDropped; continue; }
-        runScoped(slot, a, Kind::TriggerStay, target, [&](IActingScope&) { return deps_.eng->raiseEvent(a.ref, target, ev::OnTrigger) ? Result::Executed : Result::Failed; }, false);   // no stash swap: this runs every frame
+        raiseFor(slot, a, Kind::TriggerStay, target, ev::OnTrigger, false);   // no stash swap: this runs every frame
         p.lastRaiseMs = t;
         ++stats_.stayRaises;
     }
@@ -462,6 +590,13 @@ Verdict IntentHost::doSetStage(PlayerId slot, const Intent& in) {
     if (cur >= static_cast<int32_t>(stage) && !FNV_MUT(333)) {   // MUTANT 333: a stage the quest already reached runs its result scripts again (double rewards)
         ++stats_.stagesNoAdvance;
         return refuse(Result::NoAdvance);
+    }
+    if (deps_.guestStagePass && !FNV_MUT(345)) {   // MUTANT 345: the rules engine is never told that a guest reached its barrier stage (the pass is lost, the stage runs alone)
+        const StagePass pass = deps_.guestStagePass(slot, in.target, stage);
+        if (pass == StagePass::Deferred && !FNV_MUT(346)) {   // MUTANT 346: a held pass stage is run anyway (the party is not waited for)
+            ++stats_.stagesDeferred;
+            return refuse(Result::Deferred);
+        }
     }
     if (deps_.allowStage && !FNV_MUT(334) && !deps_.allowStage(slot, in.target, stage)) {   // MUTANT 334: the policy question is never asked
         ++stats_.stagesRefused;
@@ -534,7 +669,7 @@ std::string IntentHost::statusJson() const {
       << "},\"stage\":{\"applied\":" << stats_.stagesApplied << ",\"noAdvance\":" << stats_.stagesNoAdvance << ",\"refused\":" << stats_.stagesRefused
       << ",\"deferred\":" << stats_.stagesDeferred << ",\"failed\":" << stats_.stagesFailed << ",\"bad\":" << stats_.stagesBad
       << "},\"stay\":{\"present\":" << presence_.size() << ",\"started\":" << stats_.stayStarted << ",\"raises\":" << stats_.stayRaises << ",\"expired\":" << stats_.stayExpired
-      << ",\"dropped\":" << stats_.stayDropped << "},\"notes\":" << stats_.noteGrants << ",\"stash\":{\"containers\":" << (stash_ ? stash_->entries().size() : 0u)
+      << ",\"dropped\":" << stats_.stayDropped << "},\"events\":{\"scriptRuns\":" << stats_.eventScriptRuns << ",\"scriptMissed\":" << stats_.eventScriptMissed << ",\"flushed\":" << stats_.eventsFlushed << "},\"notes\":" << stats_.noteGrants << ",\"stash\":{\"containers\":" << (stash_ ? stash_->entries().size() : 0u)
       << ",\"filed\":" << (stash_ ? stash_->stashes() : 0u) << ",\"swaps\":" << stats_.stashSwaps << ",\"kept\":" << stats_.stashKept << ",\"failed\":" << stats_.stashFailed
       << "},\"scriptsSkipped\":" << stats_.scriptsSkipped << ",\"claims\":{\"won\":" << stats_.claimsWon << ",\"lost\":" << stats_.claimsLost
       << ",\"held\":" << claims_.size() << "},\"locks\":{\"granted\":" << stats_.lockGrants << ",\"busy\":" << stats_.lockBusy << ",\"expired\":"

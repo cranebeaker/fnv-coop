@@ -46,6 +46,7 @@ struct Module {
     void (*onLoad)(void* nvseInterface);                         // optional
     void (*onMessage)(uint32_t type, void* data, uint32_t len);  // optional
     void (*onFrame)();                                           // optional, main thread, every frame
+    int frameOrder = 0;                                          // 0 = the order the modules registered in (link order, not a promise); > 0 = after every module with 0
 };
 void RegisterModule(const Module& m);
 
@@ -54,6 +55,19 @@ struct ModuleRegistrar {
 };
 #define NVCOOP_MODULE(ident, ...) \
     static const ::nvcoop::ModuleRegistrar nvcoop_module_##ident(::nvcoop::Module{__VA_ARGS__})
+// A module whose frame must run AFTER the ordinary ones (the co-op session sends what the avatar / actor modules captured in the same frame; run first it would
+// send last frame's). Give all four fields: NVCOOP_MODULE_LATE(ident, name, onLoad, onMessage, onFrame).
+#define NVCOOP_MODULE_LATE(ident, ...) \
+    static const ::nvcoop::ModuleRegistrar nvcoop_module_##ident(::nvcoop::Module{__VA_ARGS__, 100})
+
+// The one place that decides the order of the per-frame callbacks (plugin/main.cpp and the split loader's core both call it): modules with frameOrder 0 in
+// registration order, then the late ones in registration order. Header-only so a game-free test can pin it.
+template <class Modules>
+inline void RunFrameCallbacks(const Modules& mods) {
+    for (int pass = 0; pass < 2; ++pass)
+        for (const auto& m : mods)
+            if (m.onFrame && (m.frameOrder > 0) == (pass == 1)) m.onFrame();
+}
 
 // ---- logging --------------------------------------------------------------
 void Log(const char* fmt, ...);

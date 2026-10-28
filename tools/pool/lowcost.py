@@ -18,6 +18,7 @@ Every row is (file, section, key, value, why, status). status is
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -162,15 +163,38 @@ def prefs_startable(text: str) -> bool:
     return bool((instances.ini_get(text, "Display", "sD3DDevice") or "").strip())
 
 
+def provisioned_no_pad(instance_dir: Path) -> bool:
+    """Whether the copy was provisioned with --no-pad (its instance.json says so). False when the copy has no instance.json.
+    An instance.json that can't be read, isn't a JSON object or has a no_pad that isn't true/false raises UnsafeTarget, so
+    restore() writes nothing instead of guessing the copy's controller setting."""
+    p = Path(instance_dir) / "instance.json"
+    try:
+        text = p.read_text()
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        raise UnsafeTarget(f"{p}: can't be read ({e}), so whether the copy ignores pads (--no-pad) is unknown") from e
+    try:
+        meta = json.loads(text)
+    except ValueError as e:
+        raise UnsafeTarget(f"{p}: not valid JSON ({e}); provision the copy again") from e
+    if not isinstance(meta, dict):
+        raise UnsafeTarget(f"{p}: not a JSON object; provision the copy again")
+    no_pad = meta.get("no_pad", False)   # provision() writes a JSON boolean; bool("false") would be True
+    if not isinstance(no_pad, bool):
+        raise UnsafeTarget(f"{p}: no_pad is {no_pad!r}, not true or false; provision the copy again")
+    return no_pad
+
+
 def restore(instance_dir: Path, check: bool = True) -> Dict[str, int]:
-    """Undo apply(): write the instance's two INIs exactly as provisioning writes them (instances.render_inis()).
+    """Undo apply(): write the instance's two INIs exactly as provisioning writes them (instances.render_inis()), --no-pad included.
 
     apply() touches only Fallout.ini and FalloutPrefs.ini, so only these two files are written. The same guard as
     apply() runs on both files before either is written: never the owner's My Games, the game dir, a hard link or a
     symlink. Returns {file: bytes written}. Idempotent. The pool calls it on every start with the profile off.
     """
     d = Path(instance_dir)
-    fresh = instances.render_inis()
+    fresh = instances.render_inis(no_pad=provisioned_no_pad(d))
     if set(fresh) != {FO, PR}:
         raise UnsafeTarget(f"render_inis() returned {sorted(fresh)}, expected {[FO, PR]}")
     if instances.ini_get(fresh[FO], "General", "bUseMyGamesDirectory") != "0":

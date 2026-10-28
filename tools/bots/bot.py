@@ -1012,8 +1012,14 @@ class Bot:
         return int(self._need(P.M_COUNT_REFS, p)["count"])
 
     # ------------------------------------------------------------------ interaction
-    def _do_activate(self, ref: Ref) -> None:
+    def _do_activate(self, ref: Ref, console: bool = False) -> None:
         info = self._norm(ref)[0]
+        if console:
+            # The console's Activate calls the engine's Activate(activator, 0, 0, 1); the bridge method activate.ref passes 0 as the last argument, and the
+            # engine then gives the player NOTHING for some placed items while it deletes the world ref (the lab's Stimpak, lab run 2026-10-27: both copies,
+            # the loot sync untouched). Only a host can use this: a guest's console line is dropped by the script block.
+            self._exec(P.on(self._ref_of(ref), "Activate player 1"), "activate")
+            return
         try:
             r = self.nv.call(P.M_ACTIVATE, {"ref": info})
             if not r.get("ok", False):
@@ -1039,7 +1045,15 @@ class Bot:
         return self._act("activate", run)
 
     def _kind(self, ref: Ref) -> int:
-        return int(self._info(ref)["type"])
+        """The form type of the ref's BASE object (P.TYPE_*). The game's ref.info answers the type of the reference itself: 0x3A for every placed
+        object (door, chest, terminal, item), 0x3B for an actor. A door that read as 0x3A went down the container/terminal path of open(), which
+        waits for a menu: it activated a locked door (lockpick menu left open) and reported an opened one as failed (lab run 2026-10-27). GetType
+        gives the base form's type (door 28, container 27, terminal 23)."""
+        t = int(self._info(ref)["type"])
+        if t != P.TYPE_REFR:
+            return t
+        v = self._optional_eval(P.get_type(self._ref_of(ref)))
+        return t if v is None or int(v) <= 0 else int(v)
 
     def open(self, ref: Ref, timeout_s: float = 5.0) -> ActionResult:
         """Open a door (post: GetOpenState reads open) or a container/terminal (post: bot.menu reports it)."""
@@ -1111,12 +1125,13 @@ class Bot:
     def put(self, container: Ref, item: Ref, count: int = 1, timeout_s: float = 5.0) -> ActionResult:
         return self._act("put", lambda: self._transfer("put", None, container, item, count, timeout_s))
 
-    def pickup(self, ref: Ref, item: Optional[Ref] = None, timeout_s: float = 5.0) -> ActionResult:
-        """Activate a world item. Post: the world ref is gone/disabled and, if `item` is given, its count rose by 1."""
+    def pickup(self, ref: Ref, item: Optional[Ref] = None, timeout_s: float = 5.0, console: bool = False) -> ActionResult:
+        """Activate a world item. Post: the world ref is gone/disabled and, if `item` is given, its count rose by 1. `console`: activate with the console line
+        (host only) instead of activate.ref, see _do_activate."""
         def run():
             before = self.inventory_count(item) if item is not None else None
             self._info(ref)
-            self._do_activate(ref)
+            self._do_activate(ref, console)
 
             def gone() -> bool:
                 try:

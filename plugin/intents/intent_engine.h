@@ -37,6 +37,7 @@ float distance(const Vec3& a, const Vec3& b);
 struct TargetInfo {
     RefId ref = 0;
     TargetClass cls = TargetClass::Unknown;
+    bool resident = false;    // the reference's form is in memory (its script and flags can be read), whether or not its cell is loaded
     bool loaded = false;      // the reference exists on this machine and is in a loaded cell
     bool disabled = false;    // initially or script disabled (an item that was picked up is disabled / deleted)
     bool dead = false;        // actors
@@ -45,6 +46,7 @@ struct TargetInfo {
     Vec3 pos;
     uint32_t cell = 0;
     FormRef base;             // Item: the base form that goes into an inventory (empty = unknown)
+    FormRef script;           // Activator / unknown: the script attached to the reference or its base form (empty = none): retry_list.h is keyed by it
     int32_t count = 1;        // Item: stack size of the world reference
     bool note = false;        // Item whose base is a NOTE (a note / holotape): picking it up adds it to the pipboy journal, it is not an inventory item
 };
@@ -70,6 +72,8 @@ public:
     virtual ~IActingScope() = default;
     // Put an effect into the open capture scope the way an engine hook would (false = the hub refused it: scope muted or disabled).
     virtual bool record(const fnvcoop::Effect& e) = 0;
+    // How many effects the capture hub has recorded since the engine started (a counter: compare two readings to know whether a run changed the shared world).
+    virtual uint64_t recorded() const { return 0; }
 };
 
 class IIntentEngine {
@@ -85,7 +89,15 @@ public:
     // TESObjectREFR::Activate with `actor` as activator (console: `Activate <actor> 1` on a calling reference).
     virtual bool activate(RefId actor, const FormRef& target) = 0;
     // MarkBaseExtraListScriptEvent(actor, target.extraDataList, mask): raises the script event exactly like the engine would.
-    virtual bool raiseEvent(RefId actor, const FormRef& target, uint32_t mask) = 0;
+    // `object` is the key the engine's blocks filter on: `OnTrigger Player` only matches an event whose object IS the host's player reference (0x14), never a puppet.
+    virtual bool raiseEvent(RefId object, const FormRef& target, uint32_t mask) = 0;
+    // The marked event is only a flag in the target's script event list: the block runs when the engine next runs the reference's own script (its next update), long after the
+    // acting scope closed, so `player` would be the host's. runScript runs the reference's own script NOW (Script::Execute with its ExtraScript event list), inside the open
+    // scope; the run consumes the pending marks. false: the reference has no script instance here.
+    virtual bool runScript(const FormRef& target) { (void)target; return false; }
+    // Is any of `mask` marked for `object` (0 = any object) in the target's script event list and not yet consumed by a run? A run consumes every mark of the list, so a mark the
+    // host's own player (or anybody) left there must be run, as the host, before the guest's run takes it away.
+    virtual bool eventPending(RefId object, const FormRef& target, uint32_t mask) { (void)object; (void)target; (void)mask; return false; }
     // Runs the result script of terminal entry `path` (indices from the top menu down) with `actor` acting. supported = false: no verified path.
     virtual bool runTerminalEntry(RefId actor, const FormRef& terminal, const std::vector<uint8_t>& path, bool* supported) = 0;
     // TESTopicInfo::RunResultScript(info, onEnd, npc) with `actor` as the acting player (docs/protocol.md section 10: a guest's conversation runs its
@@ -108,6 +120,12 @@ public:
     // Failed = the engine refused (undefined stage, not startable).
     enum class StageOutcome : uint8_t { Applied, Deferred, Failed };
     virtual StageOutcome setStage(const FormRef& quest, uint32_t stage) = 0;
+
+    // The host's own player stands in for a guest (an activator script that says `GetActionRef == player` does nothing for a puppet): what it gains while it acts is the
+    // GUEST's (the script's `player.AddItem` is captured with the guest as origin), so the host must not keep it. markHostInventory remembers the player's items (false:
+    // not readable here), revertHostInventory takes away what the player gained since, without capturing, and returns how many items that was.
+    virtual bool markHostInventory() { return false; }
+    virtual int revertHostInventory() { return 0; }
 
     // ---- guest: UI feedback for a rejected intent ----
     virtual void closeMenus() = 0;                       // container / terminal / lockpick menus opened by the local activation

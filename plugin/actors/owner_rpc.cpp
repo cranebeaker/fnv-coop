@@ -32,6 +32,24 @@ std::string ownerJson(const OwnerInfo& i) {
     return v.dump();
 }
 
+std::string statsJson(const ActorSync& sync) {
+    const Stats& s = sync.stats();
+    nvcoop::json::Value v = nvcoop::json::Value::object();
+    auto n = [&](const char* k, uint64_t x) { v.set(k, static_cast<int64_t>(x)); };
+    n("tracked", sync.trackedCount());
+    n("published", s.published); n("snapshotsApplied", s.snapshotsApplied); n("snapshotsDropped", s.snapshotsDropped);
+    n("staleEpochDropped", s.staleEpochDropped); n("staleSeqDropped", s.staleSeqDropped); n("notOwnerDropped", s.notOwnerDropped); n("futureEpoch", s.futureEpoch);
+    n("finalsSent", s.finalsSent); n("finalsApplied", s.finalsApplied); n("finalsRepeated", s.finalsRepeated); n("acksSent", s.acksSent);
+    n("takeovers", s.takeovers); n("handoffsOut", s.handoffsOut); n("aiHolds", s.aiHolds);
+    n("avAudits", s.avAudits); n("avDriftFixed", s.avDriftFixed);
+    if (const fnvcoop::OwnershipService* o = sync.service()) {   // host only
+        const fnvcoop::OwnershipStats& os = o->stats();
+        n("grants", os.grants); n("transfers", os.transfers); n("commits", os.commits); n("forcedCommits", os.forcedCommits);
+        n("immediateCommits", os.immediateCommits); n("abortedHandoffs", os.abortedHandoffs);
+    }
+    return v.dump();
+}
+
 bool ownerRpc(const ActorSync* sync, const std::string& paramsJson, std::string& out) {
     if (!sync) {
         out = "{\"unsupported\":true,\"reason\":\"actor sync is not running (no coop session)\"}";
@@ -40,6 +58,7 @@ bool ownerRpc(const ActorSync* sync, const std::string& paramsJson, std::string&
     nvcoop::json::Value p;
     std::string err;
     if (!nvcoop::json::parse(paramsJson.empty() ? "{}" : paramsJson, p, err)) { out = "bad params: " + err; return false; }
+    if (p.get("stats").asBool(false)) { out = statsJson(*sync); return true; }
     const std::string refText = p.get("ref").asString("");
     if (refText.empty()) { out = "missing ref (\"plugin.esm:00ABCD\")"; return false; }
     FormRef ref;

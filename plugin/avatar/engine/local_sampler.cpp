@@ -33,6 +33,8 @@ LocalFrame ReadLocalFrame(IGameBackend& be) {
     f.valid = true;
     f.cell = ri.cell;
     f.pos = ri.pos;
+    f.havePos3D = ri.havePos3D;
+    f.pos3D = ri.pos3D;
     f.rot = FNV_MUT(48) ? Vec3{ri.rot.x, ri.rot.y, ri.rot.z} : Vec3{ri.rot.x, ri.rot.z, ri.rot.y};
     AnimRead ar;
     f.animReadable = be.ReadAnim(kPlayerRef, ar) && ar.valid;
@@ -112,7 +114,9 @@ bool LocalSampler::Update(uint32_t nowMs, const LocalFrame& f, live::ActorSnapsh
         const float dt = static_cast<float>(nowMs - prevAt_) * 0.001f;
         Vec3 d{f.pos.x - prevPos_.x, f.pos.y - prevPos_.y, f.pos.z - prevPos_.z};
         const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-        if (len > cfg_.teleportUnits && !FNV_MUT(40)) {
+        // faster than anything that walks, runs or falls (maxSpeed) and far enough to be no jitter: a teleport. (The first version compared with 350 units whatever
+        // the period: a 200 unit jump in 33 ms was a speed of 6000 u/s, clamped to 2200, and the other copy extrapolated it 330 units past the target.)
+        if (len > (cfg_.speedTeleport ? std::max(cfg_.teleportUnits, cfg_.maxSpeed * dt) : 350.0f) && !FNV_MUT(40)) {
             ++c_.teleports;
             restart = true;
         } else {

@@ -25,6 +25,7 @@ struct ClientDeps {
     std::function<uint64_t()> nowMs;
     std::function<void(const FormRef& npc)> startDialogue;   // 0xD1 dialogue adapter (optional)
     std::function<bool()> containerMenuOpen;              // is the container / loot menu on screen right now (optional)
+    std::function<void(const std::string& line)> log;     // optional: one line per activation the guest observed (what it decided and whether the local one goes on)
 };
 
 enum class Obs { Proceed, Suppress };

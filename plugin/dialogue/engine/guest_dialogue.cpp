@@ -89,6 +89,10 @@ bool GuestDialogue::init(const GuestDialogueConfig& c) {
     s.glue->setConfig(gc);
     s.glue->setSayOnce(&s.data.sayOnce);
     g_glue = s.glue.get();
+    // the engine's own say-once marks (TESTopicInfo::MarkSaid detour in hooks_ui): a guest reports them to the host, the host commits them (D11)
+    nvui::setSaidSink([](uint32_t info) {
+        if (g_glue) g_glue->onEngineMark(Addr32(info));
+    });
     // the player answered a box the host script raised to them (or a consent prompt): back to the dialogue host. Nothing else wires this.
     nvui::ops::setAnswerSink([](uint32_t menu, int32_t choice) {
         if (g_glue) g_glue->onMenuAnswered(menu, choice, uint32_t(GetTickCount64()));
@@ -128,7 +132,10 @@ fnvcoop_dlg::DialogueNode::Sink GuestDialogue::sink() {
     return [this](const fnvcoop_dlg::Event& e) {
         Impl& s = *p_;
         if (s.ready && s.node) s.glue->onEvent(e);
-        else ++s.sinkDropped;
+        else {
+            ++s.sinkDropped;
+            s.note("dialogue event " + std::to_string(int(e.kind)) + " DROPPED: the glue is " + (s.ready ? "ready" : "not ready") + ", node " + (s.node ? "attached" : "not attached"));
+        }
     };
 }
 
@@ -167,7 +174,9 @@ void GuestDialogue::frame(fnvcoop_dlg::DialogueNode* node, uint32_t nowMs) {
 
 bool GuestDialogue::onTalkRequested(const fnvcoop_dlg::FormRef& npc, uint32_t nowMs) {
     Impl& s = *p_;
-    return s.ready && s.node && s.glue->onTalkRequested(npc, nowMs);
+    const bool r = s.ready && s.node && s.glue->onTalkRequested(npc, nowMs);
+    if (!r) s.note(std::string("talk request not taken: glue ") + (s.ready ? "ready" : "NOT ready") + ", node " + (s.node ? "attached" : "NOT attached") + (s.ready && s.node ? ", a conversation role is already set" : ""));
+    return r;
 }
 
 std::string GuestDialogue::statusJson() const {
@@ -177,12 +186,26 @@ std::string GuestDialogue::statusJson() const {
     if (s.ready) {
         const auto& st = s.glue->stats();
         const auto& rs = readerStats();
-        o << ",\"polls\":" << st.polls << ",\"offers\":" << st.offers << ",\"picks\":" << st.picks << ",\"lineDones\":" << st.lineDones
+        o << ",\"polls\":" << st.polls << ",\"offers\":" << st.offers << ",\"picks\":" << st.picks << ",\"pickRefused\":" << st.pickRefused << ",\"pickLatched\":" << st.pickLatched << ",\"lineDones\":" << st.lineDones
           << ",\"leaves\":" << st.leaves << ",\"hostBroadcasts\":" << st.hostBroadcasts << ",\"sayMarked\":" << st.sayMarked
-          << ",\"sayCleared\":" << st.sayCleared << ",\"commandRefused\":" << st.commandRefused << ",\"unreadable\":" << st.unreadable
+          << ",\"sayCleared\":" << st.sayCleared << ",\"engineMarks\":" << st.engineMarks << ",\"sayReported\":" << st.sayReported
+          << ",\"sayReports\":" << st.sayReports << ",\"sayCommitted\":" << st.sayCommitted << ",\"commandRefused\":" << st.commandRefused << ",\"unreadable\":" << st.unreadable
           << ",\"reader\":{\"cacheHits\":" << rs.cacheHits << ",\"loaderCalls\":" << rs.loaderCalls << ",\"loaderRefused\":" << rs.loaderRefused
           << ",\"failed\":" << rs.failed << "},\"nodesConfigured\":" << s.nodesConfigured << ",\"sinkDropped\":" << s.sinkDropped
           << ",\"companions\":" << s.followers.companions;
+        if (s.node && s.node->host()) {   // the dialogue host's own numbers: script runs (Begin + End per pick), picks answered without a run, rejected messages
+            const auto* h = s.node->host();
+            o << ",\"host\":{\"scriptRuns\":" << h->scriptRuns() << ",\"repeatPicks\":" << h->repeatPicks() << ",\"rejected\":" << h->rejected() << ",\"open\":" << h->open() << "}";
+        }
+        // the "said once" byte of the INFOs a story run depends on, on THIS machine (story run S03: "Doc Mitchell said you could teach me" never listed)
+        static const uint32_t kProbe[] = {0x10A1E4, 0x10A1E5, 0x10A1EB, 0x10B754, 0x15F531, 0x10721E, 0x10721F, 0x1057E7};
+        o << ",\"saidProbe\":{";
+        for (size_t i = 0; i < sizeof kProbe / sizeof kProbe[0]; ++i) {
+            char k[16];
+            std::snprintf(k, sizeof k, "%X", unsigned(kProbe[i]));
+            o << (i ? "," : "") << "\"" << k << "\":" << s.engine->saidState(fnvcoop_dlg::FormRef("falloutnv.esm", kProbe[i]));
+        }
+        o << "}";
     }
     o << "}";
     return o.str();

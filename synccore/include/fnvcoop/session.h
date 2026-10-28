@@ -42,7 +42,7 @@ public:
 struct HostStats { uint64_t commits = 0, droppedByPolicy = 0, retransmitBatches = 0, welcomes = 0, snapshots = 0,
                    replays = 0, baselineJoins = 0, baselineChunksSent = 0, baselineEffectsSent = 0, baselineReverts = 0,
                    baselineRetransmits = 0, welcomesThrottled = 0, bulkDeferred = 0, baselineEntriesKept = 0, handshakeRejects = 0, digestsReceived = 0, digestsOk = 0, digestsMismatch = 0, digestsRateLimited = 0, digestsStale = 0,
-                   desyncRepairs = 0, desyncEffectsRepaired = 0, repairsDeferredBudget = 0, reloads = 0, rebasesSent = 0, staleEpochAcks = 0, intentsCommitted = 0, actionsExecuted = 0, intentsDuplicate = 0, rejected = 0, badMessages = 0, followerCapDrops = 0, controlReleases = 0,
+                   desyncRepairs = 0, desyncEffectsRepaired = 0, repairsDeferredBudget = 0, reloads = 0, rebasesSent = 0, staleEpochAcks = 0, intentsCommitted = 0, actionsExecuted = 0, intentsDuplicate = 0, rejected = 0, badMessages = 0, followerCapDrops = 0, companionVetDrops = 0, controlReleases = 0,
                    questRunningAdopted = 0,   // client-only quest running keys settled by committing the host's own running state (issue #25)
                    stageZeroAdopted = 0,      // client-only "SetStage q = 0" keys settled by committing the same stage 0 on the host (its key space is then complete)
                    questStateAdopted = 0,     // client-only non-zero SetStage / CompleteQuest / FailQuest keys the host engine confirmed and committed
@@ -178,6 +178,12 @@ public:
     std::function<void(PlayerId slot, IntentKind kind, const FormRef& ref, uint32_t epoch, uint32_t id)> onAction;
     // Optional hook run on every committed txn BEFORE policy normalization (the quest rules engine rewrites recipients here).
     std::function<void(EffectTxn&)> txnFilter;
+    // W3a item 6: judges the CompanionOwner effects of one txn against the companion book (synccore/social vetCompanionTxn, installed by plugin/companions): a dismissal of
+    // another player's companion that rides with a recruit of the same slot group, and a second member of a one-slot group, are taken out of the txn BEFORE it is committed, so no
+    // machine ever applies them. Returns how many effects it removed. Runs first in enforceFollowerCaps.
+    std::function<size_t(EffectTxn&)> companionVet;
+    // A companion that belongs to the whole party (RulesEngine owner=party, ED-E): it counts against no player's follower cap and never blocks a recruit.
+    std::function<bool(const FormRef& npc)> isPartyCompanion;
     // Desync repair, issue #25: a client reported quest running states the host's shared world has no entry for. A quest's running
     // flag has no inverse a client could revert to, so the host settles the key itself: it commits ITS OWN running state for each such
     // quest (StartQuest / StopQuest, a normal host txn every client receives), which also completes the host's key space. This hook

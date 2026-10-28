@@ -35,6 +35,8 @@ inline constexpr HookSpec CmdShowSlotMachine = {"CmdShowSlotMachine", 0x5CF040U,
 inline constexpr HookSpec CmdShowBlackJack = {"CmdShowBlackJack", 0x5CF0F0U, {0x55, 0x8b, 0xec, 0x83, 0xec, 0x10, 0x83, 0x3d, 0x3c, 0xea, 0x1d, 0x01, 0x00, 0x0f, 0x84, 0x8c}, 16, 6, 0};
 // cdecl cmd handler: sub esp,10h
 inline constexpr HookSpec CmdShowRoulette = {"CmdShowRoulette", 0x5CF1A0U, {0x55, 0x8b, 0xec, 0x83, 0xec, 0x10, 0x83, 0x3d, 0x3c, 0xea, 0x1d, 0x01, 0x00, 0x0f, 0x84, 0x8e}, 16, 6, 0};
+// thiscall(info) plain ret: [info+0x22] = 1 and the form-modified flag, unless flags1 & 0x10; stolen: push ebp / mov ebp,esp / push ecx / mov [ebp-4],ecx (55 8B EC 51 89 4D FC)
+inline constexpr HookSpec InfoMarkSaid = {"InfoMarkSaid", 0x61F220U, {0x55, 0x8b, 0xec, 0x51, 0x89, 0x4d, 0xfc, 0x8b, 0x4d, 0xfc, 0xe8, 0x31, 0x00, 0x00, 0x00, 0x0f}, 16, 7, 0};
 
 struct CallSpec { const char* name; unsigned addr; unsigned char bytes[16]; };
 // cdecl varargs (paramInfo, scriptData, opcodeOffsetPtr*, thisObj, containingObj, script, eventList, ...)
@@ -53,8 +55,6 @@ inline constexpr CallSpec MessageBoxCallback = {"MessageBoxCallback", 0x5B4A70U,
 inline constexpr CallSpec GetButtonPressed = {"GetButtonPressed", 0x5B4A80U, {0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0xc7, 0x45, 0xfc, 0x00, 0x00, 0x00, 0x00, 0x83, 0x7d, 0x10}};
 // thiscall(info, Cell* out) ret 4: loads the INFO response chain into out, or into the engine cache cell 0x11CC07C when out is null
 inline constexpr CallSpec DialogGetResponses = {"DialogGetResponses", 0x61E780U, {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0xcb, 0xba, 0xef, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}};
-// thiscall(info) plain ret: [info+0x22] = 1 and the form-modified flag, unless flags1 & 0x10
-inline constexpr CallSpec InfoMarkSaid = {"InfoMarkSaid", 0x61F220U, {0x55, 0x8b, 0xec, 0x51, 0x89, 0x4d, 0xfc, 0x8b, 0x4d, 0xfc, 0xe8, 0x31, 0x00, 0x00, 0x00, 0x0f}};
 // cdecl condition function (thisObj, perk, 0, double*): not party-hooked
 inline constexpr CallSpec CondHasPerk = {"CondHasPerk", 0x5A4630U, {0x55, 0x8b, 0xec, 0x83, 0xec, 0x0c, 0x8b, 0x45, 0x14, 0xd9, 0xee, 0xdd, 0x18, 0x83, 0x7d, 0x08}};
 // cdecl condition function (thisObj, item, 0, double*): not party-hooked
@@ -73,6 +73,6 @@ inline constexpr unsigned DialogMenuInfoSpoken = 0x11D9518;
 inline constexpr unsigned DialogResponseCacheInfo = 0x11CBF3C;
 inline constexpr unsigned DialogResponseCacheCell = 0x11CC07C;
 
-inline constexpr const HookSpec* kAllHooks[] = {&ShowMessage, &ShowMessageBox, &CondEvalVar, &CmdSay, &CmdSayTo, &CmdStartConversation, &CmdSwapTexture, &GetTopicInfo, &CmdShowBarterMenu, &CmdShowRepairMenu, &CmdShowRecipeMenu, &CmdShowCaravanMenu, &CmdShowSlotMachine, &CmdShowBlackJack, &CmdShowRoulette};
-inline constexpr const CallSpec* kAllCalls[] = {&ExtractArgs, &CloseAllMenusCore, &DialogMenuClose, &DialogMenuCreate, &MessageBoxLastButton, &MessageBoxCallback, &GetButtonPressed, &DialogGetResponses, &InfoMarkSaid, &CondHasPerk, &CondGetEquipped, &ContainerChangesOf, &ContainerChangesCount, &LookupFormByID};
+inline constexpr const HookSpec* kAllHooks[] = {&ShowMessage, &ShowMessageBox, &CondEvalVar, &CmdSay, &CmdSayTo, &CmdStartConversation, &CmdSwapTexture, &GetTopicInfo, &CmdShowBarterMenu, &CmdShowRepairMenu, &CmdShowRecipeMenu, &CmdShowCaravanMenu, &CmdShowSlotMachine, &CmdShowBlackJack, &CmdShowRoulette, &InfoMarkSaid};
+inline constexpr const CallSpec* kAllCalls[] = {&ExtractArgs, &CloseAllMenusCore, &DialogMenuClose, &DialogMenuCreate, &MessageBoxLastButton, &MessageBoxCallback, &GetButtonPressed, &DialogGetResponses, &CondHasPerk, &CondGetEquipped, &ContainerChangesOf, &ContainerChangesCount, &LookupFormByID};
 }  // namespace nvui::addr

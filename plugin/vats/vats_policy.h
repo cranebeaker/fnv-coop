@@ -10,6 +10,8 @@
 //        -> timeMultFor()
 // A "co-op session" is required for all three: without one VATS is the vanilla game (solo play, the main menu, tests of the base game).
 #pragma once
+#include <atomic>
+
 #include "vats/vats_types.h"
 
 namespace nvcoop::vats {
@@ -36,6 +38,27 @@ float scaleForVatsRequest(const PolicyInput& in, float requested);
 // The value GetPlayerTimeMult / GetTargetTimeMult should return. Real time: exactly 1 (nobody is sped up to compensate for a slow-down that does not
 // happen, and during a party slow-mo everyone, VATS user included, is slowed together).
 double timeMultFor(const PolicyInput& in, double engineValue);
+
+// Who runs the InterfaceManager update (0x86FD70) in a frame whose worker threads are kicked: true = the main thread, just before the kick; false = the
+// worker thread, as the engine does. `engineMenuMode` is the real MenuMode() at the kick; only the menu whose pause menuModeForWorld() lifted counts. Vanilla never kicks the workers with a menu open (it pauses
+// the world), so the update and the menu's own drawing never run at the same time. Real-time VATS kicks them under the open VATS menu; the update then
+// belongs on the main thread, or the worker clears the VATS highlight target while the main thread draws it (crash at 0x800F66, vats_addrs.h).
+bool interfaceUpdateOnMain(const PolicyInput& in, bool engineMenuMode);
+
+// The per-frame handoff of that update between the kick (main thread) and the worker's stage 0. The kick decides before it resumes the workers, so the
+// worker reads the decision of its own frame (the kick resets and sets events, a full barrier). The update runs exactly once per kicked frame: the main
+// thread takes it only when every worker call site is redirected, otherwise the worker runs it as in the game.
+class InterfaceHandoff {
+public:
+    // main thread, at the kick: true = run the update NOW, before the kick
+    bool atKick(bool wantMain, bool workerSitesPatched);
+    // worker thread, stage 0: true = run the update (the main thread did not take it this frame)
+    bool workerRuns() const { return !mainOwns_.load(std::memory_order_acquire); }
+    void reset() { mainOwns_.store(false, std::memory_order_release); }
+
+private:
+    std::atomic<bool> mainOwns_{false};
+};
 
 // The world scale this machine wants to HOLD (for the per-frame re-assert and for the window edges): the party scale while a window runs, else 1.
 float desiredWorldScale(const PolicyInput& in);

@@ -15,6 +15,7 @@ extern engine::IEngineObserver* debugObserver;   // optional: attached to the cl
 bool churnHolds(uint64_t seed, int steps, std::string* why = nullptr);   // random presence churn, lossy ack path, reordered duplicated OwnMsgs
 bool staleEchoRejected(std::string* why = nullptr);                      // Skyrim Together PR #906: an old assignment replayed must not win
 bool rejoinEpochsMonotonic(std::string* why = nullptr);
+bool commitNothingToHandOverHolds(std::string* why = nullptr);                // a handoff the old owner has nothing to hand over commits at once, only to a connected new owner, only once
 bool noFlap(std::string* why = nullptr);                                 // two players equally near: ownership must not flap (engine level)
 bool followerStaysWithRecruiter(std::string* why = nullptr);
 

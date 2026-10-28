@@ -159,12 +159,63 @@ static bool t_menu_duplicates() {
     return true;
 }
 
+// Story run S06: a guest's pick ran its result four times (ammo 60 became 240). A pick is run once per (conversation, step, phase), and the same INFO
+// again with no topic list offered since is the line going on, not a second pick.
+static bool t_pick_retries_run_once() {
+    Rig r(30, 0.6, 5);                                               // duplicated packets plus three hand-made resends of the very same Pick
+    r.n[1]->requestStart(F(0x104C0F), uint32_t(r.now));
+    r.step(120);
+    r.n[1]->pick(F(1), F(0x10A1EB), 0, true, {Line{"Shouldn't take more than a couple minutes.", "", 0, 50}, Line{"Come with me.", "", 0, 50}}, {}, uint32_t(r.now));
+    Pick again;
+    again.conv = r.n[1]->client().conv(); again.step = r.n[1]->client().step(); again.topic = F(1); again.info = F(0x10A1EB); again.goodbye = true;
+    for (int i = 0; i < 3; ++i) { r.net.endpoint(1)->send(0, encode(Msg(again))); r.step(30); }
+    r.step(120);
+    CHECK(r.runs.size() == 1);                                       // the Begin script, once
+    r.n[1]->lineDone(uint32_t(r.now));
+    LineDone ld{again.conv, again.step};
+    for (int i = 0; i < 3; ++i) { r.net.endpoint(1)->send(0, encode(Msg(ld))); r.step(30); }
+    r.step(150);
+    CHECK(r.runs.size() == 2 && r.n[0]->host()->scriptRuns() == 2);  // and the End script, once
+    CHECK(r.n[0]->host()->open() == 0);
+    return true;
+}
+
+static bool t_repeat_pick_without_list_runs_once() {
+    Rig r(20);
+    r.n[1]->requestStart(F(0x104C0F), uint32_t(r.now));
+    r.step(100);
+    r.n[1]->pick(F(1), F(0x10A1EB), 0, false, {Line{"Come with me.", "", 0, 50}}, {}, uint32_t(r.now));
+    r.step(100);
+    r.n[1]->lineDone(uint32_t(r.now));
+    r.step(100);
+    CHECK(r.runs.size() == 2 && r.count(1, Event::TopicsReady) == 1);
+    // the engine shows the same INFO as spoken again (a response advance seen as a new pick): same INFO, no list offered since
+    r.n[1]->pick(F(1), F(0x10A1EB), 0, false, {Line{"Come with me.", "", 0, 50}}, {}, uint32_t(r.now));
+    r.step(100);
+    r.n[1]->lineDone(uint32_t(r.now));
+    r.step(100);
+    CHECK(r.runs.size() == 2);                                       // nothing ran again
+    CHECK(r.n[0]->host()->repeatPicks() == 1);
+    CHECK(r.n[2]->client().history().size() == 1);                   // spectators saw the line once
+    CHECK(r.count(1, Event::TopicsReady) == 2);                      // the initiator is not left waiting: both steps were answered
+    // a real second pick of the same INFO: the list was offered in between
+    r.n[1]->offer({TopicEntry{F(1), 0, 0}}, uint32_t(r.now));
+    r.step(100);
+    r.n[1]->pick(F(1), F(0x10A1EB), 0, false, {Line{"Come with me.", "", 0, 50}}, {}, uint32_t(r.now));
+    r.step(100);
+    r.n[1]->lineDone(uint32_t(r.now));
+    r.step(100);
+    CHECK(r.runs.size() == 4 && r.n[0]->host()->repeatPicks() == 1);
+    return true;
+}
+
 struct Case { const char* name; bool (*fn)(); };
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     Case cases[] = {{"adapter_roundtrip", t_roundtrip}, {"adapter_host_initiator", t_host_initiator},
                     {"adapter_duplicates", t_duplicates}, {"adapter_foreign_and_garbage", t_foreign_and_garbage},
-                    {"adapter_view_var", t_view_var}, {"adapter_menu_over_transport", t_menu_over_transport}, {"adapter_menu_duplicates", t_menu_duplicates}};
+                    {"adapter_view_var", t_view_var}, {"adapter_menu_over_transport", t_menu_over_transport}, {"adapter_menu_duplicates", t_menu_duplicates},
+                    {"adapter_pick_retries_run_once", t_pick_retries_run_once}, {"adapter_repeat_pick_without_list_runs_once", t_repeat_pick_without_list_runs_once}};
     int fail = 0;
     for (auto& c : cases) {
         g_why.clear();
@@ -177,6 +228,18 @@ int main(int argc, char** argv) {
       g_why.clear();
       bool ok = t_duplicates();
       std::printf("[%s] twin replay_duplicate_pick -> adapter_duplicates (%s)\n", ok ? "FAIL" : "PASS", ok ? "mutant survived" : g_why.c_str());
+      fail += ok; }
+    // twin: a re-delivered Pick (retry, resend) re-runs the begin script
+    { MutationScope ms([] { Mutations m; m.replayDuplicatePick = true; return m; }());
+      g_why.clear();
+      bool ok = t_pick_retries_run_once();
+      std::printf("[%s] twin replay_duplicate_pick -> adapter_pick_retries_run_once (%s)\n", ok ? "FAIL" : "PASS", ok ? "mutant survived" : g_why.c_str());
+      fail += ok; }
+    // twin: a second pick of the INFO just run (no list offered in between) runs its scripts again
+    { MutationScope ms([] { Mutations m; m.repeatPickRuns = true; return m; }());
+      g_why.clear();
+      bool ok = t_repeat_pick_without_list_runs_once();
+      std::printf("[%s] twin repeat_pick_runs -> adapter_repeat_pick_without_list_runs_once (%s)\n", ok ? "FAIL" : "PASS", ok ? "mutant survived" : g_why.c_str());
       fail += ok; }
     std::printf("%d failed\n", fail);
     return fail ? 1 : 0;

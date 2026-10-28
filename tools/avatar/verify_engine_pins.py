@@ -38,7 +38,7 @@ SEC_RE = re.compile(r"constexpr uintptr_t kTextLo = (0x[0-9A-Fa-f]+), kTextHi = 
 
 # pin name -> command whose `eval` column is the address
 EVAL_OF = {"GetRestrained": "GetRestrained", "IsWeaponOut": "IsWeaponOut", "IsSneaking": "IsSneaking", "GetDead": "GetDead",
-           "GetItemCount": "GetItemCount", "GetEquipped": "GetEquipped"}
+           "GetItemCount": "GetItemCount", "GetEquipped": "GetEquipped", "GetActorValue": "GetActorValue"}
 # pin name -> HookSpec name in plugin/hooks/engine_addrs.h with the same address and bytes
 HOOK_OF = {"LookupFormByID": "LookupFormByID", "TESObjectREFR::IsDisabled": "RefIsDisabled"}
 

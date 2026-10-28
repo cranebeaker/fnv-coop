@@ -14,20 +14,19 @@
    "StartQuest 139B8D@falloutnv.esm: host (absent) / client StartQuest 139B8D@falloutnv.esm"
   ],
   "found": {
-   "at_ms": 19174.075,
+   "at_ms": 12745.907,
    "class": "divergence",
-   "detail": "effect 0 of txn seq 3 differs between machines: slot(s) [1] hash 48c4576dc096c9db; slot(s) [1] hash 77657f03ec901d00",
+   "detail": "effect 0 of txn seq 1 differs between machines: slot(s) [1] hash 0a61f6cc31caab92; slot(s) [1] hash 2cc028b215cbd8df; slot(s) [1] hash 8b4d653634ca56e3",
    "healed": true,
-   "key": "txn:3[0]",
+   "key": "txn:1[0]",
    "kind": "txn-hash",
    "suspects": [
     1
    ]
   },
   "symptoms": [
-   "digest mismatch x21",
-   "7 repair(s), 1411 effect(s) repaired",
-   "sync lag: slot 1 acked 3559 of 3560"
+   "digest mismatch x27",
+   "26 repair(s), 1722 effect(s) repaired"
   ]
  },
  "expect": {
@@ -37,52 +36,52 @@
  },
  "format": "trace-1",
  "headers": {
-  "0": "4e56465201004000000000000600000088fa016aa101000010f9ed0d000000000000000000000000ecdd00000000000000000000000000000000000000000000",
-  "1": "4e564652010040000101000006000000280a026aa101000092f9b00d000000000000000000000000ebb200000000000000000000000000000000000000000000"
+  "0": "4e56465201004000000000000600000098b4cf63a10100002ea79b130000000000000000000000009ef300000000000000000000000000000000000000000000",
+  "1": "4e56465201004000010100000600000038c4cf63a1010000a26a6113000000000000000000000000713501000000000000000000000000000000000000000000"
  },
  "shrunk": {
   "complete": true,
   "first": {
    "category": "divergence",
-   "key": "txn:185[1]"
+   "key": "txn:17[0]"
   },
-  "oracle_runs": 80,
-  "original_steps": 102615,
+  "oracle_runs": 75,
+  "original_steps": 141583,
   "reduced_steps": 2,
-  "seconds": 1.73,
+  "seconds": 4.58,
   "signature": "divergence txn:#[#]",
   "stages": [
-   "window +-60000ms: 102615 -> 24571 records",
-   "dropped all NetIn (2235 records)",
-   "dropped all NetOut (2239 records)",
-   "dropped all Marker (17140 records)",
-   "dropped all Digest (42 records)",
+   "dropped all NetIn (3721 records)",
+   "dropped all NetOut (3770 records)",
+   "dropped all Marker (132665 records)",
+   "dropped all TxnCaptured (56 records)",
+   "dropped all Digest (191 records)",
    "dropped all Meta (2 records)"
   ],
   "violations": [
-   "divergence txn:185[1]",
-   "divergence txn:185[1]"
+   "divergence txn:17[0]",
+   "divergence txn:17[0]"
   ]
  },
  "source": {
   "failure": "FAIL-1-01-everyone_at_the_ganger_he_carries_the_same_loot_everywhere",
-  "kind": "settle",
+  "kind": "snapdiff",
   "playbook": "corpse_loot_race",
-  "reason": "machines did not converge within 38.4653s: lastSeq per machine {'host': 3559, 'client1': 3559}, host allSynced=False",
+  "reason": "snapdiff found differences. host vs client1: 1 difference(s), first: {'kind': 'changed', 'path': 'shared/quests/FalloutNV.esm:104EAE/vars/nGangerDeathCount', 'a': 3, 'b': 0, 'label': 'shared/quests/VMS16 (FalloutNV.esm:104EAE)/vars/nGangerDeathCount'}",
   "recordings": [
    {
     "dropped": 0,
-    "file": "nvcoop-manual-1792780110932-10.nvfr",
+    "file": "nvcoop-manual-1792676248374-14.nvfr",
     "name": "host",
-    "records": 56812,
+    "records": 62366,
     "role": "host",
     "slot": 0
    },
    {
     "dropped": 0,
-    "file": "nvcoop-manual-1792780111063-6.nvfr",
+    "file": "nvcoop-manual-1792676248800-14.nvfr",
     "name": "client1",
-    "records": 45803,
+    "records": 79217,
     "role": "client",
     "slot": 1
    }
@@ -92,15 +91,15 @@
  },
  "steps": [
   {
-   "at_ms": 67097.428,
-   "hex": "05001c001e0a000039d5c00300000000b900000000000000010000000001000000000602486e97c577044a8c",
+   "at_ms": 165587.708,
+   "hex": "05001c00c70700005dd49d09000000001100000000000000020000000000000000000624b5df64374adcf223",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"
   },
   {
-   "at_ms": 75145.235,
-   "hex": "05001c00e20b0000f8a13b0400000000b900000000000000020000000001000000000602e9304e0549eb9ccb",
+   "at_ms": 264036.521,
+   "hex": "05001c004a0c00000a0a7c0f0000000011000000000000000300000000000000000006244d19e8e3c4f28a27",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"

@@ -163,6 +163,8 @@ Value StatsJson(const PortStats& s) {
     n("standInsPurged", s.standInsPurged); n("baseSwaps", s.baseSwaps); n("baseSwapFailed", s.baseSwapFailed);
     n("protectOn", s.protectOn); n("protectOff", s.protectOff); n("kills", s.kills); n("revives", s.revives);
     n("ledgerReleased", s.ledgerReleased); n("ledgerWrites", s.ledgerWrites); n("ledgerDropped", s.ledgerDropped);
+    n("avDrifts", s.avDrifts);
+    o.set("lastDriftNet", static_cast<int64_t>(s.lastDriftNet)).set("lastDriftCur", s.lastDriftCur).set("lastDriftWant", s.lastDriftWant);
     return o;
 }
 
@@ -388,7 +390,12 @@ void OnLoad(void* nvse) {
     State* st = g_st.get();
     wireApi(st->port, st->feed, st->eng, [] { return glueSync(); });
     nvcoop::actors::setGamePort(&st->port);
-    nvcoop::actors::setSyncConfigurer([st](SyncConfig& sc) { sc.adjacent = [st](CellId a, CellId b) { return st->feed.adjacent(a, b); }; });
+    nvcoop::actors::setSyncConfigurer([st](SyncConfig& sc) {
+        sc.adjacent = [st](CellId a, CellId b) { return st->feed.adjacent(a, b); };
+        sc.acceptRepeatedFinal = IniInt("actors", "norepeatfinal", 0) == 0;       // switches for an A/B run in game: 1 = the behaviour before the lab run of 2026-10-28
+        sc.commitWithoutFinal = IniInt("actors", "nocommitnofinal", 0) == 0;
+        if (IniInt("actors", "noavaudit", 0) != 0) sc.avAuditMs = 0;
+    });
     if (nvse) {
         NVSEInterface* n = static_cast<NVSEInterface*>(nvse);
         // QueryInterface is fine at any time; GetPluginHandle / SetSaveCallback are not (a hot reload crashed NVSE there), so the

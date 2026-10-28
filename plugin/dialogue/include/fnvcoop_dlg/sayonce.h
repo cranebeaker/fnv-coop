@@ -42,6 +42,34 @@ public:
         return a;
     }
 
+    // ---- the engine's own marks (TESTopicInfo::MarkSaid 0x61F220 detour, plugin/hooks_ui), seen on THIS machine
+    // Spoken lines reach the other machines through the dialogue protocol (onSpectated). The marks nobody reports are the ones the engine makes by
+    // itself: a scripted `SayTo` in a quest stage result runs on every machine that applies the stage, and only the copy whose NPC is loaded and
+    // near speaks (and marks) it (story S06: SayOnceFlag 10A1E6 set on the guest, absent on the host, never repaired because the digest only copies
+    // the host's flags to guests). Shared lines: a guest reports the mark to the host, the host commits it (marks its own copy and records the
+    // SayOnceFlag effect), so every copy agrees. Per-player lines (Speech-XP, trainer; D11) stay with the player who used them: never reported.
+    struct Route {
+        enum Kind : uint8_t { Ignore, ReportToHost, CommitOnHost } kind = Ignore;
+    };
+    // The detour only reports a byte that went 0 -> 1 in the call.
+    Route onEngineMark(const fnvcoop::FormRef& info, bool isHost) const {
+        Route r;
+        if (info.plugin.empty()) return r;
+        if (perPlayer(info) && !mutations().sayOnceMarkTrainerShared) return r;
+        if (isHost) { r.kind = mutations().sayOnceMarkHostNoCommit ? Route::Ignore : Route::CommitOnHost; return r; }
+        if (mutations().sayOnceMarkNotReported) return r;
+        r.kind = Route::ReportToHost;
+        return r;
+    }
+    // The host got a guest's report. CommitOnHost = mark the host's copy and record the SayOnceFlag effect.
+    Route onGuestReport(const fnvcoop::FormRef& info) const {
+        Route r;
+        if (info.plugin.empty() || mutations().sayOnceMarkHostDrops || mutations().sayOnceMarkHostNoCommit) return r;
+        if (perPlayer(info) && !mutations().sayOnceMarkTrainerShared) return r;
+        r.kind = Route::CommitOnHost;
+        return r;
+    }
+
 private:
     std::set<fnvcoop::FormRef> perPlayer_, own_;
 };

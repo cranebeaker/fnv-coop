@@ -381,7 +381,11 @@ void Build(Runtime* rt) {
         if (g_st.session) g_st.session->onAdvanceTimeEffect(minutes, NowMs());
         return true;
     });
-    nvworld::setObjectStateObserver([](const fnvcoop::ObjectState& s) { if (g_st.watcher) g_st.watcher->onAuthoritative(s); });
+    nvworld::setObjectStateObserver([](const fnvcoop::ObjectState& s) {
+        if (g_st.role == nvwt::Role::Client)
+            nvcoop::Log("worldtime: host's word on %s mask=%u open=%d locked=%d", nvhooks::refToStr(s.ref).c_str(), (unsigned)s.mask, (int)s.open, (int)s.locked);
+        if (g_st.watcher) g_st.watcher->onAuthoritative(s);
+    });
     nvcoop::Log("worldtime: session started role=%s travel=%s", g_st.role == nvwt::Role::Host ? "host" : "client", g_cfg.partyTravel ? "party" : "free");
 }
 
@@ -422,13 +426,15 @@ void ObjectTick(uint64_t now) {
         obs.lockLevel = rd.lockLevel;
         obs.destroyed = rd.destroyed;
         if (g_st.role == nvwt::Role::Host) {
-            for (auto& s : g_st.watcher->observeHost(obs, now)) record.push_back(s);
+            for (auto& s : g_st.watcher->observeHost(obs, now)) {
+                nvcoop::Log("worldtime: poll sends ObjectState %s mask=%u open=%d locked=%d", o.ref.c_str(), (unsigned)s.mask, (int)s.open, (int)s.locked);
+                record.push_back(s);
+            }
         } else if (auto heal = g_st.watcher->observeGuest(obs, now)) {
             // the host's word wins: re-apply it the way the applier would (console lines on the object, with the block lifted)
             fnvcoop::EchoGuard echo(nvhooks::hub() ? &nvhooks::hub()->echo() : nullptr);
             nvhooks::ApplyScope ap;
-            nvhooks::ScriptGate gate;
-            nvhooks::ApplierExecScope ex;
+            nvhooks::ApplierExecScope ex;   // no ScriptGate: a console line is a script and an open gate only pretends it ran (a heal did nothing, again and again)
             if (heal->mask & fnvcoop::kObjLock) nvhooks::execConsoleLineOn(heal->locked ? nvhooks::lockCmd(heal->level) : nvhooks::unlockCmd(), o.refID);
             if (heal->mask & fnvcoop::kObjOpen) nvhooks::execConsoleLineOn(nvhooks::setOpenStateCmd(heal->open), o.refID);
             if (heal->mask & fnvcoop::kObjDestroyed) nvhooks::execConsoleLineOn(nvhooks::setDestroyedCmd(heal->destroyed), o.refID);

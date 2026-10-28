@@ -13,11 +13,13 @@ import heapq
 import math
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+import lab_net
 from lab_core import CLIENT, HOST, Machine, dist2
 from lab_layout import Layout
 
 DT = 0.05
 SPEED = 220.0
+VATS_DAMAGE = 3.0       # a VATS pistol hit (the real one does about 9)
 BUGS = {
     # spawn / connection
     "client_stays_out": "the client never follows into the lab cell",
@@ -33,7 +35,8 @@ BUGS = {
     # fight
     "enable_unsynced": "the client never sees the hostiles the host enabled",
     "weak_unsynced": "the client never sees the health the host set on a hostile (the owner's SetAV does not reach the other copy)",
-    "hostiles_charge": "a hostile enabled more than 1 s before a shot has walked up to the shooter (aim_at: too_close)",
+    "hostiles_charge": "a hostile enabled more than 1 s before a shot has walked up to the shooter (aim_at: too_close; VATS: vats_not_entered); a restrained one stays where it is",
+    "target_drifts": "a hostile that nobody restrains drifts 659 units away from the shooter (out of the pistol's range) a second after it was enabled",
     "host_kill_unseen": "the client never sees a death the host caused",
     "client_kill_unseen": "the host never sees a death the client caused",
     "slow_death": "a death reaches the other copy 6 s late",
@@ -50,6 +53,7 @@ BUGS = {
     "terminal_unsynced": "using the terminal only unlocks on the copy that used it",
     "terminal_noop": "the terminal menu takes the click but its script unlocks nothing, on either copy (measured on the second PC with the stock unlock terminal)",
     "locked_door_opens": "a locked door opens for the host anyway",
+    "locked_try_opens_lockpick": "activating the locked door opens the lockpick menu on that copy and it stays open: it eats the input (open, close, VATS) until the room closes it (the first lab run's door and VATS rooms)",
     # npc
     "no_handoff": "NPC ownership never leaves the host, not even when the host has left the lab cell",
     "nearest_owner": "NPC ownership goes to the nearest player (the host loses it to a nearer client while it is still in the lab cell)",
@@ -57,6 +61,7 @@ BUGS = {
     "npc_pos_stale": "the non-owner copy never gets NPC positions",
     "handoff_snap": "the new owner puts the NPC 700 units off its place",
     "npc_static": "the NPC does not patrol",
+    "slow_npc_samples": "reading the NPC's position takes 0.5 s (a busy PC, two copies read one after the other) and the NPC walks 300 units per second: a step between two samples is far over the snap limit and is no snap",
     # vats
     "vats_unsynced": "VATS damage never reaches the other copy",
     "vats_double": "VATS damage is applied twice on the other copy",
@@ -66,7 +71,12 @@ BUGS = {
     "var_unsynced": "the client never sees a quest variable",
     "stage_rollback": "the client's stage drops back 3 s after the host set a later one",
     "var_unreadable": "this build cannot read quest variables",
+    # not a bug of the product: how the real game reports a kill
+    "kill_health_split": "a VATS kill reads health -14 on the host (the owner publishes below 0) and 1 on the client (the actor port never writes under 1), dead on both",
+    # network pass only (the clean pass is untouched)
+    "net_slow": "behind a chaos profile every change takes 12 s to reach the other copy",
 }
+NET_ONLY = {"net_slow"}
 
 
 class ConnectionLost(Exception):
@@ -104,6 +114,7 @@ class Side:
         self.reports: List[Dict[str, Any]] = []
         self.picked: Set[str] = set()
         self.vats_shots = 0
+        self.menu = ""                                      # a menu this copy has open and has not closed
 
 
 class World:
@@ -131,6 +142,11 @@ class World:
         self.truth = {"owner": 0, "epoch": 1}
         self.seq = 0
         self.enabled_at: Dict[str, float] = {}
+        self.held: Set[str] = set()
+        self.fps = {HOST: 60.0, CLIENT: 60.0}   # frames per second of each copy (the frame counter of coop.status; FakeEnv(fps=...) changes it)
+        self.resend_every = 0         # a network pass: every Nth message is lost once and arrives `rto` late
+        self.rto = 0.0
+        self.profile = ""
         self._build()
 
     def has(self, bug: str) -> bool:
@@ -181,7 +197,8 @@ class World:
     def send(self, to: str, fn: Callable[["Side"], None], extra_delay: float = 0.0, tag: str = "") -> None:
         self.n += 1
         side = self.sides[to]
-        heapq.heappush(self.q, (self.t + self.latency + extra_delay, self.n, tag, lambda: fn(side)))
+        late = self.rto if self.resend_every and self.n % self.resend_every == 0 else 0.0
+        heapq.heappush(self.q, (self.t + self.latency + extra_delay + late, self.n, tag, lambda: fn(side)))
 
     def in_flight(self) -> bool:
         """Anything but a position update still on its way (the digest and allSynced wait for quiet, like the real ones)."""
@@ -245,7 +262,7 @@ class World:
             if d < 20:
                 self.npc_target ^= 1
             else:
-                step = min(d, 60.0 * dt)
+                step = min(d, (300.0 if self.has("slow_npc_samples") else 60.0) * dt)
                 o["pos"][0] += (tgt[0] - o["pos"][0]) / d * step
                 o["pos"][1] += (tgt[1] - o["pos"][1]) / d * step
         self.npc_tick += 1
@@ -317,7 +334,7 @@ class FakeMachine(Machine):
     def status(self) -> Dict[str, Any]:
         self._up()
         w = self.w
-        base = {"role": self.name, "lastSeq": int(w.t * 3), "counters": {"frames": int(w.t * 60)}}
+        base = {"role": self.name, "lastSeq": int(w.t * 3), "counters": {"frames": int(w.t * w.fps[self.name])}}
         if self.name == HOST:
             d = self.s.digest
             base.update(host={"allSynced": not w.in_flight(), "connected": 1, "peers": [{"slot": 1, "acked": int(w.t * 3), "joined": not w.has("not_joined")}]},
@@ -350,6 +367,8 @@ class FakeMachine(Machine):
         if ref is None:
             return tuple(self.s.pos)
         if ref in self.s.objs:
+            if ref == self.w.npc and self.w.has("slow_npc_samples"):
+                self.w.clock.sleep(0.5)
             return tuple(self.s.objs[ref]["pos"])
         return tuple(self.w.refpos[ref])
 
@@ -421,7 +440,7 @@ class FakeMachine(Machine):
         lay = self.w.layout
         self.s.cell = 1 if cells[0] in (lay.cell_edid, getattr(lay, "cell_alt", "")) else 2
         self.s.pos = [0.0, 0.0, 0.0]
-        self.w.clock.sleep(3.0)
+        self.w.clock.sleep(0.5)       # the real coc takes seconds, but the room's watchers sample all the while there; the fake has no watcher threads
         return True, ""
 
     def goto_pos(self, x: float, y: float, z: float) -> Tuple[bool, str]:
@@ -474,6 +493,12 @@ class FakeMachine(Machine):
         if died:
             w.noise()
 
+    def hold(self, ref: str) -> Tuple[bool, str]:
+        self._up()
+        if self.name == HOST:
+            self.w.held.add(ref)
+        return True, ""
+
     def kill(self, ref: str) -> Tuple[bool, str]:
         self._up()
         if self.name != HOST:
@@ -485,8 +510,10 @@ class FakeMachine(Machine):
         self._up()
         if not self.s.armed:
             return False, "no weapon"
-        if self.w.has("hostiles_charge") and self.w.t - self.w.enabled_at.get(ref, self.w.t) > 1.0:
+        if self.w.has("hostiles_charge") and ref not in self.w.held and self.w.t - self.w.enabled_at.get(ref, self.w.t) > 1.0:
             return False, "the shot failed: fire: FAILED too_close: the player is 60 units from the target (minimum 100)"
+        if self.w.has("target_drifts") and ref not in self.w.held and self.w.t - self.w.enabled_at.get(ref, self.w.t) > 1.0:
+            return False, "no clear shot even from the standoff (659 units, line of sight unknown); 3 approach(es)"
         for _ in range(volleys):
             o = self._obj(ref)
             if not o["alive"]:
@@ -501,21 +528,33 @@ class FakeMachine(Machine):
             return False, "vats_target: FAILED rpc_error:unsupported: limb selection in VATS is not implemented"
         if not self.s.armed:
             return False, "VATS did not open (no weapon)"
+        ok, why = self._menu_eats_input()
+        if not ok:
+            return False, "vats_target: FAILED vats_failed (3.28s) {'why': 'vats_not_entered (no weapon, no target in view, or no AP)'} " + why
         o = self._obj(ref)
         if not o["alive"]:
             return False, "dead"
+        if self.w.has("hostiles_charge") and ref not in self.w.held and self.w.t - self.w.enabled_at.get(ref, self.w.t) > 1.0:
+            return False, "vats_target: FAILED vats_failed (3.28s) {'why': 'vats_not_entered (no weapon, no target in view, or no AP)'}"
         self.s.vats_shots += 1
         self.w.clock.sleep(1.5)
         if self.s.vats_shots % 3 == 0:
             return True, "miss"
-        hp = o["hp"] - 20.0
+        hp = o["hp"] - VATS_DAMAGE
         o["hp"] = max(0.0, hp)
         o["alive"] = o["hp"] > 0
         w = self.w
+        split = w.has("kill_health_split") and not o["alive"]
+        if split:             # the owner (the host) publishes -14, a copy that is not the owner never holds under 1
+            o["hp"] = -14.0 if self.name == HOST else 1.0
         if not w.has("vats_unsynced"):
             n = 2 if w.has("vats_double") else 1
-            w.send(w.other(self.name), lambda s, ref=ref, hp=hp, n=n: (s.objs[ref].__setitem__("hp", max(0.0, s.objs[ref]["hp"] - 20.0 * n)),
-                                                                          s.objs[ref].__setitem__("alive", s.objs[ref]["hp"] > 0)))
+            if split:
+                far = 1.0 if self.name == HOST else -14.0
+                w.send(w.other(self.name), lambda s, ref=ref, far=far: (s.objs[ref].__setitem__("hp", far), s.objs[ref].__setitem__("alive", False)))
+            else:
+                w.send(w.other(self.name), lambda s, ref=ref, hp=hp, n=n: (s.objs[ref].__setitem__("hp", max(0.0, s.objs[ref]["hp"] - VATS_DAMAGE * n)),
+                                                                              s.objs[ref].__setitem__("alive", s.objs[ref]["hp"] > 0)))
         return True, ""
 
     # ---- loot
@@ -585,9 +624,21 @@ class FakeMachine(Machine):
         return True, ""
 
     # ---- doors
+    def _menu_eats_input(self) -> Tuple[bool, str]:
+        return (False, f"FAILED postcondition: the {self.s.menu} menu is open and eats the input") if self.s.menu else (True, "")
+
+    def close_menus(self) -> Tuple[bool, str]:
+        self.s.menu = ""
+        return True, ""
+
     def open_door(self, ref: str) -> Tuple[bool, str]:
         d = self._obj(ref)
+        ok, why = self._menu_eats_input()
+        if not ok:
+            return False, why
         if d["locked"] and not (self.name == HOST and self.w.has("locked_door_opens")):
+            if self.w.has("locked_try_opens_lockpick"):
+                self.s.menu = "lockpick"
             return False, "locked"
         d["open"] = True
         self._door_sync(ref, "open", True)
@@ -595,6 +646,9 @@ class FakeMachine(Machine):
 
     def close_door(self, ref: str) -> Tuple[bool, str]:
         d = self._obj(ref)
+        ok, why = self._menu_eats_input()
+        if not ok:
+            return False, why
         d["open"] = False
         self._door_sync(ref, "open", False)
         return True, ""
@@ -644,8 +698,9 @@ class FakeEnv:
     """What lab.py needs from a world: pairs, machines, the way into the lab, the crash probe, a reset. One World per pair."""
     live = False
 
-    def __init__(self, layout: Layout, bugs=(), pairs_max: int = 3):
+    def __init__(self, layout: Layout, bugs=(), pairs_max: int = 3, fps: Optional[Dict[str, float]] = None):
         self.layout, self.bugs, self.pairs_max = layout, set(bugs), pairs_max
+        self.fps = dict(fps or {})        # {"host": 30, "client": 20}: the frame rate of the fake copies (default 60)
         unknown = self.bugs - set(BUGS)
         if unknown:
             raise ValueError(f"unknown fake bug(s) {sorted(unknown)}; the names are in labfake.BUGS")
@@ -662,8 +717,16 @@ class FakeEnv:
 
     def prepare(self, pair: int) -> Optional[Tuple[str, str]]:
         self.prepared.append(pair)
-        self.worlds[pair] = World(self.layout, self.bugs)
+        self.worlds[pair] = self._world()
         return None
+
+    def _world(self) -> World:
+        w = World(self.layout, self.bugs)
+        w.fps.update(self.fps)
+        return w
+
+    def copies_running(self) -> int:
+        return 2 * len(self.worlds)
 
     def world(self, pair: int) -> World:
         return self.worlds[pair]
@@ -689,8 +752,30 @@ class FakeEnv:
         w = self.worlds[pair]
         return lambda: sorted(w.dead)
 
-    def reset(self, pair: int) -> None:
-        self.worlds[pair] = World(self.layout, self.bugs)
+    def reset(self, pair: int) -> Optional[Tuple[str, str]]:
+        self.worlds[pair] = self._world()
+        return None
+
+    # ---- the network pass: the same world with the profile's delay and a lost-once message now and then
+    def net_begin(self, pair: int, profile: str, seed: int = 7) -> Optional[str]:
+        w = self.worlds[pair]
+        p = lab_net.profiles().get(profile)
+        if p is None:
+            return f"no profile {profile!r} in tools/chaos/profiles.json"
+        d, j = float(p.get("latency_ms", 0)), float(p.get("jitter_ms", 0))
+        w.profile = profile
+        w.latency += (d + j / 2.0) / 1000.0
+        loss = float(p.get("loss", 0)) + (0.05 if float(p.get("burst_enter", 0)) else 0.0)
+        w.resend_every = int(round(1.0 / loss)) if loss > 0 else 0
+        w.rto = (2 * d + 4 * j) / 1000.0
+        if w.has("net_slow"):
+            w.latency = 12.0
+        self.net_active = getattr(self, "net_active", set()) | {pair}
+        return None
+
+    def net_end(self, pair: int) -> Optional[Dict[str, Any]]:
+        self.net_active = getattr(self, "net_active", set()) - {pair}
+        return {"relay": {"c2s": {"forwarded": 100, "dropped": 1}, "s2c": {"forwarded": 100, "dropped": 1}}, "fake": True}
 
     def finish(self) -> None:
         self.finished = True

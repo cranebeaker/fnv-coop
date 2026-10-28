@@ -108,6 +108,11 @@ bool ScriptActorEngine::forceAv(RefId ref, uint8_t av, float value) {
 }
 
 bool ScriptActorEngine::killActor(RefId ref) { return line(lines::kill(), ref); }
+bool ScriptActorEngine::killActorBy(RefId ref, RefId killer) {
+    // MUTANT 75 (engine_port tests): the attribution is dropped, the plain kill runs (the victim has no killer, IsKiller is false for the guest)
+    if (killer && !FNV_MUT(75) && h_.killWithAttribution(ref, killer)) return true;
+    return killActor(ref);
+}
 bool ScriptActorEngine::resurrect(RefId ref) { return line(lines::resurrect(), ref); }
 bool ScriptActorEngine::setDisabled(RefId ref, bool disabled) { return line(lines::setDisabled(disabled), ref); }
 bool ScriptActorEngine::markForDelete(RefId ref) { return line(lines::markForDelete(), ref); }

@@ -6,7 +6,7 @@ using namespace ctest;
 
 namespace {
 
-constexpr uint32_t A100 = 100, A101 = 101, A102 = 102;
+constexpr uint32_t A100 = 100, A101 = 101, A102 = 102, A200 = 200;
 
 Bytes hitDatagram(PlayerId src, PlayerId dest, const cc::HitEvent& h, uint8_t hops = 0) {
     Envelope e; e.src = src; e.dest = dest; e.hops = hops; e.body = MHit{h};
@@ -341,6 +341,55 @@ TEST(combat_death, a_lethal_hit_kills_once_and_the_killer_gets_the_xp_once) {
     REQUIRE(d != nullptr);
     CHECK(d->killer == cc::Entity::player(2));
     CHECK(d->weapon == rifle());
+}
+
+// ---- G04: a guest's kill is a kill BY that guest on the host (IsKiller player) --------------------------------------------------------------
+TEST(combat_killer, the_host_owner_kills_a_victim_of_a_remote_players_lethal_shot_as_that_players_puppet) {
+    Cluster c(3);
+    c.addActor(A100, 0, 3, {200, 0, 0}, 50);                       // the host owns it
+    c.cs(2).onEngineHit(c.shot(2, refOfActor(A100), 80));          // guest 2 shoots it dead
+    c.run(300);
+    CHECK(!alive(c, 0, A100));
+    CHECK_MSG(c.at(0).eng.killsBy.size() == 1, "the lethal blow was not credited to the guest");
+    if (!c.at(0).eng.killsBy.empty()) CHECK(c.at(0).eng.killsBy[0].first == refOfActor(A100) && c.at(0).eng.killsBy[0].second == refOfPlayer(0, 2));
+    CHECK(c.cs(0).stats().killsAttributed >= 1);
+    // a shot of the host's own player stays a plain damage line (the engine attributes the local player itself)
+    c.addActor(A200, 0, 3, {250, 0, 0}, 50);
+    c.cs(0).onEngineHit(c.shot(0, refOfActor(A200), 80));
+    c.run(300);
+    CHECK(c.at(0).eng.killsBy.size() == 1);
+}
+
+TEST(combat_killer, the_host_copy_of_a_guests_victim_is_killed_with_the_guests_credit_whoever_owns_it) {
+    Cluster c(3);
+    c.addActor(A100, 1, 3, {800, 0, 0}, 50);                       // guest 1 owns it, guest 2 shoots it
+    CHECK(c.cs(0).killerPuppetOf(refOfActor(A100)) == 0);          // nobody has shot it yet
+    c.cs(2).onEngineHit(c.shot(2, refOfActor(A100), 80));
+    c.run(300);
+    CHECK(!alive(c, 0, A100));
+    CHECK(c.cs(0).killerPuppetOf(refOfActor(A100)) == refOfPlayer(0, 2));   // what the actor port asks when it kills the host's copy
+    CHECK(c.cs(1).killerPuppetOf(refOfActor(A100)) == 0 && c.cs(2).killerPuppetOf(refOfActor(A100)) == 0);   // only the host runs the story
+}
+
+TEST(combat_killer, a_corpse_that_was_already_here_gets_the_killer_written_and_a_lethal_blow_with_a_float_sliver_is_still_credited) {
+    Cluster c(3);
+    c.propagateDeaths = false;
+    c.addActor(A100, 1, 3, {800, 0, 0}, 50);
+    c.at(0).world.recs[cc::Entity::actor(A100)].alive = false;     // the host's copy died before the declaration got there
+    c.at(0).world.recs[cc::Entity::actor(A100)].health = 0;
+    c.cs(2).onEngineHit(c.shot(2, refOfActor(A100), 80));
+    c.run(300);
+    CHECK_MSG(c.at(0).eng.killerSet.size() == 1, "the corpse never got its killer");
+    if (!c.at(0).eng.killerSet.empty()) CHECK(c.at(0).eng.killerSet[0].second == refOfPlayer(0, 2));
+    // the lethal blow of a remote player on a victim the engine would leave standing (a float sliver): the credited kill finishes it in one go
+    Cluster d(3);
+    d.addActor(A100, 0, 3, {200, 0, 0}, 12);
+    d.at(0).world.recs[cc::Entity::actor(A100)].sliver = 0.4f;
+    d.at(0).eng.refuseLethal = true;
+    d.cs(2).onEngineHit(d.shot(2, refOfActor(A100), 20));
+    d.run(900);
+    CHECK(!alive(d, 0, A100));
+    CHECK(!d.at(0).eng.killsBy.empty() && d.at(0).eng.killsBy.back().second == refOfPlayer(0, 2));
 }
 
 TEST(combat_death, a_native_kill_by_the_local_player_is_not_paid_twice) {

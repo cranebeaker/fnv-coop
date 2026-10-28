@@ -49,12 +49,26 @@ inline constexpr Pin EvalGetItemCount = {"GetItemCount", 0x59D8E0u,
 inline constexpr Pin EvalGetEquipped = {"GetEquipped", 0x59DA90u,
     {0x55, 0x8b, 0xec, 0x83, 0xec, 0x18, 0x8b, 0x45, 0x14, 0xd9, 0xee, 0xdd, 0x18, 0xc7, 0x45, 0xf8}, "command_table.json"};
 
+// W3a item 3 (facts of the local player). Same bytes and addresses as plugin/hooks/engine_addrs.h Cond_GetLevel / Cond_GetSitting / Cond_IsPlayerActionActive
+// (conf V, docs/engine-addresses.md section 12). GetLevel and GetSitting read thisObj; IsPlayerActionActive ignores it (the global player) and takes an integer in p1.
+inline constexpr Pin EvalGetLevel = {"GetLevel", 0x5A00C0u,
+    {0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x8b, 0x45, 0x14, 0xd9, 0xee, 0xdd, 0x18, 0xc7, 0x45, 0xfc}, "plugin/hooks/engine_addrs.h"};
+inline constexpr Pin EvalGetSitting = {"GetSitting", 0x59DD90u,
+    {0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x8b, 0x45, 0x14, 0xd9, 0xee, 0xdd, 0x18, 0xc7, 0x45, 0xfc}, "plugin/hooks/engine_addrs.h"};
+inline constexpr Pin EvalIsPlayerActionActive = {"IsPlayerActionActive", 0x5A3B20u,
+    {0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x8b, 0x45, 0x14, 0xd9, 0xee, 0xdd, 0x18, 0x8b, 0x4d, 0x0c}, "plugin/hooks/engine_addrs.h"};
+
+// Guest pack facts: GetActorValue (InventoryWeight for the Jed gate). Same address and bytes as plugin/hooks/engine_addrs.h Cond_GetActorValue (conf V); p1 is the actor value code itself.
+inline constexpr Pin EvalGetActorValue = {"GetActorValue", 0x59C4F0u,
+    {0x55, 0x8b, 0xec, 0x83, 0xec, 0x0c, 0x8b, 0x45, 0x0c, 0x89, 0x45, 0xfc, 0xc7, 0x45, 0xf8, 0x00}, "plugin/hooks/engine_addrs.h"};
+
 // thiscall bool TESObjectREFR::IsDisabled(): ExtraData 0x92 flags & 8 (plugin/hooks/engine_addrs.h RefIsDisabled, conf M: semantics inferred).
 inline constexpr Pin RefIsDisabled = {"TESObjectREFR::IsDisabled", 0x565090u,
     {0x55, 0x8b, 0xec, 0x83, 0xec, 0x0c, 0x89, 0x4d, 0xf4, 0x68, 0x92, 0x00, 0x00, 0x00, 0x8b, 0x4d}, "plugin/hooks/engine_addrs.h"};
 
 inline constexpr const Pin* kAllPins[] = {&LookupFormByID, &MenuModeAny, &EvalGetRestrained, &EvalIsWeaponOut,
-                                          &EvalIsSneaking, &EvalGetDead, &EvalGetItemCount, &EvalGetEquipped, &RefIsDisabled};
+                                          &EvalIsSneaking, &EvalGetDead, &EvalGetItemCount, &EvalGetEquipped, &RefIsDisabled,
+                                          &EvalGetLevel, &EvalGetSitting, &EvalIsPlayerActionActive, &EvalGetActorValue};
 inline constexpr size_t kPinCount = sizeof(kAllPins) / sizeof(kAllPins[0]);
 
 // ---- data addresses (docs/engine-addresses.md section 3) ----
@@ -72,6 +86,9 @@ inline constexpr uint32_t kActorLifeState = 0x108;
 inline constexpr uint32_t kActorSwimming = 0x14D;       // not proven (animprobe), runtime guarded
 inline constexpr uint32_t kActorMover = 0x190;          // ActorMover*, vtable checked below
 inline constexpr uint32_t kPlayerNotFirstPerson = 0x64A;
+// PlayerCharacter::regionsList, a BSSimpleList<TESRegion> (xNVSE GameObjects.h: `TESRegionList regionsList; // 764`; the IsPlayerInRegion command 0x5CF490 reads it through
+// 0x4F2770, docs/engine-addresses.md section 11). Node = {TESRegion* item; node* next}, the head node is inline. TESForm::refID at +0x0C.
+inline constexpr uint32_t kPlayerRegionList = 0x764, kFormRefId = 0x0C;
 inline constexpr uint32_t kVtblActorMover = 0x0109223Cu, kVtblPlayerMover = 0x0109297Cu;
 // BaseProcess vtable slots (tools/animcheck/verify_engine.py)
 inline constexpr uint32_t kProcGetAnimData = 0x6E, kProcGetAnimAction = 0xF9, kProcIsAiming = 0x101, kProcGetKnocked = 0x103,

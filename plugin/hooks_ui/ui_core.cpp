@@ -151,15 +151,26 @@ Route UiRouter::onServiceMenu(const ServiceMenuCall& c) {
 
 // ------------------------------------------------------------------ conditions
 double UiRouter::viewQuestVar(uint32_t questRefID, uint32_t idx, double real) {
-    if (!br_.viewVar || !br_.watchesQuest || !br_.watchesQuest(questRefID)) return real;
+    const bool companions = br_.viewVar && br_.watchesQuest && br_.watchesQuest(questRefID);
+    bool playerVars = false;   // G24: the quest has per-player variables of the rules engine (asked once per quest)
+    if (br_.viewPlayerVar && br_.hasPlayerVars && !mut(28)) {   // MUTANT 28: the per-player variable view is never applied
+        auto c = playerVarQuests_.find(questRefID);
+        if (c == playerVarQuests_.end()) {
+            FormRef q;
+            c = playerVarQuests_.emplace(questRefID, eng_.refOf(questRefID, q) && br_.hasPlayerVars(q)).first;
+        }
+        playerVars = c->second;
+    }
+    if (!companions && !playerVars) return real;
     FormRef q;
     if (!eng_.refOf(questRefID, q)) return real;
     const PlayerId slot = mut(4) ? kHost : origin_.resolve(0, 0, eng_.nowMs());  // MUTANT 4: always the host's view
-    const int32_t before = int32_t(real);
-    const int32_t v = br_.viewVar(q, idx, slot, before);
+    double v = real;
+    if (companions) v = double(br_.viewVar(q, idx, slot, int32_t(real)));
+    if (playerVars) v = br_.viewPlayerVar(q, idx, slot, v);
     ++stats_.condViews;
-    if (v != before) ++stats_.condChanged;
-    return double(v);
+    if (v != real) ++stats_.condChanged;
+    return v;
 }
 
 // ------------------------------------------------------------------ forced dialogue

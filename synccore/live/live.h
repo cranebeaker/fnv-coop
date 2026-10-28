@@ -21,6 +21,7 @@
 #include <deque>
 #include <map>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 #include "fnvcoop/types.h"
@@ -177,6 +178,13 @@ struct LiveFaults {
     bool dropAnimExt = false;         // encoder forgets the animation extension (one-shots, dead, knocked ...)
     bool animExtNoDelta = false;      // delta encoder does not notice an extension-only change (a lone actionSeq bump is lost)
     bool acceptBadAnimExt = false;    // decoder accepts reserved bits / an all-zero extension (non-canonical forms)
+    // InterpBuffer low-latency mode (the player avatar stream, InterpConfig::lowLatency)
+    bool llFixedDelay = false;        // the render delay ignores the measured jitter (stays at the ceiling): the old, laggy buffer
+    bool llNoDamping = false;         // dead reckoning is undamped (v * t): a stop overshoots by the whole extrapolated stretch
+    bool llNoBlend = false;           // a snapshot that disagrees with the prediction pops the puppet instead of being faded out
+    bool llNoSlew = false;            // the render clock follows the offset filter / delay changes at once (lumpy steps)
+    bool llOldInterval = false;       // low-latency mode: the stream's interval is the EMA of every gap, silence included (the idle heartbeat drives the delay to its slow-stream ceiling)
+    bool noTeleportSnap = false;      // InterpBuffer: a target that jumped by more than teleportUnits in one step is eased in (the catch-up) instead of snapped
 };
 inline LiveFaults& liveFaults() { static LiveFaults f; return f; }
 struct LiveFaultScope {
@@ -290,6 +298,31 @@ struct InterpConfig {
     uint32_t offsetWindow = 16;         // samples of (arrival - tick) used for the clock offset (min filter)
     bool adaptiveDelay = true;          // slow streams (far tier, 5 Hz) need a deeper buffer: delay >= 1.25 x interval
     uint32_t maxAdaptiveDelayMs = 350;
+    // ---- low-latency mode (the player avatar stream; false = everything above, unchanged, which is what NPCs use) ---------------------
+    // The render delay is no longer a fixed 100 ms: it follows the measured arrival jitter (delay = minDelayMs + jitterFactor * the
+    // upper-quantile lateness of recent snapshots over the fastest one, at most maxLowLatencyDelayMs), and the buffer renders AHEAD of the
+    // newest snapshot when it must (dead reckoning on the snapshot's velocity, damped so a stop cannot run away). A snapshot that
+    // disagrees with the prediction is not applied as a pop: the difference is faded out over blendMs. The render clock itself (offset
+    // + delay) moves at most slewPerMille/1000 ms per ms, so a changing jitter estimate never makes a visible step. A stream slower than
+    // slowStreamMs (the far tier) keeps the old rule (delay >= 1.25 x interval): it is interpolated, not predicted.
+    bool lowLatency = false;
+    uint32_t minDelayMs = 20;           // floor of the render delay
+    float jitterFactor = 1.0f;          // delay = minDelayMs + jitterFactor * jitter
+    uint32_t maxLowLatencyDelayMs = 120;// ceiling (a link worse than this is carried by the extrapolation and the blend)
+    uint32_t extrapolateTauMs = 150;    // damping time constant: displacement = v * tau * (1 - exp(-t / tau)), never more than v * tau
+    uint32_t blendMs = 70;              // time constant of the fade of a prediction miss (0 = no blending)
+    uint32_t slowStreamMs = 150;        // snapshot interval above this: the old interpolation rule applies
+    uint32_t intervalCapMs = 400;       // a gap between snapshots longer than this is silence (idle heartbeat, outage), not the stream's rate: it does not enter the interval estimate
+    uint32_t slewPerMille = 100;        // the render clock may drift by 10 percent at most
+    // ---- teleports (both modes) -------------------------------------------------------------------------------------------------------
+    // A step of the TARGET (or between two neighbouring snapshots) longer than teleportUnits + teleportSpeed * dt cannot be walking: it is a teleport and the
+    // puppet snaps there. It is never eased in (the old rule eased every jump between 2 and 10 m over 200 ms time constants, so a 500 unit teleport took
+    // 0.6 s to finish) and never interpolated across.
+    bool teleportRules = true;          // false: the rules of master before the round of 2026-10-28 (a 10 m snap only; ini [avatar] legacyRules=1, for before / after runs)
+    bool legacyInterval = false;        // true: the stream's interval is the EMA of every gap, silence included (same switch)
+    float teleportUnits = 350.0f;       // 5 m
+    float teleportSpeed = 800.0f;       // units/s a legitimate mover may add on top (a sprint is about 500; the sampler's own cap is 2200)
+    float silentJumpUnits = 140.0f;     // a standing player who is this far (2 m) from where the previous snapshot stood, after a silence or as a standing one again, jumped
 };
 enum class InterpState : uint8_t {
     Empty,          // nothing pushed yet
@@ -312,6 +345,38 @@ struct InterpOut {
 // Where the engine says the puppet actually is right now (physics may have pushed it). Optional input to sample().
 struct ActualPose { CellId cell = 0; Vec3 pos; };
 
+// A running timing figure: the last value, the sum and count since the start (the difference of two readings gives the mean over the stretch between them),
+// and the largest value of the last 256 samples. Pure data, no clock.
+struct Gauge {
+    double last = 0, sum = 0, max = 0;
+    uint64_t n = 0;
+    double prevMax = 0;
+    void add(double v) {
+        last = v; sum += v; ++n;
+        if (v > max) max = v;
+        if ((n & 255u) == 0) { prevMax = max; max = v; }
+    }
+    double mean() const { return n ? sum / static_cast<double>(n) : 0.0; }
+    double recentMax() const { return max > prevMax ? max : prevMax; }
+};
+std::string gaugeJson(const Gauge& g);   // {"n":N,"last":x,"mean":x,"max":x,"sum":x}
+// What an InterpBuffer is doing, for avatar.status (updated by sample() and push()).
+struct InterpDiag {
+    bool lowLatency = false;
+    uint64_t pushes = 0, samples = 0, extrapolating = 0, holding = 0, snaps = 0, teleportSnaps = 0, eased = 0;
+    int32_t offsetMs = 0;          // clock offset in use: the smallest (arrival - tick) of the window
+    double jitterMs = 0;           // upper-quantile lateness of arrivals over the fastest one
+    double frameMs = 0;            // the caller's smoothed frame length
+    double wantDelayMs = 0;        // render delay the rule asks for (low-latency: min + jitter above one frame; legacy: the fixed / adaptive delay)
+    double lagErrMs = 0;           // render clock minus its target, still slewing
+    int32_t renderAgeMs = 0;       // nowMs - render time: how far behind the sender's clock (as mapped by the offset) the shown pose is = offset + delay in use
+    int32_t newestAgeMs = 0;       // render time - newest snapshot tick: > 0 dead reckoning, < 0 buffered ahead
+    Gauge delayInUse;              // renderAge - offset: the buffer delay actually applied (ms)
+    Gauge hold;                    // arrival stamp -> the first sample() that could use the snapshot (ms): receive and dispatch against the frame order
+    Gauge extrap;                  // render time - newest tick while it is positive (ms)
+    Gauge arrivalGap;              // time between arrival stamps of consecutive snapshots (ms)
+};
+
 class InterpBuffer {
 public:
     explicit InterpBuffer(InterpConfig cfg = {}) : cfg_(cfg) {}
@@ -323,8 +388,19 @@ public:
     void reset();
     size_t size() const { return snaps_.size(); }
     const InterpConfig& config() const { return cfg_; }
+    const InterpDiag& diag() const { return diag_; }
 private:
-    struct Snap { uint32_t tick; CellId cell; Vec3 pos, rot, vel; AnimState anim; AiState ai; };
+    struct Snap { uint32_t tick; CellId cell; Vec3 pos, rot, vel; AnimState anim; AiState ai; bool jump = false; };   // jump: this snapshot is a teleport away from its predecessor
+    bool isJump(const Snap& a, const Snap& b) const;
+    struct Target {
+        InterpState state = InterpState::Interpolating;
+        CellId cell = 0;
+        Vec3 pos, rot, vel;
+        AnimState anim;
+        AiState ai;
+    };
+    // Where the pose should be at sender time `rt`, from the first `n` stored snapshots.
+    Target evalTarget(uint32_t rt, size_t n) const;
     InterpConfig cfg_;
     std::deque<Snap> snaps_;
     std::deque<int64_t> offsets_;   // arrival - tick samples
@@ -332,10 +408,26 @@ private:
     bool smoothing_ = false;
     bool haveTarget_ = false;
     Vec3 corr_, tposPrev_;          // outstanding easing offset (target space) and last frame's target
-    CellId shownCell_ = 0;
+    CellId shownCell_ = 0, tcellPrev_ = 0;
     Vec3 shown_;
     uint32_t lastSampleMs_ = 0;
+    uint32_t prevRt_ = 0;           // render time of the previous sample() (low-latency mode)
     double intervalMs_ = 0;         // smoothed time between snapshots
+    // low-latency mode
+    double jitterMs_ = 0;           // upper-quantile lateness of arrivals over the fastest one
+    double frameMs_ = 0;            // smoothed time between sample() calls (the caller's frame length)
+    double lagErr_ = 0;             // render clock minus its target (offset + delay), ms; shrinks at the slew rate
+    uint32_t lagTPrev_ = 0;         // last target lag (offset + delay)
+    bool haveLag_ = false;
+    size_t newSince_ = 0;           // snapshots stored since the last sample()
+    Vec3 soft_;                     // outstanding fade-out of a prediction miss (target space)
+    InterpDiag diag_;
+    std::deque<double> gaps_;       // the last four gaps between snapshots that were not silence (low-latency mode)
+    size_t diagNew_ = 0;            // snapshots stored since the last sample() (diagnostics only)
+    double lastWant_ = 0;
+    uint32_t firstNewArrival_ = 0;  // arrival stamp of the oldest snapshot stored since the last sample()
+    uint32_t lastArrival_ = 0;
+    bool haveArrival_ = false;
 };
 
 // ---- interest management ----------------------------------------------------------------------------------------

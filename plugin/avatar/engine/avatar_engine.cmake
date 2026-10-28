@@ -58,6 +58,25 @@ foreach(v 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 2
   set_tests_properties(avatar_engine_mut${v} PROPERTIES WILL_FAIL TRUE ENVIRONMENT "FNVCOOP_MUT=${v}")
 endforeach()
 
+# How far behind the remote player's puppet appears (round of 2026-10-27): walking tracks through the real sender chain, the chaos profiles and the
+# real receiver, before / after (tests/test_lag_sim.cpp). Twins 201..208 (FNVCOOP_MUT) are in the same exe.
+add_executable(avatar_lag_tests ${NVAV_EXCLUDE} ${NVAE_DIR}/tests/test_lag_sim.cpp)
+target_include_directories(avatar_lag_tests PRIVATE ${NVAE_DIR} ${NVAV_DIR} ${NVAV_DIR}/.. ${NVAE_MUT_INC} ${NVAV_SYNC}/chaos)
+target_link_libraries(avatar_lag_tests PRIVATE nvcoop_avatar_engine_rt ${NVAE_LIVE})
+if(MSVC)
+  target_compile_options(avatar_lag_tests PRIVATE /W4 /EHsc /permissive- /utf-8 /wd4100 /D_CRT_SECURE_NO_WARNINGS)
+else()
+  target_compile_options(avatar_lag_tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+foreach(cfg "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
+  set_target_properties(avatar_lag_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY${cfg} "${CMAKE_BINARY_DIR}/avatar_tests")
+endforeach()
+add_test(NAME avatar_lag COMMAND avatar_lag_tests)
+foreach(v 201 202 203 204 205 206 207 208)
+  add_test(NAME avatar_lag_mut${v} COMMAND avatar_lag_tests)
+  set_tests_properties(avatar_lag_mut${v} PROPERTIES WILL_FAIL TRUE ENVIRONMENT "FNVCOOP_MUT=${v}")
+endforeach()
+
 # ---- the game side, compiled into nvcoop.dll (x86 only; needs the xNVSE headers nvcoop already has) ----
 option(NVCOOP_WITH_AVATAR_ENGINE "link the real puppet engine (plugin/avatar/engine) into nvcoop.dll; inert unless nvcoop.ini [avatar] enabled=1" ON)
 if(NVCOOP_WITH_AVATAR_ENGINE AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND TARGET nvcoop

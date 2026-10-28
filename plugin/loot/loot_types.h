@@ -57,6 +57,13 @@ public:
     virtual bool playerCount(const FormRef& base, int32_t& out) { (void)base; out = 0; return false; }
     virtual void notify(lc::Notice n, NetId id) = 0;                            // a short message to the player
     virtual void loadedContainers(std::vector<NetId>& out, size_t max) = 0;     // containers with a loaded ref here (audit / host sweep), at most `max`
+    // The container references (chests, lockers: not corpses) in the cell the local player stands in, at most `max`. Nothing tells the service when a cell attaches, so it
+    // asks: a container nobody ever opened (a placed chest) is otherwise unknown here and a take from it is invisible to every scan (story fix 2026-10-28).
+    virtual void nearbyContainers(std::vector<RefId>& out, size_t max) { (void)max; out.clear(); }
+    // The attached cells around the player, the player's own cell first and then the loaded neighbours of an exterior grid (an interior has none), at most `max`. Each is
+    // asked for its containers with containersInCell (same rule as nearbyContainers). Follow-ups 1 item 4: a chest in the cell next door is as lootable as one in the player's own.
+    virtual void nearbyCells(std::vector<lc::CellId>& out, size_t max) { (void)max; out.clear(); }
+    virtual void containersInCell(lc::CellId cell, std::vector<RefId>& out, size_t max) { (void)cell; (void)max; out.clear(); }
 
     // ---- world items ----
     virtual bool describeItem(RefId ref, ItemDesc& out) = 0;
@@ -80,6 +87,10 @@ struct SyncConfig {
     bool enabled = false;
     uint32_t pollMs = 50;               // open container menu: engine copy read this often
     uint32_t corpseDelayMs = 700;       // after an actor died: its inventory has settled, register the corpse
+    bool discover = true;               // look for unknown containers in the player's cell and resolve them (onContainerLoaded has no caller in a real game)
+    uint32_t discoverEveryMs = 1500;    // ... this often
+    uint32_t discoverCells = 3;         // ... and this many of the loaded neighbour cells of an exterior grid per pass, in rotation (0 = the player's own cell only)
+    size_t discoverMaxRefs = 512;       // ... at most this many container references handed to the resolver per pass, the own cell and the neighbours together
     uint32_t resolveRetryMs = 1500;     // a container whose read was not exact is tried again after this long
     uint32_t sweepPerTick = 6;          // host: containers compared with the table per tick (scripts change them)
     uint32_t sweepEveryMs = 500;
@@ -120,6 +131,7 @@ struct Stats {
     uint64_t revertedItems = 0;          // items taken back from / given back to the local player by a refused transfer (sum of |delta|)
     uint64_t scanKnown = 0;              // containers looked at by the last transfer pass (engine list + shared table entries with a ref here)
     uint64_t sessions = 0, loads = 0;
+    uint64_t containersDiscovered = 0;   // containers found in the player's cell by tickDiscover (not announced by a cell attach)
     uint64_t activateEvents = 0, activateByPlayer = 0;   // OnActivate events the module saw / of those, the ones the player did (the pickup detector's input)
     uint64_t pickupsClaimed = 0;                         // pickups handed to the claim rules (a world item the player took)
     uint64_t removesRun = 0, removesDone = 0, removesGone = 0, removesPlaced = 0, removesDeferred = 0, removesRetried = 0, removesDropped = 0, notesGranted = 0, notesRefused = 0;   // notesGranted: a won claim of a note added to the host journal   // world refs removed because somebody else took the item: asked / done / ref not here (already gone) / of which placed

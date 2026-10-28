@@ -327,6 +327,6 @@ stops counting, non-required players and out-of-range values are rejected. The o
 
 ## 9. Open questions
 1. Per-player vs party follower cap (7.1).
-2. Whether say-once ("already said") state is shared (default shared; needs the engine's said-flag hook).
+2. Whether say-once ("already said") state is shared: decided D11 (shared, except Speech-XP and trainer lines). The engine's own marks (scripted SayTo of a forced stage chain) reach the other copies through the `TESTopicInfo::MarkSaid` detour and the `SayOnceMark` message (docs/tools/story.md, "The fix").
 3. Residual non-captured NPC object-script writes (3.3).
 4. Exact `DialogMenu` close/force-close API (hook request in `internal lane notes`).

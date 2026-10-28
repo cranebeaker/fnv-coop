@@ -17,7 +17,9 @@ constexpr size_t kAlarmRemember = 4096;
 
 SocialSync::SocialSync(const Config& cfg, ISocialWorld& world, ISocialEngine& engine, ISocialNet& net, ICommitter& committer)
     : cfg_(cfg), world_(world), engine_(engine), net_(net), commit_(committer), book_(cfg.settings.caps),
-      det_(cfg.crimeRules.witnessWindowMs), crime_(cfg.crimeRules, cfg.self), settings_(cfg.settings) {
+      escort_(cfg.escortRules), det_(cfg.crimeRules.witnessWindowMs), crime_(cfg.crimeRules, cfg.self), settings_(cfg.settings) {
+    for (const FormRef& p : cfg_.sets.partyNpcs()) book_.addFixedParty(p);
+    if (cfg_.isHost && cfg_.isPartyCompanion && !FNV_MUT(936)) book_.setPartyOracle(cfg_.isPartyCompanion);   // BAD (936): the rules engine's owner=party is never asked, so ED-E uses a follower slot
     if (cfg_.isHost) {
         connected_.insert(kHostPlayer);
         synced_ = true;
@@ -79,8 +81,32 @@ void SocialSync::playerLeft(PlayerId p) {
     if (!cfg_.isHost || p == kHostPlayer) return;
     connected_.erase(p);
     if (cfg_.companions && !FNV_MUT(910)) {   // BAD (910): the companions of a player who left stay flagged as theirs
-        for (const FormRef& npc : book_.companionsOf(p)) releaseCompanion(npc, "owner-left");
+        for (const FormRef& npc : book_.companionsOf(p)) {
+            if (book_.isParty(npc) && !FNV_MUT(937)) continue;   // BAD (937): ED-E goes with its recruiter (the Lonesome Road plot loses its companion)
+            releaseCompanion(npc, "owner-left");
+        }
+        handPartyCompanions(p);
     }
+}
+
+// The party companions of a player who left stay in the session: the host becomes their recruiter (the simulating machine), committed so the story state,
+// the dialogue registry and a joiner's baseline all name the same owner.
+void SocialSync::handPartyCompanions(PlayerId leaver) {
+    std::vector<sc::Companion> before;
+    for (const sc::Companion& c : book_.roster()) if (c.party && c.owner == leaver) before.push_back(c);
+    const std::vector<FormRef> handed = book_.handParty(leaver, kHostPlayer);
+    if (handed.empty()) return;
+    std::vector<Effect> fx;
+    for (const sc::Companion& c : before) {
+        fnvcoop::CompanionOwner x;
+        x.npc = c.npc; x.owner = kHostPlayer; x.active = true; x.kind = c.kind == sc::CompanionKind::Critter ? 1 : 0;
+        fx.push_back(x);
+        if (cfg_.feedActors) cfg_.feedActors(x);
+    }
+    stats_.partyHanded += handed.size();
+    if (!FNV_MUT(938) && commit_.commit(fx, "party-companion-handed") == 0) ++stats_.commitFailed;   // BAD (938): the hand-over is only in the book, so the session still names the leaver
+    broadcastRoster();
+    dirtyReconcile_ = true;
 }
 
 void SocialSync::hostConnected() {
@@ -119,6 +145,63 @@ void SocialSync::onEffect(const Effect& e) {
     dirtyReconcile_ = true;
 }
 
+void SocialSync::onTxn(const std::vector<Effect>& effects) {
+    if (!cfg_.isHost || !cfg_.companions) return;
+    if (!cfg_.swapGuard || FNV_MUT(934)) {   // BAD (934): the whole-transaction judgement is skipped, so one player's hire can fire another player's companion
+        for (const Effect& e : effects) onEffect(e);
+        return;
+    }
+    const sc::TxnVet vet = sc::vetCompanionTxn(book_, cfg_.sets, effects);
+    for (const Effect& e : vet.learn) onEffect(e);
+    stats_.swapsReverted += vet.swapsReverted;
+    stats_.slotDenied += vet.slotDenied;
+    if (!vet.repairs.empty()) {
+        repairs_.insert(repairs_.end(), vet.repairs.begin(), vet.repairs.end());
+        repairAtMs_ = nowMs_ + cfg_.repairDelayMs;
+        dirtyReconcile_ = true;   // the engine flags the casualty / the stray recruit changed: the next reconcile sets them back
+    }
+}
+
+size_t SocialSync::vetOutgoing(std::vector<Effect>& effects) {
+    if (!cfg_.isHost || !cfg_.companions || !cfg_.swapGuard || FNV_MUT(944)) return 0;   // BAD (944): the commit is never vetted (the 250 ms revert is the only net)
+    const sc::TxnVet vet = sc::vetCompanionTxn(book_, cfg_.sets, effects);
+    if (vet.swapsReverted == 0 && vet.slotDenied == 0) return 0;
+    std::vector<Effect> out;
+    size_t companionIn = 0;
+    bool placed = false;
+    for (Effect& e : effects) {
+        if (!std::holds_alternative<fnvcoop::CompanionOwner>(e)) { out.push_back(std::move(e)); continue; }
+        ++companionIn;
+        if (!placed) { out.insert(out.end(), vet.learn.begin(), vet.learn.end()); placed = true; }   // the vet kept these (in their order), the rest are casualties
+    }
+    const size_t removed = companionIn > vet.learn.size() ? companionIn - vet.learn.size() : 0;
+    effects = std::move(out);
+    return removed;
+}
+
+// Repairs are committed after the transaction that needed them was seen by the session (the capture sink and the session's own commit may run in either order).
+void SocialSync::flushRepairs() {
+    if (repairs_.empty() || nowMs_ < repairAtMs_) return;
+    std::vector<Effect> fx;
+    fx.swap(repairs_);
+    if (!FNV_MUT(935)) {   // BAD (935): the repair stays in the book only, so the session, the dialogue registry and a joiner still see the fired companion
+        if (commit_.commit(fx, "companion-repair") == 0) ++stats_.commitFailed;
+        else stats_.repairsCommitted += fx.size();
+    }
+    for (const Effect& e : fx)
+        if (cfg_.feedActors) cfg_.feedActors(e);
+}
+
+// The rules engine learns that a recruit is a party companion when the transaction passes its filter, which may be after our sink saw it: re-ask every second.
+void SocialSync::refreshParty() {
+    if (!cfg_.isHost) return;
+    const std::vector<FormRef> changed = book_.refreshParty();
+    if (changed.empty()) return;
+    stats_.partyFlagged += changed.size();
+    broadcastRoster();
+    dirtyReconcile_ = true;
+}
+
 void SocialSync::releaseCompanion(const FormRef& npc, const char* why) {
     const sc::Companion* c = book_.find(npc);
     if (!c) return;
@@ -139,6 +222,7 @@ void SocialSync::broadcastRoster() {
     r.all = book_.roster();
     sendAll(r);
     ++stats_.rosterSent;
+    if (cfg_.onRoster && !FNV_MUT(943)) cfg_.onRoster(r.all);   // BAD (943): the dialogue registry never hears of a party companion or a handed-over owner
 }
 
 // ---- receiving -------------------------------------------------------------------------------------------------------------------------
@@ -229,6 +313,8 @@ void SocialSync::hCmd(PlayerId src, const sc::MCmd& m) {
     if (v.stateChanged) {
         book_.setState(m.c.npc, v.newState);
         sendAll(sc::MState{m.c.npc, v.newState});
+        // A party companion the HOST simulates, ordered by a guest: the guest's machine cannot touch it, so the host applies the state to its own engine.
+        if (const sc::Companion* comp = book_.find(m.c.npc)) if (comp->party && comp->owner == cfg_.self && !FNV_MUT(942)) applyOwnState(*comp);   // BAD (942): a guest's order for the host's party companion changes the book and nothing else
     }
     if (v.dismiss) releaseCompanion(m.c.npc, "dismissed");
 }
@@ -290,6 +376,7 @@ void SocialSync::cRoster(const sc::MRoster& m) {
     book_.replaceRoster(m.all);
     synced_ = true;
     ++stats_.rosterApplied;
+    if (cfg_.onRoster && !FNV_MUT(943)) cfg_.onRoster(m.all);
     for (const sc::Companion& p : prev)
         if (!book_.isCompanion(p.npc)) { inv_.forget(p.npc); appliedState_.erase(p.npc); }
     for (const sc::Companion& c : book_.roster())
@@ -500,8 +587,12 @@ bool SocialSync::issueCommand(sc::CmdKind kind, const FormRef& npc, uint8_t arg)
     if (!v.apply) { ++stats_.cmdRefused; return false; }
     if (v.stateChanged) {
         book_.setState(npc, v.newState);
-        if (engine_.applyCompanionState(npc, v.newState)) { appliedState_[npc] = v.newState; ++stats_.stateApplied; }
-        else ++stats_.stateUnmapped;
+        // Only the machine that simulates the companion (its recruiter) writes the engine state; a stranger ordering a party companion sends the order to the host and
+        // the owner applies the MState that comes back.
+        if (book_.ownerOf(npc) == cfg_.self || FNV_MUT(941)) {   // BAD (941): the commander applies a party order to its own copy of the companion
+            if (engine_.applyCompanionState(npc, v.newState)) { appliedState_[npc] = v.newState; ++stats_.stateApplied; }
+            else ++stats_.stateUnmapped;
+        }
     }
     if (kind == sc::CmdKind::Summon && book_.ownerOf(npc) == cfg_.self) {   // (the judge already refused a non-owner; this is the second lock)
         if (engine_.summonCompanion(npc, cfg_.self)) ++stats_.summons;
@@ -569,6 +660,8 @@ void SocialSync::tick(uint64_t nowMs) {
     }
     if (cfg_.companions) {
         if (cfg_.isHost && !seeded_) seedHostCompanions();
+        if (cfg_.isHost) { flushRepairs(); refreshParty(); }
+        pollEscort();
         if (dirtyReconcile_ || lastReconcileMs_ == 0 || nowMs - lastReconcileMs_ >= cfg_.reconcileMs) reconcileTeammates();
         if (lastInvMs_ == 0 || nowMs - lastInvMs_ >= cfg_.inventoryMs) sampleInventories();
     }
@@ -582,10 +675,45 @@ void SocialSync::tick(uint64_t nowMs) {
 // in THIS session, so they are adopted once, as the host's. Anything flagged later that the book does not know is a stray and comes off.
 void SocialSync::seedHostCompanions() {
     seeded_ = true;
+    std::vector<Effect> adopted;
     for (const FormRef& npc : world_.teammatesHere()) {
+        if (book_.isCompanion(npc)) continue;
         ActorView v;
         const bool critter = world_.actor(npc, v) && v.known && v.critter;
-        onEffect(fnvcoop::CompanionOwner{npc, kHostPlayer, true, static_cast<uint8_t>(critter ? 1 : 0)});
+        const fnvcoop::CompanionOwner x{npc, kHostPlayer, true, static_cast<uint8_t>(critter ? 1 : 0)};
+        onEffect(x);
+        if (book_.isCompanion(npc)) adopted.push_back(x);
+    }
+    // They are committed too: the story session (follower caps for the other recruiters), the dialogue registry (Boone's "hired" flag for the host's own view) and a
+    // late joiner's baseline only know a companion that went through the session.
+    if (!adopted.empty() && !FNV_MUT(933)) {   // BAD (933): the adopted companions stay in the book only, so the host sees Boone's recruit topic again
+        if (commit_.commit(adopted, "seed-companions") == 0) ++stats_.commitFailed;
+        else stats_.seedCommitted += adopted.size();
+    }
+}
+
+// Escort: the OWNER's machine brings its own simulated companions to its player when a scripted move left them behind (Fort entry and exit, the Dam start, PartyWarp).
+void SocialSync::pollEscort() {
+    if (!cfg_.escort || FNV_MUT(939)) return;   // BAD (939): the escort never runs, so a warped recruiter's companions stay at the old place
+    if (lastEscortMs_ != 0 && nowMs_ - lastEscortMs_ < cfg_.escortMs) return;
+    lastEscortMs_ = nowMs_ ? nowMs_ : 1;
+    sc::PlayerPlace me;
+    bool haveMe = false;
+    for (const sc::PlayerPlace& p : world_.players()) if (p.slot == cfg_.self) { me = p; haveMe = true; break; }
+    if (!haveMe || !synced_) return;
+    std::vector<sc::EscortSubject> mine;
+    for (const sc::Companion& c : book_.roster()) {
+        if (c.owner != cfg_.self && !FNV_MUT(940)) continue;   // BAD (940): every machine brings every companion, so a recruiter's companion is moved by a stranger
+        ActorView v;
+        if (!world_.actor(c.npc, v) || !v.known || (!v.simulatedHere && !FNV_MUT(940))) continue;   // (BAD 940 also brings what another machine simulates)
+        sc::EscortSubject s;
+        s.npc = c.npc; s.loaded = v.ref != 0 && !v.standIn; s.alive = v.alive;
+        s.waiting = v.waiting || c.state.mode == sc::FollowMode::Wait;
+        s.cell = v.cell; s.pos = v.pos;
+        mine.push_back(s);
+    }
+    for (const FormRef& npc : escort_.poll(nowMs_, me, mine)) {
+        if (engine_.summonCompanion(npc, cfg_.self)) ++stats_.escorted; else ++stats_.escortFailed;
     }
 }
 
@@ -690,7 +818,7 @@ void SocialSync::pollTrespass() {
 
 // ---- status ------------------------------------------------------------------------------------------------------------------------------
 std::string SocialSync::statusJson() const {
-    char b[2048];
+    char b[3072];
     std::snprintf(b, sizeof b,
                   "{\"host\":%s,\"self\":%u,\"synced\":%s,\"companions\":%zu,\"companionDigest\":\"%016llx\",\"bounties\":%zu,\"bountyDigest\":\"%016llx\",\"settingsRev\":%u,"
                   "\"xpMode\":%u,\"stats\":{\"sent\":%llu,\"received\":%llu,\"dropped\":%llu,\"spoofed\":%llu,"
@@ -699,7 +827,8 @@ std::string SocialSync::statusJson() const {
                   "\"invSent\":%llu,\"invApplied\":%llu,\"invRejected\":%llu,\"activationsDenied\":%llu,\"hitsNeutralized\":%llu,"
                   "\"crimesReported\":%llu,\"crimesCounted\":%llu,\"crimesRefused\":%llu,\"detectSent\":%llu,\"bountyApplied\":%llu,\"hostilityApplied\":%llu,"
                   "\"alarmsRaised\":%llu,\"actorsAlerted\":%llu,\"killsReported\":%llu,\"killsSettled\":%llu,\"xpLocal\":%llu,\"xpCommitted\":%llu,"
-                  "\"karmaLocal\":%llu,\"karmaCommitted\":%llu,\"repLocal\":%llu,\"repCommitted\":%llu,\"resyncsAsked\":%llu,\"digestMismatch\":%llu}}",
+                  "\"karmaLocal\":%llu,\"karmaCommitted\":%llu,\"repLocal\":%llu,\"repCommitted\":%llu,\"resyncsAsked\":%llu,\"digestMismatch\":%llu,"
+                  "\"partyFlagged\":%llu,\"partyHanded\":%llu,\"swapsReverted\":%llu,\"slotDenied\":%llu,\"repairsCommitted\":%llu,\"seedCommitted\":%llu,\"escorted\":%llu,\"escortFailed\":%llu}}",
                   cfg_.isHost ? "true" : "false", static_cast<unsigned>(cfg_.self), synced_ ? "true" : "false", book_.total(),
                   static_cast<unsigned long long>(book_.digest()), crime_.bounty().size(), static_cast<unsigned long long>(crime_.bounty().digest()), settings_.rev,
                   static_cast<unsigned>(settings_.xpMode),
@@ -713,7 +842,9 @@ std::string SocialSync::statusJson() const {
                   (unsigned long long)stats_.bountyApplied, (unsigned long long)stats_.hostilityApplied, (unsigned long long)stats_.alarmsRaised, (unsigned long long)stats_.actorsAlerted,
                   (unsigned long long)stats_.killsReported, (unsigned long long)stats_.killsSettled, (unsigned long long)stats_.xpLocal, (unsigned long long)stats_.xpCommitted,
                   (unsigned long long)stats_.karmaLocal, (unsigned long long)stats_.karmaCommitted, (unsigned long long)stats_.repLocal, (unsigned long long)stats_.repCommitted,
-                  (unsigned long long)stats_.resyncsAsked, (unsigned long long)stats_.digestMismatch);
+                  (unsigned long long)stats_.resyncsAsked, (unsigned long long)stats_.digestMismatch,
+                  (unsigned long long)stats_.partyFlagged, (unsigned long long)stats_.partyHanded, (unsigned long long)stats_.swapsReverted, (unsigned long long)stats_.slotDenied,
+                  (unsigned long long)stats_.repairsCommitted, (unsigned long long)stats_.seedCommitted, (unsigned long long)stats_.escorted, (unsigned long long)stats_.escortFailed);
     return b;
 }
 

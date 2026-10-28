@@ -240,6 +240,7 @@ public:
         return true;
     }
     bool killActor(RefId ref) override { if (!w("kill", ref)) return false; a[ref].life = 2; a[ref].av[kAvHealth] = 0; return true; }
+    bool killActorBy(RefId ref, RefId killer) override { if (!w("killby", ref, std::to_string(killer))) return false; a[ref].life = 2; a[ref].av[kAvHealth] = 0; return true; }
     bool resurrect(RefId ref) override { if (!w("resurrect", ref)) return false; a[ref].life = 0; if (a[ref].av[kAvHealth] <= 0) a[ref].av[kAvHealth] = 50; return true; }
     bool setDisabled(RefId ref, bool d) override { if (!w(d ? "disable" : "enable", ref)) return false; a[ref].disabled = d; return true; }
     bool markForDelete(RefId ref) override { if (!w("delete", ref)) return false; a[ref].deleted = true; return true; }

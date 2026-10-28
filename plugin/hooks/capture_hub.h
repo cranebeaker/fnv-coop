@@ -63,6 +63,18 @@ public:
     void pushMute() { ++muted_; }
     void popMute() { if (muted_ > 0) --muted_; }
     bool muted() const { return muted_ > 0; }
+    // Lift the mute for a moment (host): a GuestLocalRun script whose quest state is the host's still runs muted, but its StartQuest / SetStage / objective calls are shared story state
+    // and must be captured. liftMute() returns what to hand back to restoreMute().
+    int liftMute() {
+#ifdef NVHOOKS_MUTANT
+        return muted_;   // mutant: the mute stays (nothing is lifted): the host's quest calls of the DLC setup scripts never reach the guest
+#else
+        const int m = muted_;
+        muted_ = 0;
+        return m;
+#endif
+    }
+    void restoreMute(int m) { muted_ = m; }
 
     // Implicit "weak" scope around a script execution that no explicit scope covers (quest GameMode blocks, object / effect scripts
     // running ambiently): opened only when NO frame is open, cause = Script / the script form, resolved lazily at emit time. Cheap: no
@@ -81,6 +93,8 @@ public:
     // The source form (quest / script) of the outermost open scope: the natural "scope" for effects that need one (fast-travel lock).
     // False when no scope is open or the cause has no source.
     bool currentSource(fnvcoop::FormRef* out) const;
+    // The cause of the outermost open scope (the implicit script scope resolved the way it will be at emit time). False when no scope is open.
+    bool currentCause(fnvcoop::Cause* out) const;
     bool active() const { return on() && !frames_.empty(); }
     size_t depth() const { return frames_.size(); }
 

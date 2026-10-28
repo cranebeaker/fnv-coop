@@ -213,7 +213,8 @@ struct Mock : IEngineApi {
     int resumed = 0, rebuilt = 0, forced = 0, hidden = 0, denied = 0, unsup = 0;
     PlayerId deniedOwner = 255;
     uint8_t lockMask = 0; bool locked = false;
-    std::vector<FormRef> marked, cleared;
+    std::vector<FormRef> marked, cleared, committed;   // committed: the SayOnceFlag effects the host recorded
+    std::map<FormRef, int> said;                       // the INFO's said byte on this mock machine (saidState)
     const IMemory& memory() override { return img; }
     Addr32 dialogMenu() override { return img.rd32(dialog_menu::kSingletonPtr); }
     bool formRefOf(Addr32 f, FormRef& r) override { auto it = forms.find(f); if (it == forms.end()) return false; r = it->second; return true; }
@@ -242,7 +243,9 @@ struct Mock : IEngineApi {
     void menuNotice(const std::string& t, bool c) override { notices.push_back((c ? "closed:" : "open:") + t); }
     void unsupported(const char*) override { ++unsup; }
     void notice(const std::string& t) override { notices2.push_back(t); }
-    void markSaid(const FormRef& f) override { marked.push_back(f); }
+    void markSaid(const FormRef& f) override { marked.push_back(f); said[f] = 1; }
+    void commitSayOnce(const FormRef& f) override { committed.push_back(f); }
+    int saidState(const FormRef& f) override { auto it = said.find(f); return it == said.end() ? 0 : it->second; }
     void clearSaid(const FormRef& f) override { cleared.push_back(f); }
 };
 
@@ -550,6 +553,62 @@ static bool t_poll_leave_after_goodbye_twin() {
     return t_poll_full_conversation();
 }
 
+// Story fix 2026-10-28: the host granted the guest's talk, the deferred activation did not open the DialogMenu (an NPC 200+ units away; the first Goodsprings story
+// run: S01, S06, S13, S16). The guest gives the conversation back after the grant timeout instead of staying the initiator for ever, so it can talk again and the
+// host's NPC lock is released.
+static bool t_grant_without_menu_is_given_back() {
+    Rig r;
+    auto& g = *r.glue[1];
+    CHECK(g.onTalkRequested(kNpc, uint32_t(r.now)));
+    r.step(100);
+    CHECK(r.mock[1].resumed == 1);                                          // the grant arrived and the activation was replayed ...
+    using Role = fnvcoop_dlg::ClientDialogue::Role;
+    CHECK(r.node[1]->client().role() == Role::Initiator);                   // ... but no menu opens
+    r.step(5000);
+    CHECK(r.node[1]->client().role() == Role::Initiator && g.stats().grantTimeouts == 0);   // inside the timeout nothing is given back
+    r.step(2000);
+    CHECK(g.stats().grantTimeouts == 1);
+    r.step(200);
+    CHECK(r.node[1]->client().role() == Role::Idle);                        // the host closed it
+    CHECK(g.onTalkRequested(kNpc, uint32_t(r.now)));                        // and the guest may talk again
+    return true;
+}
+static bool t_grant_without_menu_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.grantNoWatchdog = true; return x; }());
+    return t_grant_without_menu_is_given_back();
+}
+// Story run S06: one guest pick ran its result four times. The engine can show the INFO it just started as "spoken" again after its line (a response
+// advance, a click on the row still speaking): that is the line going on, not a second pick. Only a menu waiting for a pick again makes the same INFO a new one.
+static bool t_poll_same_info_again_is_not_a_new_pick() {
+    PollWorld w;
+    w.open();
+    auto& g = *w.r.glue[1];
+    w.rows();
+    w.state(dialog_menu::kStateIdle, 0);
+    w.m().img.cache(w.a, kHouse);
+    w.state(dialog_menu::kStateQueued, w.a);                                // the player picked INFO a
+    CHECK(g.stats().picks == 1);
+    w.state(dialog_menu::kStatePlaying, w.a);
+    w.state(dialog_menu::kStateClosing, w.a);                               // the menu leaves "speaking" for a moment (the line looks over)
+    CHECK(g.stats().lineDones == 1);
+    w.state(dialog_menu::kStatePlaying, w.a);                               // and the same INFO is spoken again, no list built in between
+    w.state(dialog_menu::kStatePlaying, w.a);
+    CHECK(g.stats().picks == 1);                                            // still ONE pick: the host runs the Begin script once
+    CHECK(w.r.node[0]->host()->scriptRuns() == 2);                          // Begin + End of that one pick
+    w.state(dialog_menu::kStateIdle, w.a);                                  // the menu is back at "pick a line": the same INFO is a real choice again
+    w.state(dialog_menu::kStateIdle, w.a);
+    w.m().img.u32(dialog_menu::kSpokenInfoGlobal, 0);
+    w.state(dialog_menu::kStateQueued, w.a);
+    CHECK(g.stats().picks == 2);
+    w.state(dialog_menu::kStateIdle, w.a);
+    CHECK(w.r.node[0]->host()->scriptRuns() == 4 && w.r.node[0]->host()->repeatPicks() == 0);
+    return true;
+}
+static bool t_poll_same_info_again_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.noPickLatch = true; return x; }());
+    return t_poll_same_info_again_is_not_a_new_pick();
+}
+
 static bool t_poll_walk_away() {
     PollWorld w;
     w.open();
@@ -622,6 +681,75 @@ static bool t_sayonce_all_shared_twin() {
 static bool t_sayonce_keep_host_mark_twin() {
     fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceKeepHostMark = true; return x; }());
     return t_sayonce(true);
+}
+// ---- say-once marks the engine makes by itself (story S06: scripted SayTo lines of a forced stage chain; D11). A guest reports them, the host commits them.
+static bool has(const std::vector<FormRef>& v, const FormRef& f) { for (auto& x : v) if (x == f) return true; return false; }
+static bool t_sayonce_engine_marks() {
+    Rig r;
+    const FormRef A("falloutnv.esm", 0x10A1E6), B("falloutnv.esm", 0x10A1E7), C("falloutnv.esm", 0x08F070);   // A: a guest's scripted line, B: the host's, C: a trainer line
+    for (int i = 0; i < 3; ++i) r.sayOnce[i].setPerPlayer({C});
+    r.glue[1]->onEngineMark(A);                       // guest 1's engine spoke and marked A (its Sunny is loaded, the host's is not)
+    r.step(100);
+    CHECK(r.node[1]->sayOnceSent() == 1);
+    CHECK(has(r.mock[0].marked, A) && has(r.mock[0].committed, A));      // the host marks its own copy and records the effect
+    CHECK(r.mock[0].marked.size() == 1 && r.mock[0].committed.size() == 1);
+    CHECK(r.mock[1].marked.empty() && r.mock[2].marked.empty());          // the guest's engine did it itself; guest 2 learns it from the effect, not from this glue
+    CHECK(r.mock[2].committed.empty() && r.mock[1].committed.empty());    // only the host commits
+    r.glue[0]->onEngineMark(B);                       // the host's own engine marked B: no network, one effect
+    r.step(100);
+    CHECK(r.mock[0].committed.size() == 2 && r.mock[0].committed[1] == B);
+    CHECK(r.node[0]->sayOnceSent() == 0 && r.mock[0].marked.size() == 1);
+    r.glue[1]->onEngineMark(C);                       // a trainer line: stays with the player who used it
+    r.glue[0]->onEngineMark(C);
+    r.step(100);
+    CHECK(r.node[1]->sayOnceSent() == 1 && r.mock[0].committed.size() == 2);
+    CHECK(!has(r.mock[0].committed, C) && !has(r.mock[0].marked, C));
+    CHECK(r.glue[0]->stats().sayReports == 1 && r.glue[0]->stats().sayCommitted == 2 && r.glue[1]->stats().sayReported == 1);
+    return true;
+}
+static bool t_sayonce_engine_marks_forged_and_known() {
+    Rig r;
+    const FormRef A("falloutnv.esm", 0x10A1E6), C("falloutnv.esm", 0x08F070), D("falloutnv.esm", 0x10A1E8);
+    for (int i = 0; i < 3; ++i) r.sayOnce[i].setPerPlayer({C});
+    r.node[1]->reportSayOnce(C);                      // a report that skipped the guest's own policy: the host keeps the trainer line per player anyway
+    r.node[1]->reportSayOnce(FormRef());              // no plugin name: never sent
+    r.mock[0].said[D] = 1;                            // the host's copy of D is already set (it ran the line, or the save holds it)
+    r.glue[1]->onEngineMark(D);
+    r.step(100);
+    CHECK(r.mock[0].committed.empty() && r.mock[0].marked.empty());
+    CHECK(r.node[1]->sayOnceSent() == 2);
+    // a packet from a peer that is no joined slot is counted and dropped
+    fnvcoop::Bytes b = fnvcoop_dlg::encode(fnvcoop_dlg::SayOnceMark{A});
+    CHECK(r.node[0]->onPacket(99, b, 0));
+    CHECK(r.node[0]->sayOnceRejected() == 1 && r.mock[0].committed.empty());
+    // the host never reports to itself, and a guest ignores a stray report
+    CHECK(!r.node[0]->reportSayOnce(A));
+    CHECK(r.node[2]->onPacket(0, b, 0) && r.mock[2].committed.empty());
+    return true;
+}
+static bool t_sayonce_mark_not_reported_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkNotReported = true; return x; }());
+    return t_sayonce_engine_marks();
+}
+static bool t_sayonce_mark_trainer_shared_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkTrainerShared = true; return x; }());
+    return t_sayonce_engine_marks();
+}
+static bool t_sayonce_mark_trainer_shared_forged_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkTrainerShared = true; return x; }());
+    return t_sayonce_engine_marks_forged_and_known();
+}
+static bool t_sayonce_mark_host_no_commit_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkHostNoCommit = true; return x; }());
+    return t_sayonce_engine_marks();
+}
+static bool t_sayonce_mark_host_no_mark_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkHostNoMark = true; return x; }());
+    return t_sayonce_engine_marks();
+}
+static bool t_sayonce_mark_host_drops_twin() {
+    fnvcoop_dlg::MutationScope ms([] { fnvcoop_dlg::Mutations x; x.sayOnceMarkHostDrops = true; return x; }());
+    return t_sayonce_engine_marks();
 }
 static bool t_sayonce_host_own_line_stays() {
     // the host player already said this per-player line themselves: a guest's later use must not clear the host's own state
@@ -776,9 +904,12 @@ int main() {
                  {"glue_keeps_commands_owner", []() { return t_glue_hides_commands_for_non_owner(true); }, false},
                  {"glue_refuses_command_pick", t_glue_refuses_command_pick, false},
                  {"poll_full_conversation", t_poll_full_conversation, false}, {"poll_walk_away", t_poll_walk_away, false},
+                 {"poll_same_info_again_is_not_a_new_pick", t_poll_same_info_again_is_not_a_new_pick, false},
                  {"poll_host_native_broadcast", t_poll_host_native_broadcast, false},
+                 {"grant_without_menu_is_given_back", t_grant_without_menu_is_given_back, false},
                  {"sayonce_shared", t_sayonce_shared, false}, {"sayonce_per_player", t_sayonce_per_player, false},
                  {"sayonce_host_own_line_stays", t_sayonce_host_own_line_stays, false},
+                 {"sayonce_engine_marks", t_sayonce_engine_marks, false}, {"sayonce_engine_marks_forged_and_known", t_sayonce_engine_marks_forged_and_known, false},
                  {"consent_denied_gives_the_choice_back", t_consent_denied_gives_the_choice_back, false},
                  {"fact_table", t_fact_table, false}, {"data_tables", t_data_tables, false},
                  {"followers_registry", t_followers_ok, false}, {"configure_node", t_configure_node, false},
@@ -789,9 +920,13 @@ int main() {
                  {"twin_command_pick", t_glue_command_pick_twin, true}, {"twin_forced_host_replays", t_glue_forced_host_replays_twin, true},
                  {"twin_poll_no_pick", t_poll_no_pick_twin, true}, {"twin_poll_pick_every_frame", t_poll_pick_every_frame_twin, true},
                  {"twin_poll_no_line_done", t_poll_no_line_done_twin, true}, {"twin_poll_leave_after_goodbye", t_poll_leave_after_goodbye_twin, true},
-                 {"twin_host_talk_silent", t_poll_host_silent_twin, true},
+                 {"twin_host_talk_silent", t_poll_host_silent_twin, true}, {"twin_grant_no_watchdog", t_grant_without_menu_twin, true},
+                 {"twin_poll_no_pick_latch", t_poll_same_info_again_twin, true},
                  {"twin_sayonce_never_shared", t_sayonce_never_twin, true}, {"twin_sayonce_all_shared", t_sayonce_all_shared_twin, true},
-                 {"twin_sayonce_keep_host_mark", t_sayonce_keep_host_mark_twin, true}, {"twin_consent_denied_keeps_said", t_consent_denied_keeps_said_twin, true},
+                 {"twin_sayonce_keep_host_mark", t_sayonce_keep_host_mark_twin, true},
+                 {"twin_sayonce_mark_not_reported", t_sayonce_mark_not_reported_twin, true}, {"twin_sayonce_mark_trainer_shared", t_sayonce_mark_trainer_shared_twin, true},
+                 {"twin_sayonce_mark_trainer_shared_forged", t_sayonce_mark_trainer_shared_forged_twin, true}, {"twin_sayonce_mark_host_no_commit", t_sayonce_mark_host_no_commit_twin, true},
+                 {"twin_sayonce_mark_host_no_mark", t_sayonce_mark_host_no_mark_twin, true}, {"twin_sayonce_mark_host_drops", t_sayonce_mark_host_drops_twin, true}, {"twin_consent_denied_keeps_said", t_consent_denied_keeps_said_twin, true},
                  {"twin_followers_no_canon", t_followers_no_canon_twin, true}, {"twin_followers_no_rewrite", t_followers_no_rewrite_twin, true}};
     int fail = 0;
     for (auto& c : cases) {

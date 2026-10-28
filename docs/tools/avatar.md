@@ -312,3 +312,142 @@ flags 1. There is no console function that attaches an IMOD to an inventory item
 `EnableWeaponMod`, whose meaning is still the open hypothesis above), so the flag byte is set directly: it is exactly what the avatar layer reads (`ExtraWeaponModFlags` of the worn instance) and syncs.
 Risk to read first: `SetEquippedWeaponModFlags` returns silently when the equipped item has no extra-data list; the read-back line then fails with "read back 0 wanted 1". Twins in the self-test:
 loadout skipped, `additem` refused, weapon or armor not equipped, flags line without effect, flags set but not visible to the avatar layer, wrong flags.
+
+## Round of 2026-10-27: how far behind the other player's puppet appears
+
+**Unit tested and replayed on a model, game-free. NOTHING of it has run in the game yet.** The lab (`tools/lab`, room "walk") was the complaint: puppet error p95 97 to 128 units on a clean
+link, about 80 behind good and bad Wi-Fi, sync lag 94 to 141 ms. The code is `synccore/live` (the `InterpBuffer` the avatar stream is played back through, a new opt-in low-latency mode; the NPC
+path keeps the old behaviour) and `plugin/avatar/engine` (`avatar_tuning.h`, the constants; `local_sampler`, the sender); the test is `plugin/avatar/engine/tests/test_lag_sim.cpp`
+(`avatar_lag_tests`, run by `plugin\avatar\engine\run_tests.cmd`).
+
+### Where the lag came from (each line is a measurement in the model)
+
+| Source | What it did | Now |
+|---|---|---|
+| Fixed render delay | `InterpConfig::delayMs = 100`. The "adaptive" delay only ever raised it (1.25 x the snapshot interval is 62 ms at 20 Hz), so a clean link had 100 ms of buffer for nothing: 104 of the 116 ms steady lag at 60 fps | delay = 20 ms + the measured arrival jitter (lateness over the fastest arrival, one frame of quantisation taken off), at most 120 ms |
+| Interpolation only | the pose was always between two snapshots; nothing predicted the stretch after the newest one, so the delay could not be cut | dead reckoning on the snapshot's velocity, damped (the displacement saturates at v x 150 ms, so a stop cannot run away), capped at 250 ms |
+| A prediction miss popped | a snapshot that disagreed with the prediction moved the pose in one frame | the difference is carried as an offset that fades out (70 ms) |
+| Lumpy render clock | the clock offset is the minimum of the last 16 arrivals and moves by whole ms at once; 14 to 16 unit steps at 300 u/s were seen (note in `test_live_integration.cpp`) | the render clock (offset + delay) slews at 10 percent |
+| 20 Hz near | information about a start, stop or turn is up to 50 ms old when it is sent | 30 Hz near (sampler and relay); far 5 Hz and out 1 Hz untouched |
+| Sender velocity | `velAlpha = 0.6` made a stop report 0.4 x the old speed for several samples | 0.8 |
+| How positions are timestamped | NOT a cause: `tick` is the sampling time, taken in the same call that reads the position | unchanged |
+| Waiting for 2 samples | the old buffer needed a sample after the render time, so its delay had to exceed the interval | the new one extrapolates, so it does not wait |
+| Smoothing constants (2 m / 0.25 m / 200 ms) | only act on errors above 140 units; not a cause when walking | unchanged |
+| The frame rate of the game copies | the floor of everything: a position is only sampled, sent, received and applied once per game frame | see the table: 10 fps copies cannot be fixed by the buffer |
+
+The model reproduces the lab's OLD numbers at about 8 to 10 fps (clean 88 to 106 units, bad Wi-Fi 111 to 124), but gives 46 at 60 fps. So the lab's two copies on one PC probably run at roughly
+10 fps, and at that speed a good part of the error is the frame length itself (a full game frame between two samples of a 400 u/s walker is 40 units). Read the lab again with that in mind.
+
+### Before / after
+
+Error p95 while the walker moves / max error / overshoot past a stop, in game units, worst of 3 seeds, 400 u/s running walker (`avatar_lag_tests --report --fps N`). The walker starts, runs,
+turns 90 degrees, stops dead, strafes, walks, turns, stops, reverses at full speed (zig zag) and stops; both game copies run their own frames (15 percent frame time jitter, the receiver a third of
+a frame later) and the walker's position is the one his copy last set, exactly what the lab reads. No teleport and no snap in any row, before or after.
+
+| profile | 60 fps before | 60 fps after | 30 fps before | 30 fps after | 10 fps before | 10 fps after |
+|---|---|---|---|---|---|---|
+| lan | 46.4 / 111 / 0 | **15.1** / 28.6 / 4.8 | 54.0 / 86 / 0 | **21.0** / 41.6 / 5.9 | 88.4 / 123 / 0 | 62.3 / 98 / 20.6 |
+| good_wifi | 49.2 / 59.5 / 0 | **19.3** / 32.4 / 4.4 | 56.4 / 96 / 0 | **27.1** / 41.0 / 5.7 | 93.6 / 123 / 0 | 67.7 / 104 / 25.2 |
+| bad_wifi | 52.0 / 66.5 / 19.6 | **33.9** / 54.6 / 4.6 | 78.6 / 145 / 1.8 | **37.0** / 60.1 / 10.8 | 124 / 173 / 2.2 | 98.0 / 139 / 25.6 |
+| mobile_tether | 63.6 / 90.0 / 15.1 | 48.3 / 59.4 / 7.9 | 87.2 / 173 / 13.5 | 51.5 / 78.2 / 8.7 | 185 / 328 / 0 | 102.8 / 157 / 28.7 |
+| transatlantic | 79.2 / 86.5 / 0 | 50.6 / 59.4 / 4.2 | 88.8 / 118 / 0.1 | 58.1 / 65.6 / 6.7 | 122 / 158 / 0 | 102.8 / 138 / 22.8 |
+
+Sync lag (time until within 80 units after a stop): 0 ms in every row at 60 and 30 fps, before and after (the model's stop never leaves the puppet more than 80 units away); time until within 10 units: lan 30
+to 59 ms before, 0 after; bad_wifi 429 ms before (it overshot by 20 units), 0 after. Jitter (largest per-frame step deviation in a steady run, percent of the nominal step; frame time jitter alone gives
+17 to 25): lan 17 before, 24 after; bad_wifi 100 before, 53 after; mobile_tether 240 before, 48 after.
+
+The goal of the round (p95 under 40 clean, under 60 behind bad Wi-Fi) is met for game copies running at 30 fps or better. At 10 fps it is not: the improvement there is about 30 percent, and the rest is
+one frame time of the sender plus one of the receiver, which no playback buffer can recover.
+
+### Bandwidth
+
+Payload of the snapshot datagrams of one stream (`SnapshotSender::stats().bytes`) while running steadily:
+
+| near rate | snapshots/s | payload B/s | with about 44 B of UDP, IP and ENet header per datagram |
+|---|---|---|---|
+| 20 Hz (before) | 20 | 360 | about 1240 B/s |
+| 30 Hz (now) | 30 | 549 | about 1870 B/s |
+
+About 18 bytes a snapshot (the delta codec). Standing still costs one snapshot a second. The host relaying three players sends three such streams to each client: well under 20 KB/s.
+
+### Settings (nvcoop.ini [avatar], all optional; `avatar_tuning.h` has the defaults and is the one place they live)
+
+`lowLatency=1` (0 = the old fixed 100 ms buffer for the receiver), `nearHz=30` (sampler and relay, 10..60), `minDelayMs=20`, `jitterFactor=1.0`, `maxDelayMs=120`, `extrapolateTauMs=150`,
+`maxExtrapolateMs=250`, `blendMs=70`, `slewPerMille=100`, `velAlpha=0.8`. The relay (live_glue.cpp) reads the same keys through `iniOrEnv`, so `NVCOOP_AVATAR_NEARHZ` works for it; the avatar module reads
+the ini only. `LAG_TUNE="minDelayMs=10,nearHz=60" avatar_lag_tests --report` sweeps them without rebuilding.
+
+### Tests and twins
+
+- `avatar_lag_tests` (59 checks): the five chaos profiles x 3 seeds at 60 fps with limits for p95, max error, overshoot, teleports, snaps, backward steps, jitter, settle time and bytes; 30 and 20 fps
+  copies; "the new one is at least 2x (clean) / 1.4x (bad Wi-Fi) closer than the old one". Twins 201 to 208 (`FNVCOOP_MUT`, all caught): delay ignores jitter, undamped dead reckoning, no fade of
+  prediction misses, unslewed clock, the old buffer, a velocity filter of 0.15, a 10 Hz near rate, no extrapolation.
+- `synccore/live`: four scenarios with twins (`ll_fixed_delay`, `ll_no_damping`, `ll_no_blend`, `ll_no_slew`) on the buffer alone.
+- `avatar_live_tests` runs its walk, outage, teleport and engine-push scenarios through the new buffer as well (largest single step 5.7 to 7.9 units at 300 u/s; the old buffer's was 14 to 16).
+
+### Not done / honest
+
+- Nothing has run in the game. The model is the real sender, codec, planner, receiver, buffer and puppet driver on a fake game; it is not the game's frame pacing, its physics step or the bridge read of the lab.
+- A stop that the sender's snapshot announces late still overshoots, bounded by the damping: 3 to 11 units at 30 and 60 fps in the model, 18 to 29 at 10 fps.
+- Possible extra frame on the send side: if the coop module's frame runs before the avatar module's (module registration order), the snapshot sampled in frame N leaves in frame N+1 (`AvatarNet::tick`
+  takes `localOut_`). It would add one sender frame to every number above. Not verified; fixing it means calling the net tick from the avatar module (plugin/coop/live).
+- Considered and not built: event driven sends at a turn or a stop (up to the frame rate, only then; no effect at 10 fps). Modelled and left out because the gain was small: acceleration aware dead reckoning
+  (overshoot 4.8 to 3.2 units, p95 unchanged; velocity noise in the real engine could turn it into jitter) and a longer clock-offset window (no change).
+
+## Round of 2026-10-28: the missing ~100 ms found in the game (branch wt/avatarlag2)
+
+The lab's walk room (`lab_run.ps1 -Rooms "walk,spawn" -Pairs 1`, second PC, every copy at 60 fps) showed the puppet 130 to 150 ms behind on a clean link where the model said 27. Stage timers
+(`avatar.status` "stages") and the game's own trace (`avatar.trace`) say where the time goes.
+
+### Stage timers (ms on one clock unless the name ends in Us; every figure is a gauge `{n, last, mean, max, sum}`: the difference of two `sum`s over the difference of two `n`s is the mean between two readings)
+
+| field | what | clean link, 60 fps, host/client copy |
+|---|---|---|
+| `stages.send` | the snapshot's sampling time to the moment its datagram is handed to the transport (sender, `AvatarNet::flushStreams`) | 2 to 7 |
+| `stages.rx` | sampling time to the moment the other copy's network layer has it (a shared clock on one PC; across PCs it includes the clock offset) | 7 to 17 |
+| rx minus send | the wire and the receiver's poll (the lab's `transport_ms`) | 6 to 13 |
+| `stages.remotes[].hold` | arrival stamp to the first drive that could use it: the co-op module is a late module, it polls AFTER the avatar module drove | 15 (one frame, by design) |
+| `stages.remotes[].delay` | the buffer delay in use (render age minus the clock offset); `wantDelayMs`, `jitterMs`, `offsetMs`, `lagErrMs` explain it, `lowLatency` says which playback runs | **21 to 27 now, 150 to 170 before** |
+| `stages.netPhase` | the network frame minus the avatar frame of the same frame | +0.5 (the late module order holds) |
+| `stages.applyUs`, `poseToSetPosMs` | the engine calls of a tick (SetPos ...); from the start of the tick to their end | 0.3 ms, 0.4 ms |
+| `stages.localDrift3D` | the local player's reference position against his 3D node | not read out in these runs |
+| `lowLatency` (top level and per remote) | whether the low-latency playback is on | true |
+
+`avatar.trace {n}`: the last n published samples of the walker and each puppet's fed pose per frame (with the delay in use, the wanted delay, the jitter and the newest snapshot's age), on one clock.
+The lab's walk room lays them over each other (`lab_rooms.trace_lag`: `{who}_trace_lag_ms`, `_trace_err_p95_now`): no bridge read in it. `LAB_TRACE_DIR=<dir>` keeps the raw traces. The lab's per-leg
+numbers are `{who}_leg_send_ms`, `_rx_ms`, `_transport_ms`, `_hold_ms`, `_delay_in_use_ms`, `_apply_ms`, `_net_phase_ms`, `_buf_*`. Spawn-room traces (`puppet_trace`) now carry the puppet's pose and applied place and the network service's counters.
+
+### The stage that added the ~100 ms: the render delay, not the pipeline
+
+Everything between the sampler and the puppet is as designed (send 2 to 7 ms, wire 6 to 13, one frame of hold, SetPos 0.3 ms, the net tick after the avatar tick). The buffer's delay in use was
+**150 to 170 ms while the delay it asked for was 20 to 30**. Cause (`[avatar] legacyRules=1` reproduces it): a player who stands still sends one heartbeat a second; the interval estimate averaged
+those gaps in, so the buffer took the stream for a slow (far tier) one and asked for 1.25 x the interval, its 350 ms ceiling; the render clock follows the wanted delay at 10 percent (`slewPerMille`),
+so after every stand it needed seconds to come back down, and the lab's walk (four 300 unit legs with stops) never got there. The same cause showed a teleport, or a start to walk after a stand, 350 ms
+late. The model never had a stand longer than 1.5 s, and its "before" row (the old fixed buffer) hid it.
+
+Fixes (each has a test and a twin):
+- `InterpBuffer`: the stream's interval is the smallest of the last four gaps, gaps over `intervalCapMs` (400) are silence and not counted, a rate is claimed from three gaps on (twin `llOldInterval`: lag sim 210, synccore `ll_old_interval`).
+- Snap rule: a snapshot is a **jump** (`Snap::jump`) when the cell changes, when it is further from its predecessor than `teleportUnits` (350) plus `teleportSpeed` (800 u/s) x the time between them, or when a standing player is more than `silentJumpUnits` (140) from where the previous snapshot stood after a silence or as a standing one again. The puppet holds the old place until the jump's time and then snaps; the render time crossing a jump snaps even when the way looks short, and a target that moves further than that in one frame snaps too (the old rule eased every error between 2 and 10 m with a 200 ms time constant). Twin `noTeleportSnap` (lag sim 211, synccore `no_teleport_snap`).
+- Sender: a jump of more than 100 units and faster than `maxSpeed` in one period is a teleport (velocity restarted); only more than 350 units were. A 200 unit jump went on the wire as 2200 u/s and the receiver extrapolated it 330 units past the target. Twin 40 and engine test `sampler_small_jump_is_a_teleport_not_a_speed`.
+- Rate planner: a snapshot more than `jumpUnits` (350) from the last one sent on a link, or in another cell, goes at once whatever the tier's period says (twin 209, live wiring test `avatars_teleport_arrives_at_once`).
+- Network service: a snapshot that arrives before the roster that names its player was acked and then dropped, so a standing host sent nothing but a heartbeat a second from then on: the puppet the roster made stood 773 units off for 0.7 to 2.7 s. It is kept (newest per player) and fed to the puppet the moment it exists (twin 212, `avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet`).
+- Dev switch: `[avatar] legacyRules=1` turns the four rules above off for before/after runs (`lab_run.ps1 -ExtraIni avatar.legacyRules=1`; the lab keeps the key in nvcoop.ini from the run before, so a normal run passes `avatar.legacyRules=0`).
+
+### Before / after in the game (lab walk room, one pair; error p95 in units, host copy / client copy; delay in use and the game's trace lag in ms)
+
+| pass | before: error p95 | before: delay in use | before: trace lag | after: error p95 | after: delay in use | after: trace lag |
+|---|---|---|---|---|---|---|
+| clean (4 and 5 runs) | 75 to 86 / 95 to 102 | 150 to 171 | 55 to 125 | **10 to 28 / 19 to 30** | 21 to 27 | 35 to 50 |
+| good_wifi | 92 / 94 | 166 / 171 | 120 / 175 | 21 / 18 | 32 / 30 | 65 / 55 |
+| bad_wifi | 83 / 101 | 180 / 166 | 125 / 145 | 31 / 28 | 50 / 57 | 85 / 85 |
+| mobile_tether | 84 / 92 | 170 / 188 | 165 / 200 | 44 / 40 | 66 / 76 | 110 / 120 |
+| transatlantic | 79 / 104 | 107 / 193 | 175 / 285 | 46 / 50 (the link alone is 90 ms one way: 34 units at this speed) | 30 / 34 | 135 / 130 |
+
+The model, `avatar_lag_tests --report` (it now runs the co-op module after the drive and the planner on a 15.6 ms clock, the order and the clock of the game, and has a teleport, a start from a long stand
+and the lab's walk room as tracks): lab walk room p95 clean 65.6 before / 22.3 after, bad Wi-Fi 64 / 38; a 450 unit teleport arrives after 435 ms before / 36 ms after (clean); the first 1.5 s after a
+6 s stand have an error of up to 113 before / 24 after.
+
+### Not fixed / honest
+- The spawn room's slow first sight of the other player (650 to 2700 ms): after the roster fix 0.19, 0.20 and 0.70 s in three runs on good Wi-Fi (before it: 1.0 to 2.8 s in four of four profile passes, and fast in others; the slowness is random per run and also seen with `legacyRules=1`). The 0.70 s case still has the newest snapshot 1.5 s old when the wait starts: a snapshot that reaches the client late. Not closed completely.
+- ENet's packet throttle may drop unreliable snapshots on a clean link (published 28 to 30 Hz, received 24 to 25 Hz in every pass). Not touched (the transport is not this round's); it costs no lag, only gaps the buffer extrapolates over.
+- Behind mobile_tether and transatlantic the error is mostly the link's own one-way delay times the speed; the buffer adds 30 to 75 ms.
+- The tests above ran in the game on branch wt/avatarlag2 (build of 2026-10-28 06:32 for the final DLLs); the profile table is from the build before the roster fix (the walk code is the same).

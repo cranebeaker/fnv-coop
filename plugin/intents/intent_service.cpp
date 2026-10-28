@@ -6,6 +6,11 @@
 
 namespace nvcoop::intents {
 
+GuestStagePassFn& guestStagePassHook() {
+    static GuestStagePassFn f;
+    return f;
+}
+
 IntentService::IntentService(ServiceDeps deps, Config cfg, ContainerRedirect redirect, StorageBook stash)
     : deps_(std::move(deps)), cfg_(std::move(cfg)), redirect_(std::move(redirect)), stash_(std::move(stash)) {}
 
@@ -53,7 +58,10 @@ void IntentService::begin(nvcoop::coop::Runtime* rt, fnvcoop::MuxTransport* mux,
         hd.allowActivation = deps_.allowActivation;
         hd.interacted = deps_.interacted;
         hd.allowStage = deps_.allowStage;
+        hd.guestStagePass = deps_.guestStagePass;
         hd.stageRefused = deps_.stageRefused;
+        hd.log = deps_.log;
+        hd.retryList = deps_.retryList;
         hd.joined = [this](PlayerId slot) {   // asked live: a datagram can arrive in the same frame as the join
             if (!rt_ || !rt_->host()) return false;
             for (const auto& cv : rt_->host()->clients())
@@ -83,6 +91,7 @@ void IntentService::begin(nvcoop::coop::Runtime* rt, fnvcoop::MuxTransport* mux,
         cd.nowMs = deps_.nowMs;
         cd.startDialogue = deps_.startDialogue;
         cd.containerMenuOpen = deps_.containerMenuOpen;
+        cd.log = deps_.log;
         cd.sendToHost = [this](Bytes data) {
             if (!mux_) return false;
             mux_->send(0, std::move(data));   // a client's only peer is the host
@@ -129,6 +138,20 @@ void IntentService::frame(nvcoop::coop::Runtime* rt) {
 
 uint64_t IntentService::runDialogueResult(const fnvcoop_dlg::ResultRequest& rq) {
     if (!up_ || !isHost_ || !rt_ || !rt_->host() || !deps_.eng) return 0;
+    // One run per (session, conversation, step, phase): a retry or a second delivery of the same pick gets the first run's answer. The dialogue host
+    // is idempotent per step already; this is the second line, in front of the engine, because a result script pays out (60 rounds, XP, caps) every time it runs.
+    const DlgKey key{gen_, uint32_t(rq.conv), rq.step, uint8_t(rq.phase)};
+    if (!FNV_MUT(441)) {   // MUTANT 441: no idempotency key: every call of the runner runs the script
+        auto seen = dlgDone_.find(key);
+        if (seen != dlgDone_.end()) {
+            ++dlgStats_.deduped;
+            char b[200];
+            std::snprintf(b, sizeof b, "dialogue result DUPLICATE conv %u step %u phase %s info %X slot %d: not run again (first run committed seq %llu)", unsigned(rq.conv), unsigned(rq.step),
+                          rq.phase == fnvcoop_dlg::Phase::End ? "end" : "begin", unsigned(rq.info.localId), int(rq.initiator), static_cast<unsigned long long>(seen->second));
+            dlgLog(b);
+            return seen->second;
+        }
+    }
     const uint64_t head0 = rt_->host()->log().head();
     const PlayerId slot = rq.initiator;
     RefId actor = kHostPlayerRef;
@@ -156,8 +179,33 @@ uint64_t IntentService::runDialogueResult(const fnvcoop_dlg::ResultRequest& rq) 
     if (!ran || !supported) ++dlgStats_.unsupported;
     else if (!ok) ++dlgStats_.failed;
     const uint64_t head1 = rt_->host()->log().head();
-    if (head1 > head0) { ++dlgStats_.committed; return head1; }
-    return 0;
+    const uint64_t answer = head1 > head0 ? head1 : 0;
+    if (answer) ++dlgStats_.committed;
+    if (dlgDone_.emplace(key, answer).second) {
+        dlgOrder_.push_back(key);
+        while (dlgOrder_.size() > 256) { dlgDone_.erase(dlgOrder_.front()); dlgOrder_.pop_front(); }
+    }
+    if (deps_.log) {
+        std::string fx;
+        if (answer)
+            for (uint64_t q = head0 + 1; q <= head1; ++q)
+                if (const fnvcoop::EffectTxn* t = rt_->host()->log().get(q)) {
+                    fx += " [seq " + std::to_string(q) + ":";
+                    fx += " origin " + std::to_string(int(t->origin));
+                    for (const auto& e : t->effects) {
+                        fx += ' ';
+                        fx += fnvcoop::effectName(e);
+                        if (const auto* ai = std::get_if<fnvcoop::AddItem>(&e))   // the numbers a double reward would show: item, count, who it is for
+                            fx += "(" + std::to_string(ai->item.localId) + " x" + std::to_string(ai->count) + " mode " + std::to_string(int(ai->to.mode)) + " mask " + std::to_string(int(ai->to.mask)) + ")";
+                    }
+                    fx += "]";
+                }
+        char b[240];
+        std::snprintf(b, sizeof b, "dialogue result conv %u step %u phase %s info %X slot %d actor %X: %s, committed %s", unsigned(rq.conv), unsigned(rq.step),
+                      rq.phase == fnvcoop_dlg::Phase::End ? "end" : "begin", unsigned(rq.info.localId), int(slot), unsigned(actor), !ran ? "no guest window" : !supported ? "engine hook missing" : ok ? "ok" : "script failed", answer ? "yes" : "no");
+        dlgLog(std::string(b) + fx);
+    }
+    return answer;
 }
 
 Obs IntentService::onActivate(const FormRef& target) { return client_ ? client_->onActivate(target) : Obs::Proceed; }
@@ -171,7 +219,7 @@ void IntentService::onWorldLoaded() { if (host_) host_->worldReset(); }
 std::string IntentService::statusJson() const {
     std::ostringstream o;
     o << "{\"enabled\":" << (cfg_.enable ? "true" : "false") << ",\"up\":" << (up_ ? "true" : "false") << ",\"sessions\":" << sessions_ << ",\"dialogueResults\":{\"ran\":" << dlgStats_.ran << ",\"committed\":" << dlgStats_.committed << ",\"unsupported\":" << dlgStats_.unsupported
-      << ",\"failed\":" << dlgStats_.failed << ",\"refused\":" << dlgStats_.refused << "},\"detail\":"
+      << ",\"failed\":" << dlgStats_.failed << ",\"refused\":" << dlgStats_.refused << ",\"deduped\":" << dlgStats_.deduped << "},\"detail\":"
       << (host_ ? host_->statusJson() : client_ ? client_->statusJson() : std::string("null")) << "}";
     return o.str();
 }

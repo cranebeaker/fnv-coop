@@ -43,6 +43,8 @@ Hard rules that hold everywhere:
 - Actor snapshots at **20 Hz near players, 5 Hz far**, with interest management by cell and distance.
   Delta-compressed against the last acked snapshot. The receiver uses a **100 ms interpolation buffer** and
   extrapolates at most 250 ms.
+  **Player avatars (2026-10-27, docs/tools/avatar.md):** 30 Hz near (far 5 Hz and out 1 Hz as before) and a low-latency playback instead of the fixed 100 ms buffer: the delay follows the measured
+  arrival jitter (20 ms floor), the pose is dead-reckoned past the newest snapshot (damped) and prediction misses are faded out. NPCs keep the 20 Hz / 100 ms rule.
 - The host is also the relay for 3 to 4 players (star topology), so no NAT mesh is needed. A dedicated
   headless host is a later option.
 

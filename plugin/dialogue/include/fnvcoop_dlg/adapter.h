@@ -6,7 +6,9 @@
 // Channel requirement: reliable + ordered per peer pair (ENet reliable channel). Duplicates are tolerated
 // (idempotent host/clients); loss and reordering are not (a lost Pick would stall until the lease expires).
 #pragma once
+#include <cstdio>
 #include <functional>
+#include <string>
 #include <memory>
 #include <set>
 #include "fnvcoop/transport.h"
@@ -17,6 +19,21 @@ namespace fnvcoop_dlg {
 
 using fnvcoop::Bytes;
 using fnvcoop::PeerId;
+
+// Diagnostics: one line per conversation start step (a guest's request, the host's grant or refusal, the guest's menu event). Unset = silent.
+// plugin/intents' module sets it to nvcoop::Log; the node never depends on it.
+inline std::function<void(const std::string&)>& traceSink() {
+    static std::function<void(const std::string&)> f;
+    return f;
+}
+inline std::string traceRef(const fnvcoop::FormRef& r) {
+    char b[24];
+    std::snprintf(b, sizeof b, "%X", static_cast<unsigned>(r.localId));
+    return r.plugin + ":" + b;
+}
+inline void trace(const std::string& s) {
+    if (traceSink()) traceSink()(s);
+}
 
 class DialogueNode {
 public:
@@ -51,13 +68,30 @@ public:
         if (!isDialoguePacket(b)) return false;
         Msg m;
         if (decode(b, m) != DecodeStatus::Ok) { ++badPackets_; return true; }
-        if (cfg_.isHost && isClientToHost(m)) fanOut(host_->onMessage(cfg_.slotOfPeer(from), m, now), now);
+        if (auto* sm = std::get_if<SayOnceMark>(&m)) {   // not a conversation message: a guest's engine marked an INFO said (say-once, D11)
+            if (cfg_.isHost) {
+                const PlayerId slot = cfg_.slotOfPeer ? cfg_.slotOfPeer(from) : fnvcoop::kNoPlayer;
+                if (slot < 8 && slot != cfg_.self && sayOnceSink_) sayOnceSink_(slot, sm->info);
+                else ++sayOnceRejected_;
+            }
+            return true;
+        }
+        if (cfg_.isHost && isClientToHost(m)) {
+            if (auto* sr = std::get_if<StartReq>(&m))
+                trace("dialogue: host got StartReq req " + std::to_string(sr->reqId) + " npc " + traceRef(sr->npc) + " from peer " + std::to_string(from) + " = slot " + std::to_string(int(cfg_.slotOfPeer(from))));
+            fanOut(host_->onMessage(cfg_.slotOfPeer(from), m, now), now);
+        }
         else if (!cfg_.isHost || !isClientToHost(m)) deliverLocal(m, now);
         return true;
     }
 
     // ---- client API (also valid on the host: its own client side loops back without the network)
-    void requestStart(const FormRef& npc, uint32_t now) { route(client_.requestStart(npc), now); }
+    void requestStart(const FormRef& npc, uint32_t now) {
+        const auto role = client_.role();
+        auto evs = client_.requestStart(npc);
+        trace("dialogue: requestStart npc " + traceRef(npc) + " role was " + std::to_string(int(role)) + (evs.empty() ? " (nothing sent)" : " (sent)"));
+        route(std::move(evs), now);
+    }
     void offer(std::vector<TopicEntry> t, uint32_t now) { route(client_.offer(std::move(t)), now); }
     void pick(const FormRef& topic, const FormRef& info, int32_t choice, bool goodbye, std::vector<Line> lines,
               std::vector<Fact> facts, uint32_t now) {
@@ -71,6 +105,18 @@ public:
         route(client_.tick(now), now);
         if (host_) fanOut(host_->tick(now), now);
     }
+
+    // ---- say-once marks the engine made on a guest (D11). Guest: report to the host. Host: the sink gets (slot, info) for every report from a joined slot.
+    using SayOnceSink = std::function<void(PlayerId from, const FormRef& info)>;
+    void setSayOnceSink(SayOnceSink s) { sayOnceSink_ = std::move(s); }
+    bool reportSayOnce(const FormRef& info) {
+        if (cfg_.isHost || !t_ || info.plugin.empty()) return false;
+        t_->send(cfg_.hostPeer, encode(SayOnceMark{info}));
+        ++sayOnceSent_;
+        return true;
+    }
+    uint32_t sayOnceSent() const { return sayOnceSent_; }
+    uint32_t sayOnceRejected() const { return sayOnceRejected_; }
 
     // ---- host API
     void playerJoined(PlayerId p, uint32_t now = 0) { if (host_) fanOut(host_->playerJoined(p), now); }
@@ -113,6 +159,11 @@ public:
         return id;
     }
 
+    // ---- votes owned by the rules engine (ReadyCheck / ChoiceConsent, rules_link.h wires a RulesEngine in one call)
+    void setRulesGates(HostDialogue::RulesGate info, HostDialogue::RulesGate box) { if (host_) host_->setRulesGates(std::move(info), std::move(box)); }
+    void setVoteSink(HostDialogue::VoteSink s) { if (host_) host_->setVoteSink(std::move(s)); }
+    void rulesResolved(const FormRef& ref, bool accepted, uint32_t now) { if (host_) fanOut(host_->rulesResolved(ref, accepted, now), now); }
+
     // ---- forced dialogue (host hook for SayTo / StartConversation; the ForcedDialogue effect is the capture record)
     void setActorChooser(HostDialogue::ActorChooser c) { if (host_) host_->setActorChooser(std::move(c)); }
     void forcedSay(const FormRef& npc, const FormRef& topic, const FormRef& info, std::vector<Line> lines, PlayerId target,
@@ -143,13 +194,20 @@ private:
 
     void route(std::vector<Event> evs, uint32_t now) {
         for (auto& e : evs) {
-            if (e.kind != Event::Send) { if (sink_) sink_(e); continue; }
+            if (e.kind != Event::Send) {
+                if (e.kind == Event::OpenMenu || e.kind == Event::Denied || e.kind == Event::CloseMenu)
+                    trace("dialogue: event " + std::to_string(int(e.kind)) + (e.kind == Event::Denied ? " deny " + std::to_string(int(e.deny)) : std::string()) + (sink_ ? "" : " (no sink)"));
+                if (sink_) sink_(e);
+                continue;
+            }
             if (cfg_.isHost) fanOut(host_->onMessage(cfg_.self, e.msg, now), now);
             else t_->send(cfg_.hostPeer, encode(e.msg));
         }
     }
     void fanOut(const std::vector<Out>& outs, uint32_t now) {
         for (auto& o : outs) {
+            if (auto* op = std::get_if<Opened>(&o.msg)) trace("dialogue: host grants conv " + std::to_string(op->conv) + " req " + std::to_string(op->reqId) + " npc " + traceRef(op->npc) + " to initiator slot " + std::to_string(int(op->initiator)));
+            else if (auto* dn = std::get_if<StartDenied>(&o.msg)) trace("dialogue: host DENIES req " + std::to_string(dn->reqId) + " reason " + std::to_string(int(dn->reason)) + " owner " + std::to_string(int(dn->owner)));
             for (PlayerId p = 0; p < 8; ++p) {
                 if (!((o.to >> p) & 1)) continue;
                 if (p == cfg_.self) deliverLocal(o.msg, now);
@@ -164,7 +222,8 @@ private:
     CompanionRegistry companions_;
     std::unique_ptr<HostDialogue> host_;
     Sink sink_;
-    uint32_t badPackets_ = 0;
+    uint32_t badPackets_ = 0, sayOnceSent_ = 0, sayOnceRejected_ = 0;
+    SayOnceSink sayOnceSink_;
 };
 
 }  // namespace fnvcoop_dlg

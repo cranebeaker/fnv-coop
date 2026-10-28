@@ -12,6 +12,7 @@
 // AddRemote / RemoveRemote and OnRemoteSnapshot / OnRemoteEquipment. docs/tools/avatar.md "Wiring" lists them.
 #pragma once
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "../puppet_manager.h"
+#include "avatar_tuning.h"
 #include "game_backend.h"
 #include "local_sampler.h"
 #include "puppet_game_engine.h"
@@ -29,8 +31,8 @@ namespace nvcoop::avatar::engine {
 struct RuntimeConfig {
     Config puppet;                          // localSlot, maxPuppets, templates, defaultTemplate, thresholds
     EngineOptions engine;                   // taggedBases is extended with every template base
-    LocalSamplerConfig sampler;
-    live::InterpConfig interp;
+    LocalSamplerConfig sampler = DefaultLagTuning().sampler;   // 30 Hz, the shipped velocity filter (avatar_tuning.h)
+    live::InterpConfig interp = DefaultLagTuning().interp;     // low-latency playback
     uint32_t equipPollMs = 400;
     Slot loopbackSlot = 1;                  // the slot the loopback puppet uses (must differ from puppet.localSlot)
     Vec3 loopbackOffset{160.0f, 0.0f, 0.0f};   // world-space shift of the loopback puppet
@@ -63,6 +65,11 @@ public:
     bool SetRemoteAppearance(Slot slot, const Appearance& a);
     // The local player's own look (race, sex, hair, eyes, body, face data) as the backend reads it. False when unreadable.
     bool ReadLocalAppearance(Appearance& out);
+    // W3a item 3: level, sit state, active actions and regions of the local player (evaluators + the region list). False when nothing could be read.
+    bool ReadLocalFacts(PlayerFacts& out);
+    // Guest pack facts: the local player's InventoryWeight and the counts of the watched item forms (only those above zero, sorted by form). False when nothing could be read
+    // (the player is not readable, or every evaluator is unavailable).
+    bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out);
     void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs);
     void OnRemoteEquipment(Slot slot, const std::vector<EquipEntry>& wanted);
 
@@ -86,9 +93,34 @@ public:
     const RuntimeConfig& config() const { return cfg_; }
     std::string StatusJson();   // avatar.status
     std::string LocalJson();    // avatar.local: the last local sample and what the engine said
+    std::string StagesJson() const;   // avatar.status "stages"
     uint64_t remoteSnapshots() const { return remoteSnaps_; }
     uint64_t droppedRemote() const { return droppedRemote_; }
     uint64_t posesFed() const { return posesFed_; }
+
+    // Stage timers (avatar.status "stages"): where the time between the sender's sample and the shown puppet goes. The network layer reports its
+    // stages through NoteStage; the runtime measures the rest itself.
+    void NoteStage(NetStage st, double ms);
+    struct Stages {
+        live::Gauge send, rx;      // reported by the network layer (NetStage)
+        live::Gauge netPhase;      // the network layer's frame minus the avatar layer's last Tick: > 0 = it runs after it in the same frame, as designed
+        live::Gauge netGap;        // time between two network-layer frames
+        live::Gauge frameGap;      // time between two Tick calls (the avatar layer's frame)
+        live::Gauge sampleUs;      // reading the local player + building the snapshot + the sink (sender)
+        live::Gauge driveUs;       // sampling the buffers + SetPose
+        live::Gauge applyUs;       // PuppetManager::Tick: the engine calls (SetPos ...)
+        live::Gauge localDrift3D;  // the local player: distance between his reference position (what is sent) and his 3D node (what is drawn), game units
+        live::Gauge poseToSetPosMs; // from the start of Tick (where the pose is computed) to the end of the engine calls, in ticks that moved a puppet
+    };
+    const Stages& stages() const { return stages_; }
+    // avatar.trace: the last `n` samples of the local player as published (tick, position, velocity) and, per remote, of every frame's pose fed to the puppet
+    // (frame time, shown position, and where the engine said the puppet stood at the start of that frame). Both are stamped on the same clock, so on one PC a
+    // walker's path and his puppet's can be laid over each other without the bridge's read times (docs/tools/avatar.md "stage timers").
+    std::string TraceJson(size_t n) const;
+    const live::InterpDiag* InterpOf(Slot slot) const {
+        auto it = remotes_.find(slot);
+        return it == remotes_.end() ? nullptr : &it->second->buf.diag();
+    }
 
 private:
     struct Remote {
@@ -120,6 +152,17 @@ private:
     uint32_t saveHeldAt_ = 0;
     live::ActorSnapshot lastSnap_;
     bool haveSnap_ = false;
+    Stages stages_;
+    struct LocalPt { uint32_t t; float x, y, z, vx, vy, vz; };
+    struct RemotePt { uint32_t t; float x, y, z, ax, ay, az; uint8_t state; float delay, want, jitter, newestAge; };
+    static constexpr size_t kTraceLocal = 900, kTraceRemote = 1800;
+    std::deque<LocalPt> traceLocal_;
+    std::map<Slot, std::deque<RemotePt>> traceRemote_;
+    uint64_t lastTickUs_ = 0;
+    bool haveTickUs_ = false;
+    uint32_t lastSetPosCount_ = 0;
+    uint32_t lastNetFrame_ = 0;
+    bool haveNetFrame_ = false;
 };
 
 }  // namespace nvcoop::avatar::engine

@@ -4,6 +4,7 @@
 //   14 late joiner gets no replay    15 consent table ignored (plain box)     16 slide host not connected to the router
 //   17 narration stamp ignored       18 sequencer replays a released item      19 a lost predecessor blocks the show forever
 //   20 scene narration not stamped by the host
+//   26 a rules-owned message box is raised plain  27 the rules engine's per-player quest variables are not connected
 #include <cstdio>
 #include <memory>
 #include <set>
@@ -86,6 +87,9 @@ struct World {
     uint64_t now = 0;
     uint32_t seqProvided = 0;
     int scriptRuns = 0;                         // INFO result scripts the host ran
+    // wave 1b: a stand-in rules engine (the real one is covered in plugin/dialogue rules_link_test.cpp)
+    std::vector<std::tuple<PlayerId, FormRef, bool>> votes;
+    std::vector<std::pair<FormRef, PlayerId>> boxAsked;
 
     explicit World(uint32_t latency = 20, double dup = 0, uint32_t jitter = 0, uint64_t seed = 5) : net(seed) {
         fnvcoop::LinkParams lp;
@@ -126,9 +130,15 @@ struct World {
         bc.slotOfActor = [](uint32_t ref) -> PlayerId { return ref == 0x14 ? kHost : ref == 0x2001 ? PlayerId(1) : ref == 0x2002 ? PlayerId(2) : kNoSlot; };
         bc.lastCommittedSeq = [this] { return uint64_t(++seqProvided); };
         bc.slides = slideHost.get();
+        bc.isRulesChoice = [](const FormRef& m) { return m.localId == 0x4D0001; };                       // ChoiceConsent box (a Temple confirm box)
+        bc.varName = [](const FormRef& q, uint32_t idx, std::string* name) { if (q.localId != 0x7700 || idx != 4) return false; *name = "fCollarTimer"; return true; };
+        bc.viewPlayerVar = [](const FormRef&, const std::string& var, PlayerId slot, double real) { return var == "fCollarTimer" ? 10.5 + slot : real; };
+        bc.hasPlayerVars = [](const FormRef& q) { return q.localId == 0x7700; };
         router.reset(new UiRouter(eng, makeDialogueBridge(bc)));
         router->setHost(true);
         attachMenuResume(*n[0], *router);
+        n[0]->setRulesGates(nullptr, [this](const FormRef& box, PlayerId origin) { boxAsked.emplace_back(box, origin); return fnvcoop_dlg::HostDialogue::Gate::Hold; });
+        n[0]->setVoteSink([this](PlayerId slot, const FormRef& ref, bool yes) { votes.emplace_back(slot, ref, yes); });
 
         n[0]->playerJoined(1);
         n[0]->playerJoined(2);
@@ -289,6 +299,101 @@ TEST(consent_origin_disconnect_takes_the_decline_default) {
     w.n[0]->playerLeft(2, uint32_t(w.now));
     w.step(50);
     CHECK(w.eng.lastButton() != kNoButton);  // the script is never stranded
+}
+
+// ---- wave 1b (G08): a ChoiceConsent box, the vote is the rules engine's ----------------------------------------------------------------
+static MessageBoxCall templeBox(uint32_t script = 93, std::vector<std::string> buttons = {"Yes", "No"}) {
+    MessageBoxCall c;
+    c.scriptRefID = script;
+    c.thisObj = 0x300;
+    c.message = F(0x4D0001);
+    c.text = "Launch the missiles at the Legion?";
+    c.buttons = std::move(buttons);
+    return c;
+}
+TEST(rules_owned_box_asks_the_party_and_waits_for_the_engines_verdict) {
+    World w;
+    OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 2);
+    REQUIRE(w.router->onMessageBox(templeBox()) == Route::Suppressed);
+    w.step(100);
+    REQUIRE(w.shown(2) == 1);
+    const uint32_t id = w.lastMenuId(2);
+    w.n[2]->menuReply(id, 0, uint32_t(w.now));                                      // the origin picks "Yes", the point of no return
+    w.step(100);
+    CHECK(w.boxAsked.size() == 1 && w.boxAsked[0].first == F(0x4D0001) && w.boxAsked[0].second == 2);   // the engine is asked once
+    CHECK(w.shown(0) == 1 && w.shown(1) == 1 && w.eng.lastButton() == kNoButton);   // the others are asked, the script waits
+    w.n[0]->menuReply(id, 0, uint32_t(w.now));                                      // Agree
+    w.n[1]->menuReply(id, 1, uint32_t(w.now));                                      // Not yet
+    w.step(100);
+    CHECK(w.votes.size() == 2 && std::get<0>(w.votes[0]) == 0 && std::get<2>(w.votes[0]) && std::get<0>(w.votes[1]) == 1 && !std::get<2>(w.votes[1]));
+    CHECK(w.eng.lastButton() == kNoButton);                                         // the host does not count the votes: only the engine's verdict resumes the script
+    w.n[0]->rulesResolved(F(0x4D0001), true, uint32_t(w.now));
+    w.step(100);
+    CHECK(w.eng.lastButton() == 0 && w.router->pendingBoxes() == 0);                // accepted: the origin's own button
+}
+TEST(rules_owned_box_declined_gives_the_last_button) {
+    World w;
+    OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 1);
+    REQUIRE(w.router->onMessageBox(templeBox()) == Route::Suppressed);
+    w.step(100);
+    w.n[1]->menuReply(w.lastMenuId(1), 0, uint32_t(w.now));
+    w.step(100);
+    w.n[0]->rulesResolved(F(0x4D0001), false, uint32_t(w.now));
+    w.step(100);
+    CHECK(w.eng.lastButton() == 1);                                                 // "No": the last button, nothing irreversible happened
+}
+// The game data (LonesomeRoad.esm, the three NVDLC04Temple*ConfirmMSG boxes) lists the buttons "No." then "Yes.": the point of no return is the LAST one.
+TEST(rules_owned_box_reads_yes_and_no_from_the_button_texts) {
+    int32_t yes = 0, no = 1;
+    rulesBoxButtons({"No.", "Yes."}, &yes, &no);
+    CHECK(yes == 1 && no == 0);
+    yes = 0; no = 1;
+    rulesBoxButtons({"Yes", "No"}, &yes, &no);
+    CHECK(yes == 0 && no == 1);
+    yes = 0; no = 2;
+    rulesBoxButtons({"Launch", "Wait", "Cancel"}, &yes, &no);   // no yes / no text: the conventions stay
+    CHECK(yes == 0 && no == 2);
+    World w;
+    OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 1);
+    REQUIRE(w.router->onMessageBox(templeBox(93, {"No.", "Yes."})) == Route::Suppressed);
+    w.step(100);
+    REQUIRE(w.shown(1) == 1);
+    w.n[1]->menuReply(w.lastMenuId(1), 1, uint32_t(w.now));                          // "Yes." is button 1 here: the party is asked
+    w.step(100);
+    CHECK(w.boxAsked.size() == 1);
+    w.n[0]->rulesResolved(F(0x4D0001), false, uint32_t(w.now));
+    w.step(100);
+    CHECK(w.eng.lastButton() == 0);                                                 // declined: "No.", the FIRST button
+}
+TEST(rules_owned_box_decided_by_the_host_asks_the_guests) {
+    World w;
+    REQUIRE(w.router->onMessageBox(templeBox()) == Route::Suppressed);              // the host player is the origin
+    w.step(100);
+    REQUIRE(w.shown(0) == 1);
+    w.n[0]->menuReply(w.lastMenuId(0), 0, uint32_t(w.now));
+    w.step(100);
+    CHECK(w.shown(1) == 1 && w.shown(2) == 1 && w.boxAsked.size() == 1 && w.boxAsked[0].second == 0 && w.eng.lastButton() == kNoButton);
+}
+TEST(rules_owned_box_other_button_is_no_point_of_no_return) {
+    World w;
+    OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 2);
+    REQUIRE(w.router->onMessageBox(templeBox()) == Route::Suppressed);
+    w.step(100);
+    w.n[2]->menuReply(w.lastMenuId(2), 1, uint32_t(w.now));                         // "No"
+    w.step(100);
+    CHECK(w.boxAsked.empty() && w.shown(0) == 0 && w.eng.lastButton() == 1);
+}
+TEST(condition_view_reads_the_rules_engines_per_player_variables_by_name) {
+    World w;
+    {
+        OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 1);
+        CHECK(w.router->viewQuestVar(0x7700, 4, 99.0) == 11.5);                     // variable 4 of quest 0x7700 is fCollarTimer: the evaluating player's copy
+    }
+    {
+        OriginScope s(w.router->origin(), OriginContext::Kind::Acting, 2);
+        CHECK(w.router->viewQuestVar(0x7700, 4, 99.0) == 12.5 && w.router->viewQuestVar(0x7700, 5, 99.0) == 99.0);   // another variable index has no name: untouched
+    }
+    CHECK(w.router->viewQuestVar(0x7701, 4, 99.0) == 99.0);                         // another quest
 }
 
 // ---- forced dialogue + condition views through the node ---------------------------------------------------------------------------
@@ -597,6 +702,12 @@ int main() {
     run("consent_box_decided_by_the_host_asks_the_guests", consent_box_decided_by_the_host_asks_the_guests);
     run("fork_info_from_the_consent_table_waits_for_the_party", fork_info_from_the_consent_table_waits_for_the_party);
     run("consent_origin_disconnect_takes_the_decline_default", consent_origin_disconnect_takes_the_decline_default);
+    run("rules_owned_box_asks_the_party_and_waits_for_the_engines_verdict", rules_owned_box_asks_the_party_and_waits_for_the_engines_verdict);
+    run("rules_owned_box_declined_gives_the_last_button", rules_owned_box_declined_gives_the_last_button);
+    run("rules_owned_box_reads_yes_and_no_from_the_button_texts", rules_owned_box_reads_yes_and_no_from_the_button_texts);
+    run("rules_owned_box_decided_by_the_host_asks_the_guests", rules_owned_box_decided_by_the_host_asks_the_guests);
+    run("rules_owned_box_other_button_is_no_point_of_no_return", rules_owned_box_other_button_is_no_point_of_no_return);
+    run("condition_view_reads_the_rules_engines_per_player_variables_by_name", condition_view_reads_the_rules_engines_per_player_variables_by_name);
     run("forced_say_in_a_scene_reaches_every_player", forced_say_in_a_scene_reaches_every_player);
     run("forced_say_to_one_player_is_aimed", forced_say_to_one_player_is_aimed);
     run("start_conversation_picks_the_actor_and_opens_it_there", start_conversation_picks_the_actor_and_opens_it_there);

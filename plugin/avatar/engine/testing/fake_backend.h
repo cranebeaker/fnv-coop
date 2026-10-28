@@ -48,6 +48,10 @@ public:
         uint32_t moverFlags = 0;
         bool haveMover = false, swimming = false, dead = false, knocked = false, firstPerson = false;
         bool weaponOutForced = false;        // the local player draws its weapon without SetAlert
+        int level = 1;                       // GetLevel
+        int sitState = 0;                    // GetSitting
+        double inventoryWeight = 0;          // GetActorValue InventoryWeight (46); tests keep it in step with `inv` by hand
+        std::set<int> actions;               // IsPlayerActionActive ids that are active
         bool has3D() const { return node != 0 && load3dLeft == 0; }
     };
 
@@ -330,7 +334,19 @@ public:
                 break;
             }
             case Cond::GetEquipped: out = f->worn.count(param) ? 1 : 0; break;
+            case Cond::GetLevel: out = f->level; break;
+            case Cond::GetSitting: out = f->sitState; break;
+            case Cond::IsPlayerActionActive: out = f->actions.count(static_cast<int>(param)) ? 1 : 0; break;
+            case Cond::GetActorValue: out = param == 46 ? f->inventoryWeight : 0; break;   // only InventoryWeight is modelled
         }
+        return true;
+    }
+    std::vector<FormId> playerRegions;       // PlayerCharacter::regionsList
+    bool regionsReadable = true;
+    bool ReadPlayerRegions(std::vector<FormId>& out, size_t max) override {
+        out.clear();
+        if (!regionsReadable) return false;
+        for (FormId r : playerRegions) if (out.size() < max) out.push_back(r);
         return true;
     }
     uint64_t NowUs() override { return now; }

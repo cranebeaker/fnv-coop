@@ -8,9 +8,16 @@
 #include <vector>
 
 #include "fake_world.h"
+#include "guest_item.h"
+#include "spectator_say.h"
 #include "baseline_file.h"
 #include "change_tracker.h"
 #include "udp_transport.h"
+#include "common/nvcoop_api.h"
+#include "party_state.h"
+#include "save_sidecars.h"
+#include "objvar_sidecar.h"
+#include "stash_order.h"
 
 using namespace nvcoop::coop;
 using namespace nvcoop::coop::test;
@@ -83,13 +90,15 @@ struct UiRig {
 static std::string consentPath() { return g_outDir + "/../../plugin/dialogue/data/consent_messages.txt"; }
 
 struct Node {
-    struct Opt { const char* transport = "enet"; bool baseline = false; int seed = 0; bool dialogue = false; bool blockClientLoad = false; bool rules = false; bool handshake = false; bool partyWarp = false; bool noPlayerRef = false; int bindGhosts = 0; /*1: bindPlayerRefs with ghosts for slots 1,2; 2: ghost for slot 1 only*/ uint64_t buildHash = 0; std::vector<std::string> plugins; bool ui = false; };
+    struct Opt { const char* transport = "enet"; bool baseline = false; int seed = 0; bool dialogue = false; bool blockClientLoad = false; bool rules = false; bool handshake = false; bool partyWarp = false; bool noPlayerRef = false; int bindGhosts = 0; /*1: bindPlayerRefs with ghosts for slots 1,2; 2: ghost for slot 1 only*/ uint64_t buildHash = 0; unsigned maxPlayers = 0; std::vector<std::string> plugins; bool ui = false; const char* rulesJson = nullptr; std::function<void(Runtime&)> preStart; };
     nvhooks::CaptureHub hub;
     FakeWorld world;
     std::unique_ptr<Runtime> rt;
     std::vector<fnvcoop_dlg::Event> dlgEvents;
     UiRig ui;
     int dlgRuns = 0;
+    int dlgRunsInScope = 0, scopesOpened = 0;   // wave 2: runs that happened while the result scope handle was alive
+    bool scopeOpen = false;
     Node(Role role, uint16_t port, uint64_t token = 0, const char* transport = "enet") : Node(role, port, token, Opt{transport}) {}
     Node(Role role, uint16_t port, uint64_t token, Opt o, const std::function<void(FakeWorld&)>& prep = nullptr) {
         world.seed(o.seed);
@@ -103,6 +112,7 @@ struct Node {
         c.baseline = o.baseline;
         c.clientLoadBlock = o.blockClientLoad;
         c.handshake = o.handshake;
+        if (o.maxPlayers) c.maxPlayers = o.maxPlayers;
         rt.reset(new Runtime(c, &hub, &world, nowMs));
         rt->setDumper(&world);
         if (o.handshake) {
@@ -122,7 +132,7 @@ struct Node {
    {"kind":"SaveSuppress","params":{},"origin":"curated"}]},
  "WarpQ":{"tier":"T3","questline":"x","curated":true,"rules":[{"kind":"PartyWarp","params":{},"origin":"curated"}]}}})";
             std::string rerr;
-            if (!rt->setRules(kRules, &rerr)) std::printf("  rules failed: %s\n", rerr.c_str());
+            if (!rt->setRules(o.rulesJson ? o.rulesJson : kRules, &rerr)) std::printf("  rules failed: %s\n", rerr.c_str());
             rt->setEdidResolver([](const std::string& edid, fnvcoop::FormRef& out) {
                 uint32_t h = 2166136261u;
                 for (char ch : edid) { h ^= (uint8_t)ch; h *= 16777619u; }
@@ -146,6 +156,7 @@ struct Node {
             DialogueHooks h;
             h.run = [this](const fnvcoop_dlg::ResultRequest& rq) -> uint64_t {
                 ++dlgRuns;   // the host "runs the result script": commits one DialogueResult txn per phase
+                if (scopeOpen) ++dlgRunsInScope;
                 nvhooks::ScopedCapture sc(hub, fnvcoop::Cause{fnvcoop::CauseKind::DialogueResult, rq.info, (int)rq.phase});
                 world.hostMutate(hub, fnvcoop::SetGlobal{R("FalloutNV.esm", 0x500 + rq.step * 2 + (int)rq.phase), 1.0f});
                 return rt->host() ? rt->host()->log().head() + 1 : 0;
@@ -166,9 +177,11 @@ struct Node {
             w.consentFile = consentPath();
             w.installInfoReader = [this](std::function<std::vector<fnvcoop_dlg::Line>(uint32_t)> f) { ++ui.readerInstalls; ui.installedReader = std::move(f); };
             w.infoReader = [](uint32_t info) { return std::vector<fnvcoop_dlg::Line>{fnvcoop_dlg::Line{"info " + std::to_string(info), "", 0, 50}}; };
+            w.varName = [](const fnvcoop::FormRef&, uint32_t idx, std::string* name) { if (idx != 0) return false; *name = "Banned"; return true; };
             rt->enableUi(std::move(w));
         }
         rt->setWorldEffectApplier([this](const std::string& j) { return world.applyWorldJson(j); });
+        if (o.preStart) o.preStart(*rt);
         std::string err;
         if (!rt->start(&err)) std::printf("  start failed: %s\n", err.c_str());
     }
@@ -845,13 +858,13 @@ static void testUiBridgeConsentResume() {
     b.rt->dialogue()->menuReply(id2, 1, (uint32_t)nowMs());                                    // "Not yet"
     CHECK(pumpUntil(fr, [&] { return host.ui.eng.resumed() == 2; }));
     CHECK(host.ui.eng.lastButton() == 0);
-    // a plain box has no consent round and a host-origin consent box stays local
+    // a plain box has no consent round; a consent box the host decides is raised to the party too (G08: it used to stay local)
     CHECK(boxFor(host, sb, endgameBox(93, 0x123456)) == nvui::Route::Suppressed);
     CHECK(pumpUntil(fr, [&] { return menuIdOf(b) != id2; }));
     b.rt->dialogue()->menuReply(menuIdOf(b), 1, (uint32_t)nowMs());
     CHECK(pumpUntil(fr, [&] { return host.ui.eng.resumed() == 3; }));
     CHECK(host.ui.eng.lastButton() == 1 && menuIdOf(a) == id2);
-    CHECK(boxFor(host, nvui::kHost, endgameBox(94)) == nvui::Route::Local);
+    CHECK(boxFor(host, nvui::kHost, endgameBox(94)) == nvui::Route::Suppressed);
     CHECK(host.rt->mux()->unroutable() == 0);
 }
 
@@ -1091,11 +1104,1127 @@ static void testLossyHost() {
     CHECK(host.world.dump().dump() == c1.world.dump().dump());
 }
 
+
+// Reward-multiplication report (story run S06, docs/handover/DLG-requests.md): ONE committed AddItem(Ammo556mm x60) with a full mask paid 3 to 4 times on both copies. Found in the
+// host's log: the INFO result runner committed the reward once (the guest's window, origin 1), and the engine ran the same Begin script twice more by itself while the host played
+// the two response lines of the INFO with `<npc>.Say` (host-origin commits, full mask, the host's real AddItem each time). A reward is applied once per player on that player's own
+// machine, however many lines the voice has, however the txn travelled (live, resent after a lost datagram) and however many slots the mask names. The engine's part is modelled
+// like the hook does it: the gate (plugin/hooks/spectator_say.h) decides whether the engine's own run of an INFO result script goes ahead.
+static void testGuestRewardLandsOnce(unsigned players, const char* transport) {
+    std::printf("reward once: a guest's AddItem with a %u-slot mask lands once on each of %u machines, with a 2-line voice (%s)\n", players, players, transport);
+    Node::Opt o;
+    o.maxPlayers = players;
+    o.transport = transport;
+    Node host(Role::Host, 0, 0, o);
+    const bool lossy = std::string(transport) == "udp";
+    if (lossy) host.rt->transport()->setDropEveryNth(3);
+    std::vector<std::unique_ptr<Node>> guests;
+    for (unsigned i = 1; i < players; ++i) guests.emplace_back(new Node(Role::Client, host.rt->boundPort(), 7100 + i, o));
+    auto fr = [&] { host.rt->frame(); for (auto& g : guests) g->rt->frame(); };
+    CHECK(pumpUntil(fr, [&] {
+        if (host.rt->host()->clients().size() != guests.size()) return false;
+        for (auto& g : guests) if (!g->rt->client() || !g->rt->client()->joined()) return false;
+        return true;
+    }, 10000));
+    const auto ammo = R("FalloutNV.esm", 0x4240);
+    const auto info = R("FalloutNV.esm", 0x10A1EB);
+    const uint32_t sunny = 0x104E85;
+    const std::string key = nvhooks::refToStr(ammo);
+    nvhooks::SpectatorSayGate gate;
+    // The engine's own run of the INFO's Begin script (what h_TopicRun lets through): the real `Player.AddItem` on the host's player, recorded by the hook.
+    host.rt->setHostEffectApplier([&host](const fnvcoop::Effect& e) { fnvcoop::IEffectSink::Context c; c.seq = 1; host.world.apply(e, c); });   // the module's applier, for the host's own share
+    auto engineRuns = [&](bool insideRunner, uint64_t now) {
+        if (gate.blocks(sunny, insideRunner, now)) return;
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::DialogueResult, info, 0});
+        const fnvcoop::AddItem add{ammo, 60, fnvcoop::Recipient::dflt()};
+        if (nvhooks::planPlayerAddItem(true, insideRunner, true, true, false).runEngine) host.world.hostMutate(host.hub, add);   // the engine's own AddItem on the host's player
+        else host.hub.record(add);                                                                                          // a guest acts: recorded only, the session gives the host its share
+    };
+    // 1. the dialogue host's INFO result runner: the host runs the guest's script in that guest's window; the committed txn carries the full mask.
+    const uint64_t head0 = host.rt->host()->log().head();
+    host.rt->runAsGuest(1, [&] { engineRuns(true, 1000); });
+    CHECK(host.rt->host()->log().head() == head0 + 1);
+    if (const fnvcoop::EffectTxn* t = host.rt->host()->log().get(host.rt->host()->log().head())) {
+        CHECK(t->origin == 1 && t->effects.size() == 1);
+        const auto* ai = t->effects.empty() ? nullptr : std::get_if<fnvcoop::AddItem>(&t->effects[0]);
+        CHECK(ai && ai->count == 60 && ai->to.mode == fnvcoop::Recipient::Mask && ai->to.mask == ((1u << players) - 1u));
+    }
+    // 2. the host plays the INFO's two response lines for the guest's conversation: `Say` on the NPC twice; the engine runs the INFO's scripts for each (outside every window)
+    for (int line = 0; line < 2; ++line) {
+        gate.arm(sunny, 1200 + 100 * line);
+        engineRuns(false, 1300 + 100 * line);
+    }
+    CHECK(pumpUntil(fr, [&] {
+        for (auto& g : guests) if (g->rt->client()->applied() < 1) return false;
+        return host.rt->host()->allSynced();
+    }, 15000));
+    pumpUntil(fr, [] { return false; }, lossy ? 1500 : 400);   // keep the frames going: a retransmit, a repair or a replay would land a further copy now
+    CHECK(host.rt->host()->log().head() == head0 + 1);          // one commit for the one reward
+    CHECK(host.world.inventory[key] == 60);
+    for (auto& g : guests) CHECK(g->world.inventory[key] == 60);
+    const auto& led = host.rt->host()->state().ledger;
+    for (unsigned s = 0; s < players; ++s) {
+        auto it = led[s].items.find(ammo);
+        CHECK(it != led[s].items.end() && it->second == 60);
+    }
+    for (auto& g : guests) {
+        const auto& m = g->rt->client()->state().ledger[g->rt->client()->slot()].items;
+        auto it = m.find(ammo);
+        CHECK(it != m.end() && it->second == 60);
+    }
+    CHECK(host.world.effectsApplied == 1);   // the host's share of the guest's reward is applied once by the session (the hook did not give it)
+    CHECK(gate.blockedCount() == 2);
+}
+
+// A guest's reward goes to the players the committed mask names, on their own machines, and not to anybody else: a quest reward (mask = everybody) reaches the host once, and a
+// guest-only reward (a script run for the guest by an intent) never reaches the host's pack. Same for a hand-in: the host pays only when the mask names it.
+static void testGuestRewardRouting(unsigned players) {
+    std::printf("reward routing: a guest-only reward and a hand-in never touch the host's pack, a mask naming the host does, once (%u players)\n", players);
+    Node::Opt o;
+    o.maxPlayers = players;
+    Node host(Role::Host, 0, 0, o);
+    std::vector<std::unique_ptr<Node>> guests;
+    for (unsigned i = 1; i < players; ++i) guests.emplace_back(new Node(Role::Client, host.rt->boundPort(), 7300 + i, o));
+    auto fr = [&] { host.rt->frame(); for (auto& g : guests) g->rt->frame(); };
+    CHECK(pumpUntil(fr, [&] {
+        if (host.rt->host()->clients().size() != guests.size()) return false;
+        for (auto& g : guests) if (!g->rt->client() || !g->rt->client()->joined()) return false;
+        return true;
+    }, 10000));
+    host.rt->setHostEffectApplier([&host](const fnvcoop::Effect& e) { fnvcoop::IEffectSink::Context c; c.seq = 1; host.world.apply(e, c); });
+    const auto caps = R("FalloutNV.esm", 0xF), junk = R("FalloutNV.esm", 0x777001), key1 = R("FalloutNV.esm", 0x777002);
+    const std::string kc = nvhooks::refToStr(caps), kj = nvhooks::refToStr(junk), kq = nvhooks::refToStr(key1);
+    host.world.inventory[kc] = 100; host.world.inventory[kq] = 1;
+    for (auto& g : guests) { g->world.inventory[kc] = 100; g->world.inventory[kq] = 1; }
+    // the engine's `Player.AddItem` / `Player.RemoveItem` inside guest 1's script, as the hook does it (guest_item.h decides whether the engine call goes ahead)
+    auto runFor1 = [&](fnvcoop::CauseKind kind, const fnvcoop::Effect& e) {
+        host.rt->runAsGuest(1, [&] {
+            nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{kind, R("FalloutNV.esm", 0x10A1EB), 0});
+            const bool add = std::holds_alternative<fnvcoop::AddItem>(e);
+            const bool item = add || std::holds_alternative<fnvcoop::RemoveItem>(e);
+            const bool engine = !item ? nvhooks::planGuestReward(true, true, true).runEngine
+                                      : add ? nvhooks::planPlayerAddItem(true, true, true, true, false).runEngine : nvhooks::planPlayerRemoveItem(true, true, true, true).runEngine;
+            if (engine) host.world.hostMutate(host.hub, e); else host.hub.record(e);
+        });
+    };
+    auto settle = [&](uint64_t applied) {
+        CHECK(pumpUntil(fr, [&] {
+            for (auto& g : guests) if (g->rt->client()->applied() < applied) return false;
+            return host.rt->host()->allSynced();
+        }, 15000));
+        pumpUntil(fr, [] { return false; }, 300);
+    };
+    // 1. a reward of a non-quest cause (a script an intent ran for the guest): the guest's alone
+    runFor1(fnvcoop::CauseKind::Intent, fnvcoop::AddItem{junk, 3, fnvcoop::Recipient::dflt()});
+    settle(1);
+    CHECK(host.world.inventory[kj] == 0);
+    CHECK(guests[0]->world.inventory[kj] == 3);
+    for (size_t i = 1; i < guests.size(); ++i) CHECK(guests[i]->world.inventory[kj] == 0);
+    // 2. a dialogue hand-in of caps: the paying guest loses them, the host keeps its own
+    runFor1(fnvcoop::CauseKind::DialogueResult, fnvcoop::RemoveItem{caps, 50, fnvcoop::Recipient::dflt()});
+    settle(2);
+    CHECK(host.world.inventory[kc] == 100);
+    CHECK(guests[0]->world.inventory[kc] == 50);
+    for (size_t i = 1; i < guests.size(); ++i) CHECK(guests[i]->world.inventory[kc] == 100);
+    // 3. a quest item taken from everybody, a quest reward for everybody: the host's share once, every guest's on its own machine
+    runFor1(fnvcoop::CauseKind::QuestResult, fnvcoop::RemoveItem{key1, 1, fnvcoop::Recipient::all()});
+    runFor1(fnvcoop::CauseKind::QuestResult, fnvcoop::AddItem{junk, 5, fnvcoop::Recipient::all()});
+    settle(4);
+    CHECK(host.world.inventory[kq] == 0 && host.world.inventory[kj] == 5);
+    for (auto& g : guests) CHECK(g->world.inventory[kq] == 0);
+    CHECK(guests[0]->world.inventory[kj] == 8);
+    for (size_t i = 1; i < guests.size(); ++i) CHECK(guests[i]->world.inventory[kj] == 5);
+    CHECK(host.world.inventory[kc] == 100);
+    // 4. XP, karma and reputation of a script run for the guest. XP of a non-quest cause is the guest's alone; karma and reputation are shared by the policy (everybody, once: the host's
+    // share comes from the session, the engine did not move the host's player or standing); a quest reward is everybody's in full.
+    const auto faction = R("FalloutNV.esm", 0x777003);
+    const std::string kr = nvhooks::refToStr(faction) + "/fame";
+    runFor1(fnvcoop::CauseKind::Intent, fnvcoop::ModActorValue{fnvcoop::kAvExperience, 40, fnvcoop::Recipient::dflt()});
+    settle(5);
+    CHECK(host.world.xp == 0);                                                                          // the host's player does not get a guest-only XP
+    CHECK(guests[0]->world.xp == 40);
+    for (size_t i = 1; i < guests.size(); ++i) CHECK(guests[i]->world.xp == 0);
+    runFor1(fnvcoop::CauseKind::Intent, fnvcoop::ModKarma{7, fnvcoop::Recipient::dflt()});
+    runFor1(fnvcoop::CauseKind::Intent, fnvcoop::ModReputation{faction, 2, 0, fnvcoop::Recipient::dflt()});
+    settle(7);
+    CHECK(host.world.karma == 7 && host.world.reputation[kr] == 2);                                     // shared: the host once (applied by the session, not twice)
+    for (auto& g : guests) CHECK(g->world.karma == 7 && g->world.reputation[kr] == 2);
+    runFor1(fnvcoop::CauseKind::QuestResult, fnvcoop::ModActorValue{fnvcoop::kAvExperience, 100, fnvcoop::Recipient::all()});
+    settle(8);
+    CHECK(host.world.xp == 100 && guests[0]->world.xp == 140);
+    for (size_t i = 1; i < guests.size(); ++i) CHECK(guests[i]->world.xp == 100);
+}
+
+// ---- campaign wave 2 (P6 session wiring) --------------------------------------------------------------------------------------------------
+// Each test below has a runtime twin (FNVCOOP_MUT=n, run with --wiring by run_tests.cmd): the test must FAIL with the twin on.
+
+// P2/P3 handover R1: a guest's INFO result script runs inside the result scope (PlayerFactsScope in the module), once per phase.
+static void testResultScope() {
+    std::printf("wave 2: dialogue result scripts run inside the result scope (initiator facts)\n");
+    Node::Opt o;
+    o.dialogue = true;
+    Node host(Role::Host, 0, 0, o);
+    host.rt->setResultScope([&host](const fnvcoop_dlg::ResultRequest& rq) -> std::shared_ptr<void> {
+        ++host.scopesOpened;
+        host.scopeOpen = true;
+        (void)rq;
+        return std::shared_ptr<void>(new int(1), [&host](void* p) { delete static_cast<int*>(p); host.scopeOpen = false; });
+    });
+    Node a(Role::Client, host.rt->boundPort(), 4101, o);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && a.rt->dialogue() && host.rt->host()->clients().size() == 1; }));
+    a.rt->dialogue()->requestStart(R("FalloutNV.esm", 0x104C0F), (uint32_t)nowMs());
+    CHECK(pumpUntil(fr, [&] { return a.rt->dialogue()->client().role() == fnvcoop_dlg::ClientDialogue::Role::Initiator; }));
+    a.rt->dialogue()->pick(R("FalloutNV.esm", 0x105560), R("FalloutNV.esm", 0x105583), 0, false, {fnvcoop_dlg::Line{"House.", "", 0, 50}}, {}, (uint32_t)nowMs());
+    a.rt->dialogue()->lineDone((uint32_t)nowMs());
+    CHECK(pumpUntil(fr, [&] { return host.dlgRuns == 2; }));
+    CHECK(host.dlgRuns == 2);
+    CHECK(host.scopesOpened == 2);          // one scope per run (begin, end)
+    CHECK(host.dlgRunsInScope == 2);        // and the script really ran while it was alive
+    CHECK(!host.scopeOpen);                 // closed again afterwards
+}
+
+// P5 handover 2: a one-shot presentation effect reaches the guests connected now and is never replayed to a late joiner.
+static void testEphemeralWorldEffect() {
+    std::printf("wave 2: ephemeral world effects (fade, sound) are not replayed to a late joiner\n");
+    Node::Opt o;
+    o.baseline = true;
+    o.seed = 3;
+    Node host(Role::Host, 0, 0, o);
+    const char* fade = R"({"type":"SetEssential","actor":"falloutnv.esm:000AAB","essential":true,"refOnly":false})";
+    const char* keep = R"({"type":"SetEssential","actor":"falloutnv.esm:000AAC","essential":true,"refOnly":false})";
+    Node a(Role::Client, host.rt->boundPort(), 5401, o);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && !a.rt->syncing(); }));
+    host.rt->pushWorldEffect("", fade, true);              // ephemeral: a is connected now
+    host.rt->pushWorldEffect("ess:c:base", keep, false);   // state: remembered
+    CHECK(pumpUntil(fr, [&] { return a.world.worldApplied == 2; }));
+    Node b(Role::Client, host.rt->boundPort(), 5402, o);   // late joiner
+    auto fr2 = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr2, [&] { return b.rt->client()->joined() && !b.rt->syncing() && b.world.worldApplied >= 1; }));
+    pumpUntil(fr2, [] { return false; }, 150);
+    CHECK(b.world.worldApplied == 1);                       // only the state effect; the fade is gone
+    CHECK(host.rt->worldStats().ephemeral == 1);
+}
+
+// G42: a kill meant for ONE guest reaches that guest only; a guest's request (G10 note) reaches the host with the sender's slot.
+static void testPlayerOrders() {
+    std::printf("wave 2: player orders (kill one guest, guest request to the host)\n");
+    Node::Opt o;
+    Node host(Role::Host, 0, 0, o);
+    Node a(Role::Client, host.rt->boundPort(), 5501, o), b(Role::Client, host.rt->boundPort(), 5502, o);
+    std::vector<std::string> gotA, gotB, gotHost;
+    std::vector<int> fromSlot;
+    a.rt->setOrderApplier([&](const std::string& j) { gotA.push_back(j); return std::string("Ok"); });
+    b.rt->setOrderApplier([&](const std::string& j) { gotB.push_back(j); return std::string("Ok"); });
+    host.rt->setOrderHandler([&](fnvcoop::PlayerId from, const std::string& j) { fromSlot.push_back((int)from); gotHost.push_back(j); return std::string("Ok"); });
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && b.rt->client()->joined() && host.rt->host()->clients().size() == 2; }));
+    CHECK(!host.rt->killPlayer(0));                                   // the host's own player is killed by the caller, not by an order
+    const fnvcoop::PlayerId slotA = a.rt->client()->slot();
+    CHECK(host.rt->killPlayer(slotA));
+    CHECK(pumpUntil(fr, [&] { return !gotA.empty(); }));
+    pumpUntil(fr, [] { return false; }, 100);
+    CHECK(gotA.size() == 1 && gotB.empty());                          // only the named slot dies
+    CHECK(!gotA.empty() && gotA[0].find("\"kill\"") != std::string::npos);
+    CHECK(!host.rt->sendOrder(7, "{\"op\":\"kill\"}"));              // nobody there
+    CHECK(b.rt->sendOrderToHost(R"({"op":"note","note":"falloutnv.esm:00ABCD"})"));
+    CHECK(pumpUntil(fr, [&] { return !gotHost.empty(); }));
+    CHECK(gotHost.size() == 1 && !fromSlot.empty() && fromSlot[0] == (int)b.rt->client()->slot());
+    CHECK(host.rt->orderStats().handled == 1 && a.rt->orderStats().applied == 1);
+}
+
+
+// G23 / G10 call sites: the party the evaluators loop over, and what the session answers for a remote member (perk, note, companion owner).
+static void testPartyState() {
+    std::printf("wave 2: party conditions (present members, per-slot perk / note / companion answers, session reducer)\n");
+    using nvhooks::CondFunc;
+    Node::Opt o;
+    Node host(Role::Host, 0, 0, o);
+    Node a(Role::Client, host.rt->boundPort(), 5601, o), b(Role::Client, host.rt->boundPort(), 5602, o);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && b.rt->client()->joined() && host.rt->host()->clients().size() == 2; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot(), sb = b.rt->client()->slot();
+    const fnvcoop::FormRef perk = R("FalloutNV.esm", 0x7777), note = R("FalloutNV.esm", 0x8888), npc = R("FalloutNV.esm", 0x9999);
+    {   // the host commits: a perk for guest A only, a note for everyone, a companion that guest B recruited
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::Script, R("FalloutNV.esm", 0x1234), 0});
+        host.hub.record(fnvcoop::SetPerk{perk, 1, fnvcoop::Recipient::slot(sa)});
+        host.hub.record(fnvcoop::AddNote{note});
+        host.hub.record(fnvcoop::CompanionOwner{npc, (uint8_t)sb, true, 0});
+    }
+    CHECK(pumpUntil(fr, [&] { return host.rt->host()->allSynced() && a.rt->client()->applied() >= 1; }));
+    auto toRef = [](uint32_t id, fnvcoop::FormRef* out) { *out = R("FalloutNV.esm", id); return true; };
+    nvhooks::StateProvider prov = makePartyStateProvider(sourceFromRuntime(*host.rt, toRef));
+    auto ask = [&](CondFunc f, uint8_t slot, uint32_t thisId, uint32_t formId, double* v) {
+        nvhooks::StateQuery q;
+        q.f = f; q.slot = slot; q.thisRefID = thisId; q.formID = formId;
+        return prov(q, v);
+    };
+    double v = -1;
+    CHECK(ask(CondFunc::HasPerk, sa, 0x14, 0x7777, &v) && v == 1.0);          // A has it
+    CHECK(ask(CondFunc::HasPerk, sb, 0x14, 0x7777, &v) && v == 0.0);          // B does not: the perk is not shared by accident
+    CHECK(ask(CondFunc::GetHasNote, sb, 0x14, 0x8888, &v) && v == 1.0);       // the journal is shared
+    CHECK(ask(CondFunc::GetHasNote, sb, 0x14, 0x8889, &v) && v == 0.0);
+    CHECK(ask(CondFunc::GetPlayerTeammate, sb, 0x9999, 0, &v) && v == 1.0);   // B owns the companion
+    {   // wave 1b: level, sex, seat, action: only what a source can answer; a member nobody can answer for is skipped (false)
+        PartyStateSource src = sourceFromRuntime(*host.rt, toRef);
+        src.level = [&](uint8_t s, double* out) { if (s != sa) return false; *out = 12; return true; };
+        src.sex = [&](uint8_t s, int* out) { if (s != sa) return false; *out = 1; return true; };
+        src.sitting = [&](uint8_t s, double* out) { *out = s == sa ? 1.0 : 0.0; return true; };
+        src.actionActive = [&](uint8_t s, int32_t id, double* out) { *out = s == sa && id == 7 ? 1.0 : 0.0; return true; };
+        nvhooks::StateProvider p2 = makePartyStateProvider(src);
+        auto ask2 = [&](CondFunc f, uint8_t slot, int32_t arg1, double* out) { nvhooks::StateQuery q; q.f = f; q.slot = slot; q.arg1 = arg1; return p2(q, out); };
+        CHECK(ask2(CondFunc::GetLevel, sa, 0, &v) && v == 12.0 && !ask2(CondFunc::GetLevel, sb, 0, &v));
+        CHECK(ask2(CondFunc::GetIsSex, sa, 1, &v) && v == 1.0 && ask2(CondFunc::GetIsSex, sa, 0, &v) && v == 0.0);
+        CHECK(ask2(CondFunc::GetPCIsSex, sa, 1, &v) && v == 1.0);
+        CHECK(ask2(CondFunc::GetSitting, sa, 0, &v) && v == 1.0 && ask2(CondFunc::GetSitting, sb, 0, &v) && v == 0.0);
+        CHECK(ask2(CondFunc::IsPlayerActionActive, sa, 7, &v) && v == 1.0 && ask2(CondFunc::IsPlayerActionActive, sa, 8, &v) && v == 0.0);
+    }
+    {   // W3a item 3: the avatar layer answers GetEquipped, IsSneaking, IsPlayerInRegion, GetLevel, sex, seat and action for a guest (twin 36: it is not connected)
+        PartyStateSource src = sourceFromRuntime(*host.rt, toRef);
+        bindSlotFacts(src, [&](uint8_t s, nvcoop::SlotFacts* out) {
+            nvcoop::SlotFacts f;
+            if (s == sa) {
+                f.haveSex = true; f.sex = 1;
+                f.haveEquip = true; f.equipped = {0x4001, 0x4002};
+                f.haveSneak = true; f.sneaking = true;
+                f.haveFacts = true; f.level = 22; f.sitting = 2; f.actions = 1u << 9; f.regions = {0x6001};
+            } else if (s == sb) {
+                f.haveSex = true; f.sex = 0;                                   // B has only delivered its Look so far
+            } else {
+                return false;
+            }
+            *out = f;
+            return true;
+        });
+        nvhooks::StateProvider p3 = makePartyStateProvider(src);
+        auto ask3 = [&](CondFunc f, uint8_t slot, uint32_t formId, int32_t arg1, double* out) { nvhooks::StateQuery q; q.f = f; q.slot = slot; q.formID = formId; q.arg1 = arg1; return p3(q, out); };
+        CHECK(ask3(CondFunc::GetEquipped, sa, 0x4002, 0, &v) && v == 1.0 && ask3(CondFunc::GetEquipped, sa, 0x4003, 0, &v) && v == 0.0);
+        CHECK(!ask3(CondFunc::GetEquipped, sb, 0x4002, 0, &v));               // B's worn items are not known yet: skipped, not "nothing worn"
+        CHECK(ask3(CondFunc::IsSneaking, sa, 0, 0, &v) && v == 1.0 && !ask3(CondFunc::IsSneaking, sb, 0, 0, &v));
+        CHECK(ask3(CondFunc::IsPlayerInRegion, sa, 0x6001, 0, &v) && v == 1.0 && ask3(CondFunc::IsPlayerInRegion, sa, 0x6002, 0, &v) && v == 0.0);
+        CHECK(ask3(CondFunc::GetLevel, sa, 0, 0, &v) && v == 22.0 && !ask3(CondFunc::GetLevel, sb, 0, 0, &v));
+        CHECK(ask3(CondFunc::GetPCIsSex, sa, 0, 1, &v) && v == 1.0 && ask3(CondFunc::GetIsSex, sb, 0, 0, &v) && v == 1.0);
+        CHECK(ask3(CondFunc::GetSitting, sa, 0, 0, &v) && v == 2.0 && !ask3(CondFunc::GetSitting, sb, 0, 0, &v));
+        CHECK(ask3(CondFunc::IsPlayerActionActive, sa, 0, 9, &v) && v == 1.0 && ask3(CondFunc::IsPlayerActionActive, sa, 0, 8, &v) && v == 0.0);
+        CHECK(!ask3(CondFunc::IsPlayerActionActive, sa, 0, 40, &v));          // an id the guest does not sample
+        CHECK(!ask3(CondFunc::GetLevel, 5, 0, 0, &v));                        // a slot nobody knows
+    }
+    {   // guest pack facts: GetItemCount of a watched form and InventoryWeight of a guest come from its Pack message (twins 960: not connected, 961: the weight answers every actor value)
+        PartyStateSource src = sourceFromRuntime(*host.rt, toRef);
+        bindSlotPack(src,
+                     [&](uint8_t s, uint32_t item, int64_t* n) {
+                         if (s != sa) return false;                       // B has not delivered a pack
+                         if (item == 0x7001) { *n = 3; return true; }
+                         if (item == 0x7002) { *n = 0; return true; }     // watched, not carried
+                         return false;                                    // not on the list both machines share
+                     },
+                     [&](uint8_t s, double* w) { if (s != sa) return false; *w = 75.96; return true; });
+        nvhooks::StateProvider p5 = makePartyStateProvider(src);
+        auto ask5 = [&](CondFunc f, uint8_t slot, uint32_t formId, int32_t arg1, double* out) { nvhooks::StateQuery q; q.f = f; q.slot = slot; q.formID = formId; q.arg1 = arg1; return p5(q, out); };
+        CHECK(ask5(CondFunc::GetItemCount, sa, 0x7001, 0, &v) && v == 3.0);
+        CHECK(ask5(CondFunc::GetItemCount, sa, 0x7002, 0, &v) && v == 0.0);
+        CHECK(!ask5(CondFunc::GetItemCount, sa, 0x7003, 0, &v));              // an item nobody watches: the puppet answers as before
+        CHECK(!ask5(CondFunc::GetItemCount, sb, 0x7001, 0, &v));              // B has no pack yet
+        CHECK(!ask5(CondFunc::GetItemCount, sa, 0, 0, &v));                   // no item at all
+        CHECK(ask5(CondFunc::GetActorValue, sa, 0, 46, &v) && v == 75.96);    // InventoryWeight: the Jed gate reads 75.96 < 76
+        CHECK(!ask5(CondFunc::GetActorValue, sa, 0, 5, &v));                  // any other actor value is the puppet's
+        CHECK(!ask5(CondFunc::GetActorValue, sb, 0, 46, &v));
+        PartyStateSource bare = sourceFromRuntime(*host.rt, toRef);          // nothing connected: unknown, never a guess
+        nvhooks::StateProvider p6 = makePartyStateProvider(bare);
+        nvhooks::StateQuery q6; q6.f = CondFunc::GetItemCount; q6.slot = sa; q6.formID = 0x7001;
+        CHECK(!p6(q6, &v));
+    }
+    CHECK(ask(CondFunc::GetPlayerTeammate, sa, 0x9999, 0, &v) && v == 0.0);   // A does not
+    CHECK(!ask(CondFunc::GetPlayerTeammate, sa, 0x9998, 0, &v));              // nobody's: the engine flag alone stands
+    CHECK(!ask(CondFunc::IsSneaking, sa, 0x14, 0, &v));                       // no avatar state wired: unknown, member skipped
+    // present members: the host + the guests whose puppet exists (A has one, B has not placed its puppet yet)
+    auto ghost = [&](fnvcoop::PlayerId s) -> uint32_t { return s == sa ? 0x2000u + s : 0u; };
+    auto members = presentMembers(*host.rt, ghost);
+    CHECK(members.size() == 2 && members[0].slot == 0 && members[0].refID == 0x14 && members[1].slot == sa && members[1].refID == 0x2000u + sa);
+    // the session reducer: no rules engine -> the initiator's own value
+    auto red = makeSessionReducer([] { return static_cast<fnvcoop::RulesEngine*>(nullptr); });
+    std::vector<nvhooks::CondValue> vals{{0, 5.0}, {(uint8_t)sa, 9.0}};
+    CHECK(red(R("FalloutNV.esm", 1), "GetItemCount", vals, (uint8_t)sa, fnvcoop::CondPhase::Entry) == 9.0);
+    // with a rules engine the quest's PartyAwareCond reduction applies (max-over-party)
+    Config c;
+    c.enable = true;
+    c.role = Role::Host;
+    c.port = 0;
+    nvhooks::CaptureHub hub2;
+    FakeWorld w2;
+    Runtime rt2(c, &hub2, &w2, nowMs);
+    std::string rerr;
+    CHECK(rt2.setRules(R"({"schema":1,"quests":{"MaxQ":{"tier":"T3","questline":"x","curated":true,"rules":[{"kind":"PartyAwareCond","params":{"funcs":{"GetItemCount":"max-over-party"}},"origin":"curated"}]}}})", &rerr));
+    rt2.setEdidResolver([](const std::string&, fnvcoop::FormRef& out) { out = fnvcoop::FormRef("falloutnv.esm", 0x4242); return true; });
+    std::string serr;
+    CHECK(rt2.start(&serr));
+    auto red2 = makeSessionReducer([&rt2] { return rt2.rules(); });
+    CHECK(red2(fnvcoop::FormRef("falloutnv.esm", 0x4242), "GetItemCount", vals, 0, fnvcoop::CondPhase::Entry) == 9.0);
+    rt2.stop();
+}
+
+
+// P4 handover 8: the gear ledger travels with the save game that holds it.
+static void testSaveSidecars() {
+    std::printf("wave 2: per-save sidecars (the gear ledger follows the save, a save without one resets it)\n");
+    std::map<std::string, std::string> fs;
+    std::string ledger;   // the state under test
+    SaveSidecars sc;
+    sc.add({".fnvintents", [&] { return ledger; }, [&](const std::string& t) { ledger = t; }});
+    SaveSidecars::Io io;
+    io.write = [&](const std::string& p, const std::string& t) { fs[p] = t; return true; };
+    io.read = [&](const std::string& p, std::string* t) { auto it = fs.find(p); if (it == fs.end()) return false; *t = it->second; return true; };
+    ledger = "gear:A";
+    sc.onSave("Saves\one.fos", io);
+    ledger = "gear:A+B";
+    sc.onSave("Saves\two.fos", io);
+    CHECK(fs.size() == 2 && fs["Saves\one.fos.fnvintents"] == "gear:A");
+    sc.onPreLoad("Saves\one.fos");
+    sc.onPostLoad(io);
+    CHECK(ledger == "gear:A");                    // the older save rolls the ledger back
+    sc.onPreLoad("Saves\old.fos");
+    sc.onPostLoad(io);
+    CHECK(ledger.empty());                        // a save that has none resets it (it must not keep the previous save's gear)
+    ledger.clear();
+    sc.onSave("Saves\three.fos", io);
+    CHECK(fs.size() == 2);                        // nothing to store: no file
+}
+
+
+// G33 / P4 note 2: the follower caps from nvcoop.ini reach every dialogue node; puppets are registered as acting players again after a load.
+static void testCompanionCapsAndSlots() {
+    std::printf("wave 2: companion caps reach the dialogue node, puppets register as acting players\n");
+    Node::Opt o;
+    o.dialogue = true;
+    Node host(Role::Host, 0, 0, o);
+    fnvcoop_dlg::CompanionRules rules;
+    rules.humanoidCap = 2;
+    rules.critterCap = 0;
+    rules.partyTotal = 3;
+    // Node enabled dialogue without caps; a second runtime with caps proves the plumbing
+    Config c;
+    c.enable = true;
+    c.role = Role::Host;
+    c.port = 0;
+    nvhooks::CaptureHub hub2;
+    FakeWorld w2;
+    Runtime rt2(c, &hub2, &w2, nowMs);
+    DialogueHooks h;
+    h.run = [](const fnvcoop_dlg::ResultRequest&) -> uint64_t { return 0; };
+    h.sink = [](const fnvcoop_dlg::Event&) {};
+    h.companionRules = rules;
+    rt2.enableDialogue(h);
+    std::string err;
+    CHECK(rt2.start(&err));
+    for (int i = 0; i < 5; ++i) rt2.frame();
+    CHECK(rt2.dialogue() != nullptr);
+    if (rt2.dialogue()) {
+        const auto& r = rt2.dialogue()->companions().rules();
+        CHECK(r.humanoidCap == 2 && r.critterCap == 0 && r.partyTotal == 3);
+    }
+    rt2.stop();
+    // acting-player registration
+    Node a(Role::Client, host.rt->boundPort(), 5701, o);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    SlotRegistrar reg;
+    std::vector<std::pair<uint32_t, int>> regs;
+    auto ghost = [&](fnvcoop::PlayerId s) -> uint32_t { return s == sa ? 0x3000u : 0u; };
+    auto doReg = [&](uint32_t id, uint8_t s) { regs.emplace_back(id, (int)s); };
+    reg.sync(*host.rt, ghost, doReg);
+    reg.sync(*host.rt, ghost, doReg);
+    CHECK(regs.size() == 1 && regs[0].first == 0x3000u && regs[0].second == (int)sa);   // once, not every frame
+    reg.reset();                                                                       // a save was loaded (clearPlayerSlots)
+    reg.sync(*host.rt, ghost, doReg);
+    CHECK(regs.size() == 2);                                                           // registered again
+}
+
+
+// ---- campaign wave 2, the rules engine in the session (P1 handover to P6) -----------------------------------------------------------------------------------
+static fnvcoop::FormRef QF(const char* edid) {   // the test resolver (Node): an EDID is its hash
+    uint32_t h = 2166136261u;
+    for (const char* c = edid; *c; ++c) { h ^= (uint8_t)*c; h *= 16777619u; }
+    return fnvcoop::FormRef("falloutnv.esm", h);
+}
+
+static const char* kW2Rules = R"({"schema":1,
+ "policy":{"death":{"mode":"downed","revive_s":60,"all_down":"reload-host-save"},"late_join":{"during_scene":"wait","after_scene":"warp-to-zone"}},
+ "quests":{
+ "Ending":{"tier":"T4","questline":"x","curated":true,"rules":[
+   {"kind":"SetPlayerControls","params":{"scope":"all","release":"host-effect","timeout_s":600,"masks":["1 1 1 1 1 1 1"]},"origin":"curated"},
+   {"kind":"SaveSuppress","params":{},"origin":"curated"}]},
+ "Casino":{"tier":"T3","questline":"x","curated":false,"rules":[{"kind":"PerPlayerVars","params":{"vars":["Banned","Frisked"]},"origin":"derived"}]},
+ "Zone":{"tier":"T4","questline":"x","curated":false,"rules":[
+   {"kind":"PartyTether","params":{"cells":["HooverDam"],"gather":"auto-warp","timeout_s":1,"stages":[10]},"origin":"questsweep"},
+   {"kind":"PartyTether","params":{"cells":["HooverDam"],"gather":"wait","stages":[20]},"origin":"questsweep"}]},
+ "Orbit":{"tier":"T4","questline":"x","curated":false,"rules":[
+   {"kind":"PartyTether","params":{"anchor":"Satellite","radius":100,"gather":"wait","stages":[5]},"origin":"questsweep"}]},
+ "Chargen":{"tier":"T4","questline":"x","curated":true,"rules":[
+   {"kind":"Barrier","params":{"step":"all-players-pass","stages":[200]},"origin":"curated"}]},
+ "House":{"tier":"T4","questline":"x","curated":true,"rules":[
+   {"kind":"ReadyCheck","params":{"infos":["FalloutNV.esm:15EB69"],"timeout_s":120,"on_timeout":"cancel","confirm":"all-players"},"origin":"questsweep"}]},
+ "Fork":{"tier":"T4","questline":"x","curated":true,"rules":[
+   {"kind":"ChoiceConsent","params":{"boxes":["FalloutNV.esm:0AAA01"],"mode":"unanimous","timeout_s":120},"origin":"questsweep"}]},
+ "Guard":{"tier":"T3","questline":"x","curated":false,"rules":[
+   {"kind":"FriendlyFireGuard","params":{"actors":["Joshua"],"deliberate_hits":3,"window_s":10},"origin":"questsweep"}]}
+}})";
+
+static std::string noticeText(const std::vector<std::string>& orders) {
+    std::string all;
+    for (auto& o : orders) all += o + "\n";
+    return all;
+}
+
+// G02: a quest's own script commits with the SCRIPT form as its cause; the cause map points the rules engine at the quest, so the lock and the save block apply.
+static void testCauseQuestsInSession() {
+    std::printf("wave 2: cause quests (a quest script's own txn finds its rules), host-side effects of the rules engine\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [](Runtime& rt) {
+        rt.setCauseQuests(R"({"schema":1,"scripts":{"FalloutNV.esm:005C01":"Ending"}})");
+    };
+    Node host(Role::Host, 0, 0, o);
+    std::vector<fnvcoop::Effect> hostApplied;
+    host.rt->setHostEffectApplier([&](const fnvcoop::Effect& e) { hostApplied.push_back(e); });
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6001, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    {
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::Script, fnvcoop::FormRef("falloutnv.esm", 0x5C01), 0});
+        host.hub.record(fnvcoop::SetPlayerControls{1, false, fnvcoop::Recipient::dflt()});
+        host.hub.record(fnvcoop::SaveSuppress{true});
+    }
+    CHECK(pumpUntil(fr, [&] { return a.rt->saveSuppressed(); }));          // saving is blocked on the guest
+    CHECK(a.rt->client()->state().ledger[sa].controlsOff == 1);             // and the lock reached it
+    CHECK(host.rt->rules() && host.rt->rules()->causeQuestCount() == 1 && host.rt->rules()->stats().causesResolved >= 1);
+    // an effect the rules engine commits by itself (a lock timeout, a gather) reaches the host's own player through the host applier, exactly once
+    hostApplied.clear();
+    host.rt->host()->commit(0, fnvcoop::Cause{fnvcoop::CauseKind::Script, QF("Ending"), 0}, {fnvcoop::SetPlayerControls{4, true, fnvcoop::Recipient::all()}});
+    CHECK(hostApplied.size() == 1 && std::holds_alternative<fnvcoop::SetPlayerControls>(hostApplied[0]));
+    host.rt->host()->commit(0, fnvcoop::Cause{fnvcoop::CauseKind::Script, QF("Ending"), 0},
+                            {fnvcoop::MoveRef{fnvcoop::FormRef("falloutnv.esm", 0x1000u + sa), QF("HooverDam"), 0, 0, 0, true}});
+    CHECK(hostApplied.size() == 1);                                         // a guest's move is not the host's
+    host.rt->host()->commit(0, fnvcoop::Cause{fnvcoop::CauseKind::Script, QF("Ending"), 0},
+                            {fnvcoop::MoveRef{fnvcoop::FormRef("falloutnv.esm", 0x14), QF("HooverDam"), 0, 0, 0, true}});
+    CHECK(hostApplied.size() == 2);                                         // the host's own is
+}
+
+// G24: a guest's run sees and changes only that guest's copy of the per-player quest variables; the host plays on with its own.
+static void testActingCopies() {
+    std::printf("wave 2: acting-player copies of per-player quest variables around a guest's run\n");
+    std::map<std::string, double> vars{{"Banned", 0}, {"Frisked", 0}};
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [&](Runtime& rt) {
+        Runtime::PlayerVarIO io;
+        io.read = [&](const fnvcoop::FormRef&, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out) {
+            for (auto& n : names) out.push_back({n, vars[n]});
+            return true;
+        };
+        io.write = [&](const fnvcoop::FormRef&, const std::vector<fnvcoop::RulesEngine::VarValue>& vals) { for (auto& v : vals) vars[v.var] = v.value; };
+        rt.setPlayerVarIO(io);
+    };
+    Node host(Role::Host, 0, 0, o);
+    CHECK(host.rt->actingQuestCount() == 1);
+    double seenB = -1, seenA = -1;
+    host.rt->runAsGuest(1, [&] { vars["Banned"] = 1; });                      // guest 1 gets banned from the casino
+    CHECK(vars["Banned"] == 0);                                               // the host's own copy is back in the variable
+    host.rt->runAsGuest(2, [&] { seenB = vars["Banned"]; });
+    CHECK(seenB == 0);                                                        // guest 2 is not banned
+    host.rt->runAsGuest(1, [&] { seenA = vars["Banned"]; });
+    CHECK(seenA == 1);                                                        // guest 1 still is
+}
+
+// G25: the host watches every player against the anchor of an anchor tether and feeds the rules engine; the stage waits for the whole party.
+static void testAnchorTether() {
+    std::printf("wave 2: anchor tether (near / far watch of every joined player)\n");
+    float posAx = 0;
+    int stageRuns = 0;
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [&](Runtime& rt) {
+        Runtime::AnchorProbe p;
+        p.anchorPos = [](const fnvcoop::FormRef&, float& x, float& y, float& z) { x = 1000; y = 0; z = 0; return true; };
+        p.slotPos = [&](fnvcoop::PlayerId s, float& x, float& y, float& z) { x = s == 0 ? 1000.f : posAx; y = 0; z = 0; return true; };
+        rt.setAnchorProbe(p);
+        rt.setStageApplier([&](const fnvcoop::FormRef&, uint32_t) { ++stageRuns; });
+    };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6101, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    CHECK(!host.rt->stageRequested(QF("Orbit"), 5, 0));                       // the guest is far: the stage is held
+    pumpUntil(fr, [] { return false; }, 1300);
+    CHECK(stageRuns == 0);
+    posAx = 1050;                                                             // the guest walks up to the satellite
+    CHECK(pumpUntil(fr, [&] { return stageRuns == 1; }, 4000));
+    CHECK(host.rt->rulesStats().nearReports >= 2);
+}
+
+// G26: the host's own chargen end and a guest's stage intent are each player's pass; the barrier opens when everybody passed.
+static void testChargenPasses() {
+    std::printf("wave 2: chargen passes (host stage, guest stage intent)\n");
+    int stageRuns = 0;
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [&](Runtime& rt) { rt.setStageApplier([&](const fnvcoop::FormRef&, uint32_t) { ++stageRuns; }); };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6201, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    CHECK(!host.rt->stageRequested(QF("Chargen"), 200, 0));                   // the host's chargen end: held, and it counts as the host's pass
+    CHECK(stageRuns == 0);
+    CHECK(host.rt->stageHeldForPass(a.rt->client()->slot(), QF("Chargen"), 200));   // the guest's intent is its pass (held too, then everybody has passed)
+    pumpUntil(fr, [&] { return stageRuns == 1; }, 2000);
+    CHECK(stageRuns == 1);                                                    // released once
+    CHECK(!host.rt->stageHeldForPass(a.rt->client()->slot(), QF("House"), 5));  // not a pass stage: the intent is handled as usual
+}
+
+// G27: an INFO that is a ReadyCheck holds its end script until everybody confirmed.
+static void testReadyCheckInfo() {
+    std::printf("wave 2: ready check on an INFO end script (held until the party confirmed)\n");
+    Node::Opt o;
+    o.rules = true;
+    o.dialogue = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    oc.dialogue = true;
+    Node a(Role::Client, host.rt->boundPort(), 6301, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && a.rt->dialogue() && host.rt->host()->clients().size() == 1; }));
+    a.rt->dialogue()->requestStart(R("FalloutNV.esm", 0x104C0F), (uint32_t)nowMs());
+    CHECK(pumpUntil(fr, [&] { return a.rt->dialogue()->client().role() == fnvcoop_dlg::ClientDialogue::Role::Initiator; }));
+    a.rt->dialogue()->pick(R("FalloutNV.esm", 0x105560), R("FalloutNV.esm", 0x15EB69), 0, false, {fnvcoop_dlg::Line{"I am ready.", "", 0, 50}}, {}, (uint32_t)nowMs());
+    a.rt->dialogue()->lineDone((uint32_t)nowMs());
+    CHECK(pumpUntil(fr, [&] { return host.dlgRuns >= 1; }));                  // the begin script
+    pumpUntil(fr, [] { return false; }, 400);
+    CHECK(host.dlgRuns == 1);                                                 // the end script waits for the host to confirm
+    host.rt->scenePass(R("FalloutNV.esm", 0x15EB69));                          // the host says it is ready too
+    CHECK(pumpUntil(fr, [&] { return host.dlgRuns == 2; }));
+    CHECK(host.rt->rulesStats().rulesLinks == 1);
+}
+
+// G40: the combat gate. An accidental hit on a protected story actor is blocked with a warning to the attacker; a deliberate one goes through.
+static void testHitGate() {
+    std::printf("wave 2: friendly fire guard (combat gate)\n");
+    std::vector<std::string> noticesA;
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6401, oc);
+    a.rt->setNotice([&](const std::string& t) { noticesA.push_back(t); });
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    using HV = Runtime::HitVerdict;
+    CHECK(host.rt->protectedHit(QF("Nobody"), sa, false) == HV::Allow);       // no rule protects it
+    CHECK(host.rt->protectedHit(QF("Joshua"), sa, true) == HV::BlockWarn);    // splash: blocked, the attacker is told once
+    CHECK(pumpUntil(fr, [&] { return !noticesA.empty(); }));
+    CHECK(host.rt->protectedHit(QF("Joshua"), sa, false) == HV::Block);       // one direct hit: still an accident
+    CHECK(host.rt->protectedHit(QF("Joshua"), sa, false) == HV::Block);
+    CHECK(host.rt->protectedHit(QF("Joshua"), sa, false) == HV::Allow);       // three direct hits: meant it
+}
+
+// G41: a death is a downed state for that player; the last one down reloads the host save; a late joiner waits for a running scene.
+static void testDeathAndLateJoin() {
+    std::printf("wave 2: death policy (downed, all down) and the late joiner held during a scene\n");
+    bool reloaded = false;
+    std::vector<std::string> hostOrders, ordersA;
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [&](Runtime& rt) {
+        rt.setReloadHostSave([&] { reloaded = true; });
+        rt.setOrderApplier([&](const std::string& j) { hostOrders.push_back(j); return std::string("Ok"); });
+    };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6501, oc);
+    a.rt->setOrderApplier([&](const std::string& j) { ordersA.push_back(j); return std::string("Ok"); });
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    pumpUntil(fr, [] { return false; }, 400);
+    a.rt->localPlayerDied();                                                  // the guest's player died: the host decides
+    CHECK(pumpUntil(fr, [&] { return noticeText(ordersA).find("\"downed\"") != std::string::npos; }));
+    CHECK(!reloaded);                                                         // the host is still up
+    host.rt->localPlayerDied();                                               // now everybody is down
+    CHECK(noticeText(hostOrders).find("\"downed\"") != std::string::npos || reloaded);
+    CHECK(reloaded);
+    // a late joiner during a scene (the chargen barrier is pending): held with its controls locked, released when the scene ends
+    int stageRuns = 0;
+    host.rt->setStageApplier([&](const fnvcoop::FormRef&, uint32_t) { ++stageRuns; });
+    CHECK(!host.rt->stageRequested(QF("Chargen"), 200, 0));
+    Node::Opt ob;
+    Node b(Role::Client, host.rt->boundPort(), 6502, ob);
+    auto fr2 = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr2, [&] { return b.rt->client()->joined() && host.rt->host()->clients().size() == 2; }));
+    CHECK(pumpUntil(fr2, [&] { return b.rt->client()->state().ledger[b.rt->client()->slot()].controlsOff != 0; }));   // held
+    CHECK(host.rt->stageHeldForPass(a.rt->client()->slot(), QF("Chargen"), 200));
+    CHECK(host.rt->stageHeldForPass(b.rt->client()->slot(), QF("Chargen"), 200));
+    CHECK(pumpUntil(fr2, [&] { return stageRuns == 1; }));
+    CHECK(pumpUntil(fr2, [&] { return b.rt->client()->state().ledger[b.rt->client()->slot()].controlsOff == 0; }));   // released with the scene
+}
+
+// Owner switch: nvcoop.ini [rules] tether=warn never holds a stage and names the far player; the exterior worldspace satisfies a tether.
+static void testTetherPolicyAndWorldspace() {
+    std::printf("wave 2: tether policy warn (ini [rules]), worldspace reports\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    o.preStart = [](Runtime& rt) { rt.setPolicy({{"tether.mode", "warn"}}); };
+    Node host(Role::Host, 0, 0, o);
+    std::vector<std::string> noticesA;
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6601, oc);
+    a.rt->setNotice([&](const std::string& t) { noticesA.push_back(t); });
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    host.rt->reportCell(QF("Grid(1,2)"), QF("HooverDam"));
+    a.rt->reportCell(QF("Somewhere"), fnvcoop::FormRef());                     // an interior: the cell itself
+    pumpUntil(fr, [] { return false; }, 400);
+    CHECK(host.rt->stageRequested(QF("Zone"), 20, 0));                         // warn: the stage is NOT held
+    CHECK(pumpUntil(fr, [&] { return !noticesA.empty(); }));                   // the far guest is told
+    CHECK(host.rt->rules()->stats().tetherWarnings == 1);
+}
+
+// Tether (default policy on): the exterior worldspace satisfies it (a guest reports the worldspace), and after timeout_s the far guest is warped to the zone.
+static void testGatherAndWorldReport() {
+    std::printf("wave 2: tether gather (auto-warp of the far guest) and worldspace reports\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6701, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    host.rt->reportCell(QF("Grid(1,2)"), QF("HooverDam"));
+    a.rt->reportCell(QF("Grid(3,4)"), QF("HooverDam"));                        // an exterior: the worldspace is the cell it reports
+    pumpUntil(fr, [] { return false; }, 400);
+    CHECK(host.rt->stageRequested(QF("Zone"), 20, 0));                         // everybody is in the zone: nothing held
+    a.rt->reportCell(QF("Elsewhere"), fnvcoop::FormRef());                     // the guest goes into another interior
+    pumpUntil(fr, [] { return false; }, 400);
+    CHECK(!host.rt->stageRequested(QF("Zone"), 10, 0));                        // gather=auto-warp, timeout_s=1: held
+    const fnvcoop::FormRef gp("falloutnv.esm", 0x1000u + sa);
+    CHECK(pumpUntil(fr, [&] { return host.rt->host()->state().placed.count(gp) == 1; }, 4000));   // the far guest was warped to the zone
+    CHECK(host.rt->rulesStats().casesGathered == 1);
+}
+
+
+// W3a item 5 (P6 request 1): a guest-only scene lock does not lock the host. controlsGuestOnly is what the SetPlayerControls hook asks inside the capture scope.
+static void testControlsGuestOnly() {
+    std::printf("W3a: a lock for the initiator alone skips the host's own engine call\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = R"({"schema":1,"quests":{
+      "Scene":{"tier":"T3","questline":"x","curated":false,"rules":[{"kind":"SetPlayerControls","params":{"scope":"initiator","release":"host-effect","timeout_s":60,"masks":["1 1 1 1 1 1 1"]},"origin":"curated"}]},
+      "Ending":{"tier":"T4","questline":"x","curated":true,"rules":[{"kind":"SetPlayerControls","params":{"scope":"all","release":"host-effect","timeout_s":60,"masks":["1 1 1 1 1 1 1"]},"origin":"curated"}]}}})";
+    o.preStart = [](Runtime& rt) { rt.setCauseQuests(R"({"schema":1,"scripts":{"FalloutNV.esm:005C02":"Scene","FalloutNV.esm:005C01":"Ending"}})"); };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6851, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    CHECK(!host.rt->controlsGuestOnly(sa, true));                                       // no scope open: the engine call runs
+    {
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::Script, fnvcoop::FormRef("falloutnv.esm", 0x5C02), 0});
+        CHECK(host.rt->controlsGuestOnly(sa, true));                                    // scope=initiator, a guest acts: the host is not locked
+        CHECK(host.rt->controlsGuestOnly(sa, false));                                   // ... nor released
+        CHECK(!host.rt->controlsGuestOnly(0, true));                                    // the host acts: its own lock
+    }
+    {
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::Script, fnvcoop::FormRef("falloutnv.esm", 0x5C01), 0});
+        CHECK(!host.rt->controlsGuestOnly(sa, true));                                   // scope=all: everybody locks, the host too
+    }
+    {
+        nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::Script, fnvcoop::FormRef("falloutnv.esm", 0x5C77), 0});
+        CHECK(!host.rt->controlsGuestOnly(sa, true));                                   // a script no quest rule knows
+    }
+    CHECK(host.rt->rulesStats().controlsHostSkipped == 2);
+}
+
+// W3a item 4: around a script that runs for a guest the shared companion variables hold THAT guest's view; a view-party script (a mover) and the rest of the session see the aggregate.
+static void testCompanionViewsAroundScripts() {
+    std::printf("W3a: the acting guest's hired flags and Dead Money rCurrentFollower around its scripts\n");
+    const fnvcoop::FormRef quest = R("FalloutNV.esm", 0xB16D0), dmQuest = R("DeadMoney.esm", 0x12FD), npcA = R("FalloutNV.esm", 0x79A12), npcB = R("FalloutNV.esm", 0x79A13);
+    std::map<std::string, double> vars{{"bAHired", 1}, {"bBHired", 1}, {"rCurrentFollower", 777}};
+    std::vector<std::string> writes;
+    Node::Opt o;
+    o.dialogue = true;
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    oc.dialogue = true;
+    Node a(Role::Client, host.rt->boundPort(), 6861, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->dialogue() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    auto& reg = host.rt->dialogue()->companions();
+    reg.define(npcA, fnvcoop_dlg::CompanionKind::Humanoid);
+    reg.define(npcB, fnvcoop_dlg::CompanionKind::Humanoid);
+    reg.addVarRule(quest, 6, fnvcoop_dlg::VarKind::Hired, npcA);
+    reg.addVarRule(quest, 7, fnvcoop_dlg::VarKind::Hired, npcB);
+    reg.addVarRule(quest, 8, fnvcoop_dlg::VarKind::Available, npcB);      // not per-player state: never rewritten
+    reg.setOwner(npcA, sa);                                               // the guest has A, the host has B
+    reg.setOwner(npcB, 0);
+    Runtime::PlayerVarIO io;
+    io.read = [&](const fnvcoop::FormRef&, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out) {
+        for (auto& n : names) if (vars.count(n)) out.push_back({n, vars[n]});
+        return !out.empty();
+    };
+    io.write = [&](const fnvcoop::FormRef&, const std::vector<fnvcoop::RulesEngine::VarValue>& v) { for (auto& x : v) { vars[x.var] = x.value; writes.push_back(x.var); } };
+    io.name = [&](const fnvcoop::FormRef&, uint32_t idx, std::string* name) { if (idx == 6) *name = "bAHired"; else if (idx == 7) *name = "bBHired"; else return false; return true; };
+    host.rt->setPlayerVarIO(io);
+    host.rt->setViewPolicy([](uint32_t script, uint8_t acting) -> uint8_t { return script == 0xAAA ? uint8_t(0xFE) : acting; },
+                           [&](fnvcoop::PlayerId slot, Runtime::FollowerVar* out) { out->quest = dmQuest; out->var = "rCurrentFollower"; out->formId = slot == sa ? 0x4242 : 0; return true; });
+    host.rt->onScriptRun(0x111, true);                                    // the host's own run (no guest window): nothing is rewritten
+    host.rt->onScriptRun(0x111, false);
+    CHECK(vars["bAHired"] == 1 && vars["bBHired"] == 1 && writes.empty());
+    host.rt->runAsGuest(sa, [&] {
+        host.rt->onScriptRun(0x111, true);                                // a hire / fire script run for the guest: its own flags
+        CHECK(vars["bAHired"] == 1 && vars["bBHired"] == 0);              // B is the host's companion
+        CHECK(vars["rCurrentFollower"] == 0x4242);                        // its own Dead Money companion
+        host.rt->onScriptRun(0xAAA, true);                                // a mover nested in it reads the party
+        CHECK(vars["bAHired"] == 1 && vars["bBHired"] == 1);
+        host.rt->onScriptRun(0xAAA, false);
+        CHECK(vars["bBHired"] == 0 && vars["rCurrentFollower"] == 0x4242);   // back in the hire script
+        host.rt->onScriptRun(0x111, false);
+        CHECK(vars["bBHired"] == 1 && vars["rCurrentFollower"] == 777);   // and the shared variables are the aggregate again
+        host.rt->onScriptRun(0x111, true);                                // the window closing restores them even when a script never reported its end
+        CHECK(vars["bBHired"] == 0);
+    });
+    CHECK(vars["bAHired"] == 1 && vars["bBHired"] == 1 && vars["rCurrentFollower"] == 777);
+    CHECK(vars.count("bCAvailable") == 0 && host.rt->rulesStats().companionViews >= 4);
+}
+
+// P7 handover item 2 and 4: the roster listener feeds the dialogue registry; the host commits the registry's reconcile fixes.
+static void testRosterAndReconcile() {
+    std::printf("wave 2: companion roster feeds the registry, reconcile fixes are committed\n");
+    const fnvcoop::FormRef quest = R("FalloutNV.esm", 0xB16D0), npc = R("FalloutNV.esm", 0x79A12);
+    std::vector<fnvcoop::Effect> hostApplied;
+    Node::Opt o;
+    o.dialogue = true;
+    o.preStart = [&](Runtime& rt) {
+        rt.setScriptVarReader([&](const fnvcoop::FormRef&, std::map<uint16_t, double>& vars) { vars[18] = 0; return true; });   // the engine says nobody has a follower
+        rt.setHostEffectApplier([&](const fnvcoop::Effect& e) { hostApplied.push_back(e); });
+    };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    oc.dialogue = true;
+    Node a(Role::Client, host.rt->boundPort(), 6801, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->dialogue() && host.rt->host()->clients().size() == 1; }));
+    host.rt->dialogue()->companions().define(npc, fnvcoop_dlg::CompanionKind::Humanoid);
+    host.rt->dialogue()->companions().addVarRule(quest, 18, fnvcoop_dlg::VarKind::HasFollower);   // VNPCFollowers.bPlayerHasFollower
+    host.rt->onRosterChanged({{npc, 1, false}});
+    CHECK(host.rt->dialogue()->companions().ownerOf(npc) == 1);                  // the registry learned who owns it
+    const fnvcoop::ShadowState& st = host.rt->host()->state();
+    auto it = st.scriptVars.find({quest, 18});
+    CHECK(it != st.scriptVars.end() && it->second == 1.0);                       // the shared flag was put right (it read 0)
+    CHECK(hostApplied.size() == 1);                                                // and so was the host's own engine variable
+    CHECK(!host.rt->dialogue()->companions().isPartyOwned(npc));
+    host.rt->onRosterChanged({{npc, 1, true}});                                    // ED-E: owned by the whole party
+    CHECK(host.rt->dialogue()->companions().isPartyOwned(npc));
+}
+
+// Module frame order (avatar lag): the late co-op module runs after the capture modules, whatever order they registered in.
+static void testFrameOrder() {
+    std::printf("wave 2: module frame order (the co-op session runs after the avatar capture)\n");
+    static std::vector<std::string> ran;
+    ran.clear();
+    std::vector<nvcoop::Module> mods;
+    mods.push_back(nvcoop::Module{"coop", nullptr, nullptr, [] { ran.push_back("coop"); }, 100});       // registered FIRST (link order is not a promise)
+    mods.push_back(nvcoop::Module{"avatar", nullptr, nullptr, [] { ran.push_back("avatar"); }});
+    mods.push_back(nvcoop::Module{"hooks", nullptr, nullptr, [] { ran.push_back("hooks"); }});
+    nvcoop::RunFrameCallbacks(mods);
+    CHECK(ran.size() == 3 && ran[0] == "avatar" && ran[1] == "hooks" && ran[2] == "coop");
+    // the plain registration-order loop (the old dispatch) would have sent last frame's avatar snapshot: this is what the test exists to catch
+    std::vector<std::string> naive;
+    ran.clear();
+    for (auto& m : mods) if (m.onFrame) m.onFrame();
+    naive = ran;
+    CHECK(naive.size() == 3 && naive[0] == "coop");
+}
+
+
+// Wave 1b: the rules engine's per-player variables and ChoiceConsent boxes reach the UI bridge; the dialogue host is linked to the rules engine.
+static void testRulesViewsAndLink() {
+    std::printf("wave 2: UI bridge views of the rules engine (per-player vars, rules-owned boxes), dialogue host linked\n");
+    Node::Opt o;
+    o.rules = true;
+    o.ui = true;
+    o.dialogue = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    auto fr = [&] { host.rt->frame(); };
+    pumpUntil(fr, [&] { return host.rt->dialogue() && host.ui.router && host.ui.router->bridge().hasPlayerVars != nullptr; }, 3000);
+    if (!(host.ui.router && host.ui.router->bridge().hasPlayerVars != nullptr)) { CHECK(false); return; }
+    CHECK(host.ui.router->bridge().hasPlayerVars(QF("Casino")));              // PerPlayerVars: the condition views are on for this quest
+    CHECK(!host.ui.router->bridge().hasPlayerVars(QF("Orbit")));
+    CHECK(host.ui.router->bridge().consentFor(fnvcoop::FormRef("falloutnv.esm", 0x0AAA01)).has_value());   // a ChoiceConsent box: the party is asked
+    CHECK(!host.ui.router->bridge().consentFor(fnvcoop::FormRef("falloutnv.esm", 0x0BBB01)).has_value());
+    CHECK(host.rt->rulesStats().rulesLinks == 1);                             // the dialogue host asks the rules engine (INFO end scripts, forks)
+}
+
+// ---- W3d (items 1 and 4): the options the rules engine asks the session, the scripts the rules run once per slot, the typed gear strip -------------------------------------
+static const char* kW3dRules = R"({"schema":1,
+ "quests":{
+ "Collar":{"tier":"T3","questline":"x","curated":false,"rules":[
+   {"kind":"PerPlayerState","params":{"scope":"collar","vars":["iNumRadii"],"scripts":["SpeakerScript"],"objvars":["SpeakerScript.bInRadius","OtherScript.bX"]},"origin":"questsweep"}]},
+ "Hand":{"tier":"T3","questline":"x","curated":false,"rules":[
+   {"kind":"PooledItems","params":{"items":["Totem"]},"origin":"questsweep"},
+   {"kind":"QuestItemDup","params":{"recipient":"all"},"origin":"derived"}]},
+ "Tele":{"tier":"T2","questline":"x","curated":false,"rules":[
+   {"kind":"PartyWarp","params":{"markers":["ArrivalMarker"],"mode":"slot-offset","absent":"hold","range":500},"origin":"questsweep"}]}
+}})";
+
+static std::string hashHex(const char* edid) {
+    char b[48];
+    std::snprintf(b, sizeof b, "FalloutNV.esm:%06X", QF(edid).localId);
+    return b;
+}
+
+static void testW3dOptionsAndPerSlotScripts() {
+    std::printf("W3d: item counts and distances for the rules engine, scripts that run once per slot\n");
+    std::map<std::string, double> qvars{{"iNumRadii", 0}};
+    int64_t held[3] = {1, 1, 0};
+    float posX[3] = {0, 200, 900};
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW3dRules;
+    o.bindGhosts = 1;
+    o.preStart = [&](Runtime& rt) {
+        rt.setCauseQuests(std::string("{\"schema\":1,\"scripts\":{\"") + hashHex("SpeakerScript") + "\":\"Collar\"}}");
+        Runtime::PlayerVarIO io;
+        io.read = [&](const fnvcoop::FormRef&, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out) {
+            for (auto& n : names) out.push_back({n, qvars[n]});
+            return true;
+        };
+        io.write = [&](const fnvcoop::FormRef&, const std::vector<fnvcoop::RulesEngine::VarValue>& vals) { for (auto& v : vals) qvars[v.var] = v.value; };
+        rt.setPlayerVarIO(io);
+        rt.setItemCountProbe([&](fnvcoop::PlayerId s, const fnvcoop::FormRef&, int64_t& n) { if (s > 2) return false; n = held[s]; return true; });
+        Runtime::AnchorProbe p;
+        p.anchorPos = [](const fnvcoop::FormRef&, float& x, float& y, float& z) { x = y = z = 0; return true; };
+        p.slotPos = [&](fnvcoop::PlayerId s, float& x, float& y, float& z) { if (s > 2) return false; x = posX[s]; y = z = 0; return true; };
+        rt.setAnchorProbe(p);
+    };
+    Node host(Role::Host, 0, 0, o);
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6901, oc), b(Role::Client, host.rt->boundPort(), 6902, oc);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && b.rt->client()->joined() && host.rt->host()->clients().size() == 2; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot(), sb = b.rt->client()->slot();
+    CHECK(sa == 1 && sb == 2);
+
+    // the scripts the rules run per slot, resolved, with the object variables of THAT script (the other script's entry is not ours)
+    const auto info = host.rt->perSlotScripts();
+    CHECK(info.size() == 1 && info[0].edid == "SpeakerScript" && info[0].script == QF("SpeakerScript") && info[0].vars.size() == 1 && info[0].vars[0] == "binradius");
+
+    // the script runs once for each joined guest, in that guest's window, with that guest's copy of the quest variable; the host's copy comes back
+    std::vector<fnvcoop::PlayerId> seen, acting;
+    std::vector<double> inVar;
+    auto body = [&](fnvcoop::PlayerId s) {
+        seen.push_back(s);
+        acting.push_back(host.rt->actingSlot());
+        inVar.push_back(qvars["iNumRadii"]);
+        qvars["iNumRadii"] = 10 + s;
+    };
+    CHECK(host.rt->runScriptPerSlot(QF("SpeakerScript").localId, body) == 2);
+    CHECK(seen == std::vector<fnvcoop::PlayerId>({1, 2}) && acting == seen);                 // once per joined guest, the commit origin is that guest
+    CHECK(inVar == std::vector<double>({0, 0}));                                             // both start from the shared initial state, not from each other
+    CHECK(qvars["iNumRadii"] == 0);                                                          // the host's own copy is back for the engine
+    CHECK(host.rt->actingSlot() == fnvcoop::kNoPlayer);
+    inVar.clear();
+    CHECK(host.rt->runScriptPerSlot(QF("SpeakerScript").localId, body) == 2);
+    CHECK(inVar == std::vector<double>({11, 12}));                                           // the second run: each guest's own copy
+    CHECK(host.rt->runScriptPerSlot(QF("NoSuchScript").localId, body) == 0 && seen.size() == 4);   // a script no rule runs per slot: nothing
+    CHECK(host.rt->rulesStats().perSlotRuns == 4);
+
+    // pooled hand-in: slot 1 hands in two totems, it holds one, the host holds the other
+    const auto totem = QF("Totem");
+    host.rt->host()->commit(sa, fnvcoop::Cause{fnvcoop::CauseKind::DialogueResult, QF("Hand"), 0}, {fnvcoop::RemoveItem{totem, 2, fnvcoop::Recipient::dflt()}});
+    auto itemOf = [&](unsigned s) {
+        const auto& m = host.rt->host()->state().ledger[s].items;
+        auto it = m.find(totem);
+        return it == m.end() ? 0ll : static_cast<long long>(it->second);
+    };
+    CHECK(itemOf(sa) == -1 && itemOf(0) == -1 && itemOf(sb) == 0);                            // charged to the holders, not twice to the initiator
+    CHECK(host.rt->rulesStats().itemCountAsks >= 2 && host.rt->rules()->stats().pooledDebits == 1);
+
+    // guest pack facts: the same hand-in run as a guest's script. `player.RemoveItem` did not touch the host's pack (nvhooks::GuestItemScope), so what the rules charge to the HOST
+    // is taken from the host's pack here, once; the guest's part is an order for the guest's machine (the txn recipient), never the host's inventory
+    std::vector<fnvcoop::Effect> hostApplied;
+    host.rt->setHostEffectApplier([&](const fnvcoop::Effect& e) { hostApplied.push_back(e); });
+    auto handIn = [&](bool asGuest, int n) {
+        auto body = [&] {
+            nvhooks::ScopedCapture sc(host.hub, fnvcoop::Cause{fnvcoop::CauseKind::DialogueResult, QF("Hand"), 0});
+            host.hub.record(fnvcoop::RemoveItem{totem, n, fnvcoop::Recipient::dflt()});
+        };
+        if (asGuest) host.rt->runAsGuest(sa, body); else body();
+    };
+    auto removals = [&](unsigned slot) {
+        std::vector<int32_t> r;
+        for (const auto& e : hostApplied)
+            if (const auto* ri = std::get_if<fnvcoop::RemoveItem>(&e)) if (ri->to.includes(slot)) r.push_back(ri->count);
+        return r;
+    };
+    held[0] = 1; held[1] = 1; held[2] = 0;
+    handIn(true, 2);                                                                          // the guest hands in two; it holds one, the host the other
+    CHECK(removals(0) == std::vector<int32_t>({1}) && hostApplied.size() == 1);               // the host's share is taken from the host, exactly once
+    hostApplied.clear();
+    held[0] = 1; held[1] = 1;
+    handIn(false, 2);                                                                         // the host's own script: its RemoveItem already ran in the engine
+    CHECK(hostApplied.empty());
+    held[0] = 0; held[1] = 2;
+    handIn(true, 2);                                                                          // the guest carries all of it: nothing is taken from the host
+    CHECK(hostApplied.empty());
+
+    // the Teleporter: slot 1 is 200 units from the firer (in range), slot 2 is 900 away (out)
+    host.rt->host()->commit(0, fnvcoop::Cause{fnvcoop::CauseKind::Script, QF("Tele"), 0}, {fnvcoop::MoveRef{R("FalloutNV.esm", 0x14), QF("ArrivalMarker"), 10, 0, 0, false}});
+    std::set<uint32_t> moved;
+    if (const auto* t = host.rt->host()->log().get(host.rt->host()->log().head()))
+        for (auto& e : t->effects) if (auto* mv = std::get_if<fnvcoop::MoveRef>(&e)) moved.insert(mv->ref.localId);
+    CHECK(moved.count(0x14) == 1 && moved.count(0x1000u + sa) == 1 && moved.count(0x1000u + sb) == 0);
+    CHECK(host.rt->rulesStats().distanceAsks >= 2 && host.rt->rules()->stats().rangeWarpsHeld == 1);
+}
+
+// Follow-ups 1, item 3: the per-slot object variable copies of the scripts the rules run once per player are written next to the host's save and come back with it.
+static void testObjVarSidecar() {
+    std::printf("follow-ups 1: object variable copies travel with the host save\n");
+    nvhooks::ObjVarCopies live;
+    const std::vector<std::string> names = {"binradius", "fcollartimer"};
+    const uint64_t A = nvhooks::objVarInstance(0x1000, 0x2000), B = nvhooks::objVarInstance(0x1000, 0x2001);   // two speakers running the same script
+    double bin = 0, timer = 30;                                                                                 // pristine: what every slot starts from
+    live.seed(A, names, {&bin, &timer});
+    live.seed(B, names, {&bin, &timer});
+    nvhooks::ObjVarCopies::Bracket br;
+    double hostBin = 5, hostTimer = 99;
+    live.enter(A, 1, names, {&hostBin, &hostTimer}, br);
+    hostBin = 1; hostTimer = 12;                                                                               // slot 1 is in A's radius, its collar timer ran down to 12
+    live.leave(A, 1, names, {&hostBin, &hostTimer}, br);
+    live.enter(B, 2, names, {&hostBin, &hostTimer}, br);
+    hostBin = 1; hostTimer = 3;
+    live.leave(B, 2, names, {&hostBin, &hostTimer}, br);
+    CHECK(hostBin == 5 && hostTimer == 99);                                                                     // the host's own values are back
+    std::map<std::string, std::string> fs;
+    SaveSidecars sc;
+    sc.add({".fnvobjvars", [&] { return nvcoop::coop::objVarSnapshot(live); }, [&](const std::string& t) { nvcoop::coop::objVarRestore(live, t); }});
+    SaveSidecars::Io io;
+    io.write = [&](const std::string& p, const std::string& t) { fs[p] = t; return true; };
+    io.read = [&](const std::string& p, std::string* t) { auto it = fs.find(p); if (it == fs.end()) return false; *t = it->second; return true; };
+    sc.onSave("Saves/one.fos", io);
+    CHECK(fs.size() == 1 && fs.count("Saves/one.fos.fnvobjvars") == 1);
+    live.clear();                                                                                               // the host loads: the process memory of the old world is gone
+    sc.onPreLoad("Saves/one.fos");
+    sc.onPostLoad(io);
+    double v = -1;
+    CHECK(live.copyOf(A, "fcollartimer", 1, &v) && v == 12 && live.copyOf(A, "binradius", 1, &v) && v == 1);   // slot 1's timer did not restart
+    CHECK(live.copyOf(B, "fcollartimer", 2, &v) && v == 3);
+    CHECK(!live.copyOf(A, "fcollartimer", 2, nullptr) && !live.copyOf(B, "fcollartimer", 1, nullptr));       // slots and instances stay apart
+    double loadedBin = 4, loadedTimer = 77;                                                                     // the host's variables as the load left them
+    live.enter(A, 2, names, {&loadedBin, &loadedTimer}, br);                                                    // a slot that never ran on A starts from the seed, not from 77
+    CHECK(loadedTimer == 30 && loadedBin == 0);
+    live.leave(A, 2, names, {&loadedBin, &loadedTimer}, br);
+    CHECK(loadedTimer == 77 && loadedBin == 4);
+    sc.onPreLoad("Saves/old.fos");                                                                              // a save made before the feature has no file: the copies are reset
+    sc.onPostLoad(io);
+    CHECK(live.copies() == 0 && !live.copyOf(A, "fcollartimer", 1, nullptr));
+    nvcoop::coop::objVarRestore(live, "junk without a header\nS 0000000000001000 x 1\n");                       // an unreadable file resets too
+    CHECK(live.copies() == 0 && live.exportSeeds().empty());
+    sc.onSave("Saves/three.fos", io);
+    CHECK(fs.size() == 1);                                                                                      // nothing to store: no file
+}
+
+static void testStashOrderCarriesTheType() {
+    std::printf("W3d: the gear strip order keeps its type filter (the Dead Money failure ending strips weapons only)\n");
+    nvcoop::coop::StashOrder plain;
+    plain.container = "deadmoney.esm:00efcc";
+    plain.retain = true;
+    nvcoop::coop::StashOrder typed = plain;
+    typed.type = 40;
+    typed.noMsg = true;
+    typed.holdout = "deadmoney.esm:001234";
+    auto parse = [](const std::string& js) {
+        nvcoop::json::Value v;
+        std::string err;
+        nvcoop::json::parse(js, v, err);
+        return nvcoop::coop::stashOrderFrom(v);
+    };
+    const auto p = parse(nvcoop::coop::stashOrderJson(plain));
+    CHECK(p.type < 0 && p.container == plain.container && p.retain && !p.into);
+    const auto t = parse(nvcoop::coop::stashOrderJson(typed));
+    CHECK(t.type == 40 && t.noMsg && t.holdout == typed.holdout && t.retain);                  // survives the wire
+    const auto outOfPlayer = nvcoop::coop::stashLine(t, 0xEFCC, 0x1234);
+    CHECK(outOfPlayer.text == "RemoveAllTypedItems 0000EFCC 1 1 40 00001234" && outOfPlayer.onRef == 0x14);   // player.RemoveAllTypedItems container 1 1 40 holdout
+    typed.into = true;
+    typed.holdout.clear();
+    const auto intoPlayer = nvcoop::coop::stashLine(parse(nvcoop::coop::stashOrderJson(typed)), 0xEFCC, 0);
+    CHECK(intoPlayer.text == "RemoveAllTypedItems 00000014 1 1 40" && intoPlayer.onRef == 0xEFCC);          // container.RemoveAllTypedItems player 1 1 40
+    const auto all = nvcoop::coop::stashLine(p, 0xEFCC, 0);
+    CHECK(all.text == "RemoveAllItems 0000EFCC 1" && all.onRef == 0x14);                       // the untyped order is the old one
+    // no container (the items are destroyed): ordered to the guest's machine, the typed strip keeps its type, noMsg and holdout
+    nvcoop::coop::StashOrder none;
+    none.type = 40;
+    none.noMsg = true;
+    none.holdout = "deadmoney.esm:001234";
+    const auto noBox = nvcoop::coop::stashLine(parse(nvcoop::coop::stashOrderJson(none)), 0, 0x1234);
+    CHECK(noBox.text == "RemoveAllTypedItems 0 0 1 40 00001234" && noBox.onRef == 0x14);
+    none.holdout.clear();
+    CHECK(nvcoop::coop::stashLine(parse(nvcoop::coop::stashOrderJson(none)), 0, 0).text == "RemoveAllTypedItems 0 0 1 40");
+    nvcoop::coop::StashOrder noBoxAll;
+    CHECK(nvcoop::coop::stashLine(noBoxAll, 0, 0).text == "RemoveAllItems");
+}
+
 int main(int argc, char** argv) {
     if (argc > 0) { g_outDir = argv[0]; size_t sl = g_outDir.find_last_of("\\/"); g_outDir = sl == std::string::npos ? "." : g_outDir.substr(0, sl); }
     const bool uiOnly = argc > 1 && std::string(argv[1]) == "--ui";   // mutation-twin runs: only the wiring tests (COOP_UI_MUTANT=n must break them)
     if (argc > 1 && std::string(argv[1]) == "--leave") {   // mutation-twin runs for leave()/join() (COOP_LEAVE_MUTANT=n must break them)
         testLeaveJoin();
+        std::printf("%d checks, %d failed\n", g_checks, g_failed);
+        return g_failed ? 1 : 0;
+    }
+    if (argc > 1 && std::string(argv[1]) == "--wiring") {   // wave 2 twins (FNVCOOP_MUT=9..): only the session-wiring tests
+        testResultScope();
+        testEphemeralWorldEffect();
+        testPlayerOrders();
+        testPartyState();
+        testSaveSidecars();
+        testCompanionCapsAndSlots();
+        testCauseQuestsInSession();
+        testActingCopies();
+        testAnchorTether();
+        testChargenPasses();
+        testReadyCheckInfo();
+        testHitGate();
+        testDeathAndLateJoin();
+        testTetherPolicyAndWorldspace();
+        testGatherAndWorldReport();
+        testRosterAndReconcile();
+        testControlsGuestOnly();
+        testCompanionViewsAroundScripts();
+        testW3dOptionsAndPerSlotScripts();
+        testStashOrderCarriesTheType();
+        testObjVarSidecar();
+        testFrameOrder();
+        testRulesViewsAndLink();
+        testGuestRewardLandsOnce(2, "enet");
+        testGuestRewardLandsOnce(4, "enet");
+        testGuestRewardRouting(2);
+        testGuestRewardRouting(4);
         std::printf("%d checks, %d failed\n", g_checks, g_failed);
         return g_failed ? 1 : 0;
     }
@@ -1125,9 +2254,37 @@ int main(int argc, char** argv) {
     testUiSlideshowChannel();
     testGoodspringsStory();
     testWorldEffectChannel();
+    testResultScope();
+    testEphemeralWorldEffect();
+    testPlayerOrders();
+    testPartyState();
+    testSaveSidecars();
+    testCompanionCapsAndSlots();
+    testCauseQuestsInSession();
+    testActingCopies();
+    testAnchorTether();
+    testChargenPasses();
+    testReadyCheckInfo();
+    testHitGate();
+    testDeathAndLateJoin();
+    testTetherPolicyAndWorldspace();
+    testGatherAndWorldReport();
+    testRosterAndReconcile();
+    testControlsGuestOnly();
+    testCompanionViewsAroundScripts();
+    testW3dOptionsAndPerSlotScripts();
+    testStashOrderCarriesTheType();
+    testObjVarSidecar();
+    testFrameOrder();
+    testRulesViewsAndLink();
     testLeaveJoin();
     testRestartedClientRejoin();
     testLossyHost();
+    testGuestRewardLandsOnce(2, "enet");
+    testGuestRewardLandsOnce(4, "enet");
+    testGuestRewardLandsOnce(4, "udp");
+    testGuestRewardRouting(2);
+    testGuestRewardRouting(4);
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

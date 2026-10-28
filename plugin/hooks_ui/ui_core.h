@@ -111,8 +111,9 @@ struct ConsentRule {  // irreversible message box (VEndGameWarningMsg*, Fort/Moo
     int32_t confirmButton = 0;
     int32_t declineChoice = -1;
     uint32_t timeoutMs = 0;
-    uint8_t mode = 0;          // 0 unanimous, 1 vote (host breaks ties), 2 actor (nobody is asked): HostDialogue::ConsentMode
+    uint8_t mode = 0;          // 0 unanimous, 1 vote (host breaks ties), 2 actor (nobody is asked), 3 rules (the rules engine counts): HostDialogue::ConsentMode
     bool anyButton = false;    // every button except declineChoice is the irreversible one
+    FormRef choice;            // mode 3: the box the rules engine's ChoiceConsent rule names (RulesEngine::onChoiceRequested); declineChoice -1 = the last button
 };
 
 struct ForcedSayArgs {
@@ -138,6 +139,10 @@ struct Bridge {
     // --- condition views
     std::function<bool(uint32_t questRefID)> watchesQuest;  // cheap pre-filter (hot path: conditions are evaluated every frame)
     std::function<int32_t(const FormRef& quest, uint32_t idx, PlayerId slot, int32_t real)> viewVar;
+    // wave 1b (G24): the rules engine's per-player quest variables (PerPlayerVars / PerPlayerState; the values may be floats, hence double). Applied after viewVar to the
+    // evaluating player's slot. hasPlayerVars is asked ONCE per quest (the answer is cached by UiRouter until invalidateViews()), so it may be slow-ish.
+    std::function<bool(const FormRef& quest)> hasPlayerVars;
+    std::function<double(const FormRef& quest, uint32_t idx, PlayerId slot, double real)> viewPlayerVar;
 
     // --- forced dialogue (host)
     std::function<void(const ForcedSayArgs&)> forcedSay;
@@ -214,6 +219,8 @@ public:
     // ---- GetQuestVariable / GetScriptVariable conditions ----------------------------------------------------------------
     // Returns the value the evaluating player sees. `real` is what the engine computed.
     double viewQuestVar(uint32_t questRefID, uint32_t idx, double real);
+    // The per-quest answer of Bridge::hasPlayerVars is cached (conditions are evaluated every frame); call this when the rules were reloaded.
+    void invalidateViews() { playerVarQuests_.clear(); }
 
     // ---- forced dialogue ------------------------------------------------------------------------------------------------
     // Called after the engine ran the command on the host (Say/SayTo) or before it (StartConversation: the veto decision).
@@ -268,6 +275,7 @@ private:
     std::function<bool(const FormRef&)> mmHasBlock_;
     std::set<uint32_t> mirrors_;
     std::set<FormRef> mmWarned_;
+    std::map<uint32_t, bool> playerVarQuests_;   // questRefID -> Bridge::hasPlayerVars (cached)
     Stats stats_;
 };
 

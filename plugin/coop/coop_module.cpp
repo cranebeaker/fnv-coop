@@ -7,14 +7,21 @@
 // DeferredInit message does not matter. All of it runs on the game main thread.
 #include <Windows.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <string>
 
+#include "GameAPI.h"
 #include "GameData.h"
+#include "GameForms.h"
 #include "GameObjects.h"
+#include "GameScript.h"
+#include "intents/engine/game_engine.h"   // engine().notify: the game's HUD line
 #include "PluginAPI.h"
 #include "apply_remote.h"
 #include "common/minijson.h"
@@ -31,6 +38,16 @@
 #include "info_reader.h"
 #endif
 #include "engine_hooks.h"
+#include "apply_lines.h"
+#include "intents/engine/intents_saves.h"
+#include "intents/stage_pass.h"
+#include "party_state.h"
+#include "stash_order.h"
+#include "save_sidecars.h"
+#include "objvar_sidecar.h"
+#ifdef NVCOOP_WITH_UI
+#include "guest_dialogue.h"   // fndlg::GuestDialogue: the live half of a guest conversation (G05, G33)
+#endif
 #ifdef NVCOOP_WITH_NVMP
 #include "nvmp/ghost_ref.h"
 #endif
@@ -56,24 +73,11 @@
 namespace {
 using namespace nvcoop::coop;
 
-bool g_scriptedLock = false;   // SetPlayerControls from the host's scripts (rules engine scope=all)
-
 #ifdef NVCOOP_WITH_WORLD
 // L12 world effects: SpawnRef / DespawnRef / RefScriptVar go through nvworld::WorldApplier (host-ref -> local-ref map, cell-not-ready queue,
 // duplicate guard); the lane-local WorldEffects (NPC actor values, essential/restrained, relations, packages) ride Runtime::pushWorldEffect.
 std::unique_ptr<nvworld::WorldApplier> g_worldApplier;
 
-// Coalescing key: state-like effects replace the earlier push for the same subject, deltas accumulate (empty key).
-std::string WorldEffectKey(const nvworld::WorldEffect& e) {
-    auto r = [](const fnvcoop::FormRef& f) { return nvhooks::refToStr(f); };
-    if (auto* x = std::get_if<nvworld::SetActorValueRef>(&e))
-        return x->mode == nvworld::AvMode::Set ? "av:" + r(x->actor) + ":" + std::to_string(x->av) : std::string();
-    if (auto* x = std::get_if<nvworld::SetEssential>(&e)) return "ess:" + r(x->actor) + (x->refOnly ? ":ref" : ":base");
-    if (auto* x = std::get_if<nvworld::SetRestrained>(&e)) return "rst:" + r(x->actor);
-    if (auto* x = std::get_if<nvworld::SetRelation>(&e)) return "rel:" + r(x->a) + ":" + r(x->b);
-    if (auto* x = std::get_if<nvworld::SetScriptPackage>(&e)) return "pkg:" + r(x->actor) + ":" + r(x->package);
-    return std::string();
-}
 #endif
 
 class EngineWorld : public IWorldApplier {
@@ -93,15 +97,15 @@ public:
             return r;
         }
 #endif
-        // session-level effects the engine layer realizes locally (no engine primitive involved)
-        if (auto* sc = std::get_if<fnvcoop::SetPlayerControls>(&e)) {
-            g_scriptedLock = !sc->enable;   // coarse v1: any disable locks all seven control classes (mask granularity: L5 TODO)
-            return {true, "Ok"};
-        }
+        // session-level effects the engine layer realizes locally (no engine primitive involved). SetPlayerControls is NOT one of them any more (G18):
+        // the committed effect carries its recipient and mask, the applier below sets exactly those bits and a release frees only its own.
         if (std::get_if<fnvcoop::SaveSuppress>(&e) || std::get_if<fnvcoop::PartyTether>(&e) || std::get_if<fnvcoop::BarrierRelease>(&e) ||
             std::get_if<fnvcoop::BarrierArrive>(&e))
             return {true, "Ok"};   // state lives in the shared shadow (coop.status.saveSuppress); nothing to write into the engine
         if (!applier) return {false, "NoApplier"};
+        if (const auto* ai = std::get_if<fnvcoop::AddItem>(&e))   // reward trace: which txn / effect lands here, and through which path (live, catch-up, baseline, repair)
+            nvcoop::Log("coop: apply AddItem %s:%X x%d seq %llu idx %u origin %d epoch %u live=%d catchUp=%d baseline=%d repair=%d snapshot=%d", ai->item.plugin.c_str(), (unsigned)ai->item.localId, (int)ai->count,
+                        (unsigned long long)ctx.seq, (unsigned)ctx.index, (int)ctx.origin, (unsigned)ctx.epoch, ctx.seq != 0 && !ctx.baseline && !ctx.repair, (int)ctx.catchUp, (int)ctx.baseline, (int)ctx.repair, (int)ctx.fromSnapshot);
         // baseline effects FORCE-SET (may lower a stage, full objective flag byte); live txns merge normally
         nvhooks::ApplyStatus st = ctx.baseline ? applier->applyForce(e) : applier->apply(e);
         ApplyResult r;
@@ -203,6 +207,24 @@ std::unordered_map<std::string, std::string> LoadStringMap(const std::string& pa
     return m;
 }
 std::unordered_map<std::string, std::string> g_edids, g_infoQuest;
+// Guest pack facts: nvcoop_pack_watch.json {"schema":1,"items":["falloutnv.esm:0132ab", ...]} (plugin/coop/tools/gen_coop_data.py): the item forms the rules and the quest conditions count.
+// Both roles load it: the guest reads those counts from its own pack, the host reads an absent form as zero only for a form on its own list.
+std::vector<fnvcoop::FormRef> g_packWatchRefs;
+void LoadPackWatch() {
+    g_packWatchRefs.clear();
+    const std::string path = DllDir() + "nvcoop_pack_watch.json";
+    const std::string text = ReadWholeFile(path);
+    if (text.empty()) { nvcoop::Log("coop: nvcoop_pack_watch.json not found: a guest's item counts and weight stay the puppet's"); return; }
+    nvcoop::json::Value v;
+    std::string err;
+    if (!nvcoop::json::parse(text, v, err)) { nvcoop::Log("coop: cannot parse %s: %s", path.c_str(), err.c_str()); return; }
+    for (const auto& it : v.get("items").items()) {
+        fnvcoop::FormRef r;
+        if (it.isString() && nvhooks::strToRef(it.asString(), &r)) g_packWatchRefs.push_back(r);
+    }
+    nvcoop::Log("coop: pack watch list: %u item forms", (unsigned)g_packWatchRefs.size());
+}
+std::unordered_map<uint32_t, std::string> g_scriptNames;   // runtime form id -> lower-case EDID of the scripts that read the companion flags party-wide (companion_sets.txt view-party)
 // slot -> the guest's ghost refID on the host (L6 nvmp::GhostRefOfPlayer); 0 = unknown / NV:MP not present => stand-in player (ACTING-STANDIN)
 uint32_t GhostOf(fnvcoop::PlayerId slot) {
 #ifdef NVCOOP_WITH_LIVE
@@ -220,6 +242,29 @@ fnvcoop::FormRef g_passQuest;      // [coop] scenepass=<EDID>:<stage>: local pla
 int g_passStage = -1;
 bool g_passSent = false;
 bool g_rejectLogged = false;
+
+// G26, the guest side: a barrier step (Doc's farewell, Elijah's talks, an ending) runs in the host's game only, so this guest's game never asks for the stage.
+// Pass every open barrier once the player is free (MenuMode off: no message box, talk or Pip-Boy open) and the barrier has been open for a moment; resend at most
+// every 2 s until the host's arrival comes back (the list then drops it). Story run 2026-10-28: the host stood 120 s after Doc's farewell without this.
+std::map<fnvcoop::FormRef, uint64_t> g_barrierSeen, g_barrierSent;
+void GuestBarrierPasses() {
+    fnvcoop::ClientSession* c = g_rt ? g_rt->client() : nullptr;
+    if (!c || !c->joined() || c->baselineActive()) return;
+    const uint64_t now = NowMs();
+    const std::vector<fnvcoop::FormRef> open = fnvcoop::RulesEngine::guestBarrierPasses(c->state(), c->slot());
+    for (auto it = g_barrierSeen.begin(); it != g_barrierSeen.end();)
+        it = std::find(open.begin(), open.end(), it->first) == open.end() ? g_barrierSeen.erase(it) : std::next(it);
+    const bool menu = *reinterpret_cast<volatile const uint8_t*>(0x11DEA2B) != 0;   // the main loop's MenuMode() byte (plugin/vats/vats_policy.h)
+    for (const auto& q : open) {
+        const uint64_t seen = g_barrierSeen.emplace(q, now).first->second;
+        if (menu || now - seen < 1500) continue;
+        auto s = g_barrierSent.find(q);
+        if (s != g_barrierSent.end() && now - s->second < 2000) continue;
+        g_barrierSent[q] = now;
+        nvcoop::Log("coop: barrier of %s:%X is open and this player is free -> ScenePass", q.plugin.c_str(), q.localId);
+        g_rt->scenePass(q);
+    }
+}
 
 // Build identity for the join handshake: hash of this very dll, its PE link timestamp as the build number, and the mod load order.
 uint64_t Fnv64File(const std::string& path) {
@@ -280,6 +325,260 @@ void ParseScenePass() {
         g_passStage = std::atoi(v.c_str() + c + 1);
         nvcoop::Log("coop: scenepass trigger %s stage >= %d", it->second.c_str(), g_passStage);
     }
+}
+
+// ---- campaign wave 2 (P6): the session half of the engine hook observers --------------------------------------------------------------
+// The game-free logic is in party_state.h / save_sidecars.h / coop_runtime (unit tested, twins 9..19); this is the thin layer that hands the
+// engine things to them. plugin/coop/tests/check_module_wiring.py fails the build when one of these calls goes missing.
+bool WriteBytes(const std::string& path, const fnvcoop::Bytes& b);
+
+// G25: positions for the anchor tethers. A guest's position is its puppet's.
+bool RefPosition(uint32_t refID, float& x, float& y, float& z) {
+    if (!refID) return false;
+    auto* r = static_cast<TESObjectREFR*>(nvhooks::resolver().lookup(refID));
+    if (!r) return false;
+    x = r->posX;
+    y = r->posY;
+    z = r->posZ;
+    return true;
+}
+
+SaveSidecars g_sidecars;
+SlotRegistrar g_slotRegistrar;
+
+// nvcoop.ini [rules]: tether=on|warn|off (owner switch), death.mode / death.revive_s / death.all_down, late_join.during_scene / late_join.after_scene.
+// Empty or missing = the rules.json policy decides. A bad value is logged and ignored.
+std::map<std::string, std::string> ReadRulesPolicy() {
+    std::map<std::string, std::string> p;
+    const std::string ini = IniPath();
+    auto get = [&](const char* key) {
+        char buf[64] = {};
+        GetPrivateProfileStringA("rules", key, "", buf, sizeof buf, ini.c_str());
+        std::string v = buf;
+        for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return v;
+    };
+    auto one = [&](const char* iniKey, const char* policyKey, std::initializer_list<const char*> allowed) {
+        const std::string v = get(iniKey);
+        if (v.empty()) return;
+        for (const char* a : allowed) if (v == a) { p[policyKey] = v; return; }
+        nvcoop::Log("coop: nvcoop.ini [rules] %s=%s is not valid, ignored", iniKey, v.c_str());
+    };
+    one("tether", "tether.mode", {"on", "warn", "off"});
+    one("death.mode", "death.mode", {"downed", "respawn", "normal"});
+    one("death.all_down", "death.all_down", {"reload-host-save", "respawn"});
+    one("late_join.during_scene", "late_join.during_scene", {"wait", "join"});
+    one("late_join.after_scene", "late_join.after_scene", {"warp-to-zone", "stay"});
+    const std::string rev = get("death.revive_s");
+    if (!rev.empty() && std::atoi(rev.c_str()) > 0) p["death.revive_s"] = rev;
+    return p;
+}
+
+bool g_downed = false;   // G41: the local player is down (controls held, waiting for the respawn order)
+
+SaveSidecars::Io SidecarIo() {
+    SaveSidecars::Io io;
+    io.write = [](const std::string& path, const std::string& text) { return WriteBytes(path, fnvcoop::Bytes(text.begin(), text.end())); };
+    io.read = [](const std::string& path, std::string* text) { *text = ReadWholeFile(path); return !text->empty(); };
+    io.log = [](const std::string& line) { nvcoop::Log("coop: %s", line.c_str()); };
+    return io;
+}
+
+// P2 PlayerFactsScope (handover R1): while a guest's INFO result script runs, player.GetItemCount / GetAV / HasPerk / GetEquipped answer for the guest.
+std::shared_ptr<void> OpenFactsScope(const fnvcoop_dlg::ResultRequest& rq) {
+    const bool guest = rq.initiator != fnvcoop::kHostPlayer;
+    const bool haveFacts = rq.facts && !rq.facts->empty();
+    if (!haveFacts && !guest) return nullptr;
+    struct Hold {
+        std::vector<nvhooks::PlayerFact> facts;
+        std::unique_ptr<nvhooks::GuestItemScope> items;      // guest pack facts: a hand-in is not taken from the host's pack
+        std::unique_ptr<nvhooks::PlayerFactsScope> scope;   // declared last: closed before the vector it points to
+    };
+    auto h = std::make_shared<Hold>();
+    if (haveFacts) {
+        for (const auto& f : *rq.facts) h->facts.push_back({f.kind, f.what, f.value});
+        h->scope.reset(new nvhooks::PlayerFactsScope(&h->facts));
+    }
+    if (guest) h->items.reset(new nvhooks::GuestItemScope(static_cast<uint8_t>(rq.initiator)));
+    return h;
+}
+
+// Guest: an order the host sent for THIS machine's player (kAppOrderChannel).
+std::string ApplyOrder(const std::string& json) {
+    nvcoop::json::Value v;
+    std::string err;
+    if (!nvcoop::json::parse(json, v, err)) return "BadOrder: " + err;
+    const std::string op = v.get("op").asString("");
+    nvhooks::ApplierExecScope exec;   // not a leaked result script
+    if (op == "kill") {   // G42: one player dies, not the party
+        const bool ok = nvhooks::execConsoleLineOn(nvhooks::killCmd(), 0x14);
+        nvcoop::Log("coop: order kill (my player) -> %s", ok ? "issued" : "FAILED");
+        return ok ? "Ok" : "EngineRejected";
+    }
+    if (op == "downed") {   // G41: this player is down until the party's checkpoint; no death screen, no quest failure
+        g_downed = true;
+        nvhooks::SetPlayerControlsLocked(true);
+        nvcoop::intents::game::engine().notify("You are down. You get up at your party's last checkpoint.");
+        nvcoop::Log("coop: my player is downed (respawn in %lld ms)", (long long)v.get("respawnMs").asInt(0));
+        return "Ok";
+    }
+    if (op == "respawn") {   // G41: up again, at the checkpoint
+        g_downed = false;
+        nvhooks::SetPlayerControlsLocked(false);
+        bool ok = nvhooks::execConsoleLineOn(nvhooks::resurrectCmd(false), 0x14);
+        ok = nvhooks::execConsoleLineOn("RestoreAV Health 100000", 0x14) && ok;
+        fnvcoop::FormRef cp;
+        if (nvhooks::strToRef(v.get("checkpoint").asString(""), &cp) && g_applier) {
+            fnvcoop::FormRef me;
+            if (nvhooks::resolver().toRef(0x14, &me)) g_applier->apply(fnvcoop::MoveRef{me, cp, 0, 0, 0, true});
+        }
+        nvcoop::Log("coop: my player respawns at the checkpoint -> %s", ok ? "issued" : "FAILED");
+        return ok ? "Ok" : "EngineRejected";
+    }
+    if (op == "stash") {   // G35: my own gear goes into / comes out of MY copy of the shared storage (W3d item 4: a typed strip too)
+        const StashOrder so = stashOrderFrom(v);
+        fnvcoop::FormRef c;
+        uint32_t cid = 0;
+        const bool destroy = so.container.empty() && !so.into;   // `player.RemoveAllItems` / `RemoveAllTypedItems` with no container (stash_order.h)
+        if (!destroy) {
+            if (!nvhooks::strToRef(so.container, &c)) return "BadContainer";
+            cid = nvhooks::resolver().fromRef(c);
+            if (!cid) return "FormMissing";
+        }
+        uint32_t holdoutId = 0;
+        fnvcoop::FormRef ho;
+        if (!so.holdout.empty() && nvhooks::strToRef(so.holdout, &ho)) holdoutId = nvhooks::resolver().fromRef(ho);
+        const StashLine sl = stashLine(so, cid, holdoutId);
+        const bool ok = nvhooks::execConsoleLineOn(sl.text, sl.onRef);
+        nvcoop::Log("coop: order stash '%s' -> %s", sl.text.c_str(), ok ? "issued" : "FAILED");
+        return ok ? "Ok" : "EngineRejected";
+    }
+    return "UnknownOrder";
+}
+
+// Host: a request from a guest (G10: a note the guest picked up by itself; the host's journal and GetHasNote must see it).
+std::string HandleOrder(fnvcoop::PlayerId from, const std::string& json) {
+    nvcoop::json::Value v;
+    std::string err;
+    if (!nvcoop::json::parse(json, v, err)) return "BadOrder: " + err;
+    if (v.get("op").asString("") != "note") return "UnknownOrder";
+    fnvcoop::FormRef note;
+    if (!nvhooks::strToRef(v.get("note").asString(""), &note)) return "BadNote";
+    const uint32_t id = nvhooks::resolver().fromRef(note);
+    nvhooks::CaptureHub* hub = nvhooks::hub();
+    if (!id || !hub || !g_rt) return "FormMissing";
+    fnvcoop::Cause c;
+    c.kind = fnvcoop::CauseKind::Intent;
+    c.source = note;
+    c.aux = static_cast<int32_t>(fnvcoop::IntentKind::PickUp);
+    bool ok = false;
+    g_rt->runAsGuest(from, [&] {
+        nvhooks::ScopedCapture scope(*hub, c);   // the AddNote hook records one AddNote effect (shared journal) inside it
+        ok = nvhooks::execConsoleLine(nvhooks::addNoteCmd(id));
+    });
+    nvcoop::Log("coop: guest slot %d picked up a note (%s) -> host journal %s", (int)from, nvhooks::refToStr(note).c_str(), ok ? "updated" : "NOT updated");
+    return ok ? "Ok" : "EngineRejected";
+}
+
+// Observers and providers of plugin/hooks that need the session. Host: party conditions (G23), kill / stash of a guest's player (G42, G35).
+// Guest: a note it picked up by itself goes to the host (G10).
+void WireHookObservers() {
+    nvhooks::setScriptRunObserver(nullptr);
+#ifdef NVCOOP_WITH_WORLD
+    nvhooks::setScriptRunObserver([](uint32_t refID) { nvworld::noteRefScriptRan(refID); });   // G15: a ref var flipped inside a script this frame is seen
+#endif
+    if (!g_rt) return;
+    if (g_cfg.role == Role::Host) {
+        // wave 1b: the kill itself is recorded as KillActor{that player's ref} (setPlayerRefProvider below) and the rules engine turns it into a Health drain for that slot; the
+        // observer is only told, it must not kill the guest a second time.
+        nvhooks::setScriptRunScope([](uint32_t script, bool before) { if (g_rt) g_rt->onScriptRun(script, before); });   // W3a item 4: the acting guest's view of the companion flags around each script
+        nvhooks::setControlsRouter([](uint8_t slot, bool disable) { return g_rt && g_rt->controlsGuestOnly(slot, disable); });   // W3a item 5: a guest-only lock does not lock the host
+        nvhooks::setPlayerKillObserver([](uint8_t slot, bool onHost) {
+            nvcoop::Log("coop: script kill of slot %d's player (engine kill on this machine: %s)", (int)slot, onHost ? "yes" : "no");
+        });
+        nvhooks::setPlayerRefProvider([](uint8_t slot, fnvcoop::FormRef* out) { return g_rt && out && g_rt->playerRefOf(slot, *out); });   // G42: the same mapping as RulesEngine::Options::playerRef
+        nvcoop::intents::setGuestStagePassHook([](fnvcoop::PlayerId s, const fnvcoop::FormRef& q, uint32_t st) {   // G26: a guest's SetStage on a barrier stage is its pass
+            fnvcoop::RulesEngine* r = g_rt ? g_rt->rules() : nullptr;
+            return r ? nvcoop::intents::stagePassOf(*r, s, q, st) : nvcoop::intents::StagePass::NotPass;
+        });
+        nvhooks::setPlayerStashObserver([](const nvhooks::PlayerStashEvent& e) {
+            if (!g_rt || e.slot == 0) return;   // the host's own gear moved in the engine already
+            StashOrder so;
+            so.into = e.intoPlayer;
+            so.container = e.container.plugin.empty() ? std::string() : nvhooks::refToStr(e.container);   // no container: the guest's items are destroyed
+            so.retain = e.retainOwnership;
+            so.type = e.typeFilter;
+            so.noMsg = e.noMessage;
+            if (!e.holdout.plugin.empty()) so.holdout = nvhooks::refToStr(e.holdout);
+            const bool sent = g_rt->sendOrder(e.slot, stashOrderJson(so));
+            nvcoop::Log("coop: gear move for slot %d (%s %s) -> %s", (int)e.slot, e.intoPlayer ? "from" : "into", so.container.empty() ? "nowhere" : so.container.c_str(),
+                        sent ? "order sent to that guest" : "NOT sent (guest not joined)");
+        });
+        if (g_rt->rules()) {   // the evaluators loop over the party only when a rules engine reduces the values
+            nvhooks::setPartyConditions([]() { return g_rt ? presentMembers(*g_rt, [](fnvcoop::PlayerId s) { return GhostOf(s); }) : std::vector<nvhooks::PartyMember>(); },
+                                        makeSessionReducer([]() { return g_rt ? g_rt->rules() : nullptr; }));
+            PartyStateSource pss = sourceFromRuntime(*g_rt, [](uint32_t id, fnvcoop::FormRef* out) { return nvhooks::resolver().toRef(id, out); });
+            // W3a item 3: GetEquipped, IsSneaking, IsPlayerInRegion, GetLevel, GetIsSex / GetPCIsSex, GetSitting and IsPlayerActionActive of a guest come from the avatar layer
+            // (its Look, its snapshot and its Facts message); a guest that has not delivered a group yet stays unknown for it.
+            bindSlotFacts(pss, [](uint8_t slot, nvcoop::SlotFacts* out) { return nvcoop::livewire::glueSlotFacts(slot, out); });
+            // Guest pack facts: GetItemCount of a watched item form and InventoryWeight of a guest come from its Pack message; a form nobody reported stays the puppet's
+            bindSlotPack(pss, [](uint8_t slot, uint32_t item, int64_t* n) { return nvcoop::livewire::gluePackCount(slot, item, n); },
+                         [](uint8_t slot, double* w) { return nvcoop::livewire::gluePackWeight(slot, w); });
+            nvhooks::setPartyStateProvider(makePartyStateProvider(std::move(pss)));
+            // W3d item 1 (W3b requests 1 and 3): what a slot holds (pooled hand-ins: Honest Hearts totems, roots, lunchboxes) is the engine's GetItemCount on that player's own
+            // reference, the same reading the party conditions take; the scripts the rules run once per slot run again for every guest with a puppet.
+            g_rt->setItemCountProbe([](fnvcoop::PlayerId slot, const fnvcoop::FormRef& item, int64_t& count) {
+                // a guest's pack is what it reported (Pack message): the puppet carries none of it; an item nobody reported falls through to the puppet as before
+                if (slot != fnvcoop::kHostPlayer) {
+                    const uint32_t id = nvhooks::resolver().fromRef(item);
+                    if (id && nvcoop::livewire::gluePackCount(static_cast<uint8_t>(slot), id, &count)) return true;
+                }
+                const uint32_t who = slot == fnvcoop::kHostPlayer ? nvhooks::kHostPlayerRef : GhostOf(slot);
+                return who != 0 && nvhooks::playerItemCount(who, item, &count);
+            });
+            {
+                std::vector<nvhooks::PerSlotScript> table;
+                for (const Runtime::PerSlotScriptInfo& info : g_rt->perSlotScripts())
+                    if (const uint32_t id = nvhooks::resolver().fromRef(info.script)) table.push_back({id, info.vars});
+                nvcoop::Log("coop: %u scripts run once per player slot (%u declared by the rules)", (unsigned)table.size(), (unsigned)g_rt->rules()->perPlayerScripts().size());
+                nvhooks::setPerSlotScripts(std::move(table), [](uint32_t script, const nvhooks::PerSlotEach& each) {
+                    if (!g_rt) return;
+                    g_rt->runScriptPerSlot(script, [&each](fnvcoop::PlayerId slot) {
+                        if (const uint32_t ghost = GhostOf(slot)) each(static_cast<uint8_t>(slot), ghost);   // a guest whose puppet does not exist yet has no run
+                    });
+                });
+            }
+            // W3d item 2 (W3b request 6): the conditions of an INFO are reduced under that INFO's quest (the Jed weight gate is the heaviest pack of the party).
+            nvhooks::setInfoQuestScopes([](uint32_t infoId, fnvcoop::FormRef* quest) {
+                fnvcoop::FormRef info;
+                if (!nvhooks::resolver().toRef(infoId, &info)) return false;
+                auto it = g_infoQuest.find(nvhooks::refToStr(info));
+                return it != g_infoQuest.end() && quest && nvhooks::strToRef(it->second, quest);
+            });
+        }
+    } else if (g_cfg.role == Role::Client) {
+        nvhooks::setNoteObserver([](const fnvcoop::FormRef& note) {
+            if (!g_rt) return;
+            nvcoop::json::Value o = nvcoop::json::Value::object();
+            o.set("op", "note").set("note", nvhooks::refToStr(note));
+            g_rt->sendOrderToHost(o.dump());
+        });
+    }
+}
+
+void UnwireHookObservers() {
+    nvhooks::setScriptRunObserver(nullptr);
+    nvhooks::setScriptRunScope(nullptr);
+    nvhooks::setControlsRouter(nullptr);
+    nvhooks::setPlayerKillObserver(nullptr);
+    nvhooks::setPlayerStashObserver(nullptr);
+    nvhooks::setNoteObserver(nullptr);
+    nvhooks::setPartyConditions(nullptr, nullptr);
+    nvhooks::setPartyStateProvider(nullptr);
+    nvhooks::setPerSlotScripts({}, nullptr);
+    nvhooks::setInfoQuestScopes(nullptr);
+    nvhooks::setPlayerRefProvider(nullptr);
+    nvcoop::intents::setGuestStagePassHook(nullptr);
 }
 
 void TryStart() {
@@ -371,6 +670,12 @@ void TryStart() {
             g_rt->setRulesFile(g_cfg.rulesFile);
             g_edids = LoadStringMap(DllDir() + "nvcoop_edids.json");
             g_infoQuest = LoadStringMap(DllDir() + "nvcoop_infoquest.json");
+            {   // G02: script / INFO / ref -> the quest whose rules apply (docs/quest-policies/cause_quests.json, generated)
+                const std::string causes = ReadWholeFile(DllDir() + "nvcoop_cause_quests.json");
+                if (causes.empty()) nvcoop::Log("coop: nvcoop_cause_quests.json not found: a quest's own scripts will not match its rules");
+                g_rt->setCauseQuests(causes);
+            }
+            g_rt->setPolicy(ReadRulesPolicy());   // nvcoop.ini [rules]: tether=on|warn|off, death.mode ...
             nvcoop::Log("coop: rules=%s edids=%u infoquest=%u", g_cfg.rulesFile.c_str(), (unsigned)g_edids.size(), (unsigned)g_infoQuest.size());
             g_rt->setEdidResolver([](const std::string& edid, fnvcoop::FormRef& out) {
                 auto it = g_edids.find(edid);
@@ -394,6 +699,69 @@ void TryStart() {
             nvhooks::setStageGate([](const fnvcoop::FormRef& q, uint32_t st) { return g_rt ? g_rt->stageRequested(q, st, 0) : true; });
         }
     }
+#ifdef NVCOOP_WITH_COMPANIONS
+    nvcoop::social::glueSetRosterListener([](const std::vector<fnvcoop::social::Companion>& all) {   // P7: owners and party flags into the dialogue registry
+        if (!g_rt) return;
+        std::vector<Runtime::RosterEntry> r;
+        for (const auto& c : all) r.push_back({c.npc, c.owner, c.party});
+        g_rt->onRosterChanged(r);
+    });
+#endif
+#ifdef NVCOOP_WITH_COMPANIONS
+    {   // W3a item 4: a script that runs for a guest reads that guest's hired flags (and Dead Money rCurrentFollower); the view-party movers read the aggregate.
+        g_scriptNames.clear();
+        const std::vector<std::string> names = nvcoop::social::glueViewPartyScripts();
+        const std::set<std::string> want(names.begin(), names.end());
+        for (const auto& kv : g_edids) {
+            std::string low = kv.first;
+            for (char& ch : low) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            fnvcoop::FormRef r;
+            if (want.count(low) && nvhooks::strToRef(kv.second, &r))
+                if (uint32_t id = nvhooks::resolver().fromRef(r)) g_scriptNames[id] = low;
+        }
+        g_rt->setViewPolicy(
+            [](uint32_t script, uint8_t acting) -> uint8_t {
+                auto it = g_scriptNames.find(script);
+                return nvcoop::social::glueViewSlot(it == g_scriptNames.end() ? std::string() : it->second, acting);
+            },
+            [](fnvcoop::PlayerId slot, Runtime::FollowerVar* out) {
+                auto q = g_edids.find("NVDLC01Followers");
+                fnvcoop::FormRef qr, cr;
+                if (q == g_edids.end() || !nvhooks::strToRef(q->second, &qr) || !out) return false;
+                out->quest = qr;
+                out->var = "rCurrentFollower";   // a REF variable: setQuestVarValue stores the form id in the slot's low dword (hooks/ref_var.h)
+                out->formId = nvcoop::social::glueCurrentFollower(static_cast<uint8_t>(slot), "deadmoney", cr) ? static_cast<double>(nvhooks::resolver().fromRef(cr)) : 0.0;
+                return true;
+            });
+        nvcoop::Log("coop: companion views: %u view-party scripts named of %u", (unsigned)g_scriptNames.size(), (unsigned)names.size());
+    }
+#endif
+    g_rt->setNotice([](const std::string& s) { nvcoop::intents::game::engine().notify(s); });
+    g_rt->setHostEffectApplier([](const fnvcoop::Effect& e) {   // G18 / G25 / G41: what the rules engine commits by itself, for the host's own player
+        if (g_applier) g_applier->apply(e);
+    });
+    g_rt->setPlayerVarIO({[](const fnvcoop::FormRef& q, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out) {   // G24
+                              for (const std::string& n : names) { double v = 0; if (nvhooks::questVarValue(q, n, &v)) out.push_back({n, v}); }
+                              return !out.empty();
+                          },
+                          [](const fnvcoop::FormRef& q, const std::vector<fnvcoop::RulesEngine::VarValue>& values) {
+                              for (const auto& v : values) nvhooks::setQuestVarValue(q, v.var, v.value);
+                          },
+                          [](const fnvcoop::FormRef& q, uint32_t idx, std::string* name) { return nvhooks::questVarName(q, idx, name); }});
+    {
+        Runtime::AnchorProbe probe;                              // G25
+        probe.anchorPos = [](const fnvcoop::FormRef& a, float& x, float& y, float& z) { return RefPosition(nvhooks::resolver().fromRef(a), x, y, z); };
+        probe.slotPos = [](fnvcoop::PlayerId s, float& x, float& y, float& z) {
+            if (s == fnvcoop::kHostPlayer) return RefPosition(0x14, x, y, z);
+            return RefPosition(GhostOf(s), x, y, z);
+        };
+        g_rt->setAnchorProbe(probe);
+    }
+    g_rt->setReloadHostSave([]() {   // G41: everybody is down and policy death.all_down is reload-host-save
+        nvcoop::Log("coop: every player is down: the host save should be reloaded");
+        nvcoop::intents::game::engine().notify("Everyone is down. Load your last save to go on.");
+        nvcoop::PushEvent("coop.reloadHostSave", "{}");
+    });
     g_rt->setActionExecutor([](fnvcoop::PlayerId slot, fnvcoop::IntentKind kind, const fnvcoop::FormRef& ref) {
         // Guest interaction (docs/protocol.md section 12): the host runs the REAL activation of `ref` inside a capture scope whose
         // origin the runtime forces to `slot`, so rewards / karma / XP route to the guest and stage changes reach everybody.
@@ -448,30 +816,47 @@ void TryStart() {
                                                                               : nvhooks::ActivateAction::Proceed;
         });
     }
+#ifdef NVCOOP_WITH_UI
+    {   // G05 (P3 handover, call sites 1 and 2): the guest half of a conversation. init also wires the answer sink of boxes a host script raised.
+        fndlg::GuestDialogueConfig gc;
+        gc.dataDir = DllDir();
+        gc.report = [](const char* s) { nvcoop::Log("dialogue: %s", s); };
+        fndlg::GuestDialogue::instance().init(gc);
+    }
+#endif
     if (g_cfg.dialogue) {
         DialogueHooks h;
-        // TODO(L5/L8): run the INFO result script under capture; 0 = nothing committed
+        // The host's INFO result runner is plugin/intents' IntentService::runDialogueResult ([intents] dialogue_results=1 replaces this one at session begin).
         h.run = [](const fnvcoop_dlg::ResultRequest&) -> uint64_t { return 0; };
-        h.sink = [](const fnvcoop_dlg::Event& e) { nvcoop::PushEvent("dlg.event", std::string("{\"kind\":") + std::to_string((int)e.kind) + "}"); };
+        h.sink = [](const fnvcoop_dlg::Event& e) {
+#ifdef NVCOOP_WITH_UI
+            fndlg::GuestDialogue::instance().sink()(e);   // OpenMenu / ShowLines / CloseMenu ... reach the engine glue
+#endif
+            nvcoop::PushEvent("dlg.event", std::string("{\"kind\":") + std::to_string((int)e.kind) + "}");
+        };
+        {   // G33: follower caps per recruiting player and for the whole party (decision D2: 1 humanoid + 1 critter each, 4 in all)
+            const std::string ini = IniPath();
+            fnvcoop_dlg::CompanionRules r;
+            r.humanoidCap = static_cast<uint8_t>(GetPrivateProfileIntA("dialogue", "humanoid_cap", r.humanoidCap, ini.c_str()));
+            r.critterCap = static_cast<uint8_t>(GetPrivateProfileIntA("dialogue", "critter_cap", r.critterCap, ini.c_str()));
+            r.partyTotal = static_cast<uint8_t>(GetPrivateProfileIntA("dialogue", "party_total", r.partyTotal, ini.c_str()));
+            h.companionRules = r;
+        }
         g_rt->enableDialogue(h);
     }
+    g_rt->setResultScope(OpenFactsScope);   // P2 PlayerFactsScope around every host-run dialogue result script
+    g_rt->setOrderApplier(ApplyOrder);      // guest: kill / gear orders for this machine's player
+    g_rt->setOrderHandler(HandleOrder);     // host: a guest's note
 #ifdef NVCOOP_WITH_UI
     {   // L11 wiring (internal lane notes): router bridge, 0xE5 slideshow channel, SlideshowEnd, INFO reader
-        struct ProcMem : fndlg::IMemory {
-            bool read(fndlg::Addr32 a, void* out, size_t n) const override {
-                SIZE_T got = 0;
-                return a >= 0x10000 && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(uintptr_t(a)), out, n, &got) && got == n;
-            }
-        };
-        static ProcMem mem;
-        static fndlg::ResponseLayout layout;   // headOffset -1 until probeResponseOffset finds it: the reader then returns no lines
         UiWiring w;
         w.router = []() { return nvui::router(); };
         w.slideHost = [](nvui::SlideHost::Send s) -> nvui::SlideHost& { return nvui::slideHost(std::move(s)); };
         w.slideClient = []() -> nvui::SlideClient& { return nvui::slideClient(); };
         w.consentFile = DllDir() + "nvcoop_consent_messages.txt";
         w.installInfoReader = [](std::function<std::vector<fnvcoop_dlg::Line>(uint32_t)> f) { nvui::setInfoReader(std::move(f)); };
-        w.infoReader = fndlg::makeInfoReader(mem, &layout);
+        w.varName = [](const fnvcoop::FormRef& q, uint32_t idx, std::string* name) { return nvhooks::questVarName(q, idx, name); };   // wave 1b: per-player condition views
+        w.infoReader = fndlg::GuestDialogue::instance().infoReader();   // P3 call site 3: the engine's own response loader behind a cache check
         g_rt->enableUi(std::move(w));
     }
 #endif
@@ -495,6 +880,7 @@ void TryStart() {
         nvcoop::Log("coop: start failed: %s", err.c_str());
         return;
     }
+    WireHookObservers();
     nvcoop::Log("coop: started role=%s port=%u", roleName(g_cfg.role), (unsigned)g_rt->boundPort());
     nvcoop::PushEvent("coop.started", g_rt->statusJson());
 }
@@ -514,7 +900,18 @@ bool MRebaseline(const std::string&, std::string& out) {
 }
 
 bool MStatus(const std::string&, std::string& out) {
-    if (g_rt) { out = g_rt->statusJson(); return true; }
+    if (g_rt) {
+        out = g_rt->statusJson();
+        {   // W3d: what the in-game proofs of the per-slot scripts and the INFO scope read (hooks counters)
+            const nvhooks::PerSlotStats& ps = nvhooks::perSlotStats();
+            out = out.substr(0, out.size() - 1) + ",\"w3d\":{\"perSlotHookRuns\":" + std::to_string((unsigned long long)ps.runs) + ",\"objVarSwaps\":" +
+                  std::to_string((unsigned long long)ps.objVarSwaps) + ",\"infoScopesOpened\":" + std::to_string((unsigned long long)nvhooks::infoScopesOpened()) + "}}";
+        }
+#ifdef NVCOOP_WITH_UI
+        out = out.substr(0, out.size() - 1) + ",\"dialogue\":" + fndlg::GuestDialogue::instance().statusJson() + "}";   // P3 call site 8
+#endif
+        return true;
+    }
     nvcoop::json::Value o = nvcoop::json::Value::object();
     o.set("role", roleName(g_cfg.role)).set("enabled", g_cfg.enable).set("running", false).set("error", g_failMsg)
         .set("waitingForHooks", g_cfg.enable && !g_failed && nvhooks::hub() == nullptr).set("waitFrames", (int64_t)g_waitFrames);
@@ -676,6 +1073,19 @@ bool MOwner(const std::string& params, std::string& out) {
 #endif
 }
 
+// coop.ready {info}: the local player confirms a ready check ("is the party ready for this?") that a story line raised (G27). Without a prompt UI this is the
+// button: the host's own confirmation, or a guest's ScenePass for the INFO.
+bool MReady(const std::string& params, std::string& out) {
+    if (!g_rt) { out = "coop not running"; return false; }
+    nvcoop::json::Value p;
+    std::string err;
+    fnvcoop::FormRef info;
+    if (!nvcoop::json::parse(params, p, err) || !ParseRef(p, "info", &info, err)) { out = err; return false; }
+    g_rt->scenePass(info);
+    out = "{}";
+    return true;
+}
+
 bool MInject(const std::string& params, std::string& out) {
     if (!g_rt) { out = "coop not running"; return false; }
     std::string res, err;
@@ -686,8 +1096,17 @@ bool MInject(const std::string& params, std::string& out) {
 
 void OnLoad(void*) {
     LoadConfig();
+    g_sidecars.add({".fnvobjvars", []() { return nvcoop::coop::objVarSnapshot(nvhooks::objVarCopies()); }, [](const std::string& text) { nvcoop::coop::objVarRestore(nvhooks::objVarCopies(), text); }});   // follow-ups 1 item 3: the per-slot object variable copies
+    g_sidecars.add({".fnvintents", []() { return nvcoop::intents::LedgerSnapshot(); }, [](const std::string& text) { nvcoop::intents::LedgerRestore(text); }});
 #ifdef NVCOOP_WITH_LIVE
     nvcoop::livewire::glueLoad();   // main.cpp already ran glueConfigure() (before any module loaded)
+    LoadPackWatch();
+    nvcoop::livewire::glueSetPackWatch([]() {   // runtime form ids, resolved when the avatar service asks (session start, after a load): the game data is up by then
+        std::vector<uint32_t> ids;
+        for (const auto& r : g_packWatchRefs)
+            if (const uint32_t id = nvhooks::resolver().fromRef(r)) ids.push_back(id);
+        return ids;
+    });
 #endif
     nvcoop::RegisterMethod("coop.status", MStatus, true);
     nvcoop::RegisterMethod("coop.log", MLog, true);
@@ -701,6 +1120,7 @@ void OnLoad(void*) {
     nvcoop::RegisterMethod("coop.owner", MOwner, true);
     nvcoop::RegisterMethod("coop.rebaseline", MRebaseline, true);
     nvcoop::RegisterMethod("coop.scenePass", MScenePass, true);
+    nvcoop::RegisterMethod("coop.ready", MReady, true);
     nvcoop::RegisterMethod("coop.stageRequested", MStageRequested, true);   // client: {kind:"activate|pickup|trigger", ref:"falloutnv.esm:00ABCD"}
 }
 
@@ -725,15 +1145,22 @@ void OnFrame() {
         nvcoop::Log("coop: hot reload resumed the session (%s): %s", what.c_str(), ok ? "ok" : "not handled");
         g_reloadSidecar.clear();
     }
+#ifdef NVCOOP_WITH_UI
+    if (!g_rt) fndlg::GuestDialogue::instance().frame(nullptr, static_cast<uint32_t>(NowMs()));   // the node died with the runtime: drop the glue's pointer
+#endif
     if (g_rt) {
 #ifdef NVCOOP_WITH_WORLD
         if (g_rt->host()) {   // NPC state captured by L12's hooks since the last frame -> every guest (and late joiners)
-            for (const auto& we : nvworld::drainWorldEffects()) g_rt->pushWorldEffect(WorldEffectKey(we), nvworld::worldEffectToJson(we));
+            for (const auto& we : nvworld::drainWorldEffects()) g_rt->pushWorldEffect(nvworld::worldEffectKey(we), nvworld::worldEffectToJson(we), nvworld::isEphemeral(we));   // P5: key per subject, a fade or a sound is one-shot
         } else if (g_worldApplier) {
             g_worldApplier->flushQueued();   // spawns that waited for their cell to load
         }
 #endif
         g_rt->frame();
+#ifdef NVCOOP_WITH_UI
+        fndlg::GuestDialogue::instance().frame(g_rt->dialogue(), static_cast<uint32_t>(NowMs()));   // P3 call site 4: after the runtime ticked
+#endif
+        if (g_rt->host()) g_slotRegistrar.sync(*g_rt, [](fnvcoop::PlayerId s) { return GhostOf(s); }, [](uint32_t ref, uint8_t slot) { nvhooks::registerPlayerSlot(ref, slot); });
         AdoptWorkerThread(g_rt->workerHandle());   // a session (re)start or leave swaps the worker: keep the drain's ignore list current
 #if defined(NVCOOP_WITH_ACTORS) && !defined(NVCOOP_WITH_LIVE)
         nvcoop::actors::glueFrame(g_rt.get());   // actor ownership: after the session ticked (it polls the mux; ours is a channel on it)
@@ -749,17 +1176,30 @@ void OnFrame() {
             nvcoop::Log("coop: local player reached the scenepass stage -> ScenePass");
             g_rt->scenePass(g_passQuest);
         }
-        bool lock = g_rt->syncing() || g_scriptedLock;
+        GuestBarrierPasses();
+        bool lock = g_rt->syncing() || g_downed;
         {   // report the player's cell every 30 frames (party tether / presence): host -> rules engine, client -> ReportCell action
             static uint64_t frames = 0;
-            static uint32_t lastCell = 0;
+            static uint32_t lastCell = 0, lastWorld = 0;
             if (++frames % 30 == 0) {
                 PlayerCharacter* pc = g_thePlayer ? *g_thePlayer : nullptr;
                 uint32_t cell = pc && pc->parentCell ? pc->parentCell->refID : 0;
-                if (cell && cell != lastCell) {
-                    fnvcoop::FormRef ref;
-                    if (nvhooks::resolver().toRef(cell, &ref)) { lastCell = cell; g_rt->reportCell(ref); }
+                const uint32_t world = pc && pc->parentCell && pc->parentCell->worldSpace ? pc->parentCell->worldSpace->refID : 0;   // 0 = an interior
+                if (cell && (cell != lastCell || world != lastWorld)) {
+                    fnvcoop::FormRef ref, wref;
+                    if (nvhooks::resolver().toRef(cell, &ref)) {
+                        if (world) nvhooks::resolver().toRef(world, &wref);   // G25: an exterior tether names the worldspace, not the grid cell
+                        lastCell = cell;
+                        lastWorld = world;
+                        g_rt->reportCell(ref, wref);
+                    }
                 }
+                // G41: the local player died / got up. The host's rules decide what a death means (downed, reload, normal).
+                static bool wasDead = false;
+                const bool dead = pc && (pc->lifeState == 1 || pc->lifeState == 2) && !g_downed;
+                if (dead && !wasDead) g_rt->localPlayerDied();
+                else if (!dead && wasDead) g_rt->localPlayerRevived();
+                wasDead = dead;
             }
         }
         static bool lastLock = false;
@@ -817,8 +1257,23 @@ void OnMessage(uint32_t type, void* data, uint32_t len) {
         }
 #endif
     }
-    if (type == NVSEMessagingInterface::kMessage_PreLoadGame && data)
+    if (type == NVSEMessagingInterface::kMessage_SaveGame && data)   // P4 handover 8: the gear ledger is written next to the save it belongs to
+        g_sidecars.onSave(ResolveSavePath(std::string(static_cast<const char*>(data), len ? strnlen(static_cast<const char*>(data), len) : strlen(static_cast<const char*>(data)))), SidecarIo());
+    if (type == NVSEMessagingInterface::kMessage_PreLoadGame && data) {
         g_loadPath = ResolveSavePath(std::string(static_cast<const char*>(data), len ? strnlen(static_cast<const char*>(data), len) : strlen(static_cast<const char*>(data))));
+        g_sidecars.onPreLoad(g_loadPath);
+    }
+    if (type == NVSEMessagingInterface::kMessage_PostLoadGame && data) {   // the ledger of the loaded save comes back (none = reset); puppets register again
+        g_sidecars.onPostLoad(SidecarIo());
+        nvhooks::clearPlayerSlots();
+        g_slotRegistrar.reset();
+    }
+    if (type == NVSEMessagingInterface::kMessage_NewGame) {   // a new game has no ledger and no known puppets
+        g_sidecars.onPreLoad(std::string());
+        g_sidecars.onPostLoad(SidecarIo());
+        nvhooks::clearPlayerSlots();
+        g_slotRegistrar.reset();
+    }
     if (type == NVSEMessagingInterface::kMessage_PostLoadGame && data && g_rt && g_rt->running() && g_cfg.baseline) {
         std::string raw = ReadWholeFile(g_loadPath + ".fnvcoop");
         fnvcoop::Bytes side(raw.begin(), raw.end());
@@ -835,13 +1290,15 @@ void OnMessage(uint32_t type, void* data, uint32_t len) {
     }
     if (type == NVSEMessagingInterface::kMessage_PostLoadGame && data) g_gameLoaded = true;
     if (type == NVSEMessagingInterface::kMessage_ExitGame || type == NVSEMessagingInterface::kMessage_ExitGame_Console) {
+        UnwireHookObservers();
         if (g_rt) { nvhooks::SetPlayerControlsLocked(false); g_rt->stop(); }
     }
 }
 
 }  // namespace
 
-NVCOOP_MODULE(l10_coop, "l10_coop", OnLoad, OnMessage, OnFrame);
+// LATE: this frame sends what the avatar module (m2_avatar) captured in the same frame; run first, every avatar snapshot would leave one frame late.
+NVCOOP_MODULE_LATE(l10_coop, "l10_coop", OnLoad, OnMessage, OnFrame);
 
 // Hot reload (T3b, docs/tools/T3b-state.md). The session survives through the same sidecar a save/load uses: the host keeps its
 // world, epoch and token map, so rejoining clients are recognised. The transport is closed and reopened (ENet cannot adopt a
@@ -856,6 +1313,10 @@ void ReloadShutdown() {
 #endif
 #ifdef NVCOOP_WITH_LIVE
     nvcoop::livewire::glueShutdown();   // puppets down, ActorSync dropped, before the runtime (and its mux) goes away
+#endif
+    UnwireHookObservers();
+#ifdef NVCOOP_WITH_UI
+    fndlg::GuestDialogue::instance().frame(nullptr, static_cast<uint32_t>(NowMs()));
 #endif
     if (g_rt) {
         nvhooks::SetPlayerControlsLocked(false);
@@ -875,7 +1336,7 @@ NVCOOP_RELOAD_STATE(l10_coop, "l10_coop", 1, 50,
     /*save*/ [](nvreload::Writer& w) {
         w.boolean(g_gameLoaded);
         w.boolean(g_passSent);
-        w.boolean(g_scriptedLock);
+        w.boolean(false);   // (a retired flag; the schema keeps the slot)
         bool live = g_rt && g_rt->running();
         w.boolean(live);
         w.u64(g_rt ? g_rt->config().token : g_cfg.token);
@@ -887,7 +1348,7 @@ NVCOOP_RELOAD_STATE(l10_coop, "l10_coop", 1, 50,
     /*restore*/ [](uint32_t, nvreload::Reader& r) {
         g_gameLoaded = r.boolean();
         g_passSent = r.boolean();
-        g_scriptedLock = r.boolean();
+        (void)r.boolean();
         bool live = r.boolean();
         uint64_t token = r.u64();
         fnvcoop::Bytes side = r.bytes();

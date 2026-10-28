@@ -4,6 +4,7 @@
 //   781 the party policy is never asked          782 its answer is ignored (every hit is harmless)     783 combat pays kill XP although the social module does
 //   784 every machine reports the same kill     785 the native-payment mask is forgotten               786 no crime burst throttle
 //   787 the engine's own reputation is forgotten 788 every machine reports the murder
+//   796 the story-actor protection (rules FriendlyFireGuard) is never asked    797 its answer is ignored
 #include "harness.h"
 
 using namespace ctest;
@@ -276,3 +277,33 @@ TEST(combat_social_crime, a_native_murder_by_the_local_player_carries_the_native
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------------------------------- G40: protected story actors
+TEST(combat_social_hit, an_accidental_player_hit_on_a_protected_story_actor_is_dropped_on_the_attackers_gate_and_at_the_owner) {
+    Cluster c(3, [](Config& cfg) {
+        // machine 0 is the host and holds the rules: it protects actor 100 against every hit by a player; the others hold none
+        if (cfg.self == 0) cfg.social.blockProtectedHit = [](uint32_t victimRef, PlayerId, bool) { return victimRef == refOfActor(A100); };
+    });
+    c.addActor(A100, 1, 3, {800, 0, 0}, 50);                  // the story actor, simulated (owned) by machine 1
+    c.addActor(A101, 1, 3, {820, 0, 0}, 50);
+    // the host's own player shoots it: dropped at the attacker's own gate, nothing is sent
+    CHECK(c.cs(0).onEngineHit(c.shot(0, refOfActor(A100), 20)).action == GateAction::Neutralize);
+    c.run(100);
+    CHECK(c.cs(0).stats().hitsSent == 0 && c.cs(0).stats().protectedHitsBlocked == 1);
+    CHECK(callsOn(c, 1) == 0);
+    // an ordinary actor is not protected
+    CHECK(c.cs(0).onEngineHit(c.shot(0, refOfActor(A101), 20)).action == GateAction::Clamp);
+}
+
+TEST(combat_social_hit, a_remote_players_accepted_hit_on_a_protected_actor_is_not_applied_by_its_owner) {
+    Cluster c(3, [](Config& cfg) {
+        if (cfg.self == 1) cfg.social.blockProtectedHit = [](uint32_t victimRef, PlayerId, bool) { return victimRef == refOfActor(A100); };   // the OWNER holds the rules
+    });
+    c.addActor(A100, 1, 3, {800, 0, 0}, 50);
+    c.addActor(A101, 1, 3, {820, 0, 0}, 50);
+    c.cs(2).onEngineHit(c.shot(2, refOfActor(A100), 20));      // guest 2 shoots the protected actor: forwarded to its owner, which refuses it
+    c.cs(2).onEngineHit(c.shot(2, refOfActor(A101), 20));      // and an ordinary one: applied
+    c.run(300);
+    CHECK(c.cs(1).stats().protectedHitsBlocked == 1);
+    CHECK(callsOn(c, 1) == 1);                                 // only the ordinary actor took damage
+}

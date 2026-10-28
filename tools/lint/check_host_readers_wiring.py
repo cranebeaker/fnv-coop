@@ -12,6 +12,7 @@ The host runs without a world baseline, so nothing else loads its volatile list 
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -51,6 +52,11 @@ def runtime_problems(src: str) -> List[str]:
     if "host_->hostGlobals" not in src:
         bad.append("coop_runtime.cpp never sets hostGlobals")
     return bad
+
+
+# module: the state poll lambda found, it prepares the volatile keys, before the prime; the running reader; the global reader.
+# runtime: hostQuestRunning, hostGlobals.
+CHECKS = 7
 
 
 def problems() -> List[str]:
@@ -106,7 +112,11 @@ def main(argv: List[str]) -> int:
     for b in bad:
         print("FAIL: " + b)
     if not bad:
-        print("ok: the host's engine readers are wired")
+        # the count is what tools/test_all.py takes as proof that the check ran; "ok" alone made test_all FAIL the suite
+        if os.environ.get("HOSTREADERS_MUTANT") == "bare_ok":   # twin, tools/test_all_evidence.py
+            print("ok: the host's engine readers are wired")
+        else:
+            print("host engine readers: %d checks, 0 failed (coop_module.cpp, coop_runtime.cpp)" % CHECKS)
     return 1 if bad else 0
 
 

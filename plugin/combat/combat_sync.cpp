@@ -251,6 +251,9 @@ GateDecision CombatSync::onEngineHit(const EngineHit& e) {
 
     // 1d. plugin/companions: a hit inside the party (player <-> player, player <-> companion, companion <-> companion) does nothing unless friendly fire is on
     if (haveAtk && socialNeutralizes(e.attackerRef, e.victimRef)) return decide(GateAction::Neutralize, "a hit inside the party");
+    // 1e. a player's accidental hit on a protected story actor (Joshua, Moore ...) would fail the line for everybody: dropped, the attacker is warned (rules FriendlyFireGuard)
+    if (haveAtk && atk.isPlayer() && vic.isActor() && atk.id < kMaxSlots && protectedBlocks(e.victimRef, static_cast<PlayerId>(atk.id), e.explosionKey != 0))
+        return decide(GateAction::Neutralize, "an accidental hit on a protected story actor");
 
     // 2. the victim is simulated here (an NPC this machine owns, or the local player): the engine applies the hit natively
     if (vv.simulatedHere) {
@@ -414,6 +417,9 @@ void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender) {
     if (!world_.entity(h.victim, vv) || !vv.known) return;
     if (vv.maxHealth <= 0) { ++stats_.damageRefused; remember("health unknown", cc::toString(h.victim)); return; }
     const bool haveAtk = world_.entity(h.attacker, av) && av.known;
+    // a REMOTE player's hit that reached the victim's owner: the same story-actor protection as at the attacker's own gate (this machine holds the rules)
+    if (h.attacker.isPlayer() && h.attacker.id != cfg_.self && h.attacker.id < kMaxSlots && h.victim.isActor() && vv.ref &&
+        protectedBlocks(vv.ref, static_cast<PlayerId>(h.attacker.id), h.explosionId != 0)) return;
     cc::VictimVitals vit = vitalsOf(h.victim, vv);
     const cc::DamageOutcome o = cc::applyHit(vit, h, validator_.rules());
     limbs_[h.victim] = vit.limbs;
@@ -423,7 +429,16 @@ void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender) {
     // A lethal hit replays the WHOLE blow (and one point more), not the rounded remainder: the model's health is an integer, the engine's a float
     // (12.4 reads 12; a replay of 12 leaves a 0.4 sliver standing and the owner's gecko "lives" while every other machine was told it died).
     if (o.died && !FNV_MUT(790)) amount = std::max(amount, h.damage) + 1;
-    if (amount > 0 && vv.ref && !FNV_MUT(707)) {
+    // G04: the host owns the victim and a REMOTE player's shot is lethal: the kill is credited to that player's puppet (the engine stores the killer before OnDeath),
+    // not left to a damage line that kills without a killer.
+    bool attributed = false;
+    if (o.died && h.victim.isActor() && vv.ref && !FNV_MUT(800)) {   // 800: a lethal hit of a remote player is plain damage (the victim dies killer-less)
+        if (const uint32_t kr = remoteKillerRef(h.attacker)) {
+            attributed = eng_.killActorBy(vv.ref, kr);
+            if (attributed) { ++stats_.killsAttributed; stats_.damageApplied += static_cast<uint64_t>(std::max(amount, 0)); }
+        }
+    }
+    if (!attributed && amount > 0 && vv.ref && !FNV_MUT(707)) {
         if (eng_.damageHealth(h.victim, vv.ref, amount, haveAtk ? av.ref : 0, h)) stats_.damageApplied += static_cast<uint64_t>(amount);
         else { ++stats_.engineRefused; ++stats_.damageRefused; }
     }
@@ -592,9 +607,34 @@ void CombatSync::onDeathMsg(PlayerId from, const Envelope& e, const MDeath& m) {
     handleDeathAccepted(m.d);
 }
 
+uint32_t CombatSync::remoteKillerRef(const cc::Entity& killer) const {
+    if (!cfg_.isHost || !killer.isPlayer() || killer.id == cfg_.self) return 0;
+    EntityView kv;
+    return world_.entity(killer, kv) && kv.known ? kv.ref : 0;
+}
+
+uint32_t CombatSync::killerPuppetOf(uint32_t victimRef) const {
+    if (FNV_MUT(798)) return 0;   // 798: nobody is ever credited (a guest's kill has no killer on the host)
+    cc::Entity who;
+    if (!victimRef || !world_.entityOfRef(victimRef, who) || !who.isActor()) return 0;
+    auto lh = lastHit_.find(who);
+    if (lh != lastHit_.end() && now_ - lh->second.at <= cfg_.lastHitTtlMs)
+        if (const uint32_t r = remoteKillerRef(lh->second.attacker)) return r;
+    auto kc = killCredit_.find(who);
+    return kc != killCredit_.end() && now_ <= kc->second.until ? kc->second.killerRef : 0;
+}
+
 void CombatSync::handleDeathAccepted(const cc::DeathDecl& d) {
     ++stats_.deathsAccepted;
     decorateIfDead(d.who, d);
+    if (d.who.isActor() && !FNV_MUT(799)) {   // 799: the death declaration never credits a remote player
+        // G04: a remote player killed it. If the host's copy is already a corpse the killer is written now; else the actor port asks killerPuppetOf() when it kills the copy.
+        if (const uint32_t kr = remoteKillerRef(d.killer)) {
+            EntityView vv;
+            if (world_.entity(d.who, vv) && vv.known && vv.ref && eng_.isDead(vv.ref)) { if (eng_.setKiller(vv.ref, kr)) ++stats_.killsAttributed; }
+            else killCredit_[d.who] = KillCredit{kr, now_ + cfg_.deathDecorTtlMs};
+        }
+    }
     socialDeath(d);   // before awardXp / the erase below: both read the last hits
     // plugin/companions pays kill XP and karma once, to the right players, from the report above; combat's own award would pay the killer a second time.
     if (cfg_.social.xpHandled && cfg_.social.xpHandled() && !FNV_MUT(783)) ++stats_.socialXpHandled;   // 783: combat pays as well (the killer is paid twice)
@@ -721,6 +761,13 @@ void CombatSync::socialCrime(const cc::Entity& attacker, const EntityView& av, c
     e.tick = static_cast<uint32_t>(now_);
     ++stats_.socialCrimesReported;
     cfg_.social.reportCrime(e);
+}
+
+bool CombatSync::protectedBlocks(uint32_t victimRef, PlayerId attacker, bool splash) {
+    if (!cfg_.social.blockProtectedHit || !victimRef || FNV_MUT(796)) return false;   // 796: the story-actor protection is never asked
+    if (!cfg_.social.blockProtectedHit(victimRef, attacker, splash) && !FNV_MUT(797)) return false;   // 797: its answer is ignored (every accidental hit lands)
+    ++stats_.protectedHitsBlocked;
+    return true;
 }
 
 bool CombatSync::socialNeutralizes(uint32_t attackerRef, uint32_t victimRef) {
@@ -913,6 +960,7 @@ void CombatSync::tick(uint64_t nowMs) {
         } else ++it;
     }
     for (auto it = lastHit_.begin(); it != lastHit_.end();) it = (now_ - it->second.at > cfg_.lastHitTtlMs) ? lastHit_.erase(it) : std::next(it);
+    for (auto it = killCredit_.begin(); it != killCredit_.end();) it = (now_ > it->second.until) ? killCredit_.erase(it) : std::next(it);
     projectiles_.expire(now_);
 }
 

@@ -812,16 +812,16 @@ void planner_tiers_hysteresis_and_pending() {
     CHECK(sent >= 9 && sent <= 11);
     // latest wins: a stopped stream's final snapshot is released when its turn comes (the last send above was at t = 1800)
     s.seq = 1000;
-    s.pos.x = 4242;
+    s.pos.x = 1942;                                     // (a step of a walker: a jump of more than 350 units from the last one sent goes at once, see below)
     bool direct = p.offer(0, 2, s, 1850, out);
     std::vector<av::StreamRatePlanner::Release> rel;
     p.poll(1900, rel);
     CHECK(!direct && rel.empty() && p.pending() == 1);
     s.seq = 1001;                                       // a newer one replaces the kept one
-    s.pos.x = 4343;
+    s.pos.x = 1943;
     CHECK(!p.offer(0, 2, s, 1920, out));
     p.poll(2000, rel);
-    CHECK(rel.size() == 1 && rel[0].snap.seq == 1001 && rel[0].snap.pos.x == 4343 && rel[0].observer == 0 && rel[0].subject == 2);
+    CHECK(rel.size() == 1 && rel[0].snap.seq == 1001 && rel[0].snap.pos.x == 1943 && rel[0].observer == 0 && rel[0].subject == 2);
     p.poll(2400, rel);
     CHECK(rel.size() == 1 && p.pending() == 0);        // nothing more to release
     // the uplink takes the highest tier of its observers

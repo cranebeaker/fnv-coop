@@ -67,7 +67,7 @@ These are in the launcher and are saved into `nvcoop.ini`. The host's settings a
 | Share kill XP with the whole party | Off: the player who lands the killing blow gets the XP. On: everyone present shares it. Quest XP always goes to everyone. |
 | Party slow-mo | Host option. When one player uses VATS, everyone slows down together for a short time. Off by default. |
 | Tether | Story moments that need the group (a cutscene, a door everyone must pass) wait until the whole party is together. On by default. |
-| Experimental sync layers | Enemies and NPCs, seeing other players as characters, hits and projectiles, spawn arbitration. They are off until you tick them, and each release notes which of them are ready for everyday play. Combat and spawns need enemies and NPCs, so ticking them switches that one on too. |
+| Sync layers | Enemies and NPCs, seeing other players as characters, hits and projectiles, spawn arbitration. All on by default. Untick one only to narrow down a problem you are reporting. Combat and spawns need enemies and NPCs, so ticking them switches that one on too. |
 
 Quest rewards, karma, reputation and the quest story are shared by everyone. Levels, perks, skills and SPECIAL are per player.
 

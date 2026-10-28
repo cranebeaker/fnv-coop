@@ -188,6 +188,7 @@ public:
             if (auto* k = std::get_if<KillActor>(&e)) ghostKills.push_back(k->actor);
         if (ctx.baseline) {
             if (auto* o = std::get_if<SetObjective>(&e)) { v.objectives[{o->quest, o->objective}] = o->flags; return; }  // force-set
+            if (auto* st = std::get_if<SetStage>(&e)) { v.stages[st->quest] = st->stage; return; }   // force-set (RemoteApplier::applyForce writes the byte, so a baseline may lower a stage)
         }
         mutate(e);
     }
@@ -205,7 +206,7 @@ private:
         std::visit([&](const auto& x) { do_(x); }, e);
         if (cap) cap->record(e);
     }
-    void do_(const SetStage& e) { v.stages[e.quest] = e.stage; }
+    void do_(const SetStage& e) { uint32_t& cur = v.stages[e.quest]; cur = std::max(cur, e.stage); }   // the engine's SetStage never lowers the current stage (a lower stage only marks its item done), and the shadow now delivers those
     void do_(const SetObjective& e) { v.objectives[{e.quest, e.objective}] = e.flags; }   // exact flag state (host-authoritative writer)
     void do_(const SetGlobal& e) { v.globals[e.global] = e.value; }
     void do_(const EnableRef& e) { v.enabled[e.ref] = true; }

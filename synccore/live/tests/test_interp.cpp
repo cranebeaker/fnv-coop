@@ -13,6 +13,7 @@ TEST(interp, shove_over_2m_is_eased_without_overshoot) { CHECK(shoveIsSmoothed()
 TEST(interp, small_error_follows_big_error_eases) { CHECK(smallErrorFollowsBigErrorEases()); }
 TEST(interp, thresholds_are_exact) { CHECK(thresholdBoundaries()); }
 TEST(interp, stale_and_duplicate_pushes_ignored) { CHECK(staleAndDuplicatePushIgnored()); }
+TEST(interp, teleport_after_a_long_stand_is_a_jump_on_screen_within_three_frames) { CHECK(llTeleportAfterAStandIsAJump()); }
 TEST(interp, tick_wraparound) { CHECK(tickWrapIsHandled()); }
 TEST(interp, rotation_takes_the_short_arc) { CHECK(rotationTakesShortArc()); }
 TEST(interp, slow_far_stream_stays_interpolated) { CHECK(slowStreamInterpolates()); }
@@ -91,3 +92,9 @@ TEST(interp, actual_pose_in_another_cell_snaps) {
     InterpOut o = ib.sample(1146, &elsewhere);
     CHECK(o.snapped);
 }
+
+// low-latency mode (player avatars)
+TEST(interp, low_latency_delay_is_a_few_tens_of_ms_not_100) { CHECK(llDelayFollowsJitter()); }
+TEST(interp, low_latency_extrapolation_is_damped) { CHECK(llExtrapolationIsDamped()); }
+TEST(interp, low_latency_prediction_miss_is_faded_not_popped) { CHECK(llMissIsFaded()); }
+TEST(interp, low_latency_render_clock_is_slewed) { CHECK(llClockIsSlewed()); }

@@ -254,10 +254,14 @@ std::string PuppetManager::StatusJson() const {
     bool first = true;
     for (const auto& kv : puppets_) {
         const Puppet& p = kv.second;
-        char buf[200];
-        std::snprintf(buf, sizeof buf, "%s{\"slot\":%d,\"ref\":\"0x%08X\",\"phase\":\"%s\",\"group\":%d,\"cell\":\"0x%08X\",\"equipConverged\":%s}",
+        char buf[480];
+        // pose = where the buffer says it stands now, applied = what this driver last sent to the engine (both game units)
+        std::snprintf(buf, sizeof buf,
+                      "%s{\"slot\":%d,\"ref\":\"0x%08X\",\"phase\":\"%s\",\"group\":%d,\"cell\":\"0x%08X\",\"equipConverged\":%s,"
+                      "\"pose\":[%.1f,%.1f,%.1f],\"applied\":[%.1f,%.1f,%.1f],\"haveApplied\":%s,\"posConfirmed\":%s}",
                       first ? "" : ",", (int)kv.first, (unsigned)p.ref, ToString(p.phase), p.lastGroup, (unsigned)p.cell,
-                      p.equip.Converged() ? "true" : "false");
+                      p.equip.Converged() ? "true" : "false", p.pose.pos.x, p.pose.pos.y, p.pose.pos.z, p.appliedPos.x, p.appliedPos.y, p.appliedPos.z,
+                      p.haveApplied ? "true" : "false", p.posConfirmed ? "true" : "false");
         s += buf;
         first = false;
     }

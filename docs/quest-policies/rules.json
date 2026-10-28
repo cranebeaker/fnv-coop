@@ -889,6 +889,15 @@
       ]
      },
      "origin": "questsweep"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "FalloutNV.esm:164AFB"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -942,6 +951,47 @@
      "kind": "SaveSuppress",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "collar",
+      "vars": [
+       "iNumRadii",
+       "fCollarTimer",
+       "fChristinesTimer",
+       "bChristineDoOnce",
+       "bCollarDoOnce",
+       "fTimeToNextBeep",
+       "fIntervalBetweenBeeps",
+       "bBoom",
+       "bHalfwayMsg",
+       "rFollower",
+       "rDeadFollower",
+       "fDeathTimer",
+       "iDiedInCasino",
+       "bDeanDead",
+       "bChristineDead",
+       "bDogDead",
+       "fDeathTimeToNextBeep",
+       "fDeathIntervalBetweenBeeps"
+      ],
+      "down": "until-checkpoint",
+      "checkpoint": [
+       "NVDLC01Suites",
+       "NVDLC01Restaurant",
+       "NVDLC01Theater",
+       "NVDLC01Gala02"
+      ],
+      "scripts": [
+       "NVDLC01BombCollarQuestSCRIPT",
+       "NVDLC01RadioSpeakerSCRIPT"
+      ],
+      "objvars": [
+       "NVDLC01RadioSpeakerSCRIPT.bInRadius"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1057,6 +1107,15 @@
      "kind": "ShareKarmaRep",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "NVDLC01CoinOperator"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1148,6 +1207,15 @@
       "recipient": "all"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "NVDLC01SierraMadreMartiniPerk"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1206,6 +1274,16 @@
      "kind": "ShareKarmaRep",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "NVDLC01GhostHunter",
+       "DeadMoney.esm:013B26"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1234,6 +1312,17 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "ChoiceConsent",
+     "params": {
+      "topics": [
+       "DeadMoney.esm:011C68"
+      ],
+      "mode": "vote",
+      "timeout_s": 90
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1414,6 +1503,16 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "cloud",
+      "scripts": [
+       "NVDLC01GlobalToxicDamageSCRIPT"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1486,7 +1585,10 @@
       "cells": [
        "SLBoSBunkerINT"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       100
+      ]
      },
      "origin": "curated"
     },
@@ -1511,6 +1613,27 @@
      "kind": "SaveSuppress",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "entry",
+      "scripts": [
+       "NVDLC01VillaTravelTriggerScript"
+      ],
+      "objvars": [
+       "NVDLC01VillaTravelTriggerScript.StartUp",
+       "NVDLC01VillaTravelTriggerScript.EndStartUp",
+       "NVDLC01VillaTravelTriggerScript.TimerA",
+       "NVDLC01VillaTravelTriggerScript.TimerB",
+       "NVDLC01VillaTravelTriggerScript.TimerC",
+       "NVDLC01VillaTravelTriggerScript.TimerD",
+       "NVDLC01VillaTravelTriggerScript.TimerE",
+       "NVDLC01VillaTravelTriggerScript.TimerZ",
+       "NVDLC01VillaTravelTriggerScript.bTimerZDone"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1524,7 +1647,8 @@
      "params": {
       "funcs": {
        "IsActionRef": "initiator",
-       "IsSneaking": "initiator"
+       "IsSneaking": "initiator",
+       "GetLevel": "host"
       }
      },
      "origin": "curated"
@@ -1703,7 +1827,10 @@
       "cells": [
        "NVDLC01Villa"
       ],
-      "gather": "wait"
+      "gather": "wait",
+      "stages": [
+       100
+      ]
      },
      "origin": "curated"
     },
@@ -1725,14 +1852,10 @@
       "cells": [
        "NVDLC01EastTownN"
       ],
-      "gather": "wait"
-     },
-     "origin": "curated"
-    },
-    {
-     "kind": "Barrier",
-     "params": {
-      "step": "all-players-pass"
+      "gather": "wait",
+      "stages": [
+       50
+      ]
      },
      "origin": "curated"
     },
@@ -1750,6 +1873,23 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "collar",
+      "down": "until-checkpoint",
+      "checkpoint": [
+       "NVDLC01Suites",
+       "NVDLC01Restaurant",
+       "NVDLC01Theater",
+       "NVDLC01Gala02"
+      ],
+      "scripts": [
+       "NVDLC01DeanScript"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -1903,7 +2043,10 @@
       "cells": [
        "NVDLC01Gala02"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       100
+      ]
      },
      "origin": "curated"
     },
@@ -1961,14 +2104,10 @@
       "cells": [
        "NVDLC01Suites"
       ],
-      "gather": "auto-warp"
-     },
-     "origin": "curated"
-    },
-    {
-     "kind": "Barrier",
-     "params": {
-      "step": "all-players-pass"
+      "gather": "auto-warp",
+      "stages": [
+       30
+      ]
      },
      "origin": "curated"
     },
@@ -2000,6 +2139,47 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       255
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "collar",
+      "down": "until-checkpoint",
+      "checkpoint": [
+       "NVDLC01Suites",
+       "NVDLC01Restaurant",
+       "NVDLC01Theater",
+       "NVDLC01Gala02"
+      ],
+      "scripts": [
+       "NVDLC01VaultCollarBeepScript",
+       "NVDLC01VaultKillTriggerScript",
+       "NVDLC01KitchenGasTrapSCRIPT",
+       "NVDLC01KitchenSetupSCRIPT",
+       "NVDLC01RestaurantInteriorDoorScript",
+       "NVDLC01DogScript"
+      ],
+      "objvars": [
+       "NVDLC01VaultCollarBeepScript.bCollarOn",
+       "NVDLC01VaultCollarBeepScript.fTimer",
+       "NVDLC01VaultCollarBeepScript.fBeepInterval",
+       "NVDLC01VaultCollarBeepScript.fBeepNext",
+       "NVDLC01VaultCollarBeepScript.fExplosionTimer",
+       "NVDLC01VaultCollarBeepScript.iCount"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2040,14 +2220,10 @@
       "cells": [
        "NVDLC01Restaurant"
       ],
-      "gather": "auto-warp"
-     },
-     "origin": "curated"
-    },
-    {
-     "kind": "Barrier",
-     "params": {
-      "step": "all-players-pass"
+      "gather": "auto-warp",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -2102,7 +2278,10 @@
       "cells": [
        "NVDLC01Theater"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -2150,7 +2329,10 @@
       "cells": [
        "NVDLC01Suites"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -2165,6 +2347,30 @@
      "kind": "SaveSuppress",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "collar",
+      "down": "until-checkpoint",
+      "checkpoint": [
+       "NVDLC01Suites",
+       "NVDLC01Restaurant",
+       "NVDLC01Theater",
+       "NVDLC01Gala02"
+      ],
+      "scripts": [
+       "NVDLC01SuitesSetupSCRIPT",
+       "NVDLC01ChristineSCRIPT"
+      ],
+      "objvars": [
+       "NVDLC01SuitesSetupSCRIPT.fCollarTimer",
+       "NVDLC01SuitesSetupSCRIPT.fBeepTimer",
+       "NVDLC01SuitesSetupSCRIPT.bCollar",
+       "NVDLC01SuitesSetupSCRIPT.nKaboom"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2221,6 +2427,22 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60E",
+       "FalloutNV.esm:15C610",
+       "FalloutNV.esm:15C613",
+       "FalloutNV.esm:15C60C",
+       "FalloutNV.esm:15C60F",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2306,6 +2528,24 @@
      "kind": "PerPlayerScene",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "cloud",
+      "vars": [
+       "bToxicCloudOn",
+       "iToxicCloudsActive",
+       "iHealthDamage",
+       "fTimer",
+       "bWeatherChanged",
+       "fDialogueDelayTimer"
+      ],
+      "scripts": [
+       "NVDLC01ToxicCloudSCRIPT"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2369,7 +2609,8 @@
      "params": {
       "funcs": {
        "HasPerk": "initiator",
-       "GetIsSex": "initiator"
+       "GetIsSex": "initiator",
+       "GetActorValue": "max-over-party"
       }
      },
      "origin": "curated"
@@ -2431,6 +2672,30 @@
      "kind": "PerPlayerScene",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:00A84A",
+       "HonestHearts.esm:00F85D"
+      ]
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "ChoiceConsent",
+     "params": {
+      "topics": [
+       "HonestHearts.esm:010718",
+       "HonestHearts.esm:010723",
+       "HonestHearts.esm:0093AA",
+       "HonestHearts.esm:01049F"
+      ],
+      "mode": "vote",
+      "timeout_s": 90
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2557,6 +2822,24 @@
       "recipient": "all"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:0094BB"
+      ]
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PartyAwareCond",
+     "params": {
+      "funcs": {
+       "GetItemCount": "sum-over-party"
+      }
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2803,7 +3086,9 @@
     {
      "kind": "PartyAwareCond",
      "params": {
-      "funcs": {}
+      "funcs": {
+       "IsKiller": "any-party-member"
+      }
      },
      "origin": "curated"
     },
@@ -2840,6 +3125,47 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       255
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "FriendlyFireGuard",
+     "params": {
+      "actors": [
+       "HonestHearts.esm:009E7C",
+       "HonestHearts.esm:00F1A4",
+       "HonestHearts.esm:00F1A5"
+      ],
+      "deliberate_hits": 3,
+      "window_s": 10,
+      "warn": "true"
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "OncePerEvent",
+     "params": {
+      "globals": [
+       "FalloutNV.esm:000038",
+       "FalloutNV.esm:000037",
+       "FalloutNV.esm:000036",
+       "FalloutNV.esm:000035"
+      ],
+      "effects": [
+       "AdvanceTime"
+      ],
+      "window_s": 600
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -2977,7 +3303,8 @@
      "kind": "PartyAwareCond",
      "params": {
       "funcs": {
-       "IsActionRef": "initiator"
+       "IsActionRef": "initiator",
+       "GetItemCount": "sum-over-party"
       }
      },
      "origin": "derived"
@@ -2993,6 +3320,15 @@
       "recipient": "all"
      },
      "origin": "derived"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:0093C4"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3005,7 +3341,8 @@
      "kind": "PartyAwareCond",
      "params": {
       "funcs": {
-       "IsActionRef": "initiator"
+       "IsActionRef": "initiator",
+       "GetItemCount": "sum-over-party"
       }
      },
      "origin": "derived"
@@ -3026,6 +3363,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "derived"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:00F85D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3069,6 +3415,16 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "derived"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:0093C4",
+       "HonestHearts.esm:00F85D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3126,7 +3482,8 @@
      "kind": "PartyAwareCond",
      "params": {
       "funcs": {
-       "IsActionRef": "initiator"
+       "IsActionRef": "initiator",
+       "GetItemCount": "sum-over-party"
       }
      },
      "origin": "derived"
@@ -3147,6 +3504,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "derived"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:00A84A"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3280,6 +3646,15 @@
       "scope": "party"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:00A84A"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3326,6 +3701,17 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       255
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3446,6 +3832,17 @@
       "scope": "party"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       255
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3638,6 +4035,30 @@
       "scope": "party"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "FriendlyFireGuard",
+     "params": {
+      "actors": [
+       "HonestHearts.esm:0093BE",
+       "HonestHearts.esm:0093C2"
+      ],
+      "deliberate_hits": 3,
+      "window_s": 10,
+      "warn": "true"
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:00A84A",
+       "HonestHearts.esm:0093C4",
+       "HonestHearts.esm:00F85D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3692,7 +4113,8 @@
      "params": {
       "funcs": {
        "IsKiller": "any-party-member",
-       "GetDistance": "min-over-party"
+       "GetDistance": "min-over-party",
+       "GetItemCount": "sum-over-party"
       }
      },
      "origin": "derived"
@@ -3723,6 +4145,15 @@
      "kind": "PerPlayerScene",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PooledItems",
+     "params": {
+      "items": [
+       "HonestHearts.esm:0094BB"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -3863,7 +4294,8 @@
      "params": {
       "release": "host-effect",
       "timeout_s": 30,
-      "masks": []
+      "masks": [],
+      "scope": "initiator"
      },
      "origin": "curated"
     }
@@ -4028,7 +4460,10 @@
      "kind": "PerPlayerVars",
      "params": {
       "vars": [
-       "perks"
+       "bPsychEval",
+       "bAwaitingInput",
+       "iButtonVar",
+       "bLaunchMenu"
       ]
      },
      "origin": "questsweep"
@@ -4107,6 +4542,16 @@
      "kind": "ShareKarmaRep",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "OldWorldBlues.esm:015BBA",
+       "OldWorldBlues.esm:0098BE"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -4207,11 +4652,46 @@
      "origin": "curated"
     },
     {
-     "kind": "PerPlayerVars",
+     "kind": "PerPlayerState",
      "params": {
+      "scope": "implants",
+      "scripts": [
+       "NVDLC03GenericPerkQuestSCRIPT"
+      ],
       "vars": [
-       "perks",
-       "items"
+       "nImplantGRXRank",
+       "nImplantGRXUses",
+       "nEndOfDay",
+       "nLastDay",
+       "nCurrentDay",
+       "bSetRadsTotal",
+       "nRadsTotal",
+       "nRadsCurrent",
+       "nRadsToHeal",
+       "bY3SetPlayerDrink3RadTotal",
+       "nY3PlayerDrink3RadTotal",
+       "nY3PlayerDrink3RadCurrent",
+       "bY3SetPlayerDrink6RadTotal",
+       "nY3PlayerDrink6RadTotal",
+       "nY3PlayerDrink6RadCurrent",
+       "bY3SetPlayerDrink10RadTotal",
+       "nY3PlayerDrink10RadTotal",
+       "nY3PlayerDrink10RadCurrent",
+       "bY3SetPlayerDrink16RadTotal",
+       "nY3PlayerDrink16RadTotal",
+       "nY3PlayerDrink16RadCurrent",
+       "bY7SetPlayerFoodTotal",
+       "nY7PlayerFoodTotal",
+       "nY7PlayerFoodCurrent",
+       "bSetHealthTotal",
+       "nHealthTotal",
+       "nHealthCurrent",
+       "bHeartlessSetPlayerChemsTotal",
+       "nHeartlessPlayerChemsTotal",
+       "nHeartlessPlayerChemsCurrent",
+       "bHeartlessSetPlayerStimsTotal",
+       "nHeartlessPlayerStimsTotal",
+       "nHeartlessPlayerStimsCurrent"
       ]
      },
      "origin": "questsweep"
@@ -4245,7 +4725,8 @@
      "params": {
       "release": "host-effect",
       "timeout_s": 30,
-      "masks": []
+      "masks": [],
+      "scope": "initiator"
      },
      "origin": "curated"
     },
@@ -4281,17 +4762,6 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
-    },
-    {
-     "kind": "PerPlayerVars",
-     "params": {
-      "vars": [
-       "bAwaitingInput",
-       "nButton",
-       "perks"
-      ]
-     },
-     "origin": "questsweep"
     }
    ]
   },
@@ -4526,7 +4996,8 @@
       "gather": "auto-warp",
       "stages": [
        100
-      ]
+      ],
+      "timeout_s": 120
      },
      "origin": "questsweep"
     }
@@ -4563,7 +5034,8 @@
      "kind": "PartyAwareCond",
      "params": {
       "funcs": {
-       "IsActionRef": "initiator"
+       "IsActionRef": "initiator",
+       "GetLevel": "host"
       }
      },
      "origin": "curated"
@@ -4572,6 +5044,17 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "OldWorldBlues.esm:0098BE",
+       "OldWorldBlues.esm:0098C2",
+       "OldWorldBlues.esm:0098BC"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -4613,7 +5096,10 @@
        "NVDLC03X8School",
        "NVDLC03X8Main"
       ],
-      "gather": "wait"
+      "gather": "wait",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -4705,14 +5191,11 @@
       "cells": [
        "NVDLC03ThinkTank"
       ],
-      "gather": "wait"
-     },
-     "origin": "curated"
-    },
-    {
-     "kind": "Barrier",
-     "params": {
-      "step": "all-players-pass"
+      "gather": "wait",
+      "stages": [
+       60,
+       70
+      ]
      },
      "origin": "curated"
     },
@@ -4795,12 +5278,22 @@
      "origin": "curated"
     },
     {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "OldWorldBlues.esm:015BBA",
+       "OldWorldBlues.esm:0098BE"
+      ]
+     },
+     "origin": "questsweep"
+    },
+    {
      "kind": "PerPlayerVars",
      "params": {
       "vars": [
-       "bRestoreBodyParts",
-       "bImplants",
-       "nButton"
+       "bRestoredBrain",
+       "bRestoredHeart",
+       "bRestoredSpine"
       ]
      },
      "origin": "questsweep"
@@ -4925,6 +5418,22 @@
       "masks": []
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60E",
+       "FalloutNV.esm:15C610",
+       "FalloutNV.esm:15C613",
+       "FalloutNV.esm:15C60C",
+       "FalloutNV.esm:15C60F",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5117,10 +5626,10 @@
      "origin": "curated"
     },
     {
-     "kind": "PerPlayerVars",
+     "kind": "PerkRecipient",
      "params": {
-      "vars": [
-       "perks"
+      "initiator": [
+       "OldWorldBlues.esm:00C88F"
       ]
      },
      "origin": "questsweep"
@@ -5177,10 +5686,10 @@
      "origin": "curated"
     },
     {
-     "kind": "PerPlayerVars",
+     "kind": "PerkRecipient",
      "params": {
-      "vars": [
-       "perks"
+      "initiator": [
+       "OldWorldBlues.esm:00C88F"
       ]
      },
      "origin": "questsweep"
@@ -5356,7 +5865,7 @@
     {
      "kind": "CompanionOwner",
      "params": {
-      "owner": "recruiter"
+      "owner": "party"
      },
      "origin": "curated"
     },
@@ -5364,6 +5873,17 @@
      "kind": "SaveSuppress",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "NVDLC04EDENoMines",
+       "LonesomeRoad.esm:00DF65"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5409,7 +5929,7 @@
     {
      "kind": "CompanionOwner",
      "params": {
-      "owner": "recruiter"
+      "owner": "party"
      },
      "origin": "curated"
     },
@@ -5437,6 +5957,16 @@
      "kind": "SaveSuppress",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "LonesomeRoad.esm:00DF65"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5537,6 +6067,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "LonesomeRoad.esm:00A6DD"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5569,6 +6108,22 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "OncePerEvent",
+     "params": {
+      "globals": [
+       "FalloutNV.esm:000038",
+       "FalloutNV.esm:000037",
+       "FalloutNV.esm:000036",
+       "FalloutNV.esm:000035"
+      ],
+      "effects": [
+       "AdvanceTime"
+      ],
+      "window_s": 600
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5635,7 +6190,12 @@
     },
     {
      "kind": "CompanionOwner",
-     "params": {},
+     "params": {
+      "owner": "party",
+      "npcs": [
+       "LonesomeRoad.esm:004D16"
+      ]
+     },
      "origin": "curated"
     },
     {
@@ -5668,7 +6228,10 @@
       "cells": [
        "NVDLC04Road02World"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -5737,7 +6300,10 @@
       "cells": [
        "NVDLC04Silo2Elevator"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       10
+      ]
      },
      "origin": "curated"
     },
@@ -5823,7 +6389,10 @@
       "cells": [
        "NVDLC04DivideUlyssesTemple"
       ],
-      "gather": "wait"
+      "gather": "wait",
+      "stages": [
+       10
+      ]
      },
      "origin": "curated"
     },
@@ -5834,7 +6403,8 @@
        "IsActionRef": "initiator",
        "GetDistance": "min-over-party",
        "IsKiller": "any-party-member",
-       "GetActorValue": "min-over-party"
+       "GetActorValue": "max-over-party",
+       "GetLevel": "max-over-party"
       }
      },
      "origin": "curated"
@@ -5846,7 +6416,12 @@
     },
     {
      "kind": "CompanionOwner",
-     "params": {},
+     "params": {
+      "owner": "party",
+      "npcs": [
+       "LonesomeRoad.esm:004D16"
+      ]
+     },
      "origin": "curated"
     },
     {
@@ -5872,7 +6447,11 @@
       "cells": [
        "NVDLC04DivideUlyssesTemple"
       ],
-      "gather": "auto-warp"
+      "gather": "auto-warp",
+      "stages": [
+       30,
+       255
+      ]
      },
      "origin": "curated"
     },
@@ -5895,7 +6474,12 @@
     },
     {
      "kind": "CompanionOwner",
-     "params": {},
+     "params": {
+      "owner": "party",
+      "npcs": [
+       "LonesomeRoad.esm:004D16"
+      ]
+     },
      "origin": "curated"
     },
     {
@@ -5921,6 +6505,31 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "LonesomeRoad.esm:00C25C"
+      ]
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "ChoiceConsent",
+     "params": {
+      "boxes": [
+       "NVDLC04TempleCaesarConfirmMSG",
+       "NVDLC04TempleNCRConfirmMSG",
+       "NVDLC04TempleNukeAllConfirmMSG",
+       "LonesomeRoad.esm:009C99",
+       "LonesomeRoad.esm:009C98",
+       "LonesomeRoad.esm:00BF02"
+      ],
+      "mode": "vote",
+      "timeout_s": 90
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -5935,7 +6544,10 @@
       "cells": [
        "NVDLC04DivideWorld"
       ],
-      "gather": "wait"
+      "gather": "wait",
+      "stages": [
+       20
+      ]
      },
      "origin": "curated"
     },
@@ -5958,7 +6570,12 @@
     },
     {
      "kind": "CompanionOwner",
-     "params": {},
+     "params": {
+      "owner": "party",
+      "npcs": [
+       "LonesomeRoad.esm:004D16"
+      ]
+     },
      "origin": "curated"
     },
     {
@@ -5984,6 +6601,21 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "LonesomeRoad.esm:00C25B",
+       "LonesomeRoad.esm:00C25A",
+       "LonesomeRoad.esm:00C259"
+      ],
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "LonesomeRoad.esm:00DF65"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -6159,6 +6791,22 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60E",
+       "FalloutNV.esm:15C610",
+       "FalloutNV.esm:15C613",
+       "FalloutNV.esm:15C60C",
+       "FalloutNV.esm:15C60F",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -6525,7 +7173,10 @@
     {
      "kind": "Barrier",
      "params": {
-      "step": "all-players-pass"
+      "step": "all-players-pass",
+      "stages": [
+       100
+      ]
      },
      "origin": "curated"
     },
@@ -6568,7 +7219,10 @@
     {
      "kind": "Barrier",
      "params": {
-      "step": "all-players-pass"
+      "step": "all-players-pass",
+      "stages": [
+       200
+      ]
      },
      "origin": "curated"
     },
@@ -6914,6 +7568,16 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7032,6 +7696,16 @@
      "kind": "RemoveItemPerOwner",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7070,6 +7744,18 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "CalmHeart",
+       "FalloutNV.esm:15C571",
+       "HandOfVengeance",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7163,6 +7849,16 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60C"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7238,6 +7934,15 @@
       "scope": "party"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "PowerArmorTraining"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7412,6 +8117,15 @@
      "kind": "RemoveItemPerOwner",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "RangerTakedown"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7446,6 +8160,18 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15D2BC",
+       "OldVaquero",
+       "FalloutNV.esm:15C610"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7489,6 +8215,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "PowerArmorTraining"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -7673,6 +8408,20 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "BondsOfSteel",
+       "CauselessRebel",
+       "FalloutNV.esm:15C571",
+       "NVDLC01ElijahLastWords",
+       "NVDLC01ElijahRamblings",
+       "FalloutNV.esm:15C613"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -8821,6 +9570,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "RangerTakedown"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -8916,6 +9674,19 @@
       "masks": []
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "LegionAssault"
+      ],
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -10130,6 +10901,19 @@
       "scope": "party"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "FriendlyFireGuard",
+     "params": {
+      "actors": [
+       "VHDColonelMooreREF",
+       "VAmbassadorCrockerREF"
+      ],
+      "deliberate_hits": 3,
+      "window_s": 10,
+      "warn": "true"
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -10571,7 +11355,29 @@
    "tier": "T4",
    "questline": "Main: House",
    "curated": true,
-   "rules": []
+   "rules": [
+    {
+     "kind": "FriendlyFireGuard",
+     "params": {
+      "actors": [
+       "Lucky38DoorSec02REF",
+       "Lucky38DoorSec03REF",
+       "Lucky38DoorSec04REF",
+       "Lucky38VictorEntranceREF",
+       "Lucky38VictorElevatorREF",
+       "VL38CasinoSecuritronMkII01REF",
+       "VL38CasinoSecuritronMkII02REF",
+       "VL38CasinoSecuritronMkII03REF",
+       "VL38CasinoSecuritronMkII04REF",
+       "VL38CasinoSecuritronMkII05REF"
+      ],
+      "deliberate_hits": 3,
+      "window_s": 10,
+      "warn": "true"
+     },
+     "origin": "questsweep"
+    }
+   ]
   },
   "VMQHouseLockdown": {
    "tier": "T4",
@@ -11552,6 +12358,18 @@
      "kind": "ShareKarmaRep",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C613",
+       "FalloutNV.esm:15C60C",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -11629,6 +12447,17 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "derived"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       110
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -12234,6 +13063,33 @@
       "gather": "wait"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "FriendlyFireGuard",
+     "params": {
+      "actors": [
+       "FortCaesarRef"
+      ],
+      "deliberate_hits": 3,
+      "window_s": 10,
+      "warn": "true"
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "ExclusiveStages",
+     "params": {
+      "stages": [
+       100,
+       101,
+       105,
+       110,
+       120,
+       130
+      ],
+      "resolution": "first-wins"
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -12620,6 +13476,15 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "all": [
+       "FalloutNV.esm:15B8E7"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -13135,6 +14000,23 @@
       "owner": "recruiter"
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C60B",
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60E",
+       "FalloutNV.esm:15D2BC",
+       "FalloutNV.esm:15C610",
+       "FalloutNV.esm:15C613",
+       "FalloutNV.esm:15C60C",
+       "FalloutNV.esm:15C60F",
+       "FalloutNV.esm:15C60D"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -14221,6 +15103,16 @@
      "kind": "InitiatorDialogue",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60E"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -14451,6 +15343,16 @@
       }
      },
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "recruiter": [
+       "FalloutNV.esm:15C571",
+       "FalloutNV.esm:15C60F"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -14492,6 +15394,23 @@
      "kind": "PerPlayerScene",
      "params": {},
      "origin": "curated"
+    },
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "ImplantAgilityPerk",
+       "ImplantCharismaPerk",
+       "ImplantDTPerk",
+       "ImplantEndurancePerk",
+       "ImplantIntelligencePerk",
+       "ImplantLuckPerk",
+       "ImplantPerceptionPerk",
+       "ImplantRegenPerk",
+       "ImplantStrengthPerk"
+      ]
+     },
+     "origin": "questsweep"
     }
    ]
   },
@@ -15333,6 +16252,186 @@
      "origin": "questsweep"
     }
    ]
+  },
+  "NVDLC03ThinkTankWeaponLock": {
+   "tier": "T2",
+   "questline": "DLC: Old World Blues",
+   "curated": false,
+   "rules": [
+    {
+     "kind": "SetPlayerControls",
+     "params": {
+      "scope": "initiator",
+      "release": "host-effect",
+      "timeout_s": 120,
+      "masks": [
+       "0 0 1 0 0 0 0"
+      ]
+     },
+     "origin": "questsweep"
+    }
+   ]
+  },
+  "NVDLC04WeakPlayerScaling": {
+   "tier": "T2",
+   "questline": "DLC: Lonesome Road",
+   "curated": false,
+   "rules": [
+    {
+     "kind": "PartyAwareCond",
+     "params": {
+      "funcs": {
+       "GetLevel": "max-over-party",
+       "GetActorValue": "max-over-party"
+      }
+     },
+     "origin": "questsweep"
+    }
+   ]
+  },
+  "NVDLC03AutoDoc": {
+   "tier": "T3",
+   "questline": "DLC: Old World Blues",
+   "curated": false,
+   "rules": [
+    {
+     "kind": "PerkRecipient",
+     "params": {
+      "initiator": [
+       "OldWorldBlues.esm:0098BE",
+       "OldWorldBlues.esm:0098C2",
+       "OldWorldBlues.esm:0098BC",
+       "OldWorldBlues.esm:015BBA",
+       "OldWorldBlues.esm:015BBB",
+       "OldWorldBlues.esm:015BBC",
+       "OldWorldBlues.esm:009616",
+       "OldWorldBlues.esm:009D48",
+       "OldWorldBlues.esm:009614",
+       "OldWorldBlues.esm:009615",
+       "OldWorldBlues.esm:00961A"
+      ],
+      "all": []
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "SetPlayerControls",
+     "params": {
+      "scope": "initiator",
+      "release": "host-effect",
+      "timeout_s": 60,
+      "masks": [
+       "1 1 1 1 1 1 1"
+      ]
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PerPlayerScene",
+     "params": {},
+     "origin": "questsweep"
+    },
+    {
+     "kind": "RemoveItemPerOwner",
+     "params": {},
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PartyAwareCond",
+     "params": {
+      "funcs": {
+       "GetItemCount": "initiator",
+       "HasPerk": "initiator",
+       "IsActionRef": "initiator",
+       "GetActorValue": "initiator"
+      }
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PerPlayerState",
+     "params": {
+      "scope": "autodoc",
+      "scripts": [
+       "NVDLC03SinkAutoDocSCRIPT"
+      ],
+      "objvars": [
+       "NVDLC03SinkAutoDocSCRIPT.bTalkAfterMessage",
+       "NVDLC03SinkAutoDocSCRIPT.bMenuAfterMessage",
+       "NVDLC03SinkAutoDocSCRIPT.bAwaitingInput",
+       "NVDLC03SinkAutoDocSCRIPT.bCallAutoDocUI",
+       "NVDLC03SinkAutoDocSCRIPT.bCallNoBarberMSG",
+       "NVDLC03SinkAutoDocSCRIPT.bCallNoSurgeryMSG",
+       "NVDLC03SinkAutoDocSCRIPT.nButton",
+       "NVDLC03SinkAutoDocSCRIPT.bPsychEvalUI",
+       "NVDLC03SinkAutoDocSCRIPT.bPsychEvalDoOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bPsychEvalAwaitingInput",
+       "NVDLC03SinkAutoDocSCRIPT.bRestoreBodyParts",
+       "NVDLC03SinkAutoDocSCRIPT.bImplants",
+       "NVDLC03SinkAutoDocSCRIPT.nImplantC13Installed",
+       "NVDLC03SinkAutoDocSCRIPT.nImplantM5Installed",
+       "NVDLC03SinkAutoDocSCRIPT.nImplantY3Installed",
+       "NVDLC03SinkAutoDocSCRIPT.nImplantY7Installed",
+       "NVDLC03SinkAutoDocSCRIPT.nBrainlessSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.nHeartlessSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.nSpinelessSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.nBigBrainedSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.nCardiacArrestSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.nReinforcedSpineSwapMsg",
+       "NVDLC03SinkAutoDocSCRIPT.bMakeUpMindOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bFeelForHeartOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bFindSpineOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bBrainGainOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bHeartGainOnce",
+       "NVDLC03SinkAutoDocSCRIPT.bSpineGainOnce"
+      ]
+     },
+     "origin": "questsweep"
+    }
+   ]
+  },
+  "NVDLC03Teleporter": {
+   "tier": "T3",
+   "questline": "DLC: Old World Blues",
+   "curated": false,
+   "rules": [
+    {
+     "kind": "PartyWarp",
+     "params": {
+      "markers": [
+       "MojaveDriveInMarkerHeadingREF",
+       "NVDLC03SinkArrivalMarker"
+      ],
+      "mode": "slot-offset",
+      "absent": "hold",
+      "range": 1500
+     },
+     "origin": "questsweep"
+    },
+    {
+     "kind": "PartyAwareCond",
+     "params": {
+      "funcs": {
+       "IsInCombat": "any-party-member",
+       "GetEquipped": "initiator",
+       "IsInInterior": "initiator",
+       "IsPlayerInRegion": "initiator"
+      }
+     },
+     "origin": "questsweep"
+    }
+   ]
+  }
+ },
+ "policy": {
+  "death": {
+   "mode": "downed",
+   "revive_s": 60,
+   "all_down": "reload-host-save"
+  },
+  "late_join": {
+   "during_scene": "wait",
+   "after_scene": "warp-to-zone"
   }
  }
 }

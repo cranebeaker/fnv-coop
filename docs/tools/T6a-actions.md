@@ -131,6 +131,10 @@ Its `--table` output is the source of the ~170 call sites of `GetControlState` g
 - **Verified in game** (second run, 2026-10-21): with always-run on, `run:true` held no Run key (`runControl:false`) and the player ran:
   forward +610, back -482, strafes +600 / -590 units in 2 s. Only unit-tested: gamepad mode (no pad connected), the unknown-state
   fallback and a toggle change during a move.
+- **Gamepad mode in game** (under Proton on a Steam Deck, 2026-10-25, where Steam Input always answers as a pad): `bot.move`
+  forward for 3 s held Forward (`held:["Forward"]`, no menu open) and moved the player 0 units. With `bDisable360Controller:Interface`
+  set to 1 in memory, the same move went 1008 units. In gamepad mode the game takes movement from the pad, so the keyboard
+  controls that `bot.move` holds do nothing. `instances.py provision --no-pad` writes that key for the test copies.
 - **`run` omitted** (review finding on PR #10): `bot.move` without `run` holds no Run key, so the game's toggle picks the speed, as
   before `run` meant the speed. Test `move_without_run_leaves_the_speed_to_the_game`; twin 47 (an omitted run counts as run:false).
 

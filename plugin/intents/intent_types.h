@@ -106,6 +106,8 @@ struct Config {
     bool standIn = true;           // act as the host's own player when a guest has no puppet ...
     bool standInUnsafe = false;    // ... also for targets that open a menu for the player (container, terminal, NPC): default NO
     bool requirePuppet = false;    // never stand in (reject NoPuppet)
+    bool standInRetry = true;      // host: an activator the guest's puppet activated to no effect (its script wants `GetActionRef == player`) is activated once more by the host's player
+    bool runUnloaded = true;       // host: an Activate on an Activator in a cell the host has not loaded still runs its script (a guest alone in an area; the reach cannot be judged there)
     bool checkReach = true;        // compare the puppet's position with the target's (skipped when either is unknown)
     bool saveGate = true;          // enforce the shared SaveSuppress flag by vetoing the engine's CanSaveNow (SaveGate)
     float reachActivate = 450.f;   // game units (vanilla activation reach is about 150; the puppet lags a snapshot behind)

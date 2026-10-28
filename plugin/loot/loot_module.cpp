@@ -119,6 +119,8 @@ void Create() {
     cfg.hostSweep = GetPrivateProfileIntA("loot", "sweep", 1, ini.c_str()) != 0;
     cfg.resolveOnLoad = GetPrivateProfileIntA("loot", "resolve", 1, ini.c_str()) != 0;
     cfg.menuless = GetPrivateProfileIntA("loot", "menuless", 1, ini.c_str()) != 0;
+    cfg.discover = GetPrivateProfileIntA("loot", "discover", 1, ini.c_str()) != 0;
+    cfg.discoverCells = static_cast<uint32_t>(GetPrivateProfileIntA("loot", "discover_cells", 3, ini.c_str()));
     cfg.corpseDelayMs = static_cast<uint32_t>(GetPrivateProfileIntA("loot", "corpse_delay_ms", 700, ini.c_str()));
     g_enabled = cfg.enabled;
     g_engine = std::make_unique<RealLootEngine>();

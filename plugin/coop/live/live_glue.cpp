@@ -29,6 +29,7 @@
 #endif
 #ifdef NVCOOP_WITH_AVATAR_ENGINE
 #include "avatar_glue.h"   // plugin/avatar/engine: the module owns the AvatarRuntime; we put it on the network (avatar_net.h)
+#include "avatar_tuning.h" // the near-tier rate and the rest of the avatar lag constants (nvcoop.ini [avatar])
 #include "avatar_net.h"
 #endif
 #ifdef NVCOOP_WITH_COMBAT
@@ -146,12 +147,16 @@ public:
     void removeRemote(nvcoop::avatar::Slot s) override { nvcoop::avatar::glue::RemoveRemote(s); }
     bool setRemoteAppearance(nvcoop::avatar::Slot s, const nvcoop::avatar::Appearance& a) override { return nvcoop::avatar::glue::SetRemoteAppearance(s, a); }
     bool readLocalAppearance(nvcoop::avatar::Appearance& out) override { return nvcoop::avatar::glue::ReadLocalAppearance(out); }
+    bool readLocalFacts(nvcoop::avatar::PlayerFacts& out) override { return nvcoop::avatar::glue::ReadLocalFacts(out); }   // the shipped side never forwarded these two: no Facts message ever left a guest in game (2026-10-28)
+    bool readLocalPack(const std::vector<nvcoop::avatar::FormId>& watch, nvcoop::avatar::PlayerPack& out) override { return nvcoop::avatar::glue::ReadLocalPack(watch, out); }
     void onRemoteSnapshot(nvcoop::avatar::Slot s, const fnvcoop::live::ActorSnapshot& snap, uint32_t) override {
         nvcoop::avatar::glue::OnRemoteSnapshot(s, snap, QpcMs());   // arrival on the module's own clock
     }
     void onRemoteEquipment(nvcoop::avatar::Slot s, const std::vector<nvcoop::avatar::EquipEntry>& w) override {
         nvcoop::avatar::glue::OnRemoteEquipment(s, w);
     }
+    uint32_t clockMs() const override { return QpcMs(); }
+    void noteStage(nvcoop::avatar::NetStage st, double ms) override { nvcoop::avatar::glue::NoteStage(st, ms); }
     void tick(uint32_t) override {}
     void onEvent(Event) override {}
     bool purgePending() const override { return false; }
@@ -170,6 +175,11 @@ struct GlueSideHolder { GlueSide side; };
 AvatarNetOptions avatarOptions() {
     AvatarNetOptions o;
     o.tickSide = false;   // the avatar module ticks its runtime itself
+    // The near-tier rate (30 Hz) comes from the same table as the sender and the playback buffer; nvcoop.ini [avatar] nearHz overrides it (the avatar module reads
+    // the other keys). The far and out rates stay as they are.
+    nvcoop::avatar::engine::LagTuning lag = nvcoop::avatar::engine::DefaultLagTuning();
+    nvcoop::avatar::engine::ApplyLagIni(lag, [](const char* key, const char* def) { return iniOrEnv("avatar", key, def); });
+    o.rate = lag.rate;
     return o;
 }
 
@@ -218,6 +228,7 @@ public:
     }
 };
 AvatarNet* g_avatarNet = nullptr;
+std::function<std::vector<uint32_t>()> g_packWatch;   // coop_module's resolver of nvcoop_pack_watch.json (guest pack facts)
 #endif
 
 #ifdef NVCOOP_WITH_SPAWN
@@ -561,6 +572,7 @@ void glueLoad() {
         // false here, so the old "module is off" warning fired on every correct setup (2026-10-22). Its own load line says if it stays off.
         std::unique_ptr<AvatarsService> a(new AvatarsService());
         g_avatarNet = a.get();
+        if (g_packWatch) g_avatarNet->setPackWatch(g_packWatch);
         add(std::move(a), true);
     } else {
         add(std::unique_ptr<ILiveService>(new PlaceholderService("avatars")), false);
@@ -665,6 +677,63 @@ uint32_t glueAvatarRef(uint8_t slot) {
 #else
     (void)slot;
     return 0;
+#endif
+}
+
+bool glueSlotFacts(uint8_t slot, nvcoop::SlotFacts* out) {
+#ifdef NVCOOP_WITH_AVATAR_ENGINE
+    if (!g_avatarNet || !out || slot == g_avatarNet->self()) return false;
+    nvcoop::SlotFacts f;
+    bool any = false;
+    if (const AvLook* l = g_avatarNet->lookOf(slot)) {
+        f.haveSex = true;
+        f.sex = l->appearance.female ? 1 : 0;
+        f.haveEquip = true;
+        for (const auto& e : l->equipment) f.equipped.push_back(e.form);
+        any = true;
+    }
+    bool sneak = false;
+    if (g_avatarNet->sneakingOf(slot, &sneak)) { f.haveSneak = true; f.sneaking = sneak; any = true; }
+    if (const nvcoop::avatar::PlayerFacts* pf = g_avatarNet->factsOf(slot)) {
+        f.haveFacts = true;
+        f.level = pf->level;
+        f.sitting = pf->sitting;
+        f.actions = pf->actions;
+        f.regions.assign(pf->regions.begin(), pf->regions.end());
+        any = true;
+    }
+    if (any) *out = std::move(f);
+    return any;
+#else
+    (void)slot; (void)out;
+    return false;
+#endif
+}
+
+void glueSetPackWatch(std::function<std::vector<uint32_t>()> watch) {
+#ifdef NVCOOP_WITH_AVATAR_ENGINE
+    g_packWatch = std::move(watch);
+    if (g_avatarNet) g_avatarNet->setPackWatch(g_packWatch);
+#else
+    (void)watch;
+#endif
+}
+
+bool gluePackCount(uint8_t slot, uint32_t item, int64_t* count) {
+#ifdef NVCOOP_WITH_AVATAR_ENGINE
+    return g_avatarNet && slot != g_avatarNet->self() && g_avatarNet->packCount(slot, item, count);
+#else
+    (void)slot; (void)item; (void)count;
+    return false;
+#endif
+}
+
+bool gluePackWeight(uint8_t slot, double* weight) {
+#ifdef NVCOOP_WITH_AVATAR_ENGINE
+    return g_avatarNet && slot != g_avatarNet->self() && g_avatarNet->packWeight(slot, weight);
+#else
+    (void)slot; (void)weight;
+    return false;
 #endif
 }
 

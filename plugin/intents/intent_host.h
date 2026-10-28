@@ -20,6 +20,8 @@
 #include "intents/intent_engine.h"
 #include "intents/intent_policy.h"
 #include "intents/intent_wire.h"
+#include "intents/retry_list.h"
+#include "intents/stage_pass.h"
 #include "intents/storage_book.h"
 
 namespace nvcoop::intents {
@@ -48,7 +50,13 @@ struct HostDeps {
     // stagesRefused and logged through stageRefused). The module wires it to the rules engine's ExclusiveStages (a losing alternative outcome would
     // run its result scripts on the host and only then have its SetStage dropped from the txn). Empty = allow.
     std::function<bool(PlayerId slot, const FormRef& quest, uint32_t stage)> allowStage;
+    // Kind::SetStage on a Barrier stage of the rules engine is the guest's PASS (G26): asked after the "quest is behind that stage" check and BEFORE allowStage. Deferred = the
+    // stage waits for the whole party and the rules engine performs it on release, so the host does NOT run it (Result::Deferred, stagesDeferred); NotPass / Proceed = unchanged.
+    // Empty = every stage is NotPass. stage_pass.h has the adapter for the rules engine.
+    GuestStagePassFn guestStagePass;
     std::function<void(PlayerId slot, const FormRef& quest, uint32_t stage, Result why)> stageRefused;   // optional: the host says it refused / held / skipped a guest stage
+    const RetryList* retryList = nullptr;   // the activators the host's own player may redo after a puppet's activation did nothing (retry_list.h). null / empty = never redo
+    std::function<void(const std::string& line)> log;   // optional: one line per refused intent (kind, reason, distance, both positions, ref, cell), rate-limited by the host
 };
 
 struct HostStats {
@@ -62,7 +70,11 @@ struct HostStats {
     uint64_t activationsRefused = 0, interactionsReported = 0;   // plugin/companions hooks (HostDeps::allowActivation / interacted)
     uint64_t noteGrants = 0;                                    // a picked-up note went to the journal (AddNote), not to an inventory (G10)
     uint64_t stayRaises = 0, stayStarted = 0, stayExpired = 0, stayDropped = 0;   // Kind::TriggerStay presences (G04)
+    uint64_t eventScriptRuns = 0, eventScriptMissed = 0, eventsFlushed = 0;       // marked events whose script ran now as the guest / had no script to run / host marks run first
     uint64_t stashSwaps = 0, stashFailed = 0, stashKept = 0;    // gear stashes swapped in / failed to swap / left untouched (G35)
+    uint64_t standInRetries = 0, standInGainsReverted = 0;   // activations the puppet did to no effect, redone by the host's player / items that player gained and gave back
+    uint64_t ranUnloaded = 0;                         // activations run on a target whose cell the host has not loaded (HostConfig runUnloaded)
+    uint64_t refusalsLogged = 0, refusalsQuiet = 0;   // refused intents written to HostDeps::log / skipped by its rate limit
     uint64_t stagesApplied = 0, stagesNoAdvance = 0, stagesRefused = 0, stagesDeferred = 0, stagesFailed = 0, stagesBad = 0;   // Kind::SetStage verdicts
 };
 
@@ -122,7 +134,10 @@ public:
     void noteActor(PlayerId slot, ActorMode mode, RefId actor);
 private:
     Result checkReach(const Actor& a, const TargetInfo& t, Kind k);
+    bool retryAllowed(const TargetInfo& t) const;
     Result runScoped(PlayerId slot, const Actor& a, Kind k, const FormRef& target, const std::function<Result(IActingScope&)>& fn, bool stash = true);
+    bool raiseNow(const Actor& a, const FormRef& target, uint32_t mask);   // inside an open acting scope: mark the event for `player` and run the target's script now
+    Result raiseFor(PlayerId slot, const Actor& a, Kind k, const FormRef& target, uint32_t mask, bool stash = true);
     Verdict doStay(PlayerId slot, const Intent& in, const TargetInfo& t);
     void raisePresence();
     Verdict doActivate(PlayerId slot, const Intent& in, const TargetInfo& t);
@@ -135,6 +150,12 @@ private:
     uint64_t now() const { return deps_.nowMs ? deps_.nowMs() : 0; }
     Verdict verdictOf(const Intent& in, Result r) const;
     void count(const Intent& in, Result r);
+    // One log line for a refused intent, or a run one that is not a trigger (HostDeps::log): kind, reason, slot, the target ref / cell / class, the acting puppet, both positions and the distance.
+    // At most one line per (kind, reason) per kRefusalLogGapMs; the lines skipped in between are counted in the next line.
+    void logRefusal(PlayerId slot, const Intent& in, Result r);
+    std::string refusalDetail(PlayerId slot, const Intent& in);
+    struct RefusalGate { uint64_t lastMs = 0; uint32_t skipped = 0; };
+    std::map<std::pair<uint8_t, uint8_t>, RefusalGate> refusalGate_;
 
     HostDeps deps_;
     Config cfg_;

@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT / "tools" / "proof"))
 import pf_classify as C   # noqa: E402
+import lab_fps   # noqa: E402
 
 MUTANT = os.environ.get("LAB_MUTANT", "")   # test-only; names in tools/lab/run_tests.py
 
@@ -79,6 +80,25 @@ class Machine:
     role = HOST
 
     def status(self) -> Dict[str, Any]: raise NotImplementedError                 # coop.status
+
+    def frames(self) -> Optional[int]:
+        """The plugin's frame counter of this copy (coop.status counters.frames; the bench turns it into fps), None when the build has none."""
+        v = ((self.status() or {}).get("counters") or {}).get("frames")
+        return None if v is None else int(v)
+    def avatar_counts(self) -> Dict[str, int]:
+        """Counters of the avatar stream on this copy: {"published": snapshots this copy's player published, "remote": snapshots received for the other player, "fed": poses fed
+        to the puppet}. {} when the build cannot say. Their rates over a walk show the sender's near rate (nearHz) and the receiver's, bounded by the game's own fps."""
+        return {}
+
+    def avatar_stages(self) -> Dict[str, Any]:
+        """avatar.status "stages" of this copy (plugin/avatar, the round of 2026-10-28): gauges {n, last, mean, max, sum} for send / rx / frameGap / sampleUs / driveUs / applyUs / poseToSetPosMs
+        and "remotes": per remote player the playback buffer (lowLatency, offsetMs, jitterMs, wantDelayMs, delay, hold, extrap ...). {} when the build cannot say."""
+        return {}
+
+    def avatar_trace(self, n: int = 300) -> Dict[str, Any]:
+        """avatar.trace of this copy: {"local": [[tick, x, y, z, vx, vy, vz]...], "remote": {slot: [[frame, x, y, z, ax, ay, az, state]...]}} on one clock. {} when the build cannot say."""
+        return {}
+
     def cell_of(self, ref: Optional[str] = None) -> int: raise NotImplementedError   # the player's cell, or a ref's cell
     def ref_id(self, ref: str) -> str: raise NotImplementedError                  # the runtime id this copy resolves the form to ('' when it does not)
     def exists(self, ref: str) -> bool: raise NotImplementedError
@@ -95,10 +115,29 @@ class Machine:
     def enable(self, ref: str) -> Tuple[bool, str]: raise NotImplementedError                              # console enable (host)
     def disable(self, ref: str) -> Tuple[bool, str]: raise NotImplementedError
     def set_health(self, ref: str, hp: float) -> Tuple[bool, str]: raise NotImplementedError               # SetAV Health on an actor (only its owner, the host, can make that stick)
-    def kill(self, ref: str) -> Tuple[bool, str]: raise NotImplementedError                                 # console kill (only the owner may)
+    def kill(self, ref: str) -> Tuple[bool, str]: raise NotImplementedError
+    def hold(self, ref: str) -> Tuple[bool, str]:                                                           # keep an actor where it stands (restrained); only its owner, the host, can make that stick
+        return True, ""                                 # console kill (only the owner may)
     def shoot(self, ref: str, volleys: int = 12, stand: Optional[str] = None) -> Tuple[bool, str]: raise NotImplementedError   # fire until the ref is dead on this copy; `stand`: a safe spot to step back to when a hostile gets too close
     def vats(self, ref: str, limb: Optional[str] = None, stand: Optional[str] = None) -> Tuple[bool, str]: raise NotImplementedError   # no limb: the engine job cannot choose one
     def item_count(self, item: str, holder: Optional[str] = None) -> int: raise NotImplementedError         # holder None: this copy's player
+    def combat_words(self) -> str:
+        """This copy's combat module counters and last gate decision / rejections, short (for a failed shot); empty when it cannot say."""
+        return ""
+
+    def actor_stats(self) -> Dict[str, Any]:
+        """The actor module's counters on this copy (coop.owner {stats:true}); empty when it cannot say."""
+        return {}
+
+    def heal_notes(self) -> List[str]:
+        """The newest area-digest heals on this copy as text (key, before -> after); empty when it cannot say."""
+        return []
+
+    def close_menus(self) -> Tuple[bool, str]:
+        """Close whatever menu this copy has open (best effort; nothing open is fine). A menu that stays (the lockpick menu of a locked door that was
+        activated, a terminal, the first-use hint) eats the input of the next step on this copy: VATS does not enter, a door does not open."""
+        return True, ""
+
     def can_take(self) -> Tuple[bool, str]:
         """(True, "") when this copy can take from a container the way the lab drives it; else (False, why). The lab takes with console lines (RemoveItem +
         AddItem), and a guest's console RemoveItem on a container is blocked on purpose (plugin/hooks gate: the guest's world changes go through the
@@ -128,6 +167,7 @@ def dist3(a, b) -> float:
 
 
 SHORT_EXPECTED = 200       # characters of an expected value kept in results.json
+SHORT_NOTE = 1500          # ... of a check's note (the combat counters of both copies, the healed keys: evidence, not a verdict)
 SHORT_ACTUAL = 400         # ... of an actual value (a failure reason must be readable whole by an AI: the why of a bot failure is 150..300 characters)
 
 
@@ -187,8 +227,14 @@ def connected(host_status: Dict[str, Any], client_status: Dict[str, Any]) -> Tup
 # ------------------------------------------------------------------ the context of a room
 class Ctx:
     def __init__(self, room: str, layout, host: Machine, client: Machine, clock=None, budget_s: float = 120.0, params: Optional[Dict[str, Any]] = None,
-                 probe: Optional[Callable[[], List[str]]] = None, enter: Optional[Callable[[], None]] = None, area: str = "", log: Callable[[str], None] = lambda s: None):
+                 probe: Optional[Callable[[], List[str]]] = None, enter: Optional[Callable[[], None]] = None, area: str = "", log: Callable[[str], None] = lambda s: None,
+                 profile: str = "", copies: Optional[Callable[[], int]] = None):
         self.room, self.layout, self.host, self.client = room, layout, host, client
+        self.copies_fn = copies           # -> the number of game copies running now (the fps of a copy is a share of one PC)
+        self.fps = lab_fps.FpsMeter([HOST, CLIENT])
+        self._fps_at = -1e9
+        self.profile = profile            # the chaos profile the client joined the host through ("" = the clean pass, a direct join)
+        self.last_wait_s = 0.0            # seconds the last wait / agree / latency took
         self.clock = clock or RealClock()
         self.params = dict(params or {})
         self.probe, self.enter_hook, self.area, self.log = probe, enter, area, log
@@ -202,6 +248,7 @@ class Ctx:
         self._flat0: Dict[str, float] = {}
         self._base_id = 0
         self.rebase()
+        self.fps_sample(True)
 
     # ---- time
     @property
@@ -219,15 +266,49 @@ class Ctx:
         self.clock.sleep(s)
 
     def p(self, key: str) -> float:
-        """A tunable number (--param room.key=value); the defaults are PARAMS in lab_rooms.py, merged into ctx.params by the runner."""
+        """A tunable number (--param room.key=value); the defaults are PARAMS in lab_rooms.py, merged into ctx.params by the runner.
+        In a network pass `room.key@profile` wins over `room.key` when PARAMS has it (the per-profile thresholds)."""
+        if self.profile and f"{self.room}.{key}@{self.profile}" in self.params and MUTANT != "net_clean_limits":   # twin: the clean limits judge every profile
+            return float(self.params[f"{self.room}.{key}@{self.profile}"])
         try:
             return float(self.params[f"{self.room}.{key}"])
         except KeyError:
             raise Blocked(f"no parameter {self.room}.{key} (lab_rooms.PARAMS)", "TEST") from None
 
+    def metric(self, key: str, value: Any) -> None:
+        """Keep a number in the room's metrics at once, so a room that fails later still reports what it had measured (the network table needs them)."""
+        self.metrics[key] = value
+
+    def fps_sample(self, force: bool = False) -> None:
+        """Read both copies' frame counters (every lab_fps.EVERY_S seconds of the room's clock, or at once when `force`). A copy that cannot answer is simply not sampled."""
+        now = self.clock.now()
+        if not force and now - self._fps_at < lab_fps.EVERY_S:
+            return
+        self._fps_at = now
+        if MUTANT == "fps_unsampled":                      # twin: the room never samples after its start
+            return
+        for m in self.ms:
+            try:
+                f = m.frames()
+            except Exception as e:   # noqa: BLE001 - a lost game is reported by the probe in tick(), a one-off bridge error costs one sample
+                if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
+                    return
+                continue
+            if f is not None:
+                self.fps.add(m.name, now, f)
+
+    def fps_report(self) -> Dict[str, Any]:
+        """lab_fps.FpsMeter.report with the copies running now (the room's own end)."""
+        try:
+            n = int(self.copies_fn()) if self.copies_fn else 0
+        except Exception:   # noqa: BLE001
+            n = 0
+        return self.fps.report(n)
+
     def tick(self) -> None:
         if self.clock.now() > self.deadline and MUTANT != "no_time_box":
             raise TimeBox(f"room time box of {self.budget_s:.0f} s used up")
+        self.fps_sample()
         if self.probe:
             dead = self.probe()
             if dead:
@@ -270,7 +351,7 @@ class Ctx:
     def _rec(self, name: str, ok: bool, expected: Any, actual: Any, note: str, cls: str, area: str, secs: float, status: str = "") -> Dict[str, Any]:
         rec = {"name": name, "ok": bool(ok), "expected": short(expected, SHORT_EXPECTED), "actual": short(actual, SHORT_ACTUAL), "secs": round(secs, 2)}
         if note:
-            rec["note"] = str(note)[:SHORT_ACTUAL]
+            rec["note"] = str(note)[:SHORT_NOTE]
         if status:
             rec["status"] = status
         if not ok:
@@ -309,6 +390,7 @@ class Ctx:
             ok, last = fn()
             if ok:
                 secs = self.now() - t0
+                self.last_wait_s = secs
                 self._rec(name, True, expected, last, note, cls, area, secs)
                 return last, secs
             if self.now() >= end:
@@ -352,6 +434,90 @@ class Ctx:
         vals, _ = self.wait(name, probe, timeout_s, expected, poll_s, note, cls, area)
         return vals[HOST]
 
+    def timed(self, action: Callable[[], Any], src: Callable[[], bool], dst: Callable[[], bool], window_s: float, poll_s: float = 0.03) -> Tuple[Any, Dict[str, Optional[float]]]:
+        """Run `action` and time the change it causes on two copies with ONE clock: `src` (true once the copy that acted shows the change) and `dst` (true once the OTHER
+        copy shows it) are polled by a watcher thread each, every ~30 ms, from before the action starts, so the moment a copy first showed the change is not blurred by how
+        long the action itself took (a shot that needs 20 volleys, a pickup that walks). After the action the watchers go on until both have seen it or `window_s` seconds
+        passed since the acting copy showed it. -> (the action's result, {"src": time or None, "dst": time or None}) in the runner's clock (time.monotonic).
+        A virtual clock (the fake world) cannot run threads: the action runs first and both are polled after it."""
+        times: Dict[str, Optional[float]] = {"src": None, "dst": None}
+        if getattr(self.clock, "virtual", False):
+            res = action()
+            end = self.now() + window_s
+            while True:
+                self.tick()
+                if times["src"] is None and src():
+                    times["src"] = self.now()
+                if times["src"] is not None and times["dst"] is None and dst():
+                    times["dst"] = self.now()
+                if times["dst"] is not None or self.now() >= end:
+                    break
+                self.clock.sleep(poll_s)
+            return res, times
+        stop = threading.Event()
+        errs: List[BaseException] = []
+
+        def watch(key: str, fn: Callable[[], bool]) -> None:
+            while not stop.is_set() and times[key] is None:
+                try:
+                    if fn():
+                        times[key] = self.now()
+                        return
+                except BaseException as e:   # noqa: BLE001 - a lost game is reported by the probe in tick(); a one-off bridge error is retried
+                    if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
+                        errs.append(e)
+                        return
+                time.sleep(poll_s)
+        ths = [threading.Thread(target=watch, args=(k, f), daemon=True) for k, f in (("src", src), ("dst", dst))]
+        [t.start() for t in ths]
+        try:
+            res = action()
+            after = self.now()
+            while not errs and not (times["src"] is not None and times["dst"] is not None):
+                self.tick()
+                if self.now() >= ((times["src"] if times["src"] is not None else after) + window_s):
+                    break
+                time.sleep(0.02)
+        finally:
+            stop.set()
+            [t.join(timeout=5) for t in ths]
+        if errs:
+            raise errs[0]
+        return res, times
+
+    @staticmethod
+    def ms_of(times: Dict[str, Optional[float]]) -> Optional[int]:
+        """The spread of a `timed` change in ms, or None when a copy never showed it (for numbers a check does not judge)."""
+        a, b = times.get("src"), times.get("dst")
+        return None if a is None or b is None else int(round(abs(b - a) * 1000.0))
+
+    def latency_check(self, name: str, times: Dict[str, Optional[float]], limit_s: float, expected: Any = None, note: str = "", cls: str = "SYNC", area: str = "",
+                      show: Optional[Callable[[], Any]] = None) -> int:
+        """Record the check for a `timed` change: ok when the other copy showed it no later than `limit_s` after the acting copy did. -> milliseconds between the two copies showing it (0 when
+        the poll could not tell them apart). A change the other copy never showed, or showed too late, is the failed check, with `show()` as its actual value."""
+        t_src, t_dst = times.get("src"), times.get("dst")
+        # abs(): the copy that acted is not always the first to show the change (a guest's kill or stage is applied by the host first and comes back), so the number is the
+        # spread between the two copies showing it, whichever was first
+        ms = None if t_src is None or t_dst is None else int(round(abs(t_dst - t_src) * 1000.0))
+        ok = ms is not None and ms <= limit_s * 1000.0
+        if MUTANT == "checks_never_fail":
+            ok = True
+        if ok:
+            self.last_wait_s = ms / 1000.0
+            self._rec(name, True, expected, {"ms": ms}, note, cls, area, ms / 1000.0)
+            return ms
+        why = ("the acting copy never showed it" if t_src is None else "the other copy never showed it" if t_dst is None else f"the other copy showed it {ms / 1000.0:.1f} s after the acting copy")
+        rec = self._rec(name, False, expected, show() if show else {"acting": t_src is not None, "other": t_dst is not None}, (note + " " if note else "") + why + f" (limit {limit_s:.1f} s)",
+                        cls, area, (ms or 0) / 1000.0)
+        self._evidence()
+        raise Fail(rec)
+
+    def latency(self, name: str, src: Callable[[], bool], dst: Callable[[], bool], timeout_s: float, expected: Any = None, poll_s: float = 0.05,
+                note: str = "", cls: str = "SYNC", area: str = "", show: Optional[Callable[[], Any]] = None) -> int:
+        """`timed` with no action: poll both copies for a change that has already happened (or is under way) and check it. -> milliseconds."""
+        _, tm = self.timed(lambda: None, src, dst, timeout_s, poll_s)
+        return self.latency_check(name, tm, timeout_s, expected, note, cls, area, show)
+
     # ---- helpers every room uses
     def ref(self, *prefixes: str, n: Optional[int] = None) -> Any:
         """Refs of this room by key prefix; n=None gives the list, n=0 the first one."""
@@ -362,8 +528,17 @@ class Ctx:
             raise Blocked(f"layout room {self.room} has no ref #{n} named {'/'.join(prefixes)}*", "TEST")
         return refs[n]
 
+    def close_menus(self, who: Optional[List[Machine]] = None) -> None:
+        """Close what a step left open on these copies (default both): a menu stays open when the step that opened it failed (the lockpick menu of a locked
+        door that was activated, a terminal), and it eats the input of every later step: the first lab run's door and VATS rooms."""
+        if MUTANT == "menus_left_open":                        # twin: the menu stays open
+            return
+        for m in (who if who is not None else self.ms):
+            m.close_menus()
+
     def stand_all(self) -> None:
-        """Both players to the room's stand marker (the host a little apart from the client)."""
+        """Both players to the room's stand marker (the host a little apart from the client). A menu an earlier room left open is closed first."""
+        self.close_menus()
         stand = self.layout.stand(self.room)
         for i, m in enumerate(self.ms):
             ok, why = m.goto_ref(stand, 60.0 * i)
@@ -418,7 +593,15 @@ def run_room(name: str, fn: Callable[[Ctx], Optional[Dict[str, Any]]], ctx: Ctx)
             ctx.metrics.update(extra)
         mv = {k: v for k, v in C.moved(ctx._flat0, ctx._flat()).items()}
         bad = [] if MUTANT == "no_clean_rule" else C.unclean(mv)
-        ctx.check("no digest repair or area heal during the room", not bad, 0, bad or 0, area="plugin/areadigest, synccore digest")
+        notes = []
+        if bad:   # name the keys: the counter alone ("heals.total +1") cannot say which actor was healed from what to what (lab run 20261028-032920, vats behind bad_wifi)
+            for m in ctx.ms:
+                try:
+                    notes += [f"{m.name} healed {h}" for h in m.heal_notes()[-3:]]
+                except Exception as e:   # noqa: BLE001
+                    if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
+                        raise
+        ctx.check("no digest repair or area heal during the room", not bad, 0, bad or 0, note=" | ".join(notes), area="plugin/areadigest, synccore digest")
     except Fail as e:
         res.update(verdict="FAIL", **{"class": e.rec.get("class") or "SYNC"}, reason=_why(e.rec), area=e.rec.get("area") or ctx.area)
     except Blocked as e:
@@ -440,6 +623,10 @@ def run_room(name: str, fn: Callable[[Ctx], Optional[Dict[str, Any]]], ctx: Ctx)
             ctx._evidence()
         except Exception:   # noqa: BLE001
             pass
+    try:
+        ctx.fps_sample(True)                     # the room's last reading: the end of the interval that the rooms' last step ran in
+    except Exception:   # noqa: BLE001
+        pass
     for fn_ in reversed(ctx.cleanups):       # put the lab back for the next room (not judged: a failing cleanup is not a finding)
         try:
             fn_()
@@ -449,6 +636,7 @@ def run_room(name: str, fn: Callable[[Ctx], Optional[Dict[str, Any]]], ctx: Ctx)
     res["wall_seconds"] = round(time.time() - t0, 1)
     res["checks"] = ctx.checks
     res["metrics"] = ctx.metrics
+    res["fps"] = ctx.fps_report()
     if res["verdict"] != "PASS":
         res["first_divergence"] = ctx.failure.get("first_divergence")
         res["counters_moved"] = ctx.failure.get("counters_moved") or {}

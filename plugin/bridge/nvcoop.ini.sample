@@ -8,6 +8,14 @@ autoload=
 ; frames to wait after the main menu is ready before loading
 autoloadDelayFrames=600
 
+[rules]
+; Party tether: keeps the players together inside a scene zone (35 quest rules). on = hold the stage and auto-warp a far player (default),
+; warn = never hold or warp, only tell a far player they are outside the scene zone, off = ignore the tether rules.
+tether=on
+; Death and late join in story scenes (docs/quest-policies/wave1-kinds.md): death.mode = downed | respawn | normal; death.revive_s = 60;
+; death.all_down = reload-host-save | respawn; late_join.during_scene = wait | join; late_join.after_scene = warp-to-zone | stay. Empty = rules.json decides.
+;death.mode=downed
+
 [live]
 ; The enemy / NPC / avatar sync. Every switch is OFF by default (nothing of it runs in a game until it has been proven there).
 ; Environment override for automated runs: NVCOOP_LIVE_ACTORS / NVCOOP_LIVE_AVATARS / NVCOOP_LIVE_COMBAT / NVCOOP_LIVE_SPAWNS / NVCOOP_LIVE_SOCIAL = 1.

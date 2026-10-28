@@ -162,6 +162,7 @@ uint32_t HostSession::allocCreatedId() {
 
 // Companion recruits beyond the per-owner (per kind) or party-wide follower caps are dropped; dismisses always pass.
 size_t HostSession::enforceFollowerCaps(EffectTxn& t) {
+    if (companionVet && !mutations().companionVetIgnored) stats_.companionVetDrops += companionVet(t);   // W3a item 6: swaps and slot overruns never reach the wire
     if (mutations().ignoreFollowerCaps) return 0;
     bool any = false;
     for (auto& e : t.effects) if (std::holds_alternative<CompanionOwner>(e)) { any = true; break; }
@@ -175,9 +176,11 @@ size_t HostSession::enforceFollowerCaps(EffectTxn& t) {
         auto* c = std::get_if<CompanionOwner>(&e);
         if (!c) { kept.push_back(std::move(e)); continue; }
         if (!c->active) { owner.erase(c->npc); kind.erase(c->npc); kept.push_back(std::move(e)); continue; }
+        if (isPartyCompanion && isPartyCompanion(c->npc)) { owner[c->npc] = c->owner; kind[c->npc] = c->kind; kept.push_back(std::move(e)); continue; }   // the party's own: no cap
         size_t mine = 0, total = 0;
         for (auto& [npc, o] : owner) {
             if (npc == c->npc) continue;
+            if (isPartyCompanion && isPartyCompanion(npc)) continue;
             ++total;
             auto kt = kind.find(npc);
             if (o == c->owner && (kt == kind.end() ? 0 : kt->second) == c->kind) ++mine;
@@ -374,6 +377,11 @@ void HostSession::handle(PeerId from, const Message& m) {
         // either one, so the client reported them "missing" and the host resent them every round (two-copy npc_sync / combat_proof / enemy_fight
         // 2026-10-22: SetWeather 1237D7 and SetTimeScale 30, 'client (missing)', a new mismatch in every step). The live stream carries both.
         if (!mutations().digestKeepsWorldEnv) { st->weatherSet = false; st->weatherForced = false; st->weather = FormRef(); st->timeScale = 0; }
+        // Map markers likewise: the host shadow holds every committed SetMapMarker, the client's world dump has no marker reader, so the client reported
+        // each one "missing" and the host resent it every round (Goodsprings story run 2026-10-28: SetMapMarker 157F7D / 157F7E / 159AC5 applied on the
+        // client again and again, the only digest divergence left). The reveal itself reaches the clients through the live stream and the join baseline.
+        if (!mutations().digestKeepsMapMarkers) st->mapMarkers.clear();
+        if (!mutations().digestKeepsNotes) st->notes.clear();   // the client dump has no note reader either (VMQ01CourierNote from Doc, story run 2026-10-28)
         Client* cp = c;
         const uint32_t sess = c->session, dgId = dg->digestId, ep = epoch_;
         const uint64_t dseq = dg->seq;
@@ -1315,6 +1323,8 @@ void ClientSession::sendDigest() {
     if (!provider_ || !provider_(w, h)) return;
     if (!mutations().digestKeepsRefVars) w.refVars.clear();   // not digest state, see the host side of the compare (SyncDigest handler)
     if (!mutations().digestKeepsWorldEnv) { w.weatherSet = false; w.weatherForced = false; w.weather = FormRef(); w.timeScale = 0; }   // same
+    if (!mutations().digestKeepsMapMarkers) w.mapMarkers.clear();   // same
+    if (!mutations().digestKeepsNotes) w.notes.clear();             // same
     auto world = std::make_shared<const ShadowState>(std::move(w));
     digestWorld_ = world;
     digestSeq_ = shadow_.seq;

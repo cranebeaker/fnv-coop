@@ -94,13 +94,64 @@ TEST(intents_host, on_trigger_is_raised_every_host_frame_for_a_present_puppet_un
     for (const auto& c : h.eng.calls)
         if (c.what == "event" && c.arg == ev::OnTrigger) {
             ++raises;
-            CHECK(c.actor == 0x1001 && c.contextActor == 0x1001 && c.contextSlot == 1 && c.depth == 1);   // the puppet is `player` inside the block
+            CHECK(c.actor == kHostPlayerRef && c.contextActor == 0x1001 && c.contextSlot == 1 && c.depth == 1);   // the event is `player`'s, the puppet is the acting player inside the block
         }
     CHECK(raises == 5);                                                                                      // once per host frame, like the engine
     CHECK(h.run(1, Kind::TriggerLeave, R(0x600), 2).result == Result::Executed && h.host->presenceCount() == 0);
     h.eng.calls.clear();
     h.now += 16; h.host->tick();
     CHECK(h.eng.count("event") == 0 && h.eng.outsideScope == 0);                                            // nobody inside: nothing raised
+}
+
+// Follow-ups 1, item 1. The Dead Money return trigger is `OnTrigger Player`: MarkBaseExtraListScriptEvent keeps the mask under the entry of the event's object (and under "any
+// object"), a block that names `Player` matches the entry of the player reference (0x14) only, and a mark only sets a flag: the block runs when the engine next runs the trigger's
+// script, with no acting scope open. The fake engine models both: runScript consumes the marks and tells the block (Call::arg) which masks `Player` blocks would match.
+static void blockEffect(nvcoop::intents::testing::HostRig& h, uint32_t trigger) {
+    h.eng.onScript = [&h, trigger](const nvcoop::intents::testing::FakeEngine::Call& c) {
+        if (c.arg & (ev::OnTrigger | ev::OnTriggerEnter)) h.hub.record(fnvcoop::EnableRef{R(trigger + 0x100)});   // the block ran for `Player`: it does its work
+    };
+}
+
+TEST(intents_host, a_player_filtered_trigger_block_runs_now_as_the_guest_and_its_work_goes_to_the_guest) {
+    HostRig h;
+    h.add(0x600, TargetClass::Trigger, 100);
+    blockEffect(h, 0x600);
+    CHECK(h.run(1, Kind::TriggerEnter, R(0x600), 1).result == Result::Executed);
+    REQUIRE(h.eng.scripts.size() == 1);
+    const auto& s = h.eng.scripts[0];
+    CHECK(s.target == R(0x600) && (s.arg & ev::OnTriggerEnter) != 0);   // the `Player` block matched the mark (the event's object is 0x14)
+    CHECK(s.contextActor == 0x1001 && s.contextSlot == 1 && s.depth == 1);   // ... while the guest's puppet was the acting player
+    REQUIRE(h.commits.size() == 1);
+    CHECK(h.commits[0].origin == 1 && h.effects<fnvcoop::EnableRef>() == 1);   // the work was committed with the guest as origin
+    CHECK(h.eng.marked.empty() && h.host->stats().eventScriptRuns == 1);        // nothing is left for the engine's next update to run as the host
+    // the per-frame OnTrigger of the Dead Money return trigger: the same, once per host frame, for as long as the guest is inside
+    h.commits.clear();
+    for (int frame = 0; frame < 3; ++frame) { h.now += 16; h.host->tick(); }
+    CHECK(h.eng.scripts.size() == 4 && h.host->stats().eventScriptRuns == 4);
+    for (size_t i = 1; i < h.eng.scripts.size(); ++i) CHECK((h.eng.scripts[i].arg & ev::OnTrigger) != 0 && h.eng.scripts[i].contextSlot == 1 && h.eng.scripts[i].depth == 1);
+    CHECK(h.commits.size() == 3 && h.commits.back().origin == 1);
+    CHECK(h.eng.outsideScope == 0 && h.eng.hostScriptRuns == 0);
+}
+
+TEST(intents_host, the_host_players_own_pending_mark_is_run_first_and_not_eaten_by_the_guests_run) {
+    HostRig h;
+    h.add(0x600, TargetClass::Trigger, 100);
+    blockEffect(h, 0x600);
+    h.eng.marked.insert(std::make_tuple(kHostPlayerRef, R(0x600), ev::OnTrigger));   // the host stands in the same volume; the engine marked it this frame
+    CHECK(h.run(1, Kind::TriggerEnter, R(0x600), 1).result == Result::Executed);
+    CHECK(h.eng.hostScriptRuns == 1 && h.host->stats().eventsFlushed == 1);             // the host's block ran first, outside any scope (as the host)
+    REQUIRE(h.eng.scripts.size() == 1);
+    CHECK((h.eng.scripts[0].arg & ev::OnTrigger) == 0 && (h.eng.scripts[0].arg & ev::OnTriggerEnter) != 0);   // the guest's run carries the guest's own mark only
+    REQUIRE(h.commits.size() == 1);
+    CHECK(h.commits[0].origin == 1);                                                    // the host's run committed nothing under the guest's origin
+}
+
+TEST(intents_host, a_trigger_with_no_script_instance_is_counted_and_still_marked) {
+    HostRig h;
+    h.add(0x600, TargetClass::Trigger, 100);
+    h.eng.noScript.insert(R(0x600));
+    CHECK(h.run(1, Kind::TriggerEnter, R(0x600), 1).result == Result::Executed);
+    CHECK(h.host->stats().eventScriptMissed == 1 && h.host->stats().eventScriptRuns == 0 && h.eng.count("event") == 1);
 }
 
 TEST(intents_host, a_keepalive_extends_the_presence_and_a_lost_leave_expires_it) {
@@ -202,7 +253,7 @@ TEST(intents_e2e, a_guest_alone_in_the_legate_tent_runs_both_trigger_blocks_as_t
     size_t enters = 0, stays = 0;
     for (const auto& call : h.eng.calls) {
         if (call.what != "event") continue;
-        CHECK(call.actor == 0x1001 && call.contextActor == 0x1001 && call.contextSlot == 1 && call.depth == 1);   // the guest's puppet is `player` in both blocks
+        CHECK(call.actor == kHostPlayerRef && call.contextActor == 0x1001 && call.contextSlot == 1 && call.depth == 1);   // the event is `player`'s, the guest's puppet is the acting player in both blocks
         if (call.arg == ev::OnTriggerEnter) ++enters;
         if (call.arg == ev::OnTrigger) ++stays;
     }
@@ -222,7 +273,7 @@ TEST(intents_host, start_combat_runs_the_actors_block_for_the_puppet_once) {
     CHECK(h.run(1, Kind::StartCombat, R(0x700), 1).result == Result::Executed);
     REQUIRE(!h.eng.calls.empty());
     const auto& call = h.eng.calls.back();
-    CHECK(call.what == "event" && call.arg == ev::OnStartCombat && call.target == R(0x700) && call.actor == 0x1001 && call.contextSlot == 1 && call.depth == 1);
+    CHECK(call.what == "event" && call.arg == ev::OnStartCombat && call.target == R(0x700) && call.actor == kHostPlayerRef && call.contextActor == 0x1001 && call.contextSlot == 1 && call.depth == 1);   // the event is for `player`, the acting context is the puppet
     CHECK(h.run(1, Kind::StartCombat, R(0x700), 2).result == Result::Duplicate && h.eng.count("event") == 1);       // the same actor re-engaging inside the cooldown
     CHECK(h.run(2, Kind::StartCombat, R(0x700), 1).result == Result::Executed);                                     // another player's combat is its own event
     CHECK(h.run(1, Kind::StartCombat, R(0x701), 3).result == Result::BadTarget);
@@ -433,7 +484,11 @@ TEST(intents_host, the_fort_scenario_two_players_hand_in_gear_and_each_gets_thei
     CHECK(inventory[1] == std::vector<StoredItem>({{R(0xC01), 1}, {R(0xC02), 20}}) && inventory[2] == std::vector<StoredItem>({{R(0xC03), 1}}));
     CHECK(b.stashes() == 0 && h.eng.containers[kStore].empty());                            // everything handed back, nothing left behind
     // the host reloads its game: the ledger survives through the state file
-    h.eng.onCall = [&](const FakeEngine::Call& c) { if (c.what == "activate" && c.target == R(0x510)) h.eng.containers[kStore].push_back({R(0xC09), 5}); };
+    h.eng.onCall = [&](const FakeEngine::Call& c) {
+        if (c.what != "activate" || c.target != R(0x510)) return;
+        h.eng.containers[kStore].push_back({R(0xC09), 5});
+        h.hub.record(fnvcoop::RefAddItem{R(0x510), R(0xC09), 5});   // the engine's hooks record a script's item move: an activation with an effect is not redone by the stand-in
+    };
     CHECK(h.run(1, Kind::Activate, R(0x510), 3).result == Result::Executed);
     StorageBook reloaded = book();
     std::string err;

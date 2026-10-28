@@ -10,6 +10,9 @@
 //   * The companion's mode / stance / range is shared state with a revision (`rev`): the owner publishes, everyone mirrors, an older rev is ignored.
 //   * The companion's INVENTORY belongs to its owner: only the owner's machine changes it, as idempotent signed deltas (CompanionInventory), and
 //     every other machine mirrors them onto its copy of the NPC (so its corpse and its visible equipment match on every screen).
+//   * A PARTY companion (ED-E in Lonesome Road, owner decision D2) belongs to the whole party: the recruiter slot stays on the wire (a restart or a late
+//     joiner still sees a valid owner, and the recruiter's machine simulates it), but it counts against no follower cap, any player may command it
+//     and open its wheel, any player's inventory change on it is accepted, and when its recruiter leaves it is handed to the host instead of released.
 //   * A machine's engine may only have the companions of ITS player flagged as teammates (the follower AI follows the LOCAL player):
 //     reconcileTeammates() lists what to unset (flagged but somebody else's) and set (mine but not flagged).
 //   * Companions and players are allies: a hit between two party members (player, companion) is neutralised unless friendly fire is on, and a
@@ -18,6 +21,7 @@
 // Wire: every struct that travels has a symmetric io(Archive&, T&) (synccore/include/fnvcoop/wire.h).
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -59,10 +63,11 @@ struct Companion {
     PlayerId owner = kNoPlayer;     // the recruiter
     CompanionKind kind = CompanionKind::Humanoid;
     CompanionState state;
+    bool party = false;             // owner=party (G34): belongs to everybody; `owner` stays the recruiter (simulates it, wire still valid)
 };
 void io(Archive& a, Companion& c);
 
-enum class RecruitReason : uint8_t { Ok = 0, AlreadyYours, OwnedByOther, OwnerCap, PartyCap, BadOwner, Count_ };
+enum class RecruitReason : uint8_t { Ok = 0, AlreadyYours, OwnedByOther, OwnerCap, PartyCap, BadOwner, Count_ };   // (party companions never hit a cap)
 const char* toString(RecruitReason r);
 struct RecruitVerdict {
     bool ok = false;
@@ -74,6 +79,17 @@ public:
     explicit CompanionBook(FollowerCaps caps = {}) : caps_(caps) {}
     const FollowerCaps& caps() const { return caps_; }
     void setCaps(const FollowerCaps& c) { caps_ = c; }
+
+    // ---- party companions (G34) ----
+    // Which NPCs belong to the whole party. `fixed` = a data list (always party); the oracle = the rules engine (RulesEngine::isPartyCompanion: a CompanionOwner
+    // rule with owner=party saw the recruit). The flag of a book entry is refreshed by refreshParty(); a new recruit asks at once.
+    void setPartyOracle(std::function<bool(const FormRef&)> o) { oracle_ = std::move(o); }
+    void addFixedParty(const FormRef& npc) { fixedParty_.insert(npc); }
+    bool wantsParty(const FormRef& npc) const;                    // fixed list or oracle says so
+    std::vector<FormRef> refreshParty();                          // re-asks for every entry; returns the NPCs whose flag changed
+    bool isParty(const FormRef& npc) const { const Companion* c = find(npc); return c && c->party; }
+    // The recruiter left: its party companions are handed to `to` (they stay in the book, flagged party). Returns the NPCs handed over.
+    std::vector<FormRef> handParty(PlayerId from, PlayerId to);
 
     // Would a recruit be allowed right now? (owner connected is the caller's business; `kNoPlayer` / >= kMaxSlots are refused.)
     // AlreadyYours is ok=true (idempotent): the same owner re-recruiting changes nothing.
@@ -102,9 +118,12 @@ public:
     size_t countOf(PlayerId owner) const;
     size_t countOf(PlayerId owner, CompanionKind kind) const;
     size_t total() const { return list_.size(); }
+    // What counts against the follower caps: everything except party companions.
+    size_t capCountOf(PlayerId owner, CompanionKind kind) const;
+    size_t capTotal() const;
     // true when `owner` holds more than the caps allow (humanoids, critters) or the party total is exceeded.
     bool overCap(PlayerId owner) const;
-    bool partyOverCap() const { return list_.size() > caps_.partyTotal; }
+    bool partyOverCap() const { return capTotal() > caps_.partyTotal; }
 
     // The owner's mode / stance / range. Accepted only when state.rev is HIGHER than the stored one. false = unknown NPC or stale.
     bool setState(const FormRef& npc, const CompanionState& s);
@@ -117,6 +136,8 @@ public:
 private:
     FollowerCaps caps_;
     std::map<FormRef, Companion> list_;
+    std::function<bool(const FormRef&)> oracle_;
+    std::set<FormRef> fixedParty_;
 };
 
 // ---- commands ------------------------------------------------------------------------------------------------------------------------
@@ -171,7 +192,7 @@ private:
 
 // ---- the wheel: who may open it -------------------------------------------------------------------------------------------------------
 enum class ForeignPolicy : uint8_t { Deny = 0, Allow = 1 };   // somebody else's companion: refuse the activation, or let it through
-enum class ActivateAction : uint8_t { NotACompanion = 0, OwnerOpens, DenyForeign, AllowForeign };
+enum class ActivateAction : uint8_t { NotACompanion = 0, OwnerOpens, DenyForeign, AllowForeign, PartyOpens };   // PartyOpens: a party companion, anybody may
 struct ActivationVerdict {
     ActivateAction action = ActivateAction::NotACompanion;
     PlayerId owner = kNoPlayer;

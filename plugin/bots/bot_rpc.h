@@ -34,6 +34,8 @@
 //   dev.terminal {ref,entry}                     -> {entries,used,index}  click that entry of the open terminal menu (recorded)
 //   dev.terminalState {ref}                     -> {used:[{index,text}]}  what this bot picked on that terminal (engine has no used flag)
 //   dev.countRefs {base,cell?}                  -> {count}        loaded, enabled refs of that base form in the cell (default the player's)
+//   bot.questvar {quest,var}                    -> {quest,var,value}  the live value of a quest script variable on this copy, by name (nvhooks::questVarValue); the lab's
+//                                                  "the client sees the quest variable" check reads it on both copies
 #pragma once
 #include <cmath>
 #include <cstdio>
@@ -291,6 +293,9 @@ public:
             if (!e_.testHelpers() && !FNV_MUT(64)) { out = "test helpers disabled (start the game with NVCOOP_TEST_HELPERS=1)"; return false; }
             ok = e_.moveTo(p.get("marker").asString(""), &out);
             if (ok) o.set("genuine", false);
+        } else if (method == "bot.questvar") {
+            IEngine* g = e_.engine();
+            ok = g ? questVarInfo(*g, p.get("quest").asString(""), p.get("var").asString(""), &o, &out) : (out = "unsupported: engine glue not wired", false);
         } else if (method == "dev.countRefs") {
             IEngine* g = e_.engine();
             ok = g ? countRefs(*g, p.get("base").asString(""), p.get("cell").asString(""), &o, &out) : (out = "unsupported: engine glue not wired", false);

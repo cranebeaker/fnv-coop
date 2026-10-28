@@ -316,6 +316,23 @@ TEST(port, applied_values_are_written_only_when_they_differ_and_health_never_rea
     CHECK(r.eng.a[0x100].av[kAvLeftLeg] == 0 && r.eng.a[0x100].life == 0);
 }
 
+// The audit of a copy's mirrored values (ActorSync::auditAvs): the value is written when the owner changes it, and an engine that keeps an actor's damage elsewhere
+// while it is not fully loaded gives the copy another health once it loads (vats room behind bad_wifi: -55 for the owner's 5). Health only, one write when it differs.
+TEST(port, the_audit_brings_a_drifted_health_back_and_leaves_an_equal_one_alone) {
+    PortRig r;
+    const NetId id = r.npc(0x100);
+    r.port.applyAv(id, {{kAvHealth, 5}});
+    const int lines = r.eng.count("forceav", 0x100);
+    CHECK(r.port.auditAv(id, {{kAvHealth, 5}}) == 0 && r.eng.count("forceav", 0x100) == lines);   // equal: nothing written
+    r.eng.a[0x100].av[kAvHealth] = -55;                                                              // the engine moved the damage when the actor loaded
+    CHECK(r.port.auditAv(id, {{kAvHealth, 5}}) == 1);                                                // twin 77: seen, not written
+    CHECK_MSG(r.eng.a[0x100].av[kAvHealth] == 5, std::to_string(r.eng.a[0x100].av[kAvHealth]));
+    r.eng.a[0x100].av[kAvHealth] = 50;
+    CHECK(r.port.auditAv(id, {{kAvHealth, -55}}) == 1 && r.eng.a[0x100].av[kAvHealth] == 1);       // a dying owner: the copy is floored at 1, death is its own message
+    r.eng.a[0x100].av[kAvLeftLeg] = 77;
+    CHECK(r.port.auditAv(id, {{kAvLeftLeg, 0}}) == 0 && r.eng.a[0x100].av[kAvLeftLeg] == 77);     // limbs are not audited
+}
+
 TEST(port, place_puts_the_authoritative_state_in_completely) {
     PortRig r;
     const NetId id = r.npc(0x100, {1000, 1000, 0});
@@ -601,6 +618,26 @@ TEST(port, kill_kills_once_reports_it_and_retries_a_refused_line) {
     r.eng.refuseOps.clear();
     for (int i = 0; i < 5; ++i) r.step(250);
     CHECK(r.eng.a[0x200].life == 0);                  // gave up after five tries; nothing keeps hammering
+}
+
+// G04: a copy that dies because a REMOTE player's shot killed the actor on its owner's machine is killed as that player's puppet (the engine stores the killer
+// before OnDeath, `IsKiller player` is true for the guest); a copy nobody remote shot is killed plainly. A refused first line is retried the same way.
+TEST(port, a_copy_killed_by_a_remote_players_shot_is_credited_to_that_puppet) {
+    PortRig r;
+    const NetId id = r.npc(0x100);
+    const NetId other = r.npc(0x200);
+    registry().killerOf = [](RefId victim) -> RefId { return victim == 0x100 ? 0x2001u : 0u; };
+    r.port.kill(id);
+    CHECK(r.eng.a[0x100].life == 2 && r.eng.count("killby", 0x100) == 1 && r.eng.count("kill", 0x100) == 0);
+    r.port.kill(other);
+    CHECK(r.eng.a[0x200].life == 2 && r.eng.count("killby", 0x200) == 0 && r.eng.count("kill", 0x200) == 1);
+    const NetId retry = r.npc(0x300);
+    registry().killerOf = [](RefId) -> RefId { return 0x2002u; };
+    r.eng.refuseOps.insert("killby");
+    r.port.kill(retry);
+    r.eng.refuseOps.clear();
+    r.step(250);
+    CHECK(r.eng.a[0x300].life == 2 && r.eng.count("killby", 0x300) == 1);   // the retry keeps the credit
 }
 
 TEST(port, a_killed_copy_is_not_driven_or_fed_values_and_revive_undoes_it) {

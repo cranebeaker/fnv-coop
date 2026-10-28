@@ -78,16 +78,29 @@ public:
         auto it = owner_.find(canon(npcIn));
         return it == owner_.end() ? fnvcoop::kNoPlayer : it->second;
     }
+    // A PARTY companion (ED-E in Lonesome Road: the rules engine's owner=party, RulesEngine::isPartyCompanion) belongs to the whole party: it uses nobody's slot,
+    // so count() and partyCount() leave it out (the recruiter can still take Rex next to ED-E) and the Hired variable reads 1 for every slot. The feed is the
+    // roster listener (Companion::party). The flag is a property of the NPC: it survives setOwner / dismiss.
+    void setPartyOwned(const FormRef& npc, bool party) {
+        if (party) party_.insert(canon(npc)); else party_.erase(canon(npc));
+    }
+    bool isPartyOwned(const FormRef& npc) const { return party_.count(canon(npc)) != 0; }
+
     int count(PlayerId slot, int kind = -1) const {
         int n = 0;
         for (auto& kv : owner_) {
             if (kv.second != slot) continue;
+            if (isPartyOwned(kv.first) && !mutations().partyCompanionCounts) continue;   // uses nobody's slot
             auto k = kinds_.find(kv.first);
             if (kind < 0 || (k != kinds_.end() && int(k->second) == kind)) ++n;
         }
         return n;
     }
-    int partyCount() const { return int(owner_.size()); }
+    int partyCount() const {
+        int n = 0;
+        for (auto& kv : owner_) if (!isPartyOwned(kv.first) || mutations().partyCompanionCounts) ++n;
+        return n;
+    }
 
     RecruitResult canRecruit(const FormRef& npcIn, PlayerId slot) const {
         const FormRef npc = canon(npcIn);
@@ -139,6 +152,8 @@ public:
         rules_by_[{quest, idx}] = {kind, canon(npc)};
     }
     bool hasRule(const FormRef& quest, uint32_t idx) const { return rules_by_.count({quest, idx}) != 0; }
+    // Every registered rule (W3a item 4: the session writes a player's view of them into the shared variables around that player's script run).
+    template <class F> void forEachRule(F&& fn) const { for (const auto& kv : rules_by_) fn(kv.first.first, kv.first.second, kv.second.kind); }
     size_t ruleCount() const { return rules_by_.size(); }
 
     // The value of the variable as seen by `slot`. `real` is the shared (aggregate) value the engine holds.
@@ -153,10 +168,12 @@ public:
                 return (count(slot, 1) >= rules_.critterCap || partyFull()) ? 1 : 0;
             case VarKind::HasFollower: return count(slot) > 0 ? 1 : 0;
             case VarKind::CurrentFollowers: return count(slot);
-            case VarKind::Hired: return ownerOf(r.npc) == slot ? 1 : 0;
+            case VarKind::Hired:
+                if (isPartyOwned(r.npc) && ownerOf(r.npc) != fnvcoop::kNoPlayer && !mutations().partyHiredPerSlot) return 1;   // everybody sees the party companion as hired
+                return ownerOf(r.npc) == slot ? 1 : 0;
             case VarKind::Available: {
                 PlayerId o = ownerOf(r.npc);
-                if (o != fnvcoop::kNoPlayer && o != slot) return 0;   // already travelling with another courier
+                if (o != fnvcoop::kNoPlayer && o != slot && !isPartyOwned(r.npc)) return 0;   // already travelling with another courier
                 return real;
             }
             case VarKind::Fired: return real;
@@ -205,6 +222,7 @@ private:
     std::map<FormRef, FormRef> canon_;
     std::map<FormRef, CompanionKind> kinds_;
     std::map<FormRef, PlayerId> owner_;
+    std::set<FormRef> party_;   // party companions (setPartyOwned)
     std::map<std::pair<FormRef, uint32_t>, Rule> rules_by_;
 };
 

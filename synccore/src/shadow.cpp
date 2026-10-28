@@ -102,10 +102,15 @@ void ShadowState::applyEffect(const Effect& eff, PlayerId origin, PlayerId me, s
 
     std::visit(Overloaded{
         [&](const SetStage& e) {
+            // Every stage the host runs is delivered, in the order it ran: the engine's SetStage raises the current stage only when it is higher but ALWAYS
+            // marks the stage item done (GetStageDone, the journal). The max merge alone would swallow a stage below one that already came (a quest script
+            // that jumps ahead, then the host walks the earlier stages): the copy then has the stage but not the done flags the host has.
+            const bool firstRun = e.stage != 0 && stagesRun[e.quest].insert(e.stage).second;
             auto it = stages.find(e.quest);
             if (it == stages.end()) { stages[e.quest] = e.stage; emit(e); return; }
             uint32_t nv = mut.stageLastWins ? e.stage : std::max(it->second, e.stage);
-            if (nv != it->second) { it->second = nv; emit(SetStage{e.quest, nv}); }
+            if (nv != it->second) { it->second = nv; emit(SetStage{e.quest, nv}); return; }
+            if (firstRun && e.stage < it->second && !mut.lowerStageSwallowed) emit(e);   // a lower stage the host ran for the first time: its done flag still has to arrive
         },
         [&](const SetObjective& e) {
             // Host-authoritative last writer: a host-origin write is the exact flag state (so a hide, displayed 1 -> 0, sticks through resync and

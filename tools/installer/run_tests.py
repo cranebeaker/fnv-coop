@@ -655,7 +655,7 @@ def pkg_inputs(td, dll=None):
     (d / "consent.txt").write_text("# consent\n")
     (d / "volatile.txt").write_text("key\n")
     (d / "LICENSE").write_text("MIT test licence\n")
-    for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json"):
+    for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json", "nvcoop_intents.json", "nvcoop_cause_quests.json", "nvcoop_pack_watch.json"):
         (d / n).write_text("{}")
 
 
@@ -673,7 +673,7 @@ def check_package_builds_a_verified_zip():
             for need in ("manifest.json", "SHA256SUMS.txt", "Install.cmd", "Uninstall.cmd", "Launcher.cmd", "Check.cmd", "README-FIRST.txt",
                          "PLAYER-GUIDE.md", "LICENSE.txt", "THIRD-PARTY.txt", "payload/nvcoop.dll", "payload/nvcoop.ini",
                          "payload/nvcoop_rules.json", "payload/nvcoop_edids.json", "payload/nvcoop_infoquest.json",
-                         "payload/nvcoop_guest_local_run.json", "payload/nvcoop_consent_messages.txt", "payload/nvcoop_volatile_keys.txt",
+                         "payload/nvcoop_guest_local_run.json", "payload/nvcoop_intents.json", "payload/nvcoop_cause_quests.json", "payload/nvcoop_pack_watch.json", "payload/nvcoop_consent_messages.txt", "payload/nvcoop_volatile_keys.txt",
                          "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/launcher_gui.py", "launcher/fnv_launcher_core.py",
                          "launcher/fnv_portcheck.py"):
                 assert root + need in names, need
@@ -716,6 +716,9 @@ def check_package_stops_on_missing_required():
         assert quiet(pkg.build, Args(td, allow_missing=True, dry_run=True)) == 0
         pkg_inputs(td)
         (td / "in" / "nvcoop_edids.json").unlink()
+        assert quiet(pkg.build, Args(td)) == 1
+        pkg_inputs(td)
+        (td / "in" / "nvcoop_intents.json").unlink()    # without it the Fort, frisk and Dead Money lockers stay shared between players (G35)
         assert quiet(pkg.build, Args(td)) == 1
         pkg_inputs(td)
         (td / "in" / "volatile.txt").unlink()           # every player must have the same volatile-key list: required

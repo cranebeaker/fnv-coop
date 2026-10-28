@@ -3,11 +3,13 @@ the single-instance mutex is released by the nvcoop plugin itself (nvcoop.ini mu
 from __future__ import annotations
 
 import ctypes
+import os
 import subprocess
 import time
 from ctypes import wintypes
 from typing import List
 
+MUTANT = os.environ.get("RUNNER_MUTANT", "")     # test-only (tools/runner/tests/test_unthrottle.py)
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 k32.OpenProcess.restype = wintypes.HANDLE
@@ -41,6 +43,62 @@ def list_pids(image_name: str) -> List[int]:
 
 def kill_pid(pid: int) -> None:
     subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True)
+
+
+# ---- Windows 11 power throttling of the test copies ----
+# A copy whose window is minimized is "not visible" to Windows. Since Windows 11 such a process (1) gets its timer resolution requests ignored (Sleep(1) lasts a whole
+# 15.6 ms tick, whatever timeBeginPeriod asked) and (2) may be run in EcoQoS (execution speed throttling). The test copies are minimized on purpose (the owner's desktop),
+# so both can hit them. SetProcessInformation(ProcessPowerThrottling) with the control bit set and the state bit CLEAR opts the process out of that throttling.
+PROCESS_SET_INFORMATION = 0x0200
+ProcessPowerThrottling = 4
+THROTTLE_VERSION = 1
+THROTTLE_EXECUTION_SPEED = 0x1
+THROTTLE_IGNORE_TIMER_RESOLUTION = 0x4
+
+
+class PowerThrottlingState(ctypes.Structure):
+    _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+
+def _set_throttle(pid: int, control: int, state: int):
+    """SetProcessInformation(ProcessPowerThrottling) on pid -> (ok, windows error code)."""
+    h = k32.OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return False, ctypes.get_last_error()
+    try:
+        st = PowerThrottlingState(THROTTLE_VERSION, control, state)
+        k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.SetProcessInformation.restype = wintypes.BOOL
+        ok = bool(k32.SetProcessInformation(h, ProcessPowerThrottling, ctypes.byref(st), ctypes.sizeof(st)))
+        return ok, 0 if ok else ctypes.get_last_error()
+    finally:
+        k32.CloseHandle(h)
+
+
+def unthrottle(pid: int) -> dict:
+    """Opt the process out of Windows power throttling (execution speed and, on Windows 11, the ignoring of timer resolution requests while minimized).
+    -> {"pid", "ok", "mask"} where mask is the control mask that was accepted (a Windows 10 build refuses the timer bit: then only the execution speed bit is set)."""
+    for control in (THROTTLE_EXECUTION_SPEED | THROTTLE_IGNORE_TIMER_RESOLUTION, THROTTLE_EXECUTION_SPEED):
+        ok, err = _set_throttle(pid, control, control if MUTANT == "throttle_state_set" else 0)     # twin: the state bits are SET (opts the process IN to the throttling)
+        if ok:
+            return {"pid": pid, "ok": True, "mask": control}
+    return {"pid": pid, "ok": False, "mask": 0, "error": err}
+
+
+def throttle_state(pid: int) -> dict:
+    """What the process currently has: {"control": mask, "state": mask} (state bit set = throttled / ignored), or {} when it cannot be read."""
+    h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return {}
+    try:
+        st = PowerThrottlingState(THROTTLE_VERSION, 0, 0)
+        k32.GetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.GetProcessInformation.restype = wintypes.BOOL
+        if not k32.GetProcessInformation(h, ProcessPowerThrottling, ctypes.byref(st), ctypes.sizeof(st)):
+            return {}
+        return {"control": int(st.ControlMask), "state": int(st.StateMask)}
+    finally:
+        k32.CloseHandle(h)
 
 
 def minimize_windows(pid: int, timeout_s: float = 60.0, settle_s: float = 3.0) -> int:

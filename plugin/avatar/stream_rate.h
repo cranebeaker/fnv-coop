@@ -1,4 +1,5 @@
-// How often each player's avatar stream goes to each other player (FULL-SYNC-PLAN section 2: 20 Hz near, 5 Hz far).
+// How often each player's avatar stream goes to each other player (FULL-SYNC-PLAN section 2: 20 Hz near, 5 Hz far; the shipped near rate is 30 Hz,
+// engine/avatar_tuning.h sets nearPeriodMs and nvcoop.ini [avatar] nearHz overrides it).
 //
 //   Near  same cell, within nearRadius (2800 units, about 40 m, with 1.25x hysteresis so nobody flaps at the border)   every snapshot (20 Hz)
 //   Far   same cell beyond that, or an adjacent cell (the caller's adjacency test)                                      one per farPeriodMs (5 Hz)
@@ -33,6 +34,10 @@ struct StreamRateConfig {
     uint32_t slackMs = 10;          // a snapshot this much early (or a sixteenth of the period, whichever is more) still counts as on time
     float nearRadius = 2800.0f;     // units
     float hysteresis = 1.25f;
+    // A snapshot whose place is further than this from the last one sent on the link (or in another cell) is a teleport: it goes at once, whatever the tier's
+    // period says, and carries the new place to the observer (whose tier for this stream is decided by the places). Held for a far or out period (200 ms, 1 s)
+    // it was the time the other copy's puppet stood at the old place (lab spawn room, "arrives 650 to 2700 ms late"). 0 = off.
+    float jumpUnits = 350.0f;
 };
 
 enum class StreamTier : uint8_t { Out = 0, Far = 1, Near = 2 };
@@ -113,6 +118,8 @@ public:
             L.hasPending = false;
             L.sent = true;
             L.last = nowMs;
+            L.lastCell = L.pending.cell;
+            L.lastPos = L.pending.pos;
             out.push_back(Release{kv.first.first, kv.first.second, L.pending});
         }
     }
@@ -132,7 +139,14 @@ private:
         bool hasPending = false;
         StreamTier pendingTier = StreamTier::Near;
         fnvcoop::live::ActorSnapshot pending;
+        fnvcoop::live::CellId lastCell = 0;     // where the last snapshot that was sent stood
+        fnvcoop::live::Vec3 lastPos;
     };
+
+    bool jumped(const Link& L, const fnvcoop::live::ActorSnapshot& snap) const {
+        if (!L.sent || cfg_.jumpUnits <= 0 || !cfg_.enabled) return false;
+        return snap.cell != L.lastCell || fnvcoop::live::distance(snap.pos, L.lastPos) > cfg_.jumpUnits;
+    }
 
     bool dueAt(const Link& L, StreamTier t, uint32_t now) const {
         if (!cfg_.enabled || !L.sent) return true;
@@ -145,10 +159,12 @@ private:
     bool offerAt(Slot observer, Slot subject, StreamTier t, const fnvcoop::live::ActorSnapshot& snap, uint32_t now,
                  fnvcoop::live::ActorSnapshot& out) {
         Link& L = links_[{observer, subject}];
-        if (dueAt(L, t, now)) {
+        if (dueAt(L, t, now) || jumped(L, snap)) {
             L.sent = true;
             L.last = now;
             L.hasPending = false;
+            L.lastCell = snap.cell;
+            L.lastPos = snap.pos;
             out = snap;
             return true;
         }

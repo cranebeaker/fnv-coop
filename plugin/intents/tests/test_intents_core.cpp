@@ -2,6 +2,9 @@
 // Runtime twins 301..331 (330: actor mode reported on every action, 331: a stand-in is never reported) (tools/mut/fnvcoop_mut.h): the same binary is run once per twin with FNVCOOP_MUT=<n> and every one must fail a check.
 #include <cstring>
 
+#include "fnvcoop/rules.h"
+#include "fnvcoop/session.h"
+#include "fnvcoop/transport.h"
 #include "fnvcoop/wire.h"
 #include "host_rig.h"
 #include "intents/intent_service.h"
@@ -280,6 +283,140 @@ TEST(intents_host, container_without_puppet_still_locks_and_skips_the_script) {
     CHECK(h.host->locks().size() == 1);
 }
 
+// Story fix 2026-10-28: a refused intent writes a log line with the reason, both positions, the distance, the ref and the cell (the first Goodsprings story run
+// counted OutOfRange / NotLoaded for a guest standing next to an NPC and the plugin said nothing about any of them). At most one line per kind and reason
+// per second; the lines skipped in between are counted in the next one.
+TEST(intents_host, a_refused_intent_is_logged_with_both_positions_rate_limited) {
+    HostRig h;
+    h.add(0x500, TargetClass::Door, 1000, 0, 0);
+    h.eng.world[R(0x500)].cell = 0xA5;
+    h.eng.positions[0x1001] = {0, 20, 0};
+    CHECK(h.run(1, Kind::Activate, R(0x500), 1).result == Result::OutOfRange);
+    REQUIRE(h.logLines.size() == 1);
+    const std::string& l = h.logLines[0];
+    CHECK(l.find("REFUSED Activate from slot 1: OutOfRange") != std::string::npos);
+    CHECK(l.find("falloutnv.esm:500") != std::string::npos);
+    CHECK(l.find("pos (1000,0,0)") != std::string::npos);                    // the target
+    CHECK(l.find("pos (0,20,0)") != std::string::npos);                      // the guest's puppet
+    CHECK(l.find("puppet 1001") != std::string::npos);
+    CHECK(l.find("cell a5") != std::string::npos);
+    CHECK(l.find("distance 1000 (reach 450)") != std::string::npos);
+    CHECK(h.run(1, Kind::Activate, R(0x500), 2).result == Result::OutOfRange);   // the same kind and reason inside a second: quiet
+    CHECK(h.run(1, Kind::Activate, R(0x500), 3).result == Result::OutOfRange);
+    CHECK(h.logLines.size() == 1 && h.host->stats().refusalsQuiet == 2);
+    h.now += 1500;
+    CHECK(h.run(1, Kind::Activate, R(0x500), 4).result == Result::OutOfRange);
+    REQUIRE(h.logLines.size() == 2);
+    CHECK(h.logLines[1].find("2 more of this kind and reason") != std::string::npos);
+    h.add(0x502, TargetClass::Npc);
+    h.eng.world[R(0x502)].loaded = false;
+    CHECK(h.run(1, Kind::Activate, R(0x502), 5).result == Result::NotLoaded);       // another reason is its own line, and says the target is not loaded
+    REQUIRE(h.logLines.size() == 3);
+    CHECK(h.logLines[2].find("NOT-loaded") != std::string::npos);
+}
+
+// Story fix 2026-10-28 (S07): the client harvested a Broc flower far from the host. The host's copy of the plant sat in a cell the host never loaded, the
+// activation was refused as NotLoaded, and the guest ended with its local half only (XP, no ingredient, the plant still there). The plant is an activator whose script
+// is all there is to run: it runs, as the guest's acting player, and the reach (a stale puppet position in another cell) is not judged for it.
+TEST(intents_host, an_activator_in_a_cell_the_host_never_loaded_still_runs_its_script) {
+    HostRig h;
+    TargetInfo plant = mkTarget(TargetClass::Activator, 0x530, -61195, 12991, 10277);
+    plant.loaded = false;
+    h.eng.world[R(0x530)] = plant;
+    h.eng.positions[0x1001] = {1260, 1929, 7361};                                      // the puppet is 63000 units away, in Doc's house
+    h.eng.onCall = [&](const FakeEngine::Call& c) { if (c.what == "activate") h.hub.record(fnvcoop::EnableRef{R(0x534)}); };   // the script does something for a puppet
+    CHECK(h.run(1, Kind::Activate, R(0x530), 1).result == Result::Executed);
+    REQUIRE(h.eng.calls.size() == 1);
+    CHECK(h.eng.calls[0].actor == 0x1001);                                             // as the guest's puppet
+    CHECK(h.host->stats().ranUnloaded == 1 && h.host->stats().reachChecked == 0);
+    TargetInfo door = mkTarget(TargetClass::Door, 0x531);
+    door.loaded = false;
+    h.eng.world[R(0x531)] = door;
+    CHECK(h.run(1, Kind::Activate, R(0x531), 2).result == Result::NotLoaded);          // anything that needs the 3D world still needs the cell
+    TargetInfo npc = mkTarget(TargetClass::Npc, 0x532);
+    npc.loaded = false;
+    h.eng.world[R(0x532)] = npc;
+    CHECK(h.run(1, Kind::Activate, R(0x532), 3).result == Result::NotLoaded);
+    TargetInfo ghost = plant;                                                          // a form that is not in memory at all (the plugin is loaded, the ref is not)
+    ghost.ref = 0x533;
+    ghost.resident = false;
+    h.eng.world[R(0x533)] = ghost;
+    CHECK(h.run(1, Kind::Activate, R(0x533), 4).result == Result::NotLoaded);
+    h.cfg.runUnloaded = false;
+    h.build();
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x530), 1, 2).result == Result::NotLoaded && h.eng.calls.empty());   // switched off: refused as before
+}
+
+// Story fix 2026-10-28 (S07): the Broc flower's script says `if State == 0 && GetActionRef == player`, a puppet is not `player`, so the host ran it to no effect and the
+// guest got no ingredient. An activation to no effect is redone by the host's own player standing in; the script's `player.AddItem` is captured for the guest
+// (Recipient default = the txn origin) and the host does not keep the ingredient. A puppet activation that did something is NOT redone.
+TEST(intents_host, an_activation_that_does_nothing_for_a_puppet_is_redone_by_the_stand_in_and_the_host_keeps_nothing) {
+    HostRig h;
+    h.add(0x540, TargetClass::Activator, 100, 0, 0);
+    h.eng.world[R(0x540)].script = R(0xE9ACE);                                         // BrocFlowerScript
+    h.retry.add(R(0xE9ACE));                                                           // ... which the generated list names
+    h.eng.positions[0x1001] = {0, 0, 0};
+    const FormRef broc = R(0x13B2BA);
+    h.eng.onCall = [&](const FakeEngine::Call& c) {
+        if (c.what != "activate" || c.actor != kHostPlayerRef) return;                  // only `GetActionRef == player` runs the script
+        h.eng.hostItems[broc] += 1;                                                     // the engine gives `player` the ingredient ...
+        h.hub.record(fnvcoop::AddItem{broc, 1, fnvcoop::Recipient::dflt()});            // ... and the capture records it
+    };
+    CHECK(h.run(1, Kind::Activate, R(0x540), 1).result == Result::Executed);
+    REQUIRE(h.eng.calls.size() == 2);
+    CHECK(h.eng.calls[0].actor == 0x1001 && h.eng.calls[1].actor == kHostPlayerRef);   // the puppet first, then the stand-in
+    CHECK(h.host->stats().standInRetries == 1);
+    REQUIRE(h.commits.size() == 1);
+    CHECK(h.commits[0].origin == 1);                                                    // committed with the guest as origin: the guest gets the ingredient
+    CHECK(h.effects<fnvcoop::AddItem>() == 1);
+    CHECK(h.eng.hostItems[broc] == 0 && h.eng.hostReverted == 1 && h.host->stats().standInGainsReverted == 1);   // the host's own player does not keep it
+    // an activation the puppet could do is not redone
+    h.add(0x541, TargetClass::Activator, 100, 0, 0);
+    h.eng.world[R(0x541)].script = R(0xE9ACE);
+    h.eng.onCall = [&](const FakeEngine::Call& c) { if (c.what == "activate") h.hub.record(fnvcoop::EnableRef{R(0x542)}); };
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x541), 2).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 1 && h.host->stats().standInRetries == 1);
+    // switched off: the old behaviour (nothing for the guest)
+    h.cfg.standInRetry = false;
+    h.build();
+    h.eng.calls.clear();
+    h.eng.onCall = nullptr;
+    CHECK(h.run(1, Kind::Activate, R(0x540), 1, 2).result == Result::Executed && h.eng.calls.size() == 1);
+}
+
+// Follow-ups 1, item 2. The second run puts a script's OnActivate through the engine with the HOST's player in it: a vending machine's message box would pop on the host's screen, a
+// switch would be thrown twice. Only the scripts the generator listed (they test `GetActionRef == player` and leave no host-local trace) are redone; anything else keeps the
+// puppet's run alone, and so does everything when the list is empty or missing.
+TEST(intents_host, only_the_listed_scripts_are_redone_by_the_stand_in) {
+    HostRig h;
+    h.add(0x550, TargetClass::Activator, 100, 0, 0);
+    h.add(0x551, TargetClass::Activator, 100, 0, 0);
+    h.add(0x552, TargetClass::Unknown, 100, 0, 0);                                     // a flora plant is no TESObjectACTI: the engine's class is Unknown
+    h.eng.world[R(0x550)].script = R(0xE9ACE);                                         // listed
+    h.eng.world[R(0x551)].script = R(0x1234);                                          // a vending machine: tests the actor too, but is not in the list
+    h.eng.world[R(0x552)].script = R(0xE9ACE);
+    h.retry.add(R(0xE9ACE));
+    h.eng.positions[0x1001] = {0, 0, 0};
+    CHECK(h.run(1, Kind::Activate, R(0x550), 1).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 2 && h.host->stats().standInRetries == 1);             // redone
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x551), 2).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 1 && h.eng.calls[0].actor == 0x1001 && h.host->stats().standInRetries == 1);   // not listed: the puppet's run alone
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x552), 3).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 2 && h.host->stats().standInRetries == 2);             // the class is not what decides: the script is
+    h.eng.world[R(0x550)].script = FormRef();                                          // a reference whose script could not be read
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x550), 4).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 1 && h.host->stats().standInRetries == 2);
+    h.retry.clear();                                                                   // no list (the data file is missing): nothing is ever redone
+    h.eng.calls.clear();
+    CHECK(h.run(1, Kind::Activate, R(0x552), 5).result == Result::Executed);
+    CHECK(h.eng.calls.size() == 1 && h.host->stats().standInRetries == 2);
+}
+
 TEST(intents_host, reach) {
     HostRig h;
     h.add(0x500, TargetClass::Door, 1000, 0, 0);
@@ -365,7 +502,7 @@ TEST(intents_host, pickup_claims_and_grants) {
     const auto* grant = std::get_if<AddItem>(&h.commits[0].txn.effects.back());
     REQUIRE(grant != nullptr);
     CHECK(grant->item == R(0xF) && grant->count == 25 && grant->to == fnvcoop::Recipient::origin());                    // to the guest only
-    CHECK(h.eng.count("event") == 1 && h.eng.calls.back().arg == ev::OnAdd && h.eng.calls.back().actor == 0x1001);   // OnAdd blocks run as the puppet
+    CHECK(h.eng.count("event") == 1 && h.eng.calls.back().arg == ev::OnAdd && h.eng.calls.back().actor == kHostPlayerRef && h.eng.calls.back().contextActor == 0x1001);   // OnAdd blocks run as the puppet
     Verdict second = h.run(2, Kind::PickUp, R(0x700), 1);
     CHECK(second.result == Result::Taken);                                      // first claim wins
     CHECK(h.effects<AddItem>() == 1 && h.commits.size() == 1);
@@ -463,7 +600,7 @@ TEST(intents_host, triggers_and_hits) {
     h.add(0x610, TargetClass::Activator, 50);
     h.add(0x611, TargetClass::Npc, 50);
     CHECK(h.run(1, Kind::TriggerEnter, R(0x600), 1).result == Result::Executed);
-    CHECK(h.eng.calls.back().what == "event" && h.eng.calls.back().arg == ev::OnTriggerEnter && h.eng.calls.back().actor == 0x1001 && h.eng.calls.back().contextSlot == 1);
+    CHECK(h.eng.calls.back().what == "event" && h.eng.calls.back().arg == ev::OnTriggerEnter && h.eng.calls.back().actor == kHostPlayerRef && h.eng.calls.back().contextActor == 0x1001 && h.eng.calls.back().contextSlot == 1);
     CHECK(h.run(1, Kind::TriggerEnter, R(0x600), 2).result == Result::Duplicate && h.eng.count("event") == 1);    // standing in the volume is not a new event
     CHECK(h.run(2, Kind::TriggerEnter, R(0x600), 1).result == Result::Executed);                                   // another player is
     CHECK(h.run(1, Kind::TriggerLeave, R(0x600), 3).result == Result::Executed && h.eng.calls.back().arg == ev::OnTriggerLeave);
@@ -768,6 +905,73 @@ TEST(intents_host, guest_stage_request_guards) {
     Config parsed;
     std::string err;
     CHECK(parseConfig("[intents]\nenable=1\nstage=0\n", &parsed, &err) && !parsed.stage && Config().stage);
+}
+
+// ---- G26 (wave 1b): a guest's SetStage on a barrier stage is its pass; the rules engine performs the stage when the whole party passed ---------------
+
+namespace {
+struct NullSink : fnvcoop::IEffectSink {
+    void apply(const fnvcoop::Effect&, const Context&) override {}
+};
+uint32_t passHash(const std::string& s) {
+    uint32_t h = 2166136261u;
+    for (char c : s) { h ^= static_cast<uint8_t>(c); h *= 16777619u; }
+    return h;
+}
+bool passResolve(const std::string& edid, FormRef& out) { out = R(passHash(edid)); return true; }
+}  // namespace
+
+TEST(intents_host, a_guest_stage_on_a_barrier_is_the_guests_pass) {
+    fnvcoop::InMemoryNetwork net(3);
+    fnvcoop::HostSession session(*net.endpoint(0));
+    NullSink sink;
+    fnvcoop::EffectCapture cap;
+    fnvcoop::ClientSession guest(*net.endpoint(1), 0, 1001, sink, &cap);
+    const char* rules = R"({"schema":1,"quests":{
+      "Chargen":{"tier":"T4","questline":"x","curated":true,"rules":[{"kind":"Barrier","params":{"step":"all-players-pass","stages":[200]},"origin":"curated"}]}}})";
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.load(rules, &err));
+    fnvcoop::RulesEngine eng(session, db, passResolve);
+    std::vector<std::pair<FormRef, uint32_t>> released;
+    eng.applyStage = [&](const FormRef& q, uint32_t st) { released.emplace_back(q, st); };
+    uint64_t now = 0;
+    guest.connect(now, guest.lastSession() + 1);
+    for (uint32_t t = 0; t < 400; t += 5) { now += 5; net.advance(now); session.tick(now); guest.tick(now); net.advance(now); }
+
+    FormRef chargen, other;
+    passResolve("Chargen", chargen);
+    passResolve("Plain", other);
+    HostRig h;
+    h.eng.quests[chargen] = 10;
+    h.eng.quests[other] = 10;
+    h.guestStagePass = [&](PlayerId s, const FormRef& q, uint32_t st) { return stagePassOf(eng, s, q, st); };
+
+    // a stage that is no barrier: the rules engine is asked, says NotPass, the intent runs as it always did
+    CHECK(h.host->handle(1, stageIntent(other, 30, 1)).result == Result::Executed && h.eng.count("setStage") == 1);
+
+    // the guest's chargen end reaches the barrier stage: the host does not run it, it is the guest's pass
+    Verdict v = h.host->handle(1, stageIntent(chargen, 200, 2));
+    CHECK(v.result == Result::Deferred);
+    CHECK(h.eng.count("setStage") == 1 && h.eng.quests[chargen] == 10 && released.empty());   // nothing ran, nothing was released yet
+    CHECK(h.host->stats().stagesDeferred == 1 && h.host->stats().stagesApplied == 1);
+    CHECK(h.stageRefusals.size() == 1 && std::get<3>(h.stageRefusals.back()) == Result::Deferred);   // the host said so
+    CHECK(eng.stats().passIntents == 1 && eng.sceneActive());
+
+    // the host's own chargen end is the last pass: the engine performs the stage itself, exactly once
+    CHECK(eng.onGuestStageIntent(0, chargen, 200) == fnvcoop::StageDecision::Deferred);
+    for (uint32_t t = 0; t < 100; t += 5) { now += 5; net.advance(now); session.tick(now); guest.tick(now); net.advance(now); eng.tick(now); }
+    CHECK(released.size() == 1 && released[0].first == chargen && released[0].second == 200 && !eng.sceneActive());
+    CHECK(h.eng.count("setStage") == 1);   // the host intent path never ran the stage itself
+
+    // a late resend of the guest's request: the quest is behind the stage now, no second run
+    h.eng.quests[chargen] = 200;
+    CHECK(h.host->handle(1, stageIntent(chargen, 200, 3)).result == Result::NoAdvance && h.eng.count("setStage") == 1);
+
+    // no hook wired: every stage is an ordinary stage (the old behaviour)
+    HostRig plain;
+    plain.eng.quests[chargen] = 10;
+    CHECK(plain.host->handle(1, stageIntent(chargen, 200, 1)).result == Result::Executed && plain.eng.count("setStage") == 1);
 }
 
 TEST(intents_client, blocked_stage_becomes_one_request_per_burst) {

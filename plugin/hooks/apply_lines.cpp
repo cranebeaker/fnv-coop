@@ -1,5 +1,7 @@
 #include "apply_lines.h"
 
+#include "fnvcoop/refop.h"
+
 #include <cstdio>
 
 namespace nvhooks {
@@ -13,6 +15,23 @@ constexpr const char* kMove = "MoveTo";
 #endif
 
 std::string killCmd() { return kKill; }
+bool refOpNeedsModel(uint16_t op) {
+#ifdef NVHOOKS_MUTANT
+    (void)op;
+    return false;   // mutant: an animation order runs on a reference without a model
+#else
+    return op == fnvcoop::kOpPlayGroup || op == fnvcoop::kOpPlayIdle;
+#endif
+}
+std::string killByCmd(uint32_t killer) {
+    char b[48];
+#ifdef NVHOOKS_MUTANT
+    std::snprintf(b, sizeof b, "%s %08X", "Kill", killer);   // mutant: the short name does not take a killer
+#else
+    std::snprintf(b, sizeof b, "%s %08X", kKill, killer);
+#endif
+    return b;
+}
 std::string resurrectCmd(bool reset) { return std::string("ResurrectActor ") + (reset ? "1" : "0"); }
 std::string moveToMarkerCmd(uint32_t marker, float x, float y, float z) {
     char b[120];

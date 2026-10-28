@@ -96,6 +96,9 @@ public:
     virtual bool setEssential(RefId ref, bool on) = 0;                      // the REFERENCE-level essential flag
     virtual bool forceAv(RefId ref, uint8_t av, float value) = 0;           // set the current value
     virtual bool killActor(RefId ref) = 0;
+    // G04: the kill of a copy that a REMOTE player's shot caused, attributed to that player's puppet (`killer`), so the engine stores it as the killer before OnDeath and
+    // `IsKiller player` comes out true for that player. Default (an engine without attribution): the plain kill.
+    virtual bool killActorBy(RefId ref, RefId /*killer*/) { return killActor(ref); }
     virtual bool resurrect(RefId ref) = 0;
     virtual bool setDisabled(RefId ref, bool disabled) = 0;
     virtual bool markForDelete(RefId ref) = 0;
@@ -129,6 +132,8 @@ public:
     virtual RefId placeAtMe(RefId anchor, uint32_t baseId) = 0;
     // Runs one console line with `on` as the calling reference (0 = none). true = the engine ran it.
     virtual bool console(const std::string& line, RefId on) = 0;
+    // `KillActor <killer>` on `victim` with the sync layer's own gate scope (nvhooks::killWithAttribution). false = unavailable here (the caller falls back to the plain kill).
+    virtual bool killWithAttribution(RefId /*victim*/, RefId /*killer*/) { return false; }
     // Direct pose write, if the host has one (TODO-RE: no verified address, the real host returns false). Lets a later RE result replace
     // the 3-line SetPos without touching the port.
     virtual bool directPose(RefId ref, const live::Vec3& p, uint8_t axisMask) { (void)ref; (void)p; (void)axisMask; return false; }

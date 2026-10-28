@@ -124,6 +124,7 @@ bool CallThis2(uint32_t fn, uint32_t self, uint32_t arg, int32_t* out) {
     }
 }
 
+constexpr uint8_t kTypeCell = 0x39;   // TESObjectCELL (xNVSE kFormType_TESObjectCELL)
 constexpr uint8_t kTypeCont = 0x1B, kTypeLevItem = 0x34, kTypeListForm = 0x55, kTypeRefr = 0x3A, kTypeNpcRef = 0x3B, kTypeCreatureRef = 0x3C;
 bool IsInventoryType(uint8_t t) {
     switch (t) {
@@ -343,6 +344,62 @@ void RealLootEngine::loadedContainers(std::vector<NetId>& out, size_t max) {
         if (formAddr(it->second)) { out.push_back(it->first); ++it; }
         else it = refOfNet_.erase(it);
     }
+}
+
+// The object list of a cell (TESObjectCELL + 0xAC: a tList, the head node is {data, next}): every REFR whose base form is a CONT.
+static void containersOfCell(uint32_t cell, std::vector<RefId>& out, size_t max) {
+    uint32_t node = cell + 0xAC;
+    for (int guard = 0; node && guard < 30000 && out.size() < max; ++guard) {
+        uint32_t data = 0, next = 0;
+        if (!Rd32(node, &data) || !Rd32(node + 4, &next)) break;
+        node = next;
+        uint8_t type = 0, baseType = 0;
+        uint32_t base = 0, id = 0;
+        if (!data || !Rd8(data + 4, &type) || type != kTypeRefr) continue;
+        if (!Rd32(data + 0x20, &base) || !base || !Rd8(base + 4, &baseType) || baseType != kTypeCont) continue;
+        if (Rd32(data + 0x0C, &id) && id) out.push_back(id);
+    }
+}
+
+// The player's parent cell (player + 0x40).
+void RealLootEngine::nearbyContainers(std::vector<RefId>& out, size_t max) {
+    out.clear();
+    uint32_t player = 0, cell = 0;
+    if (!Rd32(0x11DEA3C, &player) || !player || !Rd32(player + 0x40, &cell) || !cell) return;
+    containersOfCell(cell, out, max);
+}
+
+// The cells of the player's worldspace the engine holds attached (TESWorldSpace + 0x30 cellMap, an NiTPointerMap: numBuckets @ +4, buckets @ +8, entries { next, key, data };
+// TESObjectCELL: cellState @ +0x26 (6 = attached), worldSpace @ +0xC0, refID @ +0x0C), the same walk plugin/avatar's LoadedCells does. An interior (no worldspace) has none.
+void RealLootEngine::nearbyCells(std::vector<lc::CellId>& out, size_t max) {
+    out.clear();
+    uint32_t player = 0, pcell = 0, ws = 0, map = 0, pid = 0;
+    if (!Rd32(0x11DEA3C, &player) || !player || !Rd32(player + 0x40, &pcell) || !pcell || !Rd32(pcell + 0x0C, &pid) || !pid) return;
+    out.push_back(pid);
+    if (!Rd32(pcell + 0xC0, &ws) || !ws || !Rd32(ws + 0x30, &map) || !map) return;
+    uint32_t nb = 0, buckets = 0;
+    if (!Rd32(map + 4, &nb) || !Rd32(map + 8, &buckets) || !buckets || nb == 0 || nb > 4096) return;
+    int seen = 0;
+    for (uint32_t b = 0; b < nb && seen < 4000 && out.size() < max; ++b) {
+        uint32_t e = 0;
+        if (!Rd32(buckets + 4u * b, &e)) continue;
+        for (int g = 0; e && g < 64 && out.size() < max; ++g, ++seen) {
+            uint32_t next = 0, data = 0, id = 0;
+            uint8_t type = 0, state = 0;
+            if (!Rd32(e, &next) || !Rd32(e + 8, &data)) break;
+            e = next;
+            if (!data || data == pcell || !Rd8(data + 4, &type) || type != kTypeCell || !Rd8(data + 0x26, &state) || state != 6) continue;   // attached cells only
+            if (Rd32(data + 0x0C, &id) && id) out.push_back(id);
+        }
+    }
+}
+
+void RealLootEngine::containersInCell(lc::CellId cellId, std::vector<RefId>& out, size_t max) {
+    out.clear();
+    const uint32_t cell = cellId ? formAddr(cellId) : 0;   // the resolver answers any form, a cell too
+    uint8_t type = 0;
+    if (!cell || !Rd8(cell + 4, &type) || type != kTypeCell) return;
+    containersOfCell(cell, out, max);
 }
 
 bool RealLootEngine::describeItem(RefId ref, ItemDesc& out) {

@@ -87,7 +87,7 @@ def package(work: Path, version: str = "1.0.0", dll: Optional[bytes] = None) -> 
     (inp / "consent.txt").write_text("# consent\n", encoding="utf-8")
     (inp / "volatile.txt").write_text("key\n", encoding="utf-8")
     (inp / "LICENSE").write_text("MIT test licence\n", encoding="utf-8")
-    for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json"):
+    for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json", "nvcoop_intents.json", "nvcoop_cause_quests.json", "nvcoop_pack_watch.json"):
         (inp / n).write_text("{}", encoding="utf-8")
     out = work / "zip"
     argv = ["build", "--version", version, "--dll", str(inp / "nvcoop.dll"), "--rules", str(inp / "rules.json"), "--consent", str(inp / "consent.txt"),

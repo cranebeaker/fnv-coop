@@ -101,10 +101,7 @@ void CoreOnMessage(uint32_t type, void* data, uint32_t len) {
         if (m.onMessage) m.onMessage(type, data, len);
 }
 
-void CoreOnFrame() {
-    for (auto& m : nvcoop::registry::Modules())
-        if (m.onFrame) m.onFrame();
-}
+void CoreOnFrame() { nvcoop::RunFrameCallbacks(nvcoop::registry::Modules()); }   // frameOrder: the co-op session runs after the capture modules (nvcoop_api.h)
 
 int CoreBeforeUnload() {
 #ifdef NVCORE_HAVE_RELOAD_REGISTRY

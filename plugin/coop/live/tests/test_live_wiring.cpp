@@ -2,8 +2,10 @@
 // three machines, and the avatar wire codec. Game-free. Built once with FNVCOOP_RUNTIME_MUT; run once for real and once per mutation
 // twin (FNVCOOP_MUT=<n>, tools/mut/run_twins.py) - every twin MUST make this binary fail.
 //   1..4   switches        11..23 hub        31..33 wire        41..51 avatar net        61..64 [actors] ini
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <new>
@@ -583,6 +585,83 @@ TEST(wire_look_roundtrip_and_truncation) {
     CHECK(true);
 }
 
+TEST(wire_facts_roundtrip_and_truncation) {
+    AvFacts f;
+    f.slot = 2;
+    f.facts.level = 31;
+    f.facts.sitting = 2;
+    f.facts.actions = (1u << 9) | 1u;
+    f.facts.regions = {0x00ABCD, 0x04001234};
+    AvBytes b = encodeFacts(f);
+    AvFacts o;
+    CHECK(decodeFacts(b.data(), b.size(), o) && o == f);
+    for (size_t n = 0; n < b.size(); ++n) CHECK(!decodeFacts(b.data(), n, o));        // every truncation is rejected as a whole
+    AvBytes more = b;
+    more.push_back(0);
+    CHECK(!decodeFacts(more.data(), more.size(), o));                                   // trailing bytes too
+    AvFacts big = f;
+    big.facts.regions.assign(av::kMaxFactRegions + 1, 7);
+    AvBytes bb = encodeFacts(big);                                                      // the encoder cuts the list
+    CHECK(decodeFacts(bb.data(), bb.size(), o) && o.facts.regions.size() == av::kMaxFactRegions);
+    AvBytes forged = b;
+    forged[2 + 1 + 1 + 2 + 1 + 4] = 17;                                                 // a region count above the cap
+    forged.resize(12 + 4 * 17);
+    CHECK(!decodeFacts(forged.data(), forged.size(), o));
+    AvBytes badslot = b;
+    badslot[3] = 9;                                                                     // not a slot
+    CHECK(!decodeFacts(badslot.data(), badslot.size(), o));
+}
+
+TEST(wire_pack_roundtrip_and_truncation) {
+    AvPack p;
+    p.slot = 2;
+    p.pack.watchId = 0xC0FFEE11u;
+    p.pack.haveWeight = true;
+    p.pack.weightMilli = 75960;
+    p.pack.items = {{0x0093C4, 1}, {0x00A84A, 3}, {0x04F85D, 12}};
+    AvBytes b = encodePack(p);
+    AvPack o;
+    CHECK(decodePack(b.data(), b.size(), o) && o == p);
+    for (size_t n = 0; n < b.size(); ++n) CHECK(!decodePack(b.data(), n, o));        // every truncation is rejected as a whole
+    AvBytes more = b;
+    more.push_back(0);
+    CHECK(!decodePack(more.data(), more.size(), o));                                   // trailing bytes too
+    AvPack noWeight = p;
+    noWeight.pack.haveWeight = false;
+    noWeight.pack.weightMilli = 0;
+    AvBytes nb = encodePack(noWeight);
+    CHECK(decodePack(nb.data(), nb.size(), o) && o == noWeight && !o.pack.haveWeight && nb.size() + 4 == b.size());
+    AvPack big;
+    big.slot = 1;
+    for (uint32_t i = 1; i <= av::kMaxPackItems + 5; ++i) big.pack.items.push_back({i, 1});
+    AvBytes bb = encodePack(big);                                                      // the encoder cuts the list
+    CHECK(decodePack(bb.data(), bb.size(), o) && o.pack.items.size() == av::kMaxPackItems);
+    const size_t nAt = 3 + 1 + 1 + 4;                                                  // [ch][kind][ver][slot][flags][watchId] then (no weight) n
+    AvBytes forged(bb.begin(), bb.begin() + nAt);                                      // a well-formed list of 256 entries: one above the cap
+    forged.push_back(0x00);
+    forged.push_back(0x01);
+    for (uint32_t i = 1; i <= 256; ++i) { forged.push_back(uint8_t(i)); forged.push_back(uint8_t(i >> 8)); forged.push_back(0); forged.push_back(0); forged.push_back(1); forged.push_back(0); forged.push_back(0); forged.push_back(0); }
+    CHECK(!decodePack(forged.data(), forged.size(), o));
+    AvBytes badslot = b;
+    badslot[3] = 9;                                                                    // not a slot
+    CHECK(!decodePack(badslot.data(), badslot.size(), o));
+    AvBytes badflags = b;
+    badflags[4] = 0x80;                                                                // a reserved flag
+    CHECK(!decodePack(badflags.data(), badflags.size(), o));
+    AvPack zero = p;
+    zero.pack.items[1].count = 0;                                                      // only counts above zero travel
+    AvBytes zb = encodePack(zero);
+    CHECK(!decodePack(zb.data(), zb.size(), o));
+    AvPack unsorted = p;
+    std::swap(unsorted.pack.items[0], unsorted.pack.items[2]);                         // sorted by form
+    AvBytes ub = encodePack(unsorted);
+    CHECK(!decodePack(ub.data(), ub.size(), o));
+    AvPack twice = p;
+    twice.pack.items[1].form = twice.pack.items[0].form;                               // no form twice
+    AvBytes tb = encodePack(twice);
+    CHECK(!decodePack(tb.data(), tb.size(), o));
+}
+
 TEST(wire_player_net_ids) {
     for (uint8_t s = 0; s < 8; ++s) {
         CHECK(isPlayerNetId(playerNetId(s)));
@@ -842,6 +921,143 @@ TEST(avatars_look_and_equipment_travel) {
     CHECK(f && f->worn.count(0x2001) == 1 && f->worn.count(0x2000) == 0);
 }
 
+// W3a item 3: what a guest's snapshot does not carry reaches the host, on change, from the guest alone.
+TEST(avatars_facts_travel_to_the_host_on_change_and_only_from_the_guest_itself) {
+    Rig3 r;
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    a.be.Player().level = 12;
+    a.be.Player().sitState = 2;
+    a.be.Player().actions = {9};
+    a.be.playerRegions = {0x1111, 0x2222};
+    b.be.Player().level = 40;
+    r.run(4000);
+    const av::PlayerFacts* fa = r.host().an->factsOf(1);
+    const av::PlayerFacts* fb = r.host().an->factsOf(2);
+    CHECK(fa && fa->level == 12 && fa->sitting == 2 && fa->actions == (1u << 9) && fa->regions.size() == 2 && fa->regions[0] == 0x1111);
+    CHECK(fb && fb->level == 40 && fb->sitting == 0 && fb->regions.empty());
+    CHECK(r.host().an->factsOf(0) == nullptr && a.an->factsOf(2) == nullptr);   // the host's own player is read by the conditions; guests do not hear each other's
+    const uint64_t sent = a.an->stats().factsSent;
+    r.run(4000);
+    CHECK(a.an->stats().factsSent == sent);                                      // unchanged facts are not re-sent
+    a.be.Player().level = 13;
+    a.be.Player().actions = {};
+    a.be.playerRegions = {0x2222};
+    r.run(2500);
+    fa = r.host().an->factsOf(1);
+    CHECK(fa && fa->level == 13 && fa->actions == 0 && fa->regions.size() == 1 && fa->regions[0] == 0x2222);
+    CHECK(a.an->stats().factsSent == sent + 1);
+    // client A claims to be B: the host drops it
+    AvFacts evil;
+    evil.slot = 2;
+    evil.facts.level = 99;
+    a.mux->sendEx(0, encodeFacts(evil), fnvcoop::ITransport::Channel::Reliable);
+    r.run(300);
+    CHECK(r.host().an->stats().factsRejected >= 1);
+    CHECK(r.host().an->factsOf(2) && r.host().an->factsOf(2)->level == 40);
+    // a player who leaves takes its facts with it
+    a.present = false;
+    r.run(1500);
+    CHECK(r.host().an->factsOf(1) == nullptr);
+}
+
+// Guest pack facts: the weight and the counts of the watched item forms reach the host, on change, rate limited, from the guest alone.
+namespace {
+constexpr uint32_t kTotem = 0x00A84A, kRoot = 0x0093C4, kLunch = 0x00F85D, kJunk = 0x00BEEF, kUnwatched = 0x00C0DE;
+void watchThese(Node& n, std::vector<uint32_t> forms) { n.an->setPackWatch([forms] { return forms; }); }
+}  // namespace
+TEST(avatars_pack_travels_to_the_host_on_change_rate_limited_and_only_from_the_guest_itself) {
+    Rig3 r;
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    for (Node* n : {&r.host(), &a, &b}) watchThese(*n, {kTotem, kRoot, kLunch, kJunk});
+    a.be.Player().inv[kTotem] = 3;
+    a.be.Player().inv[kRoot] = 1;
+    a.be.Player().inv[kUnwatched] = 9;
+    a.be.Player().inventoryWeight = 75.96;
+    b.be.Player().inv[kLunch] = 2;
+    b.be.Player().inventoryWeight = 12.5;
+    r.run(4000);
+    int64_t n = -1;
+    double w = -1;
+    CHECK(r.host().an->packCount(1, kTotem, &n) && n == 3);
+    CHECK(r.host().an->packCount(1, kRoot, &n) && n == 1);
+    CHECK(r.host().an->packCount(1, kLunch, &n) && n == 0);                       // watched and not carried: a zero
+    CHECK(!r.host().an->packCount(1, kUnwatched, &n));                            // not on the list: unknown, the caller keeps its old answer
+    CHECK(r.host().an->packWeight(1, &w) && std::abs(w - 75.96) < 0.0006);       // the Jed gate's 76: a pack of 75.96 is below it
+    CHECK(r.host().an->packCount(2, kLunch, &n) && n == 2 && r.host().an->packWeight(2, &w) && w == 12.5);
+    CHECK(!r.host().an->packCount(0, kTotem, &n) && !r.host().an->packWeight(0, &w));   // the host's own pack is read by the conditions
+    CHECK(a.an->packOf(2) == nullptr && b.an->packOf(1) == nullptr);              // guests do not hear each other's
+    const uint64_t sent = a.an->stats().packsSent;
+    CHECK(sent >= 1);
+    r.run(4000);
+    CHECK(a.an->stats().packsSent == sent);                                       // an unchanged pack is not re-sent
+    // a burst of changes inside the minimum gap is one or two messages, not one per change
+    a.be.Player().inv[kTotem] = 2;
+    r.run(700);
+    a.be.Player().inv[kTotem] = 1;
+    r.run(100);
+    a.be.Player().inv.erase(kTotem);
+    a.be.Player().inventoryWeight = 70.0;
+    r.run(100);
+    a.be.Player().inv[kLunch] = 4;
+    r.run(2500);
+    CHECK(r.host().an->packCount(1, kTotem, &n) && n == 0 && r.host().an->packCount(1, kLunch, &n) && n == 4);
+    CHECK(r.host().an->packWeight(1, &w) && w == 70.0);
+    CHECK(a.an->stats().packsSent >= sent + 1 && a.an->stats().packsSent <= sent + 2);   // 4 changes in 0.9 s ride in one or two messages
+    // client A claims to be B: the host drops it
+    AvPack evil;
+    evil.slot = 2;
+    evil.pack.items = {{kLunch, 99}};
+    a.mux->sendEx(0, encodePack(evil), fnvcoop::ITransport::Channel::Reliable);
+    r.run(300);
+    CHECK(r.host().an->stats().packsRejected >= 1);
+    CHECK(r.host().an->packCount(2, kLunch, &n) && n == 2);
+    // a pack sent to a client (a host never does) is ignored
+    AvPack toClient;
+    toClient.slot = 1;
+    toClient.pack.items = {{kLunch, 5}};
+    r.host().mux->sendEx(1, encodePack(toClient), fnvcoop::ITransport::Channel::Reliable);
+    r.run(300);
+    CHECK(a.an->stats().packsRejected >= 1 && a.an->packOf(1) == nullptr);
+    // a player who leaves takes the pack with him
+    a.present = false;
+    r.run(1500);
+    CHECK(r.host().an->packOf(1) == nullptr);
+}
+
+TEST(avatars_pack_zero_is_trusted_only_for_the_same_watch_list) {
+    Rig3 r;
+    Node& a = r.addClient(1);
+    watchThese(a, {kTotem, kRoot});
+    watchThese(r.host(), {kTotem, kRoot, kLunch});     // another release: the host watches one form more
+    a.be.Player().inv[kTotem] = 1;
+    r.run(3000);
+    int64_t n = -1;
+    CHECK(r.host().an->packCount(1, kTotem, &n) && n == 1);       // a listed count is a count
+    CHECK(!r.host().an->packCount(1, kRoot, &n));                  // a zero from another list is not a zero
+    CHECK(!r.host().an->packCount(1, kLunch, &n));
+    watchThese(r.host(), {kTotem, kRoot});                         // the same list: the zero counts again
+    CHECK(r.host().an->packCount(1, kRoot, &n) && n == 0);
+    CHECK(!r.host().an->packCount(1, kLunch, &n));
+}
+
+TEST(avatars_pack_is_unknown_before_it_arrives_and_an_unreadable_player_sends_nothing) {
+    Rig3 r;
+    Node& a = r.addClient(1);
+    watchThese(r.host(), {kTotem});
+    watchThese(a, {kTotem});
+    a.be.Player().exists = false;
+    r.run(1500);
+    int64_t n = -1;
+    double w = -1;
+    CHECK(!r.host().an->packCount(1, kTotem, &n) && !r.host().an->packWeight(1, &w) && a.an->stats().packsSent == 0);
+    a.be.Player().exists = true;
+    a.be.Player().inv[kTotem] = 1;
+    r.run(2500);
+    CHECK(r.host().an->packCount(1, kTotem, &n) && n == 1);
+}
+
 TEST(avatars_unreadable_local_player_sends_nothing) {
     Rig3 r;
     Node& a = r.addClient(1);
@@ -944,6 +1160,141 @@ TEST(avatars_ghost_ref_map) {
     CHECK(j.find("\"slot\":1") != std::string::npos);
 }
 
+// A teleport (the lab's spawn room: "the client's puppet arrives 650 to 2700 ms late, catching up from 773 units away"). The players stand far apart, so each stream
+// to the other runs at the far tier (5 Hz); then they jump next to each other. The first snapshot after the jump must leave at once (a jump is not held for the rate)
+// and the puppet must snap to it, not glide.
+static uint64_t arrivalAfterTeleport(Rig3& r, Node& viewer, PlayerId of, Node& target, float x, float tol, uint64_t limitMs) {
+    const uint64_t t0 = r.n.now;
+    while (r.n.now - t0 < limitMs) {
+        r.step(16);
+        bool ok = false;
+        const float px = xOfPuppet(viewer, of, &ok);
+        if (ok && std::abs(px - x) < tol) return r.n.now - t0;
+    }
+    (void)target;
+    return limitMs;
+}
+
+static void quickLink(Rig3& r) {
+    fnvcoop::LinkParams lp;
+    lp.minLatencyMs = 3;
+    lp.maxLatencyMs = 6;   // a LAN: the time to arrive is then the stream's own holds and the buffer, not the link
+    r.n.net.setLink(lp);
+}
+
+TEST(avatars_teleport_arrives_at_once) {
+    Rig3 r;
+    quickLink(r);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    h.be.Player().pos = {0, 0, 0};
+    a.be.Player().pos = {9000, 0, 0};
+    r.run(5000);
+    bool ok = false;
+    CHECK(std::abs(xOfPuppet(a, 0, &ok) - 0.0f) < 100.0f && ok);       // steady state: each sees the other where he is
+    h.be.Player().pos = {8800, 0, 0};                                   // both jump next to each other, at the same moment
+    a.be.Player().pos = {9200, 0, 0};
+    const uint64_t t0 = r.n.now;
+    uint64_t hostSeesClient = 0, clientSeesHost = 0;
+    while (r.n.now - t0 < 4000 && (!hostSeesClient || !clientSeesHost)) {
+        r.step(16);
+        const float cx = xOfPuppet(h, 1, &ok);
+        if (!hostSeesClient && ok && std::abs(cx - 9200.0f) < 100.0f) hostSeesClient = r.n.now - t0;
+        const float hx = xOfPuppet(a, 0, &ok);
+        if (std::getenv("TP_TRACE")) {
+            const auto* d = a.rt->InterpOf(0);
+            const auto* d2 = h.rt->InterpOf(1);
+            std::printf("      t=%llu hostPuppetAtClient=%.0f delay=%.0f want=%.0f | clientPuppetAtHost=%.0f delay=%.0f want=%.0f pushes=%llu\n", (unsigned long long)(r.n.now - t0), hx,
+                        d ? d->delayInUse.last : -1.0, d ? d->wantDelayMs : 0.0, cx, d2 ? d2->delayInUse.last : -1.0, d2 ? d2->wantDelayMs : 0.0, d2 ? (unsigned long long)d2->pushes : 0ull);
+        }
+        if (!clientSeesHost && ok && std::abs(hx - 8800.0f) < 100.0f) clientSeesHost = r.n.now - t0;
+    }
+    std::printf("    teleport: host sees the client after %llu ms, the client sees the host after %llu ms\n", (unsigned long long)hostSeesClient, (unsigned long long)clientSeesHost);
+    CHECK(hostSeesClient > 0 && hostSeesClient <= 400);
+    CHECK(clientSeesHost > 0 && clientSeesHost <= 400);
+}
+
+TEST(avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet) {
+    // only the host jumps (next to the client); the client has not moved, so for 1 s nobody has told the host that the client is near. The far tier sends a snapshot
+    // every 200 ms, so a jump that waited for its turn would show up to 200 ms late: the jump is tried at eight phases of that period, the worst counts.
+    uint64_t worst = 0;
+    for (int phase = 0; phase < 8; ++phase) {
+        Rig3 r;
+        quickLink(r);
+        Node& h = r.host();
+        Node& a = r.addClient(1);
+        h.be.Player().pos = {0, 0, 0};
+        a.be.Player().pos = {9000, 0, 0};
+        r.run(5000);
+        for (int k = 0; k < phase * 2; ++k) r.step(16);
+        h.be.Player().pos = {8700, 0, 0};
+        worst = std::max(worst, arrivalAfterTeleport(r, a, 0, h, 8700.0f, 100.0f, 4000));
+    }
+    std::printf("    teleport: the client sees the host after at most %llu ms\n", (unsigned long long)worst);
+    CHECK(worst <= 130);
+}
+
+// The rate planner sends a jump (another cell, or further than jumpUnits from the last snapshot sent on the link) at once, whatever the tier's period says, and a
+// walk step still waits for its turn. The network service's planner is built with that rule on.
+TEST(avatars_the_rate_planner_sends_a_jump_at_once) {
+    av::StreamRatePlanner p(av::StreamRateConfig{});
+    live::ActorSnapshot a, out;
+    a.cell = kCell;
+    a.pos = {0, 0, 0};
+    p.setPlace(0, kCell, a.pos);
+    p.setPlace(1, kCell, {9000, 0, 0});                                // far tier: one snapshot per 200 ms
+    CHECK(p.offer(1, 0, a, 1000, out));                                // the first goes
+    a.pos = {20, 0, 0};
+    CHECK(!p.offer(1, 0, a, 1033, out));                               // a walk step 33 ms later waits for its turn
+    a.pos = {8700, 0, 0};
+    p.setPlace(0, kCell, a.pos);
+    CHECK(p.offer(1, 0, a, 1066, out) && out.pos.x == 8700.0f);        // a jump does not
+    a.cell = kCell + 1;
+    CHECK(p.offer(1, 0, a, 1099, out) && out.cell == kCell + 1);       // nor does a new cell
+    Node c(1, 1, false, nullptr);
+    CHECK(c.an->ratePlanner().config().jumpUnits > 0.0f);              // and the service's planner has the rule on
+}
+
+// A snapshot of the host that reaches a joining client before the roster that names the host: the client's receiver acks it (so the host's sender stops: a standing
+// player sends only a heartbeat a second), and the roster creates the puppet a moment later. The puppet must get that snapshot, not wait for the heartbeat.
+struct NullLink : ILiveLink {
+    bool send(PlayerId, bool, Bytes) override { return true; }
+    bool isHost() const override { return false; }
+    PlayerId self() const override { return 1; }
+};
+
+TEST(avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet) {
+    Node c(1, 1, false, nullptr);
+    NullLink link;
+    SessionInfo info;
+    info.isHost = false;
+    info.self = 1;
+    c.an->sessionBegin(info, link);
+    c.an->hostLinkUp();
+    live::SnapshotSender hostSender;
+    live::ActorSnapshot s;
+    s.netId = playerNetId(0);
+    s.ownerEpoch = 1;
+    s.seq = 1;
+    s.tick = 5000;
+    s.cell = kCell;
+    s.pos = {2932.0f, -6048.0f, 7040.0f};
+    hostSender.queue(1, s, 5000);
+    Bytes dg;
+    for (Bytes& d : hostSender.flush(1, 5000)) {
+        dg.push_back(kChannelAvatars);
+        dg.insert(dg.end(), d.begin(), d.end());
+    }
+    c.an->tick(5010);
+    c.an->receive(kHostPlayer, dg.data(), dg.size());                  // before the roster
+    CHECK(c.an->stats().noRoster == 1 && c.rt->remoteSnapshots() == 0);
+    Bytes roster = encodeRoster({kHostPlayer, 1});
+    c.an->receive(kHostPlayer, roster.data(), roster.size());          // the roster names the host: the puppet is made
+    CHECK(c.an->roster().count(kHostPlayer) == 1);
+    CHECK(c.rt->remoteSnapshots() == 1);                               // and it already has the place the host's snapshot gave
+    c.an->sessionEnd();
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     run("switches_default_off", switches_default_off);
@@ -967,6 +1318,8 @@ int main() {
 #endif
     run("wire_roster_roundtrip_and_truncation", wire_roster_roundtrip_and_truncation);
     run("wire_look_roundtrip_and_truncation", wire_look_roundtrip_and_truncation);
+    run("wire_facts_roundtrip_and_truncation", wire_facts_roundtrip_and_truncation);
+    run("wire_pack_roundtrip_and_truncation", wire_pack_roundtrip_and_truncation);
     run("wire_player_net_ids", wire_player_net_ids);
     run("avatars_three_machines_see_each_other", avatars_three_machines_see_each_other);
     run("avatars_never_a_puppet_of_oneself", avatars_never_a_puppet_of_oneself);
@@ -974,12 +1327,20 @@ int main() {
     run("avatars_rejoin_follows_again", avatars_rejoin_follows_again);
     run("avatars_forged_stream_is_rejected_at_the_host", avatars_forged_stream_is_rejected_at_the_host);
     run("avatars_look_and_equipment_travel", avatars_look_and_equipment_travel);
+    run("avatars_facts_travel_to_the_host_on_change_and_only_from_the_guest_itself", avatars_facts_travel_to_the_host_on_change_and_only_from_the_guest_itself);
+    run("avatars_pack_travels_to_the_host_on_change_rate_limited_and_only_from_the_guest_itself", avatars_pack_travels_to_the_host_on_change_rate_limited_and_only_from_the_guest_itself);
+    run("avatars_pack_zero_is_trusted_only_for_the_same_watch_list", avatars_pack_zero_is_trusted_only_for_the_same_watch_list);
+    run("avatars_pack_is_unknown_before_it_arrives_and_an_unreadable_player_sends_nothing", avatars_pack_is_unknown_before_it_arrives_and_an_unreadable_player_sends_nothing);
     run("avatars_unreadable_local_player_sends_nothing", avatars_unreadable_local_player_sends_nothing);
     run("avatars_pose_sink_reports_remote_players", avatars_pose_sink_reports_remote_players);
     run("avatars_load_purges_orphans_without_a_session", avatars_load_purges_orphans_without_a_session);
     run("avatars_load_inside_a_session_drops_and_respawns", avatars_load_inside_a_session_drops_and_respawns);
     run("avatars_session_end_takes_puppets_down", avatars_session_end_takes_puppets_down);
     run("avatars_ghost_ref_map", avatars_ghost_ref_map);
+    run("avatars_the_rate_planner_sends_a_jump_at_once", avatars_the_rate_planner_sends_a_jump_at_once);
+    run("avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet", avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet);
+    run("avatars_teleport_arrives_at_once", avatars_teleport_arrives_at_once);
+    run("avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet", avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

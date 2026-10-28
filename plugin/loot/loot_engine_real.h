@@ -31,6 +31,9 @@ public:
     bool testGrab(RefId container, uint32_t itemId, int32_t count, bool remove, bool add, std::string* why);
     void notify(lc::Notice n, NetId id) override;
     void loadedContainers(std::vector<NetId>& out, size_t max) override;
+    void nearbyContainers(std::vector<RefId>& out, size_t max) override;
+    void nearbyCells(std::vector<lc::CellId>& out, size_t max) override;
+    void containersInCell(lc::CellId cell, std::vector<RefId>& out, size_t max) override;
     bool describeItem(RefId ref, ItemDesc& out) override;
     RefId createItem(const lc::WorldItem& it) override;
     void bindItem(RefId ref, NetId net) override;

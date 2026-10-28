@@ -507,6 +507,20 @@ TEST(plan_ownership) {
     CHECK(p.status == PlanStatus::FormMissing);
 }
 
+TEST(console_steps_are_scripts_and_run_outside_the_script_gate) {
+    // lab run 2026-10-27: WorldApplier::applyAny held a ScriptGate around run(); the gate answers every Script::Execute with "pretend it ran" and a console line
+    // is a script, so an ObjectState (the world-time poll's native door change, a client's heal) never changed anything on the client (status Ok, door unchanged)
+    CHECK(stepRunsScripts(StepKind::ConsoleOnRef) && stepRunsScripts(StepKind::ConsoleGlobal));
+    CHECK(!stepRunsScripts(StepKind::CreateSpawn) && !stepRunsScripts(StepKind::SetRefVar) && !stepRunsScripts(StepKind::AdvanceClock));
+    PlanFx f;
+    fnvcoop::ObjectState os;
+    os.ref = esm(0x500);
+    os.mask = fnvcoop::kObjOpen;
+    os.open = true;
+    auto p = planEffect(os, f.env);
+    CHECK(p.steps.size() == 1 && stepRunsScripts(p.steps[0].kind));   // every step the ObjectState plan has is a console line: none of it may run gated
+}
+
 TEST(plan_object_state_clock_and_scripted_saves) {
     PlanFx f;
     CHECK(handlesEffect(fnvcoop::ObjectState{}) && handlesEffect(fnvcoop::AdvanceTime{}) && handlesEffect(fnvcoop::RequestSave{}));
@@ -1275,6 +1289,7 @@ int main() {
     run("plan_new_world_effects", plan_new_world_effects);
     run("ownership_lines_json_log", ownership_lines_json_log);
     run("plan_ownership", plan_ownership);
+    run("console_steps_are_scripts_and_run_outside_the_script_gate", console_steps_are_scripts_and_run_outside_the_script_gate);
     run("plan_object_state_clock_and_scripted_saves", plan_object_state_clock_and_scripted_saves);
     run("owner_specs_match_the_static_dump", owner_specs_match_the_static_dump);
     run("created_targets", created_targets);

@@ -8,9 +8,12 @@
 //            transfer"; the module wires onActivate / onEvent into L5's observers.
 // A new mux (new session) re-registers everything; handlers of an old session stay inert (generation token).
 #pragma once
+#include <deque>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 
 #include "coop_runtime.h"
 #include "intents/intent_client.h"
@@ -30,7 +33,10 @@ struct ServiceDeps {
     std::function<bool(PlayerId slot, const FormRef& target)> allowActivation;                  // host: plugin/companions, false = refuse (HostDeps::allowActivation)
     std::function<void(PlayerId slot, bool pickup, const FormRef& target)> interacted;          // host: plugin/companions, a guest interaction ran (HostDeps::interacted)
     std::function<bool(PlayerId slot, const FormRef& quest, uint32_t stage)> allowStage;        // host: quest policy for a guest's SetStage (HostDeps::allowStage)
+    GuestStagePassFn guestStagePass;                                                           // host: a guest's SetStage on a Barrier stage is its pass (HostDeps::guestStagePass)
     std::function<void(PlayerId slot, const FormRef& quest, uint32_t stage, Result why)> stageRefused;   // host: a guest stage was refused / held / skipped (the module logs it)
+    const RetryList* retryList = nullptr;               // host: the scripts the stand-in retry is allowed for (HostDeps::retryList)
+    std::function<void(const std::string& line)> log;   // host: one line per refused intent and per dialogue result run / duplicate (HostDeps::log); optional
 };
 
 class IntentService {
@@ -65,7 +71,9 @@ public:
     // puppet as the acting player and returns the committed story seq (0 = nothing committed / refused). Installed on the Runtime at session begin
     // when [intents] dialogue_results=1, replacing coop_module's stub.
     uint64_t runDialogueResult(const fnvcoop_dlg::ResultRequest& rq);
-    struct DialogueStats { uint64_t ran = 0, committed = 0, unsupported = 0, failed = 0, refused = 0, asHost = 0; };
+    // deduped: a runner call for a (session, conversation, step, phase) that already ran (a retry, a resend, a second delivery): answered with the first run's
+    // txn seq and NOT run again (a result script gives its rewards once per pick).
+    struct DialogueStats { uint64_t ran = 0, committed = 0, unsupported = 0, failed = 0, refused = 0, asHost = 0, deduped = 0; };
     const DialogueStats& dialogueStats() const { return dlgStats_; }
 
 private:
@@ -86,6 +94,15 @@ private:
     std::unique_ptr<IntentClient> client_;
     std::set<PlayerId> joined_;
     DialogueStats dlgStats_;
+    struct DlgKey {
+        uint64_t session = 0;     // gen_ of the host session: conversation ids restart with the dialogue host
+        uint32_t conv = 0, step = 0;
+        uint8_t phase = 0;
+        bool operator<(const DlgKey& o) const { return std::tie(session, conv, step, phase) < std::tie(o.session, o.conv, o.step, o.phase); }
+    };
+    std::map<DlgKey, uint64_t> dlgDone_;     // runs of the result runner by key -> the txn seq it returned
+    std::deque<DlgKey> dlgOrder_;            // insertion order, to keep the table small
+    void dlgLog(const std::string& line) { if (deps_.log) deps_.log(line); }
 };
 
 // ---- SaveSuppress enforcement (internal lane notes "SaveSuppress enforcement (L5)") --------------------------------------------------------

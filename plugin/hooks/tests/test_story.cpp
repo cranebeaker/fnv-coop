@@ -14,6 +14,9 @@
 #include "../move_queue.h"
 #include "../ref_ops.h"
 #include "../said_once.h"
+#include "../guest_item.h"
+#include "../spectator_say.h"
+#include "../suppress_policy.h"
 #include "../story_addrs.h"
 #include "../story_animgroups.h"
 #include "common/minijson.h"
@@ -513,6 +516,51 @@ TEST(the_opcode_base_given_to_nvse_is_one_a_release_nvse_serializes) {
     CHECK(nvcoop::kNvseOpcodeBase == 0x7F10);                                  // saves written by an older build are keyed by it: it must not move
 }
 
+TEST(a_spectator_say_does_not_run_the_infos_result_scripts_a_second_time) {
+    // Story run S06 (2026-10-28): the engine's own run of INFO 10A1EB's Begin script for each response line the host played with `<npc>.Say` paid the reward again.
+    CHECK(isSayLine("Say 0010A1DC") && isSayLine("  say 10A1DC 1") && isSayLine("SAY	F") && isSayLine("Say 1"));
+    CHECK(!isSayLine("SayTo player 10A1DC") && !isSayLine("Say") && !isSayLine("") && !isSayLine(nullptr) && !isSayLine("player.AddItem F 5") && !isSayLine("Sayonara 1"));
+    SpectatorSayGate g;
+    const uint32_t sunny = 0x104E85, doc = 0x104E84;
+    CHECK(!g.blocks(sunny, false, 1000));                                       // nobody spoke: the engine's own dialogue runs its scripts as ever
+    g.arm(sunny, 1000);
+    CHECK(g.blocks(sunny, false, 1500) && g.blocks(sunny, false, 5000));         // each response line of the voice: skipped
+    CHECK(!g.blocks(sunny, true, 1500));                                        // the INFO result runner's window (an acting window is open): the one run that counts
+    CHECK(!g.blocks(doc, false, 1500));                                         // another speaker is not Sunny's voice
+    CHECK(g.blocks(0, false, 1500) && g.blocks(0x14, false, 1500));             // an unnamed speaker is covered while a voice is armed
+    CHECK(!g.blocks(sunny, false, 1000 + SpectatorSayGate::kWindowMs + 1));      // the window closes: Sunny's own later talk is hers again
+    g.arm(sunny, 20000);
+    g.arm(sunny, 25000);                                                        // a second line re-arms the same slot
+    CHECK(g.blocks(sunny, false, 25000 + SpectatorSayGate::kWindowMs - 1) && !g.blocks(sunny, false, 25000 + SpectatorSayGate::kWindowMs + 1));
+    g.clear();
+    CHECK(!g.blocks(sunny, false, 25001));
+    for (uint32_t n = 1; n <= 12; ++n) g.arm(0x1000 + n, 40000);                 // more NPCs than slots: the newest are kept, nothing breaks
+    CHECK(g.blocks(0x100C, false, 40001) && g.armedCount() >= 12 && g.blockedCount() > 0);
+}
+
+TEST(a_guest_with_no_puppet_is_still_a_guest_in_its_window_and_pays_not_the_host) {
+    ActingContext a;
+    CHECK(a.playerTargetOf(0x14).onHost && a.slot() == 0);               // nobody acts: the host's own player
+    a.push(0x14, 2);                                                      // guest 2's window with the host's player standing in (no puppet)
+    const ActingContext::PlayerTarget t = a.playerTargetOf(0x14);
+    CHECK(t.player && t.slot == 2 && !t.onHost);
+    CHECK(!planPlayerRemoveItem(true, !t.onHost, true, true).runEngine);  // the engine does not take the guest's payment from the host's player
+    CHECK(!planPlayerAddItem(true, !t.onHost, true, true, false).runEngine && planPlayerAddItem(true, !t.onHost, true, true, false).record);   // nor give the guest's reward to it
+    CHECK(planPlayerAddItem(true, !t.onHost, true, true, true).runEngine);   // a leveled list still goes through the engine (resolved items are read back)
+    CHECK(!planGuestReward(!t.onHost, true, true).runEngine && planGuestReward(!t.onHost, true, true).record);   // XP / karma / reputation of a guest: recorded, the host's player is not touched
+    CHECK(planGuestReward(false, true, true).runEngine && planGuestReward(true, false, true).runEngine);       // the host's own script, or no capture scope open: the engine as ever
+    a.push(0x14);                                                         // a nested window without a slot: the host again
+    CHECK(a.playerTargetOf(0x14).onHost && planPlayerRemoveItem(true, !a.playerTargetOf(0x14).onHost, true, true).runEngine && planPlayerAddItem(true, false, true, true, false).runEngine);
+    a.pop();
+    CHECK(a.playerTargetOf(0x14).slot == 2);
+    a.pop();
+    CHECK(a.playerTargetOf(0x14).onHost);
+    a.registerSlot(0x1234, 3);                                            // a guest with a puppet: found by the ghost table as before
+    a.push(0x1234);
+    CHECK(a.playerTargetOf(0x14).slot == 3 && !a.playerTargetOf(0x14).onHost);
+    a.pop();
+}
+
 int main() {
     run("spec_table_matches_the_wire_op_table", spec_table_matches_the_wire_op_table);
     run("story_address_table_is_sane", story_address_table_is_sane);
@@ -532,6 +580,8 @@ int main() {
     run("an_applier_without_its_own_executor_uses_the_process_wide_one", an_applier_without_its_own_executor_uses_the_process_wide_one);
     run("a_said_once_effect_sets_the_flag_byte_of_the_info", a_said_once_effect_sets_the_flag_byte_of_the_info);
     run("the_opcode_base_given_to_nvse_is_one_a_release_nvse_serializes", the_opcode_base_given_to_nvse_is_one_a_release_nvse_serializes);
+    run("a_spectator_say_does_not_run_the_infos_result_scripts_a_second_time", a_spectator_say_does_not_run_the_infos_result_scripts_a_second_time);
+    run("a_guest_with_no_puppet_is_still_a_guest_in_its_window_and_pays_not_the_host", a_guest_with_no_puppet_is_still_a_guest_in_its_window_and_pays_not_the_host);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

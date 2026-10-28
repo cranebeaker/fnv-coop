@@ -522,4 +522,107 @@ inline bool animExtMalformedRejected() {
     return true;
 }
 
+// ---- low-latency interpolation (the player avatar stream, InterpConfig::lowLatency; round of 2026-10-27) ------------------------------
+// A runner at 400 units/s along x, a snapshot every 33 ms (30 Hz), `latency` ms on the wire, the receiver frame every 16 ms.
+struct LLRun {
+    InterpBuffer ib;
+    uint32_t latency = 30;
+    uint32_t earlyK = 1000000, earlyLatency = 10;   // one snapshot that crosses the wire faster than the rest
+    uint32_t stopK = 1000000;                       // from this snapshot on the runner stands still (velocity 0)
+    uint32_t dropK = 1000000;                       // this snapshot is lost
+    uint32_t nextK = 0;
+    explicit LLRun(InterpConfig c = lowLatencyConfig()) : ib(c) {}
+    static InterpConfig lowLatencyConfig() { InterpConfig c; c.lowLatency = true; return c; }
+    static float xAt(uint32_t tick) { return (static_cast<float>(tick) - 1000.0f) * 0.4f; }
+    ActorSnapshot snap(uint32_t k) const {
+        const uint32_t kk = k < stopK ? k : stopK - 1;   // standing still: the position of the last moving snapshot
+        ActorSnapshot s = mk(21, 1, k + 1, 1000 + k * 33, xAt(1000 + kk * 33));
+        s.vel = k < stopK ? Vec3{400, 0, 0} : Vec3{0, 0, 0};
+        return s;
+    }
+    uint32_t arrival(uint32_t k) const { return 1000 + k * 33 + (k == earlyK ? earlyLatency : latency); }
+    // Pushes the snapshots that have arrived by `now` and samples; returns the shown x.
+    float frame(uint32_t now, uint32_t lastK = 1000000) {
+        while (nextK <= lastK && arrival(nextK) <= now) {
+            if (nextK != dropK) ib.push(snap(nextK), arrival(nextK));
+            ++nextK;
+        }
+        return ib.sample(now).pos.x;
+    }
+};
+
+// On a clean link the shown pose is a few tens of ms behind the runner, not the old 100 ms (40 units at this speed).
+inline bool llDelayFollowsJitter() {
+    LLRun r;
+    float worst = 0;
+    for (uint32_t now = 1000; now <= 4000; now += 16) {
+        float x = r.frame(now);
+        if (now >= 2500) worst = std::fmax(worst, LLRun::xAt(now - r.latency) - x);   // truth is the runner at the sender's "now"
+    }
+    return worst > 0.0f && worst <= 20.0f;
+}
+
+// The stream stops (outage): the dead reckoning is damped, so the pose settles at most v * tau (60 units) past the last snapshot instead of
+// running on to the 250 ms cap (100 units).
+inline bool llExtrapolationIsDamped() {
+    LLRun r;
+    const uint32_t lastK = 60;
+    float x = 0;
+    for (uint32_t now = 1000; now <= 1000 + lastK * 33 + r.latency + 1200; now += 16) x = r.frame(now, lastK);
+    const float past = x - LLRun::xAt(1000 + lastK * 33);
+    return past > 30.0f && past <= 61.0f;
+}
+
+// The runner stops dead and the snapshot that would have said so is lost: the pose ran on from the older ones, and when the next one arrives it
+// is faded back, not popped back in one step.
+inline bool llMissIsFaded() {
+    LLRun r;
+    r.stopK = 61;   // snapshot 60 is the last that moves
+    r.dropK = 61;
+    float prev = 0, back = 0;
+    for (uint32_t now = 1000; now <= 1000 + 90 * 33; now += 16) {
+        float x = r.frame(now, 90);
+        if (now > 2500) back = std::fmax(back, prev - x);   // the biggest step backwards
+        prev = x;
+    }
+    return back <= 5.0f && back > 0.0f;   // the miss is about 14 units; as one step it would show as 14
+}
+
+// One snapshot crosses the wire 30 ms faster than the rest: the offset filter takes it for the new minimum, and 16 snapshots later forgets it
+// again. The render clock must not follow that in one step (30 ms at this speed are 12 units).
+inline bool llClockIsSlewed() {
+    LLRun r;
+    r.latency = 40;
+    r.earlyK = 50;
+    float prev = 0, worst = 0;
+    for (uint32_t now = 1000; now <= 4500; now += 16) {
+        float x = r.frame(now);
+        if (now > 1500) worst = std::fmax(worst, std::fabs((x - prev) - 6.4f));
+        prev = x;
+    }
+    return worst <= 3.0f;
+}
+
+// A player stood still for 6 s (the stream is one heartbeat a second) and is then 450 units away (below the old 10 m snap, above 2 m): the first snapshot of the new
+// place must be on screen within a few frames of its time, as a jump. The old rules took the silence for a slow stream (350 ms of delay) and eased the 450 units
+// in with a 200 ms time constant.
+inline bool llTeleportAfterAStandIsAJump(float* arrivedMs = nullptr) {
+    InterpBuffer ib(LLRun::lowLatencyConfig());
+    uint32_t seq = 0;
+    for (uint32_t t = 1000; t <= 7000; t += 1000) ib.push(mk(21, 1, ++seq, t, 1000.0f), t + 10);   // the heartbeats
+    // the standing player jumps at 7450; the sender repeats the new place until it is acked (every 33 ms)
+    uint32_t next = 7450;
+    const uint32_t arrival = 7460;
+    uint32_t got = 0;
+    bool eased = false;
+    for (uint32_t now = 7000; now <= 7460 + 600; now += 16) {
+        while (next <= 7450 + 99 && next + 10 <= now) { ib.push(mk(21, 1, ++seq, next, 1450.0f), next + 10); next += 33; }
+        InterpOut o = ib.sample(now);
+        if (o.state == InterpState::Smoothing) eased = true;
+        if (!got && std::fabs(o.pos.x - 1450.0f) < 20.0f) got = now;
+    }
+    if (arrivedMs) *arrivedMs = got ? static_cast<float>(got) - arrival : 9999.0f;
+    return got && got - arrival <= 48 && !eased;
+}
+
 }  // namespace live_test

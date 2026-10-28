@@ -1,5 +1,13 @@
 #include "fnvcoop/protocol.h"
 
+#include <utility>
+
+#if defined(_MSC_VER)
+#define FNVCOOP_NOINLINE __declspec(noinline)
+#else
+#define FNVCOOP_NOINLINE __attribute__((noinline))
+#endif
+
 namespace fnvcoop {
 
 namespace {
@@ -180,17 +188,25 @@ void ioM(Archive& a, SyncRepair& m) {
 void ioM(Archive& a, DigestRequest& m) { a.varu32(m.session); a.varu32(m.epoch); }
 void ioM(Archive& a, IntentAck& m) { a.varu32(m.session); a.varu32(m.epoch); a.varu32(m.id); }
 
-template <size_t I = 0>
+// One alternative per function, picked by a flat fold: only the matching reader's frame is ever on the stack. The old self-recursive
+// readMsg<I> -> readMsg<I + 1> kept one ~1.4 KB frame per message type below the match (MSVC reserves the whole frame on entry), and a
+// client copy overflowed its stack decoding a late message type (Goodsprings story run S02, 2026-10-28: C0000005 on the first push after
+// `sub esp, 55Ch` in readMsg<1>, three dumps).
+template <size_t I>
+FNVCOOP_NOINLINE bool readOne(Archive& a, Message& out) {
+    std::variant_alternative_t<I, Message> m{};
+    ioM(a, m);
+    out = std::move(m);
+    return a.ok();
+}
+template <size_t... I>
+bool readMsgIn(Archive& a, uint8_t type, Message& out, std::index_sequence<I...>) {
+    bool ok = false, hit = false;
+    ((type == I + 1 ? (hit = true, ok = readOne<I>(a, out), true) : false) || ...);
+    return hit && ok;
+}
 bool readMsg(Archive& a, uint8_t type, Message& out) {
-    if constexpr (I == std::variant_size_v<Message>) {
-        return false;
-    } else {
-        if (type != I + 1) return readMsg<I + 1>(a, type, out);
-        std::variant_alternative_t<I, Message> m{};
-        ioM(a, m);
-        out = std::move(m);
-        return a.ok();
-    }
+    return readMsgIn(a, type, out, std::make_index_sequence<std::variant_size_v<Message>>{});
 }
 }  // namespace
 

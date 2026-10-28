@@ -71,6 +71,7 @@ struct OwnershipFaults {
     bool noHysteresis = false;      // ownership flaps with distance
     bool followerIgnored = false;   // companions are owned by whoever is nearest
     bool acceptNonOwner = false;    // views accept updates from any player
+    bool commitToGoneOwner = false; // commitNothingToHandOver also commits to a new owner that is not connected any more
 };
 inline OwnershipFaults& ownershipFaults() { static OwnershipFaults f; return f; }
 struct OwnershipFaultScope {
@@ -80,7 +81,7 @@ struct OwnershipFaultScope {
 };
 
 struct OwnershipStats {
-    uint64_t grants = 0, transfers = 0, commits = 0, releases = 0, forcedCommits = 0, abortedHandoffs = 0;
+    uint64_t grants = 0, transfers = 0, commits = 0, releases = 0, forcedCommits = 0, abortedHandoffs = 0, immediateCommits = 0;
 };
 
 // The pure owner-choice rule (exposed for tests). `current` is kNoPlayer if unowned; `held` is true while
@@ -111,6 +112,9 @@ public:
     bool onAck(const OwnMsg& ack, PlayerId from, uint32_t nowMs, Out& out);
     // Drives handoff timeouts. Call once per host tick.
     void tick(uint32_t nowMs, Out& out);
+    // The old owner (the host itself) has no last state to hand over, so there is nothing for the new owner to acknowledge: commit the pending handoff now instead of
+    // after handoffTimeoutMs. false = nothing pending for this actor (or its new owner is gone: the timeout path aborts it).
+    bool commitNothingToHandOver(ActorNetId id, uint32_t nowMs, Out& out);
 
     // Current assignment as Grant messages (join / rejoin / resync). Pending handoffs report their old owner.
     void snapshot(Out& out) const;

@@ -6,6 +6,15 @@
 //   [kChannelAvatars][0x43][ver=2][slot][flags][race][hair][eyes][face][hairColor?][height,weight?][faceCoeffs?][name][equip + mods]
 //                                               Look v2: the same message with body data (height / weight / hair colour), FaceGen coefficients and the
 //                                               weapon modification flags of the held weapon. encodeLook always writes this one.
+//   [kChannelAvatars][0x44][ver=1][slot][level u16][sitting u8][actions u32][n u8][region u32 * n]
+//                                               Facts  : client -> host ONLY, reliable, on change (W3a item 3). What a host-run condition asks about the guest that no snapshot
+//                                               carries: GetLevel, GetSitting, IsPlayerActionActive (bit n = action id n, 0..31), IsPlayerInRegion (the region forms the player is in).
+//                                               Sex, worn items and sneaking are already in Look / the snapshot.
+//   [kChannelAvatars][0x45][ver=1][slot][flags u8][watchId u32][weight u32 if flags&1][n u16][(form u32, count i32) * n]
+//                                               Pack   : client -> host ONLY, reliable, on change and at most once per packMinGapMs (guest pack facts). What a guest carries that
+//                                               the host cannot see on a puppet: the InventoryWeight actor value (thousandths) and the counts of the WATCHED item forms (only counts above zero;
+//                                               the watch list is nvcoop_pack_watch.json, generated from the rules and the quest conditions; watchId identifies it, so the host reads an absent form as
+//                                               "zero" only when its own list has the same id). GetItemCount / GetActorValue InventoryWeight / PooledItems of a guest are answered from it.
 //   [kChannelAvatars][0x42]                     Resync : client -> host, reliable. Answered with the Roster and every known Look for that client.
 //
 // Roster and Look are decoded defensively: a truncated or oversized message is rejected as a whole, never half applied.
@@ -21,7 +30,11 @@ namespace nvcoop::livewire {
 constexpr uint8_t kChannelAvatars = 0xAD;   // 0xAC actors, 0xFC story, 0xD1 dialogue, 0xE5 slides
 constexpr uint8_t kAvKindRoster = 0x40;
 constexpr uint8_t kAvKindLook = 0x41;
-constexpr uint8_t kAvKindLook2 = 0x43;    // Look v2 (kAvatarWireVersion = 2 inside the message); 0x44 and up are free
+constexpr uint8_t kAvKindLook2 = 0x43;    // Look v2 (kAvatarWireVersion = 2 inside the message)
+constexpr uint8_t kAvKindFacts = 0x44;    // Facts (kAvFactsVersion inside the message); 0x45 and up are free
+constexpr uint8_t kAvFactsVersion = 1;
+constexpr uint8_t kAvKindPack = 0x45;     // Pack (kAvPackVersion inside the message)
+constexpr uint8_t kAvPackVersion = 1;
 constexpr uint8_t kAvatarWireVersion = 2;
 constexpr uint8_t kAvKindResync = 0x42;   // client -> host, reliable: "my host link came back, send me the roster and every look again" (2 bytes)
 constexpr size_t kMaxLookEquip = 64;
@@ -35,6 +48,22 @@ struct AvLook {
     std::vector<nvcoop::avatar::EquipEntry> equipment;
     friend bool operator==(const AvLook& a, const AvLook& b);
 };
+
+struct AvFacts {
+    uint8_t slot = 0xFF;
+    nvcoop::avatar::PlayerFacts facts;
+    friend bool operator==(const AvFacts& a, const AvFacts& b) { return a.slot == b.slot && a.facts == b.facts; }
+};
+AvBytes encodeFacts(const AvFacts& f);
+bool decodeFacts(const uint8_t* data, size_t size, AvFacts& out);                   // `data` starts at the channel byte
+
+struct AvPack {
+    uint8_t slot = 0xFF;
+    nvcoop::avatar::PlayerPack pack;
+    friend bool operator==(const AvPack& a, const AvPack& b) { return a.slot == b.slot && a.pack == b.pack; }
+};
+AvBytes encodePack(const AvPack& p);
+bool decodePack(const uint8_t* data, size_t size, AvPack& out);                     // `data` starts at the channel byte
 
 AvBytes encodeRoster(const std::vector<uint8_t>& slots);
 bool decodeRoster(const uint8_t* data, size_t size, std::vector<uint8_t>& slots);   // `data` starts at the channel byte

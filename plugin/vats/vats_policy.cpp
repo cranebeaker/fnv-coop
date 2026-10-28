@@ -18,6 +18,19 @@ bool menuModeForWorld(const PolicyInput& in, bool engineValue) {
     return isActive(in.mode) ? false : engineValue;
 }
 
+bool interfaceUpdateOnMain(const PolicyInput& in, bool engineMenuMode) {
+    if (FNV_MUT(818)) return false;                                  // twin: the worker keeps the update under the open VATS menu (the 0x800F66 crash)
+    // only when the open menu is the one whose pause real time lifted (the VATS menu): any other kick with a menu open (a menu opened in the middle of a
+    // frame) stays exactly as the game does it
+    return engineMenuMode && !menuModeForWorld(in, true);
+}
+
+bool InterfaceHandoff::atKick(bool wantMain, bool workerSitesPatched) {
+    const bool main = wantMain && (workerSitesPatched || FNV_MUT(819));   // twin: an unpatched worker would run the update a second time
+    mainOwns_.store(main, std::memory_order_release);
+    return main;
+}
+
 float scaleForVatsRequest(const PolicyInput& in, float requested) {
     if (FNV_MUT(814)) return requested;                              // twin: the engine's freeze / slow-mo request goes through
     if (!realtimeActive(in)) return requested;

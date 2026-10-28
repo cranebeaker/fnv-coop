@@ -1,7 +1,9 @@
 #include "coop_runtime.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <random>
@@ -11,6 +13,7 @@
 #include "flight/flight.h"
 #include "effect_json.h"
 #include "fnvcoop_mut.h"
+#include "fnvcoop_dlg/rules_link.h"
 
 // Mutation twins: RUNTIME-switchable (tools/mut/fnvcoop_mut.h). The test builds (nvcoop_coop_core_rt) read FNVCOOP_MUT=<n>; the
 // shipped core has them compiled out. They prove the integration tests can fail:
@@ -18,6 +21,28 @@
 //   FNVCOOP_MUT=2 : host capture hook not wired (captured txns are never committed)
 //   FNVCOOP_MUT=3 : host ignores guest actions (onAction never executes)
 //   FNVCOOP_MUT=4 : client skips setBaselineWorld (joins without a baseline transfer)
+//   FNVCOOP_MUT=9 : a dialogue result script runs outside the result scope (the initiator's player facts never reach the script)
+//   FNVCOOP_MUT=10: an ephemeral world effect (fade, sound) is remembered and replayed to a late joiner
+//   FNVCOOP_MUT=11: the order channel is not wired (host orders never reach a guest, guest requests never reach the host)
+//   FNVCOOP_MUT=12: killPlayer broadcasts the kill order to every guest instead of the one slot
+//   FNVCOOP_MUT=20: the cause -> quest map is not loaded (a quest's own script never matches its rules)
+//   FNVCOOP_MUT=21: the host never applies the control locks / moves the rules engine commits by itself
+//   FNVCOOP_MUT=22: a guest run is not bracketed with the acting-player copies of per-player variables
+//   FNVCOOP_MUT=23: anchor tethers are never watched (no near / far reports)
+//   FNVCOOP_MUT=24: a guest's stage intent on a pass stage runs at once (no pass, the barrier never sees it)
+//   FNVCOOP_MUT=25: the dialogue host is not linked to the rules engine (a ready check / fork INFO runs its end script without asking the party)
+//   FNVCOOP_MUT=26: a late joiner is never held or warped
+//   FNVCOOP_MUT=27: the combat gate lets every hit through
+//   FNVCOOP_MUT=28: a death is never reported to the rules engine
+//   FNVCOOP_MUT=29: the tether gather (auto-warp) callback is not wired
+//   FNVCOOP_MUT=30: the nvcoop.ini [rules] policy never reaches the rules engine
+//   FNVCOOP_MUT=31: a guest reports its grid cell, not the worldspace, for an exterior
+//   FNVCOOP_MUT=32: the companion roster does not reach the dialogue registry
+//   FNVCOOP_MUT=34: the rules engine's per-player variable views and ChoiceConsent boxes are not connected to the UI bridge
+//   FNVCOOP_MUT=35: the roster's party flag is not given to the registry
+//   FNVCOOP_MUT=33: the registry's reconcile fixes (shared hired flags) are never committed
+//   FNVCOOP_MUT=13..18 are in party_state.h / save_sidecars.h (party state provider, present members, reducer, sidecars, slot registrar)
+//   FNVCOOP_MUT=19: the dialogue node ignores the configured companion caps
 //   FNVCOOP_MUT=8 : host polls the engine's quest vars only with a world baseline (baseline=0: story vars written by object scripts never leave the host)
 //   FNVCOOP_MUT=5 : L11 wiring twin; env COOP_UI_MUTANT=n drops one wiring call (1 bridge config, 2 menu resume, 3 mux 0xE5 channel,
 //                   4 SlideshowEnd calls (host + guest), 5 INFO reader install); COOP_LEAVE_MUTANT=n breaks leave()/join()
@@ -203,7 +228,11 @@ void Runtime::onCaptured(EffectTxn&& t) {
         return;
     } else {
         if (!host_) return;
+        capturedSnapshot_ = t.effects;
+        inCapturedCommit_ = true;
         uint64_t seq = host_->commit(actionOrigin_ != kNoPlayer ? actionOrigin_ : t.origin, t.cause, std::move(t.effects), t.flags, t.originEpoch, t.originIntent);
+        inCapturedCommit_ = false;
+        capturedSnapshot_.clear();
         if (seq) ++counters_.committed; else ++counters_.droppedEmpty;
     }
 }
@@ -250,6 +279,7 @@ bool Runtime::start(std::string* err) {
                 if (auto* co = std::get_if<CompanionOwner>(&e)) noteCompanion(*co);
             for (const Effect& e : t.effects)
                 if (!uiMut(4) && std::holds_alternative<SlideshowEnd>(e)) uiSlideEnded();   // L11: End packet to the guests
+            onHostCommitted(t);
         };
         if (cfg_.baseline) {
             if (!dumper_) { lastError_ = "baseline=1 but no world dumper"; if (err) *err = lastError_; return false; }
@@ -356,6 +386,22 @@ bool Runtime::start(std::string* err) {
                 if (slot == kHostPlayer) { out = FormRef("falloutnv.esm", 0x14); return true; }   // the host's own player ref
                 return false;                                                                    // guests: needs a ghost ref (L6)
             };
+            if (!FNV_MUT(30)) ropt.policy = policy_;
+            // W3d item 1: what a slot holds (pooled hand-ins) and how far two players are apart (a ranged PartyWarp: the Old World Blues Teleporter).
+            if (!FNV_MUT(39)) ropt.itemCount = [this](PlayerId slot, const FormRef& item, int64_t& count) {
+                if (!itemCountProbe_) return false;
+                ++rulesStats_.itemCountAsks;
+                return itemCountProbe_(slot, item, count);
+            };
+            if (!FNV_MUT(40)) ropt.playerDistance = [this](PlayerId a, PlayerId b, float& dist) {
+                if (!anchorProbe_.slotPos) return false;
+                float ax = 0, ay = 0, az = 0, bx = 0, by = 0, bz = 0;
+                if (!anchorProbe_.slotPos(a, ax, ay, az) || !anchorProbe_.slotPos(b, bx, by, bz)) return false;
+                ++rulesStats_.distanceAsks;
+                const float dx = ax - bx, dy = ay - by, dz = az - bz;
+                dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                return true;
+            };
             rules_.reset(new RulesEngine(*host_, rulesDb_, res, ropt));
             rules_->applyStage = [this](const FormRef& q, uint32_t st) {
                 if (!stageApplier_) return;
@@ -363,6 +409,8 @@ bool Runtime::start(std::string* err) {
                 stageApplier_(q, st);
                 applyingDeferred_ = false;
             };
+            buildRulesIndexes();
+            wireRulesCallbacks();
         }
         if (cfg_.useWorker) { worker_.reset(new ThreadWorker()); host_->setWorker(worker_.get()); }
         if (cfg_.handshake) {
@@ -387,7 +435,9 @@ bool Runtime::start(std::string* err) {
                 if (!executor_) return;
                 actionOrigin_ = slot;
                 if (actingHook_) actingHook_(slot, true);
+                actingBegin(slot);
                 executor_(slot, kind, ref);
+                actingEnd(slot);
                 if (actingHook_) actingHook_(slot, false);
                 actionOrigin_ = kNoPlayer;
             }
@@ -454,7 +504,11 @@ bool Runtime::start(std::string* err) {
             if (dlg_) dlg_->onPacket(from, d, static_cast<uint32_t>(now_()));
         });
     }
-    if (client_) client_->onApp = [this](PlayerId, uint16_t ch, const Bytes& d) { if (ch == kAppWorldChannel) onWorldPacket(d); };
+    if (client_) client_->onApp = [this](PlayerId from, uint16_t ch, const Bytes& d) {
+        if (ch == kAppWorldChannel) onWorldPacket(d);
+        else if (ch == kAppOrderChannel && !FNV_MUT(11)) onOrderPacket(from, d);
+    };
+    if (host_) host_->onApp = [this](PlayerId from, uint16_t ch, const Bytes& d) { if (ch == kAppOrderChannel && !FNV_MUT(11)) onOrderPacket(from, d); };
     if (uiEnabled_ && mux_) {
         if (cfg_.role == Role::Client && ui_.slideClient && !uiMut(3)) {   // protocol.md section 2: slideshow channel 0xE5
             mux_->registerChannel(nvui::kSlideChannel, [this](PeerId, Bytes&& d) {
@@ -479,7 +533,9 @@ bool Runtime::runAsGuest(PlayerId slot, const std::function<void()>& body) {
     } w{*this, actionOrigin_, slot};
     actionOrigin_ = slot;
     if (actingHook_) actingHook_(slot, true);
+    actingBegin(slot);
     body();
+    actingEnd(slot);
     return true;
 }
 
@@ -492,8 +548,16 @@ void Runtime::stop() {
     uiBridged_ = false;
     uiWasJoined_ = false;
     uiJoined_.clear();
+    actingQuests_.clear();
+    anchorRadius_.clear();
+    anchorWatch_.clear();
+    lateJoinSeen_.clear();
+    lateJoinPending_.clear();
+    lateJoinLocked_.clear();
     if (enet_) enet_->disconnect();   // graceful: peers see Disconnected now instead of a timeout
     if (cfg_.role == Role::Host) captureOn_ = false;
+    if (dlg_) { dlg_->setRulesGates(nullptr, nullptr); dlg_->setVoteSink(nullptr); }   // before the engine they point at is destroyed
+    rulesLinked_ = false;
     rules_.reset();
     replicator_.reset();
     client_.reset();
@@ -642,7 +706,29 @@ bool Runtime::setRules(const std::string& jsonText, std::string* err) {
 
 bool Runtime::stageRequested(const FormRef& quest, uint32_t stage, PlayerId initiator) {
     if (!rules_ || applyingDeferred_) return true;
+    // G26: the stage a Barrier rule names with `stages` (chargen end) is the player's own step; the host reaching it is the host's pass.
+    if (initiator == kHostPlayer && !FNV_MUT(24))
+        if (const QuestRules* qr = rules_->rulesFor(quest))
+            if (const Rule* br = qr->findFor("Barrier", stage))
+                if (br->lists.count("stages") && rules_->isPassStage(quest, stage))
+                    return rules_->onGuestStageIntent(kHostPlayer, quest, stage) == StageDecision::Proceed;
     return rules_->onStageRequested(quest, stage, initiator) == StageDecision::Proceed;
+}
+
+bool Runtime::stageHeldForPass(PlayerId slot, const FormRef& quest, uint32_t stage) {
+    if (!rules_ || FNV_MUT(24) || !rules_->isPassStage(quest, stage)) return false;
+    return rules_->onGuestStageIntent(slot, quest, stage) == StageDecision::Deferred;
+}
+
+Runtime::HitVerdict Runtime::protectedHit(const FormRef& victim, PlayerId attacker, bool splash) {
+    if (!rules_ || FNV_MUT(27)) return HitVerdict::Allow;
+    switch (rules_->onProtectedHit(victim, attacker, splash, now_())) {
+        case RulesEngine::FfVerdict::Block: return HitVerdict::Block;
+        case RulesEngine::FfVerdict::BlockWarn:
+            notifyPlayer(attacker, "That would end the quest for everyone. Hit it on purpose three times to go through with it.");
+            return HitVerdict::BlockWarn;
+        default: return HitVerdict::Allow;
+    }
 }
 
 bool Runtime::stageExcluded(const FormRef& quest, uint32_t stage) const {
@@ -652,6 +738,11 @@ bool Runtime::stageExcluded(const FormRef& quest, uint32_t stage) const {
 void Runtime::reportCell(const FormRef& cell) {
     if (rules_) rules_->onCellReported(kHostPlayer, cell);
     else if (client_ && client_->joined() && !client_->baselineActive()) client_->submitAction(IntentKind::ReportCell, cell);
+}
+
+void Runtime::reportCell(const FormRef& cell, const FormRef& world) {
+    if (rules_) rules_->onCellReported(kHostPlayer, cell, world);
+    else if (client_ && client_->joined() && !client_->baselineActive()) client_->submitAction(IntentKind::ReportCell, world.plugin.empty() || FNV_MUT(31) ? cell : world);
 }
 
 void Runtime::scenePass(const FormRef& quest) {
@@ -683,12 +774,14 @@ void Runtime::tickDialogue() {
                 for (auto& cv : host_->clients()) if (cv.peer == peer && cv.joined) return cv.slot;
                 return kNoPlayer;
             };
-            fnvcoop_dlg::ResultRunner baseRun = dlgHooks_.run;
-            dlg_.reset(new fnvcoop_dlg::DialogueNode(mux_.get(), c, [this, baseRun](const fnvcoop_dlg::ResultRequest& rq) -> uint64_t {
-                if (runnerOverride_) return runnerOverride_(rq);
-                return baseRun ? baseRun(rq) : 0;
-            }, dlgHooks_.sink));
+            dlg_.reset(new fnvcoop_dlg::DialogueNode(mux_.get(), c, [this](const fnvcoop_dlg::ResultRequest& rq) -> uint64_t { return dialogueResult(rq); }, dlgHooks_.sink));
+            if (dlgHooks_.companionRules && !FNV_MUT(19)) dlg_->setCompanionRules(*dlgHooks_.companionRules);   // twin 19: the node keeps the built-in caps
             syncCompanions();
+        }
+        if (dlg_ && rules_ && !rulesLinked_ && !FNV_MUT(25)) {   // G08 / G27: INFO end scripts and fork boxes ask the party through the rules engine (set own callbacks BEFORE this)
+            fnvcoop_dlg::linkRules(*dlg_, *rules_, [this]() { return static_cast<uint32_t>(now_()); });
+            rulesLinked_ = true;
+            ++rulesStats_.rulesLinks;
         }
         std::set<PlayerId> joinedNow;
         for (auto& cv : host_->clients()) if (cv.joined) joinedNow.insert(cv.slot);
@@ -703,6 +796,7 @@ void Runtime::tickDialogue() {
             c.hostPeer = 0;
             c.appliedSeq = [this]() -> uint64_t { return client_ ? client_->applied() : 0; };
             dlg_.reset(new fnvcoop_dlg::DialogueNode(mux_.get(), c, nullptr, dlgHooks_.sink));
+            if (dlgHooks_.companionRules && !FNV_MUT(19)) dlg_->setCompanionRules(*dlgHooks_.companionRules);
             syncCompanions();
         }
     }
@@ -726,7 +820,7 @@ void Runtime::frame() {
                 if (ev.type == fnvcoop::EnetTransport::Event::Disconnected) { ++counters_.disconnects; host_->peerDisconnected(ev.peer); }
             }
         }
-        if (rules_) rules_->tick(t);
+        if (rules_) { rules_->tick(t); tickRulesSession(t); }
         if (replicator_) {
             if (statePoll_ && (cfg_.baseline || !FNV_MUT(8))) {   // twin 8: the old gate, polling only with a world baseline
                 const bool first = polledRep_ != replicator_.get();
@@ -853,15 +947,542 @@ void Runtime::syncCompanions() {
     for (auto& [npc, owner] : companionOwners_) dlg_->onCompanionOwner(npc, owner);
 }
 
-void Runtime::pushWorldEffect(const std::string& key, const std::string& json) {
+void Runtime::pushWorldEffect(const std::string& key, const std::string& json, bool ephemeral) {
     if (!host_ || !running_) return;
     ++worldStats_.pushed;
     if (!worldId_) worldId_ = now_() << 12;   // a restarted host never reuses ids a long-lived guest already saw
     const uint64_t id = ++worldId_;
     const std::string k = key.empty() ? "#" + std::to_string(id) : key;
-    worldState_[k] = WorldEntry{id, json};
+    if (ephemeral && !FNV_MUT(10)) ++worldStats_.ephemeral;   // one-shot presentation: the guests connected now see it, a late joiner does not replay it
+    else worldState_[k] = WorldEntry{id, json};
     host_->sendApp(kNoPlayer, kAppWorldChannel, worldPayload(id, k, json));
     ++worldStats_.sent;
+}
+
+std::vector<PlayerId> Runtime::joinedSlots() const {
+    std::vector<PlayerId> out;
+    if (host_) for (auto& cv : host_->clients()) if (cv.joined) out.push_back(cv.slot);
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+bool Runtime::slotPerkRank(PlayerId slot, const FormRef& perk, int32_t* rank) const {
+    if (!host_ || slot >= kMaxSlots) return false;
+    const auto& perks = host_->state().ledger[slot].perks;
+    auto it = perks.find(perk);
+    if (rank) *rank = it == perks.end() ? 0 : it->second;
+    return true;
+}
+
+bool Runtime::sharedJournalHas(const FormRef& note) const {
+    const ShadowState* st = host_ ? &host_->state() : client_ ? &client_->state() : nullptr;
+    return st && st->notes.count(note) != 0;
+}
+
+int Runtime::companionOwnerOf(const FormRef& npc) const {
+    auto it = companionOwners_.find(npc);
+    return it == companionOwners_.end() ? -1 : static_cast<int>(it->second);
+}
+
+
+// ---- campaign wave 2 (P6): the rules engine in the session --------------------------------------------------------------------------------------------
+bool Runtime::slotPlayerRef(PlayerId slot, FormRef& out) {
+    if (playerRef_) return playerRef_(slot, out);
+    if (slot == kHostPlayer) { out = FormRef("falloutnv.esm", 0x14); return true; }
+    return false;
+}
+
+void Runtime::buildRulesIndexes() {
+    actingQuests_.clear();
+    anchorRadius_.clear();
+    if (!rules_) return;
+    if (!causeQuestsJson_.empty() && !FNV_MUT(20)) {   // G02: a quest's own script, an INFO and a ref now find the quest whose rules apply
+        std::string err;
+        if (!rules_->loadCauseQuests(causeQuestsJson_, &err) && firstErrors_.size() < 12) firstErrors_.push_back("cause quests: " + err);
+    }
+    for (const auto& kv : rulesDb_.quests()) {
+        FormRef q;
+        if (!edid_ || !edid_(kv.first, q)) continue;
+        std::vector<std::string> names = rules_->perPlayerVarNames(q);
+        if (!names.empty()) actingQuests_.emplace_back(q, std::move(names));
+        for (const Rule& r : kv.second.rules) {
+            if (r.kind != "PartyTether") continue;
+            const std::string a = r.scalar("anchor", r.scalar("anchor_ref"));
+            FormRef af;
+            if (!a.empty() && edid_(a, af)) anchorRadius_[af] = static_cast<float>(r.number("radius", 0));
+        }
+    }
+}
+
+void Runtime::wireRulesCallbacks() {
+    if (!FNV_MUT(29)) rules_->gatherRest = [this](const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& absent, const FormRef& target) {
+        std::vector<Effect> moves;
+        unsigned k = 0;
+        for (PlayerId s : absent) {
+            FormRef pr;
+            if (!slotPlayerRef(s, pr)) continue;
+            MoveRef m;
+            m.ref = pr;
+            m.cell = target;
+            m.x = 64.f * static_cast<float>(k++);
+            m.partyWarp = true;
+            moves.push_back(m);
+        }
+        if (moves.empty() || !host_) return;
+        Cause c;
+        c.kind = CauseKind::Script;
+        c.source = quest;
+        c.aux = static_cast<int32_t>(stage);
+        host_->commit(kHostPlayer, c, std::move(moves));   // the host's own move is applied by onHostCommitted, a guest's by its applier
+        ++rulesStats_.casesGathered;
+    };
+    rules_->tetherWarn = [this](const FormRef&, uint32_t, const std::vector<PlayerId>& outside, const FormRef&) {
+        for (PlayerId s : outside) notifyPlayer(s, "You are outside the scene zone. Go back to your party.");
+    };
+    rules_->respawnPlayer = [this](PlayerId slot, const FormRef& checkpoint) {
+        Value o = Value::object();
+        o.set("op", "respawn").set("checkpoint", nvhooks::refToStr(checkpoint));
+        deliverOrder(slot, o.dump());
+    };
+    rules_->reloadHostSave = [this]() { if (reloadSave_) reloadSave_(); };
+}
+
+uint64_t Runtime::dialogueResult(const fnvcoop_dlg::ResultRequest& rq) {
+    std::shared_ptr<void> scope;   // P2 PlayerFactsScope: while the script runs, player.GetItemCount / GetAV / HasPerk / GetEquipped answer for the initiator
+    if (resultScope_ && !FNV_MUT(9)) scope = resultScope_(rq);
+    if (runnerOverride_) return runnerOverride_(rq);
+    return dlgHooks_.run ? dlgHooks_.run(rq) : 0;
+}
+
+// P7 handover: the roster listener of the social module. The party flag has no home in the registry yet (it needs CompanionRegistry::setPartyOwned, P3's file).
+void Runtime::onRosterChanged(const std::vector<RosterEntry>& all) {
+    ++rulesStats_.rosterFeeds;
+    for (const RosterEntry& c : all) {
+        companionOwners_[c.npc] = c.owner;
+        if (dlg_ && !FNV_MUT(32)) dlg_->onCompanionOwner(c.npc, c.owner);
+        if (dlg_ && !FNV_MUT(35)) dlg_->companions().setPartyOwned(c.npc, c.party);   // ED-E uses nobody's slot and reads as hired for everybody
+    }
+    if (!host_ || !dlg_ || FNV_MUT(33)) return;
+    std::vector<Effect> fixes;
+    for (const auto& f : dlg_->companions().reconcile({})) {   // every rule with the value the registry wants (nothing is known yet)
+        bool known = false;
+        double cur = 0;
+        std::map<uint16_t, double> vars;
+        if (scriptVars_ && scriptVars_(f.quest, vars)) {
+            auto it = vars.find(static_cast<uint16_t>(f.idx));
+            if (it != vars.end()) { known = true; cur = it->second; }
+        }
+        if (known && static_cast<int32_t>(cur) == f.value) continue;
+        fixes.push_back(SetScriptVar{f.quest, static_cast<uint16_t>(f.idx), static_cast<double>(f.value)});
+    }
+    if (fixes.empty()) return;
+    Cause c;
+    c.kind = CauseKind::Script;
+    c.source = FormRef("rules", 0x4A02u);
+    host_->commit(kHostPlayer, c, fixes);
+    for (const Effect& e : fixes)
+        if (hostApplier_) hostApplier_(e);   // the host's own variable too: a committed effect is never applied on the machine that made it
+    rulesStats_.reconcileFixes += fixes.size();
+}
+
+// G24: the acting player's copy of the per-player quest variables is in the engine while a script / INFO runs for that player; the host's copy returns after.
+void Runtime::actingBegin(PlayerId slot) {
+    if (!rules_ || !varIO_.read || !varIO_.write || FNV_MUT(22) || actingQuests_.empty()) return;
+    for (auto& aq : actingQuests_) {
+        std::vector<RulesEngine::VarValue> live;
+        if (!varIO_.read(aq.first, aq.second, live)) continue;
+        std::vector<RulesEngine::VarValue> vals = rules_->beginActing(aq.first, slot, live);
+        if (!vals.empty()) varIO_.write(aq.first, vals);
+    }
+    ++rulesStats_.actingBrackets;
+}
+
+// W3d item 1: the acting copies of ONE quest (the script that runs per slot belongs to it), the same swap as actingBegin / actingEnd for a single quest.
+void Runtime::actingBeginQuest(const FormRef& quest, PlayerId slot) {
+    if (!rules_ || FNV_MUT(42)) return;   // MUTANT 42: a per-slot run does not open the slot's acting context (its copies and its effect routing)
+    std::vector<RulesEngine::VarValue> live;
+    const std::vector<std::string> names = rules_->perPlayerVarNames(quest);
+    if (varIO_.read && !names.empty()) varIO_.read(quest, names, live);
+    std::vector<RulesEngine::VarValue> vals = rules_->beginActing(quest, slot, live);
+    if (varIO_.write && !vals.empty()) varIO_.write(quest, vals);
+    ++rulesStats_.actingBrackets;
+}
+
+void Runtime::actingEndQuest(const FormRef& quest, PlayerId slot) {
+    if (!rules_ || FNV_MUT(42)) return;
+    std::vector<RulesEngine::VarValue> live;
+    const std::vector<std::string> names = rules_->perPlayerVarNames(quest);
+    if (varIO_.read && !names.empty()) varIO_.read(quest, names, live);
+    rules_->endActing(quest, slot, live);
+    if (slot == kHostPlayer) return;
+    std::vector<RulesEngine::VarValue> mine = rules_->beginActing(quest, kHostPlayer, live);   // the host plays on with its own copy
+    if (varIO_.write && !mine.empty()) varIO_.write(quest, mine);
+    rules_->endActing(quest, kHostPlayer, mine);
+}
+
+std::vector<Runtime::PerSlotScriptInfo> Runtime::perSlotScripts() const {
+    std::vector<PerSlotScriptInfo> out;
+    if (!rules_ || !edid_ || FNV_MUT(43)) return out;   // MUTANT 43: the rules' per-slot script list is never read
+    for (const std::string& name : rules_->perPlayerScripts()) {
+        PerSlotScriptInfo info;
+        info.edid = name;
+        if (!edid_(name, info.script)) continue;   // a script this build cannot name
+        Cause c;
+        c.kind = CauseKind::Script;
+        c.source = info.script;
+        FormRef quest;
+        if (rules_->questOfCause(c, quest)) {
+            for (const std::string& ov : rules_->perPlayerObjVarNames(quest)) {   // "Script.var" of THIS script
+                const size_t dot = ov.find('.');
+                if (dot == std::string::npos || dot != name.size()) continue;
+                bool same = true;
+                for (size_t i = 0; i < name.size() && same; ++i) same = std::tolower(static_cast<unsigned char>(ov[i])) == std::tolower(static_cast<unsigned char>(name[i]));
+                if (!same) continue;
+                std::string v = ov.substr(dot + 1);
+                for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                if (std::find(info.vars.begin(), info.vars.end(), v) == info.vars.end()) info.vars.push_back(std::move(v));
+            }
+        }
+        out.push_back(std::move(info));
+    }
+    return out;
+}
+
+size_t Runtime::runScriptPerSlot(uint32_t scriptRefID, const std::function<void(PlayerId)>& body) {
+    if (!rules_ || !host_ || !body || !idToRef_ || FNV_MUT(41)) return 0;   // MUTANT 41: a script the rules run per slot runs for the host only
+    FormRef sref, quest;
+    if (!idToRef_(scriptRefID, sref)) return 0;
+    Cause c;
+    c.kind = CauseKind::Script;
+    c.source = sref;
+    if (!rules_->questOfCause(c, quest)) return 0;
+    size_t ran = 0;
+    for (PlayerId s : joinedSlots()) {
+        struct Window {   // closes the window even when body() throws (a test fake, never the game)
+            Runtime& rt; PlayerId prev, slot;
+            ~Window() { if (rt.actingHook_) rt.actingHook_(slot, false); rt.actionOrigin_ = prev; }
+        } w{*this, actionOrigin_, s};
+        actionOrigin_ = s;
+        if (actingHook_) actingHook_(s, true);
+        actingBeginQuest(quest, s);
+        body(s);
+        actingEndQuest(quest, s);
+        ++ran;
+        ++rulesStats_.perSlotRuns;
+    }
+    return ran;
+}
+
+// W3a item 5: see coop_runtime.h. Mirrors the routing in synccore/src/rules.cpp (ctrlInitiator): the quest of the open scope's cause has a SetPlayerControls rule with scope=initiator.
+bool Runtime::controlsGuestOnly(PlayerId slot, bool disable) {
+    if (!rules_ || !hub_ || !host_ || slot == kHostPlayer || slot == kNoPlayer || FNV_MUT(37)) return false;   // MUTANT 37: the host always makes the call
+    Cause c;
+    FormRef quest;
+    if (!hub_->currentCause(&c) || !rules_->questOfCause(c, quest)) return false;
+    const QuestRules* q = rules_->rulesFor(quest);
+    if (!q) return false;
+    const Rule* r = c.kind == CauseKind::QuestResult ? q->findFor("SetPlayerControls", static_cast<uint32_t>(c.aux)) : nullptr;
+    if (!r) r = q->find("SetPlayerControls");
+    if (!r || r->scalar("scope", "all") != "initiator") return false;
+    if (disable) ++skippedLocks_;   // the give-back in onHostCommitted must not "restore" bits the host never lost
+    ++rulesStats_.controlsHostSkipped;
+    return true;
+}
+
+// W3a item 4. A script that runs for a guest sees that guest's view of the companion variables (hired flags, party counts) and, for Dead Money, its own
+// rCurrentFollower; a script that reads them party-wide (view-party) sees the shared variables as they are (the aggregate). The shared variables are put back after.
+void Runtime::onScriptRun(uint32_t script, bool before) {
+    if (!host_ || !dlg_ || !viewSlotOf_ || !varIO_.write || !varIO_.name || FNV_MUT(38)) return;   // MUTANT 38: the script run is not told (every script reads the aggregate)
+    const PlayerId slot = actionOrigin_;
+    if (before) {
+        if (slot == kNoPlayer || slot == kHostPlayer) { ++idleRuns_; return; }   // the common case (hundreds of ambient scripts a frame): a counter, no allocation
+        viewStack_.push_back(companionView_);
+        const PlayerId want = viewSlotOf_(script, slot);
+        if (want != companionView_) applyCompanionView(want);
+    } else {
+        if (viewStack_.empty()) { if (idleRuns_ > 0) --idleRuns_; return; }
+        const PlayerId back = viewStack_.back();
+        viewStack_.pop_back();
+        if (back != companionView_) applyCompanionView(back);
+    }
+}
+
+void Runtime::applyCompanionView(PlayerId view) {
+    companionView_ = view;
+    ++rulesStats_.companionViews;
+    dlg_->companions().forEachRule([&](const FormRef& quest, uint32_t idx, fnvcoop_dlg::VarKind kind) {
+        if (kind == fnvcoop_dlg::VarKind::Available || kind == fnvcoop_dlg::VarKind::Fired) return;   // not per-player state
+        const int32_t v = view == 0xFE ? dlg_->companions().aggregateVar(quest, idx, 0) : dlg_->companions().viewVar(quest, idx, view, 0);
+        std::string name;
+        if (varIO_.name(quest, idx, &name)) varIO_.write(quest, {{name, static_cast<double>(v)}});
+    });
+    FollowerVar fv;
+    if (followerOf_ && followerOf_(view == 0xFE ? kHostPlayer : view, &fv) && !fv.var.empty()) {
+        if (view == 0xFE) {
+            if (followerSaved_) varIO_.write(fv.quest, {{fv.var, followerReal_}});
+            followerSaved_ = false;
+        } else {
+            if (!followerSaved_) {
+                std::vector<RulesEngine::VarValue> cur;
+                if (varIO_.read && varIO_.read(fv.quest, {fv.var}, cur) && !cur.empty()) { followerReal_ = cur[0].value; followerSaved_ = true; }
+            }
+            if (followerSaved_) varIO_.write(fv.quest, {{fv.var, fv.formId}});
+        }
+    }
+}
+
+void Runtime::actingEnd(PlayerId slot) {
+    viewStack_.clear();
+    if (companionView_ != 0xFE && dlg_ && varIO_.write && varIO_.name) applyCompanionView(0xFE);   // a guest's run never leaves its view in the shared variables
+    if (!rules_ || !varIO_.read || !varIO_.write || FNV_MUT(22) || actingQuests_.empty()) return;
+    for (auto& aq : actingQuests_) {
+        std::vector<RulesEngine::VarValue> live;
+        if (!varIO_.read(aq.first, aq.second, live)) continue;
+        rules_->endActing(aq.first, slot, live);
+        if (slot == kHostPlayer) continue;
+        std::vector<RulesEngine::VarValue> mine = rules_->beginActing(aq.first, kHostPlayer, live);   // the host plays on with its own copy
+        if (!mine.empty()) varIO_.write(aq.first, mine);
+        rules_->endActing(aq.first, kHostPlayer, mine);
+    }
+}
+
+// G18 / G25 / G41: commits the rules engine makes by itself reach the host's own player here (a captured effect already ran as the script).
+void Runtime::onHostCommitted(const EffectTxn& t) {
+    if (!hostApplier_ || FNV_MUT(21)) return;
+    FormRef hostRef;
+    const bool haveHostRef = slotPlayerRef(kHostPlayer, hostRef);
+    auto inSnapshot = [&](const Effect& e) {
+        if (!inCapturedCommit_) return false;
+        for (const Effect& c : capturedSnapshot_) if (c == e) return true;
+        return false;
+    };
+    for (const Effect& e : t.effects) {
+        if (const auto* sc = std::get_if<SetPlayerControls>(&e)) {
+            const bool mine = sc->to.mode == Recipient::All || sc->to.includes(kHostPlayer);
+            if (mine) {
+                if (inSnapshot(e)) continue;
+                hostApplier_(e);
+                ++rulesStats_.hostEffectsApplied;
+            } else if (!sc->enable && inCapturedCommit_ && skippedLocks_ > 0) {
+                --skippedLocks_;   // the hook never made the host's call for this lock (controlsGuestOnly): nothing to give back
+            } else if (!sc->enable && inCapturedCommit_) {
+                // scope=initiator: the script's own DisablePlayerControls already locked THIS machine, but the lock belongs to somebody else. Give the host its bits back.
+                for (const Effect& c : capturedSnapshot_) {
+                    const auto* o = std::get_if<SetPlayerControls>(&c);
+                    if (o && o->controls == sc->controls && !o->enable && o->to.mode == Recipient::Default) {
+                        hostApplier_(Effect(SetPlayerControls{sc->controls, true, Recipient::slot(kHostPlayer)}));
+                        ++rulesStats_.hostEffectsApplied;
+                        break;
+                    }
+                }
+            }
+        } else if (const auto* mv = std::get_if<MoveRef>(&e)) {
+            if (!haveHostRef || !(mv->ref == hostRef) || inSnapshot(e)) continue;
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;
+        } else if (const auto* ri = std::get_if<RemoveItem>(&e)) {
+            // Guest pack facts: a guest's hand-in runs as a script on the host, but its `player.RemoveItem` did not touch the host's pack (nvhooks::GuestItemScope). What the
+            // rules charge to the HOST (a pooled hand-in: the host holds part of the totems) is taken here, from the host's own pack, once. A host script (origin 0) already ran
+            // its RemoveItem in the engine; a txn that is not the host's own capture is applied by the machine of its recipient.
+            const bool guestRun = inCapturedCommit_ && ((t.origin != kHostPlayer && t.origin < kMaxSlots) || FNV_MUT(963));   // MUTANT 963: a host script's own removal is taken a second time
+            const bool mine = ri->to.includes(kHostPlayer) || FNV_MUT(964);                                                    // MUTANT 964: every removal is taken from the host
+            if (FNV_MUT(962) || !guestRun || !mine || inSnapshot(e)) continue;                                                // MUTANT 962: the host's share is never taken
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;
+        } else if (const auto* ai = std::get_if<AddItem>(&e)) {
+            // The same for what a guest's script gives: the hook did not put it into the host's pack (planPlayerAddItem), so the host gets its share here, once, when the committed
+            // mask names it. A guest-only reward (a non-quest cause) never reaches the host's pack.
+            const bool guestRun = inCapturedCommit_ && t.origin != kHostPlayer && t.origin < kMaxSlots;
+            const bool mine = ai->to.includes(kHostPlayer);
+            if (FNV_MUT(99) || !guestRun || !mine) continue;   // MUTANT 99: the host's share of a guest's reward is never given
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;        } else if (const auto* av = std::get_if<ModActorValue>(&e)) {
+            // XP a guest's script gives (RewardXP): the hook did not give it to the host's player; the host's share is given here once. Other actor values are real engine changes.
+            const bool guestRun = inCapturedCommit_ && t.origin != kHostPlayer && t.origin < kMaxSlots;
+            if (FNV_MUT(100) || av->av != kAvExperience || !guestRun || !av->to.includes(kHostPlayer)) continue;   // MUTANT 100 (here): the host's share of a guest's XP is never given
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;
+        } else if (const auto* km = std::get_if<ModKarma>(&e)) {
+            const bool guestRun = inCapturedCommit_ && t.origin != kHostPlayer && t.origin < kMaxSlots;
+            if (FNV_MUT(100) || !guestRun || !km->to.includes(kHostPlayer)) continue;
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;
+        } else if (const auto* mr = std::get_if<ModReputation>(&e)) {
+            const bool guestRun = inCapturedCommit_ && t.origin != kHostPlayer && t.origin < kMaxSlots;
+            if (FNV_MUT(100) || !guestRun || !mr->to.includes(kHostPlayer)) continue;
+            hostApplier_(e);
+            ++rulesStats_.hostEffectsApplied;
+        }
+    }
+}
+
+void Runtime::tickRulesSession(uint64_t t) {
+    tickAnchors(t);
+    tickLateJoin(t);
+}
+
+// G25: anchor tethers. The radius lives in the rules (host only), so the host watches every joined player itself: its own position from the engine, a guest's from
+// that guest's puppet. The transitions go to the rules engine exactly like a guest's ReportNear / ReportFar action would.
+void Runtime::tickAnchors(uint64_t t) {
+    if (!rules_ || !host_ || FNV_MUT(23) || anchorRadius_.empty() || !anchorProbe_.anchorPos || !anchorProbe_.slotPos) return;
+    if (t < anchorAt_ + 500) return;
+    anchorAt_ = t;
+    std::vector<AnchorWatch::Anchor> anchors;
+    for (const auto& kv : host_->state().tethers) {
+        if (!kv.second) continue;
+        auto r = anchorRadius_.find(kv.first);
+        if (r == anchorRadius_.end() || r->second <= 0) continue;
+        AnchorWatch::Anchor a;
+        a.id = kv.first;
+        a.radius = r->second;
+        if (anchorProbe_.anchorPos(kv.first, a.x, a.y, a.z)) anchors.push_back(a);
+    }
+    std::vector<PlayerId> slots{kHostPlayer};
+    for (PlayerId s : joinedSlots()) slots.push_back(s);
+    for (PlayerId s : slots) {
+        AnchorWatch& w = anchorWatch_[s];
+        w.set(anchors);
+        float x = 0, y = 0, z = 0;
+        if (!anchorProbe_.slotPos(s, x, y, z)) continue;
+        for (const AnchorWatch::Change& c : w.update(x, y, z)) {
+            rules_->onNearReported(s, c.anchor, c.within);
+            ++rulesStats_.nearReports;
+        }
+    }
+}
+
+// G41: a player who joins while a scene runs waits (controls held) and is warped to the party's zone afterwards, as policy late_join.* says.
+void Runtime::tickLateJoin(uint64_t t) {
+    if (!rules_ || !host_ || FNV_MUT(26)) return;
+    const std::vector<PlayerId> joined = joinedSlots();
+    for (PlayerId s : joined)
+        if (lateJoinSeen_.insert(s).second) lateJoinPending_.insert(s);
+    for (auto it = lateJoinSeen_.begin(); it != lateJoinSeen_.end();) {
+        if (std::find(joined.begin(), joined.end(), *it) == joined.end()) {
+            lateJoinPending_.erase(*it);
+            lateJoinLocked_.erase(*it);
+            it = lateJoinSeen_.erase(it);
+        } else ++it;
+    }
+    if (lateJoinPending_.empty() || t < lateJoinAt_ + 250) return;
+    lateJoinAt_ = t;
+    Cause c;
+    c.kind = CauseKind::Script;
+    c.source = FormRef("rules", 0x4A01u);
+    auto lock = [&](PlayerId s, bool on) { host_->commit(kHostPlayer, c, {SetPlayerControls{kAllControls, !on, Recipient::slot(s)}}); };
+    for (PlayerId s : std::vector<PlayerId>(lateJoinPending_.begin(), lateJoinPending_.end())) {
+        const RulesEngine::JoinVerdict v = rules_->onPlayerJoining(s);
+        if (v.kind == RulesEngine::JoinVerdict::WaitForScene) {
+            if (lateJoinLocked_.insert(s).second) {
+                lock(s, true);
+                notifyPlayer(s, "A scene is running. You join your party when it ends.");
+                ++rulesStats_.lateJoinHeld;
+            }
+            continue;
+        }
+        if (lateJoinLocked_.erase(s)) lock(s, false);
+        if (v.kind == RulesEngine::JoinVerdict::WarpToZone) {
+            FormRef pr;
+            if (slotPlayerRef(s, pr)) {
+                MoveRef m;
+                m.ref = pr;
+                m.cell = v.zone;
+                m.partyWarp = true;
+                host_->commit(kHostPlayer, c, {m});
+                ++rulesStats_.lateJoinWarped;
+            }
+        }
+        lateJoinPending_.erase(s);
+    }
+}
+
+bool Runtime::deliverOrder(PlayerId slot, const std::string& json) {
+    if (slot != kHostPlayer) return sendOrder(slot, json);
+    Value v;
+    std::string err;
+    if (!nvcoop::json::parse(json, v, err)) return false;
+    if (v.get("op").asString("") == "notice") { if (notice_) notice_(v.get("text").asString("")); return notice_ != nullptr; }
+    return orderApplier_ && orderApplier_(json) == "Ok";
+}
+
+bool Runtime::notifyPlayer(PlayerId slot, const std::string& text) {
+    Value o = Value::object();
+    o.set("op", "notice").set("text", text);
+    return deliverOrder(slot, o.dump());
+}
+
+RulesEngine::DeathVerdict Runtime::playerDied(PlayerId slot) {
+    RulesEngine::DeathVerdict v;
+    if (!rules_ || !host_ || FNV_MUT(28)) return v;
+    ++rulesStats_.deaths;
+    v = rules_->onPlayerDied(slot, now_());
+    if (v.kind == RulesEngine::DeathVerdict::Downed) {
+        Value o = Value::object();
+        o.set("op", "downed").set("respawnMs", (int64_t)v.respawnAfterMs).set("checkpoint", v.hasCheckpoint ? nvhooks::refToStr(v.checkpoint) : std::string());
+        deliverOrder(slot, o.dump());
+    }
+    return v;
+}
+
+void Runtime::localPlayerDied() {
+    if (host_) playerDied(kHostPlayer);
+    else sendOrderToHost("{\"op\":\"died\"}");
+}
+
+void Runtime::localPlayerRevived() {
+    if (host_) { if (rules_) rules_->onPlayerRevived(kHostPlayer); }
+    else sendOrderToHost("{\"op\":\"revived\"}");
+}
+
+// ---- player orders (G42 / G35 / G10) ----
+static Bytes orderPayload(const std::string& json) { return Bytes(json.begin(), json.end()); }
+
+bool Runtime::sendOrder(PlayerId toSlot, const std::string& json) {
+    if (!host_ || !running_ || toSlot == kHostPlayer || toSlot == kNoPlayer) return false;
+    bool joined = false;
+    for (auto& cv : host_->clients()) joined = joined || (cv.slot == toSlot && cv.joined);
+    if (!joined) return false;
+    host_->sendApp(toSlot, kAppOrderChannel, orderPayload(json));
+    ++orderStats_.sent;
+    return true;
+}
+
+bool Runtime::sendOrderToHost(const std::string& json) {
+    if (!client_ || !running_ || !client_->joined() || client_->baselineActive()) return false;
+    client_->sendApp(kAppOrderChannel, orderPayload(json));
+    ++orderStats_.sent;
+    return true;
+}
+
+bool Runtime::killPlayer(PlayerId slot) {
+    if (!host_ || slot == kHostPlayer || slot == kNoPlayer) return false;
+    if (FNV_MUT(12)) {   // twin: the whole party dies
+        bool any = false;
+        for (auto& cv : host_->clients()) if (cv.joined) any = sendOrder(cv.slot, "{\"op\":\"kill\"}") || any;
+        return any;
+    }
+    return sendOrder(slot, "{\"op\":\"kill\"}");
+}
+
+void Runtime::onOrderPacket(PlayerId from, const Bytes& payload) {
+    Value v;
+    std::string err;
+    const std::string text(payload.begin(), payload.end());
+    if (!nvcoop::json::parse(text, v, err)) return;
+    ++orderStats_.received;
+    const std::string op = v.get("op").asString("");
+    if (!host_ && op == "notice") { if (notice_) notice_(v.get("text").asString("")); return; }   // a HUD line from the host
+    if (host_ && op == "died") { playerDied(from); return; }                                    // G41: a guest's player died
+    if (host_ && op == "revived") { if (rules_) rules_->onPlayerRevived(from); return; }
+    if (host_) {   // a guest's request
+        if (!orderHandler_) { ++orderStats_.handlerFailed; return; }
+        const std::string st = orderHandler_(from, text);
+        if (st == "Ok") ++orderStats_.handled; else ++orderStats_.handlerFailed;
+        return;
+    }
+    if (!orderApplier_) { ++orderStats_.failed; return; }
+    const std::string st = orderApplier_(text);
+    if (st == "Ok") ++orderStats_.applied; else ++orderStats_.failed;
 }
 
 void Runtime::tickWorld() {
@@ -954,7 +1575,15 @@ void Runtime::wireUiHost() {
     };
     c.lastCommittedSeq = [this]() -> uint64_t { return host_ ? host_->log().head() : 0; };
     c.slides = slideHost();
+    if (rules_ && !FNV_MUT(34)) {   // wave 1b: ChoiceConsent boxes and the per-player quest variables of the rules engine
+        fnvcoop_dlg::RulesViews v = fnvcoop_dlg::rulesViews(*rules_);
+        c.isRulesChoice = v.isRulesChoice;
+        c.hasPlayerVars = v.hasPlayerVars;
+        c.viewPlayerVar = v.viewPlayerVar;
+        c.varName = ui_.varName;
+    }
     if (!uiMut(1)) router->bridge() = nvui::makeDialogueBridge(c);
+    router->invalidateViews();   // the rules were (re)loaded with this session
     if (!uiMut(2)) nvui::attachMenuResume(*dlg_, *router);
     uiBridged_ = true;
     ++uiStats_.bridges;
@@ -1063,8 +1692,15 @@ std::string Runtime::statusJson() const {
         Value w = Value::object();
         w.set("pushed", (int64_t)worldStats_.pushed).set("sent", (int64_t)worldStats_.sent).set("replayed", (int64_t)worldStats_.replayed)
             .set("received", (int64_t)worldStats_.received).set("applied", (int64_t)worldStats_.applied)
-            .set("failed", (int64_t)worldStats_.failed).set("stale", (int64_t)worldStats_.stale).set("state", (int64_t)worldState_.size());
+            .set("failed", (int64_t)worldStats_.failed).set("stale", (int64_t)worldStats_.stale).set("ephemeral", (int64_t)worldStats_.ephemeral)
+            .set("state", (int64_t)worldState_.size());
         o.set("world", w);
+    }
+    if (orderStats_.sent || orderStats_.received) {
+        Value od = Value::object();
+        od.set("sent", (int64_t)orderStats_.sent).set("received", (int64_t)orderStats_.received).set("applied", (int64_t)orderStats_.applied)
+            .set("failed", (int64_t)orderStats_.failed).set("handled", (int64_t)orderStats_.handled).set("handlerFailed", (int64_t)orderStats_.handlerFailed);
+        o.set("orders", od);
     }
     if (playerRefBinds_) {
         Value pr = Value::object();
@@ -1167,6 +1803,12 @@ std::string Runtime::statusJson() const {
             .set("stagesDeferred", (int64_t)rs.stagesDeferred).set("stagesReleased", (int64_t)rs.stagesReleased)
             .set("barrierTimeouts", (int64_t)rs.barrierTimeouts).set("arrivals", (int64_t)rs.arrivals)
             .set("recipientRewrites", (int64_t)rs.recipientRewrites).set("rulesActions", (int64_t)counters_.rulesActions);
+        r.set("causeQuests", (int64_t)rules_->causeQuestCount()).set("actingQuests", (int64_t)actingQuests_.size()).set("anchors", (int64_t)anchorRadius_.size())
+            .set("causesResolved", (int64_t)rs.causesResolved).set("tetherWarnings", (int64_t)rs.tetherWarnings).set("lateJoinHeld", (int64_t)rulesStats_.lateJoinHeld)
+            .set("lateJoinWarped", (int64_t)rulesStats_.lateJoinWarped).set("hostEffectsApplied", (int64_t)rulesStats_.hostEffectsApplied)
+            .set("nearReports", (int64_t)rulesStats_.nearReports).set("rulesLinks", (int64_t)rulesStats_.rulesLinks).set("deaths", (int64_t)rulesStats_.deaths)
+            .set("perSlotRuns", (int64_t)rulesStats_.perSlotRuns).set("itemCountAsks", (int64_t)rulesStats_.itemCountAsks).set("distanceAsks", (int64_t)rulesStats_.distanceAsks)
+            .set("pooledDebits", (int64_t)rs.pooledDebits).set("rangeWarpsHeld", (int64_t)rs.rangeWarpsHeld);
         Value uk = Value::array();
         for (auto& k : rules_->unsupportedKinds()) uk.push(k);
         r.set("unsupportedKinds", uk);

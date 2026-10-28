@@ -17,6 +17,8 @@
 #include <set>
 #include <vector>
 #include "companions/social_ports.h"
+#include "social/escort.h"
+#include "social/slots.h"
 
 namespace nvcoop::social {
 
@@ -39,6 +41,17 @@ struct Config {
     uint32_t resyncMinMs = 2000;                 // client: at most one resync request per this long
     // The actor layer's follower exception: every CompanionOwner effect the host learns of is fed to plugin/actors (engine::onEffect). Idempotent.
     std::function<void(const Effect&)> feedActors;
+    // ---- G34 companion set pieces ----
+    sc::SlotRules sets;                          // single-slot groups (Dead Money, Honest Hearts), data-named party companions, the view policy
+    std::function<bool(const FormRef&)> isPartyCompanion;   // host: RulesEngine::isPartyCompanion (a CompanionOwner rule with owner=party saw the recruit)
+    bool swapGuard = true;                       // host: onTxn reverts a hire that fires another player's companion and turns back a second member of a slot group
+    bool escort = true;                          // bring my companions along when my player was moved
+    sc::EscortRules escortRules;
+    uint32_t escortMs = 500;                     // escort poll
+    // Called with the whole roster whenever it changed here (host: after it broadcast it; client: after the host's table was applied). The session wiring feeds the
+    // dialogue registry from it (owner, party flag), so the per-owner follower variables and the party companions agree with the book.
+    std::function<void(const std::vector<sc::Companion>&)> onRoster;
+    uint32_t repairDelayMs = 250;                // host: a repair is committed this long after the transaction that needed it (the session must have seen that one first)
 };
 
 struct Stats {
@@ -48,6 +61,7 @@ struct Stats {
     uint64_t teammateUnset = 0, teammateSet = 0, teammateFailed = 0;
     uint64_t cmdIssued = 0, cmdRefused = 0, cmdAccepted = 0, cmdNacked = 0, stateApplied = 0, stateUnmapped = 0, summons = 0;
     uint64_t invSent = 0, invApplied = 0, invRejected = 0, invDuplicates = 0, invFulls = 0;
+    uint64_t partyFlagged = 0, partyHanded = 0, swapsReverted = 0, slotDenied = 0, repairsCommitted = 0, seedCommitted = 0, escorted = 0, escortFailed = 0;
     uint64_t activationsDenied = 0, hitsNeutralized = 0;
     // crime
     uint64_t crimesReported = 0, crimesCounted = 0, crimesRefused = 0, detectSent = 0, detectRejected = 0, bountyApplied = 0, hostilityApplied = 0;
@@ -70,6 +84,13 @@ public:
     void hostLost();                                                 // client: the link to the host is down (stops enforcing until it is back)
     // Story effects the HOST learns of (the capture sink's CompanionOwner). Ignored on clients (the roster message carries the same facts).
     void onEffect(const Effect& e);
+    // The same for a whole committed transaction (its effects in order): judged by the swap guard first (G34), then learnt. Prefer this over onEffect for captured
+    // transactions: a hire that fires somebody else's companion is only recognisable with the whole transaction in view.
+    void onTxn(const std::vector<Effect>& effects);
+    // W3a item 6 (host): the CompanionOwner effects of a txn the session is about to commit, judged against the book as it is now (HostSession::companionVet). The
+    // dismissal of another player's companion that rides with a recruit of the same slot group, and a recruit that would give a player a second member of a one-slot
+    // group, are removed from `effects`. Returns how many effects went.
+    size_t vetOutgoing(std::vector<Effect>& effects);
 
     // ---- inputs from the other lanes ---------------------------------------------------------------------------------------------------
     // A crime the LOCAL machine saw (combat glue: a witnessed assault / murder; the trespass poll). id / reporter are filled in when 0.
@@ -95,6 +116,9 @@ public:
     bool vatsTargetAllowed(const cc::Entity& target);
     // The player answerable for an entity's actions (a companion's recruiter, a player itself); kNoPlayer = nobody.
     PlayerId responsiblePlayer(const cc::Entity& e);
+
+    // The companion `slot` has in a single-slot group (Dead Money's rCurrentFollower for that player); an empty FormRef = none.
+    FormRef currentFollower(PlayerId slot, const std::string& group) const { return sc::currentMember(book_, cfg_.sets, group, slot); }
 
     // ---- views --------------------------------------------------------------------------------------------------------------------------
     const sc::CompanionBook& book() const { return book_; }
@@ -143,6 +167,10 @@ private:
     void raiseAlarmLocal(const sc::AlarmOrder& o);
     void applyStandingLocal(const sc::BountyUpdate& u);
     void releaseCompanion(const FormRef& npc, const char* why);
+    void handPartyCompanions(PlayerId leaver);
+    void refreshParty();
+    void flushRepairs();
+    void pollEscort();
     void broadcastRoster();
     void applyOwnState(const sc::Companion& c);
     void askResync();
@@ -164,6 +192,10 @@ private:
     sc::CommandJudge localJudge_;       // my own pre-check of my own commands
     sc::CommandJudge hostJudge_;        // host: the authoritative judge of everybody else's
     sc::CompanionInventory inv_;
+    sc::Escort escort_;
+    std::vector<Effect> repairs_;       // host: effects to commit once repairAtMs_ has passed
+    uint64_t repairAtMs_ = 0;
+    uint64_t lastEscortMs_ = 0;
     sc::DetectionBook det_;
     sc::CrimeJudge crime_;
     sc::RewardLedger rewards_;

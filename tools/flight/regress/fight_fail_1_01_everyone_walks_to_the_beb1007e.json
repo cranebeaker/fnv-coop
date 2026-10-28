@@ -9,24 +9,24 @@
    "StartQuest 14ADAE@falloutnv.esm: host (absent) / client StartQuest 14ADAE@falloutnv.esm",
    "StopQuest 10A214@falloutnv.esm: host (absent) / client StopQuest 10A214@falloutnv.esm",
    "StartQuest 11F460@falloutnv.esm: host (absent) / client StartQuest 11F460@falloutnv.esm",
-   "StartQuest 131E7C@falloutnv.esm: host (absent) / client StartQuest 131E7C@falloutnv.esm",
-   "StartQuest 140E14@falloutnv.esm: host (absent) / client StartQuest 140E14@falloutnv.esm",
-   "StartQuest 139B8D@falloutnv.esm: host (absent) / client StartQuest 139B8D@falloutnv.esm"
+   "StopQuest 4ADEE@falloutnv.esm: host StopQuest 4ADEE@falloutnv.esm / client StartQuest 4ADEE@falloutnv.esm",
+   "StopQuest 14ADAE@falloutnv.esm: host StopQuest 14ADAE@falloutnv.esm / client StartQuest 14ADAE@falloutnv.esm",
+   "StopQuest 11F460@falloutnv.esm: host StopQuest 11F460@falloutnv.esm / client StartQuest 11F460@falloutnv.esm"
   ],
   "found": {
-   "at_ms": 18904.743,
+   "at_ms": 12405.615,
    "class": "divergence",
-   "detail": "effect 0 of txn seq 3 differs between machines: slot(s) [1] hash 48c4576dc096c9db; slot(s) [1] hash ba165f729ba961a1; slot(s) [1] hash f07a18e142c2ac35",
+   "detail": "effect 0 of txn seq 1 differs between machines: slot(s) [1] hash 2cc028b215cbd8df; slot(s) [1] hash 6b6a94518caade7f; slot(s) [1] hash 9437fc38792e9e4e; slot(s) [1] hash b7745b0a95634e30",
    "healed": true,
-   "key": "txn:3[0]",
+   "key": "txn:1[0]",
    "kind": "txn-hash",
    "suspects": [
     1
    ]
   },
   "symptoms": [
-   "digest mismatch x43",
-   "11 repair(s), 1436 effect(s) repaired"
+   "digest mismatch x28",
+   "28 repair(s), 1640 effect(s) repaired"
   ]
  },
  "expect": {
@@ -36,52 +36,52 @@
  },
  "format": "trace-1",
  "headers": {
-  "0": "4e5646520100400000000100060000008086dd69a10100007fd3ef0f0000000000000000000000005d0201000000000000000000000000000000000000000000",
-  "1": "4e5646520100400001010000060000002096dd69a10100007603401b000000000000000000000000074601000000000000000000000000000000000000000000"
+  "0": "4e564652010040000000000006000000c8bb8864a10100009a95bc2e000000000000000000000000788201000000000000000000000000000000000000000000",
+  "1": "4e56465201004000010100000600000068cb8864a1010000a5b08a2e000000000000000000000000e1a301000000000000000000000000000000000000000000"
  },
  "shrunk": {
   "complete": true,
   "first": {
    "category": "divergence",
-   "key": "txn:183[1]"
+   "key": "txn:2[2]"
   },
-  "oracle_runs": 95,
-  "original_steps": 149604,
+  "oracle_runs": 58,
+  "original_steps": 206425,
   "reduced_steps": 2,
-  "seconds": 2.33,
+  "seconds": 6.24,
   "signature": "divergence txn:#[#]",
   "stages": [
-   "window +-60000ms: 149604 -> 24860 records",
-   "dropped all NetIn (2401 records)",
-   "dropped all NetOut (2414 records)",
-   "dropped all Marker (17140 records)",
-   "dropped all Digest (44 records)",
+   "dropped all NetIn (7881 records)",
+   "dropped all NetOut (8493 records)",
+   "dropped all Marker (188091 records)",
+   "dropped all TxnCaptured (116 records)",
+   "dropped all Digest (371 records)",
    "dropped all Meta (2 records)"
   ],
   "violations": [
-   "divergence txn:183[1]",
-   "divergence txn:183[1]"
+   "divergence txn:2[2]",
+   "divergence txn:2[2]"
   ]
  },
  "source": {
   "failure": "FAIL-1-01-everyone_walks_to_the_enemies",
-  "kind": "settle",
+  "kind": "snapdiff",
   "playbook": "enemy_fight",
-  "reason": "machines did not converge within 40.9307s: lastSeq per machine {'host': 3433, 'client1': 3433}, host allSynced=False",
+  "reason": "snapdiff found differences. host vs client1: 1 difference(s), first: {'kind': 'changed', 'path': 'shared/quests/FalloutNV.esm:104EAE/vars/nGangerDeathCount', 'a': 3, 'b': 0, 'label': 'shared/quests/VMS16 (FalloutNV.esm:104EAE)/vars/nGangerDeathCount'}",
   "recordings": [
    {
     "dropped": 0,
-    "file": "nvcoop-desync-1792777755438-11.nvfr",
+    "file": "nvcoop-manual-1792688829796-16.nvfr",
     "name": "host",
-    "records": 66141,
+    "records": 98936,
     "role": "host",
     "slot": 0
    },
    {
     "dropped": 0,
-    "file": "nvcoop-manual-1792777949489-9.nvfr",
+    "file": "nvcoop-manual-1792688830720-19.nvfr",
     "name": "client1",
-    "records": 83463,
+    "records": 107489,
     "role": "client",
     "slot": 1
    }
@@ -91,15 +91,15 @@
  },
  "steps": [
   {
-   "at_ms": 67167.572,
-   "hex": "05001c00400a00007a10c00300000000b70000000000000001000000000100000000060212d8117fa6ed6792",
+   "at_ms": 94473.61,
+   "hex": "05001c00a9020000dead6105000000000200000000000000020000000002000000000624cb6fe5dd0808d46d",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"
   },
   {
-   "at_ms": 75333.441,
-   "hex": "05001c00050c000067aa3c0400000000b700000000000000020000000001000000000602927f1b7f82cf099d",
+   "at_ms": 281127.785,
+   "hex": "05001c00dd0d0000bdcb81100000000002000000000000000300000000020000000006244cbd14281e1f16bc",
    "op": "rec",
    "slot": 1,
    "ty": "TxnApplied"

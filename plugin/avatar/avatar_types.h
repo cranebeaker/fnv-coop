@@ -11,6 +11,7 @@
 //              0 = facing +Y, positive = clockwise seen from above. Only yaw is ever applied to the actor.
 //   heading    forward vector of yaw t is (sin t, cos t).
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -60,6 +61,49 @@ struct Appearance {
 };
 constexpr size_t kMaxFaceCoeffs = 160;     // 50 + 30 + 50 floats are what the three FaceGenData blocks of the player hold
 
+// Facts about the LOCAL player that host-run conditions ask about (GetLevel, GetSitting, IsPlayerActionActive, IsPlayerInRegion) and that no snapshot carries (W3a item 3).
+// Read at a low rate by the guest's avatar layer and sent to the host only when they change (plugin/coop/live/avatar_wire.h, Facts message).
+constexpr size_t kMaxFactRegions = 16;
+constexpr unsigned kFactActionIds = 32;   // IsPlayerActionActive ids 0..31 are sampled (the rules ask for id 9)
+struct PlayerFacts {
+    uint16_t level = 0;                // GetLevel; 0 = unknown
+    uint8_t sitting = 0;               // GetSitting (the engine's sit state, 0 = not sitting)
+    uint32_t actions = 0;              // bit n = IsPlayerActionActive n
+    std::vector<FormId> regions;       // TESRegion form ids of PlayerCharacter::regionsList, at most kMaxFactRegions
+    friend bool operator==(const PlayerFacts& a, const PlayerFacts& b) {
+        return a.level == b.level && a.sitting == b.sitting && a.actions == b.actions && a.regions == b.regions;
+    }
+};
+
+// What a guest carries, as far as host-run conditions and rules ask (guest pack facts). Total weight (the InventoryWeight actor value, the Honest Hearts Jed gate) and the counts of
+// the watched item forms (plugin/coop/tools/gen_coop_data.py nvcoop_pack_watch.json: the items the rules and quest conditions count), never the whole inventory. Read at a low rate
+// by the guest's avatar layer and sent to the host only when it changed (plugin/coop/live/avatar_wire.h, Pack message).
+constexpr size_t kMaxPackItems = 255;       // entries with a non-zero count in one message
+constexpr unsigned kAvInventoryWeight = 46; // actor value code of InventoryWeight (tools: snapshot_nvse.cpp)
+struct PackEntry {
+    FormId form = 0;
+    int32_t count = 0;
+    friend bool operator==(const PackEntry& a, const PackEntry& b) { return a.form == b.form && a.count == b.count; }
+};
+struct PlayerPack {
+    uint32_t watchId = 0;              // identifies the watch list the counts were taken against (packWatchId); the host trusts a zero only for the same list
+    bool haveWeight = false;
+    uint32_t weightMilli = 0;          // InventoryWeight * 1000, rounded
+    std::vector<PackEntry> items;      // watched forms with a count above zero, sorted by form
+    friend bool operator==(const PlayerPack& a, const PlayerPack& b) {
+        return a.watchId == b.watchId && a.haveWeight == b.haveWeight && a.weightMilli == b.weightMilli && a.items == b.items;
+    }
+};
+// FNV-1a over the sorted, de-duplicated forms: two machines with the same list get the same id.
+inline uint32_t packWatchId(std::vector<FormId> forms) {
+    std::sort(forms.begin(), forms.end());
+    forms.erase(std::unique(forms.begin(), forms.end()), forms.end());
+    uint32_t h = 2166136261u;
+    for (FormId f : forms)
+        for (int i = 0; i < 4; ++i) { h ^= (f >> (8 * i)) & 0xFFu; h *= 16777619u; }
+    return h;
+}
+
 struct EquipEntry {
     FormId form = 0;
     bool weapon = false;     // weapons are equipped last and drawn only once equipped; the one weapon flagged is the HELD weapon
@@ -74,6 +118,14 @@ struct TemplateEntry {
 };
 
 // Everything numeric is a first guess that T7 (tools/animcheck, proof_puppet.py) must tune. Units/ms as named.
+// Timing figures the network layer measures and hands to the avatar layer, which reports them in avatar.status ("stages"). Milliseconds on the avatar
+// layer's clock (the one the snapshot ticks are stamped with), except NetFrame, which carries that clock's reading itself.
+enum class NetStage : uint8_t {
+    Send,      // a snapshot's sampling time -> the moment its datagram is handed to the transport (sender, same clock)
+    Rx,        // a snapshot's sampling time -> the moment the other copy's network layer has it (a shared clock on one PC; across PCs it includes the clock offset)
+    NetFrame,  // the network layer is running a frame now: the value is the clock reading (the runtime derives netPhase and netGap from it)
+};
+
 struct Config {
     Slot localSlot = 0;                      // this machine's own slot: it never gets a puppet
     unsigned maxPuppets = 3;                 // 4 players => 3 remote puppets

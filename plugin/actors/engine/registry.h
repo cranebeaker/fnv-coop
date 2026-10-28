@@ -27,6 +27,7 @@ public:
     std::function<PortStats()> stats;
     PlayerNetIdResolver playerNetByRef;
     PlayerRefResolver playerRefByNet;
+    KillerResolver killerOf;                                    // G04: the puppet of the remote player whose shot is to be credited with a copy's death (plugin/combat)
     HitForwarder hitForwarder;
     AnimSampler animSampler;
     IActorEngine* engine = nullptr;                             // the process-wide engine the port runs on (wireApi); other lanes share it via actorEngine()

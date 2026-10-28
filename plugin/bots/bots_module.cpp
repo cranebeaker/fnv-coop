@@ -285,6 +285,11 @@ struct LiveGame : nvbots::IEngine {
         *refId = nvhooks::resolver().fromRef(r);
         return *refId != 0;
     }
+    bool questVar(uint32_t quest, const std::string& name, double* value) override {
+        fnvcoop::FormRef r;
+        if (!nvhooks::resolver().toRef(quest, &r)) return false;
+        return nvhooks::questVarValue(r, name, value);
+    }
     std::string nameOfForm(nvbots::Addr32 form) override {
         uint32_t id = 0;
         if (!form || !rd32(form + nvbots::eng::kFormId, &id)) return "";
@@ -473,7 +478,7 @@ void Init() {
     InstallDropHandler();
     static const char* const kMethods[] = {"bot.status", "bot.move", "bot.stop", "bot.look", "bot.fire", "bot.reload", "bot.sneak",
                                            "bot.jump", "bot.activate", "bot.input", "bot.menu", "bot.menu.press", "bot.menu.close", "bot.consent", "bot.inventory",
-                                           "bot.say", "bot.dialog", "bot.vats", "test.vats.hit", "test.fasttravel", "bot.fasttravel", "bot.drops", "dev.refsOf", "dev.countRefs",
+                                           "bot.say", "bot.dialog", "bot.vats", "test.vats.hit", "test.fasttravel", "bot.fasttravel", "bot.drops", "dev.refsOf", "dev.countRefs", "bot.questvar",
                                            "dev.terminal", "dev.terminalState"};
     for (const char* m : kMethods) {
         const std::string name = m;

@@ -85,6 +85,7 @@ private:
     void drain();
     void applyContents(NetId net, const Items& want);
     void tickResolve(uint64_t now);
+    void tickDiscover(uint64_t now);
     void tickCreates(uint64_t now);
     void tickRemoves(uint64_t now);
     void grantNotes(const lc::LootHost::Out& out);
@@ -120,6 +121,9 @@ private:
     std::set<NetId> suppressClose_;                          // menus WE closed (busy, lock lost): the close is not a player close
     // scheduled work
     std::deque<Resolve> resolves_;
+    std::set<RefId> discovered_;       // container refs already queued for resolution by tickDiscover
+    uint64_t nextDiscover_ = 0;
+    size_t discoverCursor_ = 0;        // which neighbour cell the next pass of tickDiscover starts with
     std::vector<lc::WorldItem> creates_;
     std::vector<uint64_t> createsDue_;
     struct PendingRemove { NetId id = 0; FormRef placed; uint64_t due = 0; uint32_t tries = 0; };

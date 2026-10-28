@@ -38,6 +38,7 @@ public:
     RefId anchorInCell(CellId cell, live::Vec3& anchorPos) override;
     RefId placeAtMe(RefId anchor, uint32_t baseId) override;
     bool console(const std::string& line, RefId on) override;
+    bool killWithAttribution(RefId victim, RefId killer) override;
 
     // diagnostics (bridge method actors.port)
     struct Pins {

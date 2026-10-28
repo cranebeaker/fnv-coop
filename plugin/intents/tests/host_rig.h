@@ -39,9 +39,12 @@ struct HostRig {
     std::function<bool(PlayerId, const FormRef&)> allowActivation;                         // plugin/companions question (empty = allow)
     std::vector<std::tuple<PlayerId, bool, FormRef>> interactions;                           // plugin/companions report: (slot, pickup, target)
     std::function<bool(PlayerId, const FormRef&, uint32_t)> allowStage;                      // quest policy for a guest's SetStage (empty = allow)
+    GuestStagePassFn guestStagePass;                                                         // a guest's SetStage on a barrier stage is its pass (empty = NotPass)
     std::vector<std::tuple<PlayerId, FormRef, uint32_t, Result>> stageRefusals;              // HostDeps::stageRefused reports
+    std::vector<std::string> logLines;                                                       // HostDeps::log (one line per refused / run intent)
     uint64_t now = 100000;
     Config cfg;
+    RetryList retry;                                                                         // the activators the stand-in retry is allowed for (retry_list.h)
     std::unique_ptr<IntentHost> host;
 
     explicit HostRig(Config c = testConfig()) : cfg(std::move(c)) {
@@ -72,7 +75,10 @@ struct HostRig {
         d.allowActivation = [this](PlayerId s, const FormRef& t) { return !allowActivation || allowActivation(s, t); };
         d.interacted = [this](PlayerId s, bool pickup, const FormRef& t) { interactions.emplace_back(s, pickup, t); };
         d.allowStage = [this](PlayerId s, const FormRef& q, uint32_t st) { return !allowStage || allowStage(s, q, st); };
+        d.guestStagePass = [this](PlayerId s, const FormRef& q, uint32_t st) { return guestStagePass ? guestStagePass(s, q, st) : StagePass::NotPass; };
         d.stageRefused = [this](PlayerId s, const FormRef& q, uint32_t st, Result why) { stageRefusals.emplace_back(s, q, st, why); };
+        d.log = [this](const std::string& line) { logLines.push_back(line); };
+        d.retryList = &retry;
         host.reset(new IntentHost(std::move(d), cfg, std::move(redirect), stash));
     }
 

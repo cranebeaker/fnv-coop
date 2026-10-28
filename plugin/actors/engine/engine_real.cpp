@@ -428,4 +428,8 @@ bool RealEngineHost::console(const std::string& line, RefId on) {
     return nvhooks::execConsoleLineOn(line, on);
 }
 
+bool RealEngineHost::killWithAttribution(RefId victim, RefId killer) {
+    return nvhooks::killWithAttribution(victim, killer);   // runs `KillActor <killer>` on the victim; the engine stores the killer before it raises OnDeath
+}
+
 }  // namespace nvcoop::actors::engine

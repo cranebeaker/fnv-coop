@@ -34,8 +34,11 @@ SUITES = [
     ("lint loot service wiring", [sys.executable, "-I", "tools/lint/check_loot_wiring.py"], False, NO),
     ("lint host engine readers are wired (+ twins)", [sys.executable, "-I", "tools/lint/check_host_readers_wiring.py", "--self-test"], False, NO),
     ("lint host engine readers wiring", [sys.executable, "-I", "tools/lint/check_host_readers_wiring.py"], False, NO),
+    ("test_all takes the readers lint and the Lab generator without the game as passed (+ 2 twins)", [sys.executable, "-I", "tools/test_all_evidence.py"], False, NO),
     ("lint workflow inputs stay out of run scripts, soak seed and count checked (+ twins)", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py", "--self-test"], False, NO),
     ("lint workflow inputs", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py"], False, NO),
+    ("lint CI plugin artifact holds what provision installs, the Proton doc downloads it by name, only from the commit's own run (+ 13 twins)", [sys.executable, "-I", "tools/lint/check_plugin_artifact.py", "--self-test"], False, NO),
+    ("lint CI plugin artifact", [sys.executable, "-I", "tools/lint/check_plugin_artifact.py"], False, NO),
     ("test_all preflight", [sys.executable, "-I", "tools/test_all_selftest.py"], False, NO),
     ("canonical nvcoop.dll build", ["cmd", "/c", r"tools\runner\build_l1.cmd"], True, CM),
     ("T5 chaos box (+ chaos_pair: a pair joined through the relay)", [sys.executable, "-I", "tools/chaos/run_tests.py"], False, NO),
@@ -55,6 +58,7 @@ SUITES = [
     ("Release: launcher (settings, nvcoop.ini, port checks, start; + twins)", [sys.executable, "-I", "tools/launcher/run_tests.py"], False, NO),
     ("Proof harness: prove.py classifier, packet, ledger, owner-PC safety, --pairs scheduler, RAM guard (fake worlds, stub runners + 22 twins)", [sys.executable, "-I", "tools/proof/tests/run_tests.py"], False, NO),
     ("Lab runner (rooms on a fake two-copy world, one test per fake bug, fail fast, time boxes, summary.md under 5 KB + 7 twins)", [sys.executable, "-I", "tools/lab/run_tests.py"], False, NO),
+    ("Story run (Goodsprings steps on a fake two-copy world, one test per fake bug, guest-initiated dialogue, summary.md under 5 KB + 9 twins)", [sys.executable, "-I", "tools/story/run_tests.py"], False, NO),
     ("Proof drivers: release .cmd scripts, launcher loopback, public tree build, split-screen smoke (fake runners, damaged-release and launcher-fault twins + 5 twins)", [sys.executable, "-I", "tools/proof/drivers/tests/run_tests.py"], False, NO),
     ("T4b scenarios", [sys.executable, "-I", "-X", "utf8", "tools/scenarios/run_tests.py"], False, NO),
     ("T1b flight analyzer (fast)", [sys.executable, "-I", "tools/flight/run_tests.py"], False, NO),
@@ -100,7 +104,9 @@ SUITES = [
     ("companions-crime in-game proof checker (selftest)", [sys.executable, "-I", "plugin/companions/proof/social_proof.py", "--selftest"], False, NO),
     ("Readiness wait shared by prove.py and the proof scripts (+ twins, wiring of every script)", [sys.executable, "-I", "tools/runner/tests/test_nvready.py"], False, NO),
     ("NPC pick for the in-game NPC proofs: loaded NPC or the nearest one, runtime ids (+ 7 twins)", [sys.executable, "-I", "tools/runner/tests/test_npc_pick.py"], False, NO),
+    ("Steam libraries off Windows: the runner finds the game and its Proton prefix (fake Deck + 6 twins)", [sys.executable, "-I", "tools/runner/tests/test_steamlib.py"], False, NO),
     ("Proton launch scripts: Steam launch option and in-session runner (stubbed Steam client + 7 twins)", [sys.executable, "-I", "tools/runner/tests/test_proton_scripts.py"], False, NO),
+    ("provision --no-pad: copies ignore game controllers, the low-cost restore keeps it or stops (+ 6 twins)", [sys.executable, "-I", "tools/runner/tests/test_no_pad.py"], False, NO),
     ("loot in-game proof checker (selftest + late-session twin)", [sys.executable, "-I", "plugin/loot/tools/loot_proof.py", "--selftest"], False, NO),
     ("world-time in-game proof checker (selftest + press-blind twin)", [sys.executable, "-I", "plugin/world_time/tools/worldtime_proof.py", "--selftest"], False, NO),
     ("T1a flight recorder", ["cmd", "/c", r"plugin\flight\run_tests.cmd"], True, CM),
@@ -225,6 +231,12 @@ EVIDENCE = re.compile(
 NEGATIVE = re.compile(r"^FAILED \((failures|errors)=|\b[1-9]\d* tests failed out of|is not recognized as an internal", re.M)
 
 
+def passed(returncode: int, out: str) -> bool:
+    """A suite passes on exit 0 with proof that tests ran and no failure line. Exit code alone is not trusted: a test exe that
+    never started can still exit 0."""
+    return returncode == 0 and EVIDENCE.search(out) is not None and not NEGATIVE.search(out)
+
+
 # ---- --affected: run only the suites whose sources changed vs git HEAD (build-speed, docs/TOOLS-BRIEF.md) ----
 # Sources that every C++ suite depends on: a change here selects all suites that compile C++.
 SHARED_PREFIXES = (
@@ -240,6 +252,7 @@ EXTRA_DEPS = {
     "canonical nvcoop.dll build": ("plugin/", "synccore/", "tools/runner/build_l1.cmd"),
     "build-speed tooling": ("tools/test_all.py", "tools/mut/", "tools/build/"),
     "test_all preflight": ("tools/test_all.py", "tools/test_all_selftest.py", "plugin/", "synccore/"),   # scans the runner scripts of every suite
+    "test_all takes the readers lint": ("tools/test_all.py", "tools/lint/check_host_readers_wiring.py", "tools/lab/esp/"),   # runs both scripts
     "L4 synccore": ("synccore/",),
     "repo hygiene (": ("synccore/", "plugin/", "tools/lint/"),
     "T2b simfuzz": ("synccore/", "tools/simfuzz/", "scenarios/simfuzz/"),
@@ -378,9 +391,7 @@ def main() -> int:
         t0 = time.time()
         p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
         out = p.stdout + p.stderr
-        # Exit code alone is not trusted: a test exe that never started can still exit 0.
-        evidence = EVIDENCE.search(out)
-        ok = p.returncode == 0 and evidence is not None and not NEGATIVE.search(out)
+        ok = passed(p.returncode, out)
         if p.returncode == 0 and not ok:
             print(f"    (exit 0 but no proof tests ran, or a failure line was printed)")
         print(f"{'PASS' if ok else 'FAIL'} {name} ({time.time() - t0:.0f}s)")

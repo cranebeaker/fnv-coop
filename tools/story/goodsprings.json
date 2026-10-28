@@ -1,0 +1,990 @@
+{
+  "schema": 1,
+  "line": "goodsprings",
+  "title": "Goodsprings story run: the first three quests, the ghost town gunfight and the town's dialogue, played by a host and a client",
+  "doc": "docs/tools/story.md. Each step is played with real player actions (walk, talk, pick a line, activate, take, shoot). `prep` is the only console use: it brings the quest to the stage the step starts from (the host runs it, the client must see it). `goal` is what both copies must show when the step ends. Stages and INFO ids come from questlines/goodsprings/playthrough.json (a test compares them).",
+  "refs": {
+    "doc": "FalloutNV.esm:104C0F",
+    "sunny": "FalloutNV.esm:104E85",
+    "ringo": "FalloutNV.esm:104C7D",
+    "trudy": "FalloutNV.esm:104C6D",
+    "chet": "FalloutNV.esm:104C79",
+    "house_door": "FalloutNV.esm:103E61",
+    "house_exit": "FalloutNV.esm:105BCF",
+    "gecko1": "FalloutNV.esm:10A1FE",
+    "gecko2": "FalloutNV.esm:10A1FD",
+    "broc": "FalloutNV.esm:15D981",
+    "xander": "FalloutNV.esm:15D982",
+    "broc_item": "FalloutNV.esm:13B2BA",
+    "xander_item": "FalloutNV.esm:13B2B9",
+    "gang1": "FalloutNV.esm:104C70",
+    "gang2": "FalloutNV.esm:104C77",
+    "gang3": "FalloutNV.esm:104C75"
+  },
+  "quests": {
+    "VCG00": "FalloutNV.esm:102037",
+    "VCG01": "FalloutNV.esm:104C1C",
+    "VCG02": "FalloutNV.esm:10A214",
+    "VCG03": "FalloutNV.esm:15D912",
+    "VMS16": "FalloutNV.esm:104EAE",
+    "VMS16b": "FalloutNV.esm:15EC5B",
+    "VFreeformGoodsprings": "FalloutNV.esm:104C66",
+    "VMQ01": "FalloutNV.esm:0842DD"
+  },
+  "reps": {
+    "Goodsprings": "FalloutNV.esm:104C22",
+    "PowderGanger": "FalloutNV.esm:1558E6"
+  },
+  "npcs": {
+    "doc": {
+      "name": "Doc Mitchell",
+      "ref": "$doc",
+      "topics": [
+        {
+          "info": "FalloutNV.esm:1057E7",
+          "text": "<Doc Outro> You should talk to Sunny Smiles before you leave town (goodbye; its end script raises the casual / hardcore box and starts the timer that sets stage 200)."
+        },
+        {
+          "info": "FalloutNV.esm:15E139",
+          "text": "Don't mention it. It's what I'm here for. (then 1057E7)"
+        },
+        {
+          "info": "FalloutNV.esm:15E13C",
+          "text": "Didn't have much choice, I'm afraid. But I understand the sentiment. (then 1057E7)"
+        }
+      ]
+    },
+    "sunny": {
+      "name": "Sunny Smiles",
+      "ref": "$sunny",
+      "topics": [
+        {
+          "info": "FalloutNV.esm:10A1E4",
+          "text": "Doc Mitchell said you could teach me to survive in the desert.",
+          "sets": [
+            "VCG02",
+            10
+          ],
+          "needs": {
+            "VCG02": 5
+          }
+        },
+        {
+          "info": "FalloutNV.esm:10A1E5",
+          "text": "Okay, I'm in.",
+          "sets": [
+            "VCG02",
+            25
+          ],
+          "needs": {
+            "VCG02": 20
+          }
+        },
+        {
+          "info": "FalloutNV.esm:15D97E",
+          "text": "Couldn't hurt. (the campfire lesson)",
+          "sets": [
+            "VCG03",
+            10
+          ],
+          "needs": {
+            "VCG02": 50
+          }
+        },
+        {
+          "info": "FalloutNV.esm:104E6C",
+          "text": "Well, that was easy. (Sunny joins the fight)",
+          "sets": [
+            "VMS16",
+            50
+          ],
+          "needs": {
+            "VMS16": 10
+          }
+        },
+        {
+          "info": "FalloutNV.esm:105D09",
+          "text": "Let's go. (to the gunfight)",
+          "sets": [
+            "VMS16",
+            70
+          ],
+          "needs": {
+            "VMS16": 65
+          }
+        },
+        {
+          "info": "FalloutNV.esm:10A1EB",
+          "text": "Sure, I'll come with you. (the game's own line on the VCG02 path at this save)",
+          "obj": [
+            "VCG02",
+            50,
+            "displayed"
+          ],
+          "keep": true,
+          "needs": {
+            "VCG02": 50
+          }
+        }
+      ]
+    },
+    "ringo": {
+      "name": "Ringo",
+      "ref": "$ringo",
+      "topics": [
+        {
+          "info": "FalloutNV.esm:104E82",
+          "text": "I'll ask around and see who I can round up.",
+          "sets": [
+            "VMS16",
+            10
+          ],
+          "needs": {
+            "VMS16": 5
+          }
+        },
+        {
+          "info": "FalloutNV.esm:104E72",
+          "text": "Sunny's with us.",
+          "sets": [
+            "VMS16",
+            60
+          ],
+          "needs": {
+            "VMS16": 50
+          }
+        },
+        {
+          "info": "FalloutNV.esm:105CC2",
+          "text": "Let's do this.",
+          "sets": [
+            "VMS16",
+            65
+          ],
+          "needs": {
+            "VMS16": 60
+          }
+        }
+      ]
+    },
+    "trudy": {
+      "name": "Trudy",
+      "ref": "$trudy",
+      "topics": [
+        {
+          "info": "FalloutNV.esm:104C54",
+          "text": "I overheard your argument. What was that all about?",
+          "sets": [
+            "VMS16",
+            5
+          ]
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "id": "S00",
+      "enter": true,
+      "who": "both",
+      "box_s": 240,
+      "title": "start: the story's start save is loaded on both copies as it is (nothing reset or moved), the session is up",
+      "quest": "VCG01",
+      "do": [
+        {
+          "a": "note",
+          "text": "env.enter loads the save (start.keep), presses the load boxes away and waits for the session to sync"
+        }
+      ],
+      "goal": {}
+    },
+    {
+      "id": "S01",
+      "who": "both",
+      "box_s": 60,
+      "quest": "VCG01",
+      "title": "start state: both copies stand in Doc Mitchell's house with VCG01 at stage 110 and objective 50 (follow Doc to the exit) shown; nothing else of Goodsprings has started",
+      "do": [
+        {
+          "a": "note",
+          "text": "nothing to do: the saved game is the start state"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VCG01": 110
+        },
+        "objectives": {
+          "VCG01": {
+            "50": "d"
+          }
+        }
+      }
+    },
+    {
+      "id": "S02",
+      "who": "both",
+      "box_s": 150,
+      "quest": "VCG01",
+      "title": "VCG01: Doc leads the way out (stage 110); both players walk after him to the door, the exit trigger fires stage 115, Doc's farewell ends in a message box (casual or hardcore), then stage 200 starts VCG02; the host says goodbye and answers first, the barrier holds, then the client (Doc's farewell plays in the host's game only) passes the barrier by itself once its player is free, and stage 200 starts",
+      "prep": [
+        {
+          "quest": "VCG01",
+          "stage": 110
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$house_door",
+          "dist": 60
+        },
+        {
+          "a": "wait",
+          "who": "host",
+          "seconds": 6
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$doc",
+          "infos": [
+            "FalloutNV.esm:1057E7",
+            "FalloutNV.esm:15E139",
+            "FalloutNV.esm:15E13C"
+          ],
+          "fallback": "first",
+          "max": 1,
+          "ready_s": 90,
+          "optional": true,
+          "why": "Doc's greeting chain (1057E8, 1057E4, 1057E6) ends at his topic list; the goodbye line 1057E7 (or a thanks line that follows up into it) is the player's to pick, as in the game"
+        },
+        {
+          "a": "answer_box",
+          "who": "host",
+          "button": 0,
+          "wait_s": 40,
+          "why": "Doc's farewell raises the casual / hardcore box",
+          "optional": true
+        },
+        {
+          "a": "expect_not",
+          "quest": "VCG01",
+          "stage": 200,
+          "why": "the barrier of VCG01 stage 200 holds until the client has passed too",
+          "wait_s": 2
+        },
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$house_door",
+          "dist": 60
+        },
+        {
+          "a": "answer_box",
+          "who": "client",
+          "button": 0,
+          "wait_s": 30,
+          "why": "the same box on the client copy",
+          "optional": true
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VCG01": 200
+        }
+      }
+    },
+    {
+      "id": "S03",
+      "who": "client",
+      "box_s": 150,
+      "quest": "VCG02",
+      "guest_dialogue": true,
+      "title": "VCG02 Back in the Saddle: the CLIENT asks Sunny Smiles to teach him (Doc Mitchell said you could teach me)",
+      "prep": [
+        {
+          "quest": "VCG01",
+          "stage": 200,
+          "pass": true
+        },
+        {
+          "quest": "VCG02",
+          "stage": 5,
+          "start": true
+        }
+      ],
+      "do": [
+        {
+          "a": "answer_box",
+          "who": "client",
+          "button": 0,
+          "wait_s": 3,
+          "why": "boxes queued by the earlier steps would eat the talk",
+          "optional": true
+        },
+        {
+          "a": "answer_box",
+          "who": "client",
+          "button": 0,
+          "wait_s": 2,
+          "optional": true
+        },
+        {
+          "a": "answer_box",
+          "who": "client",
+          "button": 0,
+          "wait_s": 2,
+          "optional": true
+        },
+        {
+          "a": "answer_box",
+          "who": "client",
+          "button": 0,
+          "wait_s": 2,
+          "optional": true
+        },
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "client",
+          "npc": "$sunny"
+        },
+        {
+          "a": "pick",
+          "who": "client",
+          "npc": "$sunny",
+          "infos": [
+            "FalloutNV.esm:10A1E4"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VCG02",
+            "stage": 10
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "client"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VCG02": 10
+        }
+      }
+    },
+    {
+      "id": "S04",
+      "who": "host",
+      "box_s": 150,
+      "quest": "VCG02",
+      "title": "VCG02: the HOST says Okay, I'm in; Sunny leads on and the two geckos at the well are enabled",
+      "prep": [
+        {
+          "quest": "VCG02",
+          "stage": 20
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$sunny"
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$sunny",
+          "infos": [
+            "FalloutNV.esm:10A1E5"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VCG02",
+            "stage": 25
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VCG02": 25
+        }
+      }
+    },
+    {
+      "id": "S05",
+      "who": "both",
+      "box_s": 200,
+      "quest": "VCG02",
+      "title": "VCG02: the host shoots one gecko at the well and the client the other",
+      "prep": [
+        {
+          "quest": "VCG02",
+          "stage": 45
+        }
+      ],
+      "do": [
+        {
+          "a": "kill",
+          "who": "host",
+          "refs": [
+            "$gecko1"
+          ]
+        },
+        {
+          "a": "kill",
+          "who": "client",
+          "refs": [
+            "$gecko2"
+          ]
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VCG02": 50
+        }
+      }
+    },
+    {
+      "id": "S06",
+      "who": "client",
+      "box_s": 150,
+      "quest": "VCG02",
+      "guest_dialogue": true,
+      "title": "VCG02 on to its next objective: the CLIENT picks Sunny's line the game offers on the quest path (Sure, I'll come with you); the host runs its result and objective 50 shows on both copies",
+      "prep": [
+        {
+          "quest": "VCG02",
+          "stage": 50
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "client",
+          "npc": "$sunny"
+        },
+        {
+          "a": "pick",
+          "who": "client",
+          "npc": "$sunny",
+          "infos": [
+            "FalloutNV.esm:10A1EB"
+          ],
+          "fallback": "none",
+          "max": 2
+        },
+        {
+          "a": "end_dialogue",
+          "who": "client"
+        }
+      ],
+      "goal": {
+        "objectives": {
+          "VCG02": {
+            "50": "d"
+          }
+        }
+      }
+    },
+    {
+      "id": "S07",
+      "who": "client",
+      "box_s": 120,
+      "quest": "VCG03",
+      "title": "VCG03: the client picks the Broc flower (only he gets it, the plant is gone on both copies)",
+      "do": [
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$broc",
+          "dist": 100
+        },
+        {
+          "a": "take",
+          "who": "client",
+          "ref": "$broc"
+        }
+      ],
+      "goal": {},
+      "expect": {
+        "items": [
+          {
+            "item": "$broc_item",
+            "who": "client",
+            "delta": 1
+          }
+        ]
+      },
+      "prep": [
+        {
+          "quest": "VCG03",
+          "stage": 10
+        }
+      ]
+    },
+    {
+      "id": "S08",
+      "who": "host",
+      "box_s": 120,
+      "quest": "VCG03",
+      "title": "VCG03: the host picks the Xander root",
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$xander",
+          "dist": 100
+        },
+        {
+          "a": "take",
+          "who": "host",
+          "ref": "$xander"
+        }
+      ],
+      "goal": {},
+      "expect": {
+        "items": [
+          {
+            "item": "$xander_item",
+            "who": "host",
+            "delta": 1
+          }
+        ]
+      },
+      "prep": [
+        {
+          "quest": "VCG03",
+          "stage": 10
+        }
+      ]
+    },
+    {
+      "id": "S09",
+      "who": "host",
+      "box_s": 150,
+      "quest": "VCG03",
+      "title": "VCG03: the host brings the plants to Sunny at the campfire and talks (her greeting takes both plants: objective 20; the start state gives the host the plant the client picked)",
+      "prep": [
+        {
+          "quest": "VCG03",
+          "stage": 10
+        },
+        {
+          "give": {
+            "who": "host",
+            "item": "$broc_item",
+            "count": 1
+          }
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$sunny"
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {
+        "objectives": {
+          "VCG03": {
+            "20": "c"
+          }
+        }
+      }
+    },
+    {
+      "id": "S10",
+      "who": "host",
+      "box_s": 150,
+      "quest": "VMS16",
+      "guest_dialogue": false,
+      "title": "VMS16 Ghost Town Gunfight: the host asks Trudy about the argument (starts the quest, stage 5)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "start": true
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$trudy",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$trudy"
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$trudy",
+          "infos": [
+            "FalloutNV.esm:104C54"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VMS16",
+            "stage": 5
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 5
+        }
+      }
+    },
+    {
+      "id": "S11",
+      "who": "client",
+      "box_s": 150,
+      "quest": "VMS16",
+      "guest_dialogue": true,
+      "title": "VMS16: the CLIENT tells Ringo he will ask around (stage 10)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "stage": 5
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$ringo",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "client",
+          "npc": "$ringo"
+        },
+        {
+          "a": "pick",
+          "who": "client",
+          "npc": "$ringo",
+          "infos": [
+            "FalloutNV.esm:104E82"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VMS16",
+            "stage": 10
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "client"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 10
+        }
+      }
+    },
+    {
+      "id": "S12",
+      "who": "host",
+      "box_s": 150,
+      "quest": "VMS16",
+      "title": "VMS16: the host gets Sunny to join (Well, that was easy; stage 50)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "stage": 10
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$sunny"
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$sunny",
+          "infos": [
+            "FalloutNV.esm:104E6C"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VMS16",
+            "stage": 50
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 50
+        }
+      }
+    },
+    {
+      "id": "S13",
+      "who": "client",
+      "box_s": 180,
+      "quest": "VMS16",
+      "guest_dialogue": true,
+      "title": "VMS16: the CLIENT reports back to Ringo, Sunny's with us (60) and Let's do this (65)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "stage": 50
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$ringo",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "client",
+          "npc": "$ringo"
+        },
+        {
+          "a": "pick",
+          "who": "client",
+          "npc": "$ringo",
+          "infos": [
+            "FalloutNV.esm:104E72",
+            "FalloutNV.esm:105CC2"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VMS16",
+            "stage": 65
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "client"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 65
+        }
+      }
+    },
+    {
+      "id": "S14",
+      "who": "host",
+      "box_s": 150,
+      "quest": "VMS16",
+      "title": "VMS16: the host tells Sunny Let's go (stage 70, the gunfight starts, the Powder Gangers are enabled)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "stage": 65
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$sunny",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$sunny"
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$sunny",
+          "infos": [
+            "FalloutNV.esm:105D09"
+          ],
+          "fallback": "first",
+          "max": 6,
+          "stop_when": {
+            "quest": "VMS16",
+            "stage": 70
+          }
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 70
+        }
+      }
+    },
+    {
+      "id": "S15",
+      "who": "both",
+      "box_s": 240,
+      "quest": "VMS16",
+      "title": "VMS16: the gunfight; the host shoots one Powder Ganger, the client the other two",
+      "do": [
+        {
+          "a": "kill",
+          "who": "host",
+          "refs": [
+            "$gang1"
+          ]
+        },
+        {
+          "a": "kill",
+          "who": "client",
+          "refs": [
+            "$gang2",
+            "$gang3"
+          ]
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 80
+        }
+      }
+    },
+    {
+      "id": "S16",
+      "who": "client",
+      "box_s": 150,
+      "quest": "VMS16",
+      "guest_dialogue": true,
+      "title": "VMS16: the CLIENT talks to Ringo after the fight (his greeting; the quest completes at stage 100: XP, reputation)",
+      "prep": [
+        {
+          "quest": "VMS16",
+          "stage": 80
+        }
+      ],
+      "do": [
+        {
+          "a": "goto",
+          "who": "client",
+          "ref": "$ringo",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "client",
+          "npc": "$ringo"
+        },
+        {
+          "a": "end_dialogue",
+          "who": "client"
+        }
+      ],
+      "goal": {
+        "stages": {
+          "VMS16": 100
+        }
+      },
+      "expect": {
+        "reward": {
+          "xp": 50,
+          "who": "all"
+        }
+      }
+    },
+    {
+      "id": "S17",
+      "who": "host",
+      "box_s": 120,
+      "quest": "VFreeformGoodsprings",
+      "title": "VFreeformGoodsprings: the host talks to Chet; the town's ambient dialogue says the same on both copies",
+      "do": [
+        {
+          "a": "goto",
+          "who": "host",
+          "ref": "$chet",
+          "dist": 100
+        },
+        {
+          "a": "talk",
+          "who": "host",
+          "npc": "$chet"
+        },
+        {
+          "a": "pick",
+          "who": "host",
+          "npc": "$chet",
+          "infos": [],
+          "fallback": "first",
+          "max": 3
+        },
+        {
+          "a": "end_dialogue",
+          "who": "host"
+        }
+      ],
+      "goal": {}
+    }
+  ],
+  "start": {
+    "save": "autosave_story_start",
+    "keep": true,
+    "doc": "autosave_story_start was made from a new game's save at Doc Mitchell's house (0:04 of play): chargen and the exam are done, VCG01 is at stage 110 (objective 50: follow Doc to the exit), VCG02 and later are untouched, so Goodsprings' say-once lines are unspent. S00 loads it as it is: no quest reset, no move. Made by tools/story/story.py probe --save story_save5 --save-as autosave_story_start (docs/tools/story.md)."
+  }
+}

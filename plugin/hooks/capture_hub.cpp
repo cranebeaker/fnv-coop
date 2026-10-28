@@ -125,6 +125,16 @@ bool CaptureHub::currentSource(fnvcoop::FormRef* out) const {
     return true;
 }
 
+bool CaptureHub::currentCause(fnvcoop::Cause* out) const {
+    if (!on() || frames_.empty()) return false;
+    const Frame* pick = &frames_.front();
+    for (const Frame& f : frames_)
+        if (!f.weak) { pick = &f; break; }
+    const fnvcoop::Cause c = pick->weak ? (weakResolver_ ? weakResolver_(pick->lazyId) : fnvcoop::Cause{}) : pick->cause;
+    if (out) *out = c;
+    return true;
+}
+
 size_t CaptureHub::reapStale() {
 #ifdef NVHOOKS_MUTANT
     return 0;  // never recovers: every later capture disappears into the stuck scope

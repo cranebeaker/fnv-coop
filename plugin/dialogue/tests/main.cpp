@@ -419,6 +419,7 @@ static bool scn_codec_roundtrip() {
     ms.push_back(StartDenied{7, DenyReason::Busy, 2}); ms.push_back(Opened{3, 7, F(5), 1});
     Lines l; l.conv = 3; l.step = 2; l.topic = F(1); l.info = F(9); l.lines = {L("hi")}; ms.push_back(l);
     ms.push_back(Result{3, 2, Phase::End, 0xFFFFFFFFFFull}); ms.push_back(Control{3, 5, true}); ms.push_back(Closed{3, CloseReason::Timeout});
+    ms.push_back(SayOnceMark{F(0x10A1E6)});
     for (auto& m : ms) {
         auto b = encode(m);
         Msg d;
@@ -449,6 +450,7 @@ static bool scn_codec_fuzz() {
 #include "scn_round3.inc"
 #include "scn_round4.inc"
 #include "scn_round5.inc"
+#include "scn_round6.inc"
 
 struct Case { const char* name; bool (*fn)(); const char* twin; Mutations mut; };
 static Mutations M(void (*f)(Mutations&)) { Mutations m; f(m); return m; }
@@ -530,6 +532,21 @@ int main(int argc, char** argv) {
         {"fork_info_leaver_does_not_block", scn_fork_info_leaver_does_not_block, nullptr, {}},
         {"consent_table_modes", scn_consent_table_modes, nullptr, {}},
         {"consent_denied_codec", scn_consent_denied_codec, nullptr, {}},
+        // wave 1b (G08 / G27): votes the rules engine owns, carried by the dialogue host
+        {"rules_info_end_waits_for_the_verdict", scn_rules_info_end_waits_for_the_verdict, "no_info_gate", M([](Mutations& m) { m.noInfoGate = true; })},
+        {"rules_info_end_released_runs_once", scn_rules_info_end_waits_for_the_verdict, "held_end_never_released", M([](Mutations& m) { m.heldEndNeverReleased = true; })},
+        {"rules_info_declined_drops_the_end_script", scn_rules_info_declined_drops_the_end_script_and_tells_the_origin, "held_end_runs_on_deny", M([](Mutations& m) { m.heldEndRunsOnDeny = true; })},
+        {"rules_info_accepted_release_is_not_lost", scn_rules_info_accepted_release_is_not_lost, "held_end_never_released_goodbye", M([](Mutations& m) { m.heldEndNeverReleased = true; })},
+        {"rules_answers_reach_the_vote_sink", scn_rules_answers_reach_the_vote_sink, "vote_answer_dropped", M([](Mutations& m) { m.voteAnswerDropped = true; })},
+        {"rules_answers_keep_their_meaning", scn_rules_answers_reach_the_vote_sink, "vote_answer_inverted", M([](Mutations& m) { m.voteAnswerInverted = true; })},
+        {"rules_gate_run_does_not_hold", scn_rules_gate_run_does_not_hold, nullptr, {}},
+        {"rules_box_waits_for_the_verdict", scn_rules_box_waits_for_the_verdict, "box_gate_ignored", M([](Mutations& m) { m.boxGateIgnored = true; })},
+        {"rules_box_gate_run_resumes_at_once", scn_rules_box_gate_run_resumes_at_once, nullptr, {}},
+        {"rules_owned_info_is_not_held_twice", scn_rules_owned_info_is_not_held_twice, "rules_owner_keeps_old_hold", M([](Mutations& m) { m.rulesOwnerKeepsOldHold = true; })},
+        {"rules_origin_leaves_while_held", scn_rules_origin_leaves_while_held, nullptr, {}},
+        {"comp_party_owned_uses_no_slot", scn_comp_party_owned, "party_companion_counts", M([](Mutations& m) { m.partyCompanionCounts = true; })},
+        {"comp_party_owned_hired_for_everybody", scn_comp_party_owned, "party_hired_per_slot", M([](Mutations& m) { m.partyHiredPerSlot = true; })},
+        {"rules_failsafe_declines_when_the_engine_never_answers", scn_rules_failsafe_declines_when_the_engine_never_answers, "no_menu_default_rules", M([](Mutations& m) { m.noMenuDefault = true; })},
     };
     int fail = 0, ran = 0;
     for (auto& c : cases) {

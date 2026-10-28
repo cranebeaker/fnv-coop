@@ -695,7 +695,7 @@ bool WinBackend::Eval(Cond fn, RefId ref, FormId param, double& out) {
     out = 0;
     if (!lookupOk_) return false;
     const P::Pin* pin = nullptr;
-    bool formParam = false;
+    bool formParam = false, intParam = false;
     switch (fn) {
         case Cond::GetRestrained: pin = &P::EvalGetRestrained; break;
         case Cond::IsWeaponOut: pin = &P::EvalIsWeaponOut; break;
@@ -703,6 +703,10 @@ bool WinBackend::Eval(Cond fn, RefId ref, FormId param, double& out) {
         case Cond::GetDead: pin = &P::EvalGetDead; break;
         case Cond::GetItemCount: pin = &P::EvalGetItemCount; formParam = true; break;
         case Cond::GetEquipped: pin = &P::EvalGetEquipped; formParam = true; break;
+        case Cond::GetLevel: pin = &P::EvalGetLevel; break;
+        case Cond::GetSitting: pin = &P::EvalGetSitting; break;
+        case Cond::IsPlayerActionActive: pin = &P::EvalIsPlayerActionActive; intParam = true; break;
+        case Cond::GetActorValue: pin = &P::EvalGetActorValue; intParam = true; break;
     }
     if (!pin || !PinOk(pin->name)) return false;
     TESForm* r = LookupSEH(ref);
@@ -711,10 +715,31 @@ bool WinBackend::Eval(Cond fn, RefId ref, FormId param, double& out) {
     if (formParam) {
         arg = LookupSEH(param);
         if (!arg) return false;
+    } else if (intParam) {
+        arg = reinterpret_cast<void*>(static_cast<uintptr_t>(param));   // IsPlayerActionActive takes the action id itself, not a form
     }
     double v = 0;
     if (!EvalSEH(pin->addr, r, arg, &v)) return false;
     out = v;
+    return true;
+}
+
+// PlayerCharacter::regionsList: a BSSimpleList node chain {item, next} starting inline at player+0x764; every item is a TESRegion form (refID at +0x0C). Guarded reads only.
+bool WinBackend::ReadPlayerRegions(std::vector<FormId>& out, size_t max) {
+    out.clear();
+    const uintptr_t player = PlayerPtr();
+    if (!player) return false;
+    uintptr_t node = player + P::kPlayerRegionList;
+    for (int guard = 0; node && guard < 64 && out.size() < max; ++guard) {
+        uint32_t cell[2] = {0, 0};   // {item, next}
+        if (!SafeRead(node, cell, sizeof cell)) return false;
+        if (cell[0]) {
+            uint32_t id = 0;
+            if (!SafeRead(cell[0] + P::kFormRefId, &id, sizeof id)) return false;
+            if (id) out.push_back(id);
+        }
+        node = cell[1];
+    }
     return true;
 }
 

@@ -47,6 +47,20 @@ class OldNormBot(Bot):
                 from bots.bot import _Fail
                 raise _Fail("not_found", ref=ref, why="load index not in plugin list")
         return super()._norm(ref)
+class RefInfoKindBot(Bot):
+    """Twin: the old _kind, the type ref.info answers (0x3A for every placed object): a door is not a door, open() takes the container/terminal path."""
+
+    def _kind(self, ref):
+        return int(self._info(ref)["type"])
+
+
+class BridgePickupBot(Bot):
+    """Twin: a pickup always goes through activate.ref, whatever the caller asked for."""
+
+    def _do_activate(self, ref, console=False):
+        return super()._do_activate(ref, False)
+
+
 class ZeroOnlyAliveBot(Bot):
     """Twin: the old alive rule (only life state 0 is alive)."""
 
@@ -187,6 +201,58 @@ class Interaction(unittest.TestCase):
         nv.world.things[DOOR].locked = True
         self.assertTrue(b.locked(ref(DOOR)))
         self.assertEqual(b.open(ref(DOOR)).reason, "locked")
+
+    def test_a_pickup_through_the_console_gives_the_item_that_activate_ref_loses(self):
+        # lab run 2026-10-27: activate.ref (the engine's Activate with 0 as its last argument) deleted the lab's placed Stimpak without giving it to the
+        # player, on both copies; the console's Activate (last argument 1) gave it. The host picks up through the console.
+        nv, b = make()
+        nv.world.things[GROUND].count0_gives_nothing = True
+        r = b.pickup(ref(GROUND), item=ref(ITEM))
+        self.assertFalse(r.ok, "activate.ref lost the item: the postcondition says so")
+        self.assertIn("inventory did not gain", str(r))
+        nv, b = make()
+        nv.world.things[GROUND].count0_gives_nothing = True
+        before = b.inventory_count(ref(ITEM))
+        r = b.pickup(ref(GROUND), item=ref(ITEM), console=True)
+        self.assertTrue(r.ok, r)
+        self.assertEqual(b.inventory_count(ref(ITEM)), before + 1)
+        self.assertFalse([c for c in nv.calls if c[0] == P.M_ACTIVATE], "no activate.ref call on the console path")
+        self.assertTrue([c for c in nv.calls if c[0] == "exec" and "Activate player 1" in c[1]], "the console line ran")
+
+    def test_twin_a_pickup_that_always_uses_the_bridge_method_loses_the_item(self):
+        nv, b = make()
+        nv.world.things[GROUND].count0_gives_nothing = True
+        r = BridgePickupBot(nv, "old").pickup(ref(GROUND), item=ref(ITEM), console=True)
+        self.assertFalse(r.ok)
+
+    def test_a_door_is_a_door_although_ref_info_says_reference(self):
+        """ref.info answers 0x3A (the reference's own type) for a placed door; the base form type comes from GetType (lab run 2026-10-27: bot.open
+        activated a LOCKED door, the lockpick menu stayed open and ate every later input; an unlocked door that opened was reported as failed)."""
+        nv, b = make()
+        self.assertEqual(nv.call(P.M_REF_INFO, {"ref": ref(DOOR)})["type"], P.TYPE_REFR)
+        self.assertEqual(b._kind(ref(DOOR)), P.TYPE_DOOR)
+        self.assertEqual(b._kind(ref(CHEST)), P.TYPE_CONTAINER)
+        self.assertEqual(b._kind(ref(RAIDER)), P.TYPE_ACTOR)
+        nv.world.things[DOOR].locked = True
+        r = b.open(ref(DOOR))
+        self.assertEqual(r.reason, "locked")
+        self.assertEqual(b.menu_info()["kind"], "none", "a locked door is refused before anything is activated: no lockpick menu")
+        nv.world.things[DOOR].locked = False
+        self.assertTrue(b.open(ref(DOOR)).ok)
+        self.assertEqual(b.door_state(ref(DOOR)), "open")
+        self.assertTrue(b.close(ref(DOOR)).ok)
+
+    def test_twin_the_old_kind_activates_a_locked_door_and_fails_an_open_one(self):
+        nv, b = make()
+        old = RefInfoKindBot(nv, "old")
+        nv.world.things[DOOR].locked = True
+        old.open(ref(DOOR))
+        self.assertEqual(old.menu_info()["kind"], "lockpick", "the old rule opened the lockpick menu on a locked door")
+        nv, b = make()
+        old = RefInfoKindBot(nv, "old")
+        r = old.open(ref(DOOR))
+        self.assertFalse(r.ok, "the old rule reported a door that opened as failed")
+        self.assertEqual(b.menu_info()["kind"], "none")
 
     def test_take_put(self):
         nv, b = make()

@@ -100,6 +100,8 @@ struct FakeEngine : ICombatEngine {
     bool refuseLethal = false;            // the engine takes at most the integer health off: a sliver of float health survives every blow
     bool refuseKill = false;
     std::vector<uint32_t> kills;          // refs the owner killed explicitly (killActor)
+    std::vector<std::pair<uint32_t, uint32_t>> killsBy;     // (victim ref, killer puppet ref): the kill credited to a remote player (G04)
+    std::vector<std::pair<uint32_t, uint32_t>> killerSet;   // (corpse ref, killer puppet ref): the killer written onto a corpse that was already here
 
     Rec* find(uint32_t ref) {
         cc::Entity e;
@@ -126,6 +128,14 @@ struct FakeEngine : ICombatEngine {
         if (r->alive || r->lifeLag) { r->alive = false; r->lifeLag = false; r->health = 0; r->sliver = 0; deaths.push_back(ref); }
         return true;
     }
+    bool killActorBy(uint32_t ref, uint32_t killer) override {
+        Rec* r = find(ref);
+        if (!r || refuseKill) return false;
+        killsBy.push_back({ref, killer});
+        if (r->alive || r->lifeLag) { r->alive = false; r->lifeLag = false; r->health = 0; r->sliver = 0; deaths.push_back(ref); }
+        return true;
+    }
+    bool setKiller(uint32_t ref, uint32_t killer) override { killerSet.push_back({ref, killer}); return true; }
     bool lifeDead(uint32_t ref) override { Rec* r = find(ref); return r && !r->alive && !r->lifeLag; }
     bool setLimbCrippled(const cc::Entity& v, uint32_t ref, cc::Limb l) override {
         Rec* r = find(ref);

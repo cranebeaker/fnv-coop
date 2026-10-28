@@ -110,7 +110,7 @@ struct Result {
 };
 
 // `shoves`: a body in the way pushes the puppet 3 to 5 m away four times (twice while it walks, twice while it stands).
-static Result RunScenario(unsigned lossPercent, uint32_t seed, bool shoves = false) {
+static Result RunScenario(unsigned lossPercent, uint32_t seed, bool shoves = false, bool lowLatency = false) {
     Result res;
     FakePuppetEngine eng;
     eng.loadedCells = {kCell};
@@ -126,7 +126,9 @@ static Result RunScenario(unsigned lossPercent, uint32_t seed, bool shoves = fal
     live::ReceiverConfig rcfg;
     rcfg.checkSenderIsOwner = false;
     live::SnapshotReceiver receiver(rcfg);
-    live::InterpBuffer buf;
+    live::InterpConfig icfg;
+    icfg.lowLatency = lowLatency;   // the shipped playback (avatar_tuning.h DefaultLagTuning().interp) next to the old 100 ms buffer
+    live::InterpBuffer buf(icfg);
     live::SeqAllocator seqs;
     const ::fnvcoop::PlayerId kOwner = 1, kMe = 2;
     const live::NetId kNet = 77;
@@ -329,6 +331,25 @@ int main() {
     for (unsigned loss : {0u, 10u}) {
         Result r = RunScenario(loss, 4, true);
         std::printf("  pushes loss=%u%%: shoveFrames=%u bigJumps=%u maxStep=%.1f@%ums\n", loss, r.m.shoveFrames, r.m.bigJumps, r.m.maxStep, (unsigned)r.m.maxStepAt);
+        int bad = Judge(r);
+        if (bad) std::printf("  FAIL: %d judgements failed\n", bad);
+        g_fail += bad;
+    }
+    // the same walk, outage, teleport and engine pushes through the low-latency playback that ships
+    for (unsigned loss : {0u, 10u}) {
+        for (uint32_t seed : {1u, 2u, 3u}) {
+            Result r = RunScenario(loss, seed, false, true);
+            std::printf("  low-latency loss=%u%% seed=%u: frames=%u slide=%u skate=%u tpose=%u float=%u jitter=%u bigJumps=%u maxStep=%.1f@%ums resumeStep=%.1f idledInGap=%d spawns=%u\n",
+                        loss, seed, r.drivingFrames, r.m.slideFrames, r.m.skateFrames, r.m.tposeFrames, r.m.floatFrames, r.m.jitterFrames,
+                        r.m.bigJumps, r.m.maxStep, (unsigned)r.m.maxStepAt, r.m.resumeStep, (int)r.m.idledDuringGap, r.spawns);
+            int bad = Judge(r);
+            if (bad) std::printf("  FAIL: %d judgements failed\n", bad);
+            g_fail += bad;
+        }
+    }
+    for (unsigned loss : {0u, 10u}) {
+        Result r = RunScenario(loss, 4, true, true);
+        std::printf("  low-latency pushes loss=%u%%: shoveFrames=%u bigJumps=%u maxStep=%.1f@%ums\n", loss, r.m.shoveFrames, r.m.bigJumps, r.m.maxStep, (unsigned)r.m.maxStepAt);
         int bad = Judge(r);
         if (bad) std::printf("  FAIL: %d judgements failed\n", bad);
         g_fail += bad;

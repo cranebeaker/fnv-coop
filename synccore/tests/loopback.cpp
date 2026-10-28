@@ -1,7 +1,15 @@
 // Two-process (host + N client processes) localhost test of the ENet transport carrying the full session protocol,
 // with the seeded fault-injection wrapper on top. `fnvcoop_loopback selftest [loss%]` orchestrates the child processes.
-//   host:   fnvcoop_loopback host   --port P --seed S --txns N --clients C --loss L --out F [--unreliable]
-//   client: fnvcoop_loopback client --port P --seed S --txns N --token T --loss L --out F [--unreliable]
+//   host:   fnvcoop_loopback host   --port P --seed S --txns N --clients C --loss L --out F [--unreliable] [--ready F]
+//   client: fnvcoop_loopback client --port P --seed S --txns N --token T --loss L --out F [--unreliable] [--hostout F]
+//
+// Load tolerance: nothing here may depend on how fast the machine is. The processes are synchronised on events, not on sleeps:
+//   * --ready F: the host creates F once it is listening; the orchestrator starts the clients only after that (or sees the host exit,
+//     which is a failed bind and is retried on another port), instead of sleeping and hoping the host was fast enough;
+//   * --hostout F: after a client has applied every txn it keeps serving the host's retransmits (acks) until the host has written its
+//     result file F. A fixed linger was not enough: the host needs the clients' last acks to call allSynced(), and under load the
+//     client's last ack could be lost and its linger run out first, which left the host spinning until its deadline.
+// The only clocks left are the overall deadlines (kDeadlineMs), which are generous bounds for a hang, not part of any check.
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -30,6 +38,10 @@ extern char** environ;
 using namespace fnvcoop;
 using Clock = std::chrono::steady_clock;
 
+// A hang bound only: every normal run finishes in a few seconds, even with all cores busy.
+constexpr uint64_t kDeadlineMs = 240000;
+constexpr int kWaitProcMs = 300000;
+
 namespace {
 std::map<std::string, std::string> parseArgs(int argc, char** argv, int from) {
     std::map<std::string, std::string> m;
@@ -41,6 +53,7 @@ std::map<std::string, std::string> parseArgs(int argc, char** argv, int from) {
     }
     return m;
 }
+bool fileExists(const std::string& f) { std::ifstream i(f); return i.good(); }
 uint64_t nowMs(Clock::time_point t0) { return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count()); }
 
 // Forces every send onto the unreliable ENet channel (the session protocol must cope).
@@ -81,6 +94,7 @@ int runHost(std::map<std::string, std::string>& a) {
     int N = std::atoi(a["txns"].c_str()), C = std::atoi(a["clients"].c_str());
     EnetTransport enet;
     if (!enet.listen(port, 8, true)) { std::printf("host: listen failed\n"); return 2; }
+    if (a.count("ready")) std::ofstream(a["ready"]) << "READY\n";  // listening: the clients may start now
     FaultyTransport faulty(enet, linkFrom(a), seed * 31 + 1);
     ForceChannel forced(faulty, ITransport::Channel::Unreliable);
     ITransport& wire = a.count("unreliable") ? static_cast<ITransport&>(forced) : static_cast<ITransport&>(faulty);
@@ -94,7 +108,7 @@ int runHost(std::map<std::string, std::string>& a) {
     int committed = 0;
     uint64_t lastCommit = 0;
     bool done = false;
-    while (nowMs(t0) < 90000) {
+    while (nowMs(t0) < kDeadlineMs) {
         uint64_t now = nowMs(t0);
         faulty.pump(now);
         host.tick(now);
@@ -136,7 +150,8 @@ int runClient(std::map<std::string, std::string>& a) {
     auto t0 = Clock::now();
     bool started = false;
     uint64_t reached = 0, lastDialogue = 0;
-    while (nowMs(t0) < 90000) {
+    const std::string hostOut = a.count("hostout") ? a["hostout"] : "";
+    while (nowMs(t0) < kDeadlineMs) {
         uint64_t now = nowMs(t0);
         EnetTransport::Event ev;
         while (enet.nextEvent(ev)) if (ev.type == EnetTransport::Event::Connected && !started) { started = true; cs.connect(now, 1); }
@@ -144,7 +159,10 @@ int runClient(std::map<std::string, std::string>& a) {
         cs.tick(now);
         if (cs.joined() && now >= lastDialogue + 50) { lastDialogue = now; wire.send(0, Bytes{kChannelDialogue, 1, 2, 3}); }
         if (cs.applied() >= uint64_t(N) && !reached) reached = now;
-        if (reached && now > reached + 1200) break;  // linger so the last acks reach the host
+        // Linger so the last acks reach the host: until the host has finished (its result file exists); a fixed time only when the
+        // orchestrator did not say where that file is. A host that finished before this client was done cannot help it any more:
+        // stop, the result is then a failure (reached == 0).
+        if (hostOut.empty() ? (reached && now > reached + 1200) : fileExists(hostOut)) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     bool ok = reached != 0;
@@ -165,13 +183,22 @@ Proc spawn(const std::string& cmdline) {
 }
 unsigned long selfPid() { return GetCurrentProcessId(); }
 std::string selfExe() { char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH); return exe; }
-// Waits up to 120 s; returns the exit code (99 if it could not be read).
+// Waits up to kWaitProcMs; returns the exit code (99 if it could not be read).
 int waitProc(Proc h) {
-    WaitForSingleObject(h, 120000);
+    WaitForSingleObject(h, kWaitProcMs);
     DWORD code = 99;
     GetExitCodeProcess(h, &code);
     CloseHandle(h);
     return int(code);
+}
+// True once the process has ended (code filled in); the handle is closed then.
+bool hasExited(Proc h, int& code) {
+    if (WaitForSingleObject(h, 0) != WAIT_OBJECT_0) return false;
+    DWORD c = 99;
+    GetExitCodeProcess(h, &c);
+    CloseHandle(h);
+    code = int(c);
+    return true;
 }
 void removeFile(const std::string& f) { DeleteFileA(f.c_str()); }
 #else
@@ -190,7 +217,7 @@ std::string selfExe() {
     return n > 0 ? std::string(exe, size_t(n)) : std::string();
 }
 int waitProc(Proc p) {
-    for (int waited = 0; waited < 120000; waited += 10) {
+    for (int waited = 0; waited < kWaitProcMs; waited += 10) {
         int st = 0;
         pid_t r = waitpid(p, &st, WNOHANG);
         if (r == p) return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
@@ -200,6 +227,13 @@ int waitProc(Proc p) {
     kill(p, SIGKILL);
     waitpid(p, nullptr, 0);
     return 99;
+}
+bool hasExited(Proc p, int& code) {  // reaps the child when it has ended
+    int st = 0;
+    pid_t r = waitpid(p, &st, WNOHANG);
+    if (r == 0) return false;
+    code = (r == p && WIFEXITED(st)) ? WEXITSTATUS(st) : 99;
+    return true;
 }
 void removeFile(const std::string& f) { std::remove(f.c_str()); }
 #endif
@@ -215,22 +249,38 @@ int selftest(int argc, char** argv) {
     const int C = 2, N = 150;
     std::string exe = selfExe();
     if (exe.empty()) { std::printf("cannot find own executable\n"); return 1; }
-    int port = 27500 + int(selfPid() % 2000);
     const char* tmpDir = std::getenv("TEMP") ? std::getenv("TEMP") : std::getenv("TMPDIR");
     std::string tmp = std::string(tmpDir ? tmpDir : ".") + kSep + "fnvcoop_loop_" + std::to_string(selfPid());
-    std::string common = std::string(" --port ") + std::to_string(port) + " --seed 7 --txns " + std::to_string(N) + " --loss " + loss + (unrel ? " --unreliable" : "");
-    std::string clientExtra = mutate.empty() ? "" : " --mutate " + mutate;
+    std::string ready = tmp + "_ready.txt", hostOut = tmp + "_h.txt";
     std::string q = "\"" + exe + "\" ";
-    Proc h = spawn(q + "host" + common + " --clients " + std::to_string(C) + " --out " + tmp + "_h.txt");
-    if (!h) { std::printf("spawn host failed\n"); return 1; }
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // The host picks its port (another test run, or the OS, may hold the one we try): a host that exits before it is listening has
+    // not bound, so it is retried on the next port. Clients start only once the host is listening, however long that takes.
+    const int kPortTries = 12;
+    int port = 0;
+    std::string common;
+    Proc h = nullptr;
+    for (int attempt = 0; attempt < kPortTries && !h; ++attempt) {
+        port = 27500 + int((selfPid() + 211u * unsigned(attempt)) % 2000);
+        common = std::string(" --port ") + std::to_string(port) + " --seed 7 --txns " + std::to_string(N) + " --loss " + loss + (unrel ? " --unreliable" : "");
+        removeFile(ready); removeFile(hostOut);
+        Proc cand = spawn(q + "host" + common + " --clients " + std::to_string(C) + " --out " + hostOut + " --ready " + ready);
+        if (!cand) { std::printf("spawn host failed\n"); return 1; }
+        for (auto t0 = Clock::now(); nowMs(t0) < kDeadlineMs; std::this_thread::sleep_for(std::chrono::milliseconds(5))) {
+            if (fileExists(ready)) { h = cand; break; }
+            int code = 0;
+            if (hasExited(cand, code)) { std::printf("host exited %d before listening on port %d, retrying\n", code, port); break; }
+        }
+        if (!h && attempt + 1 == kPortTries) { std::printf("no host could listen\n"); return 1; }
+    }
+    if (!h) { std::printf("host never listened\n"); return 1; }
+    std::string clientExtra = (mutate.empty() ? "" : " --mutate " + mutate) + " --hostout " + hostOut;
     std::vector<Proc> hs{h};
     for (int i = 0; i < C; ++i)
         hs.push_back(spawn(q + "client" + common + clientExtra + " --token " + std::to_string(1000 + i) + " --out " + tmp + "_c" + std::to_string(i) + ".txt"));
     for (auto x : hs) if (!x) { std::printf("spawn client failed\n"); return 1; }
     int bad = 0;
     for (auto x : hs) { int code = waitProc(x); if (code != 0) { ++bad; std::printf("child exit %d\n", code); } }
-    std::string host = slurp(tmp + "_h.txt");
+    std::string host = slurp(hostOut);
     std::printf("host:    %s", host.c_str());
     std::string hd = host.substr(host.find("DIGEST"), host.find("DIALOGUE") - host.find("DIGEST"));
     for (int i = 0; i < C; ++i) {
@@ -241,7 +291,7 @@ int selftest(int argc, char** argv) {
     }
     if (host.find("OK") != 0) ++bad;
     if (host.find("DIALOGUE 0") != std::string::npos) { std::printf("no dialogue datagrams demuxed\n"); ++bad; }
-    removeFile(tmp + "_h.txt");
+    removeFile(hostOut); removeFile(ready);
     for (int i = 0; i < C; ++i) removeFile(tmp + "_c" + std::to_string(i) + ".txt");
     if (expectFail) {  // mutation twin: the injected bug MUST be detected
         std::printf(bad ? "TWIN OK: bug '%s' detected over real UDP\n" : "TWIN FAIL: bug '%s' went unnoticed\n", mutate.c_str());

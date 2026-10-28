@@ -120,8 +120,12 @@ struct ForcedLines {                                                    // host 
 };
 struct ForcedStart { uint32_t id = 0; ConvId conv = 0; FormRef npc, topic; };   // host -> target only: open the forced conversation
 
+// ---- say-once state (owner decision D11): a guest's engine marked `info` said (TESTopicInfo::MarkSaid), e.g. the scripted SayTo lines of a
+// quest stage the guest applied while the host's copy of the NPC is not loaded. The host marks its own copy and commits SayOnceFlag.
+struct SayOnceMark { FormRef info; };                                                              // guest -> host
+
 using Msg = std::variant<StartReq, Offer, Pick, LineDone, EndReq, Heartbeat, StartDenied, Opened, Lines, Result,
-                         Control, Closed, MenuRequest, MenuReply, MenuNotice, MenuClosed, ForcedLines, ForcedStart>;
+                         Control, Closed, MenuRequest, MenuReply, MenuNotice, MenuClosed, ForcedLines, ForcedStart, SayOnceMark>;
 
 enum class DecodeStatus { Ok, TooShort, BadMagic, BadVersion, BadCrc, Malformed, Trailing };
 
@@ -213,6 +217,7 @@ inline std::vector<uint8_t> encode(const Msg& m) {
             w.u8(x.scene); w.var(x.txnSeq); putVec(w, x.lines, [](W& a, const Line& l) { put(a, l); });
         }
         else if constexpr (std::is_same_v<T, ForcedStart>) { w.var(x.id); w.var(x.conv); w.form(x.npc); w.form(x.topic); }
+        else if constexpr (std::is_same_v<T, SayOnceMark>) { w.form(x.info); }
         else if constexpr (std::is_same_v<T, MenuReply>) { w.var(x.menu); w.vari(x.choice); }
         else if constexpr (std::is_same_v<T, MenuNotice>) { w.var(x.menu); w.u8(uint8_t(x.kind)); w.u8(x.origin); w.str(x.text); }
         else if constexpr (std::is_same_v<T, MenuClosed>) { w.var(x.menu); w.vari(x.choice); w.u8(x.timedOut); w.str(x.label); }
@@ -274,6 +279,7 @@ inline DecodeStatus decode(const uint8_t* d, size_t n, Msg& out, bool verifyCrc 
             m = x; break;
         }
         case 18: { ForcedStart x; x.id = r.v32(); x.conv = r.v32(); x.npc = r.form(); x.topic = r.form(); m = x; break; }
+        case 19: { SayOnceMark x; x.info = r.form(); m = x; break; }
         default: return DecodeStatus::Malformed;
     }
     if (!r.ok) return DecodeStatus::Malformed;

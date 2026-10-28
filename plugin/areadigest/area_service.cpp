@@ -12,6 +12,11 @@ using fnvcoop::areadigest::kCats;
 
 // ---------------------------------------------------------------------------------------------------------------- flight link
 void FlightLink::onHeal(const HealNote& n) {
+    const std::string line = std::string(toString(n.cat)) + " key=" + std::to_string(n.key) + " cell=" + std::to_string(n.cell) + " " + n.text;
+    if (!FNV_MUT(82)) {   // twin 82: the status never names the healed key
+        lastHeals_.push_back(line);
+        while (lastHeals_.size() > kLastHeals) lastHeals_.pop_front();
+    }
     if (!rec_ || FNV_MUT(80)) return;   // twin 80: a healed key leaves no marker in the trace
     ++healsRecorded_;
     rec_->healed(static_cast<uint8_t>(n.cat), "key=" + std::to_string(n.key) + " cell=" + std::to_string(n.cell) + " " + n.text);
@@ -95,6 +100,17 @@ std::string AreaService::statusJson(uint64_t nowMs) {
           << ",\"capped\":" << st.capped << "}";
     }
     o << ",\"flight\":{\"healsRecorded\":" << link_.healsRecorded() << ",\"bugsRecorded\":" << link_.bugsRecorded() << "}";
+    o << ",\"lastHeals\":[";
+    {
+        bool first = true;
+        for (const std::string& h : link_.lastHeals()) {
+            std::string t = h;
+            for (char& c : t) if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) c = ' ';
+            o << (first ? "" : ",") << "\"" << t << "\"";
+            first = false;
+        }
+    }
+    o << "]";
     if (s) {
         const std::string inner = s->statusJson(nowMs);   // {"enabled":true,"role":...}: splice its members in
         if (inner.size() > 2) o << "," << inner.substr(1, inner.size() - 2);

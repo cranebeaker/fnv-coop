@@ -17,7 +17,7 @@ namespace nvcoop::avatar::engine {
 constexpr RefId kPlayerRef = 0x14;
 
 // Condition functions the engine evaluates for us (the evaluators in engine_pins.h). Param is a form id for the two item ones.
-enum class Cond : uint8_t { GetRestrained, IsWeaponOut, IsSneaking, GetDead, GetItemCount, GetEquipped };
+enum class Cond : uint8_t { GetRestrained, IsWeaponOut, IsSneaking, GetDead, GetItemCount, GetEquipped, GetLevel, GetSitting, IsPlayerActionActive, GetActorValue };
 
 // What one guarded read of a loaded reference says. All false/0 when the id is not a loaded reference.
 struct RefInfo {
@@ -96,7 +96,10 @@ public:
     // -1 = an exception was caught, -2 = ctx is not a loaded reference.
     virtual int RunLine(RefId ctx, const std::string& line) = 0;
     // A condition function's value. False when the evaluator is unavailable (pin mismatch), the ref is gone, or it faulted.
+    // `param` is a form id for GetItemCount / GetEquipped and the plain integer for IsPlayerActionActive and GetActorValue (the actor value code).
     virtual bool Eval(Cond fn, RefId ref, FormId param, double& out) = 0;
+    // The region forms of the LOCAL player's PlayerCharacter::regionsList (at most max). False when unreadable. Default: unknown.
+    virtual bool ReadPlayerRegions(std::vector<FormId>& out, size_t /*max*/) { out.clear(); return false; }
 
     // ---- time (cost accounting) ---------------------------------------------------------------------------------------
     virtual uint64_t NowUs() = 0;

@@ -245,6 +245,9 @@ public:
     mutable BucketCache bucketCache;
     uint64_t seq = 0;  // last txn folded in
     std::map<FormRef, uint32_t> stages;
+    // The stage items the host ran, per quest: the live memory of applyEffect only (not compared, not serialized, not in any digest). A SetStage below the quest's
+    // stage is still a stage the host ran (its done flag, GetStageDone, its journal entry): it is delivered once, the max merge does not swallow it.
+    std::map<FormRef, std::set<uint32_t>> stagesRun;
     std::map<std::pair<FormRef, uint32_t>, uint8_t> objectives;
     std::map<FormRef, float> globals;
     std::map<FormRef, bool> enabled;

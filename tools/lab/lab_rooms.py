@@ -5,9 +5,13 @@ Every check compares the SAME placed ref (same id) on both copies, never counts.
 """
 from __future__ import annotations
 
+import json
+import math
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import lab_core as K
+import lab_net
 from lab_core import CLIENT, HOST, Blocked, Ctx, connected, dist2, dist3, digest_counts
 
 # the numbers a room compares against; the first in-game run may move them
@@ -15,6 +19,7 @@ PARAMS: Dict[str, float] = {
     "spawn.idle_s": 20.0,            # idle digest window
     "spawn.connect_s": 30.0,
     "spawn.digest_wait_s": 12.0,     # after the idle window: how long to wait for the first digest verdict (ok, or a mismatch / repair, which ends the wait)
+    "spawn.puppet_wait_s": 30.0,     # how long the other player's puppet may take to show up near him
     "spawn.puppet_err": 250.0,       # units between the other player's real position and this copy's puppet of him, standing still
     "walk.err_p95": 150.0,           # puppet error while the other player walks (units, 2D)
     "walk.err_max": 300.0,
@@ -35,15 +40,20 @@ PARAMS: Dict[str, float] = {
     "npc.watch_s": 8.0,
     "npc.hold_s": 5.0,               # the host keeps the NPC this long with the client next to it (minHoldMs 1500 + the switch margin, with room to spare)
     "npc.err_max": 150.0,            # the two copies' views of the NPC's position
-    "npc.jump": 300.0,               # one NPC position step larger than this is a snap
+    "npc.jump": 300.0,               # one NPC position step larger than this, beyond what the patrol covers in the time between the two samples, is a snap
+    "npc.speed": 200.0,              # units per second a patrolling NPC may cover (a walk is about 140; the samples are not evenly spaced: a busy PC answers a bridge call in 0.3 s)
     "npc.min_moved": 20.0,           # the patrolling NPC moved at least this far on its owner's copy
     "vats.tries": 6.0,
-    "vats.weak_hp": 30.0,            # the host sets the VATS target's health this low first (two or three pistol hits)
+    "vats.weak_hp": 5.0,             # the host sets the VATS target's health this low first (one pistol hit of about 9 kills it: every VATS entry is a crash risk, see docs/tools/lab.md)
     "vats.weak_s": 8.0,
     "vats.settle_s": 8.0,
     "quest.settle_s": 10.0,
     "quest.hold_s": 4.0,
 }
+
+# A network pass (lab.py run --net good_wifi,bad_wifi) judges a room by `room.key@profile` where it exists: the clean value plus what that profile may add.
+# The allowances are derived from tools/chaos/profiles.json in lab_net.py (its docstring says why); `python -I tools/lab/lab_net.py` prints them.
+PARAMS.update(lab_net.net_params(PARAMS))
 
 AWAY_CELL = "GSDocMitchellHouse"      # a small stock interior (Doc Mitchell's house, CELL in FalloutNV.esm) the host `coc`s into so it stops being eligible for the lab NPC
 DEFAULT_FLOOR_ITEM = "FalloutNV.esm:015169"   # a Stimpak, the same item the bench arena uses
@@ -56,8 +66,10 @@ def _ok_why(r: Tuple[bool, str]) -> Tuple[bool, str]:
 # ------------------------------------------------------------------ spawn
 def room_spawn(ctx: Ctx) -> Dict[str, Any]:
     """Both copies in the lab cell, connected, an idle digest that stays clean."""
+    t_enter = ctx.now()
     if ctx.enter_hook:
         ctx.enter_hook()
+        t_enter = ctx.now()              # from here both copies are in the lab and (in a network pass) joined through the relay
     L = ctx.layout
     mk = {HOST: L.marker("spawn", "host"), CLIENT: L.marker("spawn", "client")}
     ctx.refs_exist(list(mk.values()), "the spawn markers")
@@ -72,9 +84,42 @@ def room_spawn(ctx: Ctx) -> Dict[str, Any]:
         pp, op = m.puppet_pos(), other.pos()
         return None if pp is None else dist2(pp, op)
     lim = ctx.p("puppet_err")
-    ctx.wait("each copy shows the other player's puppet near him", lambda: (lambda a, b: (a is not None and b is not None and a <= lim and b <= lim,
-             {HOST: a, CLIENT: b}))(puppet_err(ctx.host, ctx.client), puppet_err(ctx.client, ctx.host)), 30.0, f"<= {lim:.0f} units",
-             area="plugin/avatar")
+    # Where the time goes when the puppet is slow to appear (docs/tools/lab.md "First appearances"): per copy, the moment it first had a puppet at all, a placed one, and one near
+    # the player, and every change of the puppet's phase / ref / snapshot count, all in ms from the start of this wait.
+    t_wait = ctx.now()
+    first: Dict[str, Dict[str, int]] = {HOST: {}, CLIENT: {}}
+    trace: List[str] = []
+    last_note: Dict[str, Any] = {}
+
+    def puppets_near():
+        errs = {}
+        for m, other in ((ctx.host, ctx.client), (ctx.client, ctx.host)):
+            errs[m.name] = puppet_err(m, other)
+            now_ms = int((ctx.now() - t_wait) * 1000)
+            d = getattr(m, "puppet_diag", None) or {}
+            if d.get("n") and "listed" not in first[m.name]:
+                first[m.name]["listed"] = now_ms
+            if errs[m.name] is not None and "placed" not in first[m.name]:
+                first[m.name]["placed"] = now_ms
+            if errs[m.name] is not None and errs[m.name] <= lim and "near" not in first[m.name]:
+                first[m.name]["near"] = now_ms
+            note = (d.get("phase"), d.get("ref"), d.get("snaps"), errs[m.name] is not None, tuple(round(x / 50) for x in (d.get("pose") or [])), tuple(round(x / 50) for x in (d.get("applied") or [])))
+            if d and last_note.get(m.name) != note and len(trace) < 24:
+                last_note[m.name] = note
+                trace.append(f"{now_ms}ms {m.name}: {d.get('phase')} ref {d.get('ref')} snaps {d.get('snaps')} fed {d.get('fed')} spawn {d.get('spawnCalls')}/{d.get('throttled')} err "
+                             + ("-" if errs[m.name] is None else f"{errs[m.name]:.0f}") + (f" pose {d.get('pose')} applied {d.get('applied')} tp {d.get('teleportSnaps')} age {d.get('newestAge')} net[{d.get('net')}]" if d.get("pose") else ""))
+        a, b = errs[HOST], errs[CLIENT]
+        ctx.metrics.update(host_puppet_err=None if a is None else round(a, 1), client_puppet_err=None if b is None else round(b, 1))     # the last reading, even when the wait fails
+        return (a is not None and b is not None and a <= lim and b <= lim), {HOST: a, CLIENT: b}
+    ctx.wait("each copy shows the other player's puppet near him", puppets_near, ctx.p("puppet_wait_s"), f"<= {lim:.0f} units", area="plugin/avatar")
+    ctx.metric("puppet_seen_ms", int(round(ctx.last_wait_s * 1000)))
+    ctx.metric("puppet_wait_started_ms_after_enter", int(round((t_wait - t_enter) * 1000)))      # how long the entry's own steps (teleports, cell, connected) had already given it
+    for who in (HOST, CLIENT):
+        for k in ("listed", "placed", "near"):
+            if k in first[who]:
+                ctx.metric(f"{who}_puppet_{k}_ms", first[who][k])
+    if trace and ctx.last_wait_s > 0.5:
+        ctx.metric("puppet_trace", " | ".join(trace)[:3200])
     ctx.rebase()
     d0 = digest_counts(ctx.host.status())
     ctx.sleep(ctx.p("idle_s"))
@@ -111,6 +156,148 @@ def walk_stats(samples: List[Tuple[float, Tuple[float, float, float], Optional[T
     return {"samples": len(errs), "err_p95": round(p95, 1), "err_max": round(errs[-1], 1) if errs else 0.0, "teleports": tele}
 
 
+def gauge_leg_mean(g0: Optional[Dict[str, Any]], g1: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Mean of an avatar.status gauge {n, sum, ...} over the stretch between two readings (None when nothing was added or the build has no such gauge). Pure, tested alone."""
+    if not g1 or "sum" not in g1 or "n" not in g1:
+        return None
+    n0, s0 = (g0 or {}).get("n", 0), (g0 or {}).get("sum", 0.0)
+    dn = g1["n"] - n0
+    return None if dn <= 0 else round((g1["sum"] - s0) / dn, 2)
+
+
+def stage_metrics(mover_st0: Dict[str, Any], mover_st1: Dict[str, Any], viewer_st0: Dict[str, Any], viewer_st1: Dict[str, Any]) -> Dict[str, Any]:
+    """Where the time between the walker's sample and the shown puppet goes (plugin/avatar "stages", the round of 2026-10-28), as leg means in ms: send (walker: sample -> handed to the
+    transport), rx (viewer: sample -> in its network layer, a shared clock on one PC), transport = rx - send (the wire and the viewer's poll), hold (arrival -> the first drive that could use
+    it), delay (the buffer's delay in use), apply (the engine calls of a tick, ms), net_phase (the viewer's network frame minus its avatar frame), frame (the viewer's frame length), plus the
+    playback mode, jitter and clock offset of the viewer's buffer. Pure, tested alone."""
+    out: Dict[str, Any] = {}
+
+    def put(name: str, v: Optional[float]):
+        if v is not None:
+            out[name] = v
+    send = gauge_leg_mean(mover_st0.get("send"), mover_st1.get("send"))
+    rx = gauge_leg_mean(viewer_st0.get("rx"), viewer_st1.get("rx"))
+    put("send_ms", send)
+    put("rx_ms", rx)
+    if send is not None and rx is not None:
+        out["transport_ms"] = round(rx + send if K.MUTANT == "stage_transport_sum" else rx - send, 2)   # twin: the wire time adds the sender's send age again
+    put("walker_sample_ms", None if gauge_leg_mean(mover_st0.get("sampleUs"), mover_st1.get("sampleUs")) is None else round(gauge_leg_mean(mover_st0.get("sampleUs"), mover_st1.get("sampleUs")) / 1000.0, 3))
+    put("walker_frame_ms", gauge_leg_mean(mover_st0.get("frameGap"), mover_st1.get("frameGap")))
+    put("viewer_frame_ms", gauge_leg_mean(viewer_st0.get("frameGap"), viewer_st1.get("frameGap")))
+    put("net_phase_ms", gauge_leg_mean(viewer_st0.get("netPhase"), viewer_st1.get("netPhase")))
+    ap = gauge_leg_mean(viewer_st0.get("applyUs"), viewer_st1.get("applyUs"))
+    put("apply_ms", None if ap is None else round(ap / 1000.0, 3))
+    put("pose_to_setpos_ms", gauge_leg_mean(viewer_st0.get("poseToSetPosMs"), viewer_st1.get("poseToSetPosMs")))
+    r0 = (viewer_st0.get("remotes") or [{}])[0] if viewer_st0.get("remotes") else {}
+    r1 = (viewer_st1.get("remotes") or [{}])[0] if viewer_st1.get("remotes") else {}
+    if r1:
+        put("delay_in_use_ms", gauge_leg_mean(r0.get("delay"), r1.get("delay")))
+        put("hold_ms", gauge_leg_mean(r0.get("hold"), r1.get("hold")))
+        put("extrapolated_ms", gauge_leg_mean(r0.get("extrap"), r1.get("extrap")))
+        put("arrival_gap_ms", gauge_leg_mean(r0.get("arrivalGap"), r1.get("arrivalGap")))
+        for k in ("jitterMs", "frameMs", "wantDelayMs", "offsetMs"):
+            if k in r1:
+                out["buf_" + k] = r1[k]
+        out["low_latency"] = 1 if r1.get("lowLatency") else 0
+        for k in ("snaps", "teleportSnaps", "eased", "extrapolating", "holding", "samples", "pushes"):
+            if k in r1:
+                out["buf_" + k] = r1[k] - r0.get(k, 0)
+    return out
+
+
+def trace_lag(local: List[List[float]], remote: List[List[float]], max_ms: int = 600, step_ms: int = 5, min_speed: float = 20.0) -> Dict[str, Any]:
+    """The playback delay from the game's own trace (avatar.trace, plugin/avatar), no bridge reads in it: `local` = the walker's published samples [tick_ms, x, y, z, vx, vy, vz], `remote` =
+    the viewer's per-frame poses [frame_ms, x, y, z, ax, ay, az, state] (x y z = the pose fed to the puppet, ax ay az = where the engine said the puppet stood at the start of the
+    frame, 16 added to the state when it said). Both on one clock (a single PC). The walker's path is linear between his samples; for a shift s the puppet at frame time t is compared with
+    the walker at t - s, over the frames where the walker moves (>= min_speed). -> {"lag_ms" (best shift of the fed pose), "err_p95_aligned", "err_p95_now" (shift 0: the real error,
+    lag included), "engine_lag_ms" (best shift of the engine's own position), "n"}. Pure, tested alone."""
+    if len(local) < 3 or len(remote) < 3:
+        return {"lag_ms": None, "err_p95_aligned": None, "err_p95_now": None, "engine_lag_ms": None, "n": 0}
+    lt = [p[0] for p in local]
+
+    def walker(t: float) -> Optional[Tuple[float, float, float, float]]:
+        if t < lt[0] or t > lt[-1]:
+            return None
+        lo, hi = 0, len(lt) - 1
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            if lt[mid] <= t:
+                lo = mid
+            else:
+                hi = mid
+        a, b = local[lo], local[hi]
+        k = 0.0 if b[0] == a[0] else (t - a[0]) / (b[0] - a[0])
+        sp = math.hypot(b[1] - a[1], b[2] - a[2]) / max(1e-3, (b[0] - a[0]) / 1000.0)
+        return (a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k, sp)
+
+    def sweep(cols: Tuple[int, int, int], need_flag: bool):
+        best = None
+        errs0: List[float] = []
+        for shift in range(0, max_ms + 1, step_ms):
+            errs = []
+            for r in remote:
+                if need_flag and not (int(r[7]) & 16):
+                    continue
+                w = walker(r[0] + shift if K.MUTANT == "trace_lag_wrong_sign" else r[0] - shift)   # twin: the puppet is compared with where the walker WILL be
+                if w is None or w[3] < min_speed:
+                    continue
+                errs.append(math.hypot(w[0] - r[cols[0]], w[1] - r[cols[1]]))
+            if len(errs) < 5:
+                continue
+            if shift == 0:
+                errs0 = sorted(errs)
+            mean = sum(errs) / len(errs)
+            if best is None or mean < best[0]:
+                best = (mean, shift, sorted(errs))
+        return best, errs0
+    fed, e0 = sweep((1, 2, 3), False)
+    eng, _ = sweep((4, 5, 6), True)
+
+    def p95(v: List[float]) -> float:
+        return round(v[min(len(v) - 1, int(0.95 * len(v)))], 1)
+    if fed is None:
+        return {"lag_ms": None, "err_p95_aligned": None, "err_p95_now": None, "engine_lag_ms": None if eng is None else eng[1], "n": 0}
+    return {"lag_ms": fed[1], "err_p95_aligned": p95(fed[2]), "err_p95_now": p95(e0) if e0 else None, "engine_lag_ms": None if eng is None else eng[1], "n": len(fed[2])}
+
+
+def lag_estimate(rows: List[Tuple[float, Tuple[float, float, float], float, Optional[Tuple[float, float, float]]]], max_ms: int = 800, step_ms: int = 10) -> Dict[str, Any]:
+    """rows: (time the walker's position was read, that position, time the puppet's position was read, that position). The puppet shows the walker as he was `lag` ago: the shift
+    (0..max_ms) that makes the puppet's positions closest to the walker's path (linear between his samples) is the playback delay, free of the time the two bridge reads took
+    (each read of a position is a few frames; they come one after the other). -> {"lag_ms", "err_p95" at that shift, "skew_ms" median time between the two reads, "n"}. Pure, tested alone."""
+    mv = sorted((tm, mp) for tm, mp, _tp, pp in rows if pp is not None)
+    pts = [(tp, pp, tm) for tm, _mp, tp, pp in rows if pp is not None]
+    if len(mv) < 3:
+        return {"lag_ms": None, "err_p95": None, "skew_ms": None, "n": len(mv)}
+
+    def at(t: float) -> Optional[Tuple[float, float, float]]:
+        if t < mv[0][0] or t > mv[-1][0]:
+            return None
+        for (t0, a), (t1, b) in zip(mv, mv[1:]):
+            if t0 <= t <= t1:
+                k = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+                return tuple(a[i] + (b[i] - a[i]) * k for i in range(3))
+        return None
+    best = None
+    for shift in range(0, max_ms + 1, step_ms):
+        errs = []
+        for tp, pp, tm in pts:
+            when = (tm if K.MUTANT == "lag_est_ignores_read_times" else tp) - shift / 1000.0      # twin: the puppet read is stamped with the walker's read time
+            m = at(when)
+            if m is not None:
+                errs.append(dist2(m, pp))
+        if len(errs) < 3:
+            continue
+        mean = sum(errs) / len(errs)
+        if best is None or mean < best[0]:
+            errs.sort()
+            best = (mean, shift, errs[min(len(errs) - 1, int(0.95 * len(errs)))], len(errs))
+    skews = sorted(tp - tm for tp, _pp, tm in pts)
+    skew = skews[len(skews) // 2] * 1000.0 if skews else None
+    if best is None:
+        return {"lag_ms": None, "err_p95": None, "skew_ms": None if skew is None else round(skew), "n": len(pts)}
+    return {"lag_ms": best[1], "err_p95": round(best[2], 1), "skew_ms": None if skew is None else round(skew), "n": best[3]}
+
+
 def room_walk(ctx: Ctx) -> Dict[str, Any]:
     """Host walks the waypoints, then the client does: the other copy's puppet follows without error spikes, teleports or lag."""
     wps = ctx.ref("wp", "waypoint")
@@ -120,13 +307,59 @@ def room_walk(ctx: Ctx) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for mover, obs in ((ctx.host, ctx.client), (ctx.client, ctx.host)):
         samples: List[Tuple[float, Any, Any]] = []
+        leg_t0 = ctx.now()
+        ctx.fps_sample(True)
+        cnt0 = {mover.name: mover.avatar_counts(), obs.name: obs.avatar_counts()}
+        st0 = {mover.name: mover.avatar_stages(), obs.name: obs.avatar_stages()}
+
+        timed_rows: List[Tuple[float, Any, float, Any]] = []
 
         def tick():
-            samples.append((ctx.now(), mover.pos(), obs.puppet_pos()))
+            t0 = ctx.now()
+            mp = mover.pos()
+            t1 = ctx.now()
+            pp = obs.puppet_pos()
+            t2 = ctx.now()
+            samples.append((t0, mp, pp))
+            timed_rows.append(((t0 + t1) / 2.0, mp, (t1 + t2) / 2.0, pp))
         for i, (x, y, z) in enumerate(pts, 1):
             ok, why = mover.walk_to(x, y, z, ctx.p("leg_timeout_s"), tick)
             ctx.check(f"{mover.name} walks to waypoint {i}", ok, "arrived", why or "arrived", cls="TEST", area="tools/lab (walking), plugin/bots")
         st = walk_stats(samples, ctx.p("jump"))
+        ctx.metrics.update({f"{mover.name}_err_p95": st["err_p95"], f"{mover.name}_err_max": st["err_max"]})
+        # the delay itself, free of the bridge reads: the shift that matches the puppet to the walker's path (lag_estimate), its error p95, and the time between the two reads
+        le = lag_estimate(timed_rows)
+        for k, name in (("lag_ms", "lag_est_ms"), ("err_p95", "err_p95_aligned"), ("skew_ms", "read_skew_ms")):
+            if le.get(k) is not None:
+                ctx.metrics[f"{mover.name}_{name}"] = le[k]
+        # the error against the frame rate: a position is sampled, sent, received and applied once per game frame, so the walker's copy and the viewer's copy both bound the error
+        ctx.fps_sample(True)
+        fw, fv = ctx.fps.since(mover.name, leg_t0).get("mean"), ctx.fps.since(obs.name, leg_t0).get("mean")
+        if fw is not None and fv is not None:
+            ctx.metrics.update({f"{mover.name}_leg_fps_walker": fw, f"{mover.name}_leg_fps_viewer": fv, f"{mover.name}_leg_fps": min(fw, fv)})
+        # the stream's own rates over the leg: snapshots the walker published and the viewer received per second (30 with the 30 Hz near rate of the lag round, 20 before it,
+        # never more than the game's fps), and the poses fed to the puppet per second
+        secs = max(0.001, ctx.now() - leg_t0)
+        cnt1 = {mover.name: mover.avatar_counts(), obs.name: obs.avatar_counts()}
+        st1 = {mover.name: mover.avatar_stages(), obs.name: obs.avatar_stages()}
+        try:       # the game's own trace of the leg: the walker's published path against the puppet's fed poses, on one clock
+            tw, tv = mover.avatar_trace(450), obs.avatar_trace(450)
+            if os.environ.get("LAB_TRACE_DIR"):      # the raw traces of the leg, for a look at the time series (frame, pose, delay in use, wanted delay, jitter, newest age)
+                os.makedirs(os.environ["LAB_TRACE_DIR"], exist_ok=True)
+                with open(os.path.join(os.environ["LAB_TRACE_DIR"], f"trace_{mover.name}.json"), "w") as fh:
+                    json.dump({"walker": tw, "viewer": tv}, fh)
+            tl = trace_lag(tw.get("local") or [], next(iter((tv.get("remote") or {}).values()), []))
+            for k, name in (("lag_ms", "trace_lag_ms"), ("err_p95_aligned", "trace_err_p95_aligned"), ("err_p95_now", "trace_err_p95_now"), ("engine_lag_ms", "trace_engine_lag_ms")):
+                if tl.get(k) is not None:
+                    ctx.metrics[f"{mover.name}_{name}"] = tl[k]
+        except Exception as e:    # noqa: BLE001 - a build without avatar.trace, a fake lab: the leg's own metrics stand
+            if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
+                raise
+        for k, v in stage_metrics(st0[mover.name], st1[mover.name], st0[obs.name], st1[obs.name]).items():
+            ctx.metrics[f"{mover.name}_leg_{k}"] = v
+        for key, who, field in (("published_hz", mover.name, "published"), ("received_hz", obs.name, "remote"), ("fed_hz", obs.name, "fed")):
+            if field in cnt0[who] and field in cnt1[who]:
+                ctx.metrics[f"{mover.name}_leg_{key}"] = round((cnt1[who][field] - cnt0[who][field]) / secs, 1)
         ctx.check(f"the {obs.name} copy saw the {mover.name} walk", st["samples"] >= ctx.p("min_samples"), f">= {ctx.p('min_samples'):.0f} samples",
                   st["samples"], "no puppet to measure" if not st["samples"] else "", cls="SYNC", area="plugin/avatar")
         ctx.check(f"{mover.name}'s puppet on the {obs.name} copy: error p95", st["err_p95"] <= ctx.p("err_p95"), f"<= {ctx.p('err_p95'):.0f}", st["err_p95"],
@@ -140,8 +373,8 @@ def room_walk(ctx: Ctx) -> Dict[str, Any]:
             pp = obs.puppet_pos()
             d = None if pp is None else dist2(pp, mover.pos())
             return (d is not None and d <= near), (None if d is None else round(d, 1))
-        _, lag = ctx.wait(f"{mover.name}'s puppet catches up after he stops", settled, ctx.p("lag_s"), f"within {near:.0f} units", poll_s=0.2, area="plugin/avatar")
-        out[f"{mover.name}_err_p95"], out[f"{mover.name}_err_max"], out[f"{mover.name}_lag_s"] = st["err_p95"], st["err_max"], round(lag, 2)
+        _, lag = ctx.wait(f"{mover.name}'s puppet catches up after he stops", settled, ctx.p("lag_s"), f"within {near:.0f} units", poll_s=0.05, area="plugin/avatar")
+        out[f"{mover.name}_lag_ms"] = int(round(lag * 1000))
     return out
 
 
@@ -154,13 +387,18 @@ def room_fight(ctx: Ctx) -> Dict[str, Any]:
     for m in ctx.ms:
         ok, why = m.arm()
         ctx.check(f"{m.name} is armed (weapon, ammo, health)", ok, "armed", why or "armed", cls="TEST", area="tools/lab (arming)")
-    lat: Dict[str, float] = {}
     volleys = int(ctx.p("volleys"))
     stand = ctx.layout.stand("fight")
     for shooter, other, e, idx in ((ctx.host, ctx.client, en[0], 1), (ctx.client, ctx.host, en[1], 2)):
         # one hostile at a time: enabled together they all charge the players, and by the client's turn a gecko stood inside aim_at's 100 units
         # (first in-game run: "the player is 60 units from the target")
         ctx.enable_hostiles([e])
+        if K.MUTANT != "fight_target_free":     # twin: the target is left free and drifts away from the shooter
+            # Behind bad_wifi and transatlantic the second target drifted to 659 and 875 units from the client, out of the pistol's range, and no shot was possible
+            # ("no clear shot even from the standoff", lab run 2026-10-28). The host (owner) restrains it where it stands, as the vats room does; the shot and the death
+            # that has to cross the link are still real.
+            ok, why = ctx.host.hold(e)
+            ctx.check(f"the host holds enemy {idx} in place", ok, "held", why or "held", cls="TEST", area="tools/lab (SetRestrained)")
         ctx.agree(f"enemy {idx} is alive on both copies", lambda m, e=e: m.alive(e), 15.0, True, area="plugin/actors, plugin/spawn")
         # the host, as owner of the actor, makes it weak; the shooter's copy must show that before it shoots (a hit on a 65 health gecko took 8 of 24
         # volleys in the first in-game run: the pistol hits a moving gecko now and then)
@@ -169,11 +407,23 @@ def room_fight(ctx: Ctx) -> Dict[str, Any]:
             ctx.check(f"the host weakens enemy {idx}", ok, "health set", why or "health set", cls="TEST", area="tools/lab (SetAV Health)")
             ctx.agree(f"enemy {idx} shows the weakened health on both copies", lambda m, e=e: m.health(e) <= ctx.p("weak_hp") + 1.0, ctx.p("weak_s"), True,
                       area="plugin/actors (owner's health to the other copy)")
-        ok, why = shooter.shoot(e, volleys, stand)
-        ctx.check(f"{shooter.name} kills enemy {idx}", ok, "dead on the shooter's copy", why or "dead", cls="TEST", area="tools/lab (shooting), plugin/combat")
-        _, secs = ctx.wait(f"enemy {idx} killed by the {shooter.name} is dead on the {other.name} copy", lambda: (not other.alive(e), other.health(e)),
-                           ctx.p("latency_s"), 0, poll_s=0.1, area="plugin/combat, plugin/actors")
-        lat[f"{shooter.name}_kill_latency_s"] = round(secs, 2)
+        # watchers on both copies time the death from before the first shot: the kill is the moment the shooter's copy first shows it dead, the latency the time until
+        # the other copy shows it too (both polled on the runner's clock, ~30 ms apart), however many volleys the shooter needed
+        (ok, why), tm = ctx.timed(lambda: shooter.shoot(e, volleys, stand), lambda: not shooter.alive(e), lambda: not other.alive(e), ctx.p("latency_s"))
+        # A shot that killed nothing names the combat counters of BOTH copies (fight behind transatlantic, run 20261028-032920: 24 volleys spent ammo and the target stayed at 5):
+        # the shooter's gate (clamped / neutralized / hitsSent) and the owner's receiving end (hitsReceived / hitsRejected / rejections) say where the hit went.
+        words = ""
+        if not ok:
+            words = " | ".join(f"{m.name} combat: {m.combat_words()}" for m in ctx.ms)
+            try:   # where everything stood: a shot that hits nothing is also a shot at the wrong place (the target as each copy sees it, the shooter, the angles)
+                where = ", ".join(f"{m.name} copy has it at {tuple(round(x) for x in m.pos(e))}" for m in ctx.ms)
+                words += f" | target {e.split(':')[1]}: {where}; {shooter.name} stands at {tuple(round(x) for x in shooter.pos())}"
+            except Exception as ex:   # noqa: BLE001
+                if type(ex).__name__ in ("ConnectionLost", "GameCrashed"):
+                    raise
+        ctx.check(f"{shooter.name} kills enemy {idx}", ok, "dead on the shooter's copy", why or "dead", note=words, cls="TEST", area="tools/lab (shooting), plugin/combat")
+        ctx.metric(f"{shooter.name}_kill_ms", ctx.latency_check(f"enemy {idx} killed by the {shooter.name} is dead on the {other.name} copy", tm, ctx.p("latency_s"), "dead on both copies",
+                                                                 area="plugin/combat, plugin/actors", show=lambda: ctx.both(lambda m: [m.alive(e), m.health(e)])))
     ctx.enable_hostiles([en[2]])
     ctx.agree("deaths agree: enemies 1 and 2 dead, enemy 3 alive, on both copies", lambda m: [m.alive(e) for e in en], 10.0, [False, False, True], area="plugin/combat, plugin/actors")
     ctx.agree("the survivor has the same health on both copies", lambda m: round(m.health(en[2])), 10.0, area="plugin/combat, plugin/actors")
@@ -187,7 +437,7 @@ def room_fight(ctx: Ctx) -> Dict[str, Any]:
                 seen[m.name] = a
     ctx.check("no corpse gets up and the survivor stays alive for the watch window", not seen, [False, False, True], seen or [False, False, True],
               area="plugin/combat, plugin/actors (revive / stale echo)")
-    return lat
+    return {}
 
 
 # ------------------------------------------------------------------ loot
@@ -217,20 +467,36 @@ def room_loot(ctx: Ctx) -> Dict[str, Any]:
         if not can:
             ctx.skip(f"{taker.name} takes {n} from the container", why_not)
             continue
-        ok, why = taker.take(cont, item_c, n)
+        giver = ctx.client if taker is ctx.host else ctx.host
+        left = c0 - taken - n
+        (ok, why), tm = ctx.timed(lambda: taker.take(cont, item_c, n), lambda: taker.item_count(item_c, cont) == left, lambda: giver.item_count(item_c, cont) == left, settle)
         ctx.check(f"{taker.name} takes {n} from the container", ok, "taken", why or "taken", cls="SYNC", area="plugin/loot, plugin/intents")
         taken += n
         want[taker.name] = n
-        ctx.agree(f"container count after the {taker.name}'s take is the same on both copies", lambda m: m.item_count(item_c, cont), settle, c0 - taken, area="plugin/loot")
+        if getattr(taker, "take_note", ""):
+            ctx.metrics[f"{taker.name}_take_note"] = taker.take_note
+        ctx.metric(f"{taker.name}_take_ms", ctx.latency_check(f"container count after the {taker.name}'s take is the same on both copies", tm, settle, c0 - taken, area="plugin/loot",
+                                                              show=lambda: ctx.both(lambda m: m.item_count(item_c, cont))))
     got = {"host": gains(ctx.host, item_c), "client": gains(ctx.client, item_c)}
     ctx.check("takers got exactly what they took, nobody else got anything", got == want, want, got, area="plugin/loot (dupe)")
     for picker, idx in ((ctx.host, 0), (ctx.client, 1)):
         g0 = picker.item_count(bases[idx])
-        ok, why = picker.pickup(floors[idx])
+        seer = ctx.client if picker is ctx.host else ctx.host
+        (ok, why), tm = ctx.timed(lambda: picker.pickup(floors[idx]), lambda: not picker.enabled(floors[idx]), lambda: not seer.enabled(floors[idx]), settle)
         ctx.check(f"{picker.name} picks up loose item {idx + 1}", ok, "picked up", why or "picked up", area="plugin/loot, plugin/intents")
-        ctx.agree(f"loose item {idx + 1} is gone on both copies", lambda m: m.enabled(floors[idx]), settle, False, area="plugin/loot")
-        d = picker.item_count(bases[idx]) - g0
-        ctx.check(f"only the {picker.name} gained loose item {idx + 1}", d == 1, 1, d, area="plugin/loot (dupe)")
+        ctx.metric(f"{picker.name}_pickup_ms", ctx.latency_check(f"loose item {idx + 1} is gone on both copies", tm, settle, "gone on both copies", area="plugin/loot",
+                                                                 show=lambda: ctx.both(lambda m: m.enabled(floors[idx]))))
+        # The count is read for up to a second: a gain that arrives a few frames after the world ref is gone is not a failure, a gain that never comes is. The trace
+        # (ms since the pickup returned: count gained so far) is kept in the check's note, and the pickup counters of both copies when it fails.
+        d, trace = 0, []
+        t0 = ctx.now()
+        while True:
+            d = picker.item_count(bases[idx]) - g0
+            trace.append((int((ctx.now() - t0) * 1000), d))
+            if d >= 1 or ctx.now() - t0 >= 1.0:
+                break
+            ctx.sleep(0.1)
+        ctx.check(f"only the {picker.name} gained loose item {idx + 1}", d == 1, 1, d, note=f"gain trace {trace[:12]}" if d != 1 else "", area="plugin/loot (dupe)")
     before = {m.name: m.item_count(bases[2]) for m in ctx.ms}
     ctx.par(lambda: ctx.host.pickup(floors[2]), lambda: ctx.client.pickup(floors[2]))
     ctx.agree("the raced loose item 3 is gone on both copies", lambda m: m.enabled(floors[2]), settle, False, area="plugin/loot (race)")
@@ -256,8 +522,11 @@ def room_door(ctx: Ctx) -> Dict[str, Any]:
         raise Blocked("door room: the door must start locked (the terminal unlocks it); the plugin placed it unlocked", "TEST")
     ok, _ = ctx.host.open_door(door)
     ctx.check("the host cannot open the locked door", not ok, False, ok, area="plugin/intents")
+    ctx.close_menus([ctx.host])                  # a copy that activated the locked door has the lockpick menu open; it would eat the next open
     ctx.agree("the locked door is still closed on both copies", lambda m: m.door_state(door), 3.0, "closed", area="plugin/hooks_world")
-    ok, why = ctx.client.use_terminal(term, entry)
+    # timed from before the click: the first copy to show the door unlocked is the one the script ran on (the host, for a guest's click); the time until the OTHER copy shows
+    # it too is the lock sync
+    (ok, why), tm_unlock = ctx.timed(lambda: ctx.client.use_terminal(term, entry), lambda: any(not m.locked(door) for m in ctx.ms), lambda: all(not m.locked(door) for m in ctx.ms), settle)
     ctx.check("the client uses the terminal to unlock the door", ok, "entry used", why or "entry used", area="plugin/intents (terminal)")
     # Control: the click must have run the entry's unlock SOMEWHERE. A guest's click does not run the result script on its own copy: the TerminalEntryRun hook
     # forwards it as an intent and the host runs it (measured 2026-10-27: after the client's click the host showed the door unlocked within a second while the
@@ -266,14 +535,19 @@ def room_door(ctx: Ctx) -> Dict[str, Any]:
     ctx.wait("the terminal click unlocked the door on at least one copy (if neither, the click unlocked nothing: not a sync problem)",
              lambda: (any(not m.locked(door) for m in ctx.ms), [m.locked(door) for m in ctx.ms]), 3.0, True, cls="TEST",
              area="plugin/bots (dev.terminal click), tools/lab/esp (terminal)")
-    ctx.agree("the door is unlocked on both copies", lambda m: m.locked(door), settle, False, area="plugin/hooks_world, plugin/intents (lock)")
+    ctx.metric("unlock_ms", ctx.latency_check("the door is unlocked on both copies", tm_unlock, settle, "unlocked on both copies", area="plugin/hooks_world, plugin/intents (lock)",
+                                              show=lambda: ctx.both(lambda m: m.locked(door))))
     for opener, closer in ((ctx.host, ctx.client), (ctx.client, ctx.host)):
         ok, why = opener.open_door(door)
         ctx.check(f"{opener.name} opens the door", ok, "opened", why or "opened", area="plugin/intents, plugin/hooks_world")
-        ctx.agree(f"the door the {opener.name} opened is open on both copies", lambda m: m.door_state(door), settle, "open", area="plugin/hooks_world")
+        ctx.metric(f"{opener.name}_open_ms", ctx.latency(f"the door the {opener.name} opened is open on both copies", lambda: opener.door_state(door) == "open",
+                                                          lambda: closer.door_state(door) == "open", settle, "open on both copies", area="plugin/hooks_world",
+                                                          show=lambda: ctx.both(lambda m: m.door_state(door))))
         ok, why = closer.close_door(door)
         ctx.check(f"{closer.name} closes the door", ok, "closed", why or "closed", area="plugin/intents, plugin/hooks_world")
-        ctx.agree(f"the door the {closer.name} closed is closed on both copies", lambda m: m.door_state(door), settle, "closed", area="plugin/hooks_world")
+        ctx.metric(f"{closer.name}_close_ms", ctx.latency(f"the door the {closer.name} closed is closed on both copies", lambda: closer.door_state(door) == "closed",
+                                                           lambda: opener.door_state(door) == "closed", settle, "closed on both copies", area="plugin/hooks_world",
+                                                           show=lambda: ctx.both(lambda m: m.door_state(door))))
     return {}
 
 
@@ -290,6 +564,7 @@ def room_npc(ctx: Ctx) -> Dict[str, Any]:
     and expects the client to take it (new epoch), (3) brings the host back to the lab and expects it to take it back (new epoch).
     While the host is away its copy has the NPC unloaded, so that copy is not sampled."""
     npc = ctx.ref("npc", n=0)
+    stats0 = {m.name: m.actor_stats() for m in ctx.ms}
     stand = ctx.layout.stand("npc")
     away_cell = str(ctx.layout.extra("npc", "away_cell", AWAY_CELL))
     lab_cells = [ctx.layout.cell_edid] + ([ctx.layout.cell_alt] if getattr(ctx.layout, "cell_alt", "") else [])
@@ -303,11 +578,22 @@ def room_npc(ctx: Ctx) -> Dict[str, Any]:
     if far < ctx.p("min_far"):
         raise Blocked(f"npc room: the farthest room is {far:.0f} units from the NPC, the host must stand at least {ctx.p('min_far'):.0f} away (plugin layout)", "TEST")
     traces: Dict[str, List[Optional[Tuple[float, ...]]]] = {HOST: [], CLIENT: []}
+    times: Dict[str, List[float]] = {HOST: [], CLIENT: []}     # when each sample was read (the room's clock): the samples are not evenly spaced
+    where: Dict[str, List[str]] = {HOST: [], CLIENT: []}       # which stage of the room each sample belongs to
+    stage = ["hold"]
+    own_note = [""]                  # the newest ownership views of both copies (owner/epoch/pending), kept with every sample so the worst pair says who owned the NPC then
     present = {HOST: True, CLIENT: True}      # a copy that is not in the lab cell has the NPC unloaded: no sample
 
-    def sample():
+    last_at = [-1.0]
+
+    def sample(every: float = 0.0):
+        if every and ctx.now() - last_at[0] < every:
+            return
+        last_at[0] = ctx.now()
         for m in ctx.ms:
             traces[m.name].append(tuple(m.pos(npc)) if present[m.name] else None)
+            times[m.name].append(ctx.now())
+            where[m.name].append(stage[0] + own_note[0])
 
     def watch(secs):
         end = ctx.now() + secs
@@ -323,14 +609,28 @@ def room_npc(ctx: Ctx) -> Dict[str, Any]:
         mine = owner == HOST
         return (all(x["known"] for x in v.values()) and v[HOST]["mine"] == mine and v[CLIENT]["mine"] == (not mine) and v[HOST]["epoch"] == v[CLIENT]["epoch"])
 
-    def moved_to(who):
+    marks: Dict[str, float] = {}
+
+    def moved_to(who, tm=None):
         def settled():
             sample()                                   # the snap of a handoff happens inside this wait, so the NPC is watched here too
             v = views()
+            own_note[0] = " [" + " ".join(f"{k[0]}:{x['owner']}/e{x['epoch']}" for k, x in v.items()) + "]"
             return agreed(v, who) and (not epochs or (isinstance(v[HOST]["epoch"], int) and v[HOST]["epoch"] > epochs[-1])), v
         v, _ = ctx.wait(f"ownership of the NPC moves to the {who} with a new epoch and both copies agree", settled, ctx.p("handoff_s"), {"owner": who},
                         poll_s=0.2, area="plugin/actors, synccore ownership (pickOwner)")
         epochs.append(v[HOST]["epoch"] if isinstance(v[HOST]["epoch"], int) else 0)
+        # the handoff time: from the host's copy leaving (or entering) the lab cell to the NEW owner's own copy saying it owns the NPC, timed by watchers from before the coc
+        ms = ctx.ms_of(tm) if tm else None
+        ctx.metric(f"npc_handoff_{who}_ms", ms if ms is not None else int(round(ctx.last_wait_s * 1000)))
+        # Where the time goes (lab run 2026-10-28: 1030 ms behind good and bad Wi-Fi, 78 ms clean): ms from the start of the host's coc to (coc) the call returning, (left) the host's
+        # copy first showing the cell change, (owns) the new owner's copy first saying it owns the NPC. The host's copy answers no bridge call while it loads a cell, so any number that
+        # needs the HOST's copy to answer cannot be smaller than its load.
+        if tm and marks.get("t0") is not None:
+            for k, key in (("coc", "coc"), ("left", "src"), ("owns", "dst")):
+                t = marks.get("coc") if k == "coc" else (tm or {}).get(key)
+                if t is not None:
+                    ctx.metric(f"npc_{who}_{k}_ms", int(round((t - marks["t0"]) * 1000)))
 
     # 1. the client next to the NPC, the host far away in the same cell: the eligible host keeps it
     ok, why = ctx.client.goto_ref(npc, 150.0)
@@ -352,37 +652,107 @@ def room_npc(ctx: Ctx) -> Dict[str, Any]:
     ctx.check("the host keeps the NPC for the whole hold (the client is nearer, the host is eligible)", stolen is None, {"owner": HOST, "epoch": epochs[-1]}, stolen or "kept",
               area="plugin/actors, synccore ownership (pickOwner)")
     # 2. the host leaves for a stock interior: the client takes the NPC
-    ok, why = ctx.host.coc([away_cell])
+    lab_cell = ctx.host.cell_of()
+    base_epoch = epochs[-1]
+    stage[0] = "host leaves"
+
+    def moved_now(who):
+        sample(0.25)          # the host's coc takes seconds: the NPC is watched all the while, or a snap hides in one long gap between two samples
+        # The NEW owner's own copy says it owns the NPC under a newer epoch. (Asking the old owner's copy too made the number the length of that copy's cell load: it answers
+        # nothing meanwhile. The wait in moved_to still needs both copies to agree.)
+        if K.MUTANT == "npc_handoff_waits_for_both":          # twin: both copies must answer, as before
+            v = views()
+            return agreed(v, who) and isinstance(v[HOST]["epoch"], int) and v[HOST]["epoch"] > base_epoch
+        v = _owner_view(ctx.client if who == CLIENT else ctx.host, npc)
+        return bool(v["known"] and v["mine"] and isinstance(v["epoch"], int) and v["epoch"] > base_epoch)
+
+    def leaving():
+        marks["t0"] = ctx.now()
+        r = ctx.host.coc([away_cell])
+        marks["coc"] = ctx.now()
+        return r
+    (ok, why), tm = ctx.timed(leaving, lambda: ctx.host.cell_of() != lab_cell, lambda: moved_now(CLIENT), ctx.p("handoff_s"))
     ctx.check(f"the host goes to {away_cell}", ok, "arrived", why or "arrived", cls="ENV", area="tools/lab (coc)")
     present[HOST] = False
-    moved_to(CLIENT)
+    moved_to(CLIENT, tm)
     watch(ctx.p("watch_s"))
     # 3. the host comes back to the lab and the NPC returns to it
-    ok, why = ctx.host.coc(lab_cells)
+    base_epoch = epochs[-1]
+    stage[0] = "host returns"
+
+    def back():
+        marks["t0"] = ctx.now()
+        r = ctx.host.coc(lab_cells)
+        marks["coc"] = ctx.now()
+        return r, (ctx.host.goto_ref(stand) if r[0] else (False, "not back"))
+    ((ok, why), (ok2, why2)), tm = ctx.timed(back, lambda: ctx.host.cell_of() == lab_cell, lambda: moved_now(HOST), ctx.p("handoff_s"))
     ctx.check("the host returns to the lab cell", ok, "arrived", why or "arrived", cls="ENV", area="tools/lab (coc)")
-    ok, why = ctx.host.goto_ref(stand)
-    ctx.check("the host stands at the NPC room's stand marker", ok, "arrived", why or "arrived", cls="ENV", area="tools/lab (teleport)")
+    ctx.check("the host stands at the NPC room's stand marker", ok2, "arrived", why2 or "arrived", cls="ENV", area="tools/lab (teleport)")
     present[HOST] = True
-    moved_to(HOST)
+    moved_to(HOST, tm)
     watch(ctx.p("watch_s"))
-    steps = []
-    for tr in traces.values():
-        steps += [dist3(a, b) for a, b in zip(tr, tr[1:]) if a is not None and b is not None]
-    ctx.check("the NPC never snaps (largest step between samples)", max(steps, default=0.0) <= ctx.p("jump"), f"<= {ctx.p('jump'):.0f}", round(max(steps, default=0.0), 1),
-              area="plugin/actors (handoff snap / Reset3D)")
+    # A step is judged by what is left of it after the patrol's own walk in the time between the two samples (npc.speed): the samples are not evenly spaced
+    # (a bridge call on a busy PC takes 0.3 s, and the wait loops sample as often as they poll), so a fixed step limit calls a plain walk a snap.
+    # Each step keeps its distance, its time, the copy and the stage of the room, so a real snap is told from a slow sample in the failure text.
+    steps: List[Tuple[float, float, float, str, str]] = []     # (excess over the walk, distance, seconds, copy, stage)
+    for name, tr in traces.items():
+        for i in range(1, len(tr)):
+            a, b = tr[i - 1], tr[i]
+            if a is None or b is None:
+                continue
+            d, dt = dist3(a, b), max(0.0, times[name][i] - times[name][i - 1])
+            steps.append((d if K.MUTANT == "npc_step_fixed_limit" else d - ctx.p("speed") * min(dt, 1.5), d, dt, name, where[name][i]))    # twin: the walk is not subtracted
+    worst = max(steps, default=(0.0, 0.0, 0.0, "", ""))
+    ctx.metric("npc_max_step", round(max((s[1] for s in steps), default=0.0), 1))
+    ctx.metric("npc_max_speed", round(max((s[1] / s[2] for s in steps if s[2] > 0.05), default=0.0), 1))
+    ctx.check("the NPC never snaps (largest step between samples, less the patrol's walk in that time)", worst[0] <= ctx.p("jump"), f"<= {ctx.p('jump'):.0f}",
+              f"{worst[0]:.1f} ({worst[1]:.0f} units in {worst[2]:.2f} s on the {worst[3] or '-'} copy, {worst[4] or '-'})", area="plugin/actors (handoff snap / Reset3D)")
     both = [(a, b) for a, b in zip(traces[HOST], traces[CLIENT]) if a is not None and b is not None]
     err = max((dist3(a, b) for a, b in both), default=0.0)
+    # Where the worst pair came from (lab run 20261028-032920: 178.8 units once, 25 to 37 in every other run): the stage of the room, how far apart in time the two copies' reads were
+    # (a bridge call that waited for a frame, or for a cell load, moves one read by up to a second = 200 units of patrol), and the error when the client's path is read at the
+    # host's time (`npc_err_aligned`: the part of the error that is not the two reads being apart).
+    idx = [i for i, (a, b) in enumerate(zip(traces[HOST], traces[CLIENT])) if a is not None and b is not None]
+    if idx:
+        w = max(idx, key=lambda i: dist3(traces[HOST][i], traces[CLIENT][i]))
+        ctx.metric("npc_err_stage", where[HOST][w])
+        ctx.metric("npc_err_reads_apart_ms", int(round((times[CLIENT][w] - times[HOST][w]) * 1000)))
+        ctx.metric("npc_err_at_s", round(times[HOST][w], 2))
+        ctx.metric("npc_err_pair", f"host {tuple(round(x) for x in traces[HOST][w])} client {tuple(round(x) for x in traces[CLIENT][w])}")
+        aligned = 0.0
+        for i in idx:
+            t_h, ct = times[HOST][i], times[CLIENT]
+            a = traces[HOST][i]
+            b = traces[CLIENT][i]
+            j = i - 1 if t_h < ct[i] else i + 1       # the client sample on the other side of the host's read time, if there is one
+            if 0 <= j < len(ct) and traces[CLIENT][j] is not None and ct[j] != ct[i]:
+                f = (t_h - ct[i]) / (ct[j] - ct[i])
+                if 0.0 <= f <= 1.0:
+                    b = tuple(x + (y - x) * f for x, y in zip(traces[CLIENT][i], traces[CLIENT][j]))
+            aligned = max(aligned, dist3(a, b))
+        ctx.metric("npc_err_aligned", round(aligned, 1))
     ctx.check("the two copies show the NPC at the same place while both have it loaded (max position error)", err <= ctx.p("err_max"), f"<= {ctx.p('err_max'):.0f}", round(err, 1),
               area="plugin/actors (position sync)")
     moved = max((sum(dist3(a, b) for a, b in zip(tr, tr[1:]) if a is not None and b is not None) for tr in traces.values()), default=0.0)
     ctx.check("the NPC patrols (it moved while watched)", moved >= ctx.p("min_moved"), f">= {ctx.p('min_moved'):.0f}", round(moved, 1), cls="TEST", area="tools/lab/esp (patrol package)")
-    return {"npc_err_max": round(err, 1), "npc_max_step": round(max(steps, default=0.0), 1)}
+    # What the actor module did during the room (lab run 20261028-032920: ownership reached the client 1.1 s after the host left on mobile_tether and transatlantic = the host's
+    # handoff timeout, because the new owner never acknowledged): forced commits (host), finals that repeated what the copy held, snapshots dropped as stale, drift written back.
+    delta: Dict[str, Any] = {}
+    for m in ctx.ms:
+        st1 = m.actor_stats()
+        for k in ("forcedCommits", "immediateCommits", "finalsRepeated", "staleSeqDropped", "avDriftFixed"):
+            if k in st1:
+                d = int(st1.get(k) or 0) - int(stats0[m.name].get(k) or 0)
+                if d:
+                    delta[f"npc_{m.name}_{k}"] = d
+    return {"npc_err_max": round(err, 1), **delta}
 
 
 # ------------------------------------------------------------------ vats
 def room_vats(ctx: Ctx) -> Dict[str, Any]:
     """Real-time VATS on both sides, each player on its own target: the hits and the deaths agree on both copies."""
     tg = ctx.ref("target")[:2]
+    stats0 = {m.name: m.actor_stats() for m in ctx.ms}
     ctx.stand_all()
     ctx.refs_exist(tg + [ctx.layout.stand("vats")], "the VATS targets")
     for m in ctx.ms:
@@ -397,6 +767,11 @@ def room_vats(ctx: Ctx) -> Dict[str, Any]:
         # under 100 units) when the VATS shot starts (lab run 2026-10-27: vats_not_entered). The host, owner of the actor, makes it a little weaker so a few
         # VATS hits kill it.
         ctx.enable_hostiles([t])
+        if K.MUTANT != "vats_target_free":      # twin: the target is left free and walks up to the shooter
+            # An enabled gecko ran 368 units in about 4 s and stood on top of the shooter (measured 2026-10-27): no hit chance, no view, VATS stays shut.
+            # The host (owner) holds it where it stands, at the standoff.
+            ok, why = ctx.host.hold(t)
+            ctx.check(f"the host holds the {m.name}'s target in place", ok, "held", why or "held", cls="TEST", area="tools/lab (SetRestrained)")
         ctx.agree(f"{m.name}'s target is alive on both copies", lambda x, t=t: x.alive(t), 15.0, True, area="plugin/actors, plugin/spawn")
         ok, why = ctx.host.set_health(t, ctx.p("weak_hp"))
         ctx.check(f"the host weakens the {m.name}'s target", ok, "health set", why or "health set", cls="TEST", area="tools/lab (SetAV Health)")
@@ -406,15 +781,27 @@ def room_vats(ctx: Ctx) -> Dict[str, Any]:
             h0 = m.health(t)
             ok, why = m.vats(t, None, stand)
             ctx.check(f"{m.name} VATS shot {attempt}", ok, "played out", why or "played out", cls="TEST", area="plugin/vats, plugin/bots")
-            ctx.agree(f"{m.name} VATS shot {attempt}: the target's health agrees on both copies", lambda x: round(x.health(t)), settle, area="plugin/vats, plugin/combat")
-            if m.health(t) < h0 or not m.alive(t):
+            # The shot that kills: the owner (the host) publishes health below 0 (host -14) while the actor port never writes a health under 1 to a copy (client 1), so a
+            # correctly delivered kill reads different numbers. Once the target is dead on the owner there is no health to compare: the "dead on both copies" check below judges it.
+            killed = (not ctx.host.alive(t)) or ctx.host.health(t) <= 0 if K.MUTANT != "vats_compares_kill_health" else False      # twin: the killing shot's health is compared too
+            if not killed:
+                ctx.agree(f"{m.name} VATS shot {attempt}: the target's health agrees on both copies",
+                          lambda x: "dead" if (not x.alive(t) or x.health(t) <= 0) and K.MUTANT != "vats_compares_kill_health" else round(x.health(t)), settle, area="plugin/vats, plugin/combat")     # a target that died meanwhile on the other copy: no number to compare
+                ctx.metric("vats_ms", max(int(ctx.metrics.get("vats_ms", 0)), int(round(ctx.last_wait_s * 1000))))     # the slowest shot-to-agreement
+            if m.health(t) < h0 or not m.alive(t) or killed:
                 hits[m.name] += 1
-            if not m.alive(t):
+            if killed or not m.alive(t):
                 break
         ctx.agree(f"{m.name}'s target is dead on both copies", lambda x: x.alive(t), settle, False, area="plugin/vats, plugin/combat")
         ctx.check(f"{m.name} hit with VATS at least once", hits[m.name] >= 1, ">= 1", hits[m.name], cls="TEST", area="plugin/vats")
     ctx.agree("deaths agree: both targets dead on both copies", lambda m: [m.alive(t) for t in tg], settle, [False, False], area="plugin/vats, plugin/combat")
-    return {f"{k}_vats_hits": v for k, v in hits.items()}
+    # how often the actor port had to write a copy's drifted health back to the owner's during the room (lab run 20261028-032920: the client's copy read -55 for the owner's 5)
+    drift = {}
+    for m in ctx.ms:
+        d = int(m.actor_stats().get("avDrifts") or 0) - int(stats0[m.name].get("avDrifts") or 0)
+        if d:
+            drift[f"{m.name}_health_drifts_fixed"] = d
+    return {**{f"{k}_vats_hits": v for k, v in hits.items()}, **drift}
 
 
 # ------------------------------------------------------------------ quest
@@ -425,21 +812,21 @@ def room_quest(ctx: Ctx) -> Dict[str, Any]:
     settle = ctx.p("settle_s")
     ctx.refs_exist([q], "the lab quest")
     ctx.agree("the quest is at the same stage on both copies at the start", lambda m: m.stage(q), settle, area="plugin/hooks (quest stage), plugin/snapshot")
-    ok, why = ctx.host.set_stage(q, 10)
+    (ok, why), tm = ctx.timed(lambda: ctx.host.set_stage(q, 10), lambda: ctx.host.stage(q) == 10, lambda: ctx.client.stage(q) == 10, settle)
     ctx.check("the host sets stage 10", ok, "set", why or "set", cls="TEST", area="tools/lab (setstage)")
-    ctx.agree("the client sees stage 10", lambda m: m.stage(q), settle, 10, area="plugin/hooks (quest stage), synccore")
+    ctx.metric("host_stage_ms", ctx.latency_check("the client sees stage 10", tm, settle, 10, area="plugin/hooks (quest stage), synccore", show=lambda: ctx.both(lambda m: m.stage(q))))
     if ctx.client.var(q, var) is None:
-        ctx.skip("the client sees the quest variable", f"this build cannot read quest variable {var!r} (no bridge read; see docs/tools/lab.md)")
+        ctx.skip("the client sees the quest variable", f"this copy cannot read quest variable {var!r}: " + (getattr(ctx.client, "var_why", "") or "no bridge read in this build") + " (see docs/tools/lab.md)")
     else:
         ok, why = ctx.host.set_var(q, var, 7)
         ctx.check("the host sets the quest variable to 7", ok, "set", why or "set", cls="TEST", area="tools/lab (setvar)")
         ctx.agree("the client sees the quest variable", lambda m: m.var(q, var), settle, 7, area="plugin/hooks (quest var), synccore")
-    ok, why = ctx.client.set_stage(q, 20)
+    (ok, why), tm = ctx.timed(lambda: ctx.client.set_stage(q, 20), lambda: ctx.client.stage(q) == 20, lambda: ctx.host.stage(q) == 20, settle)
     ctx.check("the client triggers stage 20", ok, "set", why or "set", cls="TEST", area="tools/lab (setstage)")
-    ctx.agree("the host agrees on stage 20", lambda m: m.stage(q), settle, 20, area="plugin/intents (guest stage), plugin/hooks")
-    ok, why = ctx.host.set_stage(q, 30)
+    ctx.metric("client_stage_ms", ctx.latency_check("the host agrees on stage 20", tm, settle, 20, area="plugin/intents (guest stage), plugin/hooks", show=lambda: ctx.both(lambda m: m.stage(q))))
+    (ok, why), tm = ctx.timed(lambda: ctx.host.set_stage(q, 30), lambda: ctx.host.stage(q) == 30, lambda: ctx.client.stage(q) == 30, settle)
     ctx.check("the host sets stage 30", ok, "set", why or "set", cls="TEST", area="tools/lab (setstage)")
-    ctx.agree("both copies are at stage 30", lambda m: m.stage(q), settle, 30, area="plugin/hooks (quest stage), synccore")
+    ctx.metric("host_stage30_ms", ctx.latency_check("both copies are at stage 30", tm, settle, 30, area="plugin/hooks (quest stage), synccore", show=lambda: ctx.both(lambda m: m.stage(q))))
     ctx.sleep(ctx.p("hold_s"))
     st = ctx.both(lambda m: m.stage(q))
     ctx.check("the stage does not roll back", st[HOST] == 30 and st[CLIENT] == 30, 30, st, area="plugin/hooks (guest rollback), synccore")

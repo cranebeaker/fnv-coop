@@ -29,6 +29,7 @@
 #include "common/minijson.h"
 #include "common/nvcoop_api.h"
 #include "common/registry.h"
+#include "companion_sets_default.h"
 #include "companions/companions_glue.h"
 #include "companions/social_runtime.h"
 #include "coop_runtime.h"
@@ -85,11 +86,24 @@ std::string IniPath() {
     return (s == std::string::npos ? std::string() : p.substr(0, s + 1)) + "nvcoop.ini";
 }
 
+std::string DllDir() {
+    const std::string p = IniPath();
+    const size_t s = p.find_last_of("\\/");
+    return s == std::string::npos ? std::string() : p.substr(0, s + 1);
+}
+
 struct Settings {
     bool enabled = false, companions = true, crime = true, rewards = true, feedActors = true, dev = false;
     sc::SocialSettings host;   // what the host starts with (clients take the host's)
     bool shareRep = true;
+    // G34 set pieces
+    bool swapGuard = true, escort = true, partyOwned = true;
+    uint32_t escortGraceMs = 4000, escortCooldownMs = 12000;
+    float escortFar = 3500;
+    sc::SlotRules sets;        // embedded companion_sets.txt, or the file next to the DLL
 };
+std::function<void(const std::vector<sc::Companion>&)> g_rosterListener;
+fnvcoop::HostSession* g_host = nullptr;   // the running host session (set every frame by glueFrame); its isPartyCompanion is the rules engine's owner=party test
 Settings g_set;
 bool g_inited = false;
 volatile PlayerId g_self = kNoPlayer;
@@ -268,6 +282,29 @@ bool WriteRefScriptVar(void* ref, const char* name, double value) {
     }
 }
 
+// Reads the script variable `name` of the reference's own script (the companion scripts' `Waiting`). false = no such variable.
+bool ReadRefScriptVar(void* ref, const char* name, double* out) {
+    __try {
+        auto* xs = static_cast<ExtraScript*>(static_cast<TESObjectREFR*>(ref)->extraDataList.GetByType(kExtraData_Script));
+        if (!xs || !xs->script || !xs->eventList || !xs->eventList->m_vars) return false;
+        uint32_t idx = 0xFFFFFFFFu;
+        RawNode* n = reinterpret_cast<RawNode*>(&xs->script->varList);
+        for (int i = 0; n && i < 256; ++i, n = n->next) {
+            auto* v = static_cast<VariableInfo*>(n->data);
+            if (v && v->name.m_data && std::strcmp(v->name.m_data, name) == 0) { idx = v->idx; break; }
+        }
+        if (idx == 0xFFFFFFFFu) return false;
+        RawNode* m = reinterpret_cast<RawNode*>(xs->eventList->m_vars);
+        for (int i = 0; m && i < 512; ++i, m = m->next) {
+            auto* sv = static_cast<ScriptLocal*>(m->data);
+            if (sv && sv->id == idx) { *out = sv->data; return true; }
+        }
+        return false;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 using CondFn = bool(__cdecl*)(void* thisObj, void* p1, void* p2, double* result);
 // Calls an engine condition evaluator. Refused when the entry no longer has its original prologue (somebody detoured it).
 bool CallCondition(uint32_t addr, void* thisObj, void* p1, double* out) {
@@ -301,6 +338,8 @@ public:
         if (obj && ReadPlace(obj, &p)) {
             v.cell = p.cell; v.pos = {p.x, p.y, p.z};
             v.alive = v.alive && !(p.life == 1 || p.life == 2);
+            double w = 0;
+            v.waiting = ReadRefScriptVar(obj, "Waiting", &w) && w != 0;   // the companion script's own wait flag (set by the wheel, the owner's wait command and the story)
             bool critter = false;
             const uint32_t fid = FirstFactionId(p.base, &critter);
             v.critter = critter;
@@ -558,7 +597,7 @@ LiveEngine g_engine;
 
 // ---------------------------------------------------------------------------------------------------------------- session
 std::unique_ptr<ns::SocialRuntime> g_rt;
-std::vector<fnvcoop::Effect> g_pendingEffects;
+std::vector<std::vector<fnvcoop::Effect>> g_pendingTxns;   // each captured transaction's CompanionOwner effects, kept together (the swap guard needs the whole transaction)
 bool g_sinkInstalled = false;
 
 void InstallEffectSink() {
@@ -567,8 +606,10 @@ void InstallEffectSink() {
     if (!hub) return;
     hub->addSink([](fnvcoop::EffectTxn&& t) {
         if (!g_inited) return;
+        std::vector<fnvcoop::Effect> mine;
         for (const fnvcoop::Effect& e : t.effects)
-            if (std::holds_alternative<fnvcoop::CompanionOwner>(e) && g_pendingEffects.size() < 512) g_pendingEffects.push_back(e);
+            if (std::holds_alternative<fnvcoop::CompanionOwner>(e)) mine.push_back(e);
+        if (!mine.empty() && g_pendingTxns.size() < 512) g_pendingTxns.push_back(std::move(mine));
     });
     g_sinkInstalled = true;
 }
@@ -598,6 +639,28 @@ void ReadSettings() {
     s.caps.critterPerOwner = static_cast<uint8_t>(geti("critter", 1));
     s.caps.partyTotal = static_cast<uint8_t>(geti("party", 4));
     g_set.shareRep = geti("sharerep", 1) != 0;
+    g_set.swapGuard = geti("swapguard", 1) != 0;                // a hire that fires another player's companion is put back; a second Dead Money / Honest Hearts companion is turned back
+    g_set.escort = geti("escort", 1) != 0;                      // my companions are brought along when a script moved my player
+    g_set.partyOwned = geti("partyowned", 1) != 0;              // the rules engine's owner=party companions (ED-E in Lonesome Road) belong to the whole party
+    g_set.escortGraceMs = static_cast<uint32_t>(geti("escortgrace", 4000));
+    g_set.escortCooldownMs = static_cast<uint32_t>(geti("escortcooldown", 12000));
+    g_set.escortFar = static_cast<float>(geti("escortfar", 3500));
+    // data: the embedded table, replaced by nvcoop_companion_sets.txt next to the DLL when it exists
+    g_set.sets = sc::SlotRules();
+    std::string text = ns::kDefaultCompanionSets;
+    {
+        std::FILE* f = std::fopen((DllDir() + "nvcoop_companion_sets.txt").c_str(), "rb");
+        if (f) {
+            std::string t;
+            char b[4096];
+            size_t n;
+            while ((n = std::fread(b, 1, sizeof b, f)) > 0) t.append(b, n);
+            std::fclose(f);
+            if (!t.empty()) text = t;
+        }
+    }
+    const sc::SlotRules::LoadStats st = g_set.sets.load(text);
+    if (st.bad) nvcoop::Log("companions: companion_sets: %zu line(s) did not parse", st.bad);
 }
 
 bool ParseForm(const std::string& text, FormRef& out) {
@@ -684,7 +747,7 @@ void Init() {
 
 void Uninit() {
     g_rt.reset();
-    g_pendingEffects.clear();
+    g_pendingTxns.clear();
     g_inited = false;   // (a capture sink cannot be removed from the hub: it checks g_inited)
 }
 
@@ -696,10 +759,10 @@ void OnMessage(uint32_t type, void*, uint32_t) {
 void OnFrame() {
     if (!g_inited) return;
     InstallEffectSink();
-    if (!g_pendingEffects.empty() && g_rt && g_rt->sync()) {
-        std::vector<fnvcoop::Effect> fx;
-        fx.swap(g_pendingEffects);
-        for (const fnvcoop::Effect& e : fx) g_rt->sync()->onEffect(e);   // (a client ignores them: the roster message carries the same facts)
+    if (!g_pendingTxns.empty() && g_rt && g_rt->sync()) {
+        std::vector<std::vector<fnvcoop::Effect>> txns;
+        txns.swap(g_pendingTxns);
+        for (const auto& fx : txns) g_rt->sync()->onTxn(fx);   // (a client ignores them: the roster message carries the same facts)
     }
 }
 
@@ -767,6 +830,25 @@ bool glueVatsTargetAllowed(uint32_t targetRef) {
     return s->vatsTargetAllowed(e);
 }
 
+void glueSetRosterListener(std::function<void(const std::vector<sc::Companion>&)> onRoster) { g_rosterListener = std::move(onRoster); }
+
+bool glueCurrentFollower(uint8_t slot, const std::string& group, fnvcoop::FormRef& out) {
+    SocialSync* s = g_rt ? g_rt->sync() : nullptr;
+    if (!s) return false;
+    out = s->currentFollower(slot, group);
+    return out.localId != 0;
+}
+
+std::vector<std::string> glueViewPartyScripts() {
+    if (!g_inited || !g_set.enabled) return {};
+    return std::vector<std::string>(g_set.sets.viewPartyNames().begin(), g_set.sets.viewPartyNames().end());
+}
+
+uint8_t glueViewSlot(const std::string& scriptEdid, uint8_t actingSlot) {
+    if (!g_inited || !g_set.enabled) return actingSlot;
+    return sc::viewSlotFor(g_set.sets, scriptEdid, actingSlot);
+}
+
 void glueReportCrime(const sc::CrimeEvent& e) { if (SocialSync* s = g_rt ? g_rt->sync() : nullptr) s->reportCrime(e); }
 void glueReportKill(const sc::KillReport& r) { if (SocialSync* s = g_rt ? g_rt->sync() : nullptr) s->reportKill(r); }
 void glueGuestInteraction(uint8_t slot, bool pickup, const fnvcoop::FormRef& target) { if (SocialSync* s = g_rt ? g_rt->sync() : nullptr) s->onGuestInteraction(slot, pickup, target); }
@@ -800,6 +882,9 @@ void glueFrame(nvcoop::coop::Runtime* rt) {
         }
     }
     g_self = f.active ? f.self : kNoPlayer;
+    g_host = f.active && rt ? rt->host() : nullptr;
+    if (g_host && !g_host->companionVet)   // W3a item 6: the commit asks the companion book first (swap dismissals and slot overruns never reach the wire)
+        g_host->companionVet = [](fnvcoop::EffectTxn& t) -> size_t { return g_rt && g_rt->sync() ? g_rt->sync()->vetOutgoing(t.effects) : 0; };
     if (!g_rt) {
         if (!f.active) return;
         g_rt.reset(new ns::SocialRuntime(g_world, g_engine));
@@ -807,6 +892,12 @@ void glueFrame(nvcoop::coop::Runtime* rt) {
         c.settings = g_set.host;
         c.companions = g_set.companions; c.crime = g_set.crime; c.rewards = g_set.rewards;
         c.shareReputation = g_set.shareRep;
+        c.sets = g_set.sets;
+        c.swapGuard = g_set.swapGuard;
+        c.escort = g_set.escort;
+        c.escortRules.graceMs = g_set.escortGraceMs; c.escortRules.cooldownMs = g_set.escortCooldownMs; c.escortRules.farDistance = g_set.escortFar;
+        c.onRoster = [](const std::vector<sc::Companion>& all) { if (g_rosterListener) g_rosterListener(all); };
+        if (g_set.partyOwned) c.isPartyCompanion = [](const FormRef& n) { return g_host && g_host->isPartyCompanion && g_host->isPartyCompanion(n); };
         if (g_set.feedActors) c.feedActors = [](const fnvcoop::Effect& e) { eng::onEffect(e); };
     }
     g_rt->frame(f);

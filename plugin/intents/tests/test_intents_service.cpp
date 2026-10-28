@@ -314,6 +314,49 @@ TEST(intents_service, dialogue_result_scripts_of_a_guest_conversation_run_on_the
     CHECK(t.host.svc->dialogueStats().unsupported == 2 && t.host.rt->host()->log().head() == head);
 }
 
+// Story run S06: a guest's pick ("Sure, I'll come with you", 60 rounds of ammo) ran its result script four times on the host. One pick pays once: the
+// runner is keyed by (session, conversation, step, phase), the dialogue host answers a resent Pick without a run, and the same INFO again with no list
+// offered in between is a repeat, not a second pick.
+TEST(intents_service, a_guests_pick_pays_once_through_retries_resends_and_a_repeat) {
+    Trio t(true);
+    REQUIRE(t.joined());
+    REQUIRE(pumpUntil(t.fr, [&] { return t.a.rt->dialogue() && t.b.rt->dialogue() && t.host.rt->host()->clients().size() == 2; }));
+    const PlayerId sa = t.a.rt->client()->slot();
+    t.a.rt->dialogue()->requestStart(R(0x104C0F), (uint32_t)wallMs());
+    CHECK(pumpUntil(t.fr, [&] { return !t.a.dlgEvents.empty(); }));
+    t.a.rt->dialogue()->pick(R(0x105560), R(0x105583), 0, false, {fnvcoop_dlg::Line{"House.", "", 0, 50}}, {}, (uint32_t)wallMs());
+    const uint32_t conv = t.a.rt->dialogue()->client().conv(), step = t.a.rt->dialogue()->client().step();
+    // the same Pick on the wire three more times (a retry, a resend after a reconnect)
+    fnvcoop_dlg::Pick again;
+    again.conv = conv; again.step = step; again.topic = R(0x105560); again.info = R(0x105583);
+    for (int i = 0; i < 3; ++i) t.a.rt->mux()->send(0, fnvcoop_dlg::encode(fnvcoop_dlg::Msg(again)));
+    t.a.rt->dialogue()->lineDone((uint32_t)wallMs());
+    for (int i = 0; i < 3; ++i) t.a.rt->mux()->send(0, fnvcoop_dlg::encode(fnvcoop_dlg::Msg(fnvcoop_dlg::LineDone{conv, step})));
+    CHECK(pumpUntil(t.fr, [&] { return t.host.svc->dialogueStats().ran == 2 && t.a.rt->client()->applied() >= 2 && t.host.rt->host()->allSynced(); }));
+    for (int i = 0; i < 200; ++i) { t.fr(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+    CHECK(t.host.svc->dialogueStats().ran == 2 && t.host.svc->dialogueStats().committed == 2);
+    CHECK(t.a.world.inventory.at(S(R(0xF))) == 14);                         // 7 for Begin + 7 for End, once
+    // the runner itself, called again for the same (conversation, step, phase): answered from the first run, nothing runs
+    fnvcoop_dlg::ResultRequest rq;
+    rq.conv = conv; rq.step = step; rq.phase = fnvcoop_dlg::Phase::Begin; rq.initiator = sa; rq.npc = R(0x104C0F); rq.info = R(0x105583);
+    const uint64_t head = t.host.rt->host()->log().head();
+    for (int i = 0; i < 3; ++i) CHECK(t.host.svc->runDialogueResult(rq) != 0 || head == 0);
+    rq.phase = fnvcoop_dlg::Phase::End;
+    for (int i = 0; i < 3; ++i) CHECK(t.host.svc->runDialogueResult(rq) != 0 || head == 0);
+    CHECK(t.host.svc->dialogueStats().ran == 2 && t.host.svc->dialogueStats().deduped == 6);
+    CHECK(t.host.rt->host()->log().head() == head);
+    int infoCalls = 0;
+    for (const auto& c : t.host.eng.calls) infoCalls += c.what == "infoResult";
+    CHECK(infoCalls == 2);
+    // the engine shows the same INFO as picked again, no topic list in between: the host answers the step and runs nothing
+    t.a.rt->dialogue()->pick(R(0x105560), R(0x105583), 0, false, {fnvcoop_dlg::Line{"House.", "", 0, 50}}, {}, (uint32_t)wallMs());
+    t.a.rt->dialogue()->lineDone((uint32_t)wallMs());
+    CHECK(pumpUntil(t.fr, [&] { return t.host.rt->host() && t.a.rt->dialogue()->client().topicsReady(); }));
+    for (int i = 0; i < 200; ++i) { t.fr(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+    CHECK(t.host.svc->dialogueStats().ran == 2);
+    CHECK(t.a.world.inventory.at(S(R(0xF))) == 14 && t.b.world.inventory.count(S(R(0xF))) == 0 && t.host.world.inventory.count(S(R(0xF))) == 0);
+}
+
 TEST(intents_service, dialogue_runner_needs_a_puppet_or_a_stand_in_policy) {
     nvcoop::intents::Config c = icfg();
     c.requirePuppet = true;

@@ -368,6 +368,31 @@ bool followerCapsHold(std::string* why) {
     return true;
 }
 
+// W3a item 6: the companion vet runs inside the commit; what it takes out of a txn is neither logged nor sent, and the cap logic still sees the rest.
+bool companionVetHolds(std::string* why) {
+    auto fail = [&](const char* w) { if (why) *why = w; return false; };
+    Rig r(7);
+    r.addClient(1); r.addClient(2);
+    r.joinAll(); r.run(1500);
+    // stand-in for plugin/companions: a txn that recruits npc 201 for owner 2 and dismisses npc 200 (owner 1's) in the same breath is a swap: the dismissal goes
+    r.host.companionVet = [](EffectTxn& t) {
+        bool recruit = false;
+        for (auto& e : t.effects) if (auto* c = std::get_if<CompanionOwner>(&e)) recruit = recruit || c->active;
+        size_t before = t.effects.size();
+        if (recruit)
+            t.effects.erase(std::remove_if(t.effects.begin(), t.effects.end(), [](const Effect& e) { auto* c = std::get_if<CompanionOwner>(&e); return c && !c->active; }), t.effects.end());
+        return before - t.effects.size();
+    };
+    if (!r.host.commit(1, cause(CauseKind::Script), {CompanionOwner{Q(200), 1, true, 0}})) return fail("first recruit refused");
+    if (!r.host.commit(2, cause(CauseKind::Script), {CompanionOwner{Q(200), 1, false, 0}, CompanionOwner{Q(201), 2, true, 0}})) return fail("the swap txn vanished whole");
+    if (!r.host.state().companionOwner.count(Q(200)) || r.host.state().companionOwner.at(Q(200)) != 1) return fail("the swap dismissed the other player's companion");
+    if (!r.host.state().companionOwner.count(Q(201))) return fail("the recruit did not go through");
+    if (r.host.stats().companionVetDrops != 1) return fail("the removed effect was not counted");
+    r.run(600);
+    for (auto& c : r.cl) if (c->cs->state() != r.host.state()) return fail("a machine applied what the vet removed");
+    return true;
+}
+
 bool controlLockReleased(std::string* why, bool hostNotified) {
     auto fail = [&](const char* w) { if (why) *why = w; return false; };
     Rig r(6);
@@ -456,6 +481,9 @@ TEST(round3, routing_active_quest_perks_faction_and_journal) {
 TEST(round3, follower_caps_per_owner_kind_and_party_total) {
     std::string why; CHECK_MSG(followerCapsHold(&why), why);
 }
+TEST(round3, the_companion_vet_runs_before_the_commit_and_its_removals_never_reach_a_machine) {
+    std::string why; CHECK_MSG(companionVetHolds(&why), why);
+}
 TEST(round3, disconnect_always_releases_the_control_lock) {
     std::string why;
     CHECK_MSG(controlLockReleased(&why, true), "transport-notified: " + why);
@@ -479,6 +507,10 @@ TEST(twin, round3_active_quest_shared) {
 TEST(twin, round3_ignore_follower_caps) {
     MutationScope m([] { Mutations x; x.ignoreFollowerCaps = true; return x; }());
     std::string why; CHECK(!followerCapsHold(&why));
+}
+TEST(twin, round3_companion_vet_ignored) {
+    MutationScope m([] { Mutations x; x.companionVetIgnored = true; return x; }());
+    std::string why; CHECK(!companionVetHolds(&why));
 }
 TEST(twin, round3_disconnect_keeps_lock) {
     MutationScope m([] { Mutations x; x.disconnectKeepsLock = true; return x; }());

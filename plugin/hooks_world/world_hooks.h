@@ -94,6 +94,7 @@ public:
 
 private:
     nvhooks::ApplyStatus run(const Plan& p);
+    int gateSteps_ = 0;   // > 0: run() holds a ScriptGate around every step that is not a console line (see stepRunsScripts)
     nvhooks::CaptureHub& hub_;
     nvhooks::FormResolver& res_;
     std::function<bool(const std::string&, uint32_t)> exec_;

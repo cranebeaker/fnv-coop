@@ -3,6 +3,7 @@
 FalloutNV.exe 1.4.0.525 finds Documents with SHGetFolderPathA (it is in the import table), so it follows a redirected
 Documents folder (for example OneDrive\\Documents, the Windows 11 default for many accounts). We ask Windows the same
 way. Never build the path from the home folder: %USERPROFILE%\\Documents can exist and still be the wrong folder.
+Off Windows the game runs under Proton, and its Documents is the one in the game's Proton prefix (steamlib.py).
 
 Environment override: FNV_DOCUMENTS_DIR (the Documents folder itself, for tests and unusual setups).
 """
@@ -30,6 +31,16 @@ def shell_documents() -> Optional[Path]:
     return Path(buf.value) if hr == 0 and buf.value else None
 
 
+def platform_documents() -> Optional[Path]:
+    """The Documents folder the game uses on this machine: the shell folder on Windows, the Documents of the game's Proton
+    prefix elsewhere (the install in FNV_GAME_DIR first, then the one Steam has). None when there is no answer."""
+    import steamlib
+    if not steamlib.OFF_WINDOWS:
+        return shell_documents()
+    game = os.environ.get("FNV_GAME_DIR")
+    return steamlib.find_documents(game=Path(game) if game and game.strip() else None)
+
+
 def normalize_override(value: str) -> Path:
     """An operator-supplied folder: expand ~ and %VARS%. It must then be absolute: a relative path would select a
     different folder for each working directory a tool runs from, so it is refused instead of resolved."""
@@ -39,7 +50,7 @@ def normalize_override(value: str) -> Path:
     return p.resolve()
 
 
-def documents_dir(resolver: Callable[[], Optional[Path]] = shell_documents) -> Path:
+def documents_dir(resolver: Callable[[], Optional[Path]] = platform_documents) -> Path:
     env = os.environ.get("FNV_DOCUMENTS_DIR")
     if env and env.strip():
         return normalize_override(env)
@@ -47,9 +58,9 @@ def documents_dir(resolver: Callable[[], Optional[Path]] = shell_documents) -> P
     return found if found else Path.home() / "Documents"
 
 
-def my_games_dir(resolver: Callable[[], Optional[Path]] = shell_documents) -> Path:
+def my_games_dir(resolver: Callable[[], Optional[Path]] = platform_documents) -> Path:
     return documents_dir(resolver) / "My Games" / "FalloutNV"
 
 
-def saves_dir(resolver: Callable[[], Optional[Path]] = shell_documents) -> Path:
+def saves_dir(resolver: Callable[[], Optional[Path]] = platform_documents) -> Path:
     return my_games_dir(resolver) / "Saves"

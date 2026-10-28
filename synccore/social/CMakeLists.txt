@@ -2,7 +2,7 @@
 #   fnvcoop_social     production library (twins compiled out). Linked by plugin/companions.
 #   fnvcoop_social_rt  the same sources with FNVCOOP_RUNTIME_MUT: mutation twins 801..899 are switched with FNVCOOP_MUT=<n> at run time.
 #   social_tests       the unit tests (links the _rt library). One command: synccore\social\run_tests.cmd  (prints ALL OK)
-set(SOCIAL_SRC ${CMAKE_CURRENT_LIST_DIR}/companions.cpp ${CMAKE_CURRENT_LIST_DIR}/crime.cpp ${CMAKE_CURRENT_LIST_DIR}/rewards.cpp ${CMAKE_CURRENT_LIST_DIR}/wire.cpp)
+set(SOCIAL_SRC ${CMAKE_CURRENT_LIST_DIR}/companions.cpp ${CMAKE_CURRENT_LIST_DIR}/slots.cpp ${CMAKE_CURRENT_LIST_DIR}/escort.cpp ${CMAKE_CURRENT_LIST_DIR}/crime.cpp ${CMAKE_CURRENT_LIST_DIR}/rewards.cpp ${CMAKE_CURRENT_LIST_DIR}/wire.cpp)
 
 foreach(sfx "" "_rt")
   add_library(fnvcoop_social${sfx} STATIC ${SOCIAL_SRC})
@@ -16,7 +16,7 @@ foreach(sfx "" "_rt")
   endif()
 endforeach()
 
-add_executable(social_tests tests/test_companions.cpp tests/test_crime.cpp tests/test_rewards.cpp tests/test_wire.cpp ${CMAKE_CURRENT_LIST_DIR}/../tests/main.cpp)
+add_executable(social_tests tests/test_companions.cpp tests/test_party.cpp tests/test_crime.cpp tests/test_rewards.cpp tests/test_wire.cpp ${CMAKE_CURRENT_LIST_DIR}/../tests/main.cpp)
 target_include_directories(social_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../tests ${CMAKE_CURRENT_LIST_DIR}/tests)
 target_link_libraries(social_tests PRIVATE fnvcoop_social_rt)
 

@@ -135,6 +135,12 @@ using PlayerNetIdResolver = std::function<NetId(RefId ref)>;      // 0 = not a p
 using PlayerRefResolver = std::function<RefId(NetId id)>;         // 0 = not a player id
 void setPlayerNetIdResolver(PlayerNetIdResolver byRef, PlayerRefResolver byNet);
 
+// G04 kill attribution: asked when this machine kills a COPY of an actor another machine declared dead (the owner's death message). Returns the engine ref of the puppet of the
+// REMOTE player that killed it (plugin/combat knows from the last hit), 0 = no remote player (a plain kill: the local player or the environment). The kill then runs as
+// `KillActor <puppet>` (nvhooks::killWithAttribution) so the engine stores the puppet as the killer before OnDeath and `IsKiller player` is true for that guest.
+using KillerResolver = std::function<RefId(RefId victimRef)>;
+void setKillerResolver(KillerResolver f);
+
 // The avatar layer reports every player's place (the local one is read by the port itself). Forwarded to ActorSync::setPlayerPose().
 void setPlayerPose(PlayerId slot, const PlayerPose& pose);
 
@@ -202,6 +208,9 @@ struct PortStats {
     uint64_t baseSwaps = 0, baseSwapFailed = 0, protectOn = 0, protectOff = 0, kills = 0, revives = 0;
     uint64_t ledgerReleased = 0, ledgerWrites = 0, resyncs = 0;
     uint64_t ledgerDropped = 0;   // stale created-ref entries whose id now names someone else: dropped, never touched
+    uint64_t avDrifts = 0;        // a copy's health that no longer matched the owner's (the audit wrote it back); the newest one below
+    uint32_t lastDriftNet = 0;
+    float lastDriftCur = 0, lastDriftWant = 0;
 };
 PortStats portStats();
 

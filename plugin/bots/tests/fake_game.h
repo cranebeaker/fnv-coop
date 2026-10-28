@@ -233,6 +233,7 @@ struct FakeGame : nvbots::IEngine {
     }
     bool closeTutorial() override {
         ++closeCalls;
+        if (closeMode < 0) closeMode = static_cast<int>(vatsMode());   // the camera mode at the first close
         calls.push_back("closetutorial");
         if (tutorialCloses && tutorialOpen) { tutorialOpen = false; if (vatsMode()) topId = 0x420; }
         return true;
@@ -245,6 +246,7 @@ struct FakeGame : nvbots::IEngine {
         return true;
     }
     int vatsQueueCount() override { return queue; }
+    int closeMode = -1;              // VATS camera mode when the tutorial box was first closed
     int ignoreExecs = 0;             // the first N accepts start nothing (measured 2026-10-27: the accept in the frame after the queue did nothing)
     bool boxOverAccept = false;      // the first accept is swallowed by a tutorial box that opens over the VATS menu
     bool vatsExecute() override {
@@ -305,6 +307,15 @@ struct FakeGame : nvbots::IEngine {
         return true;
     }
     bool resolveForm(const std::string& f, Addr32* out) override { return resolveRef(f, out) && !f.empty(); }
+    std::map<std::string, double> questVars;                                  // "<quest runtime id hex>/<var>" -> value (bot.questvar)
+    bool questVar(uint32_t quest, const std::string& name, double* out) override {
+        char b[16];
+        std::snprintf(b, sizeof b, "%X/", quest);
+        auto it = questVars.find(std::string(b) + name);
+        if (it == questVars.end()) return false;
+        *out = it->second;
+        return true;
+    }
     bool resolveFormId(const std::string& f, uint32_t* out) override {
         auto it = formIds.find(f);
         if (it == formIds.end()) return false;

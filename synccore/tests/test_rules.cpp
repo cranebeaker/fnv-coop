@@ -242,6 +242,48 @@ TEST(rules, vcg01_chargen_barrier_advances_only_after_every_player_passed) {
     CHECK(!r.host.state().barriers.count(RulesEngine::barrierId(vcg01, 40)) || !r.host.state().barriers.at(RulesEngine::barrierId(vcg01, 40)).released);
 }
 
+namespace {
+// Goodsprings story run 2026-10-28: Doc's farewell (VCG01 200) plays only in the host's game, so the guest's game never asked for stage 200 and no pass came;
+// the host stood 120 s (barrierTimeoutMs) after every barrier step. The guest now reads the open barrier from its own state and passes by itself.
+struct GuestPassRun { bool releasedFast = false; size_t passesAfter = 99; size_t listedWhileOpen = 0; };
+GuestPassRun guestPassRun() {
+    RulesDb db; db.load(kMini);
+    Rig r;
+    auto& a = r.add(1);
+    RulesEngine eng(r.host, db, resolveEdid);
+    std::vector<std::pair<FormRef, uint32_t>> applied;
+    eng.applyStage = [&](const FormRef& q, uint32_t s) { applied.emplace_back(q, s); };
+    r.host.onAction = [&](PlayerId slot, IntentKind k, const FormRef& ref, uint32_t, uint32_t) { eng.handleAction(slot, k, ref); };
+    r.connectAll(); r.run(400);
+    const FormRef vcg01 = QF("VCG01");
+    GuestPassRun o;
+    if (eng.onStageRequested(vcg01, 200, 0) != StageDecision::Deferred) return o;
+    eng.onPlayerPassed(0, vcg01);                                          // the host said goodbye to Doc
+    r.run(300);
+    auto open = RulesEngine::guestBarrierPasses(a.state(), a.slot());
+    o.listedWhileOpen = open.size();
+    for (auto& q : open) a.submitAction(IntentKind::ScenePass, q);          // what the plugin does while the guest's player is free
+    r.run(400);                                                            // far below the 120 s timeout
+    o.releasedFast = applied.size() == 1 && applied[0].first == vcg01 && applied[0].second == 200;
+    o.passesAfter = RulesEngine::guestBarrierPasses(a.state(), a.slot()).size();
+    return o;
+}
+}  // namespace
+
+TEST(rules, a_guest_passes_an_open_barrier_by_itself_and_only_once) {
+    GuestPassRun o = guestPassRun();
+    CHECK(o.listedWhileOpen == 1);
+    CHECK(o.releasedFast);
+    CHECK(o.passesAfter == 0);                                             // released: nothing left to pass, the plugin stops sending
+}
+
+TEST(twin, a_guest_pass_list_that_ignores_released_barriers_passes_forever) {
+    Mutations m; m.guestPassIgnoresState = true;
+    MutationScope s(m);
+    GuestPassRun o = guestPassRun();
+    CHECK(o.passesAfter > 0);
+}
+
 TEST(rules, barrier_early_passes_leavers_and_timeout) {
     RulesDb db; REQUIRE(db.load(kMini));
     {   // a player finishes chargen BEFORE the host asks for the stage

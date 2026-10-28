@@ -6,7 +6,8 @@
      when <reference exe> is not on this machine: it is not in git);
   3. every function the op table hooks has a prologue line in the dump, and the dump has no line without an op (plus the one dedicated ForceActiveQuest hook);
   4. the in-game proof checker passes against its scripted fake and catches every injected defect;
-  5. twin: a header with one byte changed is reported by check 1 (so a hand edit of the generated file cannot slip through).
+  5. W3d: the script commands GetItemCount / GetActorValue call the condition evaluators the party hooks detour (tools/check_cmd_routing.py, twins on a fake image);
+  6. twin: a header with one byte changed is reported by check 1 (so a hand edit of the generated file cannot slip through).
 """
 import pathlib
 import re
@@ -48,6 +49,10 @@ def main():
     print('%s in-game proof checker: selftest + injected defects' % ('ok  ' if rc == 0 and 'ALL OK' in out else 'FAIL'))
     if rc or 'ALL OK' not in out:
         bad.append('proof_story_capture --selftest failed:\n' + out)
+    rc, out = run([str(HERE / 'check_cmd_routing.py'), '--self-test'])   # W3d: Player.GetItemCount / GetAV reach the party evaluators (call edges read from the exe, twins on a fake image)
+    print('%s script commands GetItemCount / GetActorValue / GetLevel route through the party evaluators (+ twins)' % ('ok  ' if rc == 0 and 'ALL OK' in out else 'FAIL'))
+    if rc or 'ALL OK' not in out:
+        bad.append('check_cmd_routing failed: ' + out)
     # twin: one flipped byte in a copy of the header must be noticed by the generator's comparison
     hdr = (HERE.parent / 'story_addrs.h').read_text(encoding='utf-8')
     flipped = hdr.replace('0x55, 0x8b, 0xec', '0x55, 0x8b, 0xed', 1)

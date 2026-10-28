@@ -16,6 +16,10 @@ enum class StepKind : uint8_t {
     SetRefVar,      // write script variable `varIndex` of ref `refID`
     AdvanceClock,   // the host's wait / sleep reached this machine: `minutes` of game time (the world-time module owns the clock)
 };
+// A console line IS a script: the engine runs it through Script::Execute, which an open nvhooks::ScriptGate answers with "pretend it ran". So a step that
+// runs a console line must never run while a ScriptGate is open (the lab's door: a host-native open reached the client as an ObjectState whose
+// "SetOpenState 1" was swallowed by the gate for ever, and so were the client's heals toward it). The other steps keep the gate: they must not run scripts.
+bool stepRunsScripts(StepKind k);
 struct Step {
     StepKind kind = StepKind::ConsoleGlobal;
     uint32_t refID = 0;

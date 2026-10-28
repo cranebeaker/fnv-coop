@@ -5,6 +5,8 @@
 //       - MenuMode() in the main loop (2 sites, optionally 9 more)            -> menuModeForWorld()
 //       - TimeGlobal::SetTimeScale from the VATS camera code (11 sites)       -> scaleForVatsRequest()
 //       - GetPlayerTimeMult / GetTargetTimeMult (5 + 9 sites)                  -> timeMultFor()
+//     and, because the world then runs under an open menu, the InterfaceManager update moves from the worker thread to the main thread (the worker kick
+//     0x86EC87 and the worker's stage 0, 2 sites)                              -> interfaceUpdateOnMain() / InterfaceHandoff
 //     Every thunk calls the real function first, so the engine's side effects stay, and only changes the answer; with no co-op session the policy
 //     returns the engine's answer unchanged.
 //   * LiveEngine: the IVatsEngine over the static RE of docs/re/vats-realtime.md (all reads and calls SEH-guarded; main thread only).
@@ -133,7 +135,7 @@ volatile DWORD g_mainThread = 0;
 
 struct Pins { bool setScale = false, getMult = false, menuMode = false, menuModeOf = false, accept = false, unclick = false, limb = false, handleClick = false, getForm = false; };
 Pins g_pins;
-uint64_t g_thunkScale = 0, g_thunkScaleChanged = 0, g_thunkMult = 0, g_thunkMultChanged = 0, g_thunkPause = 0, g_thunkPauseChanged = 0, g_thunkOffThread = 0, g_thunkErrors = 0, g_thunkThreadSkips = 0;
+uint64_t g_thunkScale = 0, g_thunkScaleChanged = 0, g_thunkMult = 0, g_thunkMultChanged = 0, g_thunkPause = 0, g_thunkPauseChanged = 0, g_thunkOffThread = 0, g_thunkErrors = 0;
 uint64_t g_calls = 0, g_callsFailed = 0, g_pinRefusals = 0;
 
 std::unique_ptr<vt::VatsRuntime> g_rt;
@@ -447,7 +449,7 @@ struct HookGroup {
     uint32_t thunk = 0;
     std::unique_ptr<vt::SitePatcher> patcher;
 };
-HookGroup g_groups[6];
+HookGroup g_groups[7];
 bool g_hooksTried = false;
 
 bool OnMainThread() { return g_mainThread == 0 || GetCurrentThreadId() == g_mainThread; }
@@ -519,22 +521,51 @@ bool __cdecl MenuModeThunk() {
     return r;
 }
 
-// 0x713D90 (cdecl bool): "the worker threads are started". The one call in the menu update (0x713C8D) is redirected here. While the world runs under an open VATS
-// menu the answer is false, so the menu update does not wait for a worker event that nobody signals (the main thread then waited for ever, vats_addrs.h).
-bool __cdecl ThreadsActiveThunk() {
-    bool r = reinterpret_cast<bool(__cdecl*)()>(static_cast<uintptr_t>(ad::kThreadsActive))();
+// The InterfaceManager update and the worker kick (vats_addrs.h: the root cause of the VATS-entry crash at 0x800F66 and of the earlier hang). Vanilla runs
+// the update on the main thread whenever a menu is open, because an open menu pauses the world and the workers are not kicked. Real-time VATS kicks them
+// under the open VATS menu; then the main thread runs the update itself just before the kick, and the worker's stage 0 skips it. The menu update's wait
+// for the worker (0x713C8D) is left as the game has it: the worker signals that event at once.
+using VoidThisFn = void(__thiscall*)(void* self);
+vt::InterfaceHandoff g_imHandoff;
+uint64_t g_imOnMain = 0, g_imWorkerSkips = 0;   // g_imWorkerSkips is written by the worker thread only
+constexpr int kGroupWorkerUpdate = 5, kGroupKick = 6;
+
+bool RealMenuMode() { return reinterpret_cast<bool(__cdecl*)()>(static_cast<uintptr_t>(ad::kMenuMode))(); }
+
+// 0x8C78C0, the main loop's worker kick (call 0x86EC87): thiscall(manager), no arguments, plain ret.
+void __fastcall WorkerKickThunk(void* mgr, void*) {
+    bool wantMain = false;
     vt::VatsSync* s = Sync();
-    if (r && s && OnMainThread()) {
+    if (s && OnMainThread()) {
         try {
-            if (!vt::menuModeForWorld(s->policyInput(), true)) {   // false = the world keeps running although a menu (VATS) is open
-                ++g_thunkThreadSkips;
-                return false;
-            }
+            wantMain = vt::interfaceUpdateOnMain(s->policyInput(), RealMenuMode());
         } catch (...) {
             ++g_thunkErrors;
         }
     }
-    return r;
+    const HookGroup& w = g_groups[kGroupWorkerUpdate];
+    const bool workerPatched = w.patcher && w.patcher->installed() == static_cast<int>(w.count);
+    static bool s_wasMain = false;
+    const bool onMain = g_imHandoff.atKick(wantMain, workerPatched);   // decided before the workers are resumed, so the worker reads this frame's decision
+    if (onMain != s_wasMain) {   // one line per edge (VATS opened / closed with the world running): the in-game proof of this path
+        nvcoop::Log("vats: interface update on the %s thread (main-thread frames %llu, worker skips %llu)", onMain ? "main" : "worker",
+                    (unsigned long long)g_imOnMain, (unsigned long long)g_imWorkerSkips);
+        s_wasMain = onMain;
+    }
+    if (onMain) {
+        reinterpret_cast<VoidThisFn>(static_cast<uintptr_t>(ad::kInterfaceUpdate))(*reinterpret_cast<void**>(static_cast<uintptr_t>(ad::kMainObjectPtr)));
+        ++g_imOnMain;
+    }
+    reinterpret_cast<VoidThisFn>(static_cast<uintptr_t>(ad::kWorkerKick))(mgr);
+}
+
+// 0x86FD70 as the worker threads' stage 0 (0x8C7DB9, 0x8C7BE9): runs on the worker thread.
+void __fastcall WorkerInterfaceThunk(void* self, void*) {
+    if (!g_imHandoff.workerRuns()) {
+        ++g_imWorkerSkips;
+        return;
+    }
+    reinterpret_cast<VoidThisFn>(static_cast<uintptr_t>(ad::kInterfaceUpdate))(self);
 }
 
 uint32_t ThunkAddr(void* fn) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fn)); }
@@ -547,10 +578,13 @@ void InstallHooks() {
     g_groups[2] = {"target_mult", ad::kTargetMultSites, ad::kTargetMultSiteCount, ad::kGetTargetTimeMult, ad::kGetTimeMultPrologue, ThunkAddr(reinterpret_cast<void*>(&TargetMultThunk)), nullptr};
     g_groups[3] = {"pause_main", ad::kPauseSitesMain, ad::kPauseSiteMainCount, ad::kMenuMode, ad::kMenuModePrologue, ThunkAddr(reinterpret_cast<void*>(&MenuModeThunk)), nullptr};
     g_groups[4] = {"pause_ext", ad::kPauseSitesExtended, ad::kPauseSiteExtendedCount, ad::kMenuMode, ad::kMenuModePrologue, ThunkAddr(reinterpret_cast<void*>(&MenuModeThunk)), nullptr};
-    g_groups[5] = {"thread_wait", ad::kThreadWaitSites, ad::kThreadWaitSiteCount, ad::kThreadsActive, ad::kThreadsActivePrologue, ThunkAddr(reinterpret_cast<void*>(&ThreadsActiveThunk)), nullptr};
-    for (int i = 0; i < 6; ++i) {
+    g_groups[kGroupWorkerUpdate] = {"worker_ui_update", ad::kWorkerInterfaceSites, ad::kWorkerInterfaceSiteCount, ad::kInterfaceUpdate, ad::kInterfaceUpdatePrologue,
+                                    ThunkAddr(reinterpret_cast<void*>(&WorkerInterfaceThunk)), nullptr};
+    g_groups[kGroupKick] = {"worker_kick", ad::kWorkerKickSites, ad::kWorkerKickSiteCount, ad::kWorkerKick, ad::kWorkerKickPrologue, ThunkAddr(reinterpret_cast<void*>(&WorkerKickThunk)), nullptr};
+    g_imHandoff.reset();
+    for (int i = 0; i < 7; ++i) {   // the worker sites (5) go in before the kick (6), whose thunk checks them
         HookGroup& g = g_groups[i];
-        if ((i == 3 || i == 5) && g_set.pauseSites < 1) continue;
+        if ((i == 3 || i == kGroupWorkerUpdate || i == kGroupKick) && g_set.pauseSites < 1) continue;
         if (i == 4 && g_set.pauseSites < 2) continue;
         g.patcher.reset(new vt::SitePatcher(g_mem));
         const int n = g.patcher->install(g.sites, g.count, g.target, g.prologue, 16, g.thunk);
@@ -567,6 +601,15 @@ void InstallHooks() {
 }
 
 void RemoveHooks() {
+    // the kick first: from then on nobody hands the update to the main thread, and the worker (joined at the end of every frame) runs it again
+    for (int i : {kGroupKick, kGroupWorkerUpdate}) {
+        HookGroup& g = g_groups[i];
+        if (!g.patcher) continue;
+        const int restored = g.patcher->uninstall();
+        nvcoop::Log("vats: %s removed (%d sites restored, %d left to another patcher)", g.name, restored, g.patcher->tampered());
+        g.patcher.reset();
+        if (i == kGroupKick) g_imHandoff.reset();
+    }
     for (HookGroup& g : g_groups) {
         if (g.patcher) {
             const int restored = g.patcher->uninstall();
@@ -824,7 +867,7 @@ std::string liveStatusJson() {
     std::string sync = "null";
     if (VatsSync* s = Sync()) sync = s->statusJson(NowMs());
     std::string groups = "[";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 7; ++i) {
         const HookGroup& g = g_groups[i];
         if (i) groups += ",";
         char gb[160];
@@ -836,14 +879,15 @@ std::string liveStatusJson() {
     std::snprintf(b, sizeof b,
                   "{\"enabled\":%s,\"inited\":%s,\"running\":%s,\"pauseSites\":%d,"
                   "\"pins\":{\"setScale\":%s,\"getMult\":%s,\"menuMode\":%s,\"menuModeOf\":%s,\"accept\":%s,\"unclick\":%s,\"limb\":%s,\"handleClick\":%s,\"getForm\":%s},"
-                  "\"thunks\":{\"scale\":%llu,\"scaleChanged\":%llu,\"mult\":%llu,\"multChanged\":%llu,\"pause\":%llu,\"pauseChanged\":%llu,\"offThread\":%llu,\"errors\":%llu},"
+                  "\"thunks\":{\"scale\":%llu,\"scaleChanged\":%llu,\"mult\":%llu,\"multChanged\":%llu,\"pause\":%llu,\"pauseChanged\":%llu,\"offThread\":%llu,\"errors\":%llu,"
+                  "\"uiUpdateOnMain\":%llu,\"workerUiSkips\":%llu},"
                   "\"engineCalls\":{\"calls\":%llu,\"failed\":%llu,\"pinRefusals\":%llu},\"multSettingsFallback\":%s,",
                   g_set.enabled ? "true" : "false", g_inited ? "true" : "false", Sync() ? "true" : "false", g_set.pauseSites,
                   g_pins.setScale ? "true" : "false", g_pins.getMult ? "true" : "false", g_pins.menuMode ? "true" : "false", g_pins.menuModeOf ? "true" : "false",
                   g_pins.accept ? "true" : "false", g_pins.unclick ? "true" : "false", g_pins.limb ? "true" : "false", g_pins.handleClick ? "true" : "false",
                   g_pins.getForm ? "true" : "false", (unsigned long long)g_thunkScale, (unsigned long long)g_thunkScaleChanged, (unsigned long long)g_thunkMult,
                   (unsigned long long)g_thunkMultChanged, (unsigned long long)g_thunkPause, (unsigned long long)g_thunkPauseChanged, (unsigned long long)g_thunkOffThread,
-                  (unsigned long long)g_thunkErrors, (unsigned long long)g_calls, (unsigned long long)g_callsFailed, (unsigned long long)g_pinRefusals,
+                  (unsigned long long)g_thunkErrors, (unsigned long long)g_imOnMain, (unsigned long long)g_imWorkerSkips, (unsigned long long)g_calls, (unsigned long long)g_callsFailed, (unsigned long long)g_pinRefusals,
                   g_engine.multSettingsActive() ? "true" : "false");
     return std::string(b) + "\"hooks\":" + groups + ",\"sync\":" + sync + "}";
 }

@@ -58,6 +58,86 @@ bool decodeRoster(const uint8_t* data, size_t size, std::vector<uint8_t>& slots)
     return true;
 }
 
+AvBytes encodeFacts(const AvFacts& f) {
+    AvBytes b;
+    put8(b, kChannelAvatars);
+    put8(b, kAvKindFacts);
+    put8(b, kAvFactsVersion);
+    put8(b, f.slot);
+    put16(b, f.facts.level);
+    put8(b, f.facts.sitting);
+    put32(b, f.facts.actions);
+    const size_t n = f.facts.regions.size() > nvcoop::avatar::kMaxFactRegions ? nvcoop::avatar::kMaxFactRegions : f.facts.regions.size();
+    put8(b, static_cast<uint8_t>(n));
+    for (size_t i = 0; i < n; ++i) put32(b, f.facts.regions[i]);
+    return b;
+}
+
+bool decodeFacts(const uint8_t* data, size_t size, AvFacts& out) {
+    Rd r{data, size};
+    if (r.u8() != kChannelAvatars || r.u8() != kAvKindFacts || r.u8() != kAvFactsVersion) return false;
+    AvFacts f;
+    f.slot = r.u8();
+    if (f.slot >= 8) r.ok = false;   // fnvcoop::kMaxSlots
+    f.facts.level = r.u16();
+    f.facts.sitting = r.u8();
+    f.facts.actions = r.u32();
+    const uint8_t n = r.u8();
+    if (n > nvcoop::avatar::kMaxFactRegions && !FNV_MUT(67)) r.ok = false;   // twin 67: an oversized region list is accepted
+    for (uint8_t i = 0; i < n && r.ok; ++i) f.facts.regions.push_back(r.u32());
+    if (!r.done()) return false;
+    out = std::move(f);
+    return true;
+}
+
+// Pack: [0x45][ver][slot][flags][watchId][weight?][n u16][(form, count) * n]. Entries are sorted by form with a count above zero; anything else is rejected as a whole.
+constexpr uint8_t kPkWeight = 0x01, kPkReserved = 0xFE;
+
+AvBytes encodePack(const AvPack& p) {
+    AvBytes b;
+    put8(b, kChannelAvatars);
+    put8(b, kAvKindPack);
+    put8(b, kAvPackVersion);
+    put8(b, p.slot);
+    put8(b, p.pack.haveWeight ? kPkWeight : 0);
+    put32(b, p.pack.watchId);
+    if (p.pack.haveWeight) put32(b, p.pack.weightMilli);
+    const size_t n = p.pack.items.size() > nvcoop::avatar::kMaxPackItems ? nvcoop::avatar::kMaxPackItems : p.pack.items.size();
+    put16(b, static_cast<uint16_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        put32(b, p.pack.items[i].form);
+        put32(b, static_cast<uint32_t>(p.pack.items[i].count));
+    }
+    return b;
+}
+
+bool decodePack(const uint8_t* data, size_t size, AvPack& out) {
+    Rd r{data, size};
+    if (r.u8() != kChannelAvatars || r.u8() != kAvKindPack || r.u8() != kAvPackVersion) return false;
+    AvPack p;
+    p.slot = r.u8();
+    if (p.slot >= 8) r.ok = false;   // fnvcoop::kMaxSlots
+    const uint8_t flags = r.u8();
+    if (flags & kPkReserved) r.ok = false;
+    p.pack.watchId = r.u32();
+    p.pack.haveWeight = (flags & kPkWeight) != 0;
+    if (p.pack.haveWeight) p.pack.weightMilli = r.u32();
+    const uint16_t n = r.u16();
+    if (n > nvcoop::avatar::kMaxPackItems && !FNV_MUT(951)) r.ok = false;   // twin 951: an oversized item list is accepted
+    uint32_t prev = 0;
+    for (uint16_t i = 0; i < n && r.ok; ++i) {
+        nvcoop::avatar::PackEntry e;
+        e.form = r.u32();
+        e.count = static_cast<int32_t>(r.u32());
+        if (e.count <= 0 || (i > 0 && e.form <= prev)) r.ok = false;   // sorted, de-duplicated, only counts above zero
+        prev = e.form;
+        p.pack.items.push_back(e);
+    }
+    if (!r.done()) return false;
+    out = std::move(p);
+    return true;
+}
+
 // Look v2 flags byte
 constexpr uint8_t kLkFemale = 0x01, kLkHairColor = 0x02, kLkBody = 0x04, kLkFace = 0x08, kLkReserved = 0xF0;
 // per equipment entry flags byte

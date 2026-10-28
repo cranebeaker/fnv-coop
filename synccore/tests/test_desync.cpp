@@ -243,6 +243,86 @@ TEST(desync, twin_a_digest_that_compares_weather_and_time_scale_repairs_them_eve
     CHECK(o.reports > 3);
 }
 
+namespace {
+// Goodsprings story run 2026-10-28: the host shadow holds every committed SetMapMarker (ShowMap from a stage result: Honest Hearts' intro reveals the
+// Northern Passage); the real client dump (plugin/snapshot) has no marker reader, so each digest called the markers "missing" and repaired them again.
+RefVarRun mapMarkerRun() {
+    Rig r(1, 302);
+    Engine* e = r.eng[0].get();
+    r.cs[0]->setBaselineProvider([e](ShadowState& w, uint64_t& h) { w = e->w; w.mapMarkers.clear(); h = 1; return true; });   // what the dump can carry
+    r.connectAll(); r.run(400);
+    r.traffic(20);
+    for (int i = 0; i < 6; ++i) {
+        Cause c; c.kind = CauseKind::QuestResult; c.source = Q(2);
+        r.host.commit(0, c, {SetMapMarker{Q(0x157F7D + i), kMarkerVisible}});
+        r.run(500);
+    }
+    r.run(3000);
+    RefVarRun o;
+    o.ok = r.host.stats().digestsOk; o.mismatch = r.host.stats().digestsMismatch; o.repairs = r.host.stats().desyncRepairs;
+    o.effectsRepaired = r.host.stats().desyncEffectsRepaired; o.reports = r.host.desyncs().size();
+    o.inSyncOtherwise = r.inSync();
+    return o;
+}
+}  // namespace
+
+TEST(desync, map_markers_are_not_digest_state_the_client_dump_cannot_read_them) {
+    RefVarRun o = mapMarkerRun();
+    std::printf("    digests ok=%llu mismatch=%llu repairs=%llu effects=%llu\n", (unsigned long long)o.ok, (unsigned long long)o.mismatch,
+                (unsigned long long)o.repairs, (unsigned long long)o.effectsRepaired);
+    CHECK(o.ok > 3);
+    CHECK(o.mismatch == 0);
+    CHECK(o.repairs == 0 && o.effectsRepaired == 0);
+    CHECK(o.reports == 0);
+}
+
+TEST(desync, twin_a_digest_that_compares_map_markers_repairs_them_every_round) {   // twin: the pre-fix digest
+    MutationScope m([] { Mutations x; x.digestKeepsMapMarkers = true; return x; }());
+    RefVarRun o = mapMarkerRun();
+    CHECK(o.mismatch > 3);
+    CHECK(o.repairs > 3);
+    CHECK(o.reports > 3);
+}
+
+namespace {
+// Goodsprings story run 2026-10-28 (S02): Doc's greeting adds VMQ01CourierNote; the host shadow holds the note, the real client dump has no note reader,
+// so the digest called it "missing" and repaired it.
+RefVarRun noteRun() {
+    Rig r(1, 303);
+    Engine* e = r.eng[0].get();
+    r.cs[0]->setBaselineProvider([e](ShadowState& w, uint64_t& h) { w = e->w; w.notes.clear(); h = 1; return true; });   // what the dump can carry
+    r.connectAll(); r.run(400);
+    r.traffic(20);
+    for (int i = 0; i < 6; ++i) {
+        Cause c; c.kind = CauseKind::QuestResult; c.source = Q(2);
+        r.host.commit(0, c, {AddNote{Q(0x105BCD + i)}});
+        r.run(500);
+    }
+    r.run(3000);
+    RefVarRun o;
+    o.ok = r.host.stats().digestsOk; o.mismatch = r.host.stats().digestsMismatch; o.repairs = r.host.stats().desyncRepairs;
+    o.effectsRepaired = r.host.stats().desyncEffectsRepaired; o.reports = r.host.desyncs().size();
+    o.inSyncOtherwise = r.inSync();
+    return o;
+}
+}  // namespace
+
+TEST(desync, journal_notes_are_not_digest_state_the_client_dump_cannot_read_them) {
+    RefVarRun o = noteRun();
+    CHECK(o.ok > 3);
+    CHECK(o.mismatch == 0);
+    CHECK(o.repairs == 0 && o.effectsRepaired == 0);
+    CHECK(o.reports == 0);
+}
+
+TEST(desync, twin_a_digest_that_compares_notes_repairs_them_every_round) {   // twin: the pre-fix digest
+    MutationScope m([] { Mutations x; x.digestKeepsNotes = true; return x; }());
+    RefVarRun o = noteRun();
+    CHECK(o.mismatch > 3);
+    CHECK(o.repairs > 3);
+    CHECK(o.reports > 3);
+}
+
 TEST(desync, no_false_positives_under_loss_and_reordering_with_constant_traffic) {
     Rig r(2, 200);
     LinkParams lp; lp.minLatencyMs = 5; lp.maxLatencyMs = 90; lp.loss = 0.15; lp.duplicate = 0.1; lp.corrupt = 0.02;

@@ -18,6 +18,7 @@
 // Runtime twins for this file (13..73), every one must make tests/test_bots.cpp fail:
 //  67 the tutorial box is refused by bot.menu.close again   68 the terminal entry list is walked from the wrong node (the head's own item is skipped)
 //  69 a tutorial box over the terminal menu is left open before the click
+//  74 the tutorial box is closed while the camera is still entering VATS (mode 1)
 //  70 the accept gate answers "pressed" without a limit   71 a tutorial box over the accept/playback step is not seen
 //  72 the accept goes out in the frame after the queue    73 an accept that started no playback is not repeated (and never ends in an error)
 //  13 dialogue pick ignores the ready state    14 pick matches the wrong list index        15 pick skips the special-topic refusal
@@ -115,6 +116,9 @@ struct IEngine {
     virtual uint32_t topMenuId(Addr32 mgr) = 0;                      // 0x714F00
     virtual void termClick(Addr32 menu, Addr32 tile) = 0;            // 0x757F70 thiscall(menu, -1, tile), ret 8
     virtual Addr32 containerData(Addr32 ref) = 0;                    // 0x4BF220 (creates the data if missing)
+    // A quest script variable by NAME (nvhooks::questVarValue, wave 1b: the live value of the quest's ScriptEventList slot). False = no such quest, no script, the script
+    // never ran, or no such variable. Default: not wired.
+    virtual bool questVar(uint32_t quest, const std::string& name, double* value) { (void)quest; (void)name; (void)value; return false; }
     virtual int itemTotal(Addr32 data, Addr32 form) = 0;             // 0x4C8F30
     // genuine fast travel (the map menu's deferred worker 0x798A00, replicated)
     virtual bool canFastTravel(Addr32 player) = 0;                   // 0x93D660 (the engine's own may-travel check, shows its refusal message)
@@ -523,6 +527,20 @@ inline bool walkRefs(IEngine& e, const std::string& base, const std::string& cel
     return true;
 }
 
+// bot.questvar {quest:"Plugin.esp:HEX", var:"name"} -> {value}: the live value of a quest script variable on THIS copy. Twin 75: the variable name is dropped before the lookup.
+inline bool questVarInfo(IEngine& e, const std::string& quest, const std::string& name, Value* out, std::string* err) {
+    if (quest.empty() || name.empty()) { *err = "bot.questvar needs quest and var"; return false; }
+    uint32_t id = 0;
+    if (!e.resolveFormId(quest, &id)) { *err = "unknown quest " + quest; return false; }
+    double v = 0;
+    if (!e.questVar(id, FNV_MUT(75) ? std::string() : name, &v)) {
+        *err = "quest " + quest + " has no readable variable " + name + " (no script, the script never ran, or no such variable)";
+        return false;
+    }
+    out->set("quest", quest).set("var", name).set("value", v);
+    return true;
+}
+
 inline bool countRefs(IEngine& e, const std::string& base, const std::string& cell, Value* out, std::string* err) {
     std::vector<Addr32> refs;
     if (!walkRefs(e, base, cell, &refs, err)) return false;
@@ -697,6 +715,7 @@ public:
                                                         // in the very next frame started no playback in game, 2026-10-27)
     static constexpr uint64_t kPlaybackWaitMs = 1500;   // no camera mode 4 this long after an accept: accept again
     static constexpr int kMaxExec = 3;
+    static constexpr uint64_t kTutorialHoldMs = 2500;   // kTutorial: the box is not closed while the camera is still entering VATS (mode 1), at most this long
     bool start(IEngine& e, const std::string& ref, const std::string& limb, uint64_t now, std::string* err) {
         if (!FNV_MUT(22)) {
             if (!limb.empty()) { *err = "unsupported: limb selection in VATS is not implemented"; return false; }
@@ -744,6 +763,10 @@ public:
                 break;
             case kTutorial:
                 if (!e.menuByType(eng::kMenuIdTutorial)) { to(kZoom, now); break; }
+                // The close waits until the camera has left mode 1, so the box is not closed while the VATS menu is being built (a box that stays over a stuck
+                // entry is closed after kTutorialHoldMs anyway). This was first suspected for the FalloutNV.exe+400F66 crash at VATS entry; that crash was the
+                // worker thread's interface update racing the VATS highlight draw (plugin/vats/vats_addrs.h) and happened with no close call too.
+                if (mode == 1 && now - tPhase_ < kTutorialHoldMs && !FNV_MUT(74)) break;   // twin 74: the box is closed at once, while the VATS menu is being built
                 if (!FNV_MUT(51)) {   // twin 51: the tutorial box is never closed
                     if (!closeCalls_ || now - tClose_ >= 500) { e.closeTutorial(); ++closeCalls_; tClose_ = now; }
                 }

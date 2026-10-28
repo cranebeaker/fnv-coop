@@ -7,6 +7,7 @@
 //     off or faults, console lines run with the victim as calling reference).
 //   * the session frame: glueFrame() (called by coop_module.cpp) feeds CombatRuntime, which owns the CombatSync and the 0xCB mux channel.
 // Switches in nvcoop.ini [combat]: enabled=1 gate=1 native=1 friendlyfire=0 crime=0 xpmode=0. docs/tools/combat-hooks.md.
+#include "coop_runtime.h"   // Runtime::active()->protectedHit (G40)
 #include <Windows.h>
 
 #include <chrono>
@@ -355,6 +356,13 @@ public:
         }
         return ref && ExecOn("KillActor", ref);
     }
+    // G04: the kill credited to a remote player's puppet. The engine stores the killer (Actor::Kill, actor+0xC0) before it raises OnDeath, so `IsKiller player` is true for the guest.
+    bool killActorBy(uint32_t ref, uint32_t killer) override {
+        if (!ref) return false;
+        if (killer && nvhooks::killWithAttribution(ref, killer)) return true;
+        return killActor(ref);
+    }
+    bool setKiller(uint32_t ref, uint32_t killer) override { return ref && killer && nvhooks::setKillerOf(ref, killer); }
     bool setLimbCrippled(const cc::Entity&, uint32_t ref, cc::Limb limb) override {
         const char* av = LimbAvName(limb);
         if (!av || !ref) return false;
@@ -664,9 +672,19 @@ void glueFrame(nvcoop::coop::Runtime* rt) {
     if (!g_rt) {
         if (!f.active) return;
         g_rt.reset(new CombatRuntime(g_world, g_engine));
+        // G04: when the actor port kills the host's copy of an actor a guest killed, it asks who to credit (the guest's puppet) and runs the kill as that puppet.
+        nvcoop::actors::engine::setKillerResolver([](uint32_t victimRef) -> uint32_t {
+            const CombatSync* cs = g_rt ? g_rt->sync() : nullptr;
+            return cs ? cs->killerPuppetOf(victimRef) : 0u;
+        });
         g_rt->config().friendlyFire = g_set.friendlyFire;
         g_rt->config().crimeSync = g_set.crime;
         g_rt->config().xpMode = g_set.xpMode == 1 ? cc::XpMode::PartyShare : cc::XpMode::KillingBlow;
+        g_rt->config().social.blockProtectedHit = [](uint32_t victimRef, fnvcoop::PlayerId attacker, bool splash) {   // G40: rules FriendlyFireGuard (host only; "allow" without them)
+            nvcoop::coop::Runtime* rt = nvcoop::coop::Runtime::active();
+            fnvcoop::FormRef v;
+            return rt && nvhooks::resolver().toRef(victimRef, &v) && rt->protectedHit(v, attacker, splash) != nvcoop::coop::Runtime::HitVerdict::Allow;
+        };
 #ifdef NVCOOP_WITH_COMPANIONS
         // plugin/companions (companions_glue.h). Each call is a no-op / "allow" while [companions] enabled=0 or no social session runs, and is asked LIVE
         // (the social module may come up after this runtime), so nothing changes for a game that does not switch it on.

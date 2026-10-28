@@ -393,6 +393,11 @@ dialogue protocol version (`kVersion` in `messages.h`, currently 1), and a decod
 * **Choice and steps.** Pick must carry `step == current + 1` while the conversation awaits a pick; a duplicate Pick (same step) re-sends the
   Result and never re-runs the script. LineDone runs the End script exactly once, sends `Result{End}`, and closes the conversation with
   `Goodbye` when the Pick had the goodbye flag.
+* **A pick runs once.** The host runs the Begin script once per `(conv, step)` and the End script once per `(conv, step)`; the plugin's runner (`IntentService::runDialogueResult`) adds a
+  second line of defence keyed by `(session, conv, step, phase)` (a repeated call is answered with the first run's txn seq, counted as `service.dialogueResults.deduped`; mutation twin 441).
+  A Pick for the SAME INFO as the previous step with no Offer from the initiator since the previous pick is a repeat, not a second choice (the engine showed the INFO it was
+  speaking as "spoken" again): the host answers the step (`Result` Begin / End with txnSeq 0), shows nothing to spectators and runs nothing (`HostDialogue::repeatPicks`). The initiator's
+  glue also latches a picked INFO until the DialogMenu is back at "pick a line" (`pickLatched`). Story run S06: one pick of "Sure, I'll come with you" (`Player.AddItem Ammo556mm 60`) paid 3 to 4 times, and not because the runner ran more than once: the host plays the line for the spectators with `<npc>.Say`, and the engine's Say runs the INFO's result scripts itself, once per response line, as host-origin work (own commit, full mask, the host's real AddItem). `SpectatorSayGate` (plugin/hooks/spectator_say.h) skips every INFO result script the engine starts for an NPC the plugin just made `Say` something, outside the runner's acting window (mutation twin 97).
 * **Result-txn link.** `Result.txnSeq` is the story-log seq of the EffectTxn the result script committed (0 = none). That txn travels on the
   story channel, so it can arrive after the Result. The initiator must not build the next topic list (its conditions read quest state)
   until its story session has applied `max(Begin.txnSeq, End.txnSeq)`. `ClientDialogue::setAppliedProvider` /
@@ -635,12 +640,23 @@ relays. Game-free codec, unit tested (`plugin\avatar\full\run_tests.cmd`). Nothi
 | 0x40 | Roster | host -> clients | reliable | `u8 n`, `n` slots (every slot that has a player, the host included) |
 | 0x41 | Look v1 | owner -> host -> others | reliable | still decoded: slot, race, sex, hair, eyes, faceHash, name, equipment (form + weapon flag) |
 | 0x42 | Resync | client -> host | reliable | empty: "my link came back, send the roster and every look again" |
+| 0x44 | Facts | client -> host only | reliable, on change | `u8 version (1)`, `u8 slot`, `u16 level`, `u8 sitting`, `u32 actions` (bit n = IsPlayerActionActive n), `u8 n` (at most 16), `n` x `u32 region` |
+| **0x45** | **Pack** | client -> host only | reliable, on change, at most 1 per second | `u8 version (1)`, `u8 slot`, `u8 flags` (bit 0 weight follows, the rest reserved), `u32 watchId`, [`u32 weight` (InventoryWeight x 1000)], `u16 n` (at most 255), `n` x (`u32 form`, `i32 count`), forms ascending, counts above zero |
 | **0x43** | **Look v2** | owner -> host -> others | reliable | `u8 version (2)`, `u8 slot`, `u8 flags`, `u32 race`, `u32 hair`, `u32 eyes`, `u32 faceHash`, [`u32 hairColor`], [`u16 height`, `u16 weight`], [`u8 n`, `n` face coefficients], `u8 nameLen`, name, `u8 n`, `n` x (`u32 form`, `u8 flags`, [`u8 mods`]) |
 
 Look v2 flags: bit 0 female, bit 1 hair colour follows, bit 2 height and weight follow (thousandths, 0 = unknown), bit 3 face block follows (1..160 signed bytes,
 the FaceGen coefficients in 1/16), bits 4 to 7 reserved (a decoder rejects them). Equipment flags: bit 0 weapon (the HELD weapon), bit 1 a modification byte follows
 (1..7, bit n = mod n+1; only on a weapon), the other bits reserved. A decoder rejects a truncated message, trailing bytes, a slot of 8 or more, more than 64 items,
 more than 48 name bytes. `encodeLook` always writes v2; the count of equipment entries is the last byte of a look without equipment.
+
+Pack (guest pack facts): what a guest carries that the host cannot read off its puppet (the puppet's pack is empty): the InventoryWeight actor value and the counts of the WATCHED item
+forms. The watch list is `nvcoop_pack_watch.json` (`plugin/coop/tools/gen_coop_data.py`), generated from the rules (`PooledItems` items) and the quest data (every `GetItemCount` of an INFO,
+quest or stage condition, and `GetItemCount <item>` in the scripts of INFOs, quests and stages): 265 forms, not the whole inventory. Both machines load the same file; `watchId` is an
+FNV-1a over the sorted runtime form ids of it, so the host reads a form that is absent from the message as "zero" only when its own list has the same id and holds the form; anything else is
+unknown and the puppet's own answer stands. The guest reads its pack every 500 ms, sends when it changed, and at most once per second. Host: `AvatarNet::packCount / packWeight` ->
+`gluePackCount / gluePackWeight` -> `bindSlotPack` (the party state provider: GetItemCount and GetActorValue InventoryWeight of a guest, `MemberView::StateOrGhost`) and the
+`Runtime::setItemCountProbe` of the pooled hand-ins. A hand-in that runs for a guest (a dialogue result) does not remove from the host's pack (`nvhooks::GuestItemScope`): the removal is
+recorded, the rules split it over the holders, each part reaches that guest's machine as a txn recipient, and the host's own share is taken by `Runtime::onHostCommitted`.
 
 Rules:
 - **Rates** (FULL-SYNC-PLAN section 2): the stream of player S reaches observer O at 20 Hz when O is in the same cell within 2800 units (1.25x hysteresis), at 5 Hz in
@@ -715,7 +731,7 @@ byte 2.. Archive (string table + body):  u8 src, u8 dest, u8 kind index, body
 | 4 | `MAlarm` | host -> everyone | `AlarmOrder` (id, faction, cell, where, criminal, until) |
 | 5 | `MHostility` | host -> everyone | combat's `HostilityEffect` (SetEnemy / SetAlly / StopCombat), same idempotency ids as section 14 |
 | 6 | `MKill` | anybody -> host | `KillReport` (death id, victim facts, killer, recruiter, contributors, `nativeMask`, cell, where) |
-| 7 | `MRoster` | host -> everyone | the companion table: `{npc, owner, kind, state{mode, stance, range, rev}}` |
+| 7 | `MRoster` | host -> everyone | the companion table: `{npc, owner, kind, state{mode, stance, range, rev}, flags}`; `flags` bit 0 = party companion (owner=party, ED-E in Lonesome Road: `owner` stays the recruiter slot, any player may command it, it uses no follower slot); a value above 1 is a malformed entry |
 | 8 | `MCmd` | the owner -> host | `CompanionCmd` (id, from, npc, kind, arg) |
 | 9 | `MCmdNack` | host -> the issuer | command id and the refusal reason |
 | 10 | `MState` | host -> everyone | one companion's `{mode, stance, range, rev}` |

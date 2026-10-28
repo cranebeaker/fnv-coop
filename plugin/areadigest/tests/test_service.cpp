@@ -256,6 +256,23 @@ TEST(flightlink, a_repeated_mismatch_is_a_bug_line_with_both_values) {
     CHECK(found);
 }
 
+// A failed lab room used to say only "heals.total +1": which key was healed, from what to what, was in a flight file nobody had at hand. The status names the newest
+// heals (also without a recorder), so the room's failure reason can quote the key.
+TEST(flightlink, the_status_names_the_healed_key_with_both_values) {
+    Pair p;                                                          // no flight recorder at all
+    p.actor(5, kCell, V(0, 0, 0), 100);
+    p.run(4000);
+    p.cf.a[5].r.hp = 30;
+    p.run(9000);
+    REQUIRE(p.client->sync()->healsTotal(ad::Cat::Actors) == 1);
+    REQUIRE(p.client->flightLink().lastHeals().size() == 1);          // twin 82: the status never names the healed key
+    const std::string& line = p.client->flightLink().lastHeals().front();
+    CHECK_MSG(line.find("actors key=5 ") == 0, line);
+    CHECK_MSG(line.find("hp 30") != std::string::npos && line.find("hp 100") != std::string::npos, line);
+    const std::string j = p.client->statusJson(p.now);
+    CHECK(j.find("\"lastHeals\":[\"actors key=5 ") != std::string::npos);
+}
+
 TEST(flightlink, no_recorder_is_fine) {
     Pair p;
     p.actor(5, kCell, V(0, 0, 0), 100);

@@ -62,7 +62,7 @@ _DRIVER_METHODS = {P.M_BOT_STATUS, P.M_BOT_MOVE, P.M_BOT_STOP, P.M_BOT_LOOK, P.M
                    P.M_BOT_SNEAK, P.M_BOT_ACTIVATE}
 # Functions the fake console evaluates. The game has IsSneaking. It has no GetSneaking ("Unknown variable", first in-game run 2026-10-21).
 _EXPR_FUNCS = {"issneaking", "getangle", "getequipped", "getitemcount", "getopenstate", "getlocked", "getlocklevel",
-               "getplayerteammate", "getstage", "getav", "isininterior"}
+               "getplayerteammate", "getstage", "getav", "isininterior", "gettype"}
 SAY_GATE_S = 0.5   # the dialogue's click gate: bot.say refuses for 500 ms after a click (kDlgClickGate in plugin/bots/bot_engine.h)
 
 
@@ -103,6 +103,7 @@ class Thing:
     teammate: bool = False          # SetPlayerTeammate
     life: int = 0                   # ref.info lifeState of a living actor: 0 alive, 3 unconscious, 5 restrained, 6 essential unconscious
     load_to: int = 0                # door only: the cell a load door leads to (0 = an ordinary door that opens and closes)
+    count0_gives_nothing: bool = False   # item only: the engine's Activate with the bridge's last argument 0 deletes the ref and gives the player nothing (the lab's Stimpak)
 
     @property
     def dead(self) -> bool:
@@ -111,6 +112,11 @@ class Thing:
     @property
     def life_state(self) -> int:
         return 2 if self.dead else self.life
+
+    @property
+    def info_type(self) -> int:
+        """What the game's ref.info answers (TESObjectREFR::typeID): 0x3A for every placed object, 0x3B for an actor. The BASE type is type_id (GetType)."""
+        return P.TYPE_ACTOR if self.kind == "actor" else P.TYPE_REFR
 
     @property
     def type_id(self) -> int:
@@ -336,13 +342,13 @@ class FakeBridge:
             if t is None:
                 raise RpcError(-32000, "reference not loaded", method)
             return {"x": t.pos[0], "y": t.pos[1], "z": t.pos[2], "lifeState": t.life_state,
-                    "flags": (P.FLAG_DISABLED if t.disabled else 0) | (P.FLAG_DELETED | 0x4300A if t.deleted else 0), "type": t.type_id, "cell": t.cell}
+                    "flags": (P.FLAG_DISABLED if t.disabled else 0) | (P.FLAG_DELETED | 0x4300A if t.deleted else 0), "type": t.info_type, "cell": t.cell}
         if method == P.M_ACTIVATE:
             t = self._by_ref(params["ref"])
             if t is None or t == "player":
                 raise RpcError(-32000, "ref or player not loaded", method)
             if self.mutant != "activate_noop":
-                self._activate(t)
+                self._activate(t, count0=True)
             return {"ok": True, "returned": 1}
         if method == P.M_QUERY:
             t = self._by_ref(params["ref"])
@@ -521,10 +527,11 @@ class FakeBridge:
         """The bot.drops base filter. Mutant drops_base_text: the old text compare, which never matched in game."""
         return recorded == wanted if self.mutant == "drops_base_text" else same_form_name(recorded, wanted)
 
-    def _activate(self, t: Thing) -> None:
+    def _activate(self, t: Thing, count0: bool = False) -> None:
         me = self.me
         if t.kind == "door":
             if t.locked:
+                self._menu = "lockpick"     # the real game: activating a locked door opens the lockpick menu, which then eats the input
                 return
             if t.load_to:   # a load door moves the player to the other cell; its open state stays closed (in game, 2026-10-21)
                 me.cell = t.load_to
@@ -539,7 +546,8 @@ class FakeBridge:
                 t.deleted = True
             else:
                 t.disabled = True
-            me.items[t.base_item] = me.items.get(t.base_item, 0) + 1
+            if not (count0 and t.count0_gives_nothing):
+                me.items[t.base_item] = me.items.get(t.base_item, 0) + 1
         elif t.kind in ("container", "terminal"):
             self._menu = t.kind
             if t.kind == "terminal" and self.tutorial_on_terminal and not self._tutorial_seen:
@@ -803,6 +811,8 @@ class FakeBridge:
         if fn == "getitemcount":
             items = self._holder_items(who)
             return float(items.get(_hex(rest[0]), 0)) if items is not None else None
+        if fn == "gettype":
+            return float(who.type_id) if isinstance(who, Thing) else None
         if fn == "getopenstate":
             return float(who.open_state) if isinstance(who, Thing) else None
         if fn == "getlocked":

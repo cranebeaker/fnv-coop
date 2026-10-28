@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "capture_hub.h"
@@ -71,6 +72,7 @@ public:
             e_.ctxSlot = prevSlot_;
         }
         bool record(const fnvcoop::Effect& x) override { return e_.hub && e_.hub->record(x); }
+        uint64_t recorded() const override { return e_.hub ? e_.hub->stats().recorded : 0; }
 
     private:
         FakeEngine& e_;
@@ -83,7 +85,43 @@ public:
         return std::unique_ptr<IActingScope>(new Scope(*this, actor, slot, cause));
     }
     bool activate(RefId actor, const FormRef& target) override { return log("activate", actor, target, 0, activateOk); }
-    bool raiseEvent(RefId actor, const FormRef& target, uint32_t mask) override { return log("event", actor, target, mask, eventOk); }
+    bool raiseEvent(RefId actor, const FormRef& target, uint32_t mask) override {
+        const bool ok = log("event", actor, target, mask, eventOk);
+        if (ok) marked.insert(std::make_tuple(actor, target, mask));   // a flag in the target's script event list until a run consumes it
+        return ok;
+    }
+    // The script event list: marks wait there until runScript. runScript consumes the marks of the target and calls onCall("script") for the run, with the acting context
+    // that is open NOW (what `player` means to the block). A run with no scope open is the host's own run (the engine's update): counted in hostScriptRuns, not an error.
+    std::set<std::tuple<RefId, FormRef, uint32_t>> marked;
+    std::set<FormRef> noScript;      // references that have no script instance
+    int hostScriptRuns = 0;
+    std::vector<Call> scripts;                 // the runs inside an acting scope (not in `calls`): who `player` was, and how many scopes were open
+    std::function<void(const Call&)> onScript;   // what the block does when it runs
+    bool runScript(const FormRef& target) override {
+        if (noScript.count(target)) return false;
+        if (depth == 0) {
+            ++hostScriptRuns;
+            for (auto it = marked.begin(); it != marked.end();) it = std::get<1>(*it) == target ? marked.erase(it) : std::next(it);
+            return true;
+        }
+        Call c;
+        c.what = "script";
+        c.actor = ctxActor;
+        c.target = target;
+        for (const auto& m : marked)
+            if (std::get<1>(m) == target && std::get<0>(m) == 0x14) c.arg |= std::get<2>(m);   // the masks a block that names `Player` matches
+        for (auto it = marked.begin(); it != marked.end();) it = std::get<1>(*it) == target ? marked.erase(it) : std::next(it);
+        c.contextActor = ctxActor;
+        c.contextSlot = ctxSlot;
+        c.depth = depth;
+        scripts.push_back(c);
+        if (onScript) onScript(c);
+        return true;
+    }
+    bool eventPending(RefId object, const FormRef& target, uint32_t mask) override {
+        for (const auto& m : marked) if ((object == 0 || std::get<0>(m) == object) && std::get<1>(m) == target && (std::get<2>(m) & mask)) return true;
+        return false;
+    }
     bool runTerminalEntry(RefId actor, const FormRef& terminal, const std::vector<uint8_t>& path, bool* supported) override {
         if (supported) *supported = terminalSupported;
         return log("terminal", actor, terminal, static_cast<uint32_t>(path.size()), terminalOk && terminalSupported);
@@ -148,6 +186,16 @@ public:
     }
     // G35: container contents. Not logged as engine calls on a target (they are plumbing); replaceInScope counts the calls made with an acting scope open (must stay 0).
     std::map<FormRef, std::vector<StoredItem>> containers;
+    // the host's own player (the stand-in): what it holds, what was remembered by markHostInventory, and what revertHostInventory took away
+    std::map<FormRef, int> hostItems, hostMark;
+    int hostReverted = 0;
+    bool markHostInventory() override { hostMark = hostItems; return true; }
+    int revertHostInventory() override {
+        int n = 0;
+        for (auto& [item, c] : hostItems) { auto m = hostMark.find(item); const int was = m == hostMark.end() ? 0 : m->second; if (c > was) { n += c - was; c = was; } }
+        hostReverted += n;
+        return n;
+    }
     bool readFails = false, replaceFails = false;
     int readCalls = 0, replaceCalls = 0, replaceInScope = 0;
     bool readItems(const FormRef& c, std::vector<StoredItem>* out) override {
@@ -199,6 +247,7 @@ inline TargetInfo mkTarget(TargetClass cls, RefId ref, float x = 0, float y = 0,
     TargetInfo t;
     t.ref = ref;
     t.cls = cls;
+    t.resident = true;
     t.loaded = true;
     t.hasPos = true;
     t.pos = {x, y, z};

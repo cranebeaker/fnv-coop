@@ -35,7 +35,7 @@ constexpr uint32_t kGoneFlags = 0x20u | 0x800u;
 struct Raw {
     bool ok = false;
     uint8_t refType = 0, baseType = 0;
-    uint32_t flags = 0, baseId = 0, cell = 0, life = 0;
+    uint32_t flags = 0, baseId = 0, cell = 0, life = 0, scriptId = 0;
     float x = 0, y = 0, z = 0;
     int count = 1;
 };
@@ -60,6 +60,12 @@ bool readRawSEH(void* form, Raw* out) {
         out->cell = r->parentCell ? r->parentCell->refID : 0;
         TESForm* b = r->baseForm;
         if (b) { out->baseType = b->typeID; out->baseId = b->refID; }
+        if (out->refType == kRefr && !isItemType(out->baseType)) {   // the script of a scripted object: its own instance, else the one on the base form (retry_list.h is keyed by it)
+            Script* sc = nullptr;
+            if (ScriptEventList* el = r->GetEventList()) sc = el->m_script;
+            if (!sc && b) if (TESScriptableForm* sf = DYNAMIC_CAST(b, TESForm, TESScriptableForm)) sc = sf->script;
+            if (sc) out->scriptId = sc->refID;
+        }
         if (out->refType != kRefr) out->life = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(form) + 0x108);   // Actor life state: 0 alive, 1 dying, 2 dead
         if (isItemType(out->baseType)) {
             BSExtraData* xd = r->extraDataList.GetByType(kExtraData_Count);
@@ -91,6 +97,35 @@ bool raiseSEH(void* object, void* xlist, uint32_t mask, bool* ret) {
     __try {
         *ret = reinterpret_cast<bool(__cdecl*)(void*, void*, uint32_t)>(addr::MarkScriptEvent.addr)(object, xlist, mask);
         return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// The reference's own script instance (ExtraScript: script + event list), run now. Script::Execute @0x5AC1E0 is the call the engine's update makes for a scripted
+// reference (internal lane notes "implicit weak scopes"); the run consumes the marks of the event list.
+bool runRefScriptSEH(void* ref) {
+    __try {
+        TESObjectREFR* r = static_cast<TESObjectREFR*>(ref);
+        auto* xs = static_cast<ExtraScript*>(r->extraDataList.GetByType(kExtraData_Script));
+        if (!xs || !xs->script || !xs->eventList) return false;
+        CALL_MEMBER_FN(xs->script, Execute)(r, xs->eventList, nullptr, false);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Is a mark of `mask` for the form `object` waiting in the reference's script event list?
+bool eventPendingSEH(void* ref, void* object, uint32_t mask) {
+    __try {
+        TESObjectREFR* r = static_cast<TESObjectREFR*>(ref);
+        auto* xs = static_cast<ExtraScript*>(r->extraDataList.GetByType(kExtraData_Script));
+        if (!xs || !xs->eventList || !xs->eventList->m_eventList) return false;
+        int budget = 256;
+        for (auto it = xs->eventList->m_eventList->Begin(); !it.End() && budget-- > 0; ++it)
+            if (it.Get() && (!object || it.Get()->object == object) && (it.Get()->eventMask & mask)) return true;
+        return false;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
@@ -238,8 +273,9 @@ struct HubMute {
 
 class GameScope : public IActingScope {
 public:
-    GameScope(nvhooks::CaptureHub& hub, uint32_t actor, const Cause& c) : hub_(hub), acting_(actor), cap_(hub, c) {}
+    GameScope(nvhooks::CaptureHub& hub, uint32_t actor, PlayerId slot, const Cause& c) : hub_(hub), acting_(actor, static_cast<int>(slot)), cap_(hub, c) {}
     bool record(const fnvcoop::Effect& e) override { return hub_.record(e); }
+    uint64_t recorded() const override { return hub_.stats().recorded; }
 
 private:
     nvhooks::CaptureHub& hub_;
@@ -248,6 +284,8 @@ private:
 };
 
 class GameEngine : public IIntentEngine {
+    std::vector<RawItem> hostMark_;
+    bool hostMarkValid_ = false;
 public:
     bool describe(const FormRef& target, TargetInfo& out) override {
         out = TargetInfo();
@@ -259,6 +297,7 @@ public:
         Raw r;
         if (!readRawSEH(f, &r) || !r.ok) return true;
         out.cls = classify(r);
+        out.resident = true;
         out.loaded = r.cell != 0;   // a reference in no cell is not in the world
         out.disabled = (r.flags & kGoneFlags) != 0;
         out.dead = (r.refType == kAchr || r.refType == kAcre) && (r.life == 1 || r.life == 2);
@@ -266,6 +305,7 @@ public:
         out.hasPos = true;
         out.pos = {r.x, r.y, r.z};
         out.cell = r.cell;
+        if (r.scriptId) nvhooks::resolver().toRef(r.scriptId, &out.script);
         if (out.cls == TargetClass::Item) {
             nvhooks::resolver().toRef(r.baseId, &out.base);
             out.count = r.count;
@@ -290,7 +330,7 @@ public:
         // The host's own player (the stand-in) is NOT registered: the slot table maps a ref to a slot for good, and 0x14 must stay slot 0.
         // TODO: while a stand-in acts, nvhooks::actingSlot() therefore reads 0 (CompanionOwner.owner of a companion a guest recruits that way).
         if (actor != 0x14) nvhooks::registerPlayerSlot(actor, static_cast<uint8_t>(slot));
-        return std::unique_ptr<IActingScope>(new GameScope(*hub, actor, cause));
+        return std::unique_ptr<IActingScope>(new GameScope(*hub, actor, slot, cause));
     }
 
     bool activate(RefId actor, const FormRef& target) override {
@@ -299,6 +339,19 @@ public:
         char line[64];
         std::snprintf(line, sizeof line, "Activate %08X 1", actor);
         return nvhooks::execConsoleLineOn(line, id);
+    }
+
+    bool runScript(const FormRef& target) override {
+        uint32_t id = nvhooks::resolver().fromRef(target);
+        void* t = id ? nvhooks::resolver().lookup(id) : nullptr;
+        return t && runRefScriptSEH(t);
+    }
+
+    bool eventPending(RefId object, const FormRef& target, uint32_t mask) override {
+        uint32_t id = nvhooks::resolver().fromRef(target);
+        void* t = id ? nvhooks::resolver().lookup(id) : nullptr;
+        void* o = object ? nvhooks::resolver().lookup(object) : nullptr;
+        return t && (o || !object) && eventPendingSEH(t, o, mask);
     }
 
     bool raiseEvent(RefId actor, const FormRef& target, uint32_t mask) override {
@@ -331,7 +384,7 @@ public:
         void* npcRef = npcId ? nvhooks::resolver().lookup(npcId) : nullptr;
         if (!infoForm || !actor) return false;
         if (actor != 0x14) nvhooks::registerPlayerSlot(actor, static_cast<uint8_t>(slot));
-        nvhooks::ActingPlayerScope acting(actor);
+        nvhooks::ActingPlayerScope acting(actor, static_cast<int>(slot));   // a guest with no puppet is acted for by the host player (0x14): the slot says whose window this is
         return infoRunSEH(infoForm, onEnd ? 1u : 0u, npcRef);
     }
 
@@ -400,6 +453,38 @@ public:
             ok = nvhooks::execConsoleLineOn(line, id) && ok;
         }
         return ok;
+    }
+
+    // The host's own player stands in for a guest: what it gains meanwhile is the guest's (see IIntentEngine::markHostInventory).
+    bool markHostInventory() override {
+        void* ref = nvhooks::resolver().lookup(0x14);
+        hostMarkValid_ = false;
+        if (!ref) return false;
+        RawItem raw[kMaxStoredLines];
+        size_t n = 0;
+        if (!readContainerSEH(ref, raw, &n)) return false;
+        hostMark_.assign(raw, raw + n);
+        hostMarkValid_ = true;
+        return true;
+    }
+    int revertHostInventory() override {
+        void* ref = nvhooks::resolver().lookup(0x14);
+        if (!hostMarkValid_ || !ref) return 0;
+        hostMarkValid_ = false;
+        RawItem raw[kMaxStoredLines];
+        size_t n = 0;
+        if (!readContainerSEH(ref, raw, &n)) return 0;
+        HubMute mute;
+        int taken = 0;
+        for (size_t i = 0; i < n; ++i) {
+            int32_t was = 0;
+            for (const RawItem& m : hostMark_) if (m.id == raw[i].id) { was = m.n; break; }
+            if (raw[i].n <= was) continue;
+            char line[64];
+            std::snprintf(line, sizeof line, "RemoveItem %08X %d 1", raw[i].id, raw[i].n - was);
+            if (nvhooks::execConsoleLineOn(line, 0x14)) taken += raw[i].n - was;
+        }
+        return taken;
     }
 
     void closeMenus() override { if (pinsOk()) voidCallSEH(addr::CloseAllMenusCore.addr); }

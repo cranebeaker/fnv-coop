@@ -33,8 +33,18 @@ public:
     virtual bool setRemoteAppearance(nvcoop::avatar::Slot slot, const nvcoop::avatar::Appearance& a) { return addRemote(slot, a); }
     // The local player's own look, read from the game. Default: unknown.
     virtual bool readLocalAppearance(nvcoop::avatar::Appearance& /*out*/) { return false; }
+    // The local player's level, sit state, active actions and regions (W3a item 3). Default: unknown (nothing is sent).
+    virtual bool readLocalFacts(nvcoop::avatar::PlayerFacts& /*out*/) { return false; }
+    // The local player's weight and the counts of the watched item forms (guest pack facts). Default: unknown (nothing is sent).
+    virtual bool readLocalPack(const std::vector<nvcoop::avatar::FormId>& /*watch*/, nvcoop::avatar::PlayerPack& /*out*/) { return false; }
     virtual void onRemoteSnapshot(nvcoop::avatar::Slot slot, const fnvcoop::live::ActorSnapshot& s, uint32_t arrivalMs) = 0;
     virtual void onRemoteEquipment(nvcoop::avatar::Slot slot, const std::vector<nvcoop::avatar::EquipEntry>& wanted) = 0;
+
+    // ---- timing ----
+    // The clock the snapshot ticks are stamped with (the avatar layer's); 0 = the caller's own clock is the same one (tests). AvatarNet reads it to age snapshots.
+    virtual uint32_t clockMs() const { return 0; }
+    // A timing figure for the avatar layer's status (nvcoop::avatar::NetStage). Default: dropped.
+    virtual void noteStage(nvcoop::avatar::NetStage /*stage*/, double /*ms*/) {}
 
     // ---- per frame / game events ----
     virtual void tick(uint32_t nowMs) = 0;

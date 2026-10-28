@@ -33,9 +33,26 @@ inline std::string ruleFuncName(const fnvcoop::RulesEngine& rules, const fnvcoop
     return engineName;
 }
 
+// The quest whose PartyAwareCond rule decides a condition (G02). The adapter takes the ConditionQuestScope, else the open capture scope's source, and for a weak
+// scope that source is the SCRIPT form: a quest's own script is its quest, but an object script (the Marked Men gear scripts, the Think Tank trigger) has no rules
+// of its own. RulesEngine::questOfCause maps script -> owning quest (docs/quest-policies/cause_quests.json) and leaves a source that already is a quest with rules
+// alone; a source it does not know stays as it was (the initiator reduction then applies, as before).
+inline fnvcoop::FormRef conditionQuest(const fnvcoop::RulesEngine& rules, const fnvcoop::FormRef& source) {
+#ifdef NVHOOKS_MUTANT
+    return source;   // mutant: the object script's own form is looked up, so a script that drives a quest finds no rules
+#else
+    fnvcoop::Cause c;
+    c.kind = fnvcoop::CauseKind::Script;
+    c.source = source;
+    fnvcoop::FormRef quest;
+    return rules.questOfCause(c, quest) ? quest : source;
+#endif
+}
+
 inline ConditionReducer makeRulesReducer(fnvcoop::RulesEngine& rules) {
-    return [&rules](const fnvcoop::FormRef& quest, const std::string& func, const std::vector<CondValue>& vals, uint8_t initiator,
+    return [&rules](const fnvcoop::FormRef& source, const std::string& func, const std::vector<CondValue>& vals, uint8_t initiator,
                     fnvcoop::CondPhase phase) -> double {
+        const fnvcoop::FormRef quest = conditionQuest(rules, source);
         std::vector<fnvcoop::PartyValue> pv;
         pv.reserve(vals.size());
         for (const CondValue& v : vals) pv.push_back({static_cast<fnvcoop::PlayerId>(v.slot), v.value});

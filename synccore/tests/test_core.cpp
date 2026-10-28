@@ -129,8 +129,40 @@ TEST(core, shadow_output_is_post_merge) {
     out.clear();
     EffectTxn b = txn(0, CauseKind::QuestResult, {SetStage{Q(1), 20}, AddItem{Q(9), 2, Recipient::slots(0b100)}, AddItem{Q(9), 3, Recipient::slots(0b10)}}); b.seq = 2;
     s.applyTxn(b, 1, &out);
-    REQUIRE(out.size() == 1);  // lower stage suppressed, item for slot 2 not for me, item for slot 1 is
-    CHECK(std::get<AddItem>(out[0]).count == 3);
+    REQUIRE(out.size() == 2);  // a lower stage the host ran for the first time is delivered (its done flag), item for slot 2 not for me, item for slot 1 is
+    CHECK(std::get<SetStage>(out[0]).stage == 20);
+    CHECK(std::get<AddItem>(out[1]).count == 3);
+    out.clear();
+    EffectTxn c = txn(0, CauseKind::QuestResult, {SetStage{Q(1), 20}}); c.seq = 3;
+    s.applyTxn(c, 1, &out);
+    CHECK(out.empty());        // the same lower stage again is a repeat, not a second delivery
+}
+
+// Story fix 2026-10-28 (docs/tools/story.md, "completed-stage bits"): VCG01 ran its stages 76 and 79 from a script before the host walked 9..75, so the client's
+// stage was already 79 when the earlier stages arrived. The max merge swallowed all of them: the client had stage 80 but not one done flag in between
+// (GetStageDone false). Shared by the test and its twin: true iff every stage the host ran comes out exactly once, in the host's order.
+bool everyRunStageIsDelivered() {
+    ShadowState client;
+    std::vector<Effect> out;
+    uint64_t seq = 0;
+    auto run = [&](uint32_t stage) { EffectTxn t = txn(0, CauseKind::Console, {SetStage{Q(5), stage}}); t.seq = ++seq; client.applyTxn(t, 1, &out); };
+    {   // the quest's own script jumps ahead (a stage run from another stage's result)
+        EffectTxn t = txn(0, CauseKind::Script, {SetStage{Q(5), 8}, SetStage{Q(5), 76}, SetStage{Q(5), 79}}); t.seq = ++seq; client.applyTxn(t, 1, &out);
+    }
+    for (uint32_t stage : {9u, 10u, 15u, 17u, 75u}) run(stage);
+    run(80);
+    run(10);    // a repeat
+    run(75);    // a repeat
+    std::vector<uint32_t> got;
+    for (auto& e : out) got.push_back(std::get<SetStage>(e).stage);
+    const std::vector<uint32_t> want = {8, 76, 79, 9, 10, 15, 17, 75, 80};
+    return got == want && client.stages[Q(5)] == 80;
+}
+TEST(core, every_stage_the_host_ran_is_delivered_even_below_the_current_one) { CHECK(everyRunStageIsDelivered()); }
+TEST(twin, lower_stage_swallowed) {
+    Mutations m; m.lowerStageSwallowed = true;
+    { MutationScope s(m); CHECK(!everyRunStageIsDelivered()); }
+    CHECK(everyRunStageIsDelivered());   // and restored afterwards
 }
 
 TEST(core, diff_effects_reconstruct_state) {

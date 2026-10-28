@@ -96,7 +96,7 @@ class LauncherApp:
         ttk.Checkbutton(sf, text="Party slow-mo: everyone slows down together while a player uses VATS (host decides)", variable=self.v["slowmo"]).pack(anchor="w")
         ttk.Checkbutton(sf, text="Tether: story moments wait until the whole party is together", variable=self.v["tether"]).pack(anchor="w")
         r += 1
-        af = ttk.LabelFrame(f, text="Experimental sync layers (off until they have been proven in the game)", padding=8)
+        af = ttk.LabelFrame(f, text="Sync layers (on by default; untick one only to narrow down a problem)", padding=8)
         af.grid(row=r, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         for key, text in (("actors", "Enemies and NPCs"), ("avatars", "See other players as characters"),
                           ("combat", "Hits, deaths and projectiles (needs enemies and NPCs)"), ("spawns", "Spawn arbitration (needs enemies and NPCs)")):

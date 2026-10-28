@@ -39,6 +39,13 @@ public:
         return consoleOk;
     }
     bool directPose(RefId, const live::Vec3&, uint8_t) override { ++directCalls; return direct; }
+    bool attribution = true;
+    std::vector<std::pair<RefId, RefId>> attributed;
+    bool killWithAttribution(RefId victim, RefId killer) override {
+        if (!attribution) return false;
+        attributed.push_back({victim, killer});
+        return true;
+    }
 };
 
 }  // namespace
@@ -106,6 +113,18 @@ TEST(script_engine, one_line_per_write_with_the_pinned_text) {
         "EvaluatePackage@00000010", "SetActorRefEssential 1@00000010", "SetActorRefEssential 0@00000010",
         "KillActor@00000010", "ResurrectActor 0@00000010", "Disable@00000010", "Enable@00000010", "MarkForDelete@00000010"};
     CHECK(h.lines == want);
+}
+
+TEST(script_engine, a_kill_with_a_killer_goes_through_the_attribution_call_and_falls_back_to_the_plain_kill) {
+    RecHost h;
+    ScriptActorEngine e(h);
+    CHECK(e.killActorBy(0x10, 0x2001));
+    CHECK(h.attributed.size() == 1 && h.attributed[0].first == 0x10 && h.attributed[0].second == 0x2001 && h.lines.empty());
+    h.attribution = false;                       // a host without attribution
+    CHECK(e.killActorBy(0x11, 0x2001));
+    CHECK(h.lines.size() == 1 && h.lines[0] == "KillActor@00000011");
+    h.lines.clear();
+    CHECK(e.killActorBy(0x12, 0) && h.lines.size() == 1 && h.attributed.size() == 1);   // nobody to credit: the plain kill
 }
 
 TEST(script_engine, actor_values_use_the_console_names_and_unknown_ones_run_nothing) {

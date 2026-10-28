@@ -6,7 +6,7 @@
     python -I tools/installer/package_release.py verify out/release/FNV-CoOp-1.0.0.zip
 
 What goes in (see PAYLOAD below): nvcoop.dll and the data files it reads from its own folder (rules, quest name maps, consent
-table, guest-script list, volatile-key list), a default nvcoop.ini with co-op switched off, the installer and launcher
+table, guest-script list, volatile-key list), a default nvcoop.ini with co-op switched off (the launcher switches it on) and the feature switches on, the installer and launcher
 (Python, no third-party packages), PLAYER-GUIDE.md, the licence texts, manifest.json (every payload file with size and
 SHA-256, plus the supported game and xNVSE versions) and SHA256SUMS.txt (every file in the zip).
 
@@ -41,9 +41,47 @@ DEFAULT_NAME = "FNV-CoOp"
 INSTALLER_FILES = ("fnv_mut.py", "fnv_pe.py", "fnv_ini.py", "fnv_find.py", "fnv_manifest.py", "fnv_install.py")
 LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "launcher_gui.py")
 DEFAULT_INI = ("; nvcoop.ini - settings of the co-op plugin. The launcher edits this file when you press Host or Join.\n"
-               "; Co-op is OFF until you start the game from the launcher.\n"
+               "; Co-op is OFF until you start the game from the launcher; the feature switches below only act while it is on.\n"
                "[coop]\n"
-               "enable=0\n")
+               "enable=0\n"
+               "baseline=1\n"
+               "dialogue=1\n"
+               "[intents]\n"
+               "enable=1\n"
+               "dialogue=1\n"
+               "dialogue_results=1\n"
+               "stage=1\n"
+               "pickup=0\n"
+               "container=0\n"
+               "[hooks]\n"
+               "story_capture=1\n"
+               "[live]\n"
+               "actors=1\n"
+               "avatars=1\n"
+               "combat=1\n"
+               "spawns=1\n"
+               "social=1\n"
+               "[avatar]\n"
+               "enabled=1\n"
+               "[combat]\n"
+               "enabled=1\n"
+               "gate=1\n"
+               "native=1\n"
+               "[anim]\n"
+               "enabled=1\n"
+               "[vats]\n"
+               "enabled=1\n"
+               "[areadigest]\n"
+               "enabled=1\n"
+               "[worldtime]\n"
+               "enabled=1\n"
+               "[loot]\n"
+               "enabled=1\n"
+               "[companions]\n"
+               "enabled=1\n"
+               "[rules]\n"
+               "; Party tether (keeps the players together in a scene zone): on = hold and auto-warp (default), warn = only tell a far player, off = ignore.\n"
+               "tether=on\n")
 # generic folder names that are not a person
 HARMLESS_USERS = {"public", "default", "all users", "default user", "yourname", "your name", "username", "user", "name", "you", "<you>", "<name>", "%username%"}
 _USER_PATH = re.compile(rb"[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}([^\\/\x00\r\n\"'<>|*?]{1,64})", re.I)
@@ -52,6 +90,11 @@ _USER_PATH_W = re.compile(rb"[A-Za-z]\x00:\x00(?:\\\x00|/\x00){1,2}U\x00s\x00e\x
 
 class PackageError(RuntimeError):
     pass
+
+
+def _loads_core(dll: str) -> bool:
+    """nvcoop.dll is the split build's loader (it names the core DLL it loads)."""
+    return Path(dll).is_file() and b"nvcoop_mod.dll" in Path(dll).read_bytes()
 
 
 def _payload_spec(args) -> List[dict]:
@@ -67,10 +110,16 @@ def _payload_spec(args) -> List[dict]:
 
     return [
         {"name": "nvcoop.dll", "path": Path(args.dll) if Path(args.dll).is_file() else None, "required": True, "what": "the plugin"},
+        # the split build (plugin/loader/build_split.cmd): nvcoop.dll is a small loader that loads the core from its own folder
+        {"name": "nvcoop_mod.dll", "path": first("nvcoop_mod.dll", [dll_dir]) if _loads_core(args.dll) else None, "required": _loads_core(args.dll),
+         "what": "the plugin core the loader nvcoop.dll loads"},
         {"name": "nvcoop_rules.json", "path": Path(args.rules) if Path(args.rules).is_file() else None, "required": True, "what": "co-op rules for every quest"},
         {"name": "nvcoop_edids.json", "path": first("nvcoop_edids.json", [dll_dir]), "required": True, "what": "quest name map (host)"},
         {"name": "nvcoop_infoquest.json", "path": first("nvcoop_infoquest.json", [dll_dir]), "required": True, "what": "dialogue to quest map (host)"},
         {"name": "nvcoop_guest_local_run.json", "path": first("nvcoop_guest_local_run.json", [dll_dir]), "required": True, "what": "scripts guests run themselves"},
+        {"name": "nvcoop_cause_quests.json", "path": first("nvcoop_cause_quests.json", [dll_dir]), "required": True, "what": "script to quest map (rules of a quest's own scripts)"},
+        {"name": "nvcoop_pack_watch.json", "path": first("nvcoop_pack_watch.json", [dll_dir]), "required": True, "what": "item forms a guest reports to the host (guest pack facts)"},
+        {"name": "nvcoop_intents.json", "path": first("nvcoop_intents.json", [dll_dir]), "required": True, "what": "shared storage containers and gear stashes (guest intents)"},
         {"name": "nvcoop_consent_messages.txt", "path": Path(args.consent) if Path(args.consent).is_file() else None, "required": True, "what": "consent prompt table"},
         {"name": "nvcoop_volatile_keys.txt", "path": Path(args.volatile) if Path(args.volatile).is_file() else None, "required": True, "what": "list of script variables that differ per machine (every player must have the same list)"},
     ]
@@ -209,11 +258,14 @@ def collect(args) -> Tuple[Dict[str, bytes], dict, List[str], List[str]]:
             continue
         data = p.read_bytes()
         mt = max(mt, p.stat().st_mtime)
-        if spec["name"] == "nvcoop.dll":
-            errors += check_dll(p)
+        if spec["name"] in ("nvcoop.dll", "nvcoop_mod.dll"):
+            if spec["name"] == "nvcoop.dll":
+                errors += check_dll(p)
+            elif fnv_pe.machine_type(p) != fnv_pe.MACHINE_I386:
+                errors.append(f"{spec['name']} is not a 32-bit Windows DLL (New Vegas is a 32-bit game)")
             data, blanked = scrub_paths(data)
             if blanked:
-                warnings.append(f"nvcoop.dll: blanked {blanked} string(s) that held a build-machine path (the packaged DLL differs from the built one; "
+                warnings.append(f"{spec['name']}: blanked {blanked} string(s) that held a build-machine path (the packaged DLL differs from the built one; "
                                 "fix the build so it does not embed source paths, see docs/tools/release.md)")
         files[f"payload/{spec['name']}"] = data
         entries.append({"src": f"payload/{spec['name']}", "dest": f"{fnv_manifest.DEST_PREFIX}{spec['name']}", "sha256": fnv_manifest.sha256_bytes(data),

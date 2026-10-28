@@ -25,7 +25,7 @@ inline fnvcoop::Effect dismissFx(const FormRef& n, PlayerId owner) { fnvcoop::Co
 struct NpcRec {
     uint32_t netId = 0;
     PlayerId owner = kNoPlayer;
-    bool standIn = false, alive = true, loaded = true;
+    bool standIn = false, alive = true, loaded = true, waiting = false;
     uint32_t cell = 1;
     cc::Vec3 pos;
     FormRef faction;
@@ -112,7 +112,7 @@ struct FakeWorld : ISocialWorld {
     static uint32_t refOf(const NpcRec& r) { return r.loaded ? 0x5000u + r.netId : 0; }
     void view(const FormRef& n, const NpcRec& r, ActorView& v) const {
         v = ActorView{};
-        v.known = true; v.npc = n; v.netId = r.netId; v.ref = refOf(r); v.owner = r.owner; v.standIn = r.standIn; v.alive = r.alive;
+        v.known = true; v.npc = n; v.netId = r.netId; v.ref = refOf(r); v.owner = r.owner; v.standIn = r.standIn; v.alive = r.alive; v.waiting = r.waiting;
         v.simulatedHere = r.owner == me && !r.standIn && r.loaded;
         v.cell = r.cell; v.pos = r.pos; v.faction = r.faction;
     }

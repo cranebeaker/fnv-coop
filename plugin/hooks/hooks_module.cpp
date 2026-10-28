@@ -5,6 +5,7 @@
 //   capture.end                        -> {txns:[...], scriptVars:[...], stats:{...}, unmapped:{...}, scripts:{...}}
 //   apply.txn {txn:{..}, gate?:true, slot?:0} -> {applied, total, results:[...], scripts:{gated,ran,ranWhileApplying}}
 // All run on the main thread.
+#include "activate_args.h"
 #include <Windows.h>
 
 #include <string>
@@ -53,24 +54,43 @@ std::string IniPath() {
     return (s == std::string::npos ? std::string() : p.substr(0, s + 1)) + "nvcoop.ini";
 }
 
-// GuestLocalRun allow-list: nvcoop_guest_local_run.json next to the dll (generated from questlines types.json by
-// hooks/tools/gen_guest_local_run.py). Missing file = empty list (every quest script is gated on a guest, the old behaviour).
-void LoadGuestLocalRun() {
-    std::string path = IniPath();
-    path = path.substr(0, path.find_last_of("\\/") + 1) + "nvcoop_guest_local_run.json";
-    HANDLE f = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) { nvcoop::Log("hooks: GuestLocalRun list not found (%s)", path.c_str()); return; }
+// GuestLocalRun allow-list (G47): the rule in rules.json IS the list. Read from the same rules file the rules engine loads ([coop] rules=<path>,
+// default nvcoop_rules.json next to the dll). nvcoop_guest_local_run.json is only the fallback for an install that has no rules file at all
+// (it is generated from the same rules, hooks/tools/gen_guest_local_run.py, and a unit test keeps the two identical). Neither file = empty list
+// (every quest script is gated on a guest, the old behaviour).
+std::string ReadTextFile(const std::string& path) {
     std::string text;
+    HANDLE f = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return text;
     char buf[8192];
     DWORD n = 0;
     while (ReadFile(f, buf, sizeof buf, &n, nullptr) && n) text.append(buf, n);
     CloseHandle(f);
+    return text;
+}
+void LoadGuestLocalRun() {
+    const std::string ini = IniPath();
+    const std::string dir = ini.substr(0, ini.find_last_of("\\/") + 1);
+    char rulesIni[MAX_PATH] = {};
+    GetPrivateProfileStringA("coop", "rules", "", rulesIni, sizeof rulesIni, ini.c_str());
+    std::string rulesPath = rulesIni[0] ? std::string(rulesIni) : dir + "nvcoop_rules.json";
     nvhooks::GuestLocalRunList list;
-    std::string err;
-    if (!nvhooks::parseGuestLocalRun(text, &list, &err)) { nvcoop::Log("hooks: GuestLocalRun list invalid: %s", err.c_str()); return; }
+    std::string err, source;
+    const std::string rulesText = ReadTextFile(rulesPath);
+    if (!rulesText.empty()) {
+        if (nvhooks::parseGuestLocalRunRules(rulesText, &list, &err)) source = rulesPath;
+        else nvcoop::Log("hooks: GuestLocalRun: rules file unusable (%s): %s", rulesPath.c_str(), err.c_str());
+    }
+    if (source.empty()) {
+        const std::string legacyPath = dir + "nvcoop_guest_local_run.json";
+        const std::string legacy = ReadTextFile(legacyPath);
+        if (legacy.empty()) { nvcoop::Log("hooks: GuestLocalRun list not found (rules %s, fallback %s)", rulesPath.c_str(), legacyPath.c_str()); return; }
+        if (!nvhooks::parseGuestLocalRun(legacy, &list, &err)) { nvcoop::Log("hooks: GuestLocalRun list invalid: %s", err.c_str()); return; }
+        source = legacyPath;
+    }
     nvhooks::setGuestLocalRun(list.scripts);
     g_localRunListed = list.scripts.size();
-    nvcoop::Log("hooks: GuestLocalRun allow-list: %d scripts (%d malformed)", static_cast<int>(list.scripts.size()), list.skipped);
+    nvcoop::Log("hooks: GuestLocalRun allow-list from %s: %d scripts (%d malformed)", source.c_str(), static_cast<int>(list.scripts.size()), list.skipped);
     nvcoop::Log("hooks: guest quest-var rollback table: %d scripts, %d variables", static_cast<int>(nvhooks::ObjectVarWrites::builtin().scripts()),
                 static_cast<int>(nvhooks::ObjectVarWrites::builtin().rows()));
 }
@@ -108,10 +128,11 @@ void InitHooks() {
     g_hub.addSink([](fnvcoop::EffectTxn&& t) { g_txns.push_back(nvhooks::txnToJson(t)); });
     // story-capture (docs/tools/story-capture.md): ~75 more script commands become RefCommand effects. OFF unless [hooks] story_capture=1.
     nvhooks::setStoryCapture(GetPrivateProfileIntA("hooks", "story_capture", 0, IniPath().c_str()) != 0);
-    if (g_role == nvhooks::Role::Guest) PrimeXnvseEventHook();   // before Init: MarkScriptEvent is a guest-only hook
+    if (g_role != nvhooks::Role::Client) PrimeXnvseEventHook();   // before Init: MarkScriptEvent is hooked on the host (puppet combat events) and on a guest
     g_report = nvhooks::Init(g_hub, g_role);
     if (const std::string ch = nvhooks::chainedHookTargets(); !ch.empty()) nvcoop::Log("hooks: chained on top of another patcher: %s", ch.c_str());
     LoadGuestLocalRun();
+    nvhooks::RemoteApplier::setTrace([](const std::string& line) { nvcoop::Log("%s", line.c_str()); });   // one line per SetStage applied here (story fix: done flags)
     g_applier.reset(new nvhooks::RemoteApplier(g_hub, nvhooks::resolver()));
     auto exec = [](const std::string& line, uint32_t refID) {
         void* ref = refID ? nvhooks::resolver().lookup(refID) : nullptr;
@@ -362,7 +383,8 @@ using ActivateFn = UInt32(__thiscall*)(void*, void*, UInt8, UInt32, UInt32);
 using MarkFn = bool(__cdecl*)(void*, void*, UInt32);
 bool CallActivateSEH(void* ref, void* player, UInt32* ret) {
     __try {
-        *ret = reinterpret_cast<ActivateFn>(0x573170)(ref, player, 0, 0, 0);
+        const nvhooks::ActivateArgs a = nvhooks::consoleActivateArgs();   // the console's (0, 0, 1): the last argument 0 deletes a placed item
+        *ret = reinterpret_cast<ActivateFn>(0x573170)(ref, player, a.flagA, a.flagB, a.last);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;

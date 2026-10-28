@@ -13,6 +13,7 @@
 // Bridge methods (all on the main thread):
 //   avatar.status                   -> {"v":1,"enabled":..,"puppets":[..],"stats":{..},"tagged":N,"engine":{..},"local":{..},"backend":{..}}
 //   avatar.local                    -> the last local sample
+//   avatar.trace {n?}               -> the last n published samples of the local player and each puppet's fed poses, on one clock (stage timers)
 //   avatar.loopback {on, offset?}   -> start / stop the loopback puppet
 //   avatar.add {slot, race?, female?} / avatar.remove {slot} / avatar.feed {slot, x,y,z, yaw, vx,vy,vz, loco, cell?}
 //                                   -> dev: a remote player without a network (feed = one snapshot)
@@ -171,6 +172,12 @@ void ParseConfig() {
     std::sscanf(off.c_str(), "%f,%f,%f", &v[0], &v[1], &v[2]);
     c.loopbackOffset = Vec3{v[0], v[1], v[2]};
     c.loopbackSlot = static_cast<Slot>(c.puppet.localSlot == 1 ? 2 : 1);
+    // sender rate / velocity filter and the playback buffer: [avatar] nearHz, lowLatency, minDelayMs, jitterFactor, maxDelayMs, extrapolateTauMs, maxExtrapolateMs,
+    // blendMs, slewPerMille, velAlpha (avatar_tuning.h; the near-tier relay rate is read by live_glue.cpp from the same keys)
+    engine::LagTuning lag = engine::DefaultLagTuning();
+    engine::ApplyLagIni(lag, [](const char* key, const char* def) { return IniStr(key, def); });
+    c.sampler = lag.sampler;
+    c.interp = lag.interp;
 }
 
 bool PlayerReady() {
@@ -236,6 +243,16 @@ bool MStatus(const std::string&, std::string& out) {
     if (!s.empty() && s.back() == '}') s.pop_back();
     s += ",\"running\":true,\"backend\":" + g.backend->PinsJson() + "}";
     out = s;
+    return true;
+}
+
+// avatar.trace {n?} -> the last n published samples of the local player and the last 2n frames of each puppet's fed pose, on one clock (AvatarRuntime::TraceJson)
+bool MTrace(const std::string& params, std::string& out) {
+    if (!g.rt) return NotReady(out);
+    Value p;
+    if (!Parse(params, p, out)) return false;
+    const int n = static_cast<int>(p.get("n").asInt(300));
+    out = g.rt->TraceJson(static_cast<size_t>(n < 1 ? 1 : (n > 900 ? 900 : n)));
     return true;
 }
 
@@ -438,6 +455,7 @@ void OnLoad(void* nvse) {
     ParseConfig();
     nvcoop::RegisterMethod("avatar.status", MStatus, true);
     nvcoop::RegisterMethod("avatar.local", MLocal, true);
+    nvcoop::RegisterMethod("avatar.trace", MTrace, true);
     nvcoop::RegisterMethod("avatar.loopback", MLoopback, true);
     nvcoop::RegisterMethod("avatar.add", MAdd, true);
     nvcoop::RegisterMethod("avatar.remove", MRemove, true);
@@ -532,8 +550,13 @@ bool SetRemoteAppearance(Slot slot, const Appearance& a) {
     return g.rt ? g.rt->SetRemoteAppearance(slot, a) : true;
 }
 bool ReadLocalAppearance(Appearance& out) { return g.rt && g.rt->ReadLocalAppearance(out); }
+bool ReadLocalFacts(PlayerFacts& out) { return g.rt && g.rt->ReadLocalFacts(out); }
+bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out) { return g.rt && g.rt->ReadLocalPack(watch, out); }
 void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs) {
     if (g.rt) g.rt->OnRemoteSnapshot(slot, s, arrivalMs);
+}
+void NoteStage(NetStage st, double ms) {
+    if (g.rt) g.rt->NoteStage(st, ms);
 }
 void OnRemoteEquipment(Slot slot, const std::vector<EquipEntry>& wanted) {
     if (g.rt) g.rt->OnRemoteEquipment(slot, wanted);

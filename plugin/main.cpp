@@ -594,8 +594,7 @@ void OnMessage(NVSEMessagingInterface::Message* msg) {
         break;
     case NVSEMessagingInterface::kMessage_MainGameLoop:
         g_bridge.Pump(g_host);
-        for (auto& m : nvcoop::registry::Modules())
-            if (m.onFrame) m.onFrame();
+        nvcoop::RunFrameCallbacks(nvcoop::registry::Modules());   // frameOrder: the co-op session runs after the capture modules (nvcoop_api.h)
 #ifdef NVCOOP_LOADER
         if (g_coreHost) g_coreHost->OnFrame();   // also performs a pending dev.reload / file-watcher reload
 #endif

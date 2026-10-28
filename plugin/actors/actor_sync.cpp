@@ -225,7 +225,14 @@ void ActorSync::onOwnApplied(const OwnMsg& m, ApplyResult res) {
             r->handingOff = true;
             if (!MUT(5)) { r->active = false; refreshAi(*r); }
             flushInventory(*r);   // before the final state: the new owner starts from what we last used
-            sendFull(*r, true, false);
+            const bool sentFinal = sendFull(*r, true, false);
+            // Nothing to hand over (an actor this host never sampled): the new owner would wait for a final state that does not exist and the commit came
+            // only after handoffTimeoutMs (lab run 20261028-032920: one actor at 1013 ms after every host move, on every profile). A host that sent
+            // a final waits for the acknowledgement, as ever. MUT 41 BAD: the commit waits for an acknowledgement that cannot come.
+            if (!sentFinal && cfg_.commitWithoutFinal && !MUT(41) && cfg_.isHost && svc_) {
+                std::vector<OwnMsg> now2;
+                if (svc_->commitNothingToHandOver(m.netId, static_cast<uint32_t>(now_), now2)) emitOwn(now2);
+            }
         } else if (m.owner == cfg_.self) {   // we receive it: AI stays off until the Commit
             if (MUT(3)) { r->active = true; refreshAi(*r); }
         }
@@ -535,12 +542,12 @@ void ActorSync::publishOwned(Rec& r, uint32_t now) {
     }
 }
 
-void ActorSync::sendFull(Rec& r, bool final, bool settle) {
+bool ActorSync::sendFull(Rec& r, bool final, bool settle) {
     const NetId id = r.meta.netId;
     OwnerEpoch ep = 0;
-    if (!view_.mayPublish(id, ep)) return;   // still the owner at the committed epoch while a handoff is pending
+    if (!view_.mayPublish(id, ep)) return false;   // still the owner at the committed epoch while a handoff is pending
     live::ActorSnapshot s;
-    if (!port_.sample(id, s)) { if (!r.haveLatest) return; s = r.latest; }
+    if (!port_.sample(id, s)) { if (!r.haveLatest) return false; s = r.latest; }
     s.netId = id; s.ownerEpoch = ep; s.seq = seqs_.next(id, ep); s.tick = static_cast<uint32_t>(now_);
     for (auto& v : s.avDeltas) r.av[v.av] = v.value;
     r.latest = s; r.latest.avDeltas = fullState(r).avDeltas;
@@ -549,6 +556,7 @@ void ActorSync::sendFull(Rec& r, bool final, bool settle) {
     MSnapFull m;
     m.s = r.latest; m.final = final; m.settle = settle;
     sendBody(m, kNoPlayer);
+    return true;
 }
 
 // ---- receiving snapshots ---------------------------------------------------------------------------------------------------
@@ -619,7 +627,17 @@ bool ActorSync::onSnapFull(const Envelope& e, const MSnapFull& m, uint32_t now) 
         case UpdateVerdict::EchoOfSelf: return false;
         case UpdateVerdict::UnknownActor: ++stats_.unknownActor; return false;
     }
-    if (!acceptSnapshot(*r, m.s, now)) return false;
+    // The host also relays every actor's newest snapshot UNRELIABLY, and that includes the final it has just sent reliably (same seq). On a link with jitter the
+    // copy arrives first, and the final then reads "the same seq again" and was dropped: the new owner never placed the state and never acknowledged, so the host forced
+    // the commit after handoffTimeoutMs (lab run 20261028-032920: ownership reached the client 1.1 s late on mobile_tether and transatlantic). A final that only
+    // repeats what this epoch already delivered still completes the handoff (the state it carries is the one already held).
+    bool repeated = false;
+    if (!acceptSnapshot(*r, m.s, now)) {
+        repeated = m.final && cfg_.acceptRepeatedFinal && !MUT(40) && m.s.ownerEpoch == r->lastEpoch && r->lastSeq != 0 && live::serialLE(m.s.seq, r->lastSeq);
+        if (!repeated) return false;
+        ++stats_.finalsRepeated;
+        --stats_.staleSeqDropped;   // not a drop: it is counted above as one by acceptSnapshot
+    }
     if (cfg_.isHost && e.src != cfg_.self) relay(e, e.src);   // onward first: the new owner's Ack (and the Commit) must follow the relay
     if (m.final) {
         ++stats_.finalsApplied;
@@ -653,6 +671,22 @@ void ActorSync::driveNonOwner(Rec& r, uint32_t now) {
     if (out.state == live::InterpState::Empty) return;
     port_.drive(id, out);
     r.engineAuthoritative = false;
+}
+
+// A copy's actor values are written when the owner's value CHANGES. An engine that keeps an actor's damage elsewhere while it is not fully loaded gives the copy
+// another health once it loads, with nothing new from the owner to correct it: the copy read -55 for the owner's 5 until the area digest healed it a few seconds
+// later (vats room behind bad_wifi). The copy is checked against the owner's merged values on a slow timer and brought back.
+void ActorSync::auditAvs(Rec& r) {
+    if (cfg_.avAuditMs == 0 || MUT(42)) return;   // MUT 42 BAD: a copy is never checked against the owner's values
+    if (r.dead || !r.haveLatest || r.av.empty() || now_ < r.avAuditAt || avAuditBudget_ == 0) return;
+    const NetId id = r.meta.netId;
+    if (!port_.loaded(id) || r.killPending) return;
+    --avAuditBudget_;
+    r.avAuditAt = now_ + cfg_.avAuditMs;
+    std::vector<live::AvValue> want;
+    for (auto& kv : r.av) { live::AvValue v; v.av = kv.first; v.value = kv.second; want.push_back(v); }
+    ++stats_.avAudits;
+    stats_.avDriftFixed += port_.auditAv(id, want);
 }
 
 void ActorSync::relayToClients(uint32_t now) {
@@ -1031,6 +1065,7 @@ void ActorSync::tick(uint64_t nowMs) {
         if (now_ >= nextEvalMs_) { nextEvalMs_ = now_ + cfg_.ownEvalMs; evalOwnership(); }
     }
     invBudget_ = 4;
+    avAuditBudget_ = 4;
     for (auto& kv : recs_) {
         Rec& r = kv.second;
         if (r.dead) continue;
@@ -1039,7 +1074,7 @@ void ActorSync::tick(uint64_t nowMs) {
         if (r.awaitPrev != kNoPlayer && (now_ >= r.awaitSince + cfg_.holdAiMaxMs || !playerHere(r.awaitPrev))) releaseAiHold(r);   // safety net / the old owner is gone
         if (owner && !r.active && !r.handingOff && port_.loaded(id)) takeOver(r, view_.epochOf(id));   // the engine got the actor after the Grant
         if (MUT(2) ? (r.local && port_.loaded(id)) : (owner && r.active)) publishOwned(r, now);
-        else if (!owner) driveNonOwner(r, now);
+        else if (!owner) { driveNonOwner(r, now); auditAvs(r); }
         if (owner) pollInventory(r);
         else applyWantedInventory(r);
     }

@@ -77,13 +77,17 @@ bool CallLoadResponses(uint32_t info) {   // TESTopicInfo::GetResponses(info, 0)
         return false;
     }
 }
-bool CallMarkSaid(uint32_t info) {
+bool CallMarkSaidRaw(uint32_t info) {
     __try {
-        reinterpret_cast<void(__thiscall*)(void*)>(nvui::addr::InfoMarkSaid.addr)(reinterpret_cast<void*>(uintptr_t(info)));
+        reinterpret_cast<void(__thiscall*)(void*)>(nvui::addr::InfoMarkSaid.target)(reinterpret_cast<void*>(uintptr_t(info)));
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
+}
+bool CallMarkSaid(uint32_t info) {
+    nvui::SaidMute mute;   // our own mark (the address is the hooked entry): not an engine mark to report
+    return CallMarkSaidRaw(info);
 }
 bool WriteByte(uint32_t addr, uint8_t v) {
     __try {
@@ -324,6 +328,7 @@ public:
         const uint32_t f = LookupForm(RuntimeRefId(info));
         if (!f || !CallMarkSaid(f)) unsupported("markSaid: INFO not loaded");
     }
+    void commitSayOnce(const FormRef& info) override { nvui::ops::recordSayOnce(info); }   // host: the SayOnceFlag effect for the clients
     void clearSaid(const FormRef& info) override {
         const uint32_t f = LookupForm(RuntimeRefId(info));
         if (!f || !WriteByte(f + topic_info::kSaidOnce, 0)) unsupported("clearSaid: INFO not loaded");
@@ -339,11 +344,17 @@ public:
         QueueUIMessage(t.c_str(), 2, nullptr, nullptr, 2.0f, false);
     }
 
+    void trace(const std::string& s) override { if (report_) report_(s.c_str()); }
     void unsupported(const char* what) override {
         if (report_) report_(what);
         ++unsupportedCalls_;
     }
     unsigned unsupportedCalls() const { return unsupportedCalls_; }
+    int saidState(const FormRef& info) override {
+        const uint32_t f = LookupForm(RuntimeRefId(info));
+        uint8_t b = 0;
+        return f && readU8(mem_, f + topic_info::kSaidOnce, b) ? (b ? 1 : 0) : -1;
+    }
 
 private:
     ProcessMemory mem_;

@@ -302,6 +302,61 @@ TEST(menuless, a_corpse_the_engine_never_listed_is_still_looked_at) {
     CHECK(count(tableOf(c)->items, kTape) == 0);
 }
 
+// Story fix 2026-10-28 (the lab's guest take): a placed chest nobody opened is announced by no cell attach, so no machine knew it: the guest took 1 of 3, its engine
+// copy read 2 and the host's 3 for ever (the guest's service listed 0 containers, 0 polls). Every machine now looks for the containers of its player's cell.
+TEST(menuless, a_placed_chest_nobody_opened_is_found_and_a_guests_take_from_it_adds_up) {
+    Cluster c(2);
+    for (auto& mc : c.m) { mc->eng.add(0x300, I({{kTape, 3}})); mc->eng.nearbyKnown = true; }   // no onContainerLoaded: nothing announced it
+    c.run(8000);                                                                             // a few discovery passes, the resolves and the owner's grace time
+    REQUIRE(c.host().sync->host()->container(0x300));
+    CHECK(c.machine(1).sync->stats().containersDiscovered == 1 && c.host().sync->stats().containersDiscovered == 1);
+    Machine& g = c.machine(1);
+    CHECK(g.eng.silentTake(0x300, kTape, 1));
+    c.settle();
+    CHECK(count(g.eng.player, kTape) == 1);
+    CHECK(count(c.host().sync->host()->container(0x300)->items, kTape) == 2);                // the host's table follows the guest's take
+    for (auto& mc : c.m) CHECK(count(mc->eng.conts[0x300].items, kTape) == 2);               // and so does every engine copy
+}
+
+// Follow-ups 1, item 4: the scan covered the player's own cell only. A chest in a loaded neighbour cell of the exterior grid (Goodsprings' houses are cells of their own, the
+// streets are the grid) is as lootable: every pass looks at the own cell and at a few neighbours in rotation, so the whole grid is covered within a few seconds.
+TEST(menuless, the_loaded_neighbour_cells_of_an_exterior_grid_are_scanned_in_rotation) {
+    Cluster c(2);
+    for (auto& mc : c.m) {
+        mc->eng.nearbyKnown = true;
+        mc->eng.cellAware = true;
+        mc->eng.playerCell = 7;
+        mc->eng.neighbours = {20, 21, 22, 23, 24, 25, 26, 27};                       // eight attached neighbours
+        mc->eng.add(0x300, I({{kTape, 3}}), lc::ContainerKind::Container, 7);         // the player's own cell
+        for (NetId k = 0; k < 8; ++k) mc->eng.add(0x310 + k, I({{kTape, 1}}), lc::ContainerKind::Container, 20 + k);   // one chest in each neighbour
+    }
+    c.run(100);                                                                       // the first pass (then one every 1.5 s)
+    Machine& g = c.machine(1);
+    CHECK(g.sync->stats().containersDiscovered == 1 + 3);                              // the own cell and the first three neighbours
+    CHECK(g.eng.cellScans == 3);                                                       // a pass is bounded: three neighbour cells, not the whole grid
+    c.run(1500 * 3);                                                                   // the next passes cover the other five (the cursor moves on, it wraps around)
+    CHECK(g.sync->stats().containersDiscovered == 9);
+    for (NetId k = 0; k < 8; ++k) CHECK(g.sync->client()->container(0x310 + k) != nullptr);
+    // a take from a chest next door is seen and adds up on every machine
+    c.settle();
+    CHECK(g.eng.silentTake(0x313, kTape, 1));
+    c.settle();
+    CHECK(count(g.eng.player, kTape) == 1);
+    for (auto& mc : c.m) CHECK(count(mc->eng.conts[0x313].items, kTape) == 0);
+    // an interior has no neighbours: only the own cell is asked
+    Cluster in(2);
+    for (auto& mc : in.m) { mc->eng.nearbyKnown = true; mc->eng.cellAware = true; mc->eng.add(0x300, I({{kTape, 3}}), lc::ContainerKind::Container, 7); mc->eng.add(0x301, I({{kTape, 1}}), lc::ContainerKind::Container, 40); }
+    in.run(4000);
+    CHECK(in.machine(1).sync->stats().containersDiscovered == 1 && in.machine(1).eng.cellScans == 0);
+    // switched off (discover_cells=0): the own cell alone, as before
+    SyncConfig offCfg = Cluster::defaultCfg();
+    offCfg.discoverCells = 0;
+    Cluster off(2, offCfg);
+    for (auto& mc : off.m) { mc->eng.nearbyKnown = true; mc->eng.cellAware = true; mc->eng.neighbours = {20}; mc->eng.add(0x300, I({{kTape, 3}}), lc::ContainerKind::Container, 7); mc->eng.add(0x310, I({{kTape, 1}}), lc::ContainerKind::Container, 20); }
+    off.run(4000);
+    CHECK(off.machine(1).sync->stats().containersDiscovered == 1);
+}
+
 TEST(menuless, a_remote_take_applied_before_the_scan_does_not_hide_the_local_one) {
     // the failure of the benchmark: the host's take reaches the guest after the guest's own RemoveItem and before its AddItem; the shared contents then equal
     // the guest's engine copy and the player's gain, when it comes, has nothing left to be matched with

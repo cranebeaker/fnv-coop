@@ -25,6 +25,7 @@
 #include "coop_runtime.h"
 #include "effect_json.h"
 #include "intents/engine/game_engine.h"
+#include "intents/engine/intents_saves.h"
 #include "intents/engine/intents_addrs.h"
 #include "engine_hooks.h"
 #include "hook_patch.h"
@@ -37,6 +38,9 @@
 #endif
 #ifdef NVCOOP_WITH_LIVE
 #include "live/live_glue.h"   // glueAvatarRef: the puppet of a remote player
+#endif
+#ifdef NVCOOP_WITH_UI
+#include "guest_dialogue.h"   // fndlg::GuestDialogue: the guest half of a conversation (G05); the talk veto
 #endif
 #ifdef NVCOOP_WITH_NVMP
 #include "nvmp/ghost_ref.h"
@@ -74,9 +78,11 @@ struct Win32Memory : nvhooks::MemoryOps {
 Win32Memory g_mem;
 std::unique_ptr<nvhooks::HookRegistry> g_reg;
 std::unique_ptr<IntentService> g_svc;
+nvcoop::intents::RetryList g_retry;   // the activators the stand-in retry is allowed for (nvcoop_intents.json retryScripts); empty = no retry
 std::unique_ptr<SaveGate> g_gate;
 Config g_cfg;
 bool g_inited = false, g_canSaveHooked = false, g_termHooked = false, g_observersOn = false;
+bool g_talkDeferred = false;   // the activate observer's last decision: GuestDialogue took the talk (vanilla activation is deferred until the host grants it)
 uint64_t g_observedSessions = 0;
 std::string g_note;   // why the module is idle, for intents.status
 
@@ -203,8 +209,13 @@ bool HookOne(const nvhooks::HookSpec& spec, void* detour, void** orig, const cha
 // ---- guest observers -----------------------------------------------------------------------------------------------------------------
 
 void InstallObservers() {
+#ifdef NVCOOP_WITH_UI
+    fnvcoop_dlg::traceSink() = [](const std::string& s) { nvcoop::Log("%s", s.c_str()); };   // the conversation start steps (request, grant, refusal, menu event), one line each
+#endif
     nvhooks::setActivateObserver([](const fnvcoop::FormRef& t) {
-        return g_svc && g_svc->onActivate(t) == Obs::Suppress ? nvhooks::ActivateAction::Suppress : nvhooks::ActivateAction::Proceed;
+        g_talkDeferred = false;
+        const bool suppress = g_svc && g_svc->onActivate(t) == Obs::Suppress;
+        return suppress || g_talkDeferred ? nvhooks::ActivateAction::Suppress : nvhooks::ActivateAction::Proceed;
     });
     nvhooks::setEventObserver([](uint32_t mask, const fnvcoop::FormRef& t) {
         return g_svc && g_svc->onEvent(mask, t) == Obs::Suppress ? nvhooks::EventAction::Suppress : nvhooks::EventAction::Proceed;
@@ -320,6 +331,8 @@ void Init() {
         else {
             if (!redirect.load(text, &err)) nvcoop::Log("intents: data file %s (redirects): %s", g_cfg.redirectFile.c_str(), err.c_str());
             else nvcoop::Log("intents: %u shared storage containers are redirected per player", (unsigned)redirect.size());
+            if (!g_retry.load(text, &err)) { nvcoop::Log("intents: data file %s (retryScripts): %s: no activation is redone by the stand-in", g_cfg.redirectFile.c_str(), err.c_str()); g_retry.clear(); }
+            else nvcoop::Log("intents: %u activator scripts may be redone by the host's player after a puppet's activation did nothing", (unsigned)g_retry.size());
             if (!stash.load(text, &err)) nvcoop::Log("intents: data file %s (stashes): %s", g_cfg.redirectFile.c_str(), err.c_str());
             else if (g_cfg.storage) {
                 nvcoop::Log("intents: %u shared gear containers keep a stash per player", (unsigned)stash.entries().size());
@@ -342,17 +355,33 @@ void Init() {
         }
     };
     d.nowMs = NowMs;
+    d.log = [](const std::string& line) { nvcoop::Log("intents: %s", line.c_str()); };
     // Kind::SetStage policy (the host keeps the say): an ExclusiveStages loser is refused before its result scripts run. The rules engine's barrier / tether
     // answer through the engine's stage gate (verdict Deferred). Every refusal is a log line here and a counter in intents.status (service.detail.stage).
-    d.allowStage = [](fnvcoop::PlayerId, const fnvcoop::FormRef& quest, uint32_t stage) {
+    d.allowStage = [](fnvcoop::PlayerId slot, const fnvcoop::FormRef& quest, uint32_t stage) {
         nvcoop::coop::Runtime* rt = nvcoop::coop::Runtime::active();
+        // G26: a guest's stage on a pass stage (chargen end) is that guest's pass; the stage itself waits for the whole party (the rules engine releases it)
+        (void)slot;   // (the barrier pass itself is d.guestStagePass below, wave 1b)
         return !rt || !rt->stageExcluded(quest, stage);
+    };
+    // A guest's SetStage on a Barrier stage is its pass (G26): the session code that owns the rules engine sets nvcoop::intents::setGuestStagePassHook; unset = NotPass.
+    d.guestStagePass = [](fnvcoop::PlayerId slot, const fnvcoop::FormRef& quest, uint32_t stage) {
+        const nvcoop::intents::GuestStagePassFn& f = nvcoop::intents::guestStagePassHook();
+        return f ? f(slot, quest, stage) : nvcoop::intents::StagePass::NotPass;
     };
     d.stageRefused = [](fnvcoop::PlayerId slot, const fnvcoop::FormRef& quest, uint32_t stage, nvcoop::intents::Result why) {
         nvcoop::Log("intents: guest stage %s=%u from slot %d not run: %s", nvhooks::refToStr(quest).c_str(), (unsigned)stage, (int)slot, resultName(why));
     };
+    d.log = [](const std::string& line) { nvcoop::Log("%s", line.c_str()); };
+    d.retryList = &g_retry;
     d.containerMenuOpen = [] { return nvcoop::intents::game::containerMenuOpen(); };
     d.startDialogue = [](const fnvcoop::FormRef& npc) {
+#ifdef NVCOOP_WITH_UI
+        // The guest glue asks the host for the conversation and defers the vanilla talk until it is granted (the activate observer then suppresses it).
+        const bool deferred = fndlg::GuestDialogue::instance().onTalkRequested(npc, static_cast<uint32_t>(NowMs()));
+        nvcoop::Log("intents: guest talk to %s: %s", nvhooks::refToStr(npc).c_str(), deferred ? "deferred until the host grants it" : "NOT deferred (the dialogue glue is not ready or a conversation is already open), the vanilla talk goes on");
+        if (deferred) { g_talkDeferred = true; return; }
+#endif
         nvcoop::coop::Runtime* rt = nvcoop::coop::Runtime::active();
         if (rt && rt->dialogue()) rt->dialogue()->requestStart(npc, static_cast<uint32_t>(NowMs()));
     };
@@ -407,6 +436,19 @@ void OnMessage(uint32_t type, void*, uint32_t) {
 }
 
 }  // namespace
+
+namespace nvcoop::intents {
+std::string LedgerSnapshot() { return g_svc && g_cfg.storage ? g_svc->stash().stateJson() : std::string(); }
+void LedgerRestore(const std::string& text) {
+    if (!g_svc) return;
+    StorageBook& b = g_svc->stash();
+    std::string err;
+    if (text.empty()) b.clear();
+    else if (!b.loadState(text, &err)) { nvcoop::Log("intents: the gear ledger of this save could not be read (%s): starting with empty stashes", err.c_str()); b.clear(); }
+    if (WriteWholeFile(DllDir() + kStashStateFile, b.stateJson())) b.markClean();   // the file next to the dll follows the loaded save too
+    nvcoop::Log("intents: gear ledger %s", text.empty() ? "reset (this save has none)" : "restored from the save");
+}
+}  // namespace nvcoop::intents
 
 NVCOOP_MODULE(guest_intents, "guest_intents", nullptr, OnMessage, OnFrame);
 

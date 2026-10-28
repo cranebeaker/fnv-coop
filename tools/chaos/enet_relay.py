@@ -43,44 +43,91 @@ def field(text, key):
     return parts[parts.index(key) + 1] if key in parts else None
 
 
+START_WAIT_S = 120   # a hang bound for the host to start listening, never a pace: the host is waited for on an event, not a sleep
+HOST_START_TRIES = 4
+
+
+def start_host(a, common, tmp):
+    """Starts `fnvcoop_loopback host` and waits until it reports that it is listening (its --ready file) or has exited.
+
+    Returns (process, port, blocker, listening). No sleep guesses how long the host needs, which under CPU load is anything: a host that
+    cannot listen exits, a host that can writes the ready file. A port taken between free_udp_port() and the host's bind is retried on
+    another port. With --occupy-host-port the port is taken on purpose, so there is exactly one try and listening must come out False.
+    """
+    tries = 1 if a.occupy_host_port else HOST_START_TRIES
+    ready = tmp / "ready.txt"
+    for attempt in range(tries):
+        port = free_udp_port()
+        blocker = None
+        if a.occupy_host_port:   # test of the twins: the host's port is taken, so the host cannot listen and exits at once
+            blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            blocker.bind(("127.0.0.1", port))
+        if ready.exists():
+            ready.unlink()
+        proc = subprocess.Popen([a.loopback, "host", "--port", str(port), *common, "--clients", str(a.clients),
+                                 "--out", str(tmp / "host.txt"), "--ready", str(ready)], stdout=subprocess.DEVNULL)
+        give_up = time.monotonic() + START_WAIT_S
+        while not ready.exists() and proc.poll() is None and time.monotonic() < give_up:
+            time.sleep(0.02)
+        if ready.exists():
+            return proc, port, blocker, True
+        if proc.poll() is None:   # never reported in START_WAIT_S
+            proc.kill()
+            proc.wait()
+        if attempt + 1 == tries:
+            return proc, port, blocker, False
+        if blocker:
+            blocker.close()
+    raise AssertionError("unreachable")
+
+
 def run(a):
-    host_port = free_udp_port()
     tmp = Path(tempfile.mkdtemp(prefix="fnvcoop_relay_"))
     common = ["--seed", "7", "--txns", str(a.txns), "--loss", "0"]
-    relay = Relay(("127.0.0.1", host_port), 0, a.profile).start()
-    if a.set:
-        relay.set_params({k: float(v) for k, v in (kv.split("=", 1) for kv in a.set)})
-    if a.twin == "partition":
-        relay.partition("both", True)
     procs = []
     blocker = None
-    host_started = False
-    if a.occupy_host_port:   # test of the twins: the host's port is taken, so the host cannot listen and exits at once
-        blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        blocker.bind(("127.0.0.1", host_port))
+    relay = None
     try:
-        procs.append(subprocess.Popen([a.loopback, "host", "--port", str(host_port), *common, "--clients", str(a.clients),
-                                       "--out", str(tmp / "host.txt")], stdout=subprocess.DEVNULL))
-        time.sleep(0.3)   # the host must be listening before the first client Hello
-        host_started = procs[0].poll() is None   # a host that cannot listen has exited by now
+        host, host_port, blocker, host_started = start_host(a, common, tmp)
+        procs.append(host)
+        relay = Relay(("127.0.0.1", host_port), 0, a.profile).start()
+        if a.set:
+            relay.set_params({k: float(v) for k, v in (kv.split("=", 1) for kv in a.set)})
+        if a.twin == "partition":
+            relay.partition("both", True)
         client_port = host_port if a.twin == "bypass" else relay.port
-        for i in range(a.clients):
+        for i in range(a.clients):   # --hostout: a client serves the host's retransmits until the host has finished, not for a fixed time
             procs.append(subprocess.Popen([a.loopback, "client", "--port", str(client_port), *common, "--token", str(1000 + i),
-                                           "--out", str(tmp / ("c%d.txt" % i))], stdout=subprocess.DEVNULL))
-        deadline = time.monotonic() + a.timeout
+                                           "--out", str(tmp / ("c%d.txt" % i)), "--hostout", str(tmp / "host.txt")], stdout=subprocess.DEVNULL))
         timed_out = False
-        for p in procs:
-            try:
-                p.wait(max(0.1, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                timed_out = True
+        if a.twin == "partition" and host_started:
+            # Every datagram is dropped, so no client can finish and there is nothing to wait for: observe a.timeout seconds counted
+            # from the first datagram the relay dropped (a slow machine starts the clients late), but at least until it dropped one.
+            first_drop = None
+            hard_stop = time.monotonic() + a.timeout + START_WAIT_S
+            while time.monotonic() < hard_stop and any(p.poll() is None for p in procs[1:]):
+                if first_drop is None:
+                    if sum(st["reasons"].get("partition", 0) for st in relay.get_stats().values()) > 0:
+                        first_drop = time.monotonic()
+                elif time.monotonic() >= first_drop + a.timeout:
+                    break
+                time.sleep(0.05)
+            timed_out = any(p.poll() is None for p in procs[1:])
+        else:
+            deadline = time.monotonic() + a.timeout
+            for p in procs:
+                try:
+                    p.wait(max(0.1, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    timed_out = True
         stats = relay.get_stats()
     finally:
         for p in procs:
             if p.poll() is None:
                 p.kill()
                 p.wait()
-        relay.close()
+        if relay:
+            relay.close()
         if blocker:
             blocker.close()
 

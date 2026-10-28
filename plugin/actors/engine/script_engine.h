@@ -58,6 +58,7 @@ public:
     bool setEssential(RefId ref, bool on) override;
     bool forceAv(RefId ref, uint8_t av, float value) override;
     bool killActor(RefId ref) override;
+    bool killActorBy(RefId ref, RefId killer) override;
     bool resurrect(RefId ref) override;
     bool setDisabled(RefId ref, bool disabled) override;
     bool markForDelete(RefId ref) override;

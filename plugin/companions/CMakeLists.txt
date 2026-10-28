@@ -4,7 +4,7 @@
 # Targets
 #   nvcoop_social_rules / _rt   synccore/social/*.cpp compiled here (production / FNVCOOP_RUNTIME_MUT), so the plugin tree does not depend on the
 #                               synccore tree being configured first (the same trick plugin/combat plays)
-#   nvcoop_social_core / _rt    SocialSync + SocialRuntime (production / runtime twins 901..939)
+#   nvcoop_social_core / _rt    SocialSync + SocialRuntime (production / runtime twins 901..949)
 #   nvcoop_companions_tests     EXCLUDE_FROM_ALL; twins are switched with FNVCOOP_MUT=<n> (tools/mut/run_twins.py)
 cmake_minimum_required(VERSION 3.20)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
@@ -59,7 +59,7 @@ foreach(sfx "" "_rt")
 endforeach()
 
 # ---- the rules (synccore/social): production and runtime-twin flavours ----
-set(NVSO_RULES_SRC ${NVSO_REPO}/synccore/social/companions.cpp ${NVSO_REPO}/synccore/social/crime.cpp ${NVSO_REPO}/synccore/social/rewards.cpp ${NVSO_REPO}/synccore/social/wire.cpp)
+set(NVSO_RULES_SRC ${NVSO_REPO}/synccore/social/companions.cpp ${NVSO_REPO}/synccore/social/slots.cpp ${NVSO_REPO}/synccore/social/escort.cpp ${NVSO_REPO}/synccore/social/crime.cpp ${NVSO_REPO}/synccore/social/rewards.cpp ${NVSO_REPO}/synccore/social/wire.cpp)
 foreach(sfx "" "_rt")
   add_library(nvcoop_social_rules${sfx} STATIC ${NVSO_RULES_SRC})
   target_include_directories(nvcoop_social_rules${sfx} PUBLIC ${NVSO_REPO}/synccore ${NVSO_REPO}/synccore/combat)
@@ -91,6 +91,7 @@ file(GLOB NVSO_TEST_SRC CONFIGURE_DEPENDS ${NVSO_DIR}/tests/test_*.cpp)
 add_executable(nvcoop_companions_tests ${NVSO_TEST_EXCL} ${NVSO_TEST_SRC} ${NVSO_REPO}/synccore/tests/main.cpp)
 target_include_directories(nvcoop_companions_tests PRIVATE ${NVSO_DIR}/tests ${NVSO_REPO}/synccore/tests)
 target_link_libraries(nvcoop_companions_tests PRIVATE nvcoop_social_core_rt)
+target_compile_definitions(nvcoop_companions_tests PRIVATE NVSO_DATA_DIR="${NVSO_DIR}/data")
 nvso_flags(nvcoop_companions_tests)
 set_target_properties(nvcoop_companions_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/companions_tests")
 foreach(cfg _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)

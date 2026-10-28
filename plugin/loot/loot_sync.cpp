@@ -29,6 +29,7 @@ void LootSync::sessionBegin(const nvcoop::livewire::SessionInfo& info, nvcoop::l
     ownedClutter_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();
     if (!FNV_MUT(153)) { resolves_.clear(); creates_.clear(); createsDue_.clear(); removes_.clear(); notesDone_.clear(); }
+    discovered_.clear(); nextDiscover_ = 0;
     host_.reset();
     if (info.isHost) {
         host_ = std::make_unique<lc::LootHost>(cfg_.host);
@@ -57,6 +58,7 @@ void LootSync::sessionEnd() {
     ownedClutter_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();
     if (!FNV_MUT(153)) { resolves_.clear(); creates_.clear(); createsDue_.clear(); removes_.clear(); notesDone_.clear(); }   // twin 153: scheduled work of a dead session survives into the next one
+    discovered_.clear();
 }
 
 void LootSync::playerJoined(PlayerId p) {
@@ -94,6 +96,7 @@ void LootSync::loadBegin() {
     suppressClose_.clear(); blockedMenu_.clear();
     ownedClutter_.clear();
     resolves_.clear(); creates_.clear(); createsDue_.clear(); removes_.clear(); notesDone_.clear();
+    discovered_.clear(); nextDiscover_ = 0;
     inbox_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();   // engine counts of the old world mean nothing in the loaded one
     if (client_ && !FNV_MUT(152)) client_->worldReset();   // twin 152: the view (and its "already has a ref" memory) survives a load
@@ -418,6 +421,7 @@ void LootSync::tick(uint64_t nowMs) {
         deliver(out);
         pump();
     }
+    tickDiscover(nowMs);
     tickResolve(nowMs);
     tickCreates(nowMs);
     tickRemoves(nowMs);
@@ -440,6 +444,38 @@ void LootSync::onActorDied(NetId actor, RefId ref) {
     Resolve r;
     r.ref = ref; r.corpse = true; r.actor = actor; r.due = now_ + cfg_.corpseDelayMs;
     resolves_.push_back(r);
+}
+
+// The containers of the player's cell: whoever stands next to a chest nobody opened before has to know it, or its menu-less takes pass unseen (a guest took 1 of 3
+// from a placed chest: the guest read 2, the host 3, and the guest's service listed 0 containers). Each ref is queued once per world; the resolve is the same one a
+// cell attach would have started ("first resolver wins", a machine that does not own the cell waits for the owner's real items).
+void LootSync::tickDiscover(uint64_t now) {
+    if (!client_ || !cfg_.discover || FNV_MUT(184) || now < nextDiscover_) return;   // twin 184: unknown containers are never looked for
+    nextDiscover_ = now + cfg_.discoverEveryMs;
+    std::vector<RefId> refs;
+    eng_.nearbyContainers(refs, 256);
+    if (cfg_.discoverCells > 0 && !FNV_MUT(185)) {   // twin 185: only the player's own cell is looked at
+        // the loaded neighbour cells of an exterior grid, a few per pass in rotation (a pass is bounded: each cell is a walk over its whole object list)
+        std::vector<lc::CellId> cells;
+        eng_.nearbyCells(cells, 64);
+        if (cells.size() > 1) {
+            const size_t others = cells.size() - 1;   // cells[0] is the player's own cell: nearbyContainers answered it
+            const size_t take = std::min<size_t>(cfg_.discoverCells, others);
+            for (size_t k = 0; k < take && refs.size() < cfg_.discoverMaxRefs; ++k) {
+                const size_t idx = 1 + (discoverCursor_ + k) % others;
+                std::vector<RefId> more;
+                eng_.containersInCell(cells[idx], more, 256);
+                refs.insert(refs.end(), more.begin(), more.end());
+            }
+            if (!FNV_MUT(186)) discoverCursor_ = (discoverCursor_ + take) % others;   // twin 186: the rotation never moves on (the same first neighbours every pass)
+        }
+    }
+    for (RefId r : refs) {
+        if (!r || !discovered_.insert(r).second) continue;
+        onContainerLoaded(r);
+        ++stats_.containersDiscovered;
+    }
+    if (discovered_.size() > 4096) discovered_.clear();
 }
 
 void LootSync::tickResolve(uint64_t now) {

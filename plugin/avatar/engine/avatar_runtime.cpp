@@ -1,6 +1,7 @@
 #include "avatar_runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 #include "../live_bridge.h"
@@ -70,6 +71,45 @@ bool AvatarRuntime::SetRemoteAppearance(Slot slot, const Appearance& a) {
 
 bool AvatarRuntime::ReadLocalAppearance(Appearance& out) { return be_.ReadAppearance(kPlayerRef, out); }
 
+bool AvatarRuntime::ReadLocalFacts(PlayerFacts& out) {
+    PlayerFacts f;
+    bool any = false;
+    double v = 0;
+    if (be_.Eval(Cond::GetLevel, kPlayerRef, 0, v) && v >= 0 && v < 65536) { f.level = static_cast<uint16_t>(v); any = true; }
+    if (be_.Eval(Cond::GetSitting, kPlayerRef, 0, v) && v >= 0 && v < 256) { f.sitting = static_cast<uint8_t>(v); any = true; }
+    for (unsigned id = 0; id < kFactActionIds && !FNV_MUT(77); ++id)   // twin 77: no action is ever sampled (IsPlayerActionActive stays unknown for a guest)
+        if (be_.Eval(Cond::IsPlayerActionActive, kPlayerRef, id, v)) { any = true; if (v > 0.5) f.actions |= 1u << id; }
+    if (be_.ReadPlayerRegions(f.regions, kMaxFactRegions)) any = true;
+    if (!any) return false;
+    out = std::move(f);
+    return true;
+}
+
+// Twin 950: the weight is never read (the Jed gate sees no weight of a guest). 957: items the guest does not carry are listed with a zero.
+bool AvatarRuntime::ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out) {
+    PlayerPack p;
+    p.watchId = packWatchId(watch);
+    bool any = false;
+    double v = 0;
+    if (!FNV_MUT(950) && be_.Eval(Cond::GetActorValue, kPlayerRef, kAvInventoryWeight, v) && v >= 0 && v < 4e6) {
+        p.haveWeight = true;
+        p.weightMilli = static_cast<uint32_t>(v * 1000.0 + 0.5);
+        any = true;
+    }
+    std::vector<FormId> forms = watch;
+    std::sort(forms.begin(), forms.end());
+    forms.erase(std::unique(forms.begin(), forms.end()), forms.end());
+    for (FormId f : forms) {
+        if (!f || p.items.size() >= kMaxPackItems) continue;
+        if (!be_.Eval(Cond::GetItemCount, kPlayerRef, f, v)) continue;
+        any = true;
+        if (v >= 0.5 || FNV_MUT(957)) p.items.push_back(PackEntry{f, v > 2e9 ? 2000000000 : static_cast<int32_t>(v + 0.5)});
+    }
+    if (!any) return false;
+    out = std::move(p);
+    return true;
+}
+
 void AvatarRuntime::OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs) {
     auto it = remotes_.find(slot);
     if (FNV_MUT(61) && !remotes_.empty()) it = remotes_.begin();
@@ -111,6 +151,12 @@ void AvatarRuntime::PublishLocal(uint32_t nowMs) {
     if (sampler_.Sample(be_, nowMs, s)) {
         lastSnap_ = s;
         haveSnap_ = true;
+        if (sampler_.lastFrame().havePos3D) {
+            const Vec3 a = sampler_.lastFrame().pos, b = sampler_.lastFrame().pos3D;
+            stages_.localDrift3D.add(std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)));
+        }
+        traceLocal_.push_back(LocalPt{s.tick, s.pos.x, s.pos.y, s.pos.z, s.vel.x, s.vel.y, s.vel.z});
+        if (traceLocal_.size() > kTraceLocal) traceLocal_.pop_front();
         if (snapSink_) {
             snapSink_(s);
             if (FNV_MUT(70)) snapSink_(s);
@@ -150,21 +196,57 @@ void AvatarRuntime::DriveRemotes(uint32_t nowMs) {
         live::InterpOut o = r.buf.sample(nowMs, haveActual ? &ap : nullptr);
         if (o.state == live::InterpState::Empty && !FNV_MUT(64)) continue;   // nothing received yet: no puppet at a made-up place
         pm_.SetPose(slot, FromInterp(o));
+        {
+            auto& tr = traceRemote_[slot];
+            tr.push_back(RemotePt{nowMs, o.pos.x, o.pos.y, o.pos.z, haveActual ? ap.pos.x : 0.0f, haveActual ? ap.pos.y : 0.0f, haveActual ? ap.pos.z : 0.0f,
+                                  static_cast<uint8_t>((haveActual ? 16 : 0) | static_cast<uint8_t>(o.state)),
+                                  static_cast<float>(r.buf.diag().delayInUse.last), static_cast<float>(r.buf.diag().wantDelayMs), static_cast<float>(r.buf.diag().jitterMs),
+                                  static_cast<float>(r.buf.diag().newestAgeMs)});
+            if (tr.size() > kTraceRemote) tr.pop_front();
+        }
         ++posesFed_;
         r.everSampled = true;
     }
 }
 
+void AvatarRuntime::NoteStage(NetStage st, double ms) {
+    switch (st) {
+        case NetStage::Send: stages_.send.add(ms); break;
+        case NetStage::Rx: stages_.rx.add(ms); break;
+        case NetStage::NetFrame: {
+            const uint32_t now = static_cast<uint32_t>(ms);
+            stages_.netPhase.add(static_cast<double>(static_cast<int32_t>(now - lastTick_)));
+            if (haveNetFrame_) stages_.netGap.add(static_cast<double>(static_cast<int32_t>(now - lastNetFrame_)));
+            lastNetFrame_ = now;
+            haveNetFrame_ = true;
+            break;
+        }
+    }
+}
+
 void AvatarRuntime::Tick(uint32_t nowMs) {
     lastTick_ = nowMs;
+    const uint64_t u0 = be_.NowUs();
+    if (haveTickUs_ && u0 >= lastTickUs_) stages_.frameGap.add(static_cast<double>(u0 - lastTickUs_) / 1000.0);
+    lastTickUs_ = u0;
+    haveTickUs_ = true;
     if (saveHeld_ && !FNV_MUT(71) && static_cast<int32_t>(nowMs - saveHeldAt_) >= static_cast<int32_t>(cfg_.saveHoldMs)) {
         Log("avatar: no SaveEnd after " + std::to_string(cfg_.saveHoldMs) + " ms, puppets may return");
         saveHeld_ = false;
         pm_.OnSaveEnd();
     }
     PublishLocal(nowMs);
+    const uint64_t u1 = be_.NowUs();
     DriveRemotes(nowMs);
+    const uint64_t u2 = be_.NowUs();
     pm_.Tick(nowMs);
+    const uint64_t u3 = be_.NowUs();
+    stages_.sampleUs.add(static_cast<double>(u1 - u0));
+    stages_.driveUs.add(static_cast<double>(u2 - u1));
+    stages_.applyUs.add(static_cast<double>(u3 - u2));
+    const uint32_t sp = static_cast<uint32_t>(pm_.stats().setPos);
+    if (sp != lastSetPosCount_) stages_.poseToSetPosMs.add(static_cast<double>(u3 - u0) / 1000.0);
+    lastSetPosCount_ = sp;
 }
 
 void AvatarRuntime::OnEvent(GameEvent e) {
@@ -214,10 +296,75 @@ std::string AvatarRuntime::StatusJson() {
                   loopback_ ? "true" : "false", (int)cfg_.loopbackSlot, (unsigned)be_.WorldEpoch(), (unsigned long long)remoteSnaps_,
                   (unsigned long long)droppedRemote_, (unsigned long long)posesFed_);
     s += buf;
+    // the playback mode the receivers were built with (the per-remote figure in "stages" is what each buffer really runs)
+    s += std::string(",\"lowLatency\":") + (cfg_.interp.lowLatency ? "true" : "false") + ",\"samplerPeriodMs\":" + std::to_string(cfg_.sampler.periodMs);
     if (!FNV_MUT(66)) s += ",\"tagged\":" + std::to_string(eng_.FindTaggedPuppets().size());
     s += ",\"engine\":" + eng_.StatsJson();
     s += ",\"local\":" + LocalJson();
+    s += ",\"stages\":" + StagesJson();
     s += "}";
+    return s;
+}
+
+std::string AvatarRuntime::TraceJson(size_t n) const {
+    std::string s = "{\"clock\":" + std::to_string(lastTick_) + ",\"local\":[";
+    char b[160];
+    const size_t l0 = traceLocal_.size() > n ? traceLocal_.size() - n : 0;
+    for (size_t i = l0; i < traceLocal_.size(); ++i) {
+        const LocalPt& p = traceLocal_[i];
+        std::snprintf(b, sizeof b, "%s[%u,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f]", i == l0 ? "" : ",", (unsigned)p.t, p.x, p.y, p.z, p.vx, p.vy, p.vz);
+        s += b;
+    }
+    s += "],\"remote\":{";
+    bool firstSlot = true;
+    for (const auto& kv : traceRemote_) {
+        if (!firstSlot) s += ",";
+        firstSlot = false;
+        s += "\"" + std::to_string((int)kv.first) + "\":[";
+        const auto& d = kv.second;
+        const size_t r0 = d.size() > n * 2 ? d.size() - n * 2 : 0;
+        for (size_t i = r0; i < d.size(); ++i) {
+            const RemotePt& p = d[i];
+            std::snprintf(b, sizeof b, "%s[%u,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%u,%.0f,%.0f,%.0f,%.0f]", i == r0 ? "" : ",", (unsigned)p.t, p.x, p.y, p.z, p.ax, p.ay, p.az, (unsigned)p.state,
+                      p.delay, p.want, p.jitter, p.newestAge);
+            s += b;
+        }
+        s += "]";
+    }
+    s += "}}";
+    return s;
+}
+
+// avatar.status "stages": every figure is a gauge {n, last, mean, max, sum} (mean is since the start; the difference of two sums over the difference of two
+// counts is the mean over the stretch between two readings). ms unless the name ends in Us.
+//   send      sampling time -> handed to the transport (sender)            rx        sampling time -> in the other copy's network layer (shared clock)
+//   hold      arrival stamp -> the first drive that could use it           delay     the buffer delay in use (render age minus the clock offset)
+//   applyUs   engine calls of one tick                                      poseToSetPosMs  start of the tick -> end of the engine calls, ticks that moved a puppet
+std::string AvatarRuntime::StagesJson() const {
+    std::string s = "{\"send\":" + live::gaugeJson(stages_.send) + ",\"rx\":" + live::gaugeJson(stages_.rx) + ",\"netPhase\":" + live::gaugeJson(stages_.netPhase) +
+                    ",\"netGap\":" + live::gaugeJson(stages_.netGap) +
+                    ",\"frameGap\":" + live::gaugeJson(stages_.frameGap) + ",\"sampleUs\":" + live::gaugeJson(stages_.sampleUs) +
+                    ",\"driveUs\":" + live::gaugeJson(stages_.driveUs) + ",\"applyUs\":" + live::gaugeJson(stages_.applyUs) +
+                    ",\"localDrift3D\":" + live::gaugeJson(stages_.localDrift3D) + ",\"poseToSetPosMs\":" + live::gaugeJson(stages_.poseToSetPosMs) + ",\"remotes\":[";
+    bool first = true;
+    for (const auto& kv : remotes_) {
+        const live::InterpDiag& d = kv.second->buf.diag();
+        char b[420];
+        std::snprintf(b, sizeof b,
+                      "{\"slot\":%d,\"lowLatency\":%s,\"snapshots\":%zu,\"pushes\":%llu,\"samples\":%llu,\"offsetMs\":%d,\"jitterMs\":%.1f,\"frameMs\":%.1f,"
+                      "\"wantDelayMs\":%.1f,\"lagErrMs\":%.1f,\"renderAgeMs\":%d,\"newestAgeMs\":%d,\"extrapolating\":%llu,\"holding\":%llu,\"snaps\":%llu,"
+                      "\"teleportSnaps\":%llu,\"eased\":%llu,",
+                      (int)kv.first, d.lowLatency ? "true" : "false", kv.second->buf.size(), (unsigned long long)d.pushes, (unsigned long long)d.samples,
+                      (int)d.offsetMs, d.jitterMs, d.frameMs, d.wantDelayMs, d.lagErrMs, (int)d.renderAgeMs, (int)d.newestAgeMs,
+                      (unsigned long long)d.extrapolating, (unsigned long long)d.holding, (unsigned long long)d.snaps, (unsigned long long)d.teleportSnaps,
+                      (unsigned long long)d.eased);
+        if (!first) s += ",";
+        first = false;
+        s += b;
+        s += "\"delay\":" + live::gaugeJson(d.delayInUse) + ",\"hold\":" + live::gaugeJson(d.hold) + ",\"extrap\":" + live::gaugeJson(d.extrap) +
+             ",\"arrivalGap\":" + live::gaugeJson(d.arrivalGap) + "}";
+    }
+    s += "]}";
     return s;
 }
 

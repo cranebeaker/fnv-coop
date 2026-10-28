@@ -177,6 +177,16 @@ void OwnershipService::tick(uint32_t nowMs, Out& out) {
     }
 }
 
+bool OwnershipService::commitNothingToHandOver(ActorNetId id, uint32_t nowMs, Out& out) {
+    auto it = actors_.find(id);
+    if (it == actors_.end()) return false;
+    Rec& r = it->second;
+    if (!r.pending || (!isConnected(r.to) && !ownershipFaults().commitToGoneOwner)) return false;
+    ++stats_.immediateCommits;
+    commit(id, r, nowMs, false, out);
+    return true;
+}
+
 std::vector<ActorNetId> OwnershipService::playerLeft(PlayerId p, uint32_t nowMs, Out& out) {
     if (p < kMaxSlots) connected_ = static_cast<uint8_t>(connected_ & ~(1u << p));
     std::vector<ActorNetId> orphans;

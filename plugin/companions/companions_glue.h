@@ -40,6 +40,18 @@ void glueReportCrime(const sc::CrimeEvent& e);
 void glueReportKill(const sc::KillReport& r);
 void glueGuestInteraction(uint8_t slot, bool pickup, const fnvcoop::FormRef& target);   // host only; a guest's intent just ran
 
+// ---- G34 companion set pieces (called by the session wiring in plugin/coop; the rules themselves are tested game-free) ------------------------------------------
+// (The rules engine's owner=party test needs no call: the host's HostSession::isPartyCompanion, installed by the RulesEngine, is read through the runtime's host() every frame.)
+// Which player's hired flags a quest / object script should read (the viewSlotFor policy): the acting player for a hire / fire, sc::kViewParty (0xFE) for a mover or gate
+// (Fort entry and exit, the Dam start, the ending): "use the shared variable as it is", it already holds the party aggregate (CompanionRegistry::aggregateVar).
+// Called with the whole companion roster (npc, owner, kind, party flag) whenever it changed on this machine: feed the dialogue registry from it.
+void glueSetRosterListener(std::function<void(const std::vector<sc::Companion>&)> onRoster);
+// The companion a player has in a single-slot group ("deadmoney", "honesthearts"): what NVDLC01Followers.rCurrentFollower should read as for that player. false = none.
+bool glueCurrentFollower(uint8_t slot, const std::string& group, fnvcoop::FormRef& out);
+uint8_t glueViewSlot(const std::string& scriptEdid, uint8_t actingSlot);
+// The EDIDs (lower case) of the scripts that read the hired flags party-wide (companion_sets.txt view-party): the session resolves them to form ids to name a running script.
+std::vector<std::string> glueViewPartyScripts();
+
 // The avatar layer's puppet map (optional; default is the NV:MP ghost map, like plugin/combat).
 void setPlayerRefMap(std::function<bool(uint32_t ref, uint8_t& slot)> slotOfRef, std::function<uint32_t(uint8_t slot)> refOfSlot);
 

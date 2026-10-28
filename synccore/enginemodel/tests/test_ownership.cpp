@@ -267,3 +267,8 @@ TEST(own, wire_roundtrip_and_fuzz_safe) {
 TEST(own, random_churn_keeps_one_owner_per_epoch_and_monotonic_epochs) { CHECK(churnHolds(1, 400)); CHECK(churnHolds(2, 400)); CHECK(churnHolds(3, 400)); }
 TEST(own, stale_echo_injection_is_rejected) { CHECK(staleEchoRejected()); }
 TEST(own, player_leave_and_rejoin_keeps_epochs_monotonic) { CHECK(rejoinEpochsMonotonic()); }
+
+TEST(own, nothing_to_hand_over_commits_at_once_to_a_connected_new_owner) {
+    std::string why;
+    CHECK_MSG(commitNothingToHandOverHolds(&why), why);
+}

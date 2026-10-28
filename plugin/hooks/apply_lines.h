@@ -16,6 +16,9 @@
 namespace nvhooks {
 
 std::string killCmd();
+// An animation order (PlayGroup, PlayIdle) needs the reference's 3D model: on a machine where the reference's cell is not loaded the engine runs animation code on a null
+// node (the story run's `C0000005 at FalloutNV.exe+4DDCA`). The applier skips such an order when the model is not there.
+bool refOpNeedsModel(uint16_t op);
 std::string enableFastTravelCmd(bool enable);
 // Party-wide fast-travel lock bookkeeping for SetFastTravelLock{scope,on}: travel is enabled only while NO scope holds a lock.
 class FastTravelLocks {
@@ -36,6 +39,7 @@ std::string setTeammateCmd(bool on);           // run ON the actor
 // CompanionOwner is applied only on the owner's machine (the engine's follower AI follows the LOCAL player); others see the NPC move.
 bool companionForMe(uint8_t owner, uint8_t localSlot);
 std::string resurrectCmd(bool resetInventory);
+std::string killByCmd(uint32_t killerRefID);   // run ON the victim: `KillActor <killer>` makes the engine record the killer (kill_attrib.h)
 std::string moveToMarkerCmd(uint32_t markerRefID, float ox, float oy, float oz);
 
 // Journal / world / faction / perk / lock commands (hex FormID arguments are accepted by the console parser).

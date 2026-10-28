@@ -129,7 +129,7 @@ def check_build_plan():
         assert h.values["coop"] == {"enable": "1", "name": "Ann", "handshake": "1", "baseline": "1", "dialogue": "1", "role": "host",
                                     "listen": "0.0.0.0", "port": "30000", "maxplayers": "3"}, h.values["coop"]
         assert h.values["combat"] == {"xpmode": "1"} and h.values["party"] == {"slowmo": "1", "tether": "0"}
-        assert h.values["live"] == {"actors": "0", "avatars": "0", "combat": "0", "spawns": "0"}
+        assert h.values["live"] == {"actors": "1", "avatars": "1", "combat": "1", "spawns": "1"}, "the sync layers are on by default"
         j = core.build_plan(core.Settings(name="Bob", mode="join", address="203.0.113.5:31000", token=777))
         assert j.ok and (j.host, j.port) == ("203.0.113.5", 31000)
         assert j.values["coop"]["role"] == "client" and j.values["coop"]["host"] == "203.0.113.5" and j.values["coop"]["port"] == "31000"
@@ -142,9 +142,10 @@ def check_build_plan():
             p = core.build_plan(s)
             assert not p.ok and p.errors, s
         # the live layers follow the plugin's dependency rule: combat and spawns switch actors on
-        p = core.build_plan(core.Settings(name="A", live_combat=True))
+        off = dict(live_actors=False, live_avatars=False, live_combat=False, live_spawns=False)
+        p = core.build_plan(core.Settings(name="A", **dict(off, live_combat=True)))
         assert p.values["live"] == {"actors": "1", "avatars": "0", "combat": "1", "spawns": "0"}, p.values["live"]
-        p = core.build_plan(core.Settings(name="A", live_spawns=True, live_avatars=True))
+        p = core.build_plan(core.Settings(name="A", **dict(off, live_spawns=True, live_avatars=True)))
         assert p.values["live"]["actors"] == "1" and p.values["live"]["avatars"] == "1"
 
 

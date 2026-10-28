@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 #include <map>
+#include <set>
+#include <unordered_set>
 #include <vector>
 
 #include "../capture_hub.h"
@@ -16,10 +18,21 @@
 #include "../change_tracker.h"
 #include "../inventory_diff.h"
 #include "../suppress_policy.h"
+#include "../guest_item.h"
 #include "../guest_local_run.h"
 #include "../guest_objvars.h"
+#include "../activate_args.h"
+#include "../kill_attrib.h"
+#include "../ref_var.h"
+#include "../controls_route.h"
+#include "../player_kill.h"
+#include "../player_facts.h"
+#include "../lock_preimage.h"
+#include "../faction_removal.h"
 #include "../party_cond.h"
 #include "../rules_reducer.h"
+#include "../per_slot_run.h"
+#include "../info_scope.h"
 #include "fnvcoop/session.h"
 #include "fnvcoop/transport.h"
 
@@ -1025,6 +1038,8 @@ TEST(guest_ganger_death_scripts_do_not_count_on_the_guest_the_host_value_wins) {
 
 TEST(apply_lines_pin_command_names_and_parameter_order) {
     CHECK(killCmd() == "KillActor");
+    CHECK(refOpNeedsModel(fnvcoop::kOpPlayGroup) && refOpNeedsModel(fnvcoop::kOpPlayIdle));   // story fix 2026-10-28: no animation order on a reference without a model (the S08 crash)
+    CHECK(!refOpNeedsModel(fnvcoop::kOpModFactionRank) && !refOpNeedsModel(fnvcoop::kOpSetCriticalStage));
     CHECK(resurrectCmd(false) == "ResurrectActor 0");
     CHECK(resurrectCmd(true) == "ResurrectActor 1");
     CHECK(moveToMarkerCmd(0x32, 1.5f, -2.f, 0.f) == "MoveTo 00000032 1.5000 -2.0000 0.0000");
@@ -1523,6 +1538,459 @@ TEST(every_hooked_condition_function_has_a_rule_in_rules_json) {
     }
 }
 
+
+// ---------------------------------------------------------------- P2: nine more party-aware condition functions (G23), GetHasNote (G10), IsKiller (G04)
+TEST(party_condition_plan_for_the_nine_new_functions) {
+    // identity group: the player is the calling reference (GetInWorldspace, IsInInterior) ...
+    CHECK(planSwap(CondFunc::GetInWorldspace, 0x14, 0).thisObj && !planSwap(CondFunc::GetInWorldspace, 0x1234, 0).any());
+    CHECK(planSwap(CondFunc::IsInInterior, 0x14, 0).thisObj && !planSwap(CondFunc::IsInInterior, 0x1234, 0).any());
+    // ... IsKiller's calling reference is the dead actor; only the claimed killer (param1) is the player
+    CHECK(planSwap(CondFunc::IsKiller, 0x1234, 0x14).param1 && !planSwap(CondFunc::IsKiller, 0x1234, 0x14).thisObj);
+    CHECK(!planSwap(CondFunc::IsKiller, 0x14, 0x1234).any());   // the player as the dead actor is not a kill attribution question
+    CHECK(param1IsReference(CondFunc::IsKiller) && !param1IsReference(CondFunc::GetEquipped));
+    // state group: player as calling reference
+    CHECK(planSwap(CondFunc::HasPerk, 0x14, 0).thisObj && !planSwap(CondFunc::HasPerk, 0x1234, 0).any());
+    CHECK(planSwap(CondFunc::GetEquipped, 0x14, 0).thisObj && planSwap(CondFunc::IsSneaking, 0x14, 0).thisObj);
+    // evaluators that ignore the operand (read the global player) or carry an NPC: party-aware whatever the operands are
+    CHECK(planSwap(CondFunc::GetHasNote, 0, 0).always && planSwap(CondFunc::GetHasNote, 0x1234, 0).any());
+    CHECK(planSwap(CondFunc::IsPlayerInRegion, 0, 0).always);
+    CHECK(planSwap(CondFunc::GetPlayerTeammate, 0x5555, 0).always && !planSwap(CondFunc::GetPlayerTeammate, 0x5555, 0).thisObj);
+    CHECK(memberView(CondFunc::GetDistance) == MemberView::Ghost && memberView(CondFunc::IsKiller) == MemberView::Ghost);
+    CHECK(memberView(CondFunc::GetInWorldspace) == MemberView::Ghost && memberView(CondFunc::IsInInterior) == MemberView::Ghost);
+    for (CondFunc f : {CondFunc::GetEquipped, CondFunc::HasPerk, CondFunc::IsSneaking, CondFunc::GetHasNote, CondFunc::IsPlayerInRegion})
+        CHECK(memberView(f) == MemberView::State);
+    CHECK(memberView(CondFunc::GetPlayerTeammate) == MemberView::Owner);
+    CHECK(std::string(condFuncName(CondFunc::IsKiller)) == "IsKiller" && std::string(condFuncName(CondFunc::GetHasNote)) == "GetHasNote" &&
+          std::string(condFuncName(CondFunc::IsPlayerInRegion)) == "IsPlayerInRegion" && std::string(condFuncName(CondFunc::HasPerk)) == "HasPerk");
+    CHECK(static_cast<int>(CondFunc::Count) == 23);   // the 17 of waves 0-1a plus the six of wave 1b (party_condition_plan_for_the_wave1b_functions)
+}
+
+namespace {
+struct FakeCond {
+    std::map<uint32_t, double> ghost;                 // ghost ref -> value the evaluator returns for it
+    double local = 0;
+    std::map<std::pair<int, uint8_t>, double> state;  // (func, slot) -> value
+    int ghostCalls = 0, stateCalls = 0;
+    CondOps ops() {
+        CondOps o;
+        o.evalLocal = [this](double* v) { *v = local; return true; };
+        o.evalGhost = [this](uint32_t r, double* v) { ++ghostCalls; auto it = ghost.find(r); if (it == ghost.end()) return false; *v = it->second; return true; };
+        o.state = [this](const StateQuery& q, double* v) {
+            ++stateCalls;
+            auto it = state.find({static_cast<int>(q.f), q.slot});
+            if (it == state.end()) return false;
+            *v = it->second;
+            return true;
+        };
+        return o;
+    }
+};
+std::vector<PartyMember> trio() { return {{0, kHostPlayerRef}, {1, 0xFF000001}, {2, 0xFF000002}}; }
+}  // namespace
+
+TEST(party_member_value_ghost_view_state_view_and_owner_view) {
+    StateQuery base;
+    double v = -1;
+    {   // ghost view: spatial / identity functions are answered by the member's ghost reference
+        FakeCond c; c.local = 0; c.ghost[0xFF000001] = 1; c.ghost[0xFF000002] = 0;
+        CondOps o = c.ops();
+        CHECK(evalMember(CondFunc::IsInInterior, trio()[1], base, o, &v) && v == 1.0 && c.ghostCalls == 1 && c.stateCalls == 0);
+        CHECK(evalMember(CondFunc::IsInInterior, trio()[0], base, o, &v) && v == 0.0 && c.ghostCalls == 1);   // the local player never goes through a ghost
+        CHECK(evalMember(CondFunc::IsKiller, trio()[1], base, o, &v) && v == 1.0);
+        CHECK(!evalMember(CondFunc::GetInWorldspace, {3, 0xFF000009}, base, o, &v));   // ghost not loaded: member skipped
+    }
+    {   // state view: a ghost has no perks / notes / sneak state, so only the provider answers for remote members
+        FakeCond c; c.local = 1; c.ghost[0xFF000001] = 1; c.state[{static_cast<int>(CondFunc::HasPerk), 1}] = 0; c.state[{static_cast<int>(CondFunc::GetHasNote), 2}] = 1;
+        CondOps o = c.ops();
+        CHECK(evalMember(CondFunc::HasPerk, trio()[0], base, o, &v) && v == 1.0 && c.stateCalls == 0);        // local: the engine's own answer
+        CHECK(evalMember(CondFunc::HasPerk, trio()[1], base, o, &v) && v == 0.0 && c.ghostCalls == 0);        // remote: provider says no, the ghost's 1 is ignored
+        CHECK(evalMember(CondFunc::GetHasNote, trio()[2], base, o, &v) && v == 1.0);
+        CHECK(!evalMember(CondFunc::IsSneaking, trio()[1], base, o, &v));                                    // provider does not know: skipped
+        CondOps none = o; none.state = nullptr;
+        CHECK(!evalMember(CondFunc::HasPerk, trio()[1], base, none, &v));                                    // no provider at all: skipped, never guessed
+        CHECK(evalMember(CondFunc::HasPerk, trio()[0], base, none, &v) && v == 1.0);
+    }
+    {   // owner view: the engine flag says "somebody's teammate", the provider says whose
+        FakeCond c; c.local = 1; c.state[{static_cast<int>(CondFunc::GetPlayerTeammate), 0}] = 0; c.state[{static_cast<int>(CondFunc::GetPlayerTeammate), 1}] = 1;
+        CondOps o = c.ops();
+        CHECK(evalMember(CondFunc::GetPlayerTeammate, trio()[0], base, o, &v) && v == 0.0);
+        CHECK(evalMember(CondFunc::GetPlayerTeammate, trio()[1], base, o, &v) && v == 1.0);
+        CHECK(evalMember(CondFunc::GetPlayerTeammate, trio()[2], base, o, &v) && v == 1.0);   // no owner row for this slot: the engine flag stands
+        c.local = 0;   // not a teammate at all: nobody owns it, whatever the provider table says
+        CHECK(evalMember(CondFunc::GetPlayerTeammate, trio()[1], base, o, &v) && v == 0.0);
+        c.local = 1;
+        CondOps none = o; none.state = nullptr;
+        CHECK(evalMember(CondFunc::GetPlayerTeammate, trio()[1], base, none, &v) && v == 1.0);   // no table: the engine flag (any member)
+    }
+}
+
+// Guest pack facts: a guest's hand-in runs as a script on the host and must not take the item from the HOST's own pack.
+TEST(a_guests_remove_item_skips_the_engine_and_is_recorded_for_the_rules) {
+    GuestItems g;
+    CHECK(!g.active() && g.slot() == 0);
+    g.push(2);
+    CHECK(g.active() && g.slot() == 2);
+    g.push(0);                       // a nested host window: the host's own pack again
+    CHECK(!g.active());
+    g.pop();
+    CHECK(g.active() && g.slot() == 2);
+    g.pop();
+    g.pop();                         // too many pops are harmless
+    CHECK(!g.active());
+    // the plan: the guest's removal on `player` is recorded and the engine call is skipped
+    RemovePlan p = planPlayerRemoveItem(true, true, true, true);
+    CHECK(!p.runEngine && p.record);
+    p = planPlayerRemoveItem(true, false, true, true);               // the host's own hand-in: the engine removes it from the host
+    CHECK(p.runEngine && p.record);
+    p = planPlayerRemoveItem(false, true, true, true);               // some other reference (a container): not the player
+    CHECK(p.runEngine && p.record);
+    p = planPlayerRemoveItem(true, true, false, true);               // no capture scope: nothing is recorded, so the old behaviour (a guest scope never opens without one)
+    CHECK(p.runEngine && !p.record);
+    p = planPlayerRemoveItem(true, true, true, false);               // the arguments did not parse: the engine decides
+    CHECK(p.runEngine && !p.record);
+}
+
+// Guest pack facts: a puppet carries nothing of the guest's pack, so GetItemCount and GetActorValue (InventoryWeight, the Jed gate) ask the state provider first
+// (what the guest reported) and the ghost only when it does not know.
+TEST(party_member_value_inventory_view_asks_the_reported_pack_first_and_the_puppet_when_unknown) {
+    StateQuery base;
+    double v = -1;
+    CHECK(memberView(CondFunc::GetItemCount) == MemberView::StateOrGhost && memberView(CondFunc::GetActorValue) == MemberView::StateOrGhost);
+    FakeCond c; c.local = 2; c.ghost[0xFF000001] = 0; c.ghost[0xFF000002] = 5;
+    c.state[{static_cast<int>(CondFunc::GetItemCount), 1}] = 4;
+    c.state[{static_cast<int>(CondFunc::GetActorValue), 1}] = 80.5;
+    CondOps o = c.ops();
+    CHECK(evalMember(CondFunc::GetItemCount, trio()[0], base, o, &v) && v == 2.0 && c.stateCalls == 0 && c.ghostCalls == 0);   // the local player: the engine's own answer
+    CHECK(evalMember(CondFunc::GetItemCount, trio()[1], base, o, &v) && v == 4.0 && c.ghostCalls == 0);                          // reported: not the puppet's empty pack
+    CHECK(evalMember(CondFunc::GetItemCount, trio()[2], base, o, &v) && v == 5.0 && c.ghostCalls == 1);                          // no report from this one: its puppet answers as before
+    CHECK(evalMember(CondFunc::GetActorValue, trio()[1], base, o, &v) && v == 80.5);
+    CondOps none = o; none.state = nullptr;
+    CHECK(evalMember(CondFunc::GetItemCount, trio()[1], base, none, &v) && v == 0.0);                                             // no provider: the puppet, never a skip
+    CHECK(!evalMember(CondFunc::GetItemCount, {3, 0xFF000009}, base, o, &v));                                                     // neither: skipped
+    // folded into the party reduction the heaviest pack decides (host 2, guest 80.5, a third whose puppet says 5)
+    std::vector<CondValue> vals;
+    for (const PartyMember& m : trio()) { double x = 0; if (evalMember(CondFunc::GetActorValue, m, base, o, &x)) vals.push_back({m.slot, x}); }
+    CHECK(vals.size() == 3 && vals[0].value == 2.0 && vals[1].value == 80.5 && vals[2].value == 5.0);
+}
+
+namespace {
+const char* kNewFuncRules = R"({"schema":1,"quests":{
+ "Notes":{"tier":"T3","questline":"x","curated":false,"rules":[
+   {"kind":"PartyAwareCond","params":{"funcs":{"GetHasNote":"any-party-member","HasPerk":"initiator","IsKiller":"any-party-member","GetPlayerTeammate":"any-party-member"}},"origin":"derived"}]}
+}})";
+bool newFuncResolve(const std::string&, fnvcoop::FormRef& out) { out = fnvcoop::FormRef("falloutnv.esm", 0x200u); return true; }
+double runNew(fnvcoop::RulesEngine& eng, CondFunc f, FakeCond& c, uint8_t initiator) {
+    ConditionReducer red = makeRulesReducer(eng);
+    fnvcoop::FormRef q;
+    newFuncResolve("Notes", q);
+    StateQuery base;
+    CondOps o = c.ops();
+    double out = -12345;
+    bool done = evaluateOverParty(
+        f, trio(), [&](const PartyMember& m, double* v) { return evalMember(f, m, base, o, v); },
+        [&](const std::string& fn, const std::vector<CondValue>& vals, uint8_t init) { return red(q, fn, vals, init, fnvcoop::CondPhase::Entry); }, initiator, &out);
+    return done ? out : c.local;
+}
+}  // namespace
+
+TEST(party_conditions_over_the_new_functions_follow_their_rules) {
+    fnvcoop::InMemoryNetwork net(1);
+    fnvcoop::HostSession host(*net.endpoint(0));
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.load(kNewFuncRules, &err));
+    fnvcoop::RulesEngine eng(host, db, newFuncResolve);
+    const int note = static_cast<int>(CondFunc::GetHasNote), perk = static_cast<int>(CondFunc::HasPerk), mate = static_cast<int>(CondFunc::GetPlayerTeammate);
+    {   // GetHasNote, any-party-member: slot 2 looted the Jessup note, the host's own journal does not have it yet
+        FakeCond c; c.local = 0; c.state[{note, 1}] = 0; c.state[{note, 2}] = 1;
+        CHECK(runNew(eng, CondFunc::GetHasNote, c, 0) == 1.0);
+        c.state[{note, 2}] = 0;
+        CHECK(runNew(eng, CondFunc::GetHasNote, c, 0) == 0.0);
+    }
+    {   // HasPerk, initiator: the guest who talks decides, not the host
+        FakeCond c; c.local = 1; c.state[{perk, 1}] = 0; c.state[{perk, 2}] = 1;
+        CHECK(runNew(eng, CondFunc::HasPerk, c, 0) == 1.0);
+        CHECK(runNew(eng, CondFunc::HasPerk, c, 1) == 0.0);
+        CHECK(runNew(eng, CondFunc::HasPerk, c, 2) == 1.0);
+    }
+    {   // IsKiller, any-party-member: a guest's ghost is the recorded killer; then nobody is the killer
+        FakeCond c; c.local = 0; c.ghost[0xFF000001] = 0; c.ghost[0xFF000002] = 1;
+        CHECK(runNew(eng, CondFunc::IsKiller, c, 0) == 1.0);
+        c.ghost[0xFF000002] = 0;
+        CHECK(runNew(eng, CondFunc::IsKiller, c, 0) == 0.0);
+    }
+    {   // GetPlayerTeammate, any-party-member: a companion owned by the second guest counts for the party
+        FakeCond c; c.local = 1; c.state[{mate, 0}] = 0; c.state[{mate, 1}] = 0; c.state[{mate, 2}] = 1;
+        CHECK(runNew(eng, CondFunc::GetPlayerTeammate, c, 0) == 1.0);
+        c.state[{mate, 2}] = 0;
+        CHECK(runNew(eng, CondFunc::GetPlayerTeammate, c, 0) == 0.0);   // flagged teammate but owned by nobody present
+    }
+}
+
+// W3a item 4: a ref variable keeps its form id in the low dword of the slot, not as the number (a mutant stores the number: the ref reads back as garbage).
+TEST(a_ref_variable_slot_holds_the_form_id_in_its_low_dword) {
+    const double slot = refVarSlotFromNumber(16786245.0);   // 0x01002345
+    uint64_t bits;
+    std::memcpy(&bits, &slot, sizeof bits);
+    CHECK(bits == 0x01002345ull);
+    CHECK(refVarNumberFromSlot(slot) == 16786245.0);
+    CHECK(refVarNumberFromSlot(refVarSlotFromNumber(0xFF000123u)) == 4278190371.0);   // a created reference (top byte 0xFF) survives
+    CHECK(refVarNumberFromSlot(refVarSlotFromNumber(0)) == 0.0);
+    double engine;                                                  // what the engine stores for a ref local holding 0x00104C1C
+    const uint64_t eb = 0x00104C1Cull;
+    std::memcpy(&engine, &eb, sizeof engine);
+    CHECK(refVarNumberFromSlot(engine) == 1068060.0);
+}
+
+// W3a item 5: the host's own SetPlayerControls call is skipped only for a captured lock of a guest that the router calls guest-only.
+TEST(the_host_skips_its_controls_call_only_for_a_guest_only_lock) {
+    int asked = 0;
+    auto router = [&](uint8_t slot, bool) { ++asked; return slot == 2; };
+    CHECK(skipHostControlsCall(true, 2, true, router));      // guest 2, scope=initiator
+    CHECK(!skipHostControlsCall(true, 1, true, router));     // the router says this one concerns everybody
+    CHECK(!skipHostControlsCall(true, 0, true, router));     // the host is acting: its own lock
+    CHECK(!skipHostControlsCall(false, 2, true, router));    // not captured (no rules apply): the engine call runs
+    CHECK(!skipHostControlsCall(true, 2, true, nullptr));    // no router: unchanged behaviour
+    CHECK(asked == 2);
+}
+
+TEST(the_capture_hub_names_the_cause_of_its_outermost_scope) {
+    nvhooks::CaptureHub hub;
+    hub.setEnabled(true);
+    fnvcoop::Cause out;
+    CHECK(!hub.currentCause(&out));
+    fnvcoop::Cause outer, inner;
+    outer.kind = fnvcoop::CauseKind::QuestResult; outer.source = fnvcoop::FormRef("falloutnv.esm", 0x111); outer.aux = 30;
+    inner.kind = fnvcoop::CauseKind::Script; inner.source = fnvcoop::FormRef("falloutnv.esm", 0x222);
+    {
+        nvhooks::ScopedCapture a(hub, outer);
+        nvhooks::ScopedCapture b(hub, inner);
+        CHECK(hub.currentCause(&out) && out.kind == fnvcoop::CauseKind::QuestResult && out.source.localId == 0x111 && out.aux == 30);
+    }
+    CHECK(!hub.currentCause(&out));
+}
+
+TEST(kill_attribution_writes_the_engine_killer_slot) {
+    alignas(8) unsigned char actor[0x120] = {};
+    unsigned char killerObj[16] = {};
+    CHECK(storeKiller(actor, kFormTypeACHR, killerObj));
+    void* back = nullptr;
+    std::memcpy(&back, actor + 0xC0, sizeof back);   // the exact slot Actor::Kill writes and IsKiller reads
+    CHECK(back == killerObj && loadKiller(actor, kFormTypeACHR) == killerObj);
+    CHECK(storeKiller(actor, kFormTypeACRE, nullptr) && loadKiller(actor, kFormTypeACRE) == nullptr);   // clearing works
+    CHECK(!storeKiller(actor, 0x31 /* a NOTE form */, killerObj) && loadKiller(actor, 0x31) == nullptr);   // never on a non-actor
+    CHECK(!storeKiller(nullptr, kFormTypeACHR, killerObj));
+    CHECK(killByCmd(0xFF001234u) == "KillActor FF001234");   // the console line that lets the engine store the killer in its own order
+}
+
+
+// ---------------------------------------------------------------- P2: G47 the GuestLocalRun rule IS the allow-list
+namespace {
+std::string readWholeFile(const std::string& path) {
+    std::string text;
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return text;
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, n);
+    fclose(f);
+    return text;
+}
+}  // namespace
+
+TEST(guest_local_run_list_is_read_from_the_rules_json_rule) {
+    const char* rules = R"({"schema":1,"quests":{
+      "AchievementQuest":{"tier":"T3","questline":"x","curated":false,"rules":[
+        {"kind":"GuestLocalRun","params":{"scripts":["FalloutNV.esm:07691E"]},"origin":"questsweep"},
+        {"kind":"RewardAll","params":{},"origin":"derived"}]},
+      "NVDLC02MQ00":{"tier":"T3","questline":"x","curated":false,"rules":[
+        {"kind":"GuestLocalRun","params":{"scripts":["HonestHearts.esm:008A32","nocolon","X.esm:zz"]},"origin":"questsweep"}]},
+      "Other":{"tier":"T3","questline":"x","curated":false,"rules":[
+        {"kind":"PartyWarp","params":{"scripts":["FalloutNV.esm:000999"]},"origin":"derived"}]},
+      "NoRules":{"tier":"T3","questline":"x","curated":false}
+    }})";
+    GuestLocalRunList l;
+    std::string err;
+    CHECK(parseGuestLocalRunRules(rules, &l, &err));
+    CHECK(l.scripts.size() == 2 && l.skipped == 2);   // only GuestLocalRun rules count; two malformed script entries are skipped and counted
+    auto has = [&](const char* plugin, uint32_t id, const char* quest) {
+        for (size_t i = 0; i < l.scripts.size(); ++i)
+            if (l.scripts[i].plugin == plugin && l.scripts[i].localId == id && l.quests[i] == quest) return true;
+        return false;
+    };
+    CHECK(has("falloutnv.esm", 0x7691E, "AchievementQuest") && has("honesthearts.esm", 0x8A32, "NVDLC02MQ00"));
+    CHECK(!parseGuestLocalRunRules("{\"nope\":1}", &l, &err) && !err.empty());
+    CHECK(!parseGuestLocalRunRules("not json", &l, &err));
+    GuestLocalRunList none;
+    CHECK(parseGuestLocalRunRules(R"({"schema":1,"quests":{}})", &none, &err) && none.scripts.empty());
+}
+
+TEST(editing_the_guest_local_run_rule_changes_what_a_guest_runs) {
+    // the whole chain: rules text -> list -> SuppressPolicy gate. No second list is consulted anywhere.
+    auto gate = [](const std::string& rulesText, uint32_t scriptLocalId) {
+        GuestLocalRunList l;
+        std::string err;
+        if (!parseGuestLocalRunRules(rulesText, &l, &err)) return std::string("parse-error");
+        SuppressPolicy p;
+        p.setGuest(true);
+        std::unordered_set<uint32_t> ids;
+        for (const auto& r : l.scripts) ids.insert(r.localId);   // the runtime resolver maps FormRef -> engine id; the local id stands in for it here
+        p.setGuestLocalRun(ids);
+        return std::string(p.skipScript(kScriptTypeQuest, scriptLocalId) ? "skipped" : "runs");
+    };
+    const std::string withRule = R"({"schema":1,"quests":{"Q":{"rules":[{"kind":"GuestLocalRun","params":{"scripts":["FalloutNV.esm:000500","FalloutNV.esm:000501"]}}]}}})";
+    const std::string edited = R"({"schema":1,"quests":{"Q":{"rules":[{"kind":"GuestLocalRun","params":{"scripts":["FalloutNV.esm:000501"]}}]}}})";
+    const std::string gone = R"({"schema":1,"quests":{"Q":{"rules":[]}}})";
+    CHECK(gate(withRule, 0x500) == "runs" && gate(withRule, 0x501) == "runs" && gate(withRule, 0x502) == "skipped");
+    CHECK(gate(edited, 0x500) == "skipped" && gate(edited, 0x501) == "runs");   // dropping a script from the rule gates it again
+    CHECK(gate(gone, 0x501) == "skipped");
+}
+
+TEST(shipped_rules_json_guest_local_run_rules_match_the_legacy_list_file) {
+    // The legacy data file is only a fallback for an install without nvcoop_rules.json; until it is deleted it must say what the rules say.
+    GuestLocalRunList fromRules, fromFile;
+    std::string err;
+    const std::string rulesText = readWholeFile(NVH_RULES_JSON);
+    CHECK(!rulesText.empty() && parseGuestLocalRunRules(rulesText, &fromRules, &err));
+    CHECK(fromRules.skipped == 0 && fromRules.scripts.size() >= 30);
+    auto hasQuest = [&](const char* q) { for (auto& x : fromRules.quests) if (x == q) return true; return false; };
+    auto hasScript = [&](const char* plugin, uint32_t id) { for (auto& r : fromRules.scripts) if (r.plugin == plugin && r.localId == id) return true; return false; };
+    for (const char* q : {"VDLCPackQuest", "AchievementQuest", "AutoDocTimerQuest", "ImplantTimerQuest"}) CHECK(hasQuest(q));
+    // the per-DLC setup scripts and the rumble script ride on VDLCPackQuest's rule in rules.json
+    CHECK(hasScript("deadmoney.esm", 0x62B1) && hasScript("honesthearts.esm", 0x8A32) && hasScript("oldworldblues.esm", 0x2FD0) &&
+          hasScript("lonesomeroad.esm", 0x3604) && hasScript("falloutnv.esm", 0x70ECA));
+    CHECK(parseGuestLocalRun(readWholeFile(std::string(NVH_DATA_DIR) + "/guest_local_run.json"), &fromFile, &err));
+    auto key = [](const GuestLocalRunList& l) {
+        std::set<std::string> s;
+        for (const auto& r : l.scripts) { char b[24]; std::snprintf(b, sizeof b, ":%X", r.localId); s.insert(r.plugin + b); }
+        return s;
+    };
+    CHECK(key(fromRules) == key(fromFile));
+}
+
+
+// ---------------------------------------------------------------- P2: G42 / G35 which player does a script operand stand for, G12 faction removal
+TEST(player_operands_resolve_to_exactly_one_party_slot) {
+    ActingContext c;
+    c.registerSlot(0xFF000001, 1);
+    c.registerSlot(0xFF000002, 2);
+    // nobody acting: `player` is the host's own player, the engine call may run
+    auto t = c.playerTargetOf(0x14);
+    CHECK(t.player && t.slot == 0 && t.onHost);
+    // a guest's ghost is that guest and never the host's player
+    t = c.playerTargetOf(0xFF000001);
+    CHECK(t.player && t.slot == 1 && !t.onHost);
+    t = c.playerTargetOf(0xFF000002);
+    CHECK(t.player && t.slot == 2 && !t.onHost);
+    // an NPC, a container, a ghost nobody registered: not a player
+    CHECK(!c.playerTargetOf(0x104C79).player && !c.playerTargetOf(0xFF0000AA).player && !c.playerTargetOf(0).player);
+    // a script run for guest 2: its `player` operand is guest 2; the host's own player must not die or be stripped for it
+    c.push(0xFF000002);
+    t = c.playerTargetOf(0x14);
+    CHECK(t.player && t.slot == 2 && !t.onHost);
+    c.push(0xFF000001);
+    CHECK(c.playerTargetOf(0x14).slot == 1);
+    c.pop();
+    CHECK(c.playerTargetOf(0x14).slot == 2);
+    c.pop();
+    t = c.playerTargetOf(0x14);
+    CHECK(t.slot == 0 && t.onHost);
+    // an acting ghost nobody registered falls back to slot 0 (the host decides), like actingSlot()
+    c.push(0xFF0000AA);
+    CHECK(c.playerTargetOf(0x14).slot == 0 && c.playerTargetOf(0x14).onHost);
+}
+
+TEST(remove_from_all_factions_names_every_faction_the_actor_was_in) {
+    // base record: A rank 0, B rank 3, C rank 1; the script had added D (rank 2), removed B and re-ranked A before the clear
+    const std::vector<FactionRankEntry> base = {{0xA, 0}, {0xB, 3}, {0xC, 1}};
+    const std::vector<FactionRankEntry> run = {{0xB, -1}, {0xD, 2}, {0xA, 5}};
+    std::vector<uint32_t> left = factionsLeftBy(base, run);
+    CHECK((left == std::vector<uint32_t>{0xA, 0xC, 0xD}));   // B was already out; D only exists in the runtime list; A once, with its runtime rank
+    CHECK(factionsLeftBy(base, {}) == (std::vector<uint32_t>{0xA, 0xB, 0xC}));
+    CHECK(factionsLeftBy({}, {{0x7, 0}}) == (std::vector<uint32_t>{0x7}));
+    CHECK(factionsLeftBy({}, {}).empty());
+    CHECK(factionsLeftBy({{0, 4}}, {}).empty());   // a null faction pointer is never announced
+    // a runtime entry with a negative rank removes a base faction, a later positive one brings it back
+    CHECK(factionsLeftBy({{0xA, 0}}, {{0xA, -1}, {0xA, 2}}) == (std::vector<uint32_t>{0xA}));
+    CHECK(factionsLeftBy({{0xA, 0}}, {{0xA, 2}, {0xA, -1}}).empty());
+}
+
+
+// ---------------------------------------------------------------- P2: P4 handover 1 and 2 (host-side puppet events, slot table reset)
+TEST(host_wraps_only_combat_events_of_a_registered_puppet) {
+    ActingContext c;
+    c.registerSlot(0xFF000001, 1);
+    const uint32_t kStartCombat = 0x8000;
+    CHECK(c.hostPuppetEvent(0xFF000001, kStartCombat));                     // a host NPC starts combat with guest 1's puppet: run it as that guest
+    CHECK(!c.hostPuppetEvent(0xFF000009, kStartCombat));                    // an unregistered ref is not a puppet
+    CHECK(!c.hostPuppetEvent(0x14, kStartCombat));                          // the host's own player is already `player`
+    CHECK(!c.hostPuppetEvent(0xFF000001, 0x10000000));                      // OnTrigger: the host raises it for the puppet through intents already
+    CHECK(!c.hostPuppetEvent(0xFF000001, 0x20000000) && !c.hostPuppetEvent(0xFF000001, 0x40000000));   // enter / leave likewise
+    CHECK(!c.hostPuppetEvent(0xFF000001, 0x1) && !c.hostPuppetEvent(0xFF000001, 0x10000));              // pickups and container opens as well
+}
+
+TEST(clearing_the_slot_table_lets_a_ninth_puppet_keep_its_slot) {
+    ActingContext c;
+    for (uint32_t i = 0; i < 8; ++i) c.registerSlot(0xFF000100 + i, static_cast<uint8_t>(1 + (i % 3)));
+    c.registerSlot(0xFF000200, 2);                         // table full: the ninth ref is silently dropped
+    c.push(0xFF000200);
+    CHECK(c.slot() == 0 && !c.playerTargetOf(0xFF000200).player);
+    c.pop();
+    c.clearSlots();
+    CHECK(!c.playerTargetOf(0xFF000100).player);           // forgotten
+    c.registerSlot(0xFF000200, 2);
+    c.push(0xFF000200);
+    CHECK(c.slot() == 2 && c.playerTargetOf(0xFF000200).slot == 2);
+    c.pop();
+}
+
+
+// ---------------------------------------------------------------- P2: P5 handover 2 (lock pre-image of a scripted Lock / UnLock)
+TEST(scripted_lock_and_unlock_carry_the_lock_pre_image) {
+    fnvcoop::ObjectState lock;   // Lock 50 on a door that was unlocked
+    lock.mask = fnvcoop::kObjLock; lock.locked = true; lock.level = 50;
+    applyLockPreImage(&lock, false, 0);
+    CHECK(lock.hasBefore && !lock.beforeLocked && lock.beforeLevel == 0);
+    fnvcoop::ObjectState unlock;   // UnLock on a door that was locked at level 75
+    unlock.ref = fnvcoop::FormRef("falloutnv.esm", 0x1234); unlock.mask = fnvcoop::kObjLock; unlock.locked = false;
+    applyLockPreImage(&unlock, true, 75);
+    CHECK(unlock.hasBefore && unlock.beforeLocked && unlock.beforeLevel == 75);
+    fnvcoop::ObjectState open;   // SetOpenState does not touch the lock bit: no pre-image
+    open.mask = fnvcoop::kObjOpen; open.open = true;
+    applyLockPreImage(&open, true, 25);
+    CHECK(!open.hasBefore);
+    // the pre-image survives the wire (JSON round trip used by the flight recorder)
+    fnvcoop::Effect e = unlock;
+    std::string err;
+    fnvcoop::Effect back;
+    CHECK(effectFromJson(effectToJson(e), &back, &err) && std::get<fnvcoop::ObjectState>(back) == unlock);
+}
+
+
+// ---------------------------------------------------------------- P2: P3 handover R1 (the initiator's player facts answer a guest's result script)
+TEST(player_facts_answer_the_four_reads_by_kind_and_thing) {
+    const std::vector<PlayerFact> facts = {
+        {kFactActorValue, fnvcoop::FormRef("", 5), 70},                               // Speech-like code 5 = 70
+        {kFactItemCount, fnvcoop::FormRef("falloutnv.esm", 0xF), 1250},               // caps
+        {kFactItemCount, fnvcoop::FormRef("deadmoney.esm", 0xF), 3},                  // same local id, other plugin
+        {kFactHasPerk, fnvcoop::FormRef("falloutnv.esm", 0x77), 1},
+        {kFactEquipped, fnvcoop::FormRef("falloutnv.esm", 0x99), 0}};
+    int32_t v = -1;
+    CHECK(lookupFact(facts, kFactActorValue, fnvcoop::FormRef("anything.esm", 5), &v) && v == 70);   // an AV is matched by its code alone
+    CHECK(!lookupFact(facts, kFactActorValue, fnvcoop::FormRef("", 6), &v));
+    CHECK(lookupFact(facts, kFactItemCount, fnvcoop::FormRef("falloutnv.esm", 0xF), &v) && v == 1250);
+    CHECK(lookupFact(facts, kFactItemCount, fnvcoop::FormRef("deadmoney.esm", 0xF), &v) && v == 3);   // the plugin matters for forms
+    CHECK(!lookupFact(facts, kFactItemCount, fnvcoop::FormRef("honesthearts.esm", 0xF), &v));
+    CHECK(lookupFact(facts, kFactHasPerk, fnvcoop::FormRef("falloutnv.esm", 0x77), &v) && v == 1);
+    CHECK(lookupFact(facts, kFactEquipped, fnvcoop::FormRef("falloutnv.esm", 0x99), &v) && v == 0);
+    CHECK(!lookupFact(facts, kFactEquipped, fnvcoop::FormRef("falloutnv.esm", 0x77), &v));   // the kind matters
+    CHECK(!lookupFact({}, kFactItemCount, fnvcoop::FormRef("falloutnv.esm", 0xF), &v));
+    // the condition evaluators of the same names map to the same kinds
+    CHECK(factKindOf(CondFunc::GetActorValue) == kFactActorValue && factKindOf(CondFunc::GetItemCount) == kFactItemCount &&
+          factKindOf(CondFunc::HasPerk) == kFactHasPerk && factKindOf(CondFunc::GetEquipped) == kFactEquipped);
+    CHECK(factKindOf(CondFunc::GetDistance) == 0 && factKindOf(CondFunc::IsKiller) == 0);
+}
+
 TEST(muted_hub_ignores_quest_var_of_guest_local_quest_owner) {
     // Local-only effects: while a GuestLocalRun script runs nothing is captured, and its quest-var owner is flagged unshared.
     SuppressPolicy p;
@@ -1539,6 +2007,331 @@ TEST(muted_hub_ignores_quest_var_of_guest_local_quest_owner) {
     h.popMute();
     CHECK(out.empty() && h.stats().droppedLocal >= 3);
     CHECK(!p.sharesQuestVars(0x500) && p.sharesQuestVars(0x501));
+}
+
+// story-fix2: the DLC intro quests (NVDLC02/03/04 MQ00 stage 10, the OWB radio broadcast) were started by the client's own GuestLocalRun setup script while the host had not started them
+// yet; the copies disagreed and the digest "repaired" one of them (S06's clean-digest rule). A quest start / stage of those scripts is the host's, per-machine effects stay per machine.
+TEST(guest_dlc_setup_script_runs_but_its_quest_calls_are_the_hosts) {
+    SuppressPolicy p;
+    p.setGuest(true);
+    p.setGuestLocalRun({0x500, 0x600});
+    p.setHostQuestState({0x500, 0x999});                 // 0x999 is not allow-listed: it can not be host-quest-state
+    CHECK(p.isHostQuestState(0x500) && !p.isHostQuestState(0x600) && !p.isHostQuestState(0x999) && !p.isHostQuestState(0));
+    p.enterLocalScript(0x500);                           // the DLC setup script
+    uint32_t who = 0;
+    CHECK(p.inHostQuestStateScript(&who) && who == 0x500);
+    CHECK(!p.blockMutation());                           // form lists, the DLC faction, messages: per machine
+    CHECK(p.blockQuestState());                          // StartQuest / SetStage / objective: the host's
+    CHECK(p.stats().mutations == 1);
+    p.enterScript();                                     // a nested ordinary script (a stage result it caused) is blocked as on any guest
+    CHECK(p.blockQuestState());
+    p.leaveScript();
+    p.beginApply();                                      // the host's txn arriving is applied
+    CHECK(!p.blockQuestState());
+    p.endApply();
+    p.leaveLocalScript(0x500);
+    CHECK(!p.inHostQuestStateScript() && p.localScriptDepth() == 0);
+    p.enterLocalScript(0x600);                           // rumble, radio, achievements: their quest calls stay per machine
+    CHECK(!p.blockQuestState() && !p.inHostQuestStateScript());
+    p.enterLocalScript(0x500);                           // nested: the innermost one decides
+    CHECK(p.blockQuestState());
+    p.leaveLocalScript(0x500);
+    CHECK(!p.blockQuestState());
+    p.leaveLocalScript(0x600);
+    p.enterScript();
+    CHECK(p.blockQuestState());                          // an ordinary script on a guest is blocked as before
+    p.leaveScript();
+    SuppressPolicy h;                                    // the host never blocks
+    h.setGuestLocalRun({0x500});
+    h.setHostQuestState({0x500});
+    h.enterLocalScript(0x500);
+    CHECK(!h.blockQuestState() && !h.blockMutation());
+    h.leaveLocalScript(0x500);
+}
+
+TEST(host_dlc_setup_script_quest_calls_are_captured_though_its_effects_are_muted) {
+    CaptureHub h;
+    h.setEnabled(true);
+    std::vector<EffectTxn> out;
+    h.setSink([&](EffectTxn&& t) { out.push_back(std::move(t)); });
+    h.setWeakCauseResolver([](uint32_t id) {
+        Cause c;
+        c.kind = CauseKind::Script;
+        c.source = FormRef("oldworldblues.esm", id);
+        return c;
+    });
+    FormRef quest("oldworldblues.esm", 0x2FCA), radio("oldworldblues.esm", 0x13653), faction("oldworldblues.esm", 0x16154);
+    h.pushMute();                                        // the host runs the setup script muted (GuestLocalRun)
+    CHECK(!h.record(SetFactionRank{faction, quest, 1}));   // its per-machine effects stay out
+    const int saved = h.liftMute();                      // QuestStateLift: StartQuest of the radio broadcast
+    CHECK(h.beginWeak(0x2FD0));
+    CHECK(h.record(StartQuest{radio}));
+    h.endWeak();
+    h.restoreMute(saved);
+    CHECK(h.muted() && !h.record(SetFactionRank{faction, quest, 2}));   // muted again for the rest of the script
+    const int saved2 = h.liftMute();                     // SetStage: an explicit scope, as h_SetStage opens it
+    CHECK(h.beginWeak(0x2FD0));
+    h.begin(qcause(0x2FCA, 10));
+    CHECK(h.record(stage(0x2FCA, 10)));
+    h.end();
+    h.endWeak();
+    h.restoreMute(saved2);
+    h.popMute();
+    CHECK(out.size() == 2);
+    CHECK(out.size() == 2 && out[0].cause.kind == CauseKind::Script && std::holds_alternative<StartQuest>(out[0].effects[0]));
+    CHECK(out.size() == 2 && out[1].cause.kind == CauseKind::QuestResult && std::holds_alternative<SetStage>(out[1].effects[0]));
+    CHECK(h.enabled() && h.depth() == 0);
+}
+
+TEST(host_quest_state_scripts_are_all_on_the_guest_local_run_allow_list) {
+    GuestLocalRunList fromRules;
+    std::string err;
+    CHECK(parseGuestLocalRunRules(readWholeFile(NVH_RULES_JSON), &fromRules, &err));
+    CHECK(hostQuestStateScripts().size() == 4);
+    for (const fnvcoop::FormRef& r : hostQuestStateScripts()) {
+        bool listed = false;
+        for (const auto& x : fromRules.scripts) listed |= (x == r);
+        if (!listed) std::printf("    %s:%X is host-quest-state but not on the allow-list\n", r.plugin.c_str(), r.localId);
+        CHECK(listed);   // a host-quest-state script that does not run on a guest at all would be dead weight (and its quest never starts there)
+    }
+}
+
+
+// ---------------------------------------------------------------- wave 1b (P1 requests to P2): GetLevel, the other condition functions, object-script quests, player.kill
+namespace {
+uint32_t w1bHash(const std::string& s) {
+    uint32_t h = 2166136261u;
+    for (char c : s) { h ^= static_cast<uint8_t>(c); h *= 16777619u; }
+    return h;
+}
+bool w1bResolve(const std::string& edid, fnvcoop::FormRef& out) { out = fnvcoop::FormRef("falloutnv.esm", w1bHash(edid)); return true; }
+fnvcoop::FormRef w1bQuest(const char* edid) { fnvcoop::FormRef f; w1bResolve(edid, f); return f; }
+}  // namespace
+
+TEST(party_condition_plan_for_the_wave1b_functions) {
+    CHECK(static_cast<int>(CondFunc::Count) == 23);
+    // GetLevel / GetIsSex / GetSitting: the player is the calling reference, but a ghost is a puppet NPC with no level, sex or seat of the guest: the provider answers
+    for (CondFunc f : {CondFunc::GetLevel, CondFunc::GetIsSex, CondFunc::GetSitting}) {
+        CHECK(planSwap(f, 0x14, 0).thisObj && !planSwap(f, 0x1234, 0).any());
+        CHECK(memberView(f) == MemberView::State);
+    }
+    // GetPCIsSex / IsPlayerActionActive read the GLOBAL player: party-aware whatever the operands are
+    for (CondFunc f : {CondFunc::GetPCIsSex, CondFunc::IsPlayerActionActive}) {
+        CHECK(planSwap(f, 0, 0).always && planSwap(f, 0x1234, 0).any());
+        CHECK(memberView(f) == MemberView::State);
+    }
+    // GetShouldAttack: thisObj is the NPC, param1 the target; only a player TARGET is swapped for the member's ghost, and a ghost answers (the NPC's own AI decides)
+    CHECK(param1IsReference(CondFunc::GetShouldAttack) && planSwap(CondFunc::GetShouldAttack, 0x1234, 0x14).param1 && !planSwap(CondFunc::GetShouldAttack, 0x1234, 0x14).thisObj);
+    CHECK(!planSwap(CondFunc::GetShouldAttack, 0x1234, 0x5555).any());
+    CHECK(memberView(CondFunc::GetShouldAttack) == MemberView::Ghost);
+    const char* names[] = {"GetLevel", "GetIsSex", "GetPCIsSex", "GetSitting", "GetShouldAttack", "IsPlayerActionActive"};
+    for (int i = 0; i < 6; ++i) CHECK(std::string(condFuncName(static_cast<CondFunc>(17 + i))) == names[i]);
+    // the decision for every function the P1 request names
+    for (const char* h : {"GetLevel", "GetShouldAttack", "GetSitting", "GetIsSex", "GetPCIsSex", "IsPlayerActionActive"}) CHECK(condCoverage(h) == CondCoverage::Hooked);
+    for (const char* h : {"GetIsReference", "GetMapMarkerVisible", "GetTalkedToPC"}) CHECK(condCoverage(h) == CondCoverage::NoPlayerOperand);
+    CHECK(condCoverage("GetActionRef") == CondCoverage::ActingPlayerRuns && condCoverage("IsActionRef") == CondCoverage::ActingPlayerRuns);
+    CHECK(condCoverage("getav") == CondCoverage::Hooked && condCoverage("GETLEVEL") == CondCoverage::Hooked);   // rules.json spelling and case
+    CHECK(condCoverage("NoSuchFunction") == CondCoverage::Unknown);
+}
+
+TEST(every_function_a_partyawarecond_rule_names_has_a_decision) {
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.loadFile(NVH_RULES_JSON, &err));
+    int seen = 0;
+    for (const auto& kv : db.quests())
+        if (const fnvcoop::Rule* r = kv.second.find("PartyAwareCond"))
+            for (const auto& f : r->funcs) {
+                ++seen;
+                if (condCoverage(f.first) == CondCoverage::Unknown) std::printf("    rules.json names %s (%s) and nothing decides it\n", f.first.c_str(), kv.first.c_str());
+                CHECK(condCoverage(f.first) != CondCoverage::Unknown);
+            }
+    CHECK(seen > 300);   // the whole rule set was walked, not an empty file
+}
+
+TEST(party_level_reduces_to_the_host_or_to_the_strongest_member) {
+    fnvcoop::InMemoryNetwork net(1);
+    fnvcoop::HostSession host(*net.endpoint(0));
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.loadFile(NVH_RULES_JSON, &err));
+    fnvcoop::RulesEngine eng(host, db, w1bResolve);
+    ConditionReducer red = makeRulesReducer(eng);
+    const int lvl = static_cast<int>(CondFunc::GetLevel);
+    FakeCond c; c.local = 12; c.state[{lvl, 1}] = 30; c.state[{lvl, 2}] = 5;
+    CondOps o = c.ops();
+    auto run = [&](const char* quest, uint8_t initiator) {
+        double out = -1;
+        StateQuery base;
+        const bool done = evaluateOverParty(
+            CondFunc::GetLevel, trio(), [&](const PartyMember& m, double* v) { return evalMember(CondFunc::GetLevel, m, base, o, v); },
+            [&](const std::string& fn, const std::vector<CondValue>& vals, uint8_t init) { return red(w1bQuest(quest), fn, vals, init, fnvcoop::CondPhase::Entry); }, initiator, &out);
+        return done ? out : -2.0;
+    };
+    CHECK(run("NVDLC01MQ01", 2) == 12.0 && run("NVDLC03MQ01", 1) == 12.0);   // XP tiers: the host's level, whoever talks
+    CHECK(run("NVDLC04MQ03a", 0) == 30.0 && run("NVDLC04WeakPlayerScaling", 2) == 30.0);   // the Lonesome Road scaling follows the strongest member
+    CHECK(c.ghostCalls == 0 && c.stateCalls > 0);   // never through a ghost
+    CondOps none = o; none.state = nullptr;   // no provider: the guests' levels are unknown, the engine's own answer stands (a single value never reduces)
+    double out = -1;
+    StateQuery base;
+    CHECK(!evaluateOverParty(CondFunc::GetLevel, trio(), [&](const PartyMember& m, double* v) { return evalMember(CondFunc::GetLevel, m, base, none, v); }, nullptr, 0, &out));
+}
+
+TEST(a_condition_run_by_an_object_script_finds_the_rules_of_its_quest) {
+    fnvcoop::InMemoryNetwork net(1);
+    fnvcoop::HostSession host(*net.endpoint(0));
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.loadFile(NVH_RULES_JSON, &err));
+    fnvcoop::RulesEngine eng(host, db, w1bResolve);
+    const std::string causeJson = readWholeFile(NVH_CAUSE_QUESTS_JSON);
+    CHECK(!causeJson.empty() && eng.loadCauseQuests(causeJson, &err));
+    ConditionReducer red = makeRulesReducer(eng);
+    const std::vector<CondValue> levels = {{0, 12}, {1, 30}, {2, 5}};
+    // lonesomeroad.esm:009726 is a Marked Men gear script (object script) of NVDLC04MQ03a: GetLevel is max-over-party there
+    const fnvcoop::FormRef gear("lonesomeroad.esm", 0x9726);
+    CHECK(conditionQuest(eng, gear) == w1bQuest("NVDLC04MQ03a"));
+    CHECK(red(gear, "GetLevel", levels, 0, fnvcoop::CondPhase::Entry) == 30.0);
+    // the quest itself is left alone; an unmapped script keeps the initiator reduction (as before)
+    CHECK(conditionQuest(eng, w1bQuest("NVDLC04MQ03a")) == w1bQuest("NVDLC04MQ03a"));
+    const fnvcoop::FormRef stranger("falloutnv.esm", 0xABCDEF);
+    CHECK(conditionQuest(eng, stranger) == stranger && red(stranger, "GetLevel", levels, 2, fnvcoop::CondPhase::Entry) == 5.0);
+    // any other function of the mapped quest is reduced by its rule as well (GetActorValue is max-over-party in NVDLC04MQ03a)
+    CHECK(red(gear, "GetActorValue", {{0, 40}, {1, 90}}, 0, fnvcoop::CondPhase::Entry) == 90.0);
+}
+
+TEST(player_kill_is_recorded_as_the_ref_of_the_player_it_names) {
+    ActingContext ac;
+    ac.registerSlot(0xFF000001, 1);
+    ac.registerSlot(0xFF000002, 2);
+    auto ref = [](uint8_t slot, fnvcoop::FormRef* out) { *out = fnvcoop::FormRef("falloutnv.esm", 0xF000u + slot); return true; };
+    // the host's own player, nobody acting: slot 0, the engine kill runs here
+    PlayerKillPlan p = planPlayerKill(ac.playerTargetOf(0x14), false, ref, true);
+    CHECK(!p.legacy && p.record && p.runEngine && p.ref == fnvcoop::FormRef("falloutnv.esm", 0xF000));
+    // a guest's ghost: the kill is recorded for THAT guest's ref and never runs on the host
+    p = planPlayerKill(ac.playerTargetOf(0xFF000002), false, ref, true);
+    CHECK(!p.legacy && p.record && !p.runEngine && p.ref == fnvcoop::FormRef("falloutnv.esm", 0xF002));
+    // `player` inside a script that runs as guest 1 is guest 1
+    ac.push(0xFF000001);
+    p = planPlayerKill(ac.playerTargetOf(0x14), true, ref, true);
+    ac.pop();
+    CHECK(p.report && p.record && !p.runEngine && p.ref == fnvcoop::FormRef("falloutnv.esm", 0xF001));
+    // not capturing (a guest machine): nothing recorded; the observer is still told
+    p = planPlayerKill(ac.playerTargetOf(0xFF000002), true, ref, false);
+    CHECK(p.report && !p.record && !p.legacy);
+    // nothing wired: the old path (record the operand, run the engine kill), a non-player is never a player kill
+    p = planPlayerKill(ac.playerTargetOf(0xFF000002), false, nullptr, true);
+    CHECK(p.legacy && p.runEngine && !p.record);
+    CHECK(planPlayerKill(ac.playerTargetOf(0x104C79), true, ref, true).legacy);
+
+    // the whole contract with the rules engine: KillActor{<guest ref>} in a PerPlayerState quest drains only that player's health
+    const char* rules = R"({"schema":1,"quests":{
+      "Collar":{"tier":"T3","questline":"x","curated":false,"rules":[{"kind":"PerPlayerState","params":{"scope":"collar","vars":["fCollarTimer"]},"origin":"curated"}]}}})";
+    fnvcoop::InMemoryNetwork net(1);
+    fnvcoop::HostSession host(*net.endpoint(0));
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.load(rules, &err));
+    fnvcoop::RulesEngine::Options opt;
+    opt.playerRef = [&](fnvcoop::PlayerId s, fnvcoop::FormRef& f) { return ref(static_cast<uint8_t>(s), &f); };
+    fnvcoop::RulesEngine eng(host, db, w1bResolve, opt);
+    p = planPlayerKill(ac.playerTargetOf(0xFF000002), false, ref, true);
+    fnvcoop::Cause cause;
+    cause.kind = fnvcoop::CauseKind::Script;
+    cause.source = w1bQuest("Collar");
+    host.commit(0, cause, {fnvcoop::KillActor{p.ref}});
+    CHECK(host.state().ledger[2].av.count(fnvcoop::kAvHealth) == 1 && host.state().ledger[2].av.at(fnvcoop::kAvHealth) == -fnvcoop::kKillDrain);
+    CHECK(host.state().ledger[0].av.count(fnvcoop::kAvHealth) == 0 && host.state().ledger[1].av.count(fnvcoop::kAvHealth) == 0);
+    CHECK(eng.stats().killsRerouted == 1);
+}
+
+TEST(the_bridge_activation_passes_the_consoles_last_argument) {
+    // activate.ref (MActivateRef) must call Activate(player, 0, 0, 1) like the console: the last argument 0 deletes a placed item (a Stimpak) and gives it to nobody
+    const ActivateArgs a = consoleActivateArgs();
+    CHECK(a.flagA == 0 && a.flagB == 0 && a.last == 1);
+}
+
+// ---- W3d: scripts that run once per slot, object variable copies, the condition scope of an INFO -------------------------------------------------------------------------
+TEST(a_script_the_rules_run_per_slot_is_found_by_its_form_id) {
+    PerSlotScripts t;
+    CHECK(t.empty() && t.find(0x100) == nullptr);
+    t.set({{0x100, {"binradius"}}, {0x200, {}}, {0, {"ignored"}}});   // a script with no form id is not a script
+    CHECK(t.size() == 2);
+    const PerSlotScript* s = t.find(0x100);
+    CHECK(s && s->scriptId == 0x100 && s->vars.size() == 1 && s->vars[0] == "binradius");
+    CHECK(t.find(0x200) && t.find(0x200)->vars.empty());
+    CHECK(t.find(0x300) == nullptr);                                  // an ordinary script: the engine's own single run
+    t.set({{0x300, {}}});
+    CHECK(t.find(0x100) == nullptr && t.find(0x300) != nullptr);      // replaced, not merged
+}
+
+TEST(object_variable_copies_are_kept_per_instance_and_per_slot_and_the_host_values_come_back) {
+    ObjVarCopies c;
+    const std::vector<std::string> names = {"binradius", "missing"};
+    double aIn = 0, bIn = 0;                                           // the bInRadius of two speakers (two script instances)
+    const uint64_t A = objVarInstance(0x77, 0x1000), B = objVarInstance(0x77, 0x2000);   // the same script on two references
+    c.seed(A, names, {&aIn, nullptr});
+    c.seed(B, names, {&bIn, nullptr});                                 // pristine: 0 / 0
+    aIn = 7;                                                           // the engine's own (host) run of speaker A set it
+    ObjVarCopies::Bracket br;
+    c.enter(A, 1, names, {&aIn, nullptr}, br);
+    CHECK(aIn == 0);                                                   // slot 1 starts from the seed, not from the host's 7
+    aIn = 1;                                                           // slot 1 is inside the radius of A
+    c.leave(A, 1, names, {&aIn, nullptr}, br);
+    CHECK(aIn == 7);                                                   // the host's value is back for the engine
+    double got = -1;
+    CHECK(c.copyOf(A, "binradius", 1, &got) && got == 1);
+    c.enter(A, 2, names, {&aIn, nullptr}, br);                         // slot 2 on the same speaker: not slot 1's state
+    CHECK(aIn == 0);
+    c.leave(A, 2, names, {&aIn, nullptr}, br);
+    CHECK(c.copyOf(A, "binradius", 2, &got) && got == 0 && aIn == 7);
+    c.enter(A, 1, names, {&aIn, nullptr}, br);                         // slot 1 again: its own copy
+    CHECK(aIn == 1);
+    c.leave(A, 1, names, {&aIn, nullptr}, br);
+    c.enter(B, 1, names, {&bIn, nullptr}, br);                         // the other speaker, same slot: not speaker A's copy
+    CHECK(bIn == 0);
+    c.leave(B, 1, names, {&bIn, nullptr}, br);
+    CHECK(c.copies() == 3 && !c.copyOf(A, "missing", 1, nullptr));     // a variable the script lacks is never stored
+    // the copies and the seeds can be exported and put back (they travel with the host's save, plugin/coop/objvar_sidecar.h); an instance is the script and its reference
+    CHECK(A != B && (A >> 32) == 0x77 && (A & 0xFFFFFFFFu) == 0x1000);
+    ObjVarCopies d;
+    d.importAll(c.exportCopies(), c.exportSeeds());
+    CHECK(d.copies() == 3 && d.copyOf(A, "binradius", 1, &got) && got == 1 && d.copyOf(A, "binradius", 2, &got) && got == 0 && d.copyOf(B, "binradius", 1, &got) && got == 0);
+    CHECK(d.exportSeeds().size() == c.exportSeeds().size());
+    d.importAll({}, {});
+    CHECK(d.copies() == 0 && d.exportSeeds().empty());
+}
+
+TEST(an_infos_conditions_are_reduced_under_the_quest_of_that_info) {
+    CHECK(addr::InfoConditions.target == 0x61E600 && addr::InfoConditions.retBytes == 16 && addr::InfoConditions.stolen == 6);   // TESTopicInfo::CheckConditions: thiscall, 4 stack args
+    fnvcoop::InMemoryNetwork net(1);
+    fnvcoop::HostSession host(*net.endpoint(0));
+    fnvcoop::RulesDb db;
+    std::string err;
+    CHECK(db.loadFile(NVH_RULES_JSON, &err));
+    fnvcoop::RulesEngine eng(host, db, w1bResolve);
+    ConditionReducer red = makeRulesReducer(eng);
+    const fnvcoop::FormRef jedQuest = w1bQuest("NVDLC02DialogueCaravanMaster");
+    int asked = 0;
+    InfoQuestScopes scopes;
+    CHECK(!scopes.active());
+    scopes.set([&](uint32_t id, fnvcoop::FormRef* q) {
+        ++asked;
+        if (id != 0x01009EB6u && id != 0x01011525u) return false;     // the two Jed weight-gate INFOs (HonestHearts.esm 009EB6 / 011525)
+        *q = jedQuest;
+        return true;
+    });
+    fnvcoop::FormRef q;
+    CHECK(scopes.active() && scopes.questOf(0x01009EB6u, &q) && q == jedQuest);
+    CHECK(!scopes.questOf(0x01000001u, &q) && !scopes.questOf(0, &q));
+    CHECK(scopes.questOf(0x01009EB6u, &q) && !scopes.questOf(0x01000001u, &q) && asked == 2);   // answers (the negative one too) are remembered
+    // the Jed gate: `GetActorValue InventoryWeight >= 76`. Under the INFO's quest the heaviest pack of the party decides; without the scope the initiator's pack does.
+    const std::vector<CondValue> packs = {{0, 30}, {1, 120}};
+    CHECK(red(q, "GetActorValue", packs, 0, fnvcoop::CondPhase::Entry) == 120.0);
+    const fnvcoop::FormRef info("honesthearts.esm", 0x9EB6);
+    CHECK(red(info, "GetActorValue", packs, 0, fnvcoop::CondPhase::Entry) == 30.0);
+    scopes.set(nullptr);
+    CHECK(!scopes.active() && !scopes.questOf(0x01009EB6u, &q) && scopes.cached() == 0);
 }
 
 int main() {
@@ -1574,6 +2367,34 @@ int main() {
     run("current_source_names_the_outermost_explicit_scope_or_weak_script", current_source_names_the_outermost_explicit_scope_or_weak_script);
     run("party_condition_swap_plan_only_touches_the_player_operand", party_condition_swap_plan_only_touches_the_player_operand);
     run("party_condition_runs_once_per_member_and_reduces", party_condition_runs_once_per_member_and_reduces);
+    run("party_conditions_reduce_through_the_rules_engine", party_conditions_reduce_through_the_rules_engine);
+    run("every_hooked_condition_function_has_a_rule_in_rules_json", every_hooked_condition_function_has_a_rule_in_rules_json);
+    run("party_condition_plan_for_the_nine_new_functions", party_condition_plan_for_the_nine_new_functions);
+    run("party_member_value_ghost_view_state_view_and_owner_view", party_member_value_ghost_view_state_view_and_owner_view);
+    run("party_member_value_inventory_view_asks_the_reported_pack_first_and_the_puppet_when_unknown", party_member_value_inventory_view_asks_the_reported_pack_first_and_the_puppet_when_unknown);
+    run("a_guests_remove_item_skips_the_engine_and_is_recorded_for_the_rules", a_guests_remove_item_skips_the_engine_and_is_recorded_for_the_rules);
+    run("party_conditions_over_the_new_functions_follow_their_rules", party_conditions_over_the_new_functions_follow_their_rules);
+    run("the_host_skips_its_controls_call_only_for_a_guest_only_lock", the_host_skips_its_controls_call_only_for_a_guest_only_lock);
+    run("the_capture_hub_names_the_cause_of_its_outermost_scope", the_capture_hub_names_the_cause_of_its_outermost_scope);
+    run("a_ref_variable_slot_holds_the_form_id_in_its_low_dword", a_ref_variable_slot_holds_the_form_id_in_its_low_dword);
+    run("kill_attribution_writes_the_engine_killer_slot", kill_attribution_writes_the_engine_killer_slot);
+    run("guest_local_run_two_game_diff_quests_are_per_machine", guest_local_run_two_game_diff_quests_are_per_machine);
+    run("muted_hub_captures_nothing_for_guest_local_scripts", muted_hub_captures_nothing_for_guest_local_scripts);
+    run("muted_hub_ignores_quest_var_of_guest_local_quest_owner", muted_hub_ignores_quest_var_of_guest_local_quest_owner);
+    run("guest_dlc_setup_script_runs_but_its_quest_calls_are_the_hosts", guest_dlc_setup_script_runs_but_its_quest_calls_are_the_hosts);
+    run("host_dlc_setup_script_quest_calls_are_captured_though_its_effects_are_muted", host_dlc_setup_script_quest_calls_are_captured_though_its_effects_are_muted);
+    run("host_quest_state_scripts_are_all_on_the_guest_local_run_allow_list", host_quest_state_scripts_are_all_on_the_guest_local_run_allow_list);
+    run("per_machine_quest_vars_are_not_shared", per_machine_quest_vars_are_not_shared);
+    run("ref_angle_json_and_capture", ref_angle_json_and_capture);
+    run("player_operands_resolve_to_exactly_one_party_slot", player_operands_resolve_to_exactly_one_party_slot);
+    run("remove_from_all_factions_names_every_faction_the_actor_was_in", remove_from_all_factions_names_every_faction_the_actor_was_in);
+    run("host_wraps_only_combat_events_of_a_registered_puppet", host_wraps_only_combat_events_of_a_registered_puppet);
+    run("clearing_the_slot_table_lets_a_ninth_puppet_keep_its_slot", clearing_the_slot_table_lets_a_ninth_puppet_keep_its_slot);
+    run("scripted_lock_and_unlock_carry_the_lock_pre_image", scripted_lock_and_unlock_carry_the_lock_pre_image);
+    run("player_facts_answer_the_four_reads_by_kind_and_thing", player_facts_answer_the_four_reads_by_kind_and_thing);
+    run("guest_local_run_list_is_read_from_the_rules_json_rule", guest_local_run_list_is_read_from_the_rules_json_rule);
+    run("editing_the_guest_local_run_rule_changes_what_a_guest_runs", editing_the_guest_local_run_rule_changes_what_a_guest_runs);
+    run("shipped_rules_json_guest_local_run_rules_match_the_legacy_list_file", shipped_rules_json_guest_local_run_rules_match_the_legacy_list_file);
     run("no_scope_no_record", no_scope_no_record);
     run("scope_emits_one_txn_with_cause_and_order", scope_emits_one_txn_with_cause_and_order);
     run("nested_scopes_merge_into_outermost_txn", nested_scopes_merge_into_outermost_txn);
@@ -1606,6 +2427,15 @@ int main() {
     run("script_vars_become_setscriptvar_effects", script_vars_become_setscriptvar_effects);
     run("multiple_sinks_all_see_every_txn", multiple_sinks_all_see_every_txn);
     run("scope_observers_run_on_outermost_only_and_can_record", scope_observers_run_on_outermost_only_and_can_record);
+    run("party_condition_plan_for_the_wave1b_functions", party_condition_plan_for_the_wave1b_functions);
+    run("every_function_a_partyawarecond_rule_names_has_a_decision", every_function_a_partyawarecond_rule_names_has_a_decision);
+    run("party_level_reduces_to_the_host_or_to_the_strongest_member", party_level_reduces_to_the_host_or_to_the_strongest_member);
+    run("a_condition_run_by_an_object_script_finds_the_rules_of_its_quest", a_condition_run_by_an_object_script_finds_the_rules_of_its_quest);
+    run("player_kill_is_recorded_as_the_ref_of_the_player_it_names", player_kill_is_recorded_as_the_ref_of_the_player_it_names);
+    run("the_bridge_activation_passes_the_consoles_last_argument", the_bridge_activation_passes_the_consoles_last_argument);
+    run("a_script_the_rules_run_per_slot_is_found_by_its_form_id", a_script_the_rules_run_per_slot_is_found_by_its_form_id);
+    run("object_variable_copies_are_kept_per_instance_and_per_slot_and_the_host_values_come_back", object_variable_copies_are_kept_per_instance_and_per_slot_and_the_host_values_come_back);
+    run("an_infos_conditions_are_reduced_under_the_quest_of_that_info", an_infos_conditions_are_reduced_under_the_quest_of_that_info);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

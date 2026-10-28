@@ -112,6 +112,8 @@ void setPlayerNetIdResolver(PlayerNetIdResolver byRef, PlayerRefResolver byNet) 
     registry().playerRefByNet = std::move(byNet);
 }
 
+void setKillerResolver(KillerResolver f) { registry().killerOf = std::move(f); }
+
 void setPlayerPose(PlayerId slot, const PlayerPose& pose) {
     Registry& reg = registry();
     ActorSync* s = reg.sync ? reg.sync() : nullptr;

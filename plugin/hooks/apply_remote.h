@@ -72,6 +72,8 @@ public:
     void setRemoteDrivenQuery(std::function<bool(uint32_t refID)> f) { remoteDriven_ = std::move(f); }
     // The same for every applier of the process that has no query of its own (coop_module.cpp creates its applier privately).
     static void setDefaultRemoteDrivenQuery(std::function<bool(uint32_t refID)> f);
+    // Diagnostics: one line per SetStage this machine applies (the quest, the stage, what the engine said, the stage's done flag before / after). Unset = silent.
+    static void setTrace(std::function<void(const std::string&)> f);
     // Moves that wait for their destination cell to load (a MoveRef to a cell with no loaded reference to anchor on). tickPending() retries them;
     // tickAll() does that for every applier of the process, at most once a second (hooks_module.cpp calls it every frame).
     size_t pendingMoves() const { return moves_.size(); }
@@ -92,5 +94,11 @@ private:
     std::function<bool(uint32_t)> remoteDriven_;
     MoveQueue moves_;
 };
+
+// Diagnostic line through the trace set by RemoteApplier::setTrace (a no-op when unset). Also used by the capture side (engine_hooks.cpp).
+void traceLine(const std::string& line);
+bool traceEnabled();
+// The player's count of one item as the engine stores it (ExtraContainerChanges); -1 when unreadable. Diagnostics only.
+int playerItemCountForTrace(uint32_t itemRefId);
 
 }  // namespace nvhooks

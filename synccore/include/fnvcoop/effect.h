@@ -377,6 +377,9 @@ struct RefCommand {
 
 // Convenience: the actor-value id the hooks use for experience (RewardXP folds into ModActorValue).
 constexpr uint32_t kAvExperience = 0x10000;
+// ModActorValue av of Health (the engine ActorValue code 0x10) and the drain a rerouted player.kill uses (RulesEngine PerPlayerState): far past any pool, so the player dies.
+constexpr uint32_t kAvHealth = 16;
+constexpr int32_t kKillDrain = 100000;
 
 using Effect = std::variant<SetStage, SetObjective, SetGlobal, EnableRef, DisableRef, AddItem, RemoveItem,
                             ModActorValue, ModReputation, ModKarma, StartQuest, StopQuest, MoveRef, KillActor,

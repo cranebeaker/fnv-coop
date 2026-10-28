@@ -71,14 +71,27 @@ inline constexpr uint8_t kGetTimeMultPrologue[16] = {0x55, 0x8B, 0xEC, 0x83, 0xE
 // to fill kPausedByMenu (PROVEN).
 constexpr uint32_t kMenuMode = 0x00702360;
 inline constexpr uint8_t kMenuModePrologue[16] = {0x55, 0x8B, 0xEC, 0xE8, 0xA8, 0x4E, 0xDB, 0xFF, 0x85, 0xC0, 0x74, 0x21, 0xE8, 0x9F, 0x4E, 0xDB};
-// Worker-thread wait of the menu update. While any menu is open the main loop (0x871C6B: `if (MenuMode()) 0x7058E0()`) runs the menu update 0x713C70, which, when
-// the worker threads are started (`bool 0x713D90`, = byte 0x11DFA19), waits with INFINITE timeout for a worker event (0x8C7A70, WaitForSingleObject on handle
-// group 0 slot 1). That handshake belongs to a PAUSED world. With the pause removed (real-time VATS) the event is never signalled in the VATS zoom (camera mode 3):
-// MEASURED 2026-10-27 on the second PC, a minidump of the hung main thread: the stack is 0x871C7C -> 0x70590B -> 0x713CA9 -> 0x8C7A93 -> NtWaitForSingleObject,
-// every worker idle, CPU 0, window still answering. The one call at 0x713C8D asks 0x713D90; the thunk answers "no workers" while the VATS menu is open and the
-// world is not paused, so the menu update skips the wait. The world-frame readers of the byte (0x825218, 0x8C7AC1) are left alone: they still join the workers.
-constexpr uint32_t kThreadsActive = 0x00713D90;
-inline constexpr uint8_t kThreadsActivePrologue[16] = {0x55, 0x8B, 0xEC, 0xA0, 0x19, 0xFA, 0x1D, 0x01, 0x5D, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC};
+// The InterfaceManager update and the worker kick. ROOT CAUSE of the VATS-entry crash FalloutNV.exe+400F66 (2026-10-27, lab, about 4 in 15 entries).
+//   0x86FD70 (thiscall, no arguments, plain ret, ecx unused): the InterfaceManager per-frame update (0x7027E0, 0x702810 -> 0x70C4A0, 0x702840). 0x70C4A0
+//   runs the VATS target highlight update 0x800370 on InterfaceManager+0x1DC (VATSHighlightData: +4 target ref, +8 NiPointer to its 3D, +0x118 flag),
+//   which clears the target (SetTarget(0, -1, 0) 0x800AC0 from 0x800495: +4 = 0, then +8 = 0) and takes the renderer lock (0x800505 -> 0x4A0370).
+//   Vanilla: an open menu pauses the world (byte 0x11DEA2B = MenuMode() || 0x709BC0()), the main loop does not kick the worker threads and calls
+//   0x86FD70 itself (0x86ECBA), then the menu update. A world that runs (0x11DEA2B = 0) gets a kick (0x86EC87 -> 0x8C78C0: resets the stage events,
+//   0x11DFA19 = 1, resumes the threads) and "AI Linear Task Thread 1" runs 0x86FD70 as its stage 0 (0x8C7DB9 in 0x8C7DA0; 0x8C7BE9 in the one-thread
+//   variant 0x8C7BD0), then signals group 0 event 1. The menu update waits for that event (0x713C70: `if (0x713D90()) WaitForSingleObject`, call 0x713C8D).
+//   Real-time VATS lets the world run under the VATS menu, so the kick happens WITH the VATS menu open, which vanilla never does:
+//     * the hang (minidump h32.dmp, 2026-10-27): main thread 0x870BD0 (the highlight render, renderer lock held) -> 0x871290 -> 0x871C77 menu update
+//       -> wait at 0x713CA4; thread 1 in 0x86FD70 -> 0x70C4A0 -> 0x800370 -> 0x800505 -> 0x4A0370 waiting for the renderer lock. A deadlock.
+//     * the crash, after the first fix skipped that wait: thread 1's highlight update ran WHILE the main thread drew the highlight. 0x870A00 gates on
+//       +8 != 0 in 0x8749B0, draws for several ms, then 0x873200 calls 0x800F30 again at 0x8741AF, which reads +4 without a check: `mov ecx,[this+4];
+//       mov edx,[ecx]` at 0x800F66 with ecx = 0 (crash log: ecx=0 eax=0 edx=this, main-thread stack 0x1AF818).
+//   Fix (vats_module.cpp): while the real MenuMode() is true at the kick, the MAIN thread runs 0x86FD70 just before the kick (the vanilla thread and
+//   order of a paused frame) and thread 1 skips its stage 0, so the menu update's wait is met at once and nothing else touches the highlight.
+constexpr uint32_t kInterfaceUpdate = 0x0086FD70;
+inline constexpr uint8_t kInterfaceUpdatePrologue[16] = {0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0xE8, 0x64, 0x2A, 0xE9, 0xFF, 0xE8, 0x8F, 0x2A, 0xE9};
+constexpr uint32_t kWorkerKick = 0x008C78C0;   // thiscall(this = 0x11DFA50, the worker-thread manager), no arguments, plain ret
+inline constexpr uint8_t kWorkerKickPrologue[16] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xEC, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00};
+constexpr uint32_t kMainObjectPtr = 0x011DEA0C;   // the ecx both worker variants pass to 0x86FD70 (`mov ecx, [0x11DEA0C]`)
 // MenuMode(id), cdecl bool(int id): is the menu with this id the top menu. 0x420 = VATS (PROVEN: the VATS menu update asks exactly this).
 constexpr uint32_t kMenuModeOf = 0x00702450;
 inline constexpr uint8_t kMenuModeOfPrologue[16] = {0x55, 0x8B, 0xEC, 0x51, 0xE8, 0xB7, 0x4D, 0xDB, 0xFF, 0x85, 0xC0, 0x74, 0x74, 0xE8, 0xAE, 0x4D};
@@ -135,8 +148,11 @@ inline constexpr Site kPauseSitesExtended[] = {
     {"proc_89C6CA", 0x0089C6CA},     {"proc_89C74A", 0x0089C74A},   {"proc_89CEBA", 0x0089CEBA},   {"proc_89CF56", 0x0089CF56},
 };
 inline constexpr size_t kPauseSiteExtendedCount = sizeof kPauseSitesExtended / sizeof kPauseSitesExtended[0];
-inline constexpr Site kThreadWaitSites[] = {{"menu_update_713C8D", 0x00713C8D}};
-inline constexpr size_t kThreadWaitSiteCount = sizeof kThreadWaitSites / sizeof kThreadWaitSites[0];
+// The worker threads' stage-0 call of the InterfaceManager update (both variants), and the main loop's one kick (all PROVEN: complete E8 scans).
+inline constexpr Site kWorkerInterfaceSites[] = {{"ai_thread1_8C7DB9", 0x008C7DB9}, {"ai_thread_8C7BE9", 0x008C7BE9}};
+inline constexpr size_t kWorkerInterfaceSiteCount = sizeof kWorkerInterfaceSites / sizeof kWorkerInterfaceSites[0];
+inline constexpr Site kWorkerKickSites[] = {{"mainloop_kick_86EC87", 0x0086EC87}};
+inline constexpr size_t kWorkerKickSiteCount = sizeof kWorkerKickSites / sizeof kWorkerKickSites[0];
 
 // The five bytes a call site must hold: E8 + rel32 reaching `target` (computed, so the table above cannot drift from the target constants).
 constexpr uint32_t relTo(uint32_t site, uint32_t target) { return target - (site + 5u); }

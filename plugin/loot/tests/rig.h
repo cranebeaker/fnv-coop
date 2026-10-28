@@ -42,6 +42,11 @@ public:
     std::map<RefId, WItem> world;
     RefId nextRef = 0x1000;
     bool cellLoaded = true;
+    bool cellAware = false;                                    // nearbyContainers() answers only the player's cell (playerCell); nearbyCells() adds the loaded neighbours
+    lc::CellId playerCell = 7;
+    std::vector<lc::CellId> neighbours;                        // the attached cells around the player (an exterior grid)
+    int cellScans = 0;                                         // containersInCell() calls
+    bool nearbyKnown = false;                                  // nearbyContainers() answers the loaded non-corpse containers (the player's cell); false: it knows none (the old engine)
     bool listOnlyDescribed = false;                            // like the real engine: loadedContainers() knows only containers that were described before
     std::set<NetId> described;
     int createCalls = 0;
@@ -153,6 +158,22 @@ public:
     }
     bool playerCount(const FormRef& base, int32_t& out) override { auto f = player.find(base); out = f == player.end() ? 0 : f->second; return true; }
     void notify(lc::Notice n, NetId id) override { notices.emplace_back(n, id); }
+    void nearbyContainers(std::vector<RefId>& out, size_t max) override {
+        out.clear();
+        if (!nearbyKnown) return;
+        for (auto& kv : conts) if (kv.second.loaded && kv.second.kind != lc::ContainerKind::Corpse && (!cellAware || kv.second.cell == playerCell) && out.size() < max) out.push_back(kv.second.ref);
+    }
+    void nearbyCells(std::vector<lc::CellId>& out, size_t max) override {
+        out.clear();
+        if (!cellAware) return;
+        out.push_back(playerCell);
+        for (lc::CellId c : neighbours) if (out.size() < max) out.push_back(c);
+    }
+    void containersInCell(lc::CellId cell, std::vector<RefId>& out, size_t max) override {
+        out.clear();
+        ++cellScans;
+        for (auto& kv : conts) if (kv.second.loaded && kv.second.kind != lc::ContainerKind::Corpse && kv.second.cell == cell && out.size() < max) out.push_back(kv.second.ref);
+    }
     void loadedContainers(std::vector<NetId>& out, size_t max) override {
         out.clear();
         for (auto& kv : conts) if (kv.second.loaded && out.size() < max && (!listOnlyDescribed || described.count(kv.first))) out.push_back(kv.first);

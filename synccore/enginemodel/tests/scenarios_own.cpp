@@ -188,4 +188,46 @@ bool rejoinEpochsMonotonic(std::string* why) {
     return ok;
 }
 
+bool commitNothingToHandOverHolds(std::string* why) {
+    bool ok = true;
+    auto bad = [&](const std::string& m) { ok = false; note(why, m); };
+    {   // a live new owner: one Commit at the pending epoch, not counted as forced, and the next call finds nothing pending
+        OwnershipService s; s.playerJoined(0); s.playerJoined(1);
+        OwnershipService::Out out;
+        s.track(7, {P(0, false, false, 9000), P(1, true, true, 50)}, 0, out);
+        out.clear();
+        s.evaluate(7, {P(0, true, true, 10), P(1, true, true, 50)}, 2000, out);
+        if (out.size() != 1 || out[0].kind != OwnMsg::Transfer) bad("setup: no Transfer");
+        out.clear();
+        if (!s.commitNothingToHandOver(7, 2001, out) || out.size() != 1 || out[0].kind != OwnMsg::Commit || out[0].owner != 0 || out[0].epoch != 2) bad("no Commit at the pending epoch");
+        if (s.ownerOf(7) != 0 || s.epochOf(7) != 2 || s.handoffPending(7)) bad("the handoff did not complete");
+        if (s.stats().forcedCommits != 0 || s.stats().immediateCommits != 1) bad("counted as forced");
+        out.clear();
+        if (s.commitNothingToHandOver(7, 2002, out) || !out.empty()) bad("a second call changed something");
+        if (s.commitNothingToHandOver(99, 2002, out) || !out.empty()) bad("an unknown actor changed something");
+    }
+    {   // a new owner that left: nothing is committed to it
+        OwnershipService s; s.playerJoined(0); s.playerJoined(1);
+        OwnershipService::Out out;
+        s.track(7, {P(1, true, true, 50)}, 0, out);
+        out.clear();
+        s.evaluate(7, {P(0, true, true, 10), P(1, true, true, 50)}, 2000, out);
+        out.clear();
+        s.playerLeft(0, 2001, out);   // cancels the handoff by itself
+        out.clear();
+        if (s.commitNothingToHandOver(7, 2002, out) || !out.empty() || s.ownerOf(7) != 1) bad("committed to a new owner that is gone");
+    }
+    {   // a Transfer to a player the service does not know as connected (the timeout path would abort it): nothing is committed to it
+        OwnershipService s; s.playerJoined(0);
+        OwnershipService::Out out;
+        s.track(7, {P(0, true, true, 10)}, 0, out);                                    // the host owns it
+        out.clear();
+        s.evaluate(7, {P(0, false, false, 9000), P(1, true, true, 50)}, 2000, out);   // host left: transfer to 1, who never joined
+        if (out.empty() || out[0].kind != OwnMsg::Transfer) bad("setup: no Transfer to the unknown client");
+        out.clear();
+        if (s.commitNothingToHandOver(7, 2002, out) || !out.empty() || s.ownerOf(7) != 0) bad("committed to a player that is not connected");
+    }
+    return ok;
+}
+
 }  // namespace fnvcoop::testing

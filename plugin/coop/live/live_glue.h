@@ -15,6 +15,7 @@
 
 #include "fnvcoop/effect.h"
 #include "live_switches.h"
+#include "../slot_facts.h"
 
 namespace nvcoop::coop { class Runtime; }
 namespace fnvcoop { struct SpawnRef; }
@@ -30,6 +31,15 @@ void glueShutdown();
 const LiveSwitches& glueSwitches();
 // Engine ref of the puppet that stands for a remote player slot (the ghost-ref map of the acting-player design); 0 = none / avatars off.
 uint32_t glueAvatarRef(uint8_t slot);
+// W3a item 3 (host): what the avatar layer knows about the remote player `slot` for the party conditions (sex and worn items from its Look, sneaking from its newest
+// snapshot, level / seat / actions / regions from its Facts message). false = no avatars service or the player is unknown; each group has its own have* flag.
+bool glueSlotFacts(uint8_t slot, nvcoop::SlotFacts* out);
+// Guest pack facts (host): what a guest carries, from its Pack message (plugin/coop/live/avatar_net.h). gluePackCount: a watched item form (runtime form id); false = unknown
+// (no pack yet, or a form that is not on the list both machines share), the puppet's own pack stays the answer. gluePackWeight: the InventoryWeight actor value.
+bool gluePackCount(uint8_t slot, uint32_t item, int64_t* count);
+bool gluePackWeight(uint8_t slot, double* weight);
+// The watched item forms as runtime form ids (nvcoop_pack_watch.json resolved against the loaded game); asked again at every session start and load. Both roles set it.
+void glueSetPackWatch(std::function<std::vector<uint32_t>()> watch);
 // The shared ini getter (environment NVCOOP_<SECTION>_<KEY> first, then the ini file); usable by every lane glue.
 IniGetter glueIni();
 

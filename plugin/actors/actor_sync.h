@@ -111,6 +111,7 @@ private:
         live::ActorSnapshot lastPub;
         uint64_t lastResyncMs = 0;
         bool resyncedOnce = false;
+        uint64_t avAuditAt = 0;               // non-owner: next check of the copy's actor values against the owner's
         // inventory (the owner publishes what its AI used or picked up; everyone else copies it)
         InvList invShared;                    // the inventory everyone agrees on: the owner's last published list, or the last one received
         bool invBase = false;                 // owner: invShared was taken from the engine (a silent baseline: worlds start equal)
@@ -142,11 +143,12 @@ private:
 
     // snapshots
     void publishOwned(Rec& r, uint32_t now);
-    void sendFull(Rec& r, bool final, bool settle);
+    bool sendFull(Rec& r, bool final, bool settle);   // false = nothing was sent (not the owner, or no state to send)
     bool acceptSnapshot(Rec& r, const live::ActorSnapshot& s, uint32_t now);
     void onLiveBatch(PlayerId from, const uint8_t* data, size_t size, uint32_t now);
     bool onSnapFull(const Envelope& e, const MSnapFull& m, uint32_t now);
     void driveNonOwner(Rec& r, uint32_t now);
+    void auditAvs(Rec& r);                            // non-owner: the copy's mirrored actor values still match the owner's
     uint32_t ownerPeriod(const Rec& r) const;
     void relayToClients(uint32_t now);
     void flushPeers(uint32_t now);
@@ -207,6 +209,7 @@ private:
     uint64_t animEventCounter_ = 0, invEventCounter_ = 0;
     std::set<uint64_t> invEvents_;                         // de-duplication of MInventory
     uint32_t invBudget_ = 0;                               // reads left in this tick
+    uint32_t avAuditBudget_ = 0;                           // copies the actor values of which may be read in this tick
     uint64_t now_ = 0, nextEvalMs_ = 0, eventCounter_ = 0;
     bool hostUp_ = true;                                   // client: link to the host
     Stats stats_;

@@ -16,6 +16,9 @@ TARGETS = [  # (exe, sources)
     ('dialogue_tests', ['tests/main.cpp']),
     ('adapter_tests', ['tests/adapter_test.cpp', os.path.join(SYN, 'src', 'transport.cpp')]),
     ('engine_tests', ['tests/engine_test.cpp', 'engine/info_reader.cpp', os.path.join(SYN, 'src', 'transport.cpp')]),
+    # wave 1b (G08 / G27): the dialogue host linked to a real RulesEngine (rules_link.h); needs the synccore sources
+    ('rules_link_tests', ['tests/rules_link_test.cpp'] + [os.path.join(SYN, 'src', n + '.cpp') for n in (
+        'wire', 'shadow', 'policy', 'storylog', 'protocol', 'rules', 'baseline', 'replicator', 'transport', 'transport_util', 'session')]),
 ]
 
 

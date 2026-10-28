@@ -23,6 +23,10 @@ What is switched on (each op carries its reason and source):
   stages / before    Barrier and PartyTether only where the lane showed they belong (VMQ05 100, vHDBattleController 30 and 10,
                      VMQHouse1 25, slideshow barriers); without the list the engine holds EVERY stage of the quest.
   PartyTether        NVDLC03MQ00 around the crashed satellite (anchor + radius, stage 100).
+  wave 3b            tools/questsweep/wave3b_data.py (the DLC set pieces: stage-scoped holds, per-player collar / AutoDoc / cloud state, PooledItems, OncePerEvent, the Teleporter range,
+                     ED-E party-owned in every quest he acts in, the repaired per-player variable lists; op mode "drop" removes a rule that cannot work as written)
+  wave 1             tools/questsweep/wave1_data.py (PerkRecipient, ChoiceConsent, FriendlyFireGuard, more ExclusiveStages, chargen Barrier stages, owner=party,
+                     host / max / sum reductions, PerPlayerState, the synthetic trigger-script entries and the top-level "policy" object): every table there has its source.
 """
 from __future__ import annotations
 
@@ -121,6 +125,9 @@ def derive(rules: Dict[str, Any]) -> Dict[str, Any]:
     for x in pending["pending_params"]:
         if x["kind"] == "PerPlayerScene" and x["param"] == "per_player" and x["quest"] in rules:
             names = [n for n in x["value"] if IDENT.match(n)]
+            if x["quest"].startswith("NVDLC"):    # a DLC list may only name variables the quest's own script declares (wave 3b audit: 'perks', 'items', AutoDoc object variables)
+                have = {v["name"] for v in (qd.by_edid[x["quest"]].get("script_data") or {}).get("vars", [])} if x["quest"] in qd.by_edid else set()
+                names = [n for n in names if n in have]
             if names:
                 ops.append({"quest": x["quest"], "kind": "PerPlayerVars", "mode": "merge", "params": {"vars": names},
                             "why": "per-player script variables (host-side copy per slot); wildcards and prose entries of the lane list are not variables and are left out: "
@@ -153,13 +160,23 @@ def derive(rules: Dict[str, Any]) -> Dict[str, Any]:
     e, params, src = TETHER_ANCHOR
     ops.append({"quest": e, "kind": "PartyTether", "mode": "add", "params": params,
                 "why": "the satellite button is one-way: refuse until every slot is inside the radius", "source": src})
+    from questsweep import wave1_data as W1
+    w1_ops, w1_policy = W1.ops_and_policy(rules, qd)
+    ops += w1_ops
+    from questsweep import refcheck, wave3b_data as W3
+    ops += W3.ops(rules, qd, refcheck.Refs())
     return {"schema": SCHEMA, "note": "Applied to docs/quest-policies/rules.json by tools/questsweep/rules_overlay.py; derived from rules.pending.json, "
-            "plugin/hooks/data/guest_local_run.json and the lane review documents named in `source`.", "ops": ops}
+            "plugin/hooks/data/guest_local_run.json and the lane review documents named in `source`.", "ops": ops,
+            "policy": w1_policy["policy"], "policy_source": w1_policy["source"]}
 
 
 # -------------------------------------------------------------------------------------------------------------- apply
-def _find(rules_of_quest: List[dict], kind: str) -> Optional[dict]:
-    return next((r for r in rules_of_quest if r["kind"] == kind), None)
+def _find(rules_of_quest: List[dict], kind: str, match: Optional[Dict[str, Any]] = None) -> Optional[dict]:
+    """First rule of `kind`; with `match` the first whose params hold every key / value of it (picks one tether among several)."""
+    for r in rules_of_quest:
+        if r["kind"] == kind and (not match or all(r.get("params", {}).get(k) == v for k, v in match.items())):
+            return r
+    return None
 
 
 def _merge(dst: Dict[str, Any], src: Dict[str, Any]) -> bool:
@@ -168,6 +185,12 @@ def _merge(dst: Dict[str, Any], src: Dict[str, Any]) -> bool:
         if k == "scripts":      # lists of ids are unioned, order kept
             cur = list(dst.get(k, []))
             new = cur + [x for x in v if x not in cur]
+            if new != dst.get(k):
+                dst[k] = new
+                changed = True
+        elif k == "funcs" and isinstance(v, dict):    # PartyAwareCond: the function -> reduction map is merged, the op's entries win
+            cur = dict(dst.get(k, {}))
+            new = {**cur, **v}
             if new != dst.get(k):
                 dst[k] = new
                 changed = True
@@ -181,6 +204,13 @@ def apply_ops(rules: Dict[str, Any], ops: List[Dict[str, Any]]) -> int:
     """Applies the ops to the `quests` dict in place; returns how many changed something. Idempotent."""
     changed = 0
     for op in ops:
+        if op["mode"] == "drop":
+            q = rules.get(op["quest"])
+            before = len(q["rules"]) if q else 0
+            if q:
+                q["rules"] = [r for r in q["rules"] if not (r["kind"] == op["kind"] and (not op.get("match") or all(r.get("params", {}).get(k) == v for k, v in op["match"].items())))]
+            changed += before - (len(q["rules"]) if q else 0)
+            continue
         q = rules.get(op["quest"])
         if q is None:
             if "entry" not in op:
@@ -189,12 +219,12 @@ def apply_ops(rules: Dict[str, Any], ops: List[Dict[str, Any]]) -> int:
             changed += 1
         lst = q["rules"]
         if op["mode"] == "add":
-            if any(r["kind"] == op["kind"] and r["params"] == op["params"] for r in lst):
+            if any(r["kind"] == op["kind"] and all(r["params"].get(k) == v for k, v in op["params"].items()) for r in lst):
                 continue
             lst.append({"kind": op["kind"], "params": copy.deepcopy(op["params"]), "origin": ORIGIN})
             changed += 1
             continue
-        r = _find(lst, op["kind"])
+        r = _find(lst, op["kind"], op.get("match"))
         if r is None:
             lst.append({"kind": op["kind"], "params": copy.deepcopy(op["params"]), "origin": ORIGIN})
             changed += 1
@@ -208,15 +238,20 @@ def held(rules: Dict[str, Any], ops: List[Dict[str, Any]]) -> List[str]:
     miss = []
     for op in ops:
         q = rules.get(op["quest"])
+        if op["mode"] == "drop":
+            if q and any(r["kind"] == op["kind"] and (not op.get("match") or all(r.get("params", {}).get(k) == v for k, v in op["match"].items())) for r in q["rules"]):
+                miss.append("%s/%s still present (op drop)" % (op["quest"], op["kind"]))
+            continue
         ok = False
         if q:
             for r in q["rules"]:
                 if r["kind"] != op["kind"]:
                     continue
                 p = r["params"]
-                if op["mode"] == "add" and p == op["params"]:
+                if op["mode"] == "add" and all(p.get(k) == v for k, v in op["params"].items()):
                     ok = True
-                elif op["mode"] == "merge" and all((all(x in p.get(k, []) for x in v) if k == "scripts" else p.get(k) == v) for k, v in op["params"].items()):
+                elif op["mode"] == "merge" and all((all(x in p.get(k, []) for x in v) if k == "scripts" else
+                                                    all(p.get(k, {}).get(fk) == fv for fk, fv in v.items()) if k == "funcs" else p.get(k) == v) for k, v in op["params"].items()):
                     ok = True
         if not ok:
             miss.append(f"{op['quest']}/{op['kind']} {json.dumps(op['params'])[:80]}")
@@ -268,6 +303,66 @@ def validate(rules: Dict[str, Any]) -> List[str]:
                 for s in p.get("scripts", []):
                     if not re.match(r"^[A-Za-z0-9_.]+\.es[mp]:[0-9A-Fa-f]{1,8}$", str(s)):
                         errs.append(f"{who}: script '{s}' is not Plugin.esm:HEX")
+            elif k == "ChoiceConsent":
+                ids = list(p.get("topics", [])) + list(p.get("boxes", []))
+                if not ids:
+                    errs.append(f"{who}: needs topics or boxes")
+                for i in ids:
+                    if not (re.match(r"^[A-Za-z0-9_.]+\.es[mp]:[0-9A-Fa-f]{1,8}$", str(i)) or IDENT.match(str(i))):
+                        errs.append(f"{who}: '{i}' is neither Plugin.esm:HEX nor an EditorID")
+                if p.get("mode", "vote") not in ("vote", "unanimous", "host", "initiator"):
+                    errs.append(f"{who}: mode must be vote, unanimous, host or initiator")
+                if "timeout_s" in p and not (isinstance(p["timeout_s"], (int, float)) and p["timeout_s"] > 0):
+                    errs.append(f"{who}: timeout_s must be > 0")
+            elif k == "PerkRecipient":
+                if p.get("default", "all") not in ("all", "initiator", "recruiter"):
+                    errs.append(f"{who}: default must be all, initiator or recruiter")
+                if not (p.get("default") or p.get("all") or p.get("initiator") or p.get("recruiter")):
+                    errs.append(f"{who}: names no perk and no default")
+                for key in ("all", "initiator", "recruiter"):
+                    if key in p and not isinstance(p[key], list):
+                        errs.append(f"{who}: {key} must be a list")
+            elif k == "FriendlyFireGuard":
+                if not p.get("actors"):
+                    errs.append(f"{who}: needs actors")
+                if "deliberate_hits" in p and not (isinstance(p["deliberate_hits"], (int, float)) and p["deliberate_hits"] >= 1):
+                    errs.append(f"{who}: deliberate_hits must be >= 1")
+                if "window_s" in p and not (isinstance(p["window_s"], (int, float)) and p["window_s"] > 0):
+                    errs.append(f"{who}: window_s must be > 0")
+            elif k == "PerPlayerState":
+                if not p.get("vars") and not p.get("scope"):
+                    errs.append(f"{who}: needs vars or a scope")
+                if p.get("down", "timed") not in ("until-checkpoint", "timed"):
+                    errs.append(f"{who}: down must be until-checkpoint or timed")
+                for key in ("scripts", "objvars", "checkpoint"):
+                    if key in p and not isinstance(p[key], list):
+                        errs.append(f"{who}: {key} must be a list")
+                for n in p.get("objvars", []):
+                    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$", str(n)):
+                        errs.append(f"{who}: objvars entry '{n}' is not Script.var")
+                for n in p.get("scripts", []):
+                    if not IDENT.match(str(n)):
+                        errs.append(f"{who}: scripts entry '{n}' is not an EditorID")
+            elif k == "PooledItems":
+                if not p.get("items"):
+                    errs.append(f"{who}: needs items")
+            elif k == "OncePerEvent":
+                if not p.get("globals") and not p.get("effects"):
+                    errs.append(f"{who}: needs globals or effects")
+                for e in p.get("effects", []):
+                    if e not in ("AdvanceTime", "SetGlobal"):
+                        errs.append(f"{who}: effects entry '{e}' must be AdvanceTime or SetGlobal")
+                if "window_s" in p and not (isinstance(p["window_s"], (int, float)) and p["window_s"] > 0):
+                    errs.append(f"{who}: window_s must be > 0")
+            elif k == "PartyWarp":
+                if "range" in p and not (isinstance(p["range"], (int, float)) and p["range"] > 0):
+                    errs.append(f"{who}: range must be > 0")
+            elif k == "SetPlayerControls":
+                if p.get("scope", "all") not in ("all", "initiator"):
+                    errs.append(f"{who}: scope must be all or initiator")
+            elif k == "CompanionOwner":
+                if p.get("owner", "recruiter") not in ("recruiter", "party"):
+                    errs.append(f"{who}: owner must be recruiter or party")
     return errs
 
 
@@ -301,6 +396,9 @@ def main(argv=None) -> int:
     ov = load_overlay()
     if a.apply:
         n = apply_ops(doc["quests"], ov["ops"])
+        if ov.get("policy") and doc.get("policy") != ov["policy"]:
+            doc["policy"] = copy.deepcopy(ov["policy"])
+            n += 1
         errs = validate(doc["quests"])
         if errs:
             print("\n".join(errs))
@@ -310,6 +408,8 @@ def main(argv=None) -> int:
         print(f"{n} change(s) applied" if n else "rules.json already holds the overlay")
         return 0
     miss = held(doc["quests"], ov["ops"])
+    if ov.get("policy") and doc.get("policy") != ov["policy"]:
+        miss.append("policy " + json.dumps(ov["policy"])[:80])
     errs = validate(doc["quests"])
     for m in miss:
         print("MISSING " + m)

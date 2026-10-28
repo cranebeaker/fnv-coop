@@ -89,7 +89,7 @@ void EnginePort::flush() {
         if (!r || !eng_.read(r, raw)) { e->killWanted = e->reviveWanted = false; continue; }
         if (e->killWanted) {
             if (raw.dead()) e->killWanted = false;
-            else if (e->killTries < 5) { eng_.killActor(r); ++e->killTries; e->nextTryMs = now_ + 200; }
+            else if (e->killTries < 5) { killRef(r); ++e->killTries; e->nextTryMs = now_ + 200; }
             else e->killWanted = false;
         } else if (e->reviveWanted) {
             if (!raw.dead()) e->reviveWanted = false;
@@ -391,6 +391,23 @@ void EnginePort::applyAvs(Entry& e, RefId r, const std::vector<live::AvValue>& v
     }
 }
 
+size_t EnginePort::auditAv(NetId id, const std::vector<live::AvValue>& expected) {
+    Entry* e = find(id);
+    const RefId r = e ? activeOf(*e) : 0;
+    if (!r || e->killWanted) return 0;
+    size_t fixed = 0;
+    for (const live::AvValue& v : expected) {
+        if (v.av != kAvHealth) continue;   // one read per copy and second; the limb conditions are written when they change and rarely drift
+        float target = static_cast<float>(v.value);
+        if (target < 1.0f) target = 1.0f;   // a health under 1 is a dying owner: the copy dies by the death message, never by a mirrored value
+        float cur = 0;
+        if (!eng_.actorValue(r, v.av, cur) || std::fabs(cur - target) < 1.0f) continue;
+        ++st_.avDrifts; st_.lastDriftNet = id; st_.lastDriftCur = cur; st_.lastDriftWant = target;
+        if (!FNV_MUT(77) && eng_.forceAv(r, v.av, target)) ++fixed;   // twin 77: the drift is seen and left
+    }
+    return fixed;
+}
+
 void EnginePort::applyAv(NetId id, const std::vector<live::AvValue>& values) {
     Entry* e = find(id);
     const RefId r = e ? activeOf(*e) : 0;
@@ -662,6 +679,13 @@ void EnginePort::setBase(NetId id, const FormRef& pick) {
 
 // ---- IActorPort: death -------------------------------------------------------------------------------------------------------------------
 
+// A copy dies because its owner's machine declared the death. When a REMOTE player's shot did it, the kill is credited to that player's puppet (G04).
+void EnginePort::killRef(RefId r) {
+    const RefId killer = registry().killerOf && !FNV_MUT(76) ? registry().killerOf(r) : 0;   // twin 76: nobody is ever credited
+    if (killer) eng_.killActorBy(r, killer);
+    else eng_.killActor(r);
+}
+
 void EnginePort::kill(NetId id) {
     Entry* e = find(id);
     const RefId r = e ? activeOf(*e) : 0;
@@ -672,7 +696,7 @@ void EnginePort::kill(NetId id) {
     e->killWanted = true;
     e->killTries = 1;
     e->nextTryMs = now_ + 200;
-    eng_.killActor(r);
+    killRef(r);
     ActorSync* s = registry().sync ? registry().sync() : nullptr;
     DiedEvent d;
     d.netId = id; d.ref = r; d.authorised = true; d.fromNetwork = true;

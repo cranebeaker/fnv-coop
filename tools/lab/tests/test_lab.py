@@ -69,8 +69,12 @@ EXPECT = {
     "var_unsynced": ("quest", "quest variable", "SYNC"),
     "stage_rollback": ("quest", "does not roll back", "SYNC"),
 }
-NOT_A_FAILURE = {"var_unreadable",         # a build that cannot read a quest variable skips that check, it does not fail the lab
-                 "hostiles_charge"}        # the fight room enables one hostile at a time, so none has walked up to its shooter (own test below)
+NOT_A_FAILURE = set(labfake.NET_ONLY) | {"var_unreadable",         # a build that cannot read a quest variable skips that check, it does not fail the lab
+                 "kill_health_split",      # how the real game reports a kill (own test below)
+                 "target_drifts",          # the fight room holds each target in place, so none drifts out of range (own test below)
+                 "hostiles_charge",        # the fight room enables one hostile at a time, so none has walked up to its shooter (own test below); the VATS room holds its target
+                 "locked_try_opens_lockpick",
+                 "slow_npc_samples"}     # a slow sample is no snap (own test below)   # the rooms close a menu an earlier step left open (own test below)
 
 
 def layout() -> LY.Layout:
@@ -190,6 +194,55 @@ class Pure(unittest.TestCase):
         jumpy[10] = (2.5, (500, 0, 0), (1500, 0, 0))
         self.assertGreaterEqual(walk_stats(jumpy, 250)["teleports"], 1)
         self.assertEqual(walk_stats([(0, (0, 0, 0), None)], 250)["samples"], 0)
+
+    def test_lag_estimate_finds_the_playback_delay_whatever_the_two_bridge_reads_took(self):
+        # the puppet shows the walker as he was 150 ms ago; the puppet is read 80 ms after the walker (4 bridge calls at 60 fps). The raw error is v x (lag - skew), not v x lag.
+        from lab_rooms import lag_estimate
+        v, lag, skew = 200.0, 0.150, 0.080
+        rows = []
+        for i in range(24):
+            tm = 10.0 + i * 0.25
+            tp = tm + skew
+            mp = (v * (tm - 10.0), 0.0, 0.0)
+            pp = (v * max(0.0, tp - lag - 10.0), 0.0, 0.0)
+            rows.append((tm, mp, tp, pp))
+        r = lag_estimate(rows)
+        self.assertLessEqual(abs(r["lag_ms"] - 150), 20, r)
+        self.assertLessEqual(r["err_p95"], 8.0, r)
+        self.assertEqual(r["skew_ms"], 80)
+
+    def test_trace_lag_finds_the_delay_on_one_clock_and_the_engine_lag_behind_it(self):
+        # the game's own trace: the walker publishes at 30 Hz, the puppet is fed every 16 ms and shows him as he was 140 ms ago; the engine reports the puppet one frame behind the fed pose
+        from lab_rooms import trace_lag
+        v, lag = 300.0, 140
+        local = [[1000 + i * 33, v * (i * 33) / 1000.0, 0.0, 0.0, v, 0.0, 0.0] for i in range(60)]
+        def path(t): return v * max(0.0, (t - 1000)) / 1000.0
+        remote = []
+        for t in range(1400, 2900, 16):
+            remote.append([t, path(t - lag), 0.0, 0.0, path(t - lag - 16), 0.0, 0.0, 16 | 1])
+        r = trace_lag(local, remote)
+        self.assertLessEqual(abs(r["lag_ms"] - 140), 6, r)
+        self.assertLessEqual(abs(r["engine_lag_ms"] - 156), 6, r)
+        self.assertLessEqual(r["err_p95_aligned"], 3.0, r)
+        self.assertLessEqual(abs(r["err_p95_now"] - v * 0.14), 4.0, r)       # the real error at the same instant: speed x delay
+        self.assertIsNone(trace_lag([], remote)["lag_ms"])
+
+    def test_stage_metrics_are_leg_means_and_the_wire_time_is_the_difference(self):
+        from lab_rooms import stage_metrics, gauge_leg_mean
+        g = lambda n, s: {"n": n, "sum": s, "last": 0, "mean": 0, "max": 0}
+        self.assertEqual(gauge_leg_mean(g(10, 100.0), g(30, 500.0)), 20.0)      # 400 over 20 samples
+        self.assertIsNone(gauge_leg_mean(g(10, 100.0), g(10, 100.0)))
+        w0, w1 = {"send": g(0, 0.0)}, {"send": g(100, 300.0)}                   # the walker: 3 ms from sample to the transport
+        v0 = {"rx": g(0, 0.0), "applyUs": g(0, 0.0), "remotes": [{"pushes": 0, "delay": g(0, 0.0), "hold": g(0, 0.0)}]}
+        v1 = {"rx": g(100, 1300.0), "applyUs": g(100, 20000.0),                 # the viewer: 13 ms from sample to its network layer
+              "remotes": [{"pushes": 100, "delay": g(100, 3000.0), "hold": g(100, 800.0), "lowLatency": True, "jitterMs": 12.0, "offsetMs": 4}]}
+        m = stage_metrics(w0, w1, v0, v1)
+        self.assertEqual((m["send_ms"], m["rx_ms"], m["transport_ms"]), (3.0, 13.0, 10.0))
+        self.assertEqual((m["delay_in_use_ms"], m["hold_ms"], m["apply_ms"], m["low_latency"]), (30.0, 8.0, 0.2, 1))
+
+    def test_lag_estimate_without_enough_samples_says_none(self):
+        from lab_rooms import lag_estimate
+        self.assertIsNone(lag_estimate([(1.0, (0, 0, 0), 1.1, (0, 0, 0))])["lag_ms"])
 
     def test_new_desync_entries_oldest_first_and_only_newer(self):
         ds = {"desyncs": [{"id": 3, "entries": [{"key": "c", "host": 1, "client": 2}]}, {"id": 1, "entries": [{"key": "a", "host": 1, "client": 2}]},
@@ -312,6 +365,7 @@ class FakeLab(unittest.TestCase):
         self.assertIn("intents.pickup=0", lab_live.LAB_INI)
         self.assertIn("intents.container=0", lab_live.LAB_INI)
         self.assertNotIn("intents.terminal=0", lab_live.LAB_INI, "the door room needs the terminal intent")
+        self.assertIn("worldtime.enabled=1", lab_live.LAB_INI, "the door poll and the client heal are off without it")
 
     def test_the_vats_room_enables_one_target_at_a_time_and_weakens_it_before_the_shot(self):
         # lab run 2026-10-27: both geckos enabled at once were on top of the host when its VATS shot started (vats_not_entered)
@@ -350,6 +404,74 @@ class FakeLab(unittest.TestCase):
         self.assertLess(enable[1], names.index("client kills enemy 2"))
         self.assertGreater(enable[2], names.index("client kills enemy 2"), "the survivor is enabled last")
 
+    def test_the_vats_room_holds_each_target_in_place_so_none_walks_up_to_the_shooter(self):
+        # lab run 2026-10-27: an enabled gecko ran 368 units in about 4 s and stood on the shooter: vats_not_entered / hit chance 0. The host restrains it.
+        res, _ = run_lab(bugs=["hostiles_charge"], rooms=["vats"])
+        r = row(res, "vats")
+        self.assertEqual(r["verdict"], "PASS", r["reason"])
+        names = [c["name"] for c in r["checks"]]
+        held = [i for i, n in enumerate(names) if "holds the" in n]
+        self.assertEqual(len(held), 2)
+        self.assertLess(held[0], names.index("host VATS shot 1"))
+        self.assertLess(held[1], names.index("client VATS shot 1"))
+
+    def test_the_fight_room_holds_each_target_in_place_so_none_drifts_out_of_the_pistols_range(self):
+        # lab run 2026-10-28: behind bad_wifi and transatlantic the second target drifted 659 and 875 units away: "no clear shot even from the standoff"
+        res, _ = run_lab(bugs=["target_drifts"], rooms=["fight"])
+        r = row(res, "fight")
+        self.assertEqual(r["verdict"], "PASS", r["reason"])
+        names = [c["name"] for c in r["checks"]]
+        for idx, shooter in ((1, "host"), (2, "client")):
+            hold = names.index(f"the host holds enemy {idx} in place")
+            self.assertLess(hold, names.index(f"the host weakens enemy {idx}"))
+            self.assertLess(hold, names.index(f"{shooter} kills enemy {idx}"))
+            self.assertIn(f"enemy {idx} killed by the {shooter} is dead on the {'client' if shooter == 'host' else 'host'} copy", names, "the kill still crosses the link")
+
+    def test_the_npc_handoff_time_does_not_include_the_length_of_the_old_owners_cell_load(self):
+        # lab run 2026-10-28: "NPC handoff 1030 ms behind good and bad Wi-Fi" (78 ms clean). The host's copy answers no bridge call while it loads the cell it `coc`s into, and the
+        # number waited for BOTH copies' owner views. Now the new owner's own copy is what the time ends on.
+        lay = layout()
+        env = labfake.FakeEnv(lay)
+
+        class BusyHost(labfake.FakeMachine):
+            def owner(self, ref):
+                if self.name == "host" and self.s.cell != 1:
+                    self.w.clock.sleep(3.0)           # the host's copy is in its load: the call is served seconds later
+                return super().owner(ref)
+        env.machines = lambda pair: (BusyHost(env.worlds[pair], "host"), BusyHost(env.worlds[pair], "client"))
+        res, _ = run_lab(env=env, lay=lay, rooms=["npc"])
+        r = row(res, "npc")
+        self.assertEqual(r["verdict"], "PASS", r["reason"])
+        m = r["metrics"]
+        self.assertLess(m["npc_client_owns_ms"], 2000, m)
+        for k in ("npc_client_coc_ms", "npc_client_left_ms", "npc_client_owns_ms", "npc_host_coc_ms", "npc_host_owns_ms"):
+            self.assertIn(k, m)
+
+    def test_the_spawn_room_says_when_each_copy_first_had_the_other_players_puppet_and_how_long_the_entry_had_already_taken(self):
+        res, _ = run_lab(rooms=["spawn"])
+        m = row(res, "spawn")["metrics"]
+        for k in ("host_puppet_placed_ms", "client_puppet_placed_ms", "host_puppet_near_ms", "client_puppet_near_ms", "puppet_wait_started_ms_after_enter", "puppet_seen_ms"):
+            self.assertIn(k, m)
+        self.assertLessEqual(max(m["host_puppet_near_ms"], m["client_puppet_near_ms"]), m["puppet_seen_ms"] + 300)
+
+    def test_a_patrol_step_between_two_slow_samples_is_no_snap_but_a_real_snap_still_is(self):
+        # lab run 2026-10-27, behind good_wifi: "the NPC never snaps: got 327.9" - the steps are judged by what the patrol covers in the time between the samples
+        res, _ = run_lab(bugs=["slow_npc_samples"], rooms=["npc"])
+        r = row(res, "npc")
+        self.assertEqual(r["verdict"], "PASS", r["reason"])
+        self.assertGreater(r["metrics"]["npc_max_step"], 300.0, "the plain walk between two slow samples is a step over the old limit")
+        res, _ = run_lab(bugs=["slow_npc_samples", "handoff_snap"], rooms=["npc"])
+        r = row(res, "npc")
+        self.assertEqual(r["verdict"], "FAIL")
+        self.assertIn("never snaps", [c for c in r["checks"] if not c["ok"]][0]["name"])
+
+    def test_a_menu_an_earlier_step_left_open_is_closed_before_the_next_room_starts(self):
+        # lab run 2026-10-27: the host's try at the locked door opened the lockpick menu, which stayed open and ate the next open and the VATS of the next room
+        res, _ = run_lab(bugs=["locked_try_opens_lockpick"], rooms=["door", "vats"])
+        for room in ("door", "vats"):
+            r = row(res, room)
+            self.assertEqual(r["verdict"], "PASS", f"{room}: {r['reason']}")
+
     def test_a_loot_room_whose_guest_cannot_take_skips_that_take_and_still_checks_the_rest(self):
         lay = layout()
 
@@ -365,6 +487,19 @@ class FakeLab(unittest.TestCase):
         self.assertEqual([c["name"] for c in skipped], ["client takes 1 from the container"])
         self.assertIn("no driver", skipped[0]["note"])
         self.assertIn("takers got exactly what they took, nobody else got anything", [c["name"] for c in r["checks"]])
+
+    def test_a_vats_kill_that_reads_minus_14_on_the_host_and_1_on_the_client_passes(self):          # twin vats_compares_kill_health
+        res, _ = run_lab(bugs=["kill_health_split"], rooms=["vats"])
+        r = row(res, "vats")
+        self.assertEqual(r["verdict"], "PASS", [c for c in r["checks"] if not c["ok"]])
+        names = [c["name"] for c in r["checks"]]
+        self.assertTrue(any("is dead on both copies" in n for n in names))
+        self.assertFalse(any("shot" in n and "health agrees" in n and n.startswith("host VATS shot 2") for n in names), "the killing shot's health is not compared")
+
+    def test_a_vats_health_that_really_differs_on_a_living_target_still_fails(self):
+        res, _ = run_lab(bugs=["vats_double"], rooms=["vats"])
+        self.assertEqual(row(res, "vats")["verdict"], "FAIL")
+        self.assertIn("health agrees", failed(row(res, "vats"))[0]["name"])
 
     def test_a_bug_in_one_room_leaves_the_others_passing(self):
         res, _ = run_lab(bugs=["door_unsynced"])
@@ -403,7 +538,7 @@ class FakeLab(unittest.TestCase):
     def test_metrics_are_numbers(self):
         res, _ = run_lab()
         m = row(res, "fight")["metrics"]
-        self.assertTrue(0 < m["host_kill_latency_s"] < 3 and 0 < m["client_kill_latency_s"] < 3, m)
+        self.assertTrue(0 < m["host_kill_ms"] < 3000 and 0 < m["client_kill_ms"] < 3000, m)
         self.assertIn("host_err_p95", row(res, "walk")["metrics"])
 
     def test_thresholds_can_be_changed_per_run(self):
@@ -721,7 +856,33 @@ class Live(unittest.TestCase):
                         w.stages[int(cmd.split()[1], 16)] = int(cmd.split()[2])
                     return {"ok": True, "output": ""}
                 return super().exec(cmd, timeout_ms, ref=ref)
-        self.nv = Bridge(w)
+        self.loot_calls = []
+        loot_calls = self.loot_calls
+        self.helpers_on = True
+        test_self = self
+
+        class Bridge2(Bridge):                  # the two bridge methods this round added to the lab: coop.loot (grab) and bot.questvar
+            def call(self, method, params=None, timeout_s=35.0):
+                from bots.fake import RpcError
+                if method == "coop.loot":
+                    g = (params or {}).get("grab", {})
+                    loot_calls.append((getattr(self, "_menu", "none"), dict(g)))
+                    if not test_self.helpers_on:
+                        raise RpcError(-32000, "test helpers disabled (start the game with NVCOOP_TEST_HELPERS=1)", method)
+                    if int(g.get("count", 0)) <= 0:
+                        raise RpcError(-32000, "grab refused: bad item or count", method)
+                    cont, item = w.things[int(g["container"], 16)], int(g["item"], 16)
+                    cont.items[item] -= int(g["count"])
+                    self.me.items[item] = self.me.items.get(item, 0) + int(g["count"])
+                    return {"grab": True, "phase": "both"}
+                if method == "bot.questvar":
+                    key = ((params or {}).get("quest"), (params or {}).get("var"))
+                    if key not in test_self.quest_vars:
+                        raise RpcError(-32000, "quest " + str(key[0]) + " has no readable variable " + str(key[1]), method)
+                    return {"value": test_self.quest_vars[key]}
+                return super().call(method, params, timeout_s)
+        self.quest_vars = {}
+        self.nv = Bridge2(w)
         self.m = lab_live.LiveMachine(self.nv, "host", Bot(self.nv, "t"))
         self.f = lambda i: f"FalloutNV.esm:{i:06X}"
 
@@ -780,7 +941,7 @@ class Live(unittest.TestCase):
             auto_dismiss = False
 
             def __init__(self):
-                self.me, self.hops, self.dead, self.seen, self.order, self.out = [0.0, 0.0, 0.0], [], False, [], [], True
+                self.me, self.hops, self.dead, self.seen, self.order, self.out, self.hp = [0.0, 0.0, 0.0], [], False, [], [], True, 30.0
                 self.__dict__.update(kw)
 
             def pos(self, ref=None):
@@ -788,6 +949,9 @@ class Live(unittest.TestCase):
 
             def alive(self, ref):
                 return not self.dead
+
+            def health(self, ref):
+                return self.hp
 
             def _weapon_note(self):
                 return {"weapon_out": self.out, "weapon_equipped": True}
@@ -836,17 +1000,84 @@ class Live(unittest.TestCase):
         # bot.look changes nothing on a client copy (in game 2026-10-27: the client walked 1700 units straight north); the console's SetAngle works on both
         self.assertTrue(self.m.bot.look_via_console)
 
-    def test_a_guest_has_no_honest_way_to_take_from_a_container_and_says_so(self):
-        # measured 2026-10-27: the guest's console RemoveItem on the chest changes nothing (the plugin blocks it on purpose), its AddItem does
-        self.assertEqual(self.m.can_take(), (True, ""))
-        guest = self.lab_live.LiveMachine(self.nv, "client", self.m.bot)
+    def test_a_guest_takes_through_the_helper_with_the_container_closed_like_a_quick_loot_mod(self):
+        # measured 2026-10-27: the guest's console RemoveItem on the chest changes nothing (the plugin blocks it on purpose), its AddItem does. 2026-10-28: a grab with the
+        # container menu OPEN is healed away at the close (guest 2, host 3), so the guest takes with the container closed and the loot service's menu-less path decides.
+        from bots import Bot
+        guest = self.lab_live.LiveMachine(self.nv, "client", Bot(self.nv, "g"))
+        self.assertFalse(guest.can_take()[0], "off by default: the helper path did not reach the host when measured")
+        self.assertIn("LAB_GUEST_TAKE=helper", guest.can_take()[1])
+        os.environ["LAB_GUEST_TAKE"] = "helper"
+        self.addCleanup(os.environ.pop, "LAB_GUEST_TAKE", None)
+        self.assertEqual(guest.can_take(), (True, ""))
+        cont, item = self.f(0x600), self.f(0x500)
+        self.assertEqual(guest.item_count(item), 0)
+        self.assertEqual(guest.take(cont, item, 1), (True, ""))
+        self.assertEqual(guest.item_count(item), 1)
+        self.assertEqual(guest.item_count(item, cont), 4)
+        grabs = [(menu, g) for menu, g in self.loot_calls if int(g.get("count", 0))]
+        self.assertEqual([m for m, _ in grabs], ["none"], "no container menu was open when the item moved")
+        self.assertEqual(grabs[0][1]["phase"], "both")
+        self.assertIn("loot status after the take", guest.take_note)
+
+    def test_a_guest_take_that_cannot_move_the_item_fails_with_the_reason(self):
+        from bots import Bot
+        guest = self.lab_live.LiveMachine(self.nv, "client", Bot(self.nv, "g"))
+        os.environ["LAB_GUEST_TAKE"] = "helper"
+        self.addCleanup(os.environ.pop, "LAB_GUEST_TAKE", None)
+        self.helpers_on = False
         ok, why = guest.can_take()
         self.assertFalse(ok)
-        self.assertIn("blocked on purpose", why)
+        self.assertIn("NVCOOP_TEST_HELPERS", why)
+        ok, why = guest.take(self.f(0x600), self.f(0x500), 1)
+        self.assertFalse(ok)
+        self.assertIn("test helpers disabled", why)
+        self.assertEqual((self.nv.call("bot.menu", {}) or {}).get("kind"), "none")
+
+    def test_the_host_still_takes_with_console_lines_and_never_opens_the_menu(self):
+        self.assertEqual(self.m.can_take(), (True, ""))
+        self.assertEqual(self.m.take(self.f(0x600), self.f(0x500), 2), (True, ""))
+        self.assertEqual([g for _, g in self.loot_calls if int(g.get("count", 0))], [])
+
+    def test_a_quest_variable_is_read_through_the_bridge_on_each_copy_and_an_unreadable_one_says_why(self):
+        q = self.f(0x700)
+        qn = self.m.bot._norm(q)[0]              # the form the bridge is asked about: "Plugin.esm:HEX"
+        self.quest_vars[(qn, "labvar")] = 7.0
+        self.assertEqual(self.m.var(q, "labvar"), 7.0)
+        self.assertEqual(self.m.var_why, "")
+        self.assertIsNone(self.m.var(q, "nope"))
+        self.assertIn("no readable variable nope", self.m.var_why)
+        self.quest_vars[(qn, "labvar")] = 9.0
+        self.assertEqual(self.m.var(q, "labvar"), 9.0, "the live value, read again")
 
     def test_a_walk_that_arrives_is_ok(self):
         m, b, AR = self.stub()
         self.assertEqual(m.walk_to(1.0, 2.0, 3.0, 5.0), (True, ""))
+
+    def test_the_host_picks_up_through_the_console_and_a_guest_through_the_bridge_method(self):
+        # activate.ref (last argument 0) deleted the lab's placed Stimpak without giving it to the player (measured 2026-10-27); the console line gives it, but
+        # a guest's console line is dropped by the script block
+        m, b, AR = self.stub()
+        b.pickup = lambda ref, **k: (b.seen.append(("pickup", k)), AR(True, "", {}, "pickup", 0.1))[1]
+        self.assertEqual(m.pickup("R"), (True, ""))
+        guest = self.lab_live.LiveMachine(self.nv, "client", b)
+        self.assertEqual(guest.pickup("R"), (True, ""))
+        self.assertEqual(b.seen, [("pickup", {"console": True}), ("pickup", {})])
+
+    def test_two_vats_entries_close_together_wait_for_the_cooldown(self):
+        # the game crashed twice in the first ticks of a VATS entry that followed another one within seconds (FalloutNV.exe+400F66)
+        m, b, AR = self.stub()
+        b.vats_target = lambda ref, limb=None, **k: AR(True, "", {}, "vats_target", 1.0)
+        slept = []
+        real = self.lab_live.time.sleep
+        self.lab_live.time.sleep = lambda s: slept.append(s)
+        try:
+            self.assertTrue(m.vats("R")[0])
+            first = sum(slept)
+            self.assertTrue(m.vats("R")[0])
+        finally:
+            self.lab_live.time.sleep = real
+        self.assertGreaterEqual(sum(slept) - first, self.lab_live.VATS_COOLDOWN_S - 0.5, "the second entry waited for the first one to be over")
 
     def test_vats_asks_for_no_limb(self):
         # plugin/bots answers any limb with "unsupported: limb selection in VATS is not implemented"
@@ -869,6 +1100,29 @@ class Live(unittest.TestCase):
         calls.clear()
         self.assertTrue(m.vats("R")[0])             # drawn now: the toggle must not be pressed again
         self.assertEqual(calls, [])
+
+    def test_a_vats_job_that_lost_the_race_to_the_modules_auto_fire_counts_when_the_target_was_hit(self):
+        # measured 2026-10-27: target 4.8 -> -4.4 and dead, the job FAILED "vats_closed (camera mode 0 before the attack was queued)": the mod's real-time VATS
+        # fired the queued attack itself. A closed VATS with an untouched target is still a failure.
+        m, b, AR = self.stub()
+        why_bot = "vats_target: FAILED vats_failed (5.14s) {'why': 'vats_closed (camera mode 0 before the attack was queued)'}"
+
+        def hit_and_close(ref, limb=None, **k):
+            b.hp = 4.8
+            return AR(False, why_bot, {}, "vats_target", 5.1)
+        b.vats_target = hit_and_close
+        self.assertEqual(m.vats("R"), (True, ""))
+        b.hp = 30.0
+        b.vats_target = lambda ref, limb=None, **k: AR(False, why_bot, {}, "vats_target", 5.1)
+        ok, why = m.vats("R")
+        self.assertFalse(ok, "nothing hit the target: the closed VATS stays a failure")
+        self.assertIn("vats_closed", why)
+
+        def kill_and_close(ref, limb=None, **k):
+            b.dead = True
+            return AR(False, why_bot, {}, "vats_target", 5.1)
+        b.dead, b.vats_target = False, kill_and_close
+        self.assertEqual(m.vats("R"), (True, ""))
 
     def test_a_failed_vats_shot_keeps_the_whole_reason(self):
         m, b, AR = self.stub()
@@ -904,6 +1158,72 @@ class Live(unittest.TestCase):
         self.assertEqual(m.shoot("T", 4, "S"), (True, ""))
         self.assertEqual(b.hops, [(60.0 - 350.0, 0.0)])
 
+    def test_a_target_that_drifted_out_of_range_is_walked_up_to_along_the_line_not_the_stand_marker_again(self):
+        # lab run 2026-10-28: the stand marker was 659 units from the drifted target and counted as "far enough", so the shooter hopped to it 24 times
+        m, b, AR = self.stub(target=[659.0, 0.0, 0.0], stand=[0.0, 0.0, 0.0])
+
+        def fire(ref):
+            d = abs(b.me[0] - b.target[0])
+            if d < 150 or d > 500:
+                return AR(False, f"out of range {d:.0f}", {}, "fire", 0.1)
+            b.dead = True
+            return AR(True)
+        b.fire = fire
+        self.assertEqual(m.shoot("T", 6, "S"), (True, ""))
+        self.assertEqual(b.hops, [(659.0 - 350.0, 0.0)])
+
+    def test_a_stand_marker_that_is_a_good_shooting_spot_is_still_used(self):
+        m, b, AR = self.stub(target=[60.0, 0.0, 0.0], stand=[-290.0, 0.0, 0.0])      # 350 from the target
+        b.fire = lambda ref: (setattr(b, "dead", True) or AR(True)) if abs(b.me[0] - 60) >= 100 else AR(False, "too_close: 60 units", {}, "fire", 0.1)
+        self.assertEqual(m.shoot("T", 4, "S"), (True, ""))
+        self.assertEqual(b.hops, [(-290.0, 0.0)])
+
+    def test_a_target_that_stays_out_of_reach_is_approached_nearer_each_time_and_the_reason_says_how_often(self):
+        m, b, AR = self.stub(target=[2000.0, 0.0, 0.0], stand=[0.0, 0.0, 0.0])
+        b.goto_pos = lambda x, y, z, **k: (b.hops.append((x, y)), AR(True, "", {}, "goto", 0.1))[1]      # the hop does not move the stub: every try sees the same 2000 units
+        b.fire = lambda ref: AR(False, "out of range", {}, "fire", 0.1)
+        ok, why = m.shoot("T", 4, "S")
+        self.assertFalse(ok)
+        self.assertEqual([round(2000.0 - x) for x, _ in b.hops], [350, 275, 200, 200])
+        self.assertIn("approach", why)
+
+    def test_a_holstered_weapon_after_a_talk_gets_the_controls_back_and_is_drawn_before_the_shot(self):
+        # story run 20261028-023656 (S05, S15): "weapon still holstered after the shots, the pulses never reached the game" after a dialogue; a scene had switched the controls off
+        m, b, AR = self.stub(target=[300.0, 0.0, 0.0], stand=[0.0, 0.0, 0.0])
+        lines = []
+        state = {"controls": False}
+        m.nv = type("NV", (), {"call": lambda s, method, params=None, **k: (b.__setattr__("out", state["controls"]) or {}),
+                               "exec": lambda s, cmd, **k: (lines.append(cmd), state.__setitem__("controls", True), {"ok": True})[2],
+                               "eval": lambda s, expr, **k: 1.0})()
+        b.out = False
+
+        def fire(ref):
+            b.dead = True
+            return AR(True)
+        b.fire = fire
+        self.assertEqual(m.shoot("T", 4, "S"), (True, ""))
+        self.assertEqual(lines, ["player.EnablePlayerControls"])
+
+    def test_a_shot_that_reports_the_weapon_still_holstered_draws_again_and_shoots_on(self):
+        m, b, AR = self.stub(target=[300.0, 0.0, 0.0], stand=[0.0, 0.0, 0.0])
+        calls = []
+        m.nv = type("NV", (), {"call": lambda s, method, params=None, **k: (calls.append(method), b.__setattr__("out", True), {})[2],
+                               "exec": lambda s, cmd, **k: {"ok": True}, "eval": lambda s, expr, **k: 1.0})()
+        b.out = True
+        n = {"i": 0}
+
+        def fire(ref):
+            n["i"] += 1
+            if n["i"] == 1:
+                b.out = False
+                return AR(False, "FAILED postcondition: weapon still holstered after the shots, the pulses never reached the game", {}, "fire", 0.5)
+            b.dead = True
+            return AR(True)
+        b.fire = fire
+        self.assertEqual(m.shoot("T", 4, "S"), (True, ""))
+        self.assertEqual(n["i"], 2)
+        self.assertIn("bot.input", calls, "the Ready control was tapped after the holstered report")
+
     def test_a_shooter_that_cannot_get_away_reports_the_too_close_reason_whole(self):
         m, b, AR = self.stub(target=[60.0, 0.0, 0.0], stand=[0.0, 0.0, 0.0])
         b.fire = lambda ref: AR(False, "too_close: the player is 60 units from the target (minimum 100); standing inside it aims at the floor, step back first", {}, "fire", 0.1)
@@ -919,6 +1239,33 @@ class Live(unittest.TestCase):
         self.assertEqual(cls, "BLOCKED")
         self.assertIn("install_lab.py does not exist", why.replace("\\", "/").split("tools/lab/esp/")[-1] if "tools/lab/esp/" in why else why)
 
+    def test_copy_info_reports_what_could_hold_the_fps_down_for_each_copy_that_is_up(self):
+        # results.json fps.provision: the power throttling state of the process, the bridge's window options, the frame-rate keys of the ini files
+        sys.path.insert(0, str(ROOT / "tools" / "runner"))
+        import instances
+        import winproc
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t) / "0"
+            (d / "Data" / "NVSE" / "Plugins").mkdir(parents=True)
+            (d / "Data" / "NVSE" / "Plugins" / "nvcoop.ini").write_text("[bridge]\nminimized=1\nfocusGuard=1\n", encoding="utf-8")
+            (d / "Fallout.ini").write_text("[General]\nbAlwaysActive=1\niFPSClamp=0\n", encoding="latin-1")
+            (d / "FalloutPrefs.ini").write_text("[Display]\niPresentInterval=0\niSize W=1280\niSize H=720\n", encoding="latin-1")
+            env = object.__new__(self.lab_live.LiveEnv)
+            env.held = {0}
+            env.pv = SimpleNamespace(owned=SimpleNamespace(load=lambda: {"0": {"pid": 321}}), idir=lambda i: d, inst=instances)
+            old = winproc.throttle_state
+            winproc.throttle_state = lambda pid: {"control": 5, "state": 0}
+            try:
+                info = env.copy_info()
+            finally:
+                winproc.throttle_state = old
+        self.assertEqual(len(info), 1)
+        self.assertEqual(info[0]["throttle"], {"control": 5, "state": 0})
+        self.assertEqual(info[0]["bridge"], {"minimized": "1", "focusGuard": "1"})
+        self.assertEqual(info[0]["ini"]["iPresentInterval"], "0")
+        self.assertEqual(info[0]["ini"]["iFPSClamp"], "0")
+        self.assertEqual(info[0]["ini"]["iSize"], "1280x720")
+
     def test_install_runs_the_generators_script_with_the_instance_dir(self):
         with tempfile.TemporaryDirectory() as t:
             script = Path(t) / "install_lab.py"
@@ -931,6 +1278,105 @@ class Live(unittest.TestCase):
             self.assertTrue((Path(t) / "inst3" / "installed.txt").is_file())
             script.write_text("import sys\nsys.exit('boom')\n", encoding="utf-8")
             self.assertIn("boom", env.install(3))
+
+
+class Fps(unittest.TestCase):
+    """The lab reports frames per second per copy, per room and per pass (lab_fps.py), from the plugin's frame counter."""
+
+    def setUp(self):
+        import lab_fps
+        self.F = lab_fps
+
+    def test_rates_are_frames_over_seconds_between_samples(self):
+        r = self.F.rates([(0.0, 0), (1.0, 60), (2.0, 90), (3.0, 150)])
+        self.assertEqual(r, [(1.0, 60.0), (1.0, 30.0), (1.0, 60.0)])
+
+    def test_two_samples_closer_than_a_bridge_round_trip_are_one_and_a_reset_counter_ends_the_interval(self):
+        r = self.F.rates([(0.0, 0), (0.1, 6), (1.0, 60), (2.0, 5), (3.0, 65)])
+        self.assertEqual(r, [(1.0, 60.0), (1.0, 60.0)], "0.1 s later is skipped; 60 -> 5 is a restart, not -55 fps")
+
+    def test_mean_is_all_frames_over_all_seconds_and_a_stall_counts_as_long_as_it_lasted(self):
+        st = self.F.stats([(10.0, 60.0), (30.0, 10.0)])
+        self.assertAlmostEqual(st["mean"], (600 + 300) / 40.0, places=1)
+        self.assertEqual((st["n"], st["secs"], st["min"]), (2, 40.0, 10.0))
+
+    def test_p5_is_the_speed_of_the_slowest_5_percent_of_the_time_not_of_the_samples(self):
+        pairs = [(95.0, 60.0), (5.0, 10.0)]
+        st = self.F.stats(pairs)
+        self.assertEqual(st["p5"], 10.0)
+        self.assertLess(st["p5"], st["mean"])
+        many_fast = [(1.0, 60.0)] * 99 + [(1.0, 10.0)]                      # 1 percent of the time: p5 is still fast
+        self.assertEqual(self.F.stats(many_fast)["p5"], 60.0)
+
+    def test_nothing_measured_is_none_not_zero(self):
+        st = self.F.stats([])
+        self.assertIsNone(st["mean"])
+        self.assertIsNone(st["p5"])
+
+    def run_fps(self, fps, nets=(), rooms=None, pairs=1):
+        lay = layout()
+        env = labfake.FakeEnv(lay, fps=fps)
+        res = lab.execute(lay, env, rooms or ALL, pairs, 1200.0, 120.0, dict(PARAMS), 0, "20990101-000000", "fake", lambda s: None, nets=list(nets), total_s=1800.0)
+        return res
+
+    def test_every_room_reports_its_fps_per_copy_and_the_copies_running(self):
+        res = self.run_fps({"host": 30.0, "client": 20.0}, pairs=3)
+        for r in res["rooms"]:
+            f = r["fps"]
+            self.assertAlmostEqual(f["host"]["mean"], 30.0, delta=1.0, msg=r["room"])
+            self.assertAlmostEqual(f["client"]["mean"], 20.0, delta=1.0, msg=r["room"])
+            self.assertLessEqual(f["host"]["p5"], f["host"]["mean"] + 0.01)
+            self.assertGreater(f["host"]["n"], 2, r["room"])
+            self.assertGreaterEqual(f["copies"], 2)
+        self.assertEqual(res["fps"]["passes"]["clean"]["copies"], 6)
+        self.assertEqual(res["fps"]["copies"], 6)
+
+    def test_a_network_pass_has_its_own_fps_row_and_results_keep_no_raw_intervals(self):
+        res = self.run_fps({"host": 40.0, "client": 40.0}, nets=["good_wifi"], rooms=["spawn", "walk"])
+        self.assertEqual(list(res["fps"]["passes"]), ["clean", "good_wifi"])
+        self.assertAlmostEqual(res["fps"]["passes"]["good_wifi"]["host"]["mean"], 40.0, delta=1.0)
+        self.assertNotIn("_rates", json.dumps(res, default=str))
+        for r in res["net_rooms"]:
+            self.assertIn("fps", r)
+
+    def test_the_walk_reports_the_fps_of_both_copies_during_each_leg_and_the_lower_one(self):
+        res = self.run_fps({"host": 50.0, "client": 25.0}, rooms=["walk"])
+        m = row(res, "walk")["metrics"]
+        self.assertAlmostEqual(m["host_leg_fps_walker"], 50.0, delta=2.0)
+        self.assertAlmostEqual(m["host_leg_fps_viewer"], 25.0, delta=2.0)
+        self.assertAlmostEqual(m["host_leg_fps"], 25.0, delta=2.0)
+        self.assertAlmostEqual(m["client_leg_fps_walker"], 25.0, delta=2.0)
+
+    def test_the_summary_has_the_fps_table_with_the_copies_and_stays_under_5kb(self):
+        res = self.run_fps({"host": 33.0, "client": 22.0}, nets=["good_wifi", "bad_wifi", "mobile_tether", "transatlantic"], pairs=3)
+        text = R.render_summary(dict(res, previous={"stamp": None, "changes": []}))
+        self.assertIn("## FPS per copy", text)
+        self.assertIn("copies running | 6 | 6 | 6 | 6 | 6 |", text)
+        self.assertIn("33/22 p5", text)
+        self.assertLessEqual(len(text.encode("utf-8")), 5000)
+
+    def test_a_run_without_fps_numbers_prints_no_table(self):
+        self.assertEqual(self.F.table({"rooms": [], "fps": {}}), [])
+        self.assertEqual(self.F.table({"rooms": []}), [])
+
+    def test_a_copy_that_cannot_answer_costs_samples_not_the_room(self):
+        lay = layout()
+        env = labfake.FakeEnv(lay)
+        orig = labfake.FakeMachine.frames if "frames" in labfake.FakeMachine.__dict__ else K.Machine.frames
+        calls = {"n": 0}
+
+        def flaky(self):
+            calls["n"] += 1
+            if self.name == "client" and calls["n"] % 3 == 0:
+                raise RuntimeError("bridge: timed out")
+            return orig(self)
+        labfake.FakeMachine.frames = flaky
+        try:
+            res = lab.execute(lay, env, ["spawn", "quest"], 1, 1200.0, 120.0, dict(PARAMS), 0, "20990101-000000", "fake", lambda s: None)
+        finally:
+            del labfake.FakeMachine.frames
+        self.assertEqual(res["verdict"], "PASS")
+        self.assertGreater(row(res, "quest")["fps"]["client"]["n"], 0)
 
 
 class Files(unittest.TestCase):

@@ -47,6 +47,9 @@ proof/vats_proof.py the in-game proof checker (snapshot / check / --selftest)
 | main-loop `MenuMode()` (fills the world-pause byte 0x11DEA2B) | 2 (`pausesites=1`), +9 more with `pausesites=2` | `MenuModeThunk` | `menuModeForWorld`: false while the VATS menu is the top menu and VATS is active |
 | `TimeGlobal::SetTimeScale` from VATS code | 11 | `SetScaleThunk` | `scaleForVatsRequest`: 1.0, or the party scale in a slow-mo window |
 | `GetPlayerTimeMult` / `GetTargetTimeMult` | 5 + 9 | `PlayerMultThunk` / `TargetMultThunk` | `timeMultFor`: 1.0 |
+| worker kick 0x8C78C0 (main loop 0x86EC87) and the workers' InterfaceManager update 0x86FD70 (0x8C7DB9, 0x8C7BE9) | 1 + 2 (with `pausesites>=1`) | `WorkerKickThunk` / `WorkerInterfaceThunk` | `interfaceUpdateOnMain` + `InterfaceHandoff`: while the real `MenuMode()` is true at the kick, the main thread runs the update just before it and the worker skips it |
+The last row exists because the game never kicks its worker threads with a menu open; real-time VATS does, and the worker's interface update then cleared the
+VATS highlight target while the main thread drew it (crash FalloutNV.exe+400F66) or, waited for, deadlocked on the renderer lock (vats_addrs.h has the trace).
 Every thunk calls the real function first. A pin mismatch patches nothing (log line). If the multiplier sites cannot be patched, the two game settings
 (`fVATSPlayerTimeUpdateMult`, `fVATSTargetTimeUpdateMult`) are set to 1.0 instead and restored at shutdown.
 

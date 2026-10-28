@@ -69,6 +69,7 @@ HEALTH_AV = 16                 # actor value code of Health (decimal); UNVERIFIE
 TYPE_ACTOR = 0x3B
 TYPE_CONTAINER = 0x1B
 TYPE_DOOR = 0x1C
+TYPE_REFR = 0x3A               # what ref.info answers for a placed object: the type of the reference, not of its base (GetType gives the base's)
 FLAG_DISABLED = 0x800          # UNVERIFIED TESForm flag bit for "initially disabled / disabled"
 FLAG_DELETED = 0x20            # TESForm "deleted": a world item that was picked up shows this and NOT the disabled bit (in game 2026-10-27, ref.info flags
                                # 0x408 -> 0x4032A after activate.ref took it; the pickup postcondition watched only the disabled bit and failed on a pickup that worked)
@@ -141,6 +142,10 @@ def drop(item: str, count: int) -> str:       # UNVERIFIED
 
 def activate_console(ref: str) -> Line:       # UNVERIFIED fallback when activate.ref is missing
     return Line("Activate player 1", ref)
+
+
+def get_type(ref: str) -> Line:               # expression; verified in game 2026-10-27: door 28, terminal 23, container 27, item 47, NPC 42
+    return Line("GetType", ref)
 
 
 def open_state(ref: str) -> Line:             # UNVERIFIED (expression)

@@ -477,6 +477,17 @@ TEST(vats_job_closes_the_tutorial_cycles_queues_and_executes) {
     CHECK(r.out.find("\"phase\":\"done\"") != std::string::npos);
 }
 
+TEST(vats_job_does_not_close_the_tutorial_box_while_the_camera_is_entering_vats) {
+    // lab 2026-10-27: closing the box at camera mode 1 (the VATS menu still being built) crashed the game in the next frame, three times
+    GlueRig r;
+    r.g.forms["FalloutNV.esm:601"] = 0x60000001;
+    r.g.buildVats({0x60000001}, 55.0f, 60.0f, /*tutorial*/ true);
+    CHECK(r.call("bot.vats", "{\"ref\":\"FalloutNV.esm:601\"}"));
+    vatsDrive(r);
+    CHECK(r.rpc.vats().phase() == VatsJob::kDone);
+    CHECK(r.g.closeCalls >= 1 && r.g.closeMode != 1 && r.g.closeMode >= 0);
+}
+
 TEST(vats_job_without_tutorial_on_the_default_target) {
     GlueRig r;
     r.g.forms["T:1"] = 0x60000001;
@@ -964,6 +975,22 @@ TEST(count_refs_by_base_in_a_cell) {
     CHECK(!r.call("dev.countRefs", "{\"base\":\"FalloutNV.esm:1234\",\"cell\":\"Nope:1\"}"));
 }
 
+TEST(questvar_reads_the_live_value_of_a_quest_variable_by_name) {
+    GlueRig r;
+    r.g.formIds["NVCoopLab.esp:800"] = 0x0A000800;
+    r.g.questVars["A000800/labvar"] = 7.0;
+    r.g.questVars["A000800/other"] = 3.0;
+    CHECK(r.call("bot.questvar", "{\"quest\":\"NVCoopLab.esp:800\",\"var\":\"labvar\"}"));
+    CHECK(r.out.find("\"value\":7") != std::string::npos);
+    CHECK(r.call("bot.questvar", "{\"quest\":\"NVCoopLab.esp:800\",\"var\":\"other\"}"));
+    CHECK(r.out.find("\"value\":3") != std::string::npos);
+    r.g.questVars["A000800/labvar"] = 9.0;                                       // read again: the live value, not a cached one
+    CHECK(r.call("bot.questvar", "{\"quest\":\"NVCoopLab.esp:800\",\"var\":\"labvar\"}") && r.out.find("\"value\":9") != std::string::npos);
+    CHECK(!r.call("bot.questvar", "{\"quest\":\"NVCoopLab.esp:800\",\"var\":\"nope\"}") && r.out.find("no readable variable nope") != std::string::npos);
+    CHECK(!r.call("bot.questvar", "{\"quest\":\"Nope.esp:1\",\"var\":\"labvar\"}") && r.out.find("unknown quest") != std::string::npos);
+    CHECK(!r.call("bot.questvar", "{\"quest\":\"NVCoopLab.esp:800\"}") && r.out.find("needs quest and var") != std::string::npos);
+}
+
 TEST(terminal_pick_clicks_the_requested_entry_and_records_it) {
     GlueRig r;
     r.g.forms["FalloutNV.esm:700"] = 0x70000000;
@@ -1118,8 +1145,8 @@ TEST(menu_close_pin_is_the_closeallmenus_core) {
 
 TEST(glue_methods_need_the_engine) {
     Rig r;
-    for (const char* m : {"bot.menu", "bot.dialog", "bot.inventory", "bot.vats", "test.vats.hit", "dev.countRefs", "dev.refsOf", "bot.fasttravel", "dev.terminal"})
-        CHECK(!r.call(m, "{\"ref\":\"x\",\"base\":\"x\"}") && r.out.find("unsupported") != std::string::npos);
+    for (const char* m : {"bot.menu", "bot.dialog", "bot.inventory", "bot.vats", "test.vats.hit", "dev.countRefs", "dev.refsOf", "bot.fasttravel", "dev.terminal", "bot.questvar"})
+        CHECK(!r.call(m, "{\"ref\":\"x\",\"base\":\"x\",\"quest\":\"x\",\"var\":\"x\"}") && r.out.find("unsupported") != std::string::npos);
     CHECK(!r.call("test.fasttravel", "{\"marker\":\"x\"}") && r.out.find("unsupported") != std::string::npos);
 }
 
@@ -1416,6 +1443,7 @@ int main() {
     run("dialogue_pick_refuses_when_not_ready_gated_missing_or_special", dialogue_pick_refuses_when_not_ready_gated_missing_or_special);
     run("inventory_reports_totals_not_deltas", inventory_reports_totals_not_deltas);
     run("inventory_empty_container", inventory_empty_container);
+    run("vats_job_does_not_close_the_tutorial_box_while_the_camera_is_entering_vats", vats_job_does_not_close_the_tutorial_box_while_the_camera_is_entering_vats);
     run("vats_job_closes_the_tutorial_cycles_queues_and_executes", vats_job_closes_the_tutorial_cycles_queues_and_executes);
     run("vats_job_without_tutorial_on_the_default_target", vats_job_without_tutorial_on_the_default_target);
     run("vats_job_closes_a_tutorial_box_that_opens_late", vats_job_closes_a_tutorial_box_that_opens_late);
@@ -1440,6 +1468,7 @@ int main() {
     run("drop_log_base_matches_the_engine_form_name", drop_log_base_matches_the_engine_form_name);
     run("refs_of_lists_enabled_refs_of_a_base", refs_of_lists_enabled_refs_of_a_base);
     run("count_refs_by_base_in_a_cell", count_refs_by_base_in_a_cell);
+    run("questvar_reads_the_live_value_of_a_quest_variable_by_name", questvar_reads_the_live_value_of_a_quest_variable_by_name);
     run("terminal_pick_clicks_the_requested_entry_and_records_it", terminal_pick_clicks_the_requested_entry_and_records_it);
     run("terminal_pick_reads_the_texts_and_clicks_the_tile_of_the_embedded_list", terminal_pick_reads_the_texts_and_clicks_the_tile_of_the_embedded_list);
     run("terminal_pick_closes_a_tutorial_box_over_the_menu_first", terminal_pick_closes_a_tutorial_box_over_the_menu_first);

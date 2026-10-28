@@ -4,6 +4,11 @@
 
 namespace nvworld {
 
+bool stepRunsScripts(StepKind k) {
+    if (FNV_MUT(66)) return false;   // MUTANT 66: console steps run under the gate again (the engine pretends the line ran, a native door change never reaches a client)
+    return k == StepKind::ConsoleOnRef || k == StepKind::ConsoleGlobal;
+}
+
 using fnvcoop::FormRef;
 
 const char* planStatusName(PlanStatus s) {

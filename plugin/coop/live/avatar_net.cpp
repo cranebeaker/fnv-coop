@@ -24,6 +24,10 @@ live::ReceiverConfig receiverConfig() {
     c.maxActors = 64;
     return c;
 }
+nvcoop::avatar::StreamRateConfig rateConfig(nvcoop::avatar::StreamRateConfig c) {
+    if (FNV_MUT(209)) c.jumpUnits = 0;   // MUTANT 209: a teleport is held for the tier's period like any other snapshot (the far tier's 200 ms, the out tier's 1 s)
+    return c;
+}
 bool sameAppearance(const nvcoop::avatar::Appearance& a, const nvcoop::avatar::Appearance& b) {
     return a.race == b.race && a.female == b.female && a.hair == b.hair && a.eyes == b.eyes && a.faceHash == b.faceHash &&
            a.hairColor == b.hairColor && a.height == b.height && a.weight == b.weight && a.faceCoeffs == b.faceCoeffs;
@@ -32,7 +36,7 @@ bool sameAppearance(const nvcoop::avatar::Appearance& a, const nvcoop::avatar::A
 
 AvatarNet::AvatarNet(IAvatarSide& side, AvatarNetOptions opt, std::function<uint32_t()> epochSeed)
     : side_(side), opt_(std::move(opt)), epochSeed_(epochSeed ? std::move(epochSeed) : std::function<uint32_t()>(defaultEpoch)),
-      rate_(opt_.rate), sender_(opt_.sender), recv_(receiverConfig()) {}
+      rate_(rateConfig(opt_.rate)), sender_(opt_.sender), recv_(receiverConfig()) {}
 
 AvatarNet::~AvatarNet() = default;
 
@@ -76,8 +80,13 @@ void AvatarNet::sessionBegin(const SessionInfo& info, ILiveLink& link) {
     sender_ = live::SnapshotSender(opt_.sender);
     recv_ = live::SnapshotReceiver(receiverConfig());
     localOut_.clear();
+    queuedTicks_.clear();
+    early_.clear();
     haveEquip_ = false;
     lookSentValid_ = false;
+    packSentValid_ = false;
+    watchLoaded_ = false;
+    watchTriedAt_ = 0;
     lastAck_ = lastLookCheck_ = lastPoseReport_ = 0;
     haveLocal_ = reportedLocalValid_ = false;
     if (!FNV_MUT(110) && self_ != kNoPlayer) side_.setLocalSlot(static_cast<nvcoop::avatar::Slot>(self_));   // MUTANT 110: the avatar layer is never told its slot (a client keeps the ini default 0 and refuses the host's puppet)
@@ -99,12 +108,18 @@ void AvatarNet::sessionEnd() {
     roster_.clear();
     joined_.clear();
     looks_.clear();
+    facts_.clear();
+    factsSentValid_ = false;
+    packs_.clear();
+    packSentValid_ = false;
     lastSnap_.clear();
     reportedSnap_.clear();
     applied_.clear();
     rx_.clear();
     rate_.clear();
     localOut_.clear();
+    queuedTicks_.clear();
+    early_.clear();
     inSession_ = false;
     hostUp_ = false;
     link_ = nullptr;
@@ -121,6 +136,12 @@ void AvatarNet::addPuppet(PlayerId slot) {
     const nvcoop::avatar::Appearance app = it != looks_.end() ? it->second.appearance : nvcoop::avatar::Appearance{};
     side_.addRemote(slot, app);
     applied_[slot] = app;
+    if (auto e = early_.find(slot); e != early_.end()) {
+        side_.onRemoteSnapshot(slot, e->second, static_cast<uint32_t>(nowMs_));
+        lastSnap_[slot] = e->second;
+        rate_.setPlace(slot, e->second.cell, e->second.pos);
+        early_.erase(e);
+    }
     if (it != looks_.end()) side_.onRemoteEquipment(slot, it->second.equipment);
 }
 
@@ -128,11 +149,15 @@ void AvatarNet::removePuppet(PlayerId slot) {
     if (!FNV_MUT(43)) side_.removeRemote(slot);   // MUTANT 43: the puppet of a player who left stays in the world
     roster_.erase(slot);
     looks_.erase(slot);
+    facts_.erase(slot);
+    packs_.erase(slot);
     lastSnap_.erase(slot);
     reportedSnap_.erase(slot);
     applied_.erase(slot);
     rx_.erase(slot);
+    early_.erase(slot);
     rate_.removePlace(slot);
+    queuedTicks_.erase(slot);
     recv_.forget(playerNetId(slot));
     sender_.forgetPeer(slot);
     if (poseSink_) poseSink_(slot, false, 0, live::Vec3());
@@ -179,6 +204,8 @@ void AvatarNet::hostLinkUp() {
     hostUp_ = true;
     sender_.forgetPeer(kHostPlayer);
     lookSentValid_ = false;   // the host (maybe a new one) learns our look again
+    factsSentValid_ = false;  // ... and our facts
+    packSentValid_ = false;   // ... and our pack
     sendTo(kHostPlayer, true, Bytes{kChannelAvatars, kAvKindResync});   // and we learn the roster and every look again
 }
 
@@ -225,6 +252,10 @@ void AvatarNet::receive(PlayerId from, const uint8_t* data, size_t size) {
         ++stats_.resyncsAnswered;
     } else if (kind == kAvKindLook || kind == kAvKindLook2) {
         onLook(from, data, size);
+    } else if (kind == kAvKindFacts) {
+        onFacts(from, data, size);
+    } else if (kind == kAvKindPack) {
+        onPack(from, data, size);
     } else {
         ++stats_.badDatagrams;
     }
@@ -240,8 +271,17 @@ void AvatarNet::onSnapshotDatagram(PlayerId from, const uint8_t* body, size_t si
         if (isHost_ && slot != from && !FNV_MUT(42)) { ++stats_.forged; continue; }   // MUTANT 42: a client may publish another player's avatar
         if (slot == self_) { ++stats_.rejected; continue; }   // our own stream echoed back
         if (!isHost_ && from != kHostPlayer) { ++stats_.rejected; continue; }
-        if (!roster_.count(slot)) { ++stats_.noRoster; continue; }
+        if (!roster_.count(slot)) {
+            // The receiver acked this snapshot already (inside recv_.receive), so the sender takes it for delivered and, for a player who stands still, sends
+            // nothing but a heartbeat a second from now on. Dropped here for good, the puppet that the roster creates a moment later would have no place until
+            // that heartbeat (or, behind a lossy link, until the next one): lab spawn room, "the puppet arrives 650 to 2700 ms late, 773 units away". Kept
+            // (the newest per player) and fed to the puppet the moment it exists.
+            ++stats_.noRoster;
+            if (!FNV_MUT(212)) early_[slot] = s;   // MUTANT 212: a snapshot ahead of the roster is dropped for good (the puppet waits for the next heartbeat)
+            continue;
+        }
         side_.onRemoteSnapshot(slot, s, static_cast<uint32_t>(nowMs_));
+        side_.noteStage(nvcoop::avatar::NetStage::Rx, static_cast<double>(static_cast<int32_t>(clock() - s.tick)));
         lastSnap_[slot] = s;
         rate_.setPlace(slot, s.cell, s.pos);
         ++stats_.accepted;
@@ -292,7 +332,10 @@ void AvatarNet::queueTo(PlayerId peer, PlayerId subject, const live::ActorSnapsh
         return;
     }
     const PlayerId to = peer == kNoPlayer ? kHostPlayer : peer;
-    if (sender_.queue(to, out, static_cast<uint32_t>(nowMs)) && subject != self_) ++stats_.relayed;
+    if (sender_.queue(to, out, static_cast<uint32_t>(nowMs))) {
+        if (subject != self_) ++stats_.relayed;
+        noteQueued(to, subject, out.tick);
+    }
 }
 
 void AvatarNet::releasePending(uint64_t nowMs) {
@@ -306,6 +349,7 @@ void AvatarNet::releasePending(uint64_t nowMs) {
         if (sender_.queue(to, r.snap, static_cast<uint32_t>(nowMs))) {
             ++stats_.rateReleased;
             if (r.subject != self_) ++stats_.relayed;
+            noteQueued(to, r.subject, r.snap.tick);
         }
     }
 }
@@ -342,6 +386,97 @@ void AvatarNet::onLook(PlayerId from, const uint8_t* data, size_t size) {
         ++stats_.looksApplied;
     }
     if (isHost_ && newLook) sendLook(l, kNoPlayer, from);
+}
+
+// Host: a client's facts. Only the host consumes them (host-run scripts ask the party conditions), so they are neither relayed nor accepted by a client.
+void AvatarNet::onFacts(PlayerId from, const uint8_t* data, size_t size) {
+    AvFacts f;
+    if (!isHost_ || !joined_.count(from) || !decodeFacts(data, size, f)) { ++stats_.factsRejected; return; }
+    if (f.slot != from && !FNV_MUT(68)) { ++stats_.factsRejected; return; }   // MUTANT 68: a client may set another player's facts
+    facts_[from] = f.facts;
+    ++stats_.factsApplied;
+}
+
+// A client: its level, sit state, active actions and regions go to the host when they change (read once per factsCheckMs). The host's own player is read by the conditions themselves.
+void AvatarNet::checkLocalFacts(uint64_t nowMs) {
+    if (isHost_ || !hostUp_ || FNV_MUT(69)) return;   // MUTANT 69: a guest never tells the host its facts
+    if (factsSentValid_ && nowMs - lastFactsCheck_ < opt_.factsCheckMs) return;
+    lastFactsCheck_ = nowMs;
+    nvcoop::avatar::PlayerFacts f;
+    if (!side_.readLocalFacts(f)) return;
+    if (factsSentValid_ && f == lastFactsSent_) return;
+    AvFacts m;
+    m.slot = self_;
+    m.facts = f;
+    sendTo(kHostPlayer, true, encodeFacts(m));
+    ++stats_.factsSent;
+    lastFactsSent_ = f;
+    factsSentValid_ = true;
+}
+
+// ---- guest pack facts ------------------------------------------------------------------------------------------------------------
+void AvatarNet::ensureWatch() const {
+    if (watchLoaded_ || !packWatchFn_) return;
+    if (watchTriedAt_ && nowMs_ - watchTriedAt_ < 5000) return;   // an empty answer (the game data is not up yet) is asked again in a few seconds
+    watchTriedAt_ = nowMs_ ? nowMs_ : 1;
+    std::vector<nvcoop::avatar::FormId> w = packWatchFn_();
+    std::sort(w.begin(), w.end());
+    w.erase(std::unique(w.begin(), w.end()), w.end());
+    if (!w.empty() && w.front() == 0) w.erase(w.begin());
+    watch_ = std::move(w);
+    watchId_ = nvcoop::avatar::packWatchId(watch_);
+    watchLoaded_ = !watch_.empty();
+}
+
+// Host: a client's pack. Only the host consumes it (host-run conditions and the pooled hand-ins ask for a guest), so it is neither relayed nor accepted by a client.
+void AvatarNet::onPack(PlayerId from, const uint8_t* data, size_t size) {
+    AvPack p;
+    if (!isHost_ || !joined_.count(from) || !decodePack(data, size, p)) { ++stats_.packsRejected; return; }
+    if (p.slot != from && !FNV_MUT(954)) { ++stats_.packsRejected; return; }   // twin 954: a client may set another player's pack
+    packs_[from] = std::move(p.pack);
+    ++stats_.packsApplied;
+}
+
+// A client: its weight and the counts of the watched item forms go to the host when they change (read once per packCheckMs, sent at most once per packMinGapMs). The host's own
+// player is read by the conditions themselves.
+void AvatarNet::checkLocalPack(uint64_t nowMs) {
+    if (isHost_ || !hostUp_ || FNV_MUT(952)) return;   // twin 952: a guest never tells the host its pack
+    if (packSentValid_ && nowMs - lastPackCheck_ < opt_.packCheckMs) return;
+    lastPackCheck_ = nowMs;
+    ensureWatch();
+    nvcoop::avatar::PlayerPack p;
+    if (!side_.readLocalPack(watch_, p)) return;
+    if (packSentValid_ && p == lastPackSent_) return;
+    if (packSentValid_ && nowMs - lastPackSend_ < opt_.packMinGapMs && !FNV_MUT(953)) return;   // twin 953: no rate limit (every change goes out at once)
+    AvPack m;
+    m.slot = self_;
+    m.pack = p;
+    sendTo(kHostPlayer, true, encodePack(m));
+    ++stats_.packsSent;
+    lastPackSent_ = std::move(p);
+    lastPackSend_ = nowMs;
+    packSentValid_ = true;
+}
+
+bool AvatarNet::packCount(PlayerId slot, nvcoop::avatar::FormId item, int64_t* out) const {
+    auto it = packs_.find(slot);
+    if (it == packs_.end() || !item) return false;
+    for (const auto& e : it->second.items)
+        if (e.form == item) { if (out) *out = e.count; return true; }
+    // not listed = zero, but only for a form both machines watch with the same list; anything else is unknown (the caller keeps its old answer)
+    ensureWatch();
+    if (FNV_MUT(955) || ((FNV_MUT(956) || it->second.watchId == watchId_) && std::binary_search(watch_.begin(), watch_.end(), item))) {   // twins 955: every unlisted form is a zero, 956: the watch list ids are not compared
+        if (out) *out = 0;
+        return true;
+    }
+    return false;
+}
+
+bool AvatarNet::packWeight(PlayerId slot, double* out) const {
+    auto it = packs_.find(slot);
+    if (it == packs_.end() || !it->second.haveWeight) return false;
+    if (out) *out = it->second.weightMilli / 1000.0;
+    return true;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -390,6 +525,13 @@ void AvatarNet::flushStreams(uint64_t nowMs) {
             ++stats_.sent;
             sendTo(p, false, withChannel(d));
         }
+        // the Send stage: how old each local snapshot is at the moment its datagram has been handed to the transport
+        auto qt = queuedTicks_.find(p);
+        if (qt != queuedTicks_.end()) {
+            const uint32_t now = clock();
+            for (uint32_t t : qt->second) side_.noteStage(nvcoop::avatar::NetStage::Send, static_cast<double>(static_cast<int32_t>(now - t)));
+            qt->second.clear();
+        }
     }
 }
 
@@ -425,6 +567,7 @@ void AvatarNet::tick(uint64_t nowMs) {
     nowMs_ = nowMs;
     if (!inSession_) return;
     if (opt_.tickSide) side_.tick(static_cast<uint32_t>(nowMs));   // publishes the local snapshot (sink), drives puppets
+    side_.noteStage(nvcoop::avatar::NetStage::NetFrame, static_cast<double>(clock()));
     const uint32_t id = playerNetId(self_);
     for (const live::ActorSnapshot& s : localOut_) {
         ++stats_.localSnapshots;
@@ -443,6 +586,8 @@ void AvatarNet::tick(uint64_t nowMs) {
     localOut_.clear();
     releasePending(nowMs);
     checkLocalLook(nowMs);
+    checkLocalFacts(nowMs);
+    checkLocalPack(nowMs);
     flushStreams(nowMs);
     sendAcks(nowMs);
     reportPoses(nowMs);
@@ -465,6 +610,8 @@ void AvatarNet::loadBegin() { side_.onEvent(IAvatarSide::Event::LoadBegin); }
 void AvatarNet::loadEnd() {
     if (FNV_MUT(47) && !inSession_) return;   // MUTANT 47: the post-load purge only happens inside a coop session (a puppet that a save carried stays)
     side_.onEvent(IAvatarSide::Event::LoadEnd);
+    watchLoaded_ = false;   // the load order is resolved again (forms of a new game / save)
+    watchTriedAt_ = 0;
 }
 
 void AvatarNet::gameExit() { side_.onEvent(IAvatarSide::Event::ExitToMenu); }
@@ -491,6 +638,7 @@ std::string lookJson(const AvLook& l) {
 }  // namespace
 
 std::string AvatarNet::statusJson() const {
+    ensureWatch();   // the host resolves its list lazily; the status shows it
     std::string s = "{\"inSession\":";
     s += inSession_ ? "true" : "false";
     s += ",\"self\":" + std::to_string(static_cast<int>(self_)) + ",\"epoch\":" + std::to_string(epoch_) + ",\"roster\":[";
@@ -503,6 +651,16 @@ std::string AvatarNet::statusJson() const {
              ",\"tier\":\"" + tierName(rate_.tierOf(self_, p)) + "\",\"rx\":" + std::to_string(rx == rx_.end() ? 0ull : (unsigned long long)rx->second);
         auto lk = looks_.find(p);
         if (lk != looks_.end()) s += ",\"lookInfo\":" + lookJson(lk->second);
+        auto fc = facts_.find(p);
+        if (fc != facts_.end())
+            s += ",\"facts\":{\"level\":" + std::to_string(fc->second.level) + ",\"sitting\":" + std::to_string(fc->second.sitting) + ",\"actions\":" + std::to_string(fc->second.actions) +
+                 ",\"regions\":" + std::to_string(fc->second.regions.size()) + "}";
+        auto pk = packs_.find(p);
+        if (pk != packs_.end()) {
+            s += ",\"pack\":{\"watchId\":" + std::to_string(pk->second.watchId) + ",\"weight\":" + (pk->second.haveWeight ? std::to_string(pk->second.weightMilli / 1000.0) : std::string("null")) + ",\"items\":[";
+            for (size_t i = 0; i < pk->second.items.size(); ++i) s += (i ? "," : "") + std::string("[") + std::to_string(pk->second.items[i].form) + "," + std::to_string(pk->second.items[i].count) + "]";
+            s += "]}";
+        }
         s += "}";
     }
     s += "],\"selfLook\":" + (lookSentValid_ ? lookJson(lastLookSent_) : std::string("null"));
@@ -512,7 +670,14 @@ std::string AvatarNet::statusJson() const {
          ",\"relayed\":" + std::to_string(stats_.relayed) + ",\"looksApplied\":" + std::to_string(stats_.looksApplied) +
          ",\"rateKept\":" + std::to_string(stats_.rateKept) + ",\"rateReleased\":" + std::to_string(stats_.rateReleased) +
          ",\"appearanceUpdates\":" + std::to_string(stats_.appearanceUpdates) + ",\"puppetRespawnsForLook\":" + std::to_string(stats_.puppetRespawnsForLook) +
-         ",\"localSnapshots\":" + std::to_string(stats_.localSnapshots) + "}";
+         ",\"localSnapshots\":" + std::to_string(stats_.localSnapshots) + ",\"factsSent\":" + std::to_string(stats_.factsSent) +
+         ",\"factsApplied\":" + std::to_string(stats_.factsApplied) + ",\"factsRejected\":" + std::to_string(stats_.factsRejected) +
+         ",\"packsSent\":" + std::to_string(stats_.packsSent) + ",\"packsApplied\":" + std::to_string(stats_.packsApplied) + ",\"packsRejected\":" + std::to_string(stats_.packsRejected) +
+         ",\"watch\":" + std::to_string(watch_.size()) + ",\"watchId\":" + std::to_string(watchId_) +
+         ",\"stream\":{\"senderQueued\":" + std::to_string(sender_.stats().queued) + ",\"senderSkippedIdle\":" + std::to_string(sender_.stats().skippedIdle) +
+         ",\"senderPackets\":" + std::to_string(sender_.stats().packets) + ",\"senderAcked\":" + std::to_string(sender_.stats().acked) + ",\"senderResyncs\":" + std::to_string(sender_.stats().resyncs) +
+         ",\"recvAccepted\":" + std::to_string(recv_.stats().accepted) + ",\"recvNeedBaseline\":" + std::to_string(recv_.stats().needBaseline) +
+         ",\"recvStaleSeq\":" + std::to_string(recv_.stats().staleSeq) + ",\"plannerKept\":" + std::to_string(rate_.kept()) + ",\"plannerPending\":" + std::to_string(rate_.pending()) + "}}";
     return s;
 }
 

@@ -21,9 +21,10 @@ namespace nvcoop::avatar::engine {
 
 struct LocalSamplerConfig {
     uint32_t periodMs = 50;          // 20 Hz
-    float teleportUnits = 350.0f;    // a position jump larger than this in one period is a teleport, not a speed
+    float teleportUnits = 100.0f;    // a position jump larger than this AND faster than maxSpeed is a teleport, not a speed (at 33 ms, 2200 u/s is 73 units)
     float velAlpha = 0.6f;           // smoothing of the finite-difference velocity (1 = no smoothing)
     uint32_t maxGapMs = 500;         // a longer pause restarts the velocity estimate
+    bool speedTeleport = true;       // false: the old rule, a jump of more than 350 units in one period (ini [avatar] legacyRules=1)
     float maxSpeed = 2200.0f;        // clamp (units/s)
 };
 
@@ -37,6 +38,8 @@ struct LocalFrame {
     bool haveMoveFlags = false, moverRun = false, moverWalk = false, moverSneak = false;
     bool swimming = false, dead = false, firstPerson = false;
     bool animReadable = false;
+    bool havePos3D = false;          // the player's 3D node was readable: pos3D is where the renderer has him (the reference position `pos` can lag it)
+    Vec3 pos3D;
 };
 
 // Group classes for the local animation state (xNVSE TESAnimGroup table, tools/animcheck/animgroups_table.py).

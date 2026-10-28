@@ -7,7 +7,7 @@ setlocal
 for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
 if not defined PYTHON set "PYTHON=python"
 "%PYTHON%" -I "%REPO%\tools\build\build.py" --target nvui_tests nvui_bridge_tests --label "L11 hooks_ui" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "L11 hooks_ui router" --twins 1-9,21-24 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\ui_tests\nvui_tests.exe" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "L11 hooks_ui bridge" --twins 10-20,25 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\ui_tests\nvui_bridge_tests.exe" || exit /b 1
-echo L11 hooks_ui: real tests pass, all 25 twins rejected - ALL OK
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "L11 hooks_ui router" --twins 1-9,21-24,28 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\ui_tests\nvui_tests.exe" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "L11 hooks_ui bridge" --twins 10-20,25-27,29 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\ui_tests\nvui_bridge_tests.exe" || exit /b 1
+echo L11 hooks_ui: real tests pass, all 29 twins rejected - ALL OK
 exit /b 0

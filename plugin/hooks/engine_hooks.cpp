@@ -18,16 +18,26 @@
 #include "GameForms.h"
 #include "GameObjects.h"
 #include "apply_lines.h"
+#include "apply_remote.h"
 #include "change_tracker.h"
 #include "party_cond.h"
+#include "player_kill.h"
 #include "inventory_diff.h"
 #include "GameExtraData.h"
 #include "effect_json.h"
 #include "engine_addrs.h"
 #include "extract_pad.h"
+#include "faction_removal.h"
 #include "fnvcoop/policy.h"
+#include "guest_item.h"
+#include "guest_local_run.h"
 #include "guest_objvars.h"
+#include "kill_attrib.h"
+#include "spectator_say.h"
+#include "lock_preimage.h"
 #include "ref_ops.h"
+#include "ref_var.h"
+#include "controls_route.h"
 #include "story_addrs.h"
 
 using namespace fnvcoop;
@@ -69,8 +79,34 @@ Win32Memory g_mem;
 std::unique_ptr<HookRegistry> g_reg;
 int g_gate = 0;
 SuppressPolicy g_pol;  // all guest-suppression decisions (unit-tested in suppress_policy.cpp)
+ActingContext g_acting;
+SpectatorSayGate g_spectatorSay;   // the engine's own result-script run for a spectator's Say (spectator_say.h)
+GuestItems g_guestItems;   // guest_item.h: a guest's hand-in is not taken from the host's pack
 inline bool blockedNow() { return g_pol.blockMutation(); }
+// Quest start / stage / objective calls: a guest's DLC setup script (allow-listed, per machine) may not make them (the host's story state), see SuppressPolicy::blockQuestState.
+inline bool questBlockedNow() { return g_pol.blockQuestState(); }
 ScriptStats g_sstats;
+// Host: a DLC setup script (GuestLocalRun, per machine, its effects muted) calls StartQuest / SetStage / an objective call: those are the host's shared story state, so the mute is
+// lifted for the call and an implicit script scope is opened, which makes the hub capture it (and the stage result it runs) like any other quest script's. Guests: nothing (their
+// calls are dropped by questBlockedNow()).
+struct QuestStateLift {
+    bool lifted = false, weak = false;
+    int saved = 0;
+    QuestStateLift() {
+        uint32_t script = 0;
+        if (!g_hub || g_pol.guest() || !g_hub->muted() || !g_pol.inHostQuestStateScript(&script)) return;
+        saved = g_hub->liftMute();
+        lifted = true;
+        weak = g_hub->beginWeak(script);
+    }
+    ~QuestStateLift() {
+        if (!lifted) return;
+        if (weak) g_hub->endWeak();
+        g_hub->restoreMute(saved);
+    }
+    QuestStateLift(const QuestStateLift&) = delete;
+    QuestStateLift& operator=(const QuestStateLift&) = delete;
+};
 int g_applierExec = 0;
 Unmapped g_unmapped;
 constexpr uint32_t kPlayerRefID = 0x14;
@@ -208,10 +244,11 @@ void forwardBlockedStage(TESQuest* q, UInt8 stage) {
     if (g_stageReqObs(qr, stage)) ++g_sstats.stagesForwarded;
 }
 bool __fastcall h_SetStage(TESQuest* q, void*, UInt8 stage) {
-    if (blockedNow()) {
-        forwardBlockedStage(q, stage);
+    if (questBlockedNow()) {
+        if (g_pol.localScriptDepth() == 0) forwardBlockedStage(q, stage);   // a per-machine DLC setup script is not a request to the host: the host runs its own copy
         return false;
     }
+    QuestStateLift lift;
     if (g_stageGateFn && g_hub && g_hub->enabled() && !g_stageGate.allow(q ? q->refID : 0, stage, g_pol.applying())) return false;
     if (!g_hub || !g_hub->enabled()) return o_SetStage(q, stage);
     Cause c;
@@ -229,12 +266,18 @@ using Fn_TopicRun = void(__thiscall*)(void*, UInt32, void*);
 Fn_TopicRun o_TopicRun;
 void __fastcall h_TopicRun(void* info, void*, UInt32 onEnd, void* actor) {
     if (g_pol.blockResultScript()) return;  // guests never run INFO result scripts
+    // The host plays a guest's line with `<npc>.Say`; the engine then runs the INFO's scripts again by itself. The runner's run (an acting window is open) is the only one.
+    if (g_spectatorSay.blocks(refIdOf(actor), g_acting.depth() > 0, GetTickCount64())) {
+        if (traceEnabled()) traceLine(std::string("capture: INFO result script ") + std::to_string(refIdOf(info)) + (onEnd ? " End" : " Begin") + " NOT run: the engine's copy for a spectator voice (speaker " + std::to_string(refIdOf(actor)) + ")");
+        return;
+    }
     if (!g_hub || !g_hub->enabled()) return o_TopicRun(info, onEnd, actor);
     Cause c;
     c.kind = CauseKind::DialogueResult;
     c.aux = static_cast<int32_t>(onEnd);
     FormRef ir;
     if (formRef(info, &ir)) c.source = ir;
+    if (traceEnabled()) traceLine(std::string("capture: INFO result script ") + std::to_string(c.source.localId) + (onEnd ? " End" : " Begin"));
     ScopedCapture sc(*g_hub, c);
     o_TopicRun(info, onEnd, actor);
 }
@@ -242,7 +285,8 @@ void __fastcall h_TopicRun(void* info, void*, UInt32 onEnd, void* actor) {
 using Fn_ObjState = void(__thiscall*)(BGSQuestObjective*, UInt32);
 Fn_ObjState o_ObjState;
 void __fastcall h_ObjState(BGSQuestObjective* o, void*, UInt32 flags) {
-    if (blockedNow()) return;
+    if (questBlockedNow()) return;
+    QuestStateLift lift;
     FormRef qr;
     if (capturing() && o && formRef(o->quest, &qr))
         g_hub->record(SetObjective{qr, o->objectiveId, static_cast<uint8_t>(flags & 3u)});
@@ -252,7 +296,8 @@ void __fastcall h_ObjState(BGSQuestObjective* o, void*, UInt32 flags) {
 using Fn_QuestBool = void(__thiscall*)(TESQuest*, bool);
 Fn_QuestBool o_SetRunning, o_SetCompleted;
 void __fastcall h_SetRunning(TESQuest* q, void*, bool on) {
-    if (blockedNow()) return;
+    if (questBlockedNow()) return;
+    QuestStateLift lift;
     FormRef qr;
     if (capturing() && formRef(q, &qr)) {
         if (on) g_hub->record(StartQuest{qr});
@@ -261,7 +306,8 @@ void __fastcall h_SetRunning(TESQuest* q, void*, bool on) {
     o_SetRunning(q, on);
 }
 void __fastcall h_SetCompleted(TESQuest* q, void*, bool on) {
-    if (blockedNow()) return;
+    if (questBlockedNow()) return;
+    QuestStateLift lift;
     FormRef qr;
     if (capturing() && on && formRef(q, &qr)) g_hub->record(CompleteQuest{qr});
     o_SetCompleted(q, on);
@@ -275,11 +321,23 @@ Fn_Rep o_RepAdd, o_RepRemove;
 Fn_RepF o_RepSet, o_RepAddExact;
 inline float& fame(void* r) { return *reinterpret_cast<float*>(reinterpret_cast<char*>(r) + 0x44); }
 inline float& infamy(void* r) { return *reinterpret_cast<float*>(reinterpret_cast<char*>(r) + 0x48); }
+// A guest acts (its INFO result, or any script the host runs for it) and the host is not applying a committed effect (the applier runs under an EchoGuard): what the script
+// gives the player is the guest's, the host's player is not touched by the engine (guest_item.h planGuestReward); the session gives the host its share if the mask names it.
+bool guestWindowNow() {
+    if (!(g_guestItems.active() || !g_acting.playerTargetOf(kPlayerRefID).onHost)) return false;
+    return !(g_hub && g_hub->echo().suppressed());
+}
 void recordRepDiff(void* rep, float f0, float i0) {
     FormRef fr;
     if (!capturing() || !formRef(rep, &fr)) return;
     int df = static_cast<int>(std::lround(fame(rep) - f0)), di = static_cast<int>(std::lround(infamy(rep) - i0));
     if (df || di) g_hub->record(ModReputation{fr, df, di, Recipient::dflt()});
+    // the engine moved the standing already (clamps, thresholds, so the net is read back): a guest's reward is put back, the host's share is applied by the session
+    if ((df || di) && !planGuestReward(guestWindowNow(), true, true).runEngine) {
+        fame(rep) = f0;
+        infamy(rep) = i0;
+        if (traceEnabled()) traceLine("capture: reputation " + fr.plugin + ":" + std::to_string(fr.localId) + " " + std::to_string(df) + "/" + std::to_string(di) + " for a guest: the host's standing is put back");
+    }
 }
 void __fastcall h_RepAdd(void* r, void*, int t, int l) { if (blockedNow()) return; float f = fame(r), i = infamy(r); o_RepAdd(r, t, l); recordRepDiff(r, f, i); }
 void __fastcall h_RepRemove(void* r, void*, int t, int l) { if (blockedNow()) return; float f = fame(r), i = infamy(r); o_RepRemove(r, t, l); recordRepDiff(r, f, i); }
@@ -290,7 +348,13 @@ using Fn_Karma = void(__thiscall*)(void*, int);
 Fn_Karma o_Karma;
 void __fastcall h_Karma(void* player, void*, int amount) {
     if (blockedNow()) return;
-    if (capturing() && amount) g_hub->record(ModKarma{amount, Recipient::dflt()});
+    if (capturing() && amount) {
+        g_hub->record(ModKarma{amount, Recipient::dflt()});
+        if (!planGuestReward(guestWindowNow(), true, true).runEngine) {   // a guest's karma: the host's player does not get it from the engine
+            if (traceEnabled()) traceLine("capture: RewardKarma " + std::to_string(amount) + " for a guest: the host's karma is not touched");
+            return;
+        }
+    }
     o_Karma(player, amount);
 }
 
@@ -374,8 +438,6 @@ bool guestRememberQuestVars(uint32_t scriptRefID, VarRollback& rb) {
     return rb.size() > 0;
 }
 
-using Fn_ScriptExec = bool(__thiscall*)(void*, void*, void*, void*, bool);
-Fn_ScriptExec o_ScriptExec;
 bool g_perfOn = false;
 HookPerf g_perf;
 inline uint64_t qpc() {
@@ -397,6 +459,75 @@ bool guestOwnPlayerConsoleLine(void* script) {
         return false;
     }
 }
+// ---- W3d item 1: scripts that run once per joined slot (per_slot_run.h) ----
+// The slot of the variable `name` in the event list the engine passes to Script::Execute (`script` is the Script, `ev` its ScriptEventList). POD only: SEH.
+bool eventListVarSlot(void* scriptP, void* evP, const char* name, double** slotOut) {
+    __try {
+        Script* sc = static_cast<Script*>(scriptP);
+        ScriptEventList* el = static_cast<ScriptEventList*>(evP);
+        if (!sc || !el || !el->m_vars) return false;
+        bool found = false;
+        UInt32 idx = 0;
+        for (auto v = sc->varList.Begin(); !v.End(); ++v) {
+            VariableInfo* vi = v.Get();
+            if (vi && vi->name.m_data && _stricmp(vi->name.m_data, name) == 0) { idx = vi->idx; found = true; break; }
+        }
+        if (!found) return false;
+        for (auto v = el->m_vars->Begin(); !v.End(); ++v) {
+            if (v.Get() && v.Get()->id == idx) {
+                *slotOut = &v.Get()->data;
+                return true;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return false;
+}
+std::vector<double*> objVarSlots(void* script, void* ev, const std::vector<std::string>& names) {
+    std::vector<double*> out(names.size(), nullptr);
+    for (size_t i = 0; i < names.size(); ++i) {
+        double* p = nullptr;
+        if (eventListVarSlot(script, ev, names[i].c_str(), &p)) out[i] = p;
+    }
+    return out;
+}
+PerSlotScripts g_perSlot;
+PerSlotRunner g_perSlotRunner;
+ObjVarCopies g_objCopies;
+PerSlotStats g_perSlotStats;
+int g_perSlotDepth = 0;
+inline uint64_t instanceOf(uint32_t scriptId, void* thisObj) { return objVarInstance(scriptId, thisObj ? refIdOf(thisObj) : 0u); }   // not the event list's address: that changes with every load
+
+using Fn_ScriptExec = bool(__thiscall*)(void*, void*, void*, void*, bool);
+Fn_ScriptExec o_ScriptExec;
+
+// The same script once more for every joined guest with a puppet, right after the engine's own run (which is the host's). Each run is its own weak capture
+// scope, so its txn is committed while the session's window for that slot is open (the origin is the slot), and `player` inside it is that guest's puppet.
+void runPerSlot(const PerSlotScript& ps, void* script, void* thisObj, void* ev, void* contObj, bool arg3) {
+    ++g_perSlotDepth;
+    const uint64_t instance = instanceOf(ps.scriptId, thisObj);
+    g_perSlotRunner(ps.scriptId, [&](uint8_t slot, uint32_t ghost) {
+        ActingPlayerScope acting(ghost);
+        std::vector<double*> live;
+        ObjVarCopies::Bracket br;
+        if (ev && !ps.vars.empty()) {
+            live = objVarSlots(script, ev, ps.vars);
+            g_objCopies.enter(instance, slot, ps.vars, live, br);
+            ++g_perSlotStats.objVarSwaps;
+        }
+        const bool weak = g_hub && g_hub->enabled() && g_hub->beginWeak(ps.scriptId);
+        g_pol.enterScript();
+        o_ScriptExec(script, thisObj, ev, contObj, arg3);
+        g_pol.leaveScript();
+        if (weak) g_hub->endWeak();
+        if (!live.empty()) g_objCopies.leave(instance, slot, ps.vars, live, br);
+        ++g_perSlotStats.runs;
+    });
+    --g_perSlotDepth;
+}
+
+ScriptRunObserver g_scriptRunObs;
+ScriptRunScopeHook g_scriptRunScope;
 
 bool __fastcall h_ScriptExec(void* script, void*, void* thisObj, void* ev, void* contObj, bool arg3) {
     const uint64_t t0 = g_perfOn ? qpc() : 0;
@@ -419,7 +550,7 @@ bool __fastcall h_ScriptExec(void* script, void*, void* thisObj, void* ev, void*
     if (local) {
         ++g_sstats.localRan;
         noteLocalRun(refIdOf(script));
-        g_pol.enterLocalScript();
+        g_pol.enterLocalScript(refIdOf(script));
     } else {
         g_pol.enterScript();
     }
@@ -428,13 +559,20 @@ bool __fastcall h_ScriptExec(void* script, void*, void* thisObj, void* ev, void*
     const bool rolled = g_pol.guest() && !local && g_applierExec == 0 && !g_pol.applying() &&
                         (*reinterpret_cast<uint16_t*>(reinterpret_cast<char*>(script) + 0x28) != kScriptTypeQuest) &&
                         guestRememberQuestVars(refIdOf(script), rollback);
+    // W3d: a script a PerPlayerState rule runs once per slot. Only the engine's own run (not an applier line, not a re-run, not a per-machine script) is followed by the re-runs.
+    const PerSlotScript* perSlot = (!g_perSlot.empty() && g_perSlotRunner && !g_pol.guest() && !local && g_applierExec == 0 && g_perSlotDepth == 0) ? g_perSlot.find(refIdOf(script)) : nullptr;
+    if (perSlot && ev && !perSlot->vars.empty()) g_objCopies.seed(instanceOf(perSlot->scriptId, thisObj), perSlot->vars, objVarSlots(script, ev, perSlot->vars));   // the pristine values, before the first run
     const uint64_t t1 = g_perfOn ? qpc() : 0;
+    if (g_scriptRunScope) g_scriptRunScope(refIdOf(script), true);
     bool r = o_ScriptExec(script, thisObj, ev, contObj, arg3);
+    if (g_scriptRunScope) g_scriptRunScope(refIdOf(script), false);
+    if (g_scriptRunObs && thisObj) g_scriptRunObs(refIdOf(thisObj));
     const uint64_t t2 = g_perfOn ? qpc() : 0;
     if (rolled) g_sstats.questVarRollbacks += rollback.restore();
-    if (local) g_pol.leaveLocalScript(); else g_pol.leaveScript();
+    if (local) g_pol.leaveLocalScript(refIdOf(script)); else g_pol.leaveScript();
     if (weak) g_hub->endWeak();
     if (local && g_hub) g_hub->popMute();
+    if (perSlot) runPerSlot(*perSlot, script, thisObj, ev, contObj, arg3);
     if (g_perfOn) {
         ++g_perf.calls;
         g_perf.overheadTicks += (t1 - t0) + (qpc() - t2);
@@ -457,7 +595,8 @@ UInt32 __fastcall h_Activate(void* ref, void*, void* activator, UInt8 a, UInt32 
 // CompleteAllObjectives: Cmd_CompleteAllObjectives (0x5C9740) -> TESQuest::CompleteAllObjectives(quest, 1) @0x60C950, ret 4.
 Fn_QuestBool o_CompleteAll;
 void __fastcall h_CompleteAll(TESQuest* q, void*, UInt32 a) {
-    if (blockedNow()) return;
+    if (questBlockedNow()) return;
+    QuestStateLift lift;
     FormRef qr;
     if (capturing() && formRef(q, &qr)) g_hub->record(CompleteAllObjectives{qr});
     reinterpret_cast<void(__thiscall*)(TESQuest*, UInt32)>(o_CompleteAll)(q, a);
@@ -467,9 +606,13 @@ void __fastcall h_CompleteAll(TESQuest* q, void*, UInt32 a) {
 // player+0x680 |= mask (disable) or &= ~mask (enable). Clean primitive, so capture here rather than in the commands.
 using Fn_Controls = void(__thiscall*)(void*, UInt32, UInt32);
 Fn_Controls o_Controls;
+ControlsRouter g_controlsRouter;
 void __fastcall h_Controls(void* player, void*, UInt32 disable, UInt32 mask) {
     if (blockedNow()) return;
-    if (capturing() && (mask & 0xFF)) g_hub->record(SetPlayerControls{mask & 0xFFu, disable == 0, Recipient::dflt()});
+    const bool cap = capturing() && (mask & 0xFF);
+    if (cap) g_hub->record(SetPlayerControls{mask & 0xFFu, disable == 0, Recipient::dflt()});
+    // A guest's scene locks THAT guest, not the host (scope=initiator): the effect is recorded (the rules engine addresses it to the initiator), the host's own call is not made.
+    if (skipHostControlsCall(cap, g_acting.slot(), disable != 0, g_controlsRouter)) return;
     o_Controls(player, disable, mask);
 }
 
@@ -493,6 +636,26 @@ bool __cdecl h_MarkEvent(void* object, void* xlist, UInt32 mask) {
         void* ref = refFromExtraList(xlist);
         FormRef tr;
         if (ref && formRef(ref, &tr) && g_eventObs(mask, tr) == EventAction::Suppress) return false;
+    }
+    // Host: a host-owned NPC starts combat with a guest's puppet. The block that runs must see that guest as `player` and its effects belong to an
+    // Intent cause naming the NPC, so run the original as the guest inside a capture scope (ActingContext::hostPuppetEvent says which events).
+    if (g_hub && g_hub->enabled() && !g_pol.guest() && !g_pol.applying() && object && xlist && g_acting.hostPuppetEvent(refIdOf(object), mask)) {
+        void* ref = refFromExtraList(xlist);
+        FormRef tr;
+        if (ref && formRef(ref, &tr)) {
+            Cause c;
+            c.kind = CauseKind::Intent;
+            c.source = tr;
+            c.aux = static_cast<int32_t>(mask);
+            g_acting.push(refIdOf(object));
+            bool r;
+            {
+                ScopedCapture sc(*g_hub, c);
+                r = o_MarkEvent(object, xlist, mask);
+            }
+            g_acting.pop();
+            return r;
+        }
     }
     return o_MarkEvent(object, xlist, mask);
 }
@@ -682,6 +845,25 @@ bool perkCmd(Fn_Cmd o, bool add, CMD_ARGS) {
 bool __cdecl h_AddPerk(CMD_ARGS) { return perkCmd(o_AddPerk, true, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_RemovePerk(CMD_ARGS) { return perkCmd(o_RemovePerk, false, pi, sd, thisObj, contObj, script, ev, res, opc); }
 
+// Lock state of a reference through the engine's own condition evaluators GetLocked 0x59D010 / GetLockLevel 0x59D100 (cdecl bool(thisObj, p1, p2,
+// double*)); not hooked by us, called straight. Raw pointers under SEH.
+bool readLockSeh(void* ref, double* locked, double* level) {
+    using Eval = bool(__cdecl*)(void*, void*, void*, double*);
+    __try {
+        *locked = 0;
+        *level = 0;
+        reinterpret_cast<Eval>(addr::Cond_GetLocked.target)(ref, nullptr, nullptr, locked);
+        reinterpret_cast<Eval>(addr::Cond_GetLockLevel.target)(ref, nullptr, nullptr, level);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+void readLock(void* ref, bool* wasLocked, int* wasLevel) {
+    double l = 0, v = 0;
+    if (readLockSeh(ref, &l, &v)) { *wasLocked = l != 0; *wasLevel = static_cast<int>(v); }
+}
+
 // Object state: Lock [level] / UnLock / SetOpenState n / SetDestroyed n
 bool objectStateCmd(Fn_Cmd o, int kind /*0 lock 1 unlock 2 open 3 destroyed*/, CMD_ARGS) {
     if (blockedNow()) return true;
@@ -690,6 +872,9 @@ bool objectStateCmd(Fn_Cmd o, int kind /*0 lock 1 unlock 2 open 3 destroyed*/, C
     bool track = capturing() && thisObj && formRef(thisObj, &rr);
     bool parsed = track && ((kind == 0) ? parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &a, &b)
                                         : (kind == 1) ? true : parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &a));
+    bool wasLocked = false;
+    int wasLevel = 0;
+    if (parsed && kind <= 1) readLock(thisObj, &wasLocked, &wasLevel);   // pre-image of the lock, read before the original changes it
     bool ok = CMD_FWD(o);
     if (ok && parsed) {
         ObjectState os;
@@ -698,6 +883,7 @@ bool objectStateCmd(Fn_Cmd o, int kind /*0 lock 1 unlock 2 open 3 destroyed*/, C
         else if (kind == 1) { os.mask = kObjLock; os.locked = false; }
         else if (kind == 2) { os.mask = kObjOpen; os.open = a != 0; }
         else { os.mask = kObjDestroyed; os.destroyed = a != 0; }
+        if (kind <= 1) applyLockPreImage(&os, wasLocked, wasLevel);
         g_hub->record(os);
     }
     return ok;
@@ -718,7 +904,7 @@ bool journalCmd(Fn_Cmd o, JournalKind k, CMD_ARGS) {
     bool ok = CMD_FWD(o);
     if (ok && parsed && f && formRef(f, &fr)) {
         switch (k) {
-            case JournalKind::AddNote: g_hub->record(AddNote{fr}); break;
+            case JournalKind::AddNote: break;   // recorded by h_PlayerAddNote (the primitive every path ends in: script, pickup, Pip-Boy)
             case JournalKind::RemoveNote: g_hub->record(RemoveNote{fr}); break;
             case JournalKind::AddTopic: g_hub->record(AddTopic{fr}); break;
             case JournalKind::SetWeather: g_hub->record(SetWeather{fr, false}); break;
@@ -732,6 +918,34 @@ bool __cdecl h_RemoveNote(CMD_ARGS) { return journalCmd(o_RemoveNote, JournalKin
 bool __cdecl h_AddTopic(CMD_ARGS) { return journalCmd(o_AddTopic, JournalKind::AddTopic, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_SetWeather(CMD_ARGS) { return journalCmd(o_SetWeather, JournalKind::SetWeather, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_ForceWeather(CMD_ARGS) { return journalCmd(o_ForceWeather, JournalKind::ForceWeather, pi, sd, thisObj, contObj, script, ev, res, opc); }
+
+// PlayerCharacter::AddNote(note, u8 verbose) @0x966A70, thiscall, ret 8: the one function behind `AddNote` (Cmd_AddNote 0x5D5230) AND the pickup of a
+// note object (callers 0x4C37D0, 0x5E9360, 0x757F70, 0x892520). Hooking it, not the command, is what makes a looted Jessup note a journal entry
+// that every machine learns about (G10). The note list is player+0x5E4; HasNote @0x966C10 (thiscall, ret 4) tells whether the add took.
+using Fn_PlayerAddNote = UInt32(__thiscall*)(void*, void*, UInt8);
+Fn_PlayerAddNote o_PlayerAddNote;
+NoteObserver g_noteObs;
+bool playerHasNote(void* player, void* note) {
+    return player && note && (reinterpret_cast<UInt32(__thiscall*)(void*, void*)>(addr::PlayerHasNote.target)(player, note) & 0xFF) != 0;
+}
+UInt32 __fastcall h_PlayerAddNote(void* player, void*, void* note, UInt8 verbose) {
+    const bool watch = note && (g_hub || g_noteObs);
+    const bool had = watch && playerHasNote(player, note);
+    const UInt32 r = o_PlayerAddNote(player, note, verbose);
+    if (!watch || had || !playerHasNote(player, note)) return r;
+    FormRef nr;
+    if (!formRef(note, &nr)) return r;
+    if (g_hub && g_hub->enabled() && !g_hub->echo().suppressed()) {
+        // Host. Inside a capture scope the note rides the scope's txn; an ambient pickup (the host player looting a note, a guest's pickup intent
+        // run on the host) gets a one-effect weak scope of its own.
+        const bool weak = !capturing() && g_hub->beginWeak(0);
+        if (capturing()) g_hub->record(AddNote{nr});
+        if (weak) g_hub->endWeak();
+    } else if (g_noteObs && !g_pol.applying() && g_applierExec == 0 && g_pol.scriptDepth() == 0) {
+        g_noteObs(nr);   // a machine that does not capture (a guest) picked a note up by itself: the session forwards it to the host
+    }
+    return r;
+}
 
 // ShowMap marker [enableTravel]: reveals a map marker (shared journal state), optionally enabling fast travel to it.
 Fn_Cmd o_ShowMap;
@@ -779,12 +993,97 @@ bool __cdecl h_Autosave(CMD_ARGS) { return saveCmdHook(o_Autosave, kSaveAuto, pi
 bool __cdecl h_SystemSave(CMD_ARGS) { return saveCmdHook(o_SystemSave, kSaveSystem, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_ForceSave(CMD_ARGS) { return saveCmdHook(o_ForceSave, kSaveForce, pi, sd, thisObj, contObj, script, ev, res, opc); }
 
+// RemoveAllItems [container] [ownershipAdded] [noMessage] (G35). On a non-player reference it clears that inventory (RemoveAllItems effect, as before).
+// Gear shuffles that involve a PLAYER are reported to the PlayerStashObserver (when the session registered one) as who, from/to which container and
+// what moved, because no effect can say "this player's own gear goes into THEIR copy of the shared storage": the Fort confiscation
+// (`player.RemoveAllItems NVCCPlayerStorageREF`), its return (`NVCCPlayerStorageREF.RemoveAllItems player`), the Dead Money entry strip, frisk lockers.
+// A script acting for a guest never empties the host's own player or hands it the guest's items: the original is skipped and the event names the guest.
+Inventory readInventory(void* ref);
+PlayerStashObserver g_stashObs;
+std::vector<std::pair<FormRef, int32_t>> stashItems(const Inventory& inv) {
+    std::vector<std::pair<FormRef, int32_t>> out;
+    for (const auto& kv : inv) {
+        FormRef ir;
+        if (kv.second > 0 && g_res && g_res->toRef(kv.first, &ir)) out.emplace_back(ir, kv.second);
+    }
+    return out;
+}
 bool __cdecl h_RemoveAllItems(CMD_ARGS) {
     if (blockedNow()) return true;
+    if (g_stashObs && thisObj) {
+        TESObjectREFR* dest = nullptr;
+        int ownership = 0, noMsg = 0;
+        const bool parsed = parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &dest, &ownership, &noMsg);
+        const ActingContext::PlayerTarget src = g_acting.playerTargetOf(refIdOf(thisObj));
+        const ActingContext::PlayerTarget dst = (parsed && dest) ? g_acting.playerTargetOf(refIdOf(dest)) : ActingContext::PlayerTarget{};
+        if (parsed && (src.player || dst.player)) {
+            PlayerStashEvent e;
+            e.intoPlayer = !src.player;
+            e.slot = src.player ? src.slot : dst.slot;
+            e.retainOwnership = ownership != 0;
+            const bool engineRuns = src.player ? src.onHost : dst.onHost;   // the host's own player is really involved
+            FormRef cr;
+            if (src.player) { if (dest) formRef(dest, &cr); }
+            else formRef(thisObj, &cr);
+            e.container = cr;
+            if (engineRuns) e.items = stashItems(readInventory(thisObj));
+            g_stashObs(e);
+            return engineRuns ? CMD_FWD(o_RemoveAllItems) : true;
+        }
+    }
     FormRef rr;
     bool track = capturing() && thisObj && !isPlayer(thisObj) && formRef(thisObj, &rr);
     bool ok = CMD_FWD(o_RemoveAllItems);
     if (ok && track) g_hub->record(RemoveAllItems{rr});
+    return ok;
+}
+
+// RemoveFromAllFactions (G12): the engine clears the runtime faction list of the actor; the effect list has no such effect, so the capture names
+// every faction the actor was in just before (faction_removal.h) as SetFactionRank{actor, faction, -1}. Base factions: TESActorBase::baseData
+// (xNVSE layout), runtime ones: ExtraFactionChanges (extra 0x5E). Raw reads under SEH, no C++ objects in the guarded function.
+struct RawFaction {
+    uint32_t id;
+    int rank;
+};
+int rawFactionList(TESObjectREFR* ref, bool runtimeList, RawFaction* out, int cap) {
+    int n = 0;
+    __try {
+        if (runtimeList) {
+            auto* x = static_cast<ExtraFactionChanges*>(ref->extraDataList.GetByType(kExtraData_FactionChanges));
+            if (x && x->data)
+                for (auto it = x->data->Begin(); !it.End() && n < cap; ++it)
+                    if (it.Get() && it.Get()->faction) { out[n].id = it.Get()->faction->refID; out[n].rank = static_cast<int8_t>(it.Get()->rank); ++n; }
+        } else if (ref->baseForm && (ref->baseForm->typeID == 0x2A || ref->baseForm->typeID == 0x2B)) {   // NPC_ / CREA
+            auto* ab = static_cast<TESActorBase*>(ref->baseForm);
+            for (auto it = ab->baseData.factionList.Begin(); !it.End() && n < cap; ++it)
+                if (it.Get() && it.Get()->faction) { out[n].id = it.Get()->faction->refID; out[n].rank = static_cast<int8_t>(it.Get()->rank); ++n; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return n;
+    }
+    return n;
+}
+Fn_Cmd o_RemoveFromAllFactions;
+bool __cdecl h_RemoveFromAllFactions(CMD_ARGS) {
+    if (blockedNow()) return true;
+    FormRef ar;
+    const bool track = capturing() && thisObj && formRef(thisObj, &ar);
+    std::vector<uint32_t> lost;
+    if (track) {
+        RawFaction rb[96], rr[96];
+        const int nb = rawFactionList(static_cast<TESObjectREFR*>(thisObj), false, rb, 96);
+        const int nr = rawFactionList(static_cast<TESObjectREFR*>(thisObj), true, rr, 96);
+        std::vector<FactionRankEntry> base, run;
+        for (int i = 0; i < nb; ++i) base.push_back({rb[i].id, rb[i].rank});
+        for (int i = 0; i < nr; ++i) run.push_back({rr[i].id, rr[i].rank});
+        lost = factionsLeftBy(base, run);
+    }
+    const bool ok = CMD_FWD(o_RemoveFromAllFactions);
+    if (ok && track)
+        for (uint32_t id : lost) {
+            FormRef fr;
+            if (g_res->toRef(id, &fr)) g_hub->record(SetFactionRank{ar, fr, -1});
+        }
     return ok;
 }
 
@@ -865,6 +1164,21 @@ bool itemCmd(Fn_Cmd o, bool add, CMD_ARGS) {
     bool resolving = parsed && item && add && isResolvingItemType(item->typeID);
     Inventory before;
     if (resolving) before = readInventory(thisObj);
+    // A guest's hand-in (dialogue result of a guest's pick): `player` is the host's player here, but the pack that pays is the guest's. The engine call is skipped; the
+    // removal is recorded and the rules route it (the guest's machine takes its part, the session takes the host's own share).
+    // A guest acts when its INFO result runs (GuestItemScope) and in any other script the host runs for it (the acting window: an activator, a terminal, a stage result).
+    const bool guestActing = g_guestItems.active() || !g_acting.playerTargetOf(kPlayerRefID).onHost;
+    const RemovePlan plan = add ? planPlayerAddItem(isPlayer(thisObj), guestActing, capturing(), parsed && item && count > 0, resolving)
+                                : planPlayerRemoveItem(isPlayer(thisObj), guestActing, capturing(), parsed && item && count > 0);
+    if (!plan.runEngine) {
+        FormRef gr;
+        if (formRef(item, &gr)) {
+            if (add) g_hub->record(AddItem{gr, count, Recipient::dflt()});
+            else g_hub->record(RemoveItem{gr, count, Recipient::dflt()});
+            if (traceEnabled()) traceLine(std::string("capture: ") + (add ? "AddItem " : "RemoveItem ") + gr.plugin + ":" + std::to_string(gr.localId) + " x" + std::to_string(count) + " for a guest (slot " + std::to_string(int(g_guestItems.active() ? g_guestItems.slot() : g_acting.slot())) + "): the host's pack is not touched");
+            return true;
+        }
+    }
     bool ok = CMD_FWD(o);
     if (ok && resolving && thisObj) {  // leveled list / form list: send what actually landed, never the list
         recordInventoryDelta(thisObj, before, true, false);
@@ -873,6 +1187,7 @@ bool itemCmd(Fn_Cmd o, bool add, CMD_ARGS) {
     FormRef ir;
     if (ok && parsed && item && count > 0 && formRef(item, &ir)) {
         if (isPlayer(thisObj)) {
+            if (traceEnabled()) traceLine(std::string("capture: ") + (add ? "AddItem " : "RemoveItem ") + ir.plugin + ":" + std::to_string(ir.localId) + " x" + std::to_string(count) + " on the local player, count now " + std::to_string(playerItemCountForTrace(refIdOf(item))));
             if (add) g_hub->record(AddItem{ir, count, Recipient::dflt()});
             else g_hub->record(RemoveItem{ir, count, Recipient::dflt()});
         } else {
@@ -889,8 +1204,35 @@ bool itemCmd(Fn_Cmd o, bool add, CMD_ARGS) {
 }
 
 // RemoveAllTypedItems [container] type: removes a variable set -> record the real removals.
+// W3d item 4 (G35): `player.RemoveAllTypedItems container [ownership] [noMessage] type [holdout]` is the failure ending of Dead Money (weapons only, type 40) and the Fort's
+// 131 gear moves. A script acting for a guest used to strip the HOST's player of that type; now it is the same stash event as RemoveAllItems with the type filter, and the
+// original is skipped for a guest (the host's own player is unchanged).
 bool __cdecl h_RemoveAllTyped(CMD_ARGS) {
     if (blockedNow()) return true;
+    if (g_stashObs && thisObj) {
+        TESObjectREFR* dest = nullptr;
+        TESForm* holdout = nullptr;
+        int ownership = 0, noMsg = 0, type = -1;
+        const bool parsed = parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &dest, &ownership, &noMsg, &type, &holdout);
+        const ActingContext::PlayerTarget src = g_acting.playerTargetOf(refIdOf(thisObj));
+        const ActingContext::PlayerTarget dst = (parsed && dest) ? g_acting.playerTargetOf(refIdOf(dest)) : ActingContext::PlayerTarget{};
+        const bool forGuest = src.player ? !src.onHost : dst.player && !dst.onHost;
+        if (parsed && forGuest) {   // the host's own player keeps the old path below (the engine call and the recorded inventory change)
+            PlayerStashEvent e;
+            e.intoPlayer = !src.player;
+            e.slot = src.player ? src.slot : dst.slot;
+            e.retainOwnership = ownership != 0;
+            e.noMessage = noMsg != 0;
+            e.typeFilter = type;
+            if (holdout) formRef(holdout, &e.holdout);
+            FormRef cr;
+            if (src.player) { if (dest) formRef(dest, &cr); }
+            else formRef(thisObj, &cr);
+            e.container = cr;
+            g_stashObs(e);
+            return true;   // the guest's own machine strips the guest; the host's player is not the guest's
+        }
+    }
     if (!capturing() || !thisObj) return CMD_FWD(o_RemoveAllTyped);
     Inventory before = readInventory(thisObj);
     bool ok = CMD_FWD(o_RemoveAllTyped);
@@ -909,13 +1251,37 @@ bool __cdecl h_RewardXP(CMD_ARGS) {
         UInt32 off = *opc;
         parsed = extractPadded(extractArgs(), pi, sd, &off, thisObj, contObj, script, ev, {&amount});
     }
+    if (parsed && amount && isPlayer(thisObj) && !planGuestReward(guestWindowNow(), capturing(), true).runEngine) {   // a guest's XP: recorded only, the session gives the host its share
+        g_hub->record(ModActorValue{kPseudoAV_XP, amount, Recipient::dflt()});
+        if (traceEnabled()) traceLine("capture: RewardXP " + std::to_string(amount) + " for a guest: the host's XP is not touched");
+        return true;
+    }
     bool ok = CMD_FWD(o_RewardXP);
     if (ok && parsed && amount) g_hub->record(ModActorValue{kPseudoAV_XP, amount, Recipient::dflt()});
     return ok;
 }
 
+// `player.KillActor` / a guest's ghost: ONE player dies, not the party (G42). The kill of a player is captured as KillActor{<that player's own ref>} (the player ref
+// for the host's own player, the ref the session registered with setPlayerRefProvider for a guest's slot); a PerPlayerState rule of the quest (collar, cloud, gas trap)
+// rewrites it into a Health drain addressed to that slot, and a quest without the rule keeps the old shared kill. The engine kill runs only on a machine whose own
+// player it concerns: a kill meant for a guest is skipped on the host (it would hit the host's player instead). A PlayerKillObserver, when registered, is told as well.
+// With neither a registered player ref nor an observer the old path runs (KillActor{operand} recorded, engine kill run).
+PlayerKillObserver g_playerKillObs;
+PlayerRefOf g_playerRefOf;
 bool __cdecl h_Kill(CMD_ARGS) {
     if (blockedNow()) return true;
+    if (thisObj) {
+        const ActingContext::PlayerTarget pt = g_acting.playerTargetOf(refIdOf(thisObj));
+        if (pt.player) {
+            const PlayerKillPlan plan = planPlayerKill(pt, static_cast<bool>(g_playerKillObs), g_playerRefOf, capturing());
+            if (!plan.legacy) {
+                if (plan.report) g_playerKillObs(pt.slot, pt.onHost);
+                const bool ok = plan.runEngine ? CMD_FWD(o_Kill) : true;
+                if (ok && plan.record) g_hub->record(KillActor{plan.ref});
+                return ok;
+            }
+        }
+    }
     FormRef ar;
     bool track = capturing() && formRef(thisObj, &ar);
     bool ok = CMD_FWD(o_Kill);
@@ -1050,8 +1416,15 @@ bool avCmd(Fn_Cmd o, int kind /*0 set 1 mod 2 force 3 damage*/, CMD_ARGS) {
     if (ok && parsed) {
         int delta = static_cast<int>(std::lround(getAV(thisObj, av) - before));
         if (delta) {
-            if (av == kKarmaAV) g_hub->record(ModKarma{delta, Recipient::dflt()});
-            else g_hub->record(ModActorValue{av, delta, Recipient::dflt()});
+            if (av == kKarmaAV) {
+                g_hub->record(ModKarma{delta, Recipient::dflt()});
+                if (!planGuestReward(guestWindowNow(), true, true).runEngine) {   // a guest's karma through ModActorValue: the engine moved the host's AV, put it back (same virtual as the applier's)
+                    void** vt = *reinterpret_cast<void***>(thisObj);
+                    reinterpret_cast<void(__thiscall*)(void*, uint32_t, float, void*)>(vt[0x3A8 / 4])(thisObj, av, -static_cast<float>(delta), nullptr);
+                }
+            } else {
+                g_hub->record(ModActorValue{av, delta, Recipient::dflt()});
+            }
         }
     }
     return ok;
@@ -1076,9 +1449,89 @@ struct CondScope {
 };
 std::vector<CondScope> g_condQuests;
 
+// ------------------------------------------------------------------ W3d item 2: the quest of an INFO's conditions
+// TESTopicInfo::CheckConditions (0x61E600, thiscall(info, 4 stack args), ret 0x10) is the one function that evaluates an INFO's condition list (called while the dialogue menu is
+// built: GetTopicInfo 0x61A7D0 and 0x61AF30). The evaluators it reaches reduce under the quest that scope names.
+InfoQuestScopes g_infoScopes;
+uint64_t g_infoScopesOpened = 0;
+using Fn_InfoConds = bool(__thiscall*)(void*, void*, void*, void*, void*);
+Fn_InfoConds o_InfoConds;
+bool __fastcall h_InfoConditions(void* info, void*, void* a1, void* a2, void* a3, void* a4) {
+    FormRef q;
+    if (g_condReducer && g_infoScopes.active() && g_infoScopes.questOf(refIdOf(info), &q)) {
+        ConditionQuestScope scope(q);
+        ++g_infoScopesOpened;
+        return o_InfoConds(info, a1, a2, a3, a4);
+    }
+    return o_InfoConds(info, a1, a2, a3, a4);
+}
+
+// ------------------------------------------------------------------ player facts (P3 R1)
+const std::vector<PlayerFact>* g_facts = nullptr;
+// The initiator's reported value for what the script / condition reads on the player. `form` is the item / perk form, `avCode` the actor value code.
+bool factAnswer(uint8_t kind, void* form, uint32_t avCode, double* out) {
+    if (!g_facts || !kind) return false;
+    FormRef w;
+    if (kind == kFactActorValue) w = FormRef(std::string(), avCode);
+    else if (!formRef(form, &w)) return false;
+    int32_t v = 0;
+    if (!lookupFact(*g_facts, kind, w, &v)) return false;
+    *out = v;
+    return true;
+}
+Fn_Cmd o_GetItemCountCmd, o_GetAVCmd, o_HasPerkCmd, o_GetEquippedCmd;
+bool factCmd(uint8_t kind, Fn_Cmd o, CMD_ARGS) {
+    if (g_facts && res && isPlayer(thisObj)) {
+        TESForm* f = nullptr;
+        UInt32 av = 0;
+        int alt = 0;
+        const bool parsed = kind == kFactActorValue ? parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &av)
+                            : kind == kFactHasPerk  ? parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &f, &alt)
+                                                    : parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &f);
+        double v = 0;
+        if (parsed && factAnswer(kind, f, av, &v)) { *res = v; return true; }
+    }
+    return CMD_FWD(o);
+}
+bool __cdecl h_GetItemCountCmd(CMD_ARGS) { return factCmd(kFactItemCount, o_GetItemCountCmd, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_GetAVCmd(CMD_ARGS) { return factCmd(kFactActorValue, o_GetAVCmd, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_HasPerkCmd(CMD_ARGS) { return factCmd(kFactHasPerk, o_HasPerkCmd, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_GetEquippedCmd(CMD_ARGS) { return factCmd(kFactEquipped, o_GetEquippedCmd, pi, sd, thisObj, contObj, script, ev, res, opc); }
+
+StateProvider g_stateProvider;
+
+// One party-aware answer: the members' values under the function's MemberView (party_cond.cpp evalMember), reduced by the rules engine.
+// `ops.evalLocal` etc. close over the original call. False = fewer than two members could be evaluated (the caller keeps the plain result).
+bool reduceOverParty(CondFunc f, const std::vector<PartyMember>& members, const StateQuery& base, const CondOps& ops, double* reduced) {
+    return evaluateOverParty(
+        f, members, [&](const PartyMember& m, double* v) { return evalMember(f, m, base, ops, v); },
+        [&](const std::string& fn, const std::vector<CondValue>& vals, uint8_t init) {
+            FormRef q;
+            fnvcoop::CondPhase phase = fnvcoop::CondPhase::Entry;
+            if (!g_condQuests.empty()) { q = g_condQuests.back().quest; phase = g_condQuests.back().phase; }
+            else if (g_hub) g_hub->currentSource(&q);
+            return g_condReducer ? g_condReducer(q, fn, vals, init, phase) : vals.front().value;
+        },
+        actingSlot(), reduced);
+}
+// runtime id of a form operand; guarded because a few condition parameters are plain integers, not forms
+uint32_t operandFormId(void* p) {
+    if (reinterpret_cast<uintptr_t>(p) < 0x10000) return 0;
+    __try {
+        return static_cast<TESForm*>(p)->refID;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
 bool condEval(CondFunc f, CondFn orig, void* t, void* p1, void* p2, double* res) {
     ++g_condStats.evals;
-    if (!g_partyProvider || g_inPartyEval || (!t && !p1)) return orig(t, p1, p2, res);
+    if (g_facts && t && refIdOf(t) == kPlayerRefID) {   // a guest's dialogue result script reads the initiator's facts, not the host's own player
+        double fv = 0;
+        if (factAnswer(factKindOf(f), p1, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p1)), &fv)) { *res = fv; return true; }
+    }
+    const bool always = planSwap(f, 0, 0).always;   // the evaluator ignores / does not carry the player operand (GetHasNote, IsPlayerInRegion, GetPlayerTeammate)
+    if (!g_partyProvider || g_inPartyEval || (!always && !t && !p1)) return orig(t, p1, p2, res);
     SwapPlan plan = planSwap(f, t ? refIdOf(t) : 0, p1 && param1IsReference(f) ? refIdOf(p1) : 0);
     if (!plan.any()) return orig(t, p1, p2, res);
     std::vector<PartyMember> members = g_partyProvider();
@@ -1087,24 +1540,28 @@ bool condEval(CondFunc f, CondFn orig, void* t, void* p1, void* p2, double* res)
     g_inPartyEval = true;
     bool lastOk = true;
     double reduced = 0;
-    bool done = evaluateOverParty(
-        f, members,
-        [&](const PartyMember& m, double* v) {
-            void* who = m.refID == kHostPlayerRef ? nullptr : g_res->lookup(m.refID);
-            if (m.refID != kHostPlayerRef && !who) return false;  // ghost not loaded
-            double out = 0;
-            lastOk = orig(plan.thisObj && who ? who : t, plan.param1 && who ? who : p1, p2, &out);
-            *v = out;
-            return true;
-        },
-        [&](const std::string& fn, const std::vector<CondValue>& vals, uint8_t init) {
-            FormRef q;
-            fnvcoop::CondPhase phase = fnvcoop::CondPhase::Entry;
-            if (!g_condQuests.empty()) { q = g_condQuests.back().quest; phase = g_condQuests.back().phase; }
-            else if (g_hub) g_hub->currentSource(&q);
-            return g_condReducer ? g_condReducer(q, fn, vals, init, phase) : vals.front().value;
-        },
-        actingSlot(), &reduced);
+    StateQuery base;
+    base.thisRefID = t ? refIdOf(t) : kHostPlayerRef;
+    base.formID = memberView(f) == MemberView::Ghost ? 0 : operandFormId(p1);
+    base.arg = static_cast<int32_t>(reinterpret_cast<intptr_t>(p2));
+    if (reinterpret_cast<uintptr_t>(p1) < 0x10000) base.arg1 = static_cast<int32_t>(reinterpret_cast<intptr_t>(p1));   // GetIsSex / IsPlayerActionActive: a plain integer, not a form
+    CondOps ops;
+    ops.evalLocal = [&](double* v) {
+        double out = 0;
+        lastOk = orig(t, p1, p2, &out);
+        *v = out;
+        return true;
+    };
+    ops.evalGhost = [&](uint32_t ghost, double* v) {
+        void* who = g_res->lookup(ghost);
+        if (!who) return false;  // ghost not loaded
+        double out = 0;
+        lastOk = orig(plan.thisObj ? who : t, plan.param1 ? who : p1, p2, &out);
+        *v = out;
+        return true;
+    };
+    ops.state = g_stateProvider;
+    bool done = reduceOverParty(f, members, base, ops, &reduced);
     g_inPartyEval = false;
     if (!done) return orig(t, p1, p2, res);
     *res = reduced;
@@ -1122,6 +1579,50 @@ COND_HOOK(GetDetected)
 COND_HOOK(GetHealthPercentage)
 COND_HOOK(GetItemCount)
 COND_HOOK(GetActorValue)
+COND_HOOK(GetInWorldspace)
+COND_HOOK(IsKiller)
+COND_HOOK(GetEquipped)
+COND_HOOK(GetPlayerTeammate)
+COND_HOOK(GetHasNote)
+COND_HOOK(HasPerk)
+COND_HOOK(IsSneaking)
+COND_HOOK(IsInInterior)
+// Wave 1b. GetLevel's evaluator is also what the `Player.GetLevel` command calls (Cmd_GetLevel 0x5C84D0 = `call 0x5A00C0`), so this one detour covers the script
+// command, the condition and the XP-tier scripts alike.
+COND_HOOK(GetLevel)
+COND_HOOK(GetIsSex)
+COND_HOOK(GetPCIsSex)
+COND_HOOK(GetSitting)
+COND_HOOK(GetShouldAttack)
+COND_HOOK(IsPlayerActionActive)
+
+// IsPlayerInRegion has no condition evaluator (its eval column is 0), only the script command handler. The engine reads the global player's
+// region list (player+0x764), which no ghost has, so every other member's answer comes from the StateProvider (formID = the region).
+Fn_Cmd o_IsPlayerInRegion;
+bool __cdecl h_IsPlayerInRegion(CMD_ARGS) {
+    if (!g_partyProvider || g_inPartyEval || !res) return CMD_FWD(o_IsPlayerInRegion);
+    std::vector<PartyMember> members = g_partyProvider();
+    if (members.size() < 2) return CMD_FWD(o_IsPlayerInRegion);
+    TESForm* region = nullptr;
+    const bool parsed = parseArgs(pi, sd, thisObj, contObj, script, ev, res, opc, &region);
+    const bool ok = CMD_FWD(o_IsPlayerInRegion);
+    if (!ok || !parsed) return ok;
+    ++g_condStats.evals;
+    ++g_condStats.partyEvals;
+    const double local = *res;
+    StateQuery base;
+    base.thisRefID = kHostPlayerRef;
+    base.formID = region ? region->refID : 0;
+    CondOps ops;
+    ops.evalLocal = [&](double* v) { *v = local; return true; };
+    ops.state = g_stateProvider;
+    double reduced = 0;
+    g_inPartyEval = true;
+    const bool done = reduceOverParty(CondFunc::IsPlayerInRegion, members, base, ops, &reduced);
+    g_inPartyEval = false;
+    if (done) { *res = reduced; ++g_condStats.reduced; }
+    return ok;
+}
 
 // ------------------------------------------------------------------ install table
 struct Entry {
@@ -1137,6 +1638,7 @@ const Entry kEntries[] = {
     HK(ScriptExecute, h_ScriptExec, o_ScriptExec, false),
     HK(SetStage, h_SetStage, o_SetStage, true),
     HK(TopicInfoRunResult, h_TopicRun, o_TopicRun, true),
+    HK(InfoConditions, h_InfoConditions, o_InfoConds, true),
     HK(ObjectiveSetState, h_ObjState, o_ObjState, true),
     HK(QuestSetRunning, h_SetRunning, o_SetRunning, true),
     HK(QuestSetCompleted, h_SetCompleted, o_SetCompleted, true),
@@ -1166,7 +1668,7 @@ const Entry kEntries[] = {
     // xNVSE's EventManager writes `jmp MarkEventHook` here the first time anything registers a game-event handler (our own OnDrop
     // handlers do), and its stub re-runs the prologue and jumps to 0x5AC756: it never calls a previous hook. hooks_module primes that
     // one-shot install before Init, so this hook chains on top of xNVSE's jump instead of being silently overwritten by it.
-    {&addr::MarkScriptEvent, reinterpret_cast<void*>(&h_MarkEvent), reinterpret_cast<void*>(&o_MarkEvent), true, true, true},
+    {&addr::MarkScriptEvent, reinterpret_cast<void*>(&h_MarkEvent), reinterpret_cast<void*>(&o_MarkEvent), true, false, true},
     HK(PlayerSetControlsDisabled, h_Controls, o_Controls, true),
     HK(QuestCompleteAllObjectives, h_CompleteAll, o_CompleteAll, true),
     {&addr::RefActivate, reinterpret_cast<void*>(&h_Activate), reinterpret_cast<void*>(&o_Activate), true, true},
@@ -1196,6 +1698,26 @@ const Entry kEntries[] = {
     HK(Cond_GetHealthPercentage, h_Cond_GetHealthPercentage, o_Cond_GetHealthPercentage, true),
     HK(Cond_GetItemCount, h_Cond_GetItemCount, o_Cond_GetItemCount, true),
     HK(Cond_GetActorValue, h_Cond_GetActorValue, o_Cond_GetActorValue, true),
+    HK(Cond_GetInWorldspace, h_Cond_GetInWorldspace, o_Cond_GetInWorldspace, true),
+    HK(Cond_IsKiller, h_Cond_IsKiller, o_Cond_IsKiller, true),
+    HK(Cond_GetEquipped, h_Cond_GetEquipped, o_Cond_GetEquipped, true),
+    HK(Cond_GetPlayerTeammate, h_Cond_GetPlayerTeammate, o_Cond_GetPlayerTeammate, true),
+    HK(Cond_GetHasNote, h_Cond_GetHasNote, o_Cond_GetHasNote, true),
+    HK(Cond_HasPerk, h_Cond_HasPerk, o_Cond_HasPerk, true),
+    HK(Cond_IsSneaking, h_Cond_IsSneaking, o_Cond_IsSneaking, true),
+    HK(Cond_IsInInterior, h_Cond_IsInInterior, o_Cond_IsInInterior, true),
+    HK(Cond_GetLevel, h_Cond_GetLevel, o_Cond_GetLevel, true),
+    HK(Cond_GetIsSex, h_Cond_GetIsSex, o_Cond_GetIsSex, true),
+    HK(Cond_GetPCIsSex, h_Cond_GetPCIsSex, o_Cond_GetPCIsSex, true),
+    HK(Cond_GetSitting, h_Cond_GetSitting, o_Cond_GetSitting, true),
+    HK(Cond_GetShouldAttack, h_Cond_GetShouldAttack, o_Cond_GetShouldAttack, true),
+    HK(Cond_IsPlayerActionActive, h_Cond_IsPlayerActionActive, o_Cond_IsPlayerActionActive, true),
+    HK(Cmd_IsPlayerInRegion, h_IsPlayerInRegion, o_IsPlayerInRegion, true),
+    HK(PlayerAddNote, h_PlayerAddNote, o_PlayerAddNote, true),
+    HK(Cmd_GetItemCount, h_GetItemCountCmd, o_GetItemCountCmd, true),
+    HK(Cmd_GetActorValue, h_GetAVCmd, o_GetAVCmd, true),
+    HK(Cmd_HasPerk, h_HasPerkCmd, o_HasPerkCmd, true),
+    HK(Cmd_GetEquipped, h_GetEquippedCmd, o_GetEquippedCmd, true),
     HK(Cmd_RemoveNote, h_RemoveNote, o_RemoveNote, true),
     HK(Cmd_AddTopic, h_AddTopic, o_AddTopic, true),
     HK(Cmd_SetWeather, h_SetWeather, o_SetWeather, true),
@@ -1205,6 +1727,7 @@ const Entry kEntries[] = {
     HK(Cmd_SystemSave, h_SystemSave, o_SystemSave, true),
     HK(Cmd_ForceSave, h_ForceSave, o_ForceSave, true),
     HK(Cmd_RemoveAllItems, h_RemoveAllItems, o_RemoveAllItems, true),
+    HK(Cmd_RemoveFromAllFactions, h_RemoveFromAllFactions, o_RemoveFromAllFactions, true),
     HK(Cmd_RemoveAllTypedItems, h_RemoveAllTyped, o_RemoveAllTyped, true),
     HK(Cmd_PlaceAtMe, h_PlaceAtMe, o_PlaceAtMe, true),
     HK(Cmd_PlaceLeveledActorAtMe, h_PlaceLeveled, o_PlaceLeveled, true),
@@ -1225,6 +1748,7 @@ struct FastArgBytes<R(__fastcall*)(A, B, Rest...)> {
 PIN_F(ScriptExecute, h_ScriptExec);
 PIN_F(SetStage, h_SetStage);
 PIN_F(TopicInfoRunResult, h_TopicRun);
+PIN_F(InfoConditions, h_InfoConditions);
 PIN_F(ObjectiveSetState, h_ObjState);
 PIN_F(QuestSetRunning, h_SetRunning);
 PIN_F(QuestSetCompleted, h_SetCompleted);
@@ -1246,6 +1770,7 @@ PIN_C(Cmd_DamageActorValue); PIN_C(Cmd_SetFactionRank); PIN_C(Cmd_ModFactionRank
 PIN_C(Cmd_RemoveFromFaction); PIN_C(Cmd_AddPerk); PIN_C(Cmd_RemovePerk); PIN_C(Cmd_AddScriptPackage);
 PIN_C(Cmd_RemoveScriptPackage); PIN_C(Cmd_StartCombat); PIN_C(Cmd_StopCombat); PIN_C(Cmd_Lock); PIN_C(Cmd_UnLock);
 PIN_C(MarkScriptEvent); PIN_C(Cmd_Activate); PIN_C(Cmd_SetOpenState); PIN_C(Cmd_SetDestroyed); PIN_C(Cmd_AddNote); PIN_C(Cmd_ShowMap); PIN_C(Cond_GetDistance); PIN_C(Cond_GetInCell); PIN_C(Cond_GetInSameCell); PIN_C(Cond_IsInCombat); PIN_C(Cond_GetDetected); PIN_C(Cond_GetHealthPercentage); PIN_C(Cond_GetItemCount); PIN_C(Cond_GetActorValue); PIN_C(Cmd_EnableFastTravel); PIN_C(Cmd_RemoveNote);
+PIN_C(Cond_GetInWorldspace); PIN_C(Cond_IsKiller); PIN_C(Cond_GetEquipped); PIN_C(Cond_GetPlayerTeammate); PIN_C(Cond_GetHasNote); PIN_C(Cond_HasPerk); PIN_C(Cond_IsSneaking); PIN_C(Cond_IsInInterior); PIN_C(Cond_GetLevel); PIN_C(Cond_GetIsSex); PIN_C(Cond_GetPCIsSex); PIN_C(Cond_GetSitting); PIN_C(Cond_GetShouldAttack); PIN_C(Cond_IsPlayerActionActive); PIN_C(Cmd_IsPlayerInRegion); PIN_C(Cmd_RemoveFromAllFactions); PIN_C(Cmd_GetItemCount); PIN_C(Cmd_GetActorValue); PIN_C(Cmd_HasPerk); PIN_C(Cmd_GetEquipped); PIN_F(PlayerAddNote, h_PlayerAddNote);
 PIN_C(Cmd_AddTopic); PIN_C(Cmd_SetWeather); PIN_C(Cmd_ForceWeather); PIN_C(Cmd_SetGlobalTimeMultiplier); PIN_C(Cmd_Autosave);
 PIN_C(Cmd_SystemSave); PIN_C(Cmd_ForceSave); PIN_C(Cmd_RemoveAllItems); PIN_C(Cmd_RemoveAllTypedItems); PIN_C(Cmd_PlaceAtMe); PIN_C(Cmd_PlaceLeveledActorAtMe); PIN_C(Cmd_MoveToMarkerWithFade); PIN_C(Cmd_SetPos); PIN_C(Cmd_SetAngle);
 
@@ -1374,6 +1899,12 @@ void setGuestLocalRun(const std::vector<FormRef>& scripts) {
         if (id) ids.insert(id);
     }
     g_pol.setGuestLocalRun(std::move(ids));
+    std::unordered_set<uint32_t> hostState;   // the DLC setup scripts whose quest state is the host's (guest_local_run.h); only those the allow-list also has count
+    for (const FormRef& r : hostQuestStateScripts()) {
+        uint32_t id = g_res ? g_res->fromRef(r) : 0;
+        if (id) hostState.insert(id);
+    }
+    g_pol.setHostQuestState(std::move(hostState));
 }
 
 void setStageGate(StageGateFn f) {
@@ -1397,6 +1928,65 @@ std::vector<std::pair<uint32_t, double>> questVarsDump(const FormRef& quest) {
     for (auto v = el->m_vars->Begin(); !v.End(); ++v)
         if (v.Get()) out.emplace_back(v.Get()->id, v.Get()->data);
     return out;
+}
+// The variable NAME of a quest script variable index (the rules engine knows per-player variables by name, the engine's ScriptEventList by index).
+bool questVarName(const FormRef& quest, uint32_t idx, std::string* name) {
+    uint32_t id = g_res ? g_res->fromRef(quest) : 0;
+    TESQuest* q = static_cast<TESQuest*>(id ? g_res->lookup(id) : nullptr);
+    char buf[128] = {};
+    bool found = false;
+    __try {
+        Script* sc = q ? q->scriptable.script : nullptr;
+        if (sc) {
+            for (auto v = sc->varList.Begin(); !v.End(); ++v) {
+                VariableInfo* vi = v.Get();
+                if (vi && vi->idx == idx && vi->name.m_data) {
+                    strncpy_s(buf, sizeof buf, vi->name.m_data, _TRUNCATE);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        found = false;
+    }
+    if (found && name) *name = buf;
+    return found;
+}
+namespace {
+// Is variable `idx` of the quest script a REF variable? The script's refList has one entry per ref local (varIdx = the local's index; immediates have 0).
+bool questVarIsRef(void* questForm, uint32_t idx) {
+    __try {
+        TESQuest* q = static_cast<TESQuest*>(questForm);
+        Script* sc = q ? q->scriptable.script : nullptr;
+        if (!sc) return false;
+        for (auto it = sc->refList.Begin(); !it.End(); ++it) {
+            Script::RefVariable* rv = it.Get();
+            if (rv && rv->varIdx == idx && idx != 0) return true;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return false;
+}
+}  // namespace
+// A ref variable holds its form id in the low dword of the 8 byte slot (ref_var.h); value / *out are the form id as a plain number for those.
+bool questVarValue(const FormRef& quest, const std::string& name, double* out) {
+    uint32_t id = g_res ? g_res->fromRef(quest) : 0;
+    void* q = id ? g_res->lookup(id) : nullptr;
+    uint32_t idx = 0;
+    double* slot = nullptr;
+    if (!q || !questVarSlot(q, name.c_str(), &idx, &slot)) return false;
+    if (out) *out = questVarIsRef(q, idx) ? refVarNumberFromSlot(*slot) : *slot;
+    return true;
+}
+bool setQuestVarValue(const FormRef& quest, const std::string& name, double value) {
+    uint32_t id = g_res ? g_res->fromRef(quest) : 0;
+    void* q = id ? g_res->lookup(id) : nullptr;
+    uint32_t idx = 0;
+    double* slot = nullptr;
+    if (!q || !questVarSlot(q, name.c_str(), &idx, &slot)) return false;
+    *slot = questVarIsRef(q, idx) ? refVarSlotFromNumber(value) : value;
+    return true;
 }
 int localQuestStage(const FormRef& quest) {
     uint32_t id = g_res ? g_res->fromRef(quest) : 0;
@@ -1429,7 +2019,43 @@ bool localQuestObjectives(const FormRef& quest, std::map<uint32_t, uint8_t>& out
     return true;
 }
 bool execConsoleLine(const std::string& line) { return g_consoleExec && g_consoleExec(line, 0); }
-bool execConsoleLineOn(const std::string& line, uint32_t refID) { return g_consoleExec && g_consoleExec(line, refID); }
+bool execConsoleLineOn(const std::string& line, uint32_t refID) {
+    if (isSayLine(line.c_str())) g_spectatorSay.arm(refID, GetTickCount64());   // the engine's Say runs the INFO's result scripts itself: see spectator_say.h
+    return g_consoleExec && g_consoleExec(line, refID);
+}
+uint64_t spectatorSayBlocked() { return g_spectatorSay.blockedCount(); }
+
+bool killWithAttribution(uint32_t victimRefID, uint32_t killerRefID) {
+    if (!victimRefID || !g_res || !g_res->lookup(victimRefID)) return false;
+    g_pol.beginApply();   // our own console line must not be dropped by the guest gate
+    ApplierExecScope scope;
+    const bool ok = execConsoleLineOn(killerRefID ? killByCmd(killerRefID) : killCmd(), victimRefID);
+    g_pol.endApply();
+    return ok;
+}
+static bool storeKillerSeh(void* victim, void* killer) {
+    __try {
+        return storeKiller(victim, static_cast<TESForm*>(victim)->typeID, killer);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+bool setKillerOf(uint32_t victimRefID, uint32_t killerRefID) {
+    if (!g_res) return false;
+    void* v = g_res->lookup(victimRefID);
+    void* k = killerRefID ? g_res->lookup(killerRefID) : nullptr;
+    return v && (k || !killerRefID) && storeKillerSeh(v, k);
+}
+uint32_t killerOf(uint32_t victimRefID) {
+    void* v = g_res ? g_res->lookup(victimRefID) : nullptr;
+    if (!v) return 0;
+    __try {
+        void* k = loadKiller(v, static_cast<TESForm*>(v)->typeID);
+        return k ? static_cast<TESForm*>(k)->refID : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
 
 void setActivateObserver(ActivateObserver obs) { g_activateObs = std::move(obs); }
 void setEventObserver(EventObserver obs) { g_eventObs = std::move(obs); }
@@ -1470,10 +2096,46 @@ size_t pollHostState(StateSink& sink) {
     return n;
 }
 
-ActingContext g_acting;
-ActingPlayerScope::ActingPlayerScope(uint32_t id) { g_acting.push(id); }
+GuestItemScope::GuestItemScope(uint8_t slot) { g_guestItems.push(slot); }
+GuestItemScope::~GuestItemScope() { g_guestItems.pop(); }
+ActingPlayerScope::ActingPlayerScope(uint32_t id, int forcedSlot) { g_acting.push(id, forcedSlot); }
 ActingPlayerScope::~ActingPlayerScope() { g_acting.pop(); }
 void setScriptPackageObserver(ScriptPackageObserver obs) { g_pkgObs = std::move(obs); }
+void setPartyStateProvider(StateProvider provider) { g_stateProvider = std::move(provider); }
+void setPlayerFacts(const std::vector<PlayerFact>* facts) { g_facts = facts; }
+PlayerFactsScope::PlayerFactsScope(const std::vector<PlayerFact>* facts) : prev_(g_facts) { g_facts = facts; }
+PlayerFactsScope::~PlayerFactsScope() { g_facts = prev_; }
+void setScriptRunObserver(ScriptRunObserver obs) { g_scriptRunObs = std::move(obs); }
+void setScriptRunScope(ScriptRunScopeHook hook) { g_scriptRunScope = std::move(hook); }
+void setControlsRouter(ControlsRouter router) { g_controlsRouter = std::move(router); }
+void setPlayerKillObserver(PlayerKillObserver obs) { g_playerKillObs = std::move(obs); }
+void setPlayerRefProvider(PlayerRefOf f) { g_playerRefOf = std::move(f); }
+void setPlayerStashObserver(PlayerStashObserver obs) { g_stashObs = std::move(obs); }
+void setPerSlotScripts(std::vector<PerSlotScript> scripts, PerSlotRunner runner) {
+    g_perSlot.set(std::move(scripts));
+    g_perSlotRunner = std::move(runner);
+    // (the object variable copies are NOT cleared here: they belong to the host's save game and were restored from its sidecar before the session wired this up)
+}
+ObjVarCopies& objVarCopies() { return g_objCopies; }
+const PerSlotStats& perSlotStats() { return g_perSlotStats; }
+void setInfoQuestScopes(InfoQuestScopes::Lookup lookup) { g_infoScopes.set(std::move(lookup)); }
+uint64_t infoScopesOpened() { return g_infoScopesOpened; }
+bool playerItemCount(uint32_t whoRefID, const FormRef& item, int64_t* count) {
+    if (!g_res || !o_Cond_GetItemCount) return false;
+    void* who = whoRefID == kPlayerRefID ? thePlayer() : g_res->lookup(whoRefID);
+    void* it = g_res->lookup(g_res->fromRef(item));
+    if (!who || !it) return false;
+    double v = 0;
+    bool ok = false;
+    __try {
+        ok = o_Cond_GetItemCount(who, it, nullptr, &v);   // the engine's own evaluator: no party reduction, the count of exactly this reference
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    if (count) *count = static_cast<int64_t>(v);
+    return ok;
+}
+void setNoteObserver(NoteObserver obs) { g_noteObs = std::move(obs); }
 void setPartyConditions(PartyProvider provider, ConditionReducer reducer) {
     g_partyProvider = std::move(provider);
     g_condReducer = std::move(reducer);
@@ -1495,6 +2157,7 @@ HookPerf hookPerf() { return g_perf; }
 const Suppressed& suppressStats() { return g_pol.stats(); }
 uint32_t actingPlayer() { return g_acting.current(); }
 void registerPlayerSlot(uint32_t ghostRefID, uint8_t slot) { g_acting.registerSlot(ghostRefID, slot); }
+void clearPlayerSlots() { g_acting.clearSlots(); }
 uint8_t actingSlot() { return g_acting.slot(); }
 
 ApplierExecScope::ApplierExecScope() { ++g_applierExec; }

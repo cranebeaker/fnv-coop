@@ -43,6 +43,9 @@ struct SocialHooks {
     std::function<void(const fnvcoop::social::KillReport&)> reportKill;    // once per death, from the machine that declared it
     std::function<void(const fnvcoop::social::CrimeEvent&)> reportCrime;   // a witnessed attack / a kill of a faction member by a player or a companion
     std::function<bool(uint32_t attackerRef, uint32_t victimRef)> neutralizeHit;   // true: a hit inside the party (HitPolicy::Neutralize): the hit gate zeroes it
+    // G40 (rules FriendlyFireGuard): true = this hit by a PLAYER on a protected story actor is an accident and is dropped (the attacker has been told). Asked on the machine
+    // that holds the rules (the host); a machine without them answers false. `splash` = an explosion.
+    std::function<bool(uint32_t victimRef, PlayerId attacker, bool splash)> blockProtectedHit;
 };
 
 struct Config {
@@ -97,7 +100,7 @@ struct GateDecision {
 struct Stats {
     uint64_t engineHits = 0, proceeded = 0, clamped = 0, neutralized = 0, ghostHitsNeutralized = 0, envHitsNeutralized = 0, friendlyNeutralized = 0;
     uint64_t hitsSent = 0, hitsRelayed = 0, hitsReceived = 0, hitsApplied = 0, hitsRejected = 0, hitDuplicates = 0, hitsForwarded = 0, hopLimit = 0;
-    uint64_t nacksSent = 0, nacksReceived = 0, hitRetries = 0, hitsAbandoned = 0, resyncHints = 0, hitsResolvedLate = 0, killsForced = 0, naturalLethal = 0, naturalLethalStuck = 0;
+    uint64_t nacksSent = 0, nacksReceived = 0, hitRetries = 0, hitsAbandoned = 0, resyncHints = 0, hitsResolvedLate = 0, killsForced = 0, naturalLethal = 0, naturalLethalStuck = 0, killsAttributed = 0;
     uint64_t damageApplied = 0, damageRefused = 0, limbsCrippled = 0, provoked = 0, engineRefused = 0, naturalHits = 0;
     uint64_t vitalsSent = 0, vitalsApplied = 0, vitalsStale = 0;
     uint64_t deathsDeclared = 0, deathsAccepted = 0, deathsRejected = 0, deathsDeferred = 0, deathsRefusedLocal = 0, corpsesDecorated = 0;
@@ -105,7 +108,7 @@ struct Stats {
     uint64_t projectilesLocal = 0, projectilesVisual = 0, projectilesRejected = 0;
     uint64_t explosionsLocal = 0, explosionsVisual = 0, explosionsRejected = 0, blastHitsPlanned = 0, blastHitsSkipped = 0;
     uint64_t crimesReported = 0, hostilityApplied = 0, hostilityDropped = 0;
-    uint64_t socialKillsReported = 0, socialXpHandled = 0, socialCrimesReported = 0, socialHitsNeutralized = 0;
+    uint64_t socialKillsReported = 0, socialXpHandled = 0, socialCrimesReported = 0, socialHitsNeutralized = 0, protectedHitsBlocked = 0;
     uint64_t undecodable = 0, spoofed = 0, unroutable = 0;
     uint64_t rejectedByReason[static_cast<size_t>(cc::HitReason::Count_)] = {};
 };
@@ -131,6 +134,9 @@ public:
     void onPlayerDied(uint32_t killerRef);     // the LOCAL player died
     void onPlayerAlive();                      // the LOCAL player is alive again (respawn/load): they can die again
     void onActorLost(const cc::Entity& who);   // cell unloaded / destroyed: forget per-actor combat state
+    // G04 (host only): the engine ref of the puppet of the REMOTE player who killed the actor `victimRef` (the last accepted hit, or the death declaration that named a remote
+    // player), 0 = nobody remote. The actor port asks it when it kills the host's copy (actors::engine::setKillerResolver), so a guest's kill is a kill BY that guest.
+    uint32_t killerPuppetOf(uint32_t victimRef) const;
     // A projectile left a weapon fired by a combatant this machine simulates. TODO-RE: the engine feed (no verified projectile-create hook yet).
     void onProjectileFired(const cc::ProjectileSpawn& p);
     // Story effects applied on this machine (ResurrectActor makes the actor killable again).
@@ -197,6 +203,7 @@ private:
     void socialDeath(const cc::DeathDecl& d);            // plugin/companions: the kill report (declarer only) and the murder (the killer's machine only)
     // plugin/companions: an attack by a player or a companion on a faction member, reported by the machine that simulates the attacker. Bursts are throttled.
     void socialCrime(const cc::Entity& attacker, const EntityView& av, const cc::Entity& victim, const EntityView& vv, bool killed, uint8_t nativeMask);
+    bool protectedBlocks(uint32_t victimRef, PlayerId attacker, bool splash);   // G40
     bool socialNeutralizes(uint32_t attackerRef, uint32_t victimRef);   // plugin/companions: the hit stays inside the party
     void maybeReportCrime(const cc::HitEvent& h, const EntityView& vv, bool killed);
     void decorateIfDead(const cc::Entity& who, const cc::DeathDecl& d);
@@ -230,6 +237,9 @@ private:
     std::map<uint64_t, ExpId> explosionIds_;                    // engine explosion identity -> explosion id (kept a few seconds: late hits of the same blast)
     std::map<uint64_t, Blast> blasts_;                          // explosion id -> pending plan
     std::map<cc::Entity, PendingDecor> decor_;
+    struct KillCredit { uint32_t killerRef = 0; uint64_t until = 0; };
+    std::map<cc::Entity, KillCredit> killCredit_;               // host: victim -> the remote player's puppet that killed it (until the copy's kill happened here)
+    uint32_t remoteKillerRef(const cc::Entity& killer) const;   // host: the puppet of a remote player, 0 for the local player / actors / unknown
     std::map<std::tuple<PlayerId, uint8_t, FormRef>, uint64_t> socialCrimeAt_;   // (criminal, murder?, faction) -> when it was last reported (burst throttle)
     std::vector<DeferredDeath> deferredDeaths_;
     struct PendingKill { cc::Entity who; uint64_t dueAt = 0; bool natural = false; };   // natural: the engine's own hit took the health, not our replay

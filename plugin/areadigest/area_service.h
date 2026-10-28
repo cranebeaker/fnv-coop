@@ -2,6 +2,7 @@
 //   settings + actor facade + session shadow hooks  ->  sources (actors, containers, objects), story source, flight link, AreaRuntime.
 // The thin dll glue (area_glue.cpp) only turns the coop Runtime into a FrameInfo and these inputs.
 #pragma once
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -25,9 +26,13 @@ public:
     void exportCounters(const fnvcoop::areadigest::AreaSync* sync, uint64_t nowMs);
     uint64_t healsRecorded() const { return healsRecorded_; }
     uint64_t bugsRecorded() const { return bugsRecorded_; }
+    // The newest heals as text ("actors key=N cell=N <before> -> <after>"), kept even without a recorder, so a failed lab room can name the healed key (areadigest.status lastHeals).
+    const std::deque<std::string>& lastHeals() const { return lastHeals_; }
+    static constexpr size_t kLastHeals = 8;
 private:
     fnvcoop::flight::FlightRecorder* rec_;
     uint64_t healsRecorded_ = 0, bugsRecorded_ = 0;
+    std::deque<std::string> lastHeals_;
 };
 
 struct ServiceInputs {

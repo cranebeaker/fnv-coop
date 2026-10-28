@@ -10,6 +10,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "fnvcoop/replicator.h"
 #include "fnvcoop/rules.h"
 #include "fnvcoop/session.h"
+#include "fnvcoop/tether_watch.h"
 #include "fnvcoop/transport_util.h"
 #include "fnvcoop/worker.h"
 #include "fnvcoop_dlg/adapter.h"
@@ -84,6 +86,7 @@ using ActionExecutor = std::function<void(fnvcoop::PlayerId slot, fnvcoop::Inten
 struct DialogueHooks {
     fnvcoop_dlg::ResultRunner run;          // host: run the INFO result script under capture, return committed seq
     fnvcoop_dlg::DialogueNode::Sink sink;   // every node: engine glue (OpenMenu, ShowLines, ...)
+    std::optional<fnvcoop_dlg::CompanionRules> companionRules;   // follower caps handed to every node (G33; default 1 humanoid + 1 critter each, party total 4)
 };
 
 // L11 hooks_ui wiring seams (production: nvui::router / nvui::slideHost / nvui::slideClient / nvui::setInfoReader; tests: fakes).
@@ -94,6 +97,7 @@ struct UiWiring {
     std::string consentFile;                                             // plugin/dialogue/data/consent_messages.txt (empty/unreadable = no consent table)
     std::function<void(std::function<std::vector<fnvcoop_dlg::Line>(uint32_t)>)> installInfoReader;   // nvui::setInfoReader
     std::function<std::vector<fnvcoop_dlg::Line>(uint32_t)> infoReader;  // L8 fndlg::makeInfoReader(...)
+    std::function<bool(const fnvcoop::FormRef& quest, uint32_t idx, std::string* name)> varName;   // wave 1b: nvhooks::questVarName (per-player condition views)
 };
 
 // L12 lane-local world effects (NPC actor values, essential/restrained flags, faction relations, script packages): no synccore Effect type
@@ -102,6 +106,17 @@ struct UiWiring {
 constexpr uint16_t kAppWorldChannel = 0x0C12;
 // Guest side: apply one effect (the worldEffectToJson text); returns "Ok" or an error status.
 using WorldEffectApplier = std::function<std::string(const std::string& json)>;
+
+// Player orders (campaign gap G42 / G35 / G10): things that concern ONE machine's own player and are events, not shared state, so they must not ride the
+// story log (a late joiner would replay a death). The host sends a JSON order to a guest slot (`{"op":"kill"}`, `{"op":"stash",...}`); a guest sends a
+// request to the host (`{"op":"note","note":"<ref>"}`). Best effort on the AppData channel, no replay.
+constexpr uint16_t kAppOrderChannel = 0x0C14;
+// Guest: perform an order the host sent for THIS machine's player. Returns "Ok" or an error status.
+using OrderApplier = std::function<std::string(const std::string& json)>;
+// Host: a guest's request. `from` is the sender's slot. Returns "Ok" or an error status.
+using OrderHandler = std::function<std::string(fnvcoop::PlayerId from, const std::string& json)>;
+// Host: wraps one dialogue result script run (the initiator's player facts, P2 PlayerFactsScope). The returned handle is kept alive for the run.
+using ResultScope = std::function<std::shared_ptr<void>(const fnvcoop_dlg::ResultRequest&)>;
 
 using EdidResolver = std::function<bool(const std::string& edid, fnvcoop::FormRef& out)>;
 using InfoQuestResolver = std::function<bool(const fnvcoop::FormRef& info, fnvcoop::FormRef& quest)>;
@@ -165,9 +180,99 @@ public:
     const UiStats& uiStats() const { return uiStats_; }
     // ---- world effects (L12). Host: pushWorldEffect from the engine glue (outside script scopes); guest: setWorldEffectApplier before start().
     void setWorldEffectApplier(WorldEffectApplier f) { worldApplier_ = std::move(f); }
-    void pushWorldEffect(const std::string& key, const std::string& json);
-    struct WorldStats { uint64_t pushed = 0, sent = 0, replayed = 0, received = 0, applied = 0, failed = 0, stale = 0; };
+    // `ephemeral` (nvworld::isEphemeral: an image-space fade, a sound): sent to the guests connected now and NOT remembered, so a late joiner never replays it.
+    void pushWorldEffect(const std::string& key, const std::string& json, bool ephemeral = false);
+    struct WorldStats { uint64_t pushed = 0, sent = 0, replayed = 0, received = 0, applied = 0, failed = 0, stale = 0, ephemeral = 0; };
     const WorldStats& worldStats() const { return worldStats_; }
+    // ---- player orders (kAppOrderChannel). Set before start().
+    void setOrderApplier(OrderApplier f) { orderApplier_ = std::move(f); }
+    void setOrderHandler(OrderHandler f) { orderHandler_ = std::move(f); }
+    bool sendOrder(fnvcoop::PlayerId toSlot, const std::string& json);   // host -> one joined guest; false = no such guest / not a host
+    bool sendOrderToHost(const std::string& json);                       // guest -> host; false = not joined or still syncing
+    // G42: the player of `slot` dies, nobody else. Slot 0 is the host's own player (the caller kills it on this machine); a guest gets a kill order.
+    bool killPlayer(fnvcoop::PlayerId slot);
+    struct OrderStats { uint64_t sent = 0, received = 0, applied = 0, failed = 0, handled = 0, handlerFailed = 0; };
+    const OrderStats& orderStats() const { return orderStats_; }
+    void setResultScope(ResultScope f) { resultScope_ = std::move(f); }   // host
+    // ---- what this machine's session knows about each player (party_state.h builds the condition providers from these). Host: the shared shadow state.
+    std::vector<fnvcoop::PlayerId> joinedSlots() const;                              // host: joined guests (not slot 0), ascending
+    bool slotPerkRank(fnvcoop::PlayerId slot, const fnvcoop::FormRef& perk, int32_t* rank) const;   // SetPerk ledger of that slot (false: no such slot / not a host)
+    bool sharedJournalHas(const fnvcoop::FormRef& note) const;                       // AddNote applies to everyone: the shared journal
+    int companionOwnerOf(const fnvcoop::FormRef& npc) const;                         // slot that recruited it, -1 = nobody / unknown
+    // ---- campaign wave 2 (P6): the rules engine wired into the session. Configure BEFORE start() unless noted. ----
+    // G02: docs/quest-policies/cause_quests.json text (script / INFO / ref -> owning quest); loaded into the rules engine when it is built.
+    void setCauseQuests(const std::string& json) { causeQuestsJson_ = json; }
+    // Policy overrides ("death.mode", "tether.mode" ...) from nvcoop.ini [rules]; RulesEngine::Options::policy.
+    void setPolicy(std::map<std::string, std::string> p) { policy_ = std::move(p); }
+    // Host: effects the rules engine commits BY ITSELF (control-lock holds and timeouts, tether gathers, late-join warps) never ran as a script on this machine;
+    // the ones that concern the host's own player (SetPlayerControls for slot 0, MoveRef of its player ref) are applied here. G18, G25, G41.
+    using HostEffectApplier = std::function<void(const fnvcoop::Effect&)>;
+    void setHostEffectApplier(HostEffectApplier f) { hostApplier_ = std::move(f); }
+    // A HUD line on THIS machine (the module: the game's notification). notifyPlayer sends one to a guest's machine as an order.
+    void setNotice(std::function<void(const std::string&)> f) { notice_ = std::move(f); }
+    bool notifyPlayer(fnvcoop::PlayerId slot, const std::string& text);
+    // slot -> that player's FormRef: THE mapping of RulesEngine::Options::playerRef (slot 0 = the host's player, a guest = its ghost / puppet). nvhooks::setPlayerRefProvider uses it too.
+    bool playerRefOf(fnvcoop::PlayerId slot, fnvcoop::FormRef& out) { return slotPlayerRef(slot, out); }
+    // Orders for the local player ("downed", "respawn", ...) go through the same applier as the orders a guest receives: slot 0 is applied here, a guest by order.
+    bool deliverOrder(fnvcoop::PlayerId slot, const std::string& json);
+    // G24: read / write the engine variables of a quest by name (the module walks the quest's script variable list).
+    struct PlayerVarIO {
+        std::function<bool(const fnvcoop::FormRef& quest, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out)> read;
+        std::function<void(const fnvcoop::FormRef& quest, const std::vector<fnvcoop::RulesEngine::VarValue>& values)> write;
+        std::function<bool(const fnvcoop::FormRef& quest, uint32_t idx, std::string* name)> name;   // W3a item 4: a script variable index -> its name (nvhooks::questVarName)
+    };
+    // W3a item 5 (P6 request 1): the SetPlayerControls hook asks, inside the open capture scope, whether a GUEST's lock / release concerns that guest only (the quest's
+    // SetPlayerControls rule says scope=initiator). true = the host's own engine call is skipped; the host is not locked for a guest's scene.
+    bool controlsGuestOnly(fnvcoop::PlayerId slot, bool disable);
+    // W3a item 4: what a script that runs for a guest reads of the companion variables. viewSlotOf(script, acting) is the policy (companions glueViewSlot): the acting slot's own
+    // view, or 0xFE (sc::kViewParty) = the shared variable as it is (the party aggregate). followerOf(slot, ...) names the Dead Money ref variable and the form id of the
+    // companion that player has in the group (0 = none) for NVDLC01Followers.rCurrentFollower.
+    using ViewSlotOf = std::function<uint8_t(uint32_t scriptRefID, uint8_t acting)>;
+    struct FollowerVar { fnvcoop::FormRef quest; std::string var; double formId = 0; };
+    using FollowerOf = std::function<bool(fnvcoop::PlayerId slot, FollowerVar* out)>;
+    void setViewPolicy(ViewSlotOf v, FollowerOf f) { viewSlotOf_ = std::move(v); followerOf_ = std::move(f); }
+    // The Script::Execute scope hook (nvhooks::setScriptRunScope): before = true right before the script runs, false right after.
+    void onScriptRun(uint32_t scriptRefID, bool before);
+    void setPlayerVarIO(PlayerVarIO io) { varIO_ = std::move(io); }
+    size_t actingQuestCount() const { return actingQuests_.size(); }
+    // G25: positions for the anchor tethers. The host watches every joined player: its own from the engine, a guest's from that guest's puppet.
+    struct AnchorProbe {
+        std::function<bool(const fnvcoop::FormRef& anchor, float& x, float& y, float& z)> anchorPos;
+        std::function<bool(fnvcoop::PlayerId slot, float& x, float& y, float& z)> slotPos;
+    };
+    void setAnchorProbe(AnchorProbe p) { anchorProbe_ = std::move(p); }
+    // W3d item 1 (W3b request 1): RulesEngine::Options::itemCount / playerDistance. The count of an item one player holds (GetItemCount of that player, the engine evaluator
+    // on the player's own reference) feeds the pooled hand-ins (PooledItems); the distance of two players is taken from the same positions as the anchor tethers
+    // (AnchorProbe::slotPos), game units. Without a probe a pooled item is charged to whoever handed it in and a ranged PartyWarp (the Teleporter) moves the firer alone.
+    using ItemCountProbe = std::function<bool(fnvcoop::PlayerId slot, const fnvcoop::FormRef& item, int64_t& count)>;
+    void setItemCountProbe(ItemCountProbe f) { itemCountProbe_ = std::move(f); }
+    // W3d item 1 (W3b request 3, G24): the scripts the rules run once per joined slot (RulesEngine::perPlayerScripts), each resolved to its form, with the names of its own
+    // variables that keep a copy per slot (the `Script.var` entries of perPlayerObjVarNames of its quest, lower case, without the script prefix).
+    struct PerSlotScriptInfo { fnvcoop::FormRef script; std::string edid; std::vector<std::string> vars; };
+    std::vector<PerSlotScriptInfo> perSlotScripts() const;
+    // Runs `body(slot)` once for every joined guest (not the host: the engine's own run is the host's) inside that guest's window: the commit origin is the slot, the quest
+    // variables of the script's quest hold the slot's copies (RulesEngine::beginActing) and the host's own copies come back afterwards. Returns how many slots ran.
+    size_t runScriptPerSlot(uint32_t scriptRefID, const std::function<void(fnvcoop::PlayerId slot)>& body);
+    // Local player is now in `cell` of worldspace `world` (empty = an interior). Exterior tethers name the worldspace, so a guest reports the worldspace as its cell.
+    void reportCell(const fnvcoop::FormRef& cell, const fnvcoop::FormRef& world);
+    // G26: a guest's SetStage intent on a pass stage (chargen end) is that guest's pass. true = the stage is held until the whole party passed (do NOT run it now).
+    bool stageHeldForPass(fnvcoop::PlayerId slot, const fnvcoop::FormRef& quest, uint32_t stage);
+    // G40: the combat layer asks before a player's hit lands on an actor. Allow also for an actor no rule protects.
+    enum class HitVerdict : uint8_t { Allow, Block, BlockWarn };
+    HitVerdict protectedHit(const fnvcoop::FormRef& victim, fnvcoop::PlayerId attacker, bool splash);
+    // G41: this machine's player died / was revived. Host: the rules engine decides (downed / reload the host save / normal death); guest: the host is told.
+    void localPlayerDied();
+    void localPlayerRevived();
+    // Host: the verdict for the death of `slot` (also what a guest's "died" order runs). The reaction reaches the machine of that player as an order.
+    fnvcoop::RulesEngine::DeathVerdict playerDied(fnvcoop::PlayerId slot);
+    // Host: every joined player is down and policy death.all_down is reload-host-save: the module reloads the host's save.
+    void setReloadHostSave(std::function<void()> f) { reloadSave_ = std::move(f); }
+    // P7: the companion roster as the social module has it (owner and party flag per companion), after every roster broadcast. Feeds the dialogue registry (G33), and on the
+    // host commits the registry's reconcile() fixes: the shared "hired" / "in party" quest variables go back in line with who really owns whom.
+    struct RosterEntry { fnvcoop::FormRef npc; fnvcoop::PlayerId owner = fnvcoop::kNoPlayer; bool party = false; };
+    void onRosterChanged(const std::vector<RosterEntry>& all);
+    struct RulesStats { uint64_t rosterFeeds = 0, reconcileFixes = 0, casesGathered = 0, lateJoinHeld = 0, lateJoinWarped = 0, hostEffectsApplied = 0, nearReports = 0, actingBrackets = 0, deaths = 0, rulesLinks = 0, controlsHostSkipped = 0, companionViews = 0, perSlotRuns = 0, itemCountAsks = 0, distanceAsks = 0; };
+    const RulesStats& rulesStats() const { return rulesStats_; }
     fnvcoop_dlg::DialogueNode* dialogue() { return dlg_.get(); }  // null until the session is joined
     fnvcoop::MuxTransport* mux() { return mux_.get(); }
     // Client: ask the host to run an activation. Returns 0 (and does nothing) while syncing or not joined.
@@ -277,6 +382,20 @@ private:
     void noteCompanion(const fnvcoop::CompanionOwner& c);
     void syncCompanions();
     void onWorldPacket(const fnvcoop::Bytes& payload);
+    void onOrderPacket(fnvcoop::PlayerId from, const fnvcoop::Bytes& payload);
+    void wireRulesCallbacks();
+    void buildRulesIndexes();
+    void tickRulesSession(uint64_t t);
+    void tickAnchors(uint64_t t);
+    void tickLateJoin(uint64_t t);
+    uint64_t dialogueResult(const fnvcoop_dlg::ResultRequest& rq);
+    bool slotPlayerRef(fnvcoop::PlayerId slot, fnvcoop::FormRef& out);
+    void actingBegin(fnvcoop::PlayerId slot);
+    void actingBeginQuest(const fnvcoop::FormRef& quest, fnvcoop::PlayerId slot);
+    void actingEndQuest(const fnvcoop::FormRef& quest, fnvcoop::PlayerId slot);
+    void actingEnd(fnvcoop::PlayerId slot);
+    void applyCompanionView(fnvcoop::PlayerId view);
+    void onHostCommitted(const fnvcoop::EffectTxn& t);
     void applyWorldEntry(uint64_t id, const std::string& key, const std::string& json);
     void wireUiHost();
     void uiSlideEnded();
@@ -338,6 +457,36 @@ private:
     std::deque<std::pair<std::string, WorldEntry>> worldQueue_;   // guest: received before the baseline finished
     std::map<std::string, uint64_t> worldApplied_;                // guest: newest id applied per key (duplicate / stale guard)
     WorldStats worldStats_;
+    OrderApplier orderApplier_;
+    OrderHandler orderHandler_;
+    OrderStats orderStats_;
+    ResultScope resultScope_;
+    // rules wiring state (wave 2)
+    std::string causeQuestsJson_;
+    std::map<std::string, std::string> policy_;
+    HostEffectApplier hostApplier_;
+    std::function<void(const std::string&)> notice_;
+    std::function<void()> reloadSave_;
+    PlayerVarIO varIO_;
+    std::vector<std::pair<fnvcoop::FormRef, std::vector<std::string>>> actingQuests_;   // quests with PerPlayerVars / PerPlayerState and their variable names
+    AnchorProbe anchorProbe_;
+    ItemCountProbe itemCountProbe_;
+    std::map<fnvcoop::FormRef, float> anchorRadius_;                                      // PartyTether anchors of the rules and their radius
+    std::map<fnvcoop::PlayerId, fnvcoop::AnchorWatch> anchorWatch_;
+    uint64_t anchorAt_ = 0, lateJoinAt_ = 0;
+    std::set<fnvcoop::PlayerId> lateJoinSeen_, lateJoinPending_, lateJoinLocked_;
+    bool inCapturedCommit_ = false;
+    bool rulesLinked_ = false;                                                            // fnvcoop_dlg::linkRules ran for the current dialogue node
+    std::vector<fnvcoop::Effect> capturedSnapshot_;
+    RulesStats rulesStats_;
+    uint32_t skippedLocks_ = 0;                     // controlsGuestOnly said "skip the host's call" for this many locks the committed-effect give-back must not undo
+    ViewSlotOf viewSlotOf_;
+    FollowerOf followerOf_;
+    fnvcoop::PlayerId companionView_ = 0xFE;        // whose view of the companion variables is in the engine now (0xFE = the party aggregate)
+    std::vector<fnvcoop::PlayerId> viewStack_;      // views to return to when the nested scripts of a guest's run end
+    uint32_t idleRuns_ = 0;                         // scripts running outside any guest window (nothing to restore)
+    bool followerSaved_ = false;
+    double followerReal_ = 0;
     std::unique_ptr<fnvcoop::HostSession> host_;
     std::unique_ptr<Sink> sink_;
     std::unique_ptr<fnvcoop::ClientSession> client_;

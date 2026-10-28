@@ -30,6 +30,9 @@ namespace nvcoop::livewire {
 struct AvatarNetOptions {
     uint32_t ackIntervalMs = 50;
     uint32_t lookCheckMs = 500;            // how often the local look is compared with the one last sent
+    uint32_t factsCheckMs = 1000;          // how often the local player's facts (level, sit state, actions, regions) are read; a guest sends them to the host only when they changed
+    uint32_t packCheckMs = 500;            // how often the local pack (weight + watched item counts) is read; a guest sends it to the host only when it changed, and at most once per packMinGapMs
+    uint32_t packMinGapMs = 1000;
     uint32_t poseReportMs = 200;           // how often remote players' places go to the ownership service (when they changed)
     fnvcoop::live::SenderConfig sender;
     nvcoop::avatar::StreamRateConfig rate;  // 20 Hz near / 5 Hz far / 1 Hz elsewhere (stream_rate.h); rate.enabled = false sends everything at full rate
@@ -43,6 +46,8 @@ struct AvatarNetStats {
     uint64_t localSnapshots = 0, resyncsAnswered = 0, idleTicks = 0;
     uint64_t rateKept = 0, rateReleased = 0;          // snapshots held back by the near / far rate and released when their turn came
     uint64_t appearanceUpdates = 0, puppetRespawnsForLook = 0;
+    uint64_t factsSent = 0, factsApplied = 0, factsRejected = 0;
+    uint64_t packsSent = 0, packsApplied = 0, packsRejected = 0;
 };
 
 class AvatarNet : public ILiveService {
@@ -84,6 +89,19 @@ public:
     // Tier the stream of `subject` currently has for `observer` (diagnostics, tests).
     nvcoop::avatar::StreamTier tierOf(PlayerId observer, PlayerId subject) { return rate_.tierOf(observer, subject); }
     bool hasLook(PlayerId slot) const { return looks_.count(slot) != 0; }
+    // W3a item 3 (host): what is known about a remote player for the party conditions. Sex and worn items come from its Look, sneaking from its newest snapshot, the rest from
+    // its Facts message. Each is false until the player sent it ("unknown": the member is skipped).
+    const nvcoop::avatar::PlayerFacts* factsOf(PlayerId slot) const { auto it = facts_.find(slot); return it == facts_.end() ? nullptr : &it->second; }
+    // Guest pack facts (host): the weight and the watched item counts a guest sent in its Pack message. false = unknown (no Pack yet, or the item is not on the list both machines share):
+    // the caller falls back to whatever it did before (the puppet's own pack).
+    const nvcoop::avatar::PlayerPack* packOf(PlayerId slot) const { auto it = packs_.find(slot); return it == packs_.end() ? nullptr : &it->second; }
+    bool packCount(PlayerId slot, nvcoop::avatar::FormId item, int64_t* out) const;
+    bool packWeight(PlayerId slot, double* out) const;
+    // The watched item forms (runtime form ids, resolved by the module from nvcoop_pack_watch.json once the game data is loaded). Asked again at every session start and load.
+    using PackWatchProvider = std::function<std::vector<nvcoop::avatar::FormId>()>;
+    void setPackWatch(PackWatchProvider p) { packWatchFn_ = std::move(p); watchLoaded_ = false; watchTriedAt_ = 0; }
+    const std::vector<nvcoop::avatar::FormId>& packWatch() const { return watch_; }
+    bool sneakingOf(PlayerId slot, bool* out) const { auto it = lastSnap_.find(slot); if (it == lastSnap_.end()) return false; *out = it->second.anim.sneak; return true; }
     const AvLook* lookOf(PlayerId slot) const { auto it = looks_.find(slot); return it == looks_.end() ? nullptr : &it->second; }
     bool inSession() const { return inSession_; }
     PlayerId self() const { return self_; }
@@ -91,6 +109,9 @@ public:
 
 private:
     void log(const std::string& s) const { if (log_) log_(s); }
+    // The avatar layer's clock (what the snapshot ticks are stamped with); the hub's own when the side has none.
+    uint32_t clock() const { const uint32_t c = side_.clockMs(); return c ? c : static_cast<uint32_t>(nowMs_); }
+    void noteQueued(PlayerId to, PlayerId subject, uint32_t tick) { if (subject == self_) queuedTicks_[to].push_back(tick); }
     void addPuppet(PlayerId slot);
     void removePuppet(PlayerId slot);
     void applyRoster(const std::vector<uint8_t>& slots);
@@ -102,6 +123,11 @@ private:
     void sendAcks(uint64_t nowMs);
     void reportPoses(uint64_t nowMs);
     void checkLocalLook(uint64_t nowMs);
+    void checkLocalFacts(uint64_t nowMs);
+    void onFacts(PlayerId from, const uint8_t* data, size_t size);
+    void checkLocalPack(uint64_t nowMs);
+    void onPack(PlayerId from, const uint8_t* data, size_t size);
+    void ensureWatch() const;
     void onSnapshotDatagram(PlayerId from, const uint8_t* body, size_t size);
     void onLook(PlayerId from, const uint8_t* data, size_t size);
     void queueTo(PlayerId peer, PlayerId subject, const fnvcoop::live::ActorSnapshot& snap, uint64_t nowMs);
@@ -125,9 +151,24 @@ private:
     std::set<PlayerId> roster_;                          // remote slots that have a player (puppet or about to)
     std::set<PlayerId> joined_;                          // host: joined clients
     std::map<PlayerId, AvLook> looks_;
+    std::map<PlayerId, nvcoop::avatar::PlayerFacts> facts_;   // host: the Facts message of each client
+    bool factsSentValid_ = false;
+    nvcoop::avatar::PlayerFacts lastFactsSent_;
+    uint64_t lastFactsCheck_ = 0;
+    std::map<PlayerId, nvcoop::avatar::PlayerPack> packs_;   // host: the Pack message of each client
+    bool packSentValid_ = false;
+    nvcoop::avatar::PlayerPack lastPackSent_;
+    uint64_t lastPackCheck_ = 0, lastPackSend_ = 0;
+    PackWatchProvider packWatchFn_;
+    mutable bool watchLoaded_ = false;
+    mutable uint64_t watchTriedAt_ = 0;
+    mutable std::vector<nvcoop::avatar::FormId> watch_;       // sorted, de-duplicated
+    mutable uint32_t watchId_ = 0;
     std::map<PlayerId, fnvcoop::live::ActorSnapshot> lastSnap_;   // newest accepted snapshot per remote slot (place for the ownership service)
     std::map<PlayerId, fnvcoop::live::ActorSnapshot> reportedSnap_;
     mutable nvcoop::avatar::StreamRatePlanner rate_;   // tierOf() keeps the hysteresis state, so reading a tier in a const query is fine
+    std::map<PlayerId, fnvcoop::live::ActorSnapshot> early_;   // the newest snapshot of a player the roster has not named yet (kept for his puppet, see onSnapshotDatagram)
+    std::map<PlayerId, std::vector<uint32_t>> queuedTicks_;   // ticks of the local snapshots waiting in the sender for the next flush (their age is the Send stage)
     std::map<PlayerId, uint64_t> rx_;                  // accepted snapshots per remote slot (statusJson: the in-game proof turns the difference into a rate)
     std::map<PlayerId, nvcoop::avatar::Appearance> applied_;   // the look each puppet was last built / updated with
     nvcoop::avatar::Appearance localApp_;                       // the cached local look

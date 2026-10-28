@@ -1,5 +1,7 @@
 #include "intents/intent_client.h"
 
+#include <cstdio>
+
 #include <sstream>
 
 #include "fnvcoop_mut.h"
@@ -8,6 +10,16 @@ namespace nvcoop::intents {
 
 namespace {
 
+std::string cellHex(uint32_t c) {
+    char b[16];
+    std::snprintf(b, sizeof b, "%x", static_cast<unsigned>(c));
+    return b;
+}
+std::string posText(const Vec3& v) {
+    char b[80];
+    std::snprintf(b, sizeof b, "(%.0f,%.0f,%.0f)", v.x, v.y, v.z);
+    return b;
+}
 constexpr size_t kMaxPending = 64;
 constexpr uint64_t kNeverSawMenuMs = 3000;   // the menu never showed up (the activation failed locally): release the lock anyway
 
@@ -69,7 +81,13 @@ Obs IntentClient::onActivate(const FormRef& target) {
     if (inObserver_) { ++stats_.proceeded; return Obs::Proceed; }
     TargetInfo t;
     if (!deps_.eng->describe(target, t)) { ++stats_.proceeded; return Obs::Proceed; }
-    return finish(decideActivate(cfg_, t), target);
+    const GuestDecision d = decideActivate(cfg_, t);
+    if (deps_.log) {
+        char b[64];
+        std::snprintf(b, sizeof b, "%X", static_cast<unsigned>(target.localId));
+        deps_.log(std::string("intents: guest activates ") + target.plugin + ":" + b + " class " + className(t.cls) + (t.loaded ? "" : " (NOT loaded)") + (t.disabled ? " (disabled)" : "") + " cell " + cellHex(t.cell) + " pos " + posText(t.pos) + ": " + (d.viaDialogue ? "talk via the dialogue channel" : d.forward ? std::string("forwarded as ") + kindName(d.kind) + (d.suppressLocal ? ", local activation suppressed" : ", local activation goes on") : std::string("not forwarded (") + d.why + "), local activation goes on"));
+    }
+    return finish(d, target);
 }
 
 Obs IntentClient::onEvent(uint32_t mask, const FormRef& target) {

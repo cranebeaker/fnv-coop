@@ -16,6 +16,7 @@ struct Mutations {
     bool healDisabled = false;          // desync is detected and reported but NOT repaired
     bool rulesDisabled = false;         // quest rules engine does nothing (no deferrals / recipient rewrites)
     bool barrierReleaseEarly = false;   // a barrier releases on the FIRST arrival
+    bool guestPassIgnoresState = false;  // a guest's own barrier pass list ignores what it already passed and what was released (it passes again and again)
     bool snapshotFloodAfterBaseline = false;  // baseline joiner also applies the whole unfiltered snapshot diff
     bool noEpochBump = false;           // host load does not bump the world epoch (stale txns / no rebase)
     bool ignoreVolatile = false;        // volatile-keys list is not consulted
@@ -28,6 +29,7 @@ struct Mutations {
     bool refInvNoClear = false;        // RemoveAllItems does not clear a ref inventory
     bool activeQuestShared = false;    // ForceActiveQuest (UI focus) is broadcast to everyone instead of the initiator
     bool ignoreFollowerCaps = false;   // recruits beyond the per-owner / party follower caps are accepted
+    bool companionVetIgnored = false;  // W3a item 6: the companion book's judgement of a txn (swap reverts, slot-group overruns) is not asked before the commit
     bool disconnectKeepsLock = false;  // a disconnecting player keeps their control lock (rejoin comes back locked)
     bool guestLocalReplicated = false; // GuestLocalRun quests are captured and replicated like any other script
     bool departedHoldBarrier = false;  // players who left still count as present (a barrier waits for them forever)
@@ -68,9 +70,34 @@ struct Mutations {
     bool globalReverted = false;        // client-only SetGlobal keys go out as revert keys again (no inverse: never converges)
     bool digestKeepsRefVars = false;   // the host digest compares RefScriptVar (polled object / NPC script vars): the client's world dump never carries them, so every one is "missing" and repaired forever (digest never ok)
     bool digestKeepsWorldEnv = false;  // the digest compares the host's last SetWeather / SetTimeScale: the client's world dump cannot read either one, so both are "missing" and repaired every round
+    bool digestKeepsMapMarkers = false; // the digest compares the host's map markers: the client's world dump has no marker reader, so each one is "missing" and resent every round
+    bool digestKeepsNotes = false;      // the digest compares the host's journal notes: the client's world dump has no note reader, so each one is "missing" and resent every round
     bool trustForeignCursor = false;   // a Hello's resume cursor of the host's epoch is replayed / snapshotted without checking it is this host's timeline
     // Host-load revert twins, one effect at a time (originsIgnored above switches all of them off at once). Bits of PreimageBit.
     bool asyncDoneHoldsQueue = false;   // issue #46: runAsync's queued completion owns the queue it sits in (a reference cycle: leaks when a session dies with a result queued)
+    // Campaign fix wave 1 (rules engine): each flag re-introduces one gap, the matching test must then fail.
+    bool causeNotResolved = false;      // G02: a script / ref cause is never mapped back to its owning quest (the rules of a quest's own script never apply)
+    bool choiceInitiatorDecides = false; // G08: ChoiceConsent lets the initiator decide alone (no party vote)
+    bool perkRouteIgnored = false;      // G14: PerkRecipient rules are not read (every perk follows the quest default)
+    bool actingCopyShared = false;      // G24: the acting player's copy of a per-player var is not swapped in (all players see one value)
+    bool tetherIgnoresWorld = false;    // G25: the worldspace a player reports is not matched against a tether's cells
+    bool passIntentIgnored = false;     // G26: a guest's stage intent on a barrier quest is not counted as its pass
+    bool readyInfoUnmapped = false;     // G27: an INFO result is not mapped to its ReadyCheck quest
+    bool partyOwnerIgnored = false;     // G34: owner=party is treated as the recruiter
+    bool hostLevelAsInitiator = false;  // G37: the host reduction returns the initiator's value
+    bool friendlyFireOff = false;       // G40: FriendlyFireGuard lets every hit through
+    bool deathPolicyOff = false;        // G41: a death is a normal death (no downed state, no checkpoint, no late-join hold)
+    bool perPlayerStateKillsAll = false; // G42: a player.kill in a per-player scene is committed unchanged (hits whoever applies it)
+    bool controlsScopeIgnored = false;  // G18: SetPlayerControls scope=initiator is treated as scope=all
+    bool controlsReleaseAll = false;    // G18: an enable releases bits another source still holds
+    bool tetherModeIgnored = false;     // owner request: policy tether.mode off / warn is ignored (the tether holds and warps as before)
+    bool anchorWatchNoHysteresis = false; // G25: an anchor tether reports near / far on the exact radius (a player standing on it flaps)
+    bool collarDownTimed = false;       // G42 (D9): a collar death is a timed downed state (respawn after death.revive_s) instead of down until a checkpoint
+    bool pooledDebitOnOrigin = false;   // G45: a hand-in of pooled items is charged to the player who handed in (no split over the party)
+    bool oncePerEventOff = false;       // G44 (D7): a repeat of a once-per-party-event leap (the Canyon Wreckage door, +3 days) is committed again
+    bool warpRangeIgnored = false;      // G43 (D10): the Teleporter moves every present party member, not only those within `range` of the firer
+    bool perPlayerScriptsIgnored = false; // G42: the per-player script and object-variable declarations of PerPlayerState are not read
+    bool lowerStageSwallowed = false;  // story fix 2026-10-28: a SetStage below the quest's stage is dropped by the max merge again (the copy gets the stage but not the done flags of the stages the host walked after a jump ahead)
     uint32_t preimageOff = 0;
 };
 // One bit per effect whose host-load revert has its own twin.

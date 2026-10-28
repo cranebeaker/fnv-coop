@@ -416,6 +416,78 @@ std::string scnLostFinal() {
     return r.errors.empty() ? "" : r.errors[0];
 }
 
+// ---- scenario: the old owner's final state is overtaken by the unreliable copy of the same snapshot ---------------------------------
+// The host relays every actor's newest snapshot to the clients unreliably, and that includes the final it has just sent reliably (same seq). On a link with jitter
+// (lab run 20261028-032920: transatlantic all 7 actors, mobile_tether the NPC) the copy arrives first, the final is then "the same seq again", is dropped, and the new
+// owner never acknowledges: the host forced the commit after handoffTimeoutMs (1000 ms) and ownership reached the client 1.1 s late.
+std::string scnFinalOvertaken(uint32_t finalLagMs, bool hostIsNew) {
+    Rig r(2);
+    r.net.extraDelay = [finalLagMs](const NetMsg& m) -> uint32_t {
+        Envelope e;
+        return m.data.size() > 2 && m.data[1] == SubEnvelope && decodeEnvelope(m.data.data() + 2, m.data.size() - 2, e) && std::holds_alternative<MSnapFull>(e.body) &&
+                       std::get<MSnapFull>(e.body).final ? finalLagMs : 0u;
+    };
+    r.addActor(100, 3, V(1000), false, ~0u, 40, 0);
+    if (hostIsNew) { r.setPose(0, 8, V(0)); r.setPose(1, 3, V(1200)); }   // the client owns it first, the host walks back
+    else { r.setPose(0, 3, V(0)); r.setPose(1, 3, V(3000)); }
+    r.run(1500);
+    const PlayerId first = hostIsNew ? 1 : 0, second = hostIsNew ? 0 : 1;
+    if (r.host().sync->ownerOf(100).owner != first) return fail("setup: wrong first owner", r);
+    const uint64_t forced0 = r.host().sync->service()->stats().forcedCommits;
+    if (hostIsNew) r.setPose(0, 3, V(0)); else r.setPose(0, 9, V(0));
+    const uint64_t t0 = r.now;
+    if (!r.runUntil([&] { return r.at(second).eng.a[100].ai; }, 3000)) return fail("the new owner never took over", r);
+    const uint64_t took = r.now - t0;
+    if (r.host().sync->service()->stats().forcedCommits != forced0) return fail("the handoff needed a forced commit (the final state was dropped as stale): " + std::to_string(took) + " ms", r);
+    if (took > 600) return fail("handoff took " + std::to_string(took) + " ms", r);
+    if (r.at(second).eng.count("place", 100) != 1) return fail("the final state was not placed on the new owner", r);
+    r.run(500);
+    if (r.aiCount(100) != 1) return fail("AI count is not exactly one", r);
+    if (!r.errors.empty()) return r.errors[0];
+    return "";
+}
+
+// ---- scenario: the old owner has no state to hand over: nothing to wait for ----------------------------------------------------------
+// An actor the host owns but never sampled (it is not loaded on the host) has no final state to send. The new owner then never gets one to acknowledge, and every such
+// handoff waited the whole handoffTimeoutMs (lab run 20261028-032920: one actor at 1013 ms after every host move, in every pass, on every profile).
+std::string scnNothingToHandOver() {
+    Rig r(2);
+    r.addActor(100, 3, V(1000), false, 0b10, 0, 0);    // only the client's engine has it; the host learns of it from the client's track message
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(1200));
+    r.run(1500);
+    if (r.host().sync->ownerOf(100).owner != 0) return fail("setup: the host should own it (eligible, preferred)", r);
+    const uint64_t forced0 = r.host().sync->service()->stats().forcedCommits;
+    r.setPose(0, 9, V(0));
+    const uint64_t t0 = r.now;
+    if (!r.runUntil([&] { return r.at(1).eng.a[100].ai; }, 3000)) return fail("the client never took over", r);
+    const uint64_t took = r.now - t0;
+    if (r.host().sync->service()->stats().forcedCommits != forced0) return fail("a handoff with nothing to hand over waited for the timeout: " + std::to_string(took) + " ms", r);
+    if (took > 600) return fail("handoff took " + std::to_string(took) + " ms", r);
+    if (r.host().sync->ownerOf(100).owner != 1 || r.at(1).sync->ownerOf(100).owner != 1) return fail("owner after the handoff is not the client", r);
+    if (!r.errors.empty()) return r.errors[0];
+    return "";
+}
+
+// ---- scenario: a copy's actor value drifted after the owner's last snapshot ----------------------------------------------------------
+// The owner's value is written to a copy once, when it changes. An engine that moves the actor's damage when the copy finishes loading leaves the copy at another health
+// with nothing new from the owner to correct it (lab vats room behind bad_wifi: the copy read -55 for the owner's 5, until the area digest healed it).
+std::string scnAvDrift() {
+    Rig r(2);
+    r.addActor(100, 3, V(1000), false, ~0u, 0, 0);
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(1200));
+    r.run(1500);
+    if (r.host().sync->ownerOf(100).owner != 0) return fail("setup: the host should own it", r);
+    r.host().eng.a[100].av[0] = 5;                         // the owner weakens it
+    r.run(600);
+    if (r.at(1).eng.a[100].av[0] != 5) return fail("setup: the copy did not take the owner's health: " + std::to_string(r.at(1).eng.a[100].av[0]), r);
+    r.at(1).eng.a[100].av[0] = -55;                         // the engine moves the damage back when the copy loads
+    r.run(900);                                             // nothing new from the owner: it is idle; the audit runs well inside the area digest's 1 s settle time
+    if (r.at(1).eng.a[100].av[0] != 5) return fail("the copy kept the drifted health " + std::to_string(r.at(1).eng.a[100].av[0]) + " for the owner's 5", r);
+    if (r.host().eng.a[100].av[0] != 5) return fail("the owner's health changed", r);
+    if (!r.errors.empty()) return r.errors[0];
+    return "";
+}
+
 // ---- scenario: a client owner leaves ----------------------------------------------------------------------------------------------
 std::string scnOwnerLeaves() {
     Rig r(2);
@@ -598,6 +670,10 @@ TEST(own, join_burst_lost_is_requested_again) { checkEmpty(scnJoinBurstLost()); 
 TEST(own, forced_commit_host_new_owner_waits_for_old_owner) { checkEmpty(scnSlowOldOwner(true)); }
 TEST(own, forced_commit_guest_new_owner_waits_for_old_owner) { checkEmpty(scnSlowOldOwner(false)); }
 TEST(own, owner_leaves) { checkEmpty(scnOwnerLeaves()); }
+TEST(own, a_copys_drifted_health_is_brought_back_without_a_new_snapshot) { checkEmpty(scnAvDrift()); }
+TEST(own, nothing_to_hand_over_commits_without_the_timeout) { checkEmpty(scnNothingToHandOver()); }
+TEST(own, final_state_overtaken_by_its_relay_copy_still_hands_over_host_to_client) { checkEmpty(scnFinalOvertaken(30, false)); }
+TEST(own, final_state_overtaken_by_its_relay_copy_still_hands_over_client_to_host) { checkEmpty(scnFinalOvertaken(30, true)); }
 TEST(own, client_owner_death) { checkEmpty(scnClientOwnerDeath()); }
 TEST(own, resurrect_continues_epoch_history) { checkEmpty(scnResurrect()); }
 
@@ -1069,3 +1145,4 @@ TEST(runtime, mux_session_roundtrip) {
         CHECK(hostRt.sync() == nullptr);
     }
 }
+

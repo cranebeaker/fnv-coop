@@ -253,4 +253,12 @@ if __name__ == '__main__':
           f"tethers dropped {len(rep['tether_dropped'])}")
     for x in e[:20]:
         print('  ERR', x)
+    # The merge only knows the base vocabulary: put the questsweep overlay (wave 1 kinds, the top-level "policy" object) back, so a regeneration keeps them.
+    ov = os.path.join(model.ROOT, 'tools', 'questsweep', 'rules_overlay.py')
+    if not e and os.path.exists(ov):
+        import subprocess
+        rc = subprocess.call([sys.executable, '-I', ov, '--apply'])
+        if rc:
+            print('  ERR the questsweep overlay does not apply (python -I tools/questsweep/rules_overlay.py --apply)')
+            e = ['overlay']
     sys.exit(1 if e else 0)

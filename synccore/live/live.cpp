@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "fnvcoop/wire.h"   // crc32
@@ -530,6 +531,12 @@ Bytes SnapshotReceiver::takeAcks(PlayerId to) {
 }
 
 // ---- interpolation buffer ---------------------------------------------------------------------------------------
+std::string gaugeJson(const Gauge& g) {
+    char b[200];
+    std::snprintf(b, sizeof b, "{\"n\":%llu,\"last\":%.2f,\"mean\":%.2f,\"max\":%.2f,\"sum\":%.1f}", static_cast<unsigned long long>(g.n), g.last, g.mean(), g.recentMax(), g.sum);
+    return b;
+}
+
 namespace {
 float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 float lerpAngle(float a, float b, float t) {
@@ -545,20 +552,131 @@ float lerpAngle(float a, float b, float t) {
 Vec3 lerp3(const Vec3& a, const Vec3& b, float t) { return {lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), lerpf(a.z, b.z, t)}; }
 }  // namespace
 
-void InterpBuffer::reset() { snaps_.clear(); offsets_.clear(); haveShown_ = false; haveTarget_ = false; smoothing_ = false; corr_ = Vec3{}; intervalMs_ = 0; }
+void InterpBuffer::reset() {
+    snaps_.clear(); offsets_.clear(); gaps_.clear(); diagNew_ = 0; haveShown_ = false; haveTarget_ = false; smoothing_ = false; corr_ = Vec3{}; intervalMs_ = 0;
+    jitterMs_ = 0; frameMs_ = 0; lagErr_ = 0; haveLag_ = false; newSince_ = 0; soft_ = Vec3{};
+    haveArrival_ = false; firstNewArrival_ = 0; lastArrival_ = 0;
+    const bool ll = diag_.lowLatency;
+    const InterpDiag keep = diag_;   // the counters survive a reset (a load, a new session); the figures that describe the current clock do not
+    diag_ = InterpDiag{};
+    diag_.lowLatency = ll;
+    diag_.pushes = keep.pushes; diag_.samples = keep.samples; diag_.extrapolating = keep.extrapolating; diag_.holding = keep.holding;
+    diag_.snaps = keep.snaps; diag_.teleportSnaps = keep.teleportSnaps; diag_.eased = keep.eased;
+    diag_.delayInUse = keep.delayInUse; diag_.hold = keep.hold; diag_.extrap = keep.extrap; diag_.arrivalGap = keep.arrivalGap;
+}
 
 bool InterpBuffer::push(const ActorSnapshot& s, uint32_t arrivalMs) {
     if (!snaps_.empty() && !serialLess(snaps_.back().tick, s.tick)) return false;
     if (!snaps_.empty()) {
         double iv = static_cast<double>(static_cast<uint32_t>(s.tick - snaps_.back().tick));
-        intervalMs_ = intervalMs_ == 0 ? iv : intervalMs_ * 0.8 + iv * 0.2;
+        // Low-latency mode: the stream's rate is the SMALLEST of the last four gaps (three at least), and a gap longer than intervalCapMs is silence, not rate. The sender sends nothing
+        // for a player who stands still but a heartbeat a second, and any gap since the last heartbeat can precede the snapshot of a teleport or of a start to walk.
+        // Averaged in (the old EMA of every gap) such gaps made the buffer believe in a slow (far tier) stream: after a stand of a few seconds the delay sat at its
+        // 350 ms ceiling, so the first snapshot of a teleport or of a start to walk was shown 350 ms late (lab spawn room: "arrives 650 to 2700 ms late").
+        if (cfg_.lowLatency && !liveFaults().llOldInterval && !cfg_.legacyInterval) {
+            if (iv <= static_cast<double>(cfg_.intervalCapMs)) {
+                gaps_.push_back(iv);
+                while (gaps_.size() > 4) gaps_.pop_front();
+                // a rate is claimed from three gaps on: the first gap after a silence is the time since the last heartbeat, whatever it happens to be
+                intervalMs_ = gaps_.size() >= 3 ? *std::min_element(gaps_.begin(), gaps_.end()) : 0.0;
+            }
+        } else {
+            intervalMs_ = intervalMs_ == 0 ? iv : intervalMs_ * 0.8 + iv * 0.2;
+        }
     }
     Snap n{s.tick, s.cell, s.pos, s.rot, s.vel, s.anim, s.ai};
+    if (cfg_.lowLatency && cfg_.teleportRules && !liveFaults().noTeleportSnap && !snaps_.empty()) n.jump = isJump(snaps_.back(), n);
     snaps_.push_back(n);
     while (snaps_.size() > cfg_.maxSnapshots) snaps_.pop_front();
+    ++newSince_;
+    ++diag_.pushes;
+    if (haveArrival_) diag_.arrivalGap.add(static_cast<double>(static_cast<int32_t>(arrivalMs - lastArrival_)));
+    if (diagNew_++ == 0) firstNewArrival_ = arrivalMs;
+    lastArrival_ = arrivalMs;
+    haveArrival_ = true;
     offsets_.push_back(static_cast<int32_t>(arrivalMs - s.tick));
     while (offsets_.size() > cfg_.offsetWindow) offsets_.pop_front();
+    if (cfg_.lowLatency) {
+        // lateness of this snapshot over the fastest one in the window; the estimate rises fast and falls slowly (about the 90th percentile)
+        const int32_t ref = static_cast<int32_t>(offsets_.back());
+        int32_t best = 0;
+        for (int64_t v : offsets_) { int32_t d = static_cast<int32_t>(static_cast<int32_t>(v) - ref); if (d < best) best = d; }
+        const double late = static_cast<double>(-best);
+        jitterMs_ += (late - jitterMs_) * (late > jitterMs_ ? 0.3 : 0.03);
+    }
     return true;
+}
+
+// Is b a teleport away from a? Another cell; a step no mover could make in the time between them (teleportUnits plus teleportSpeed x the span); or a standing
+// player who is somewhere else 2 m or more later. The sender sends the moment anything changes, so a snapshot of a standing player means he stood there until the
+// next one was sent: when b is also a standing one, or came after a silence (longer than intervalCapMs), the way between is a jump at b's time, not a walk. (A walker
+// whose snapshots were lost has a velocity and takes the ordinary limit.)
+bool InterpBuffer::isJump(const Snap& a, const Snap& b) const {
+    if (a.cell != b.cell && !liveFaults().snapIgnoresCell) return true;
+    if (liveFaults().noSnap) return false;
+    const float span = static_cast<float>(static_cast<uint32_t>(b.tick - a.tick));
+    const float d = distance(a.pos, b.pos);
+    if (d > cfg_.teleportUnits + cfg_.teleportSpeed * span / 1000.0f) return true;
+    auto still = [](const Snap& x) { return x.vel.x * x.vel.x + x.vel.y * x.vel.y + x.vel.z * x.vel.z < 400.0f; };   // under 20 u/s
+    return still(a) && d > cfg_.silentJumpUnits && (span > static_cast<float>(cfg_.intervalCapMs) || still(b));
+}
+
+InterpBuffer::Target InterpBuffer::evalTarget(uint32_t rt, size_t n) const {
+    Target T;
+    const Snap& newest = snaps_[n - 1];
+    const float snapUnits = cfg_.snapMetres * cfg_.unitsPerMetre;
+    T.state = InterpState::Interpolating;
+    int32_t rel = static_cast<int32_t>(rt - newest.tick);
+    if (rel >= 0 && !liveFaults().extrapolateOnly) {
+        // Past the newest snapshot: dead-reckon, capped.
+        uint32_t past = static_cast<uint32_t>(rel);
+        uint32_t dt = past;
+        if (!liveFaults().noExtrapolationCap && dt > cfg_.maxExtrapolateMs) dt = cfg_.maxExtrapolateMs;
+        T.state = past == 0 ? InterpState::Interpolating : (past <= cfg_.maxExtrapolateMs || liveFaults().noExtrapolationCap ? InterpState::Extrapolating : InterpState::Holding);
+        float sec = static_cast<float>(dt) / 1000.0f;
+        if (cfg_.lowLatency && cfg_.extrapolateTauMs > 0 && !liveFaults().llNoDamping) {
+            // damped dead reckoning: the displacement saturates at v * tau, so a velocity that is already out of date cannot run away
+            const float tau = static_cast<float>(cfg_.extrapolateTauMs);
+            sec = tau * (1.0f - std::exp(-static_cast<float>(dt) / tau)) / 1000.0f;
+        }
+        T.pos = {newest.pos.x + newest.vel.x * sec, newest.pos.y + newest.vel.y * sec, newest.pos.z + newest.vel.z * sec};
+        T.rot = newest.rot; T.vel = newest.vel; T.cell = newest.cell; T.anim = newest.anim; T.ai = newest.ai;
+    } else if (liveFaults().extrapolateOnly) {
+        // Mutant: always dead-reckon from the newest snapshot, even for render times inside the buffer.
+        int32_t d = static_cast<int32_t>(rt - newest.tick);
+        float sec = static_cast<float>(d) / 1000.0f;
+        T.pos = {newest.pos.x + newest.vel.x * sec, newest.pos.y + newest.vel.y * sec, newest.pos.z + newest.vel.z * sec};
+        T.rot = newest.rot; T.vel = newest.vel; T.cell = newest.cell; T.anim = newest.anim; T.ai = newest.ai;
+    } else {
+        // Find the first snapshot strictly after rt.
+        size_t i = 0;
+        while (i < n && serialLE(snaps_[i].tick, rt)) ++i;
+        if (i == 0) {
+            const Snap& a = snaps_.front();     // before the first snapshot: hold it
+            T.state = InterpState::Holding;
+            T.pos = a.pos; T.rot = a.rot; T.vel = a.vel; T.cell = a.cell; T.anim = a.anim; T.ai = a.ai;
+        } else {
+            const Snap& a = snaps_[i - 1];
+            const Snap& b = snaps_[i];
+            // A step between two neighbouring snapshots that no walker could make is a teleport: hold the old place until the new one's time, then jump
+            // (low-latency mode: the limit is the teleport rule, 5 m plus what 1500 u/s adds over the snapshots' distance in time; the old limit is 10 m)
+            bool discontinuity = (a.cell != b.cell && !liveFaults().snapIgnoresCell) ||
+                                 (!liveFaults().noSnap && (cfg_.lowLatency && cfg_.teleportRules && !liveFaults().noTeleportSnap ? b.jump : distance(a.pos, b.pos) > snapUnits));
+            if (discontinuity) {
+                T.pos = a.pos; T.rot = a.rot; T.vel = a.vel; T.cell = a.cell;   // hold until b's time, then jump
+            } else {
+                float span = static_cast<float>(static_cast<uint32_t>(b.tick - a.tick));
+                float t = span > 0 ? static_cast<float>(static_cast<uint32_t>(rt - a.tick)) / span : 1.0f;
+                t = std::min(1.0f, std::max(0.0f, t));
+                T.pos = lerp3(a.pos, b.pos, t);
+                T.rot = {lerpAngle(a.rot.x, b.rot.x, t), lerpAngle(a.rot.y, b.rot.y, t), lerpAngle(a.rot.z, b.rot.z, t)};
+                T.vel = lerp3(a.vel, b.vel, t);
+                T.cell = t >= 1.0f ? b.cell : a.cell;
+            }
+            T.anim = a.anim; T.ai = a.ai;
+        }
+    }
+    return T;
 }
 
 InterpOut InterpBuffer::sample(uint32_t nowMs, const ActualPose* actual) {
@@ -570,68 +688,103 @@ InterpOut InterpBuffer::sample(uint32_t nowMs, const ActualPose* actual) {
     int32_t best = 0;
     for (int64_t v : offsets_) { int32_t d = static_cast<int32_t>(static_cast<int32_t>(v) - ref); if (d < best) best = d; }
     int32_t offset = ref + best;
-    uint32_t delay = cfg_.delayMs;
-    if (cfg_.adaptiveDelay && intervalMs_ > 0) {
-        uint32_t want = static_cast<uint32_t>(intervalMs_ * 1.25 + 0.5);
-        want = std::min(want, cfg_.maxAdaptiveDelayMs);
-        delay = std::max(delay, want);
-    }
-    uint32_t rt = nowMs - static_cast<uint32_t>(offset) - delay;   // render time on the sender clock
-
-    const Snap& newest = snaps_.back();
-    const float snapUnits = cfg_.snapMetres * cfg_.unitsPerMetre;
-    Vec3 tpos, trot, tvel;
-    CellId tcell;
-    AnimState tanim;
-    AiState tai;
-    InterpState st = InterpState::Interpolating;
-    int32_t rel = static_cast<int32_t>(rt - newest.tick);
-    if (rel >= 0 && !liveFaults().extrapolateOnly) {
-        // Past the newest snapshot: dead-reckon, capped.
-        uint32_t past = static_cast<uint32_t>(rel);
-        uint32_t dt = past;
-        if (!liveFaults().noExtrapolationCap && dt > cfg_.maxExtrapolateMs) dt = cfg_.maxExtrapolateMs;
-        st = past == 0 ? InterpState::Interpolating : (past <= cfg_.maxExtrapolateMs || liveFaults().noExtrapolationCap ? InterpState::Extrapolating : InterpState::Holding);
-        float sec = static_cast<float>(dt) / 1000.0f;
-        tpos = {newest.pos.x + newest.vel.x * sec, newest.pos.y + newest.vel.y * sec, newest.pos.z + newest.vel.z * sec};
-        trot = newest.rot; tvel = newest.vel; tcell = newest.cell; tanim = newest.anim; tai = newest.ai;
-    } else if (liveFaults().extrapolateOnly) {
-        // Mutant: always dead-reckon from the newest snapshot, even for render times inside the buffer.
-        int32_t d = static_cast<int32_t>(rt - newest.tick);
-        float sec = static_cast<float>(d) / 1000.0f;
-        tpos = {newest.pos.x + newest.vel.x * sec, newest.pos.y + newest.vel.y * sec, newest.pos.z + newest.vel.z * sec};
-        trot = newest.rot; tvel = newest.vel; tcell = newest.cell; tanim = newest.anim; tai = newest.ai;
-    } else {
-        // Find the first snapshot strictly after rt.
-        size_t i = 0;
-        while (i < snaps_.size() && serialLE(snaps_[i].tick, rt)) ++i;
-        if (i == 0) {
-            const Snap& a = snaps_.front();     // before the first snapshot: hold it
-            st = InterpState::Holding;
-            tpos = a.pos; trot = a.rot; tvel = a.vel; tcell = a.cell; tanim = a.anim; tai = a.ai;
-        } else {
-            const Snap& a = snaps_[i - 1];
-            const Snap& b = snaps_[i];
-            bool discontinuity = (a.cell != b.cell && !liveFaults().snapIgnoresCell) ||
-                                 (!liveFaults().noSnap && distance(a.pos, b.pos) > snapUnits);
-            if (discontinuity) {
-                tpos = a.pos; trot = a.rot; tvel = a.vel; tcell = a.cell;   // hold until b's time, then jump
-            } else {
-                float span = static_cast<float>(static_cast<uint32_t>(b.tick - a.tick));
-                float t = span > 0 ? static_cast<float>(static_cast<uint32_t>(rt - a.tick)) / span : 1.0f;
-                t = std::min(1.0f, std::max(0.0f, t));
-                tpos = lerp3(a.pos, b.pos, t);
-                trot = {lerpAngle(a.rot.x, b.rot.x, t), lerpAngle(a.rot.y, b.rot.y, t), lerpAngle(a.rot.z, b.rot.z, t)};
-                tvel = lerp3(a.vel, b.vel, t);
-                tcell = t >= 1.0f ? b.cell : a.cell;
-            }
-            tanim = a.anim; tai = a.ai;
+    const uint32_t dtMs = haveShown_ ? std::min<uint32_t>(nowMs - lastSampleMs_, 1000u) : 0;
+    uint32_t rt;   // render time on the sender clock
+    if (!cfg_.lowLatency) {
+        uint32_t delay = cfg_.delayMs;
+        if (cfg_.adaptiveDelay && intervalMs_ > 0) {
+            uint32_t want = static_cast<uint32_t>(intervalMs_ * 1.25 + 0.5);
+            want = std::min(want, cfg_.maxAdaptiveDelayMs);
+            delay = std::max(delay, want);
         }
+        rt = nowMs - static_cast<uint32_t>(offset) - delay;
+        lastWant_ = delay;
+    } else {
+        // delay from the measured jitter (llFixedDelay: the old, deep buffer)
+        // Arrival stamps are frame times, so the lateness of a snapshot carries up to one frame of quantisation that is not network jitter and
+        // that a render at this very frame cannot be helped by: one smoothed frame length is taken off.
+        if (dtMs > 0 && dtMs < 250) frameMs_ = frameMs_ == 0 ? dtMs : frameMs_ * 0.9 + dtMs * 0.1;
+        double want = cfg_.minDelayMs + cfg_.jitterFactor * std::max(0.0, jitterMs_ - frameMs_);
+        if (liveFaults().llFixedDelay) want = cfg_.maxLowLatencyDelayMs;
+        want = std::min<double>(want, cfg_.maxLowLatencyDelayMs);
+        want = std::max<double>(want, cfg_.minDelayMs);
+        if (cfg_.adaptiveDelay && intervalMs_ > cfg_.slowStreamMs) want = std::max(want, std::min(intervalMs_ * 1.25, static_cast<double>(cfg_.maxAdaptiveDelayMs)));
+        lastWant_ = want;
+        const uint32_t lagT = static_cast<uint32_t>(offset) + static_cast<uint32_t>(want + 0.5);
+        // The render clock follows lagT at a limited rate: the offset filter and the delay move by a few ms now and then, and a puppet that
+        // is shown at those instants would step back and forth by speed * that.
+        if (!haveLag_ || liveFaults().llNoSlew) {
+            lagErr_ = 0;
+            haveLag_ = true;
+        } else {
+            lagErr_ -= static_cast<double>(static_cast<int32_t>(lagT - lagTPrev_));
+            const double maxMove = cfg_.slewPerMille / 1000.0 * dtMs;
+            if (std::fabs(lagErr_) > 2000.0) lagErr_ = 0;
+            else if (lagErr_ > maxMove) lagErr_ -= maxMove;
+            else if (lagErr_ < -maxMove) lagErr_ += maxMove;
+            else lagErr_ = 0;
+        }
+        lagTPrev_ = lagT;
+        rt = nowMs - lagT - static_cast<uint32_t>(static_cast<int32_t>(std::lround(lagErr_)));
     }
+
+    Target T = evalTarget(rt, snaps_.size());
+    {
+        InterpDiag& d = diag_;
+        d.lowLatency = cfg_.lowLatency;
+        ++d.samples;
+        d.offsetMs = offset;
+        d.jitterMs = jitterMs_;
+        d.frameMs = frameMs_;
+        d.wantDelayMs = lastWant_;
+        d.lagErrMs = lagErr_;
+        d.renderAgeMs = static_cast<int32_t>(nowMs - rt);
+        d.delayInUse.add(static_cast<double>(d.renderAgeMs - offset));
+        d.newestAgeMs = static_cast<int32_t>(rt - snaps_.back().tick);
+        if (d.newestAgeMs > 0) d.extrap.add(d.newestAgeMs);
+        if (diagNew_ > 0) d.hold.add(static_cast<double>(static_cast<int32_t>(nowMs - firstNewArrival_)));
+        diagNew_ = 0;
+        if (T.state == InterpState::Extrapolating) ++d.extrapolating;
+        else if (T.state == InterpState::Holding) ++d.holding;
+    }
+    if (cfg_.lowLatency) {
+        // A prediction miss (the snapshots that arrived since the last frame move the target away from where the old ones said it would be)
+        // is carried as an offset that fades out, so the puppet glides instead of popping. Misses beyond the smoothing threshold are left
+        // to the easing below, and a cell change to the snap.
+        const float smoothUnitsLL = cfg_.smoothMetres * cfg_.unitsPerMetre;
+        if (cfg_.blendMs > 0) {
+            const float k = std::exp(-static_cast<float>(dtMs) / static_cast<float>(cfg_.blendMs));
+            soft_ = {soft_.x * k, soft_.y * k, soft_.z * k};
+        }
+        if (cfg_.blendMs > 0 && !liveFaults().llNoBlend && newSince_ > 0 && haveTarget_ && snaps_.size() > newSince_) {
+            Target old = evalTarget(rt, snaps_.size() - newSince_);
+            Vec3 d = {old.pos.x - T.pos.x, old.pos.y - T.pos.y, old.pos.z - T.pos.z};
+            if (old.cell == T.cell && distance(old.pos, T.pos) <= smoothUnitsLL) { soft_.x += d.x; soft_.y += d.y; soft_.z += d.z; }
+            else soft_ = Vec3{};
+        }
+        newSince_ = 0;
+        T.pos = {T.pos.x + soft_.x, T.pos.y + soft_.y, T.pos.z + soft_.z};
+    }
+    const float snapUnits = cfg_.snapMetres * cfg_.unitsPerMetre;
+    Vec3 tpos = T.pos, trot = T.rot, tvel = T.vel;
+    CellId tcell = T.cell;
+    AnimState tanim = T.anim;
+    AiState tai = T.ai;
+    InterpState st = T.state;
+    // Teleport rule: the target itself moved further in one step than any walker could (or changed cell). The puppet snaps there; it does not
+    // ease across (the old rule eased every error between 2 and 10 m with a 200 ms time constant: a 500 unit teleport needed 0.6 s to finish).
+    bool teleport = false;
+    if (cfg_.lowLatency && cfg_.teleportRules && !liveFaults().noTeleportSnap && haveTarget_) {
+        const float limit = cfg_.teleportUnits + cfg_.teleportSpeed * static_cast<float>(dtMs) / 1000.0f;
+        teleport = distance(tpos, tposPrev_) > limit || tcell != tcellPrev_;
+        // the render time crossed a snapshot that is a jump away from its predecessor since the last frame (however short the way looks)
+        for (const Snap& sn : snaps_)
+            if (sn.jump && serialLess(prevRt_, sn.tick) && serialLE(sn.tick, rt)) teleport = true;
+    }
+    prevRt_ = rt;
 
     // Correction against where the puppet actually is. The outstanding offset `corr_` lives in TARGET space (shown = target +
     // corr_), so easing it out never lags behind a moving target.
-    uint32_t dtMs = haveShown_ ? std::min<uint32_t>(nowMs - lastSampleMs_, 1000u) : 0;
     lastSampleMs_ = nowMs;
     bool haveRef = actual != nullptr || haveShown_;
     CellId refCell = actual ? actual->cell : shownCell_;
@@ -649,21 +802,25 @@ InterpOut InterpBuffer::sample(uint32_t nowMs, const ActualPose* actual) {
         float errUnits = distance(c, Vec3{});
         o.errorMetres = errUnits / cfg_.unitsPerMetre;
         bool otherCell = refCell != tcell && !liveFaults().snapIgnoresCell;
-        if (otherCell || (!liveFaults().noSnap && errUnits > snapUnits)) {
-            shown_ = tpos; shownCell_ = tcell; corr_ = Vec3{}; smoothing_ = false;
+        if (otherCell || teleport || (!liveFaults().noSnap && errUnits > snapUnits)) {
+            shown_ = tpos; shownCell_ = tcell; corr_ = Vec3{}; smoothing_ = false; soft_ = Vec3{};
             o.snapped = true; o.state = InterpState::Snapped;
+            ++diag_.snaps;
+            if (teleport) ++diag_.teleportSnaps;
         } else if (!liveFaults().noSmooth &&
                    (errUnits > smoothUnits || (smoothing_ && errUnits > cfg_.smoothEndMetres * cfg_.unitsPerMetre))) {
             float k = std::exp(-static_cast<float>(dtMs) / static_cast<float>(cfg_.smoothMs));
             corr_ = {c.x * k, c.y * k, c.z * k};
             shown_ = {tpos.x + corr_.x, tpos.y + corr_.y, tpos.z + corr_.z};
             shownCell_ = tcell; smoothing_ = true; o.state = InterpState::Smoothing;
+            ++diag_.eased;
         } else {
             shown_ = tpos; shownCell_ = tcell; corr_ = Vec3{}; smoothing_ = false;
         }
         haveShown_ = true;
     }
     tposPrev_ = tpos;
+    tcellPrev_ = tcell;
     haveTarget_ = true;
     o.cell = shownCell_;
     o.pos = shown_;

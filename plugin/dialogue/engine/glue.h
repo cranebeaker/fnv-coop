@@ -10,6 +10,7 @@
 // needs no detour inside the DialogMenu code (dialog_layout.h has the verified layout). The talk veto (onTalkRequested) still comes
 // from the activate observer.
 #pragma once
+#include <cstdio>
 #include <string>
 #include <vector>
 #include "fnvcoop_dlg/adapter.h"
@@ -63,6 +64,7 @@ struct IEngineApi {
     virtual void closeMenu(uint32_t menu) = 0;                              // forced close (timeout)
     virtual void menuNotice(const std::string& text, bool closed) = 0;      // read-only notice / its dismissal
 
+    virtual void trace(const std::string&) {}                               // one log line (silent in the tests)
     virtual void unsupported(const char* what) = 0;                         // live stubs report here
 
     // --- additions (defaults keep older mocks compiling)
@@ -70,16 +72,23 @@ struct IEngineApi {
     virtual void markSaid(const FormRef&) {}                                // engine MarkSaid on this machine's copy of the INFO
     virtual void clearSaid(const FormRef&) {}                               // undo a said-mark (per-player lines on the host)
     virtual void frame(uint32_t /*nowMs*/) {}                               // once per poll: timers inside the engine layer (narration gate)
+    virtual void commitSayOnce(const FormRef&) {}                           // host: record the SayOnceFlag effect for an INFO this machine's engine has marked said
+    virtual int saidState(const FormRef&) { return -1; }                    // the INFO's "said once" byte on THIS machine: 0 / 1, -1 = unknown or not loaded
 };
 
 struct GlueConfig {
     bool broadcastHostTalk = true;   // the host player's own conversations are shown to the others (forced-say path)
+    uint32_t grantTimeoutMs = 6000;  // a granted conversation whose DialogMenu never opens on this machine is given back to the host after this long
+    bool trace = true;               // one log line per pick / line end / offer / menu state change (a conversation has a handful; none while no menu is open)
 };
 
 class EngineGlue {
 public:
     EngineGlue(IEngineApi& api, ResponseLayout layout = {}) : api_(api), layout_(layout) {}
-    void attach(fnvcoop_dlg::DialogueNode* n) { node_ = n; }
+    void attach(fnvcoop_dlg::DialogueNode* n) {
+        node_ = n;
+        if (n) n->setSayOnceSink([this](PlayerId from, const FormRef& info) { onGuestSayOnce(from, info); });
+    }
     fnvcoop_dlg::DialogueNode::Sink sink() { return [this](const Event& e) { onEvent(e); }; }
 
     void setLayout(ResponseLayout l) { layout_ = l; }
@@ -89,7 +98,9 @@ public:
 
     struct Stats {
         uint64_t polls = 0, unreadable = 0, offers = 0, picks = 0, pickRefused = 0, lineDones = 0, leaves = 0, hostBroadcasts = 0,
-                 sayMarked = 0, sayCleared = 0, commandRefused = 0;
+                 sayMarked = 0, sayCleared = 0, commandRefused = 0, pickLatched = 0,
+                 grantTimeouts = 0,   // grants whose menu never opened here, given back (story fix 2026-10-28)
+                 engineMarks = 0, sayReported = 0, sayReports = 0, sayCommitted = 0;   // engine marks seen / sent to the host / received by the host / SayOnceFlag effects recorded
     };
     const Stats& stats() const { return stats_; }
 
@@ -109,6 +120,41 @@ public:
         if (!api_.dialogMenu() || !readMenu(api_.memory(), api_.dialogMenu(), mv)) return;
         offerFrom(mv, now);
     }
+    // The engine marked an INFO said on THIS machine (TESTopicInfo::MarkSaid, the detour in plugin/hooks_ui reports the 0 -> 1 changes that are not our own).
+    // Shared lines: a guest tells the host, the host records the SayOnceFlag effect (its own byte is already set). Per-player lines stay local (D11).
+    void onEngineMark(const FormRef& info) {
+        if (!sayOnce_ || !node_) return;
+        const bool host = node_->host() != nullptr;
+        const auto r = sayOnce_->onEngineMark(info, host);
+        ++stats_.engineMarks;
+        trace("dialogue: say-once engine mark " + refText(info) + (host ? " on the host: " : " on a guest: ") +
+              (r.kind == fnvcoop_dlg::SayOncePolicy::Route::CommitOnHost ? "commit" : r.kind == fnvcoop_dlg::SayOncePolicy::Route::ReportToHost ? "report to the host" : "kept local"));
+        if (r.kind == fnvcoop_dlg::SayOncePolicy::Route::CommitOnHost) { api_.commitSayOnce(info); ++stats_.sayCommitted; }
+        else if (r.kind == fnvcoop_dlg::SayOncePolicy::Route::ReportToHost && node_->reportSayOnce(info)) ++stats_.sayReported;
+    }
+    bool onEngineMark(Addr32 infoAddr) {
+        FormRef info;
+        if (!infoAddr || !api_.infoRefOf(infoAddr, info)) return false;
+        onEngineMark(info);
+        return true;
+    }
+    // Host: a guest's engine marked `info` said and told us.
+    void onGuestSayOnce(PlayerId from, const FormRef& info) {
+        if (!sayOnce_ || !node_ || !node_->host()) return;
+        const auto r = sayOnce_->onGuestReport(info);
+        if (r.kind != fnvcoop_dlg::SayOncePolicy::Route::CommitOnHost) {
+            trace("dialogue: say-once report " + refText(info) + " from slot " + std::to_string(int(from)) + ": kept with that player");
+            return;
+        }
+        const bool had = api_.saidState(info) == 1;
+        trace("dialogue: say-once report " + refText(info) + " from slot " + std::to_string(int(from)) + (had ? ": already set on the host" : ": mark and commit"));
+        if (had) return;   // the host's own byte is set (it ran the line, or the shared world already holds it): nothing to commit
+        if (!fnvcoop_dlg::mutations().sayOnceMarkHostNoMark) api_.markSaid(info);
+        api_.commitSayOnce(info);
+        ++stats_.sayCommitted;
+        ++stats_.sayReports;
+    }
+
     // The initiator selected an INFO; the engine is about to speak it.
     bool onInfoChosen(Addr32 info, uint32_t now) {
         FormRef topic, infoRef;
@@ -133,10 +179,18 @@ public:
         if (sayOnce_) sayOnce_->noteOwnSaid(infoRef);
         lastPickInfo_ = infoRef;
         ++stats_.picks;
+        const uint32_t stepBefore = node_->client().step();
+        const size_t nLines = lines.size();
         node_->pick(topic, infoRef, -1, f.goodbye, std::move(lines), api_.collectFacts(info), now);
+        const bool sent = node_->client().step() != stepBefore;
+        if (!sent) ++stats_.pickRefused;
+        { char b[160]; std::snprintf(b, sizeof b, "pick %s info %X step %u goodbye %d lines %u", sent ? "sent" : "NOT sent (the last line's result is not in yet)", unsigned(infoRef.localId), unsigned(node_->client().step()), f.goodbye ? 1 : 0, unsigned(nLines)); trace(b); }
         return true;
     }
-    void onLineFinished(uint32_t now) { node_->lineDone(now); }
+    void onLineFinished(uint32_t now) {
+        { char b[64]; std::snprintf(b, sizeof b, "line done step %u", unsigned(node_->client().step())); trace(b); }
+        node_->lineDone(now);
+    }
     void onMenuClosedByPlayer(uint32_t now) { node_->leave(now); }
     void onFrame(uint32_t now) { node_->tick(now); pollMenu(now); }
     // The origin player answered (button index) or closed (-1) a menu opened by openMenu().
@@ -150,8 +204,24 @@ public:
         const Addr32 menu = api_.dialogMenu();
         const auto role = node_->client().role();
         const bool initiator = role == fnvcoop_dlg::ClientDialogue::Role::Initiator;
+        // The host granted the conversation but the menu never opened here (the deferred activation did not start it): without this the NPC stays locked on the host
+        // for good and this machine stays the initiator, so every later talk is refused as "a conversation is already open".
+        if (initiator) {
+            const fnvcoop_dlg::ConvId cv = node_->client().conv();
+            if (menu) menuSeenConv_ = cv;
+            else if (menuSeenConv_ != cv && !fnvcoop_dlg::mutations().grantNoWatchdog) {
+                if (grantConv_ != cv) { grantConv_ = cv; grantAt_ = now; }
+                else if (now - grantAt_ >= cfg_.grantTimeoutMs) {
+                    ++stats_.grantTimeouts;
+                    grantAt_ = now;
+                    node_->leave(now);
+                    api_.unsupported("granted conversation: the DialogMenu never opened, the conversation is given back to the host");
+                }
+            }
+        }
         if (!menu) {                                           // the menu is gone
             if (poll_.open) {
+                trace(std::string("menu closed after state ") + std::to_string(poll_.lastState) + " spoken " + idOf(poll_.lastSpoken) + " role " + std::to_string(int(role)));
                 const bool afterGoodbye = poll_.lastPickGoodbye && poll_.lineFinished;
                 if (initiator && !(afterGoodbye && !fnvcoop_dlg::mutations().pollLeaveAfterGoodbye)) { ++stats_.leaves; onMenuClosedByPlayer(now); }
             }
@@ -167,10 +237,16 @@ public:
             FormRef p;
             if (mv.partnerRef && api_.formRefOf(mv.partnerRef, p)) { poll_.partner = p; if (!initiator) pendingNpc_ = p; }
         }
+        if (cfg_.trace && (mv.state != poll_.lastState || mv.spokenInfo != poll_.lastSpoken)) {
+            poll_.lastState = mv.state;
+            poll_.lastSpoken = mv.spokenInfo;
+            trace(std::string("menu state ") + std::to_string(mv.state) + " spoken " + idOf(mv.spokenInfo) + " role " + std::to_string(int(role)) + " rows " + std::to_string(mv.items.size()));
+        }
         const bool hostNative = !initiator && role != fnvcoop_dlg::ClientDialogue::Role::Requesting && node_->host() != nullptr &&
                                 cfg_.broadcastHostTalk && !fnvcoop_dlg::mutations().hostTalkSilent;
         // 1. the engine built a (new) choice list and waits for a pick
         if (mv.state == kStateIdle) {
+            poll_.pickLatch = 0;                               // the menu is waiting for a pick again: the next spoken INFO is a new choice, even the same one
             const uint64_t sig = signature(mv);
             if (!poll_.offered || sig != poll_.listSig) {
                 poll_.offered = true;
@@ -182,7 +258,15 @@ public:
         const bool speaking = mv.state == kStatePlaying || mv.state == kStateQueued;
         if (speaking && mv.spokenInfo) {
             const bool fresh = !poll_.speaking || mv.spokenInfo != poll_.spoken;
-            if (fresh || fnvcoop_dlg::mutations().pollPickEveryFrame) {
+            // The engine can show the same INFO as "spoken" again after its line (a response advance, a click on the row still speaking, a re-read follow-up):
+            // that is the line going on, not a second choice. Only the menu returning to idle (a list to pick from) makes the same INFO a new pick.
+            const bool again = mv.spokenInfo == poll_.pickLatch && !fnvcoop_dlg::mutations().noPickLatch && !fnvcoop_dlg::mutations().pollPickEveryFrame;
+            if (again && fresh) {
+                poll_.speaking = true;
+                poll_.spoken = mv.spokenInfo;
+                ++stats_.pickLatched;
+                trace("same INFO " + idOf(mv.spokenInfo) + " spoken again without a list in between: not a new pick");
+            } else if (fresh || fnvcoop_dlg::mutations().pollPickEveryFrame) {
                 poll_.speaking = true;
                 poll_.spoken = mv.spokenInfo;
                 poll_.lineFinished = false;
@@ -190,6 +274,7 @@ public:
                     if (!fnvcoop_dlg::mutations().pollNoPick) {
                         InfoFlags f;
                         poll_.sentPick = onInfoChosen(mv.spokenInfo, now);
+                        if (poll_.sentPick) poll_.pickLatch = mv.spokenInfo;
                         poll_.lastPickGoodbye = readInfoFlags(api_.memory(), mv.spokenInfo, f) && f.goodbye;
                     }
                 } else if (hostNative) {
@@ -222,6 +307,7 @@ public:
             case K::SpectatorOffer: api_.showTopics(std::get<fnvcoop_dlg::Offer>(e.msg).topics); break;
             case K::ShowLines: {
                 const auto& l = std::get<fnvcoop_dlg::Lines>(e.msg);
+                api_.trace(std::string("dialogue: lines of ") + l.info.plugin + " reach this " + (node_->host() ? "host" : "machine"));
                 for (const auto& ln : l.lines) {
                     api_.showSubtitle(npcOfSpectated_, ln.text, subtitleSeconds(ln.text));
                     if (!ln.voice.empty()) api_.playVoice(npcOfSpectated_, ln.voice);
@@ -293,6 +379,9 @@ private:
         uint64_t listSig = 0;
         Addr32 spoken = 0;
         FormRef partner;
+        Addr32 pickLatch = 0;               // the INFO already reported as a pick; the same INFO is not a new pick until the menu waited for one again (state idle)
+        uint32_t lastState = 0xFFFFFFFFu;   // trace only: the state / spoken INFO last logged
+        Addr32 lastSpoken = 0;
     };
 
     static uint64_t signature(const MenuView& mv) {   // order-sensitive hash of the offered INFOs
@@ -326,6 +415,11 @@ private:
             t.push_back(e);
         }
         ++stats_.offers;
+        if (cfg_.trace) {
+            std::string ids;
+            for (const MenuItem& item : mv.items) { ids += ' '; ids += idOf(item.info); }
+            trace("offer " + std::to_string(t.size()) + " of " + std::to_string(mv.items.size()) + " rows, infos:" + ids);
+        }
         node_->offer(std::move(t), now);
     }
     // The host player talks natively (the engine ran everything): show the lines to the others like a scripted SayTo.
@@ -343,9 +437,26 @@ private:
     void applySayOnce(const FormRef& info) {
         if (!sayOnce_ || info.plugin.empty()) return;
         const auto a = sayOnce_->onSpectated(info, node_->host() != nullptr);
+        api_.trace("dialogue: say-once " + std::string(a.kind == fnvcoop_dlg::SayOnceAction::Mark ? "mark" : a.kind == fnvcoop_dlg::SayOnceAction::Clear ? "clear" : "keep") + " " + info.plugin + ":" +
+                   [&] { char b[16]; std::snprintf(b, sizeof b, "%X", unsigned(info.localId)); return std::string(b); }() + (node_->host() ? " on the host" : " on a guest"));
         if (a.kind == fnvcoop_dlg::SayOnceAction::Mark) { api_.markSaid(info); ++stats_.sayMarked; }
         else if (a.kind == fnvcoop_dlg::SayOnceAction::Clear) { api_.clearSaid(info); ++stats_.sayCleared; }
     }
+
+    static std::string refText(const FormRef& r) {
+        char b[16];
+        std::snprintf(b, sizeof b, "%X", unsigned(r.localId));
+        return r.plugin + ":" + b;
+    }
+    // the id of an engine INFO / row for the trace: the plugin-local id in hex, "?" when the engine form has no stable name
+    std::string idOf(Addr32 form) {
+        FormRef r;
+        char b[24];
+        if (!form || !api_.formRefOf(form, r)) return "-";
+        std::snprintf(b, sizeof b, "%X", unsigned(r.localId));
+        return b;
+    }
+    void trace(const std::string& s) { if (cfg_.trace) api_.trace(s); }
 
     IEngineApi& api_;
     ResponseLayout layout_;
@@ -355,6 +466,8 @@ private:
     FormRef pendingNpc_, npcOfSpectated_, lastPickInfo_;
     Poll poll_;
     Stats stats_;
+    fnvcoop_dlg::ConvId menuSeenConv_ = 0, grantConv_ = 0;   // the conversation whose menu was seen / whose grant is being timed
+    uint32_t grantAt_ = 0;
 };
 
 }  // namespace fndlg

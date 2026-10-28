@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_set>
+#include <vector>
 
 namespace nvhooks {
 
@@ -55,6 +56,19 @@ public:
     void enterLocalScript() { ++depth_; ++localDepth_; }
     void leaveLocalScript() { if (depth_ > 0) --depth_; if (localDepth_ > 0) --localDepth_; }
     int localScriptDepth() const { return localDepth_; }
+    // A GuestLocalRun script whose QUEST STATE stays host-authoritative (the DLC setup scripts' start of their intro quest and its stage 10, hostQuestStateScripts()): it runs on a
+    // guest for its per-machine effects, but blockQuestState() still drops the quest start / stage / objective it calls, and on the host those calls are captured and replicated
+    // (the hub's mute is lifted for them, engine_hooks.cpp QuestStateLift). Subset of the allow-list: only ids that are also allow-listed count.
+    void setHostQuestState(std::unordered_set<uint32_t> ids) { hostState_ = std::move(ids); }
+    bool isHostQuestState(uint32_t scriptRefID) const { return scriptRefID && isGuestLocalRun(scriptRefID) && hostState_.count(scriptRefID); }
+    void enterLocalScript(uint32_t scriptRefID) { enterLocalScript(); hostStack_.push_back(isHostQuestState(scriptRefID) ? scriptRefID : 0); }
+    void leaveLocalScript(uint32_t) { leaveLocalScript(); if (!hostStack_.empty()) hostStack_.pop_back(); }
+    // The innermost running allow-listed script is a host-quest-state one (its quest calls are the host's story state), and which script it is.
+    bool inHostQuestStateScript(uint32_t* scriptRefID = nullptr) const {
+        if (hostStack_.empty() || !hostStack_.back()) return false;
+        if (scriptRefID) *scriptRefID = hostStack_.back();
+        return true;
+    }
     // A console or bridge line that acts on the local player ("player.MoveTo ...", "player.SetAV Health 5000") is per-machine by
     // nature (each machine owns its own player), so on a guest it runs like a GuestLocalRun script instead of being dropped. Only
     // a single line that starts with "player." qualifies; anything else typed on a guest console (SetStage, Enable, ...) stays blocked.
@@ -62,6 +76,9 @@ public:
     int scriptDepth() const { return depth_; }
 
     bool blockMutation();      // shared-state mutator called from a running script
+    // Quest start / stop / complete, stage and objective calls: like blockMutation(), except that the exemption of a GuestLocalRun script does NOT cover them when the script is a
+    // host-quest-state one (a guest's own DLC setup script must not start a quest or set its stage: the host does, and the txn reaches the guest).
+    bool blockQuestState();
     bool blockResultScript();  // INFO / stage result script entry
 
     const Suppressed& stats() const { return stats_; }
@@ -75,6 +92,8 @@ private:
     int localDepth_ = 0;
     Suppressed stats_;
     std::unordered_set<uint32_t> localRun_;
+    std::unordered_set<uint32_t> hostState_;
+    std::vector<uint32_t> hostStack_;   // one entry per running allow-listed script: its id when host-quest-state, else 0
 };
 
 // Host-side deferral of engine SetStage calls the rules engine wants to hold back (e.g. the VCG01 chargen barrier).
@@ -103,9 +122,10 @@ public:
     static constexpr uint32_t kHostPlayer = 0x14;
     uint32_t current() const { return depth_ ? stack_[depth_ - 1] : kHostPlayer; }
 #ifdef NVHOOKS_MUTANT
-    void push(uint32_t refID) { if (depth_ < 8) stack_[depth_++] = refID; }  // mutant: a null ghost id becomes ref 0
+    void push(uint32_t refID, int forcedSlot = -1) { if (depth_ < 8) { forced_[depth_] = forcedSlot; stack_[depth_++] = refID; } }  // mutant: a null ghost id becomes ref 0
 #else
-    void push(uint32_t refID) { if (depth_ < 8) stack_[depth_++] = refID ? refID : kHostPlayer; }
+    // forcedSlot >= 0: the party slot the window is for, whatever `refID` is (a guest with no puppet is acted for by the host's own player 0x14, which no ghost table can name)
+    void push(uint32_t refID, int forcedSlot = -1) { if (depth_ < 8) { forced_[depth_] = forcedSlot; stack_[depth_++] = refID ? refID : kHostPlayer; } }
 #endif
     void pop() { if (depth_) --depth_; }
     int depth() const { return depth_; }
@@ -116,9 +136,47 @@ public:
     }
     void clearSlots() { nSlots_ = 0; }
     uint8_t slot() const {
+        if (depth_ && forced_[depth_ - 1] >= 0) return static_cast<uint8_t>(forced_[depth_ - 1]);
         uint32_t c = current();
         for (int i = 0; i < nSlots_; ++i) if (ghost_[i] == c) return slot_[i];
         return 0;
+    }
+    // Which co-op player a script operand stands for (G35 / G42: `player.KillActor`, `player.RemoveAllItems`, a guest's ghost as the operand).
+    // The engine's `player` (0x14) is the acting player's stand-in: the host's own player while nobody acts (slot 0), else the acting guest. A
+    // registered ghost is that guest. `onHost` = the engine call really concerns the host's own player, so the original may run; for a guest it
+    // must not (it would hit the host's player instead).
+    struct PlayerTarget {
+        bool player = false;
+        uint8_t slot = 0;
+        bool onHost = false;
+    };
+    // Host side of the guests' events (P4 handover 1): the engine raises `MarkBaseExtraListScriptEvent(object, target, mask)` with the PUPPET / ghost of a
+    // guest as the object when a host-owned NPC does something to it (starts combat with it). `player` in the block that runs is the host's player, so
+    // the event must run as that guest. Only the combat mask is wrapped: OnTrigger / OnTriggerEnter / OnTriggerLeave, pickups and container events for a
+    // puppet already reach the host as intents (TriggerStay / TriggerEnter / pickup), wrapping them too would run every block twice.
+    static constexpr uint32_t kEventOnStartCombat = 0x8000;
+    bool hostPuppetEvent(uint32_t objectRefID, uint32_t mask) const {
+        if (objectRefID == kHostPlayer) return false;
+        bool known = false;
+        for (int i = 0; i < nSlots_; ++i) if (ghost_[i] == objectRefID) known = true;
+#ifdef NVHOOKS_MUTANT
+        return known;   // mutant: every event of a puppet is wrapped (trigger blocks would run twice)
+#else
+        return known && mask == kEventOnStartCombat;
+#endif
+    }
+    PlayerTarget playerTargetOf(uint32_t refID) const {
+        if (refID == kHostPlayer) {
+            const uint8_t s = slot();
+#ifdef NVHOOKS_MUTANT
+            return {true, s, true};   // mutant: a kill / strip meant for a guest runs on the host's own player
+#else
+            return {true, s, s == 0};
+#endif
+        }
+        for (int i = 0; i < nSlots_; ++i)
+            if (ghost_[i] == refID) return {true, slot_[i], slot_[i] == 0};
+        return {};
     }
 
 private:
@@ -126,6 +184,7 @@ private:
     uint8_t slot_[8] = {};
     int nSlots_ = 0;
     uint32_t stack_[8] = {};
+    int forced_[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
     int depth_ = 0;
 };
 

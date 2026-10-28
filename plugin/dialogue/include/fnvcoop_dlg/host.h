@@ -57,7 +57,8 @@ public:
     // D3: how an irreversible choice is decided. Unanimous = a point of no return: every other player must answer "Ready" (one "Not yet"
     // or the timeout cancels). Vote = a story fork: the party votes, the origin counts as agreeing, the majority wins and the HOST breaks
     // a tie. Actor = a personal action (Caesar's surgery): the origin alone decides, nobody is asked.
-    enum class ConsentMode : uint8_t { Unanimous = 0, Vote = 1, Actor = 2 };
+    // Rules = 3: the rules engine (ChoiceConsent) owns the vote; the host only carries the question and the answers (see "votes owned by the rules engine" below).
+    enum class ConsentMode : uint8_t { Unanimous = 0, Vote = 1, Actor = 2, Rules = 3 };
     struct ModalOptions {
         bool partyConsent = false;   // after the origin picks `confirmButton`, every other connected player must answer "Ready"
         int32_t confirmButton = 0;   // the "point of no return" button
@@ -65,12 +66,49 @@ public:
         uint32_t timeoutMs = 0;      // 0 = Config defaults
         ConsentMode mode = ConsentMode::Unanimous;
         bool anyButton = false;      // every button except declineChoice is the irreversible one (VMS42: two ways to blow up the caves)
+        FormRef rulesChoice;         // ConsentMode::Rules: the message box the rules engine's ChoiceConsent rule names (RulesEngine::onChoiceRequested)
     };
     // Fork INFOs (Joshua or Daniel, Elijah's offer): the pick is held before any script runs, the party is asked, then it proceeds or
     // the conversation closes with CloseReason::ConsentDenied.
     struct ChoiceRule { ConsentMode mode = ConsentMode::Vote; uint32_t timeoutMs = 0; };
     void setChoiceRules(std::map<FormRef, ChoiceRule> r) { choiceRules_ = std::move(r); }
     size_t choiceRuleCount() const { return choiceRules_.size(); }
+    // The rules engine took over an INFO's vote (RulesEngine::isChoice): the old hold at the pick must not ask the party a second time.
+    void dropChoiceRule(const FormRef& info) {
+        if (!mutations().rulesOwnerKeepsOldHold) choiceRules_.erase(info);
+    }
+    std::vector<FormRef> choiceRuleInfos() const {
+        std::vector<FormRef> v;
+        for (const auto& kv : choiceRules_) v.push_back(kv.first);
+        return v;
+    }
+
+    // ---- votes owned by the rules engine (campaign wave 1b: ReadyCheck and ChoiceConsent, G27 / G08) ----------------------------------------------------------
+    // RulesEngine decides who must agree and how the vote is counted; this class only carries the question to the other connected players and their answers back.
+    //   * An INFO's END script is held when the info gate says Hold (RulesEngine::onInfoResult == Deferred): the script does not run and the conversation waits at that
+    //     line. A ReadyCheck INFO (House, the Yes Man topics) and a ChoiceConsent INFO (Daniel, Elijah) both come through here.
+    //   * A message box whose irreversible button the origin pressed (ModalOptions::mode == Rules + rulesChoice) is held the same way (box gate).
+    // The other players get a two-button box (0 Agree = yes, 1 Not yet = no, MenuRequest::consent) and every answer goes to the vote sink: the rules engine counts a yes as
+    // ScenePass of the ref and a no as ScenePass of choiceDeclineId(ref). rulesResolved(ref, accepted) is the engine's verdict (onReadyResolved / onChoiceResolved): an
+    // accepted INFO runs its END script and continues, a declined one is dropped and the conversation closes with ConsentDenied (the origin is told); an accepted box
+    // resumes its script with the origin's button, a declined one with the decline choice. Without gates nothing changes.
+    enum class Gate : uint8_t { Run, Hold };
+    using RulesGate = std::function<Gate(const FormRef& ref, PlayerId origin)>;
+    using VoteSink = std::function<void(PlayerId slot, const FormRef& ref, bool yes)>;
+    void setRulesGates(RulesGate info, RulesGate box) { infoGate_ = std::move(info); boxGate_ = std::move(box); }
+    void setVoteSink(VoteSink s) { voteSink_ = std::move(s); }
+    // The verdict for a held vote. Unknown / already released refs are ignored (a duplicate, or the origin left meanwhile).
+    std::vector<Out> rulesResolved(const FormRef& ref, bool accepted, uint32_t now) {
+        std::vector<Out> o;
+        for (auto it = menus_.begin(); it != menus_.end(); ++it)
+            if (it->second.rulesWait && it->second.rulesRef == ref) { rulesDone(it, accepted, now, o); break; }
+        return o;
+    }
+    size_t heldByRules() const {
+        size_t n = 0;
+        for (const auto& kv : menus_) if (kv.second.rulesWait) ++n;
+        return n;
+    }
 
     // ---- forced dialogue: scripted SayTo / StartConversation. Called by the host hook after the script command ran.
     using ActorChooser = std::function<PlayerId(const FormRef& npc, uint8_t connectedMask)>;
@@ -242,15 +280,20 @@ public:
     PlayerId initiatorOf(ConvId c) const { auto it = convs_.find(c); return it == convs_.end() ? fnvcoop::kNoPlayer : it->second.initiator; }
     uint32_t scriptRuns() const { return runs_; }
     uint32_t rejected() const { return rejected_; }
+    uint32_t repeatPicks() const { return repeatPicks_; }   // picks answered without running (the same INFO again, no list offered in between)
 
 private:
-    enum class St : uint8_t { AwaitPick, Playing, Consenting };
+    enum class St : uint8_t { AwaitPick, Playing, Consenting, HoldingEnd };
     struct PendingMenu {
         uint32_t id = 0; PlayerId origin = 0; MenuKind kind = MenuKind::MessageBox;
         std::vector<std::string> buttons; int32_t defaultChoice = -1; uint32_t deadline = 0;
         ModalOptions opt; std::string text; bool consenting = false; uint8_t need = 0, yes = 0, no = 0;
         int32_t picked = -1;                       // the origin's button, resumed on approval
         ConvId heldConv = 0;                       // != 0: a held fork INFO pick, not a script menu (nothing to resume)
+        // wave 1b: a vote the rules engine owns (rulesWait). endConv != 0: it holds an INFO's END script (the data below is what the script needs), else a message box.
+        bool rulesWait = false;
+        FormRef rulesRef;
+        ConvId endConv = 0; uint32_t endStep = 0; FormRef endNpc; std::vector<Fact> endFacts; bool endGoodbye = false;
     };
     struct Conv {
         ConvId id = 0; FormRef npc; PlayerId initiator = 0; uint32_t reqId = 0;
@@ -259,6 +302,9 @@ private:
         uint8_t locks = 0; uint32_t lastActive = 0;
         Lines lastLines; bool hasLines = false; Offer lastOffer; bool hasOffer = false;   // catch-up for late joiners
         Pick held; bool lineDoneEarly = false;                                           // a fork pick waiting for the party's answer
+        bool gateAsked = false, endHeld = false;                                         // wave 1b: the rules engine was asked about the END script / said Hold
+        bool offeredSince = false;   // the initiator offered a topic list since its last pick (a pick of the same INFO as the last one is only real after one)
+        bool silent = false;         // this step is a repeat of the previous pick (no list in between): answered, never run, never shown again
     };
     static uint8_t bit(PlayerId p) { return p < 8 ? uint8_t(1u << p) : uint8_t(0); }
 
@@ -281,7 +327,16 @@ private:
         return run_ ? run_(rq) : 0;
     }
     void runEnd(Conv& c, std::vector<Out>& o) {
-        if (c.endDone) return;
+        if (c.endDone || c.endHeld) return;
+        if (c.silent) {   // the repeat of a pick: the first one's END script ran (or runs) once; this step only answers
+            c.endDone = true;
+            o.push_back({connected_, Result{c.id, c.step, Phase::End, 0}});
+            return;
+        }
+        if (infoGate_ && !c.gateAsked && !mutations().noInfoGate) {   // G27: a ReadyCheck / ChoiceConsent INFO asks the party before its END script
+            c.gateAsked = true;
+            if (infoGate_(c.info, c.initiator) == Gate::Hold) { holdEnd(c, o); return; }
+        }
         c.endTxn = runScript(c, Phase::End);
         c.endDone = true;
         o.push_back({connected_, Result{c.id, c.step, Phase::End, c.endTxn}});
@@ -341,6 +396,7 @@ private:
             for (auto& t : m.topics) if (!ownerOnly_.count(t.topic)) shown.topics.push_back(t);
         }
         c->lastOffer = shown; c->hasOffer = true;
+        c->offeredSince = true;
         o.push_back({others(*c), shown});
     }
     void handle(PlayerId from, const Pick& m, uint32_t now, std::vector<Out>& o) {
@@ -356,6 +412,14 @@ private:
         if (c->st != St::AwaitPick || m.step != c->step + 1) { ++rejected_; return; }
         const bool command = comp_ && comp_->isCompanion(c->npc) && ownerOnly_.count(m.topic) != 0;
         if (command && comp_->ownerOf(c->npc) != c->initiator && !mutations().nonOwnerCommands) { ++rejected_; return; }
+        // The same INFO again with no topic list offered since the last pick is not a new choice: the engine's menu has not been back at "pick a line"
+        // (a line playing on, a follow-up chain re-read, a click on a row still speaking). Answer the step, run nothing, show nothing.
+        if (c->step != 0 && m.info == c->info && !c->offeredSince && !mutations().repeatPickRuns) {
+            ++repeatPicks_;
+            c->step = m.step; c->st = St::Playing; c->goodbye = m.goodbye; c->silent = true; c->endDone = false; c->beginTxn = 0; c->endTxn = 0;
+            o.push_back({connected_, Result{c->id, c->step, Phase::Begin, 0}});
+            return;
+        }
         auto rule = choiceRules_.find(m.info);
         if (rule != choiceRules_.end() && rule->second.mode != ConsentMode::Actor && others(*c) && !mutations().noChoiceConsent) {
             holdPick(*c, m, rule->second, now, o);        // irreversible fork: ask the party BEFORE any script runs
@@ -366,7 +430,7 @@ private:
     void acceptPick(Conv& cv, const Pick& m, bool command, std::vector<Out>& o) {
         Conv* c = &cv;
         c->step = m.step; c->st = St::Playing; c->info = m.info; c->goodbye = m.goodbye;
-        c->facts = m.facts; c->endDone = false;
+        c->facts = m.facts; c->endDone = false; c->offeredSince = false; c->silent = false;
         c->beginTxn = runScript(*c, Phase::Begin);
         Lines l; l.conv = c->id; l.step = m.step; l.topic = m.topic; l.info = m.info; l.goodbye = m.goodbye; l.lines = m.lines;
         const bool hide = command && !mutations().spectatorsSeeCommands;   // "only the recruiting player sees them"
@@ -395,14 +459,31 @@ private:
         c->lastActive = now;
         if (m.step != c->step) { ++rejected_; return; }
         if (c->st == St::Consenting) { c->lineDoneEarly = true; return; }   // the initiator's own line ended before the party answered
+        if (c->st == St::HoldingEnd) return;                                // the END script waits for the rules engine's vote: a resend changes nothing
         if (c->st == St::AwaitPick) {  // duplicate: resend the result, never rerun
             o.push_back({connected_, Result{c->id, c->step, Phase::End, c->endTxn}});
             return;
         }
         finishLine(*c, now, o);
     }
+    // The END script waits for the party: ask everybody but the initiator (asking is agreeing). The conversation stays at this line (HoldingEnd) until rulesResolved.
+    void holdEnd(Conv& c, std::vector<Out>& o) {
+        c.endHeld = true;
+        PendingMenu pm;
+        pm.id = ++nextMenu_; pm.origin = c.initiator; pm.kind = MenuKind::MessageBox; pm.buttons = {"Agree", "Not yet"}; pm.defaultChoice = 1;
+        pm.deadline = c.lastActive + cfg_.messageMenuMs + kRulesGraceMs;
+        pm.consenting = true; pm.need = others(c); pm.rulesWait = true; pm.rulesRef = c.info;
+        pm.endConv = c.id; pm.endStep = c.step; pm.endNpc = c.npc; pm.endFacts = c.facts; pm.endGoodbye = c.goodbye;
+        pm.text = "an irreversible choice";
+        MenuRequest rq; rq.menu = pm.id; rq.kind = MenuKind::MessageBox; rq.origin = c.initiator; rq.consent = true;
+        rq.text = "Player " + std::to_string(int(c.initiator)) + " is about to decide for the whole party. Agree?";
+        rq.buttons = pm.buttons; rq.defaultChoice = 1;
+        if (pm.need) o.push_back({pm.need, rq});
+        menus_[pm.id] = std::move(pm);
+    }
     void finishLine(Conv& c, uint32_t now, std::vector<Out>& o) {
         runEnd(c, o);
+        if (c.endHeld) { c.st = St::HoldingEnd; return; }   // released by rulesResolved
         c.st = St::AwaitPick;
         if (c.goodbye) closeConv(c, CloseReason::Goodbye, now, o);
     }
@@ -425,6 +506,10 @@ private:
         if (pm.consenting) {                             // phase 2: party consent / vote, answers from the other players
             if (!(pm.need & bit(from)) && !mutations().anyoneRepliesMenu) { ++rejected_; return; }
             if (m.choice != 0 && m.choice != 1) { ++rejected_; return; }
+            if (pm.rulesWait) {                          // the rules engine counts: every answer goes to it, the menu stays open until its verdict
+                if (voteSink_ && !mutations().voteAnswerDropped) voteSink_(from, pm.rulesRef, mutations().voteAnswerInverted ? m.choice != 0 : m.choice == 0);
+                return;
+            }
             if (m.choice == 1) { pm.no = uint8_t(pm.no | bit(from)); pm.yes = uint8_t(pm.yes & ~bit(from)); }
             else { pm.yes = uint8_t(pm.yes | bit(from)); pm.no = uint8_t(pm.no & ~bit(from)); }
             const Verdict v = verdict(pm, false);
@@ -438,6 +523,17 @@ private:
         const bool asks = pm.opt.mode != ConsentMode::Actor || mutations().actorAsksParty;   // Actor: a personal decision, nobody is asked
         if (pm.opt.partyConsent && irreversible && asks && !mutations().skipConsent) {
             uint8_t need = uint8_t(connected_ & ~bit(pm.origin));
+            if (need && pm.opt.mode == ConsentMode::Rules) {   // the rules engine owns this vote (ChoiceConsent box)
+                if (!boxGate_ || mutations().boxGateIgnored || boxGate_(pm.opt.rulesChoice, pm.origin) == Gate::Run) { finishMenu(it, m.choice, false, o); return; }
+                pm.consenting = true; pm.need = need; pm.yes = 0; pm.no = 0; pm.picked = m.choice;
+                pm.rulesWait = true; pm.rulesRef = pm.opt.rulesChoice;
+                pm.deadline = now + (pm.opt.timeoutMs ? pm.opt.timeoutMs : cfg_.messageMenuMs) + kRulesGraceMs;
+                MenuRequest rq; rq.menu = pm.id; rq.kind = pm.kind; rq.origin = pm.origin; rq.consent = true;
+                rq.text = "Player " + std::to_string(int(pm.origin)) + " is about to decide for the whole party: " + pm.text.substr(0, 120);
+                rq.buttons = {"Agree", "Not yet"}; rq.defaultChoice = 1;
+                o.push_back({need, rq});
+                return;
+            }
             if (need) {                                  // point of no return / story fork: ask everybody else
                 pm.consenting = true; pm.need = need; pm.yes = 0; pm.no = 0; pm.picked = m.choice;
                 pm.deadline = now + (pm.opt.timeoutMs ? pm.opt.timeoutMs : cfg_.messageMenuMs);
@@ -460,7 +556,29 @@ private:
         std::string label;
         if (choice >= 0 && size_t(choice) < pm.buttons.size()) label = pm.buttons[size_t(choice)];
         o.push_back({connected_, MenuClosed{pm.id, choice, timedOut, label}});
-        if (menuResume_ && !pm.heldConv) menuResume_(pm.id, choice, timedOut);
+        if (menuResume_ && !pm.heldConv && !pm.endConv) menuResume_(pm.id, choice, timedOut);
+    }
+    // The verdict for a vote the rules engine owns (or the failsafe when it never came): see rulesResolved.
+    template <class It> void rulesDone(It it, bool accepted, uint32_t now, std::vector<Out>& o) {
+        PendingMenu pm = it->second;
+        if (!pm.endConv) { finishMenu(it, accepted ? pm.picked : pm.opt.declineChoice, false, o); return; }   // a box: the script gets the origin's button or the decline choice
+        menus_.erase(it);
+        closeMenu(pm, accepted ? 0 : 1, false, o);
+        Conv* c = find(pm.endConv);
+        const bool run = (accepted && !mutations().heldEndNeverReleased) || (!accepted && mutations().heldEndRunsOnDeny);
+        uint64_t txn = 0;
+        if (run) {
+            ++runs_;
+            ResultRequest rq{pm.endConv, pm.endStep, Phase::End, pm.origin, pm.endNpc, pm.rulesRef, &pm.endFacts};
+            txn = run_ ? run_(rq) : 0;
+        }
+        if (!c || !c->endHeld) return;                                       // the conversation is gone (the initiator left): the script ran or was dropped, nothing to continue
+        if (mutations().heldEndNeverReleased && accepted) return;           // (mutant) the line hangs
+        c->endHeld = false; c->endDone = true; c->endTxn = txn;
+        if (run) o.push_back({connected_, Result{c->id, c->step, Phase::End, txn}});
+        if (!accepted) { closeConv(*c, CloseReason::ConsentDenied, now, o); return; }   // told: the conversation ends, no script ran
+        c->st = St::AwaitPick;
+        if (c->goodbye) closeConv(*c, CloseReason::Goodbye, now, o);
     }
     // The party answered for a held fork INFO: run the pick as if it had just arrived, or close the conversation without any script.
     void resolveHeld(ConvId id, bool approved, std::vector<Out>& o) {
@@ -501,6 +619,12 @@ private:
         for (auto it = menus_.begin(); it != menus_.end();) {
             PendingMenu& pm = it->second;
             const bool originGone = leaver != fnvcoop::kNoPlayer && pm.origin == leaver;
+            if (pm.rulesWait && !originGone) {           // the rules engine owns the count (its own timeout resolves it); this is only the failsafe
+                if (leaver != fnvcoop::kNoPlayer) pm.need = uint8_t(pm.need & ~bit(leaver));
+                if (now >= pm.deadline && !mutations().noMenuDefault) { auto cur = it++; rulesDone(cur, false, now, o); continue; }
+                ++it;
+                continue;
+            }
             if (pm.consenting && !originGone) {
                 if (leaver != fnvcoop::kNoPlayer) {      // a consenter left: they no longer count
                     pm.need = uint8_t(pm.need & ~bit(leaver)); pm.yes = uint8_t(pm.yes & ~bit(leaver)); pm.no = uint8_t(pm.no & ~bit(leaver));
@@ -529,6 +653,9 @@ private:
 
     std::map<uint32_t, PendingMenu> menus_;
     std::map<FormRef, ChoiceRule> choiceRules_;
+    static constexpr uint32_t kRulesGraceMs = 30000;   // the failsafe waits this much longer than the rules engine's own timeout
+    RulesGate infoGate_, boxGate_;
+    VoteSink voteSink_;
     uint32_t nextMenu_ = 0, nextForced_ = 0;
     ActorChooser chooser_;
     MenuResume menuResume_;
@@ -543,7 +670,7 @@ private:
     std::map<ConvId, Conv> convs_;
     std::map<FormRef, ConvId> npcLock_;
     std::set<FormRef> dead_, combat_;
-    uint32_t runs_ = 0, rejected_ = 0;
+    uint32_t runs_ = 0, rejected_ = 0, repeatPicks_ = 0;
 };
 
 }  // namespace fnvcoop_dlg

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <memory>
 #include <vector>
 
@@ -49,6 +50,26 @@ namespace {
 std::vector<RemoteApplier*>& instances() {
     static std::vector<RemoteApplier*> v;
     return v;
+}
+std::function<void(const std::string&)>& traceFn() {
+    static std::function<void(const std::string&)> f;
+    return f;
+}
+constexpr uint32_t kPlayerRefID = 0x14;   // PlayerRef: the local player on every copy
+// FalloutNV.esm PipBoy (ARMO 015038) and PipBoyGlove (ARMO 025B83): every player's own device, never given a second time (see AddItem below).
+bool isPlayerDevice(const fnvcoop::FormRef& f) {
+    return f.plugin == "falloutnv.esm" && (f.localId == 0x015038 || f.localId == 0x025B83);
+}
+// The done flag of one stage item of a quest (-1: the quest has no such stage item). SEH-guarded: a bad pointer reads as unknown.
+int stageDoneFlag(void* quest, uint32_t stage) {
+    __try {
+        TESQuest* q = static_cast<TESQuest*>(quest);
+        for (auto it = q->stages.Begin(); !it.End(); ++it)
+            if (it.Get() && it.Get()->stage == stage) return it.Get()->isDone ? 1 : 0;
+        return -1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -2;
+    }
 }
 std::function<bool(uint32_t)>& defaultRemoteDriven() {
     static std::function<bool(uint32_t)> f;
@@ -109,7 +130,15 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
     if (auto* x = std::get_if<SetStage>(&e)) {
         void* q = form(x->quest);
         if (!q) return ApplyStatus::FormMissing;
+        const int doneBefore = traceFn() ? stageDoneFlag(q, x->stage) : 0;
+        const UInt8 curBefore = *reinterpret_cast<UInt8*>(static_cast<char*>(q) + 0x60);
         bool ok = tc<bool, UInt8>(addr::SetStage.target, q, static_cast<UInt8>(x->stage));
+        if (traceFn()) {
+            char b[200];
+            std::snprintf(b, sizeof b, "applyremote: SetStage %s %u -> engine %s; done flag %d -> %d, current stage %u -> %u", x->quest.plugin.c_str(), x->stage, ok ? "ok" : "REFUSED",
+                          doneBefore, stageDoneFlag(q, x->stage), (unsigned)curBefore, (unsigned)*reinterpret_cast<UInt8*>(static_cast<char*>(q) + 0x60));
+            traceFn()(std::string(b) + " quest " + std::to_string(x->quest.localId));
+        }
         if (!ok) err_ = "engine SetStage returned false (stage not defined in this quest, or quest data missing)";
         return ok ? ApplyStatus::Ok : ApplyStatus::EngineRejected;
     }
@@ -153,7 +182,32 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
         void* it = form(x->item);
         void* p = thePlayer();
         if (!it || !p) return ApplyStatus::FormMissing;
+        // The Pip-Boy 3000 and its glove are each player's own device, set up by that player's own game. Doc's farewell (VCG01) gives them on the host, and
+        // the shared AddItem gave the client a second one: the engine then recursed until the copy's stack ran out (Goodsprings story run S02, 2026-10-28:
+        // ~3800 cycles of the same game frames in three dumps; skipping these two items on the client stopped the crash). A player who has one keeps it;
+        // only a player with none (count 0) gets it. The count read faults (-1) on the device a player already wears, which counts as having it.
+        if (isPlayerDevice(x->item)) {
+            const int have = playerItemCountForTrace(res_.fromRef(x->item));
+            if (have != 0) {
+                if (traceFn()) traceFn()("applyremote: AddItem " + x->item.plugin + ":" + std::to_string(x->item.localId) + " skipped: the local player already has this Pip-Boy device (count " + std::to_string(have) + ")");
+                return ApplyStatus::Ok;
+            }
+        }
+        const int had = traceFn() ? playerItemCountForTrace(res_.fromRef(x->item)) : 0;
+        if (exec) {
+            // The game's own AddItem command, as the host's script ran it: the raw TESObjectREFR::AddItem with no extra list skips the bookkeeping the
+            // command does, and on a client the Pip-Boy 3000 / Pip-Boy Glove of Doc's farewell (VCG01) then crashed the copy at FalloutNV.exe+4DDCA
+            // (Goodsprings story run S02, 2026-10-28). The trailing 1 hides the "item added" message, as a replicated item is not a pickup.
+            gate.reset();
+            ApplierExecScope scope;
+            const bool ok = exec(addItemCmd(res_.fromRef(x->item), x->count) + " 1", kPlayerRefID);
+            if (traceFn()) traceFn()("applyremote: AddItem " + x->item.plugin + ":" + std::to_string(x->item.localId) + " x" + std::to_string(x->count) + " to the local player (command): count " +
+                                     std::to_string(had) + " -> " + std::to_string(playerItemCountForTrace(res_.fromRef(x->item))) + (ok ? "" : " REFUSED"));
+            return ok ? ApplyStatus::Ok : ApplyStatus::EngineRejected;
+        }
         static_cast<TESObjectREFR*>(p)->AddItem(static_cast<TESForm*>(it), nullptr, static_cast<UInt32>(x->count));
+        if (traceFn()) traceFn()("applyremote: AddItem " + x->item.plugin + ":" + std::to_string(x->item.localId) + " x" + std::to_string(x->count) + " to the local player: count " +
+                                 std::to_string(had) + " -> " + std::to_string(playerItemCountForTrace(res_.fromRef(x->item))));
         return ApplyStatus::Ok;
     }
     if (auto* x = std::get_if<RemoveItem>(&e)) {
@@ -324,7 +378,13 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
             }
             return run(removeAllItemsCmd(), r);
         }
-        if (auto* x = std::get_if<AddNote>(&e)) { uint32_t n; if (!idOf(x->note, &n)) return ApplyStatus::FormMissing; gate.reset(); return run(addNoteCmd(n), 0); }
+        if (auto* x = std::get_if<AddNote>(&e)) {
+            uint32_t n; if (!idOf(x->note, &n)) return ApplyStatus::FormMissing;
+            gate.reset();
+            ApplyStatus st = run(addNoteCmd(n), 0);
+            if (traceFn()) traceFn()("applyremote: AddNote " + x->note.plugin + ":" + std::to_string(x->note.localId) + (st == ApplyStatus::Ok ? " -> ok" : " -> not ok"));   // the dump cannot read notes: this line is the evidence
+            return st;
+        }
         if (auto* x = std::get_if<RemoveNote>(&e)) { uint32_t n; if (!idOf(x->note, &n)) return ApplyStatus::FormMissing; gate.reset(); return run(removeNoteCmd(n), 0); }
         if (auto* x = std::get_if<SayOnceFlag>(&e)) {   // a client's INFO learns it was spoken (said_once.h)
             TESForm* f = static_cast<TESForm*>(form(x->info));
@@ -337,9 +397,14 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
         if (auto* x = std::get_if<SetWeather>(&e)) { uint32_t w; if (!idOf(x->weather, &w)) return ApplyStatus::FormMissing; gate.reset(); return run(setWeatherCmd(w, x->force), 0); }
         if (auto* x = std::get_if<SetMapMarker>(&e)) {
             uint32_t m;
-            if (!idOf(x->marker, &m)) return ApplyStatus::FormMissing;
+            if (!idOf(x->marker, &m)) {
+                if (traceFn()) traceFn()("applyremote: SetMapMarker " + x->marker.plugin + ":" + std::to_string(x->marker.localId) + " form missing");
+                return ApplyStatus::FormMissing;
+            }
             gate.reset();
-            return run(showMapCmd(m, (x->flags & kMarkerTravel) != 0), 0);
+            const ApplyStatus st = run(showMapCmd(m, (x->flags & kMarkerTravel) != 0), 0);
+            if (traceFn()) traceFn()("applyremote: SetMapMarker " + showMapCmd(m, (x->flags & kMarkerTravel) != 0) + " -> " + (st == ApplyStatus::Ok ? "ok" : "not ok: " + err_));
+            return st;
         }
         if (auto* x = std::get_if<SetFastTravelLock>(&e)) {
             gate.reset();
@@ -422,6 +487,18 @@ ApplyStatus RemoteApplier::applyMove(const MoveRef& x, const ExecFn& exec, bool 
     return ApplyStatus::Ok;
 }
 
+// Does the reference have a 3D model here (its cell is loaded and the model is attached)? TESObjectREFR::renderState (+0x64) -> niNode (+0x14). SEH-guarded.
+static bool refHas3D(const void* ref) {
+    __try {
+        const char* r = static_cast<const char*>(ref);
+        const char* cell = *reinterpret_cast<char* const*>(r + 0x40);   // parentCell
+        const char* rs = *reinterpret_cast<char* const*>(r + 0x64);     // renderState
+        return cell && rs && *reinterpret_cast<void* const*>(rs + 0x14) != nullptr;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 ApplyStatus RemoteApplier::applyRefCommand(const RefCommand& x, const ExecFn& exec, std::unique_ptr<ScriptGate>* gate) {
     const RefOpSpec* s = storySpecFor(x.op);
     if (!s) { err_ = "unknown RefCommand op"; return ApplyStatus::Unsupported; }
@@ -439,6 +516,13 @@ ApplyStatus RemoteApplier::applyRefCommand(const RefCommand& x, const ExecFn& ex
         const TESObjectREFR* target = lr.callingRef ? static_cast<TESObjectREFR*>(res_.lookup(lr.callingRef)) : nullptr;
         if (!target || !target->baseForm || !activateTypeSafe(target->baseForm->typeID)) return ApplyStatus::NotForMe;   // a menu / conversation belongs to its player
     }
+    // An animation order on a reference without a 3D model (its cell is not loaded on this machine, e.g. the host harvests a plant far from this guest) runs engine
+    // animation code on a null node: the crash `C0000005 at FalloutNV.exe+4DDCA` (a field getter on a null `this`) in the first Goodsprings story run, S08, while the
+    // host harvested a plant. The model plays its group from the object's own onLoad script when the cell loads.
+    if (refOpNeedsModel(x.op) && lr.callingRef) {
+        const void* target = res_.lookup(lr.callingRef);
+        if (!target || !refHas3D(target)) { err_ = "no 3D model here: " + lr.line; return ApplyStatus::NotForMe; }
+    }
     if (gate) gate->reset();   // the console line is a script: the ScriptGate must be open for it
     ApplierExecScope scope;
     if (exec(lr.line, lr.callingRef)) return ApplyStatus::Ok;
@@ -446,6 +530,24 @@ ApplyStatus RemoteApplier::applyRefCommand(const RefCommand& x, const ExecFn& ex
     return ApplyStatus::EngineRejected;
 }
 
+void RemoteApplier::setTrace(std::function<void(const std::string&)> f) { traceFn() = std::move(f); }
+void traceLine(const std::string& line) { if (traceFn()) traceFn()(line); }
+bool traceEnabled() { return static_cast<bool>(traceFn()); }
+int playerItemCountForTrace(uint32_t itemRefId) {
+    __try {
+        void* p = thePlayer();
+        if (!p) return -1;
+        auto* xc = static_cast<ExtraContainerChanges*>(static_cast<TESObjectREFR*>(p)->extraDataList.GetByType(kExtraData_ContainerChanges));
+        ExtraContainerChanges::EntryDataList* list = xc ? xc->GetEntryDataList() : nullptr;
+        if (!list) return -1;
+        int n = 0;
+        for (auto it = list->Begin(); !it.End(); ++it)
+            if (it.Get() && it.Get()->type && it.Get()->type->refID == itemRefId) n += it.Get()->countDelta;
+        return n;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+}
 void RemoteApplier::setDefaultRemoteDrivenQuery(std::function<bool(uint32_t refID)> f) { defaultRemoteDriven() = std::move(f); }
 
 size_t RemoteApplier::tickPending() {
@@ -482,6 +584,11 @@ ApplyStatus RemoteApplier::applyForce(const Effect& e) {
         char* q = static_cast<char*>(form(x->quest));
         if (!q) return ApplyStatus::FormMissing;
         UInt8 cur = *reinterpret_cast<UInt8*>(q + 0x60);  // TESQuest::currentStage
+        if (traceFn()) {
+            char b[160];
+            std::snprintf(b, sizeof b, "applyremote: FORCE SetStage %u on %u (current %u, done flag %d)", x->stage, x->quest.localId, (unsigned)cur, stageDoneFlag(q, x->stage));
+            traceFn()(b);
+        }
         if (x->stage > cur) {
             // raising: let the engine do the native part (journal text, flags) with scripts gated off
             if (tc<bool, UInt8>(addr::SetStage.target, q, static_cast<UInt8>(x->stage))) return ApplyStatus::Ok;

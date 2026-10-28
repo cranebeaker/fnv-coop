@@ -60,6 +60,12 @@ void io(Archive& a, Companion& c) {
         c.kind = static_cast<CompanionKind>(k);
     }
     io(a, c.state);
+    uint8_t flags = c.party ? 1 : 0;   // bit 0: party companion (G34)
+    a.u8(flags);
+    if (a.reading()) {
+        if (flags > 1) { a.fail(); return; }
+        c.party = flags == 1;
+    }
 }
 void io(Archive& a, CompanionCmd& c) {
     a.u64(c.id);
@@ -115,9 +121,39 @@ size_t CompanionBook::countOf(PlayerId owner, CompanionKind kind) const {
     for (auto& kv : list_) if (kv.second.owner == owner && kv.second.kind == kind) ++n;
     return n;
 }
+size_t CompanionBook::capCountOf(PlayerId owner, CompanionKind kind) const {
+    size_t n = 0;
+    for (auto& kv : list_) if (kv.second.owner == owner && kv.second.kind == kind && (!kv.second.party || FNV_MUT(884))) ++n;   // BAD (884): a party companion uses its recruiter's follower slot
+    return n;
+}
+size_t CompanionBook::capTotal() const {
+    size_t n = 0;
+    for (auto& kv : list_) if (!kv.second.party || FNV_MUT(884)) ++n;
+    return n;
+}
 bool CompanionBook::overCap(PlayerId owner) const {
     if (FNV_MUT(828)) return countOf(owner) > static_cast<size_t>(caps_.humanoidPerOwner) + caps_.critterPerOwner + 100;   // BAD (828): kinds not counted apart
-    return countOf(owner, CompanionKind::Humanoid) > caps_.humanoidPerOwner || countOf(owner, CompanionKind::Critter) > caps_.critterPerOwner;
+    return capCountOf(owner, CompanionKind::Humanoid) > caps_.humanoidPerOwner || capCountOf(owner, CompanionKind::Critter) > caps_.critterPerOwner;
+}
+
+bool CompanionBook::wantsParty(const FormRef& npc) const {
+    if (fixedParty_.count(npc)) return true;
+    return oracle_ && oracle_(npc);
+}
+std::vector<FormRef> CompanionBook::refreshParty() {
+    std::vector<FormRef> changed;
+    for (auto& kv : list_) {
+        const bool want = wantsParty(kv.first);
+        if (kv.second.party != want) { kv.second.party = want; changed.push_back(kv.first); }
+    }
+    return changed;
+}
+std::vector<FormRef> CompanionBook::handParty(PlayerId from, PlayerId to) {
+    std::vector<FormRef> handed;
+    if (FNV_MUT(889) || !slotOk(to)) return handed;   // BAD (889): the party companion keeps a recruiter who is gone
+    for (auto& kv : list_)
+        if (kv.second.party && kv.second.owner == from) { kv.second.owner = to; handed.push_back(kv.first); }
+    return handed;
 }
 
 RecruitVerdict CompanionBook::check(const FormRef& npc, PlayerId owner, CompanionKind kind) const {
@@ -127,10 +163,11 @@ RecruitVerdict CompanionBook::check(const FormRef& npc, PlayerId owner, Companio
         if (it->second.owner == owner) return {true, RecruitReason::AlreadyYours};
         if (!FNV_MUT(803)) return {false, RecruitReason::OwnedByOther};   // BAD (803): a companion can be taken from its recruiter by a recruit
     }
-    const size_t mine = countOf(owner, kind);
+    if ((wantsParty(npc) || (it != list_.end() && it->second.party)) && !FNV_MUT(884)) return {true, RecruitReason::Ok};   // a party companion is nobody's follower slot (BAD 884: it is)
+    const size_t mine = capCountOf(owner, kind);
     const size_t cap = FNV_MUT(827) ? caps_.humanoidPerOwner : (kind == CompanionKind::Humanoid ? caps_.humanoidPerOwner : caps_.critterPerOwner);   // BAD (827): critters use the humanoid cap
     if (mine >= cap && !FNV_MUT(801)) return {false, RecruitReason::OwnerCap};                          // BAD (801): the per-owner cap is not checked
-    if (list_.size() - (it != list_.end() ? 1 : 0) >= caps_.partyTotal && !FNV_MUT(802)) return {false, RecruitReason::PartyCap};   // BAD (802): no party cap
+    if (capTotal() - (it != list_.end() && !it->second.party ? 1 : 0) >= caps_.partyTotal && !FNV_MUT(802)) return {false, RecruitReason::PartyCap};   // BAD (802): no party cap
     return {true, RecruitReason::Ok};
 }
 
@@ -140,7 +177,7 @@ RecruitVerdict CompanionBook::recruit(const FormRef& npc, PlayerId owner, Compan
     Companion c;
     auto it = list_.find(npc);
     if (it != list_.end()) c = it->second;   // taken over (only with the 803 twin): keep the state
-    c.npc = npc; c.owner = owner; c.kind = kind;
+    c.npc = npc; c.owner = owner; c.kind = kind; c.party = wantsParty(npc);
     list_[npc] = c;
     return v;
 }
@@ -158,11 +195,11 @@ CompanionBook::Change CompanionBook::applyEffect(const Effect& e) {
             ch.from = it->second.owner;
             if (it->second.owner == c->owner && it->second.kind == kind) return ch;   // idempotent
             if (FNV_MUT(805)) { it->second.kind = kind; return ch; }                  // BAD (805): a recruit by another player does not take the NPC over
-            it->second.owner = c->owner; it->second.kind = kind;
+            it->second.owner = c->owner; it->second.kind = kind; it->second.party = wantsParty(c->npc);
             it->second.state = CompanionState{};   // a new recruiter starts from the default behaviour
         } else {
             Companion n;
-            n.npc = c->npc; n.owner = c->owner; n.kind = kind;
+            n.npc = c->npc; n.owner = c->owner; n.kind = kind; n.party = wantsParty(c->npc);
             list_[c->npc] = n;
         }
         ch.changed = true; ch.to = c->owner;
@@ -178,7 +215,7 @@ CompanionBook::Change CompanionBook::applyEffect(const Effect& e) {
 bool CompanionBook::dismiss(const FormRef& npc, PlayerId by, PlayerId host) {
     auto it = list_.find(npc);
     if (it == list_.end()) return false;
-    if (it->second.owner != by && by != host && !FNV_MUT(807)) return false;   // BAD (807): anybody can dismiss anybody's companion
+    if (it->second.owner != by && !(it->second.party && !FNV_MUT(891)) && by != host && !FNV_MUT(807)) return false;   // BAD (807): anybody can dismiss anybody's companion (BAD 891: only the recruiter may dismiss a party companion)
     list_.erase(it);
     return true;
 }
@@ -187,7 +224,7 @@ std::vector<FormRef> CompanionBook::playerLeft(PlayerId p) {
     std::vector<FormRef> gone;
     if (FNV_MUT(806)) return gone;   // BAD (806): the companions of a leaver stay flagged as theirs
     for (auto it = list_.begin(); it != list_.end();) {
-        if (it->second.owner == p) { gone.push_back(it->first); it = list_.erase(it); }
+        if (it->second.owner == p && (!it->second.party || FNV_MUT(888))) { gone.push_back(it->first); it = list_.erase(it); }   // BAD (888): the party companion goes with its recruiter (ED-E vanishes from the book)
         else ++it;
     }
     return gone;
@@ -206,7 +243,7 @@ uint64_t CompanionBook::digest() const {
     for (auto& kv : list_) {   // std::map order = deterministic
         h = fnvForm(h, kv.first);
         if (!FNV_MUT(825)) h = fnvU(h, kv.second.owner);   // BAD (825): the owner is not part of the digest
-        h = fnvU(h, static_cast<uint64_t>(kv.second.kind));
+        h = fnvU(h, static_cast<uint64_t>(kv.second.kind) | (kv.second.party && !FNV_MUT(890) ? 0x100u : 0u));   // BAD (890): the party flag is not part of the digest
         h = fnvU(h, static_cast<uint64_t>(kv.second.state.mode) | (static_cast<uint64_t>(kv.second.state.stance) << 8) |
                         (static_cast<uint64_t>(kv.second.state.range) << 16) | (static_cast<uint64_t>(kv.second.state.rev) << 24));
     }
@@ -233,7 +270,7 @@ CmdVerdict CommandJudge::judge(const CompanionCmd& c, PlayerId sender, uint64_t 
     if (ids_.count(c.id) && !FNV_MUT(811)) return no(CmdReason::Duplicate);   // BAD (811): a replayed command runs again
     const Companion* comp = book.find(c.npc);
     if (!comp) return no(CmdReason::NotACompanion);
-    if (comp->owner != sender && !FNV_MUT(809)) return no(CmdReason::NotOwner);   // BAD (809): commands from a non-owner are obeyed
+    if (comp->owner != sender && !(comp->party && !FNV_MUT(885)) && !FNV_MUT(809)) return no(CmdReason::NotOwner);   // (BAD 885: anybody but the recruiter is refused for a party companion)   // BAD (809): commands from a non-owner are obeyed
     if (c.kind == CmdKind::SetStance && c.arg > 2) return no(CmdReason::BadArg);
     if (c.kind == CmdKind::SetRange && c.arg > 2) return no(CmdReason::BadArg);
     auto last = last_.find(sender);
@@ -264,6 +301,7 @@ ActivationVerdict gateActivation(const CompanionBook& book, PlayerId who, const 
     if (!c) return v;
     v.owner = c->owner;
     if (c->owner == who) { v.action = ActivateAction::OwnerOpens; return v; }
+    if (c->party && !FNV_MUT(886)) { v.action = ActivateAction::PartyOpens; return v; }   // BAD (886): the wheel of a party companion opens for its recruiter only
     if (policy == ForeignPolicy::Allow || FNV_MUT(815)) { v.action = ActivateAction::AllowForeign; return v; }   // BAD (815): the wheel opens for anybody
     v.action = ActivateAction::DenyForeign;
     return v;
@@ -307,7 +345,7 @@ InvVerdict CompanionInventory::judge(const InvDelta& d, PlayerId sender, const C
     const Companion* c = book.find(d.npc);
     if (!c) { v.reason = InvReason::NotACompanion; return v; }
     if (d.delta == 0) { v.reason = InvReason::ZeroDelta; return v; }
-    if (c->owner != sender && !FNV_MUT(816)) { v.reason = InvReason::NotOwner; return v; }   // BAD (816): anybody can change anybody's companion's inventory
+    if (c->owner != sender && !(c->party && !FNV_MUT(887)) && !FNV_MUT(816)) { v.reason = InvReason::NotOwner; return v; }   // (BAD 887: a party companion's inventory takes its recruiter's changes only)   // BAD (816): anybody can change anybody's companion's inventory
     if (ids_.count(d.txn) && !FNV_MUT(817)) { v.reason = InvReason::Duplicate; return v; }   // BAD (817): a replayed delta applies again
     const int64_t result = static_cast<int64_t>(count(d.npc, d.item)) + d.delta;
     if ((result > kMaxItemCount || result < -static_cast<int64_t>(kMaxItemCount)) && !FNV_MUT(818)) { v.reason = InvReason::OutOfRange; v.resync = true; return v; }   // BAD (818): a count can run away without bound

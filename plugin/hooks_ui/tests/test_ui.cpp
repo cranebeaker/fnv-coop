@@ -84,6 +84,7 @@ struct Rig {
     std::vector<ForcedSayArgs> said;
     std::vector<FormRef> convs;
     PlayerId convActor = 1;
+    int playerVarAsks = 0;
     std::vector<std::tuple<std::string, std::string>> slidesSeen;
 
     Rig() : r(eng, Bridge()) {
@@ -108,6 +109,8 @@ struct Rig {
             return std::nullopt;
         };
         b.watchesQuest = [](uint32_t q) { return q == 0x500; };
+        b.hasPlayerVars = [this](const FormRef& q) { ++playerVarAsks; return q.localId == 0x600; };   // wave 1b: the rules engine's per-player variables of quest 0x600
+        b.viewPlayerVar = [](const FormRef&, uint32_t idx, PlayerId slot, double real) { return idx == 3 ? 0.25 + slot : real; };   // a float variable: slot 0 0.25, slot 1 1.25, slot 2 2.25
         b.viewVar = [](const FormRef&, uint32_t idx, PlayerId slot, int32_t real) { return idx == 47 ? int32_t(slot == 2 ? 1 : 0) : real; };
         b.forcedSay = [this](const ForcedSayArgs& a) { said.push_back(a); };
         b.forceConversation = [this](const FormRef&, const FormRef& t, PlayerId) { convs.push_back(t); return convActor; };
@@ -307,6 +310,22 @@ TEST(condition_view_ignores_unwatched_quests_and_other_vars) {
     CHECK(g.r.viewQuestVar(0x501, 47, 5.0) == 5.0);  // not watched
     CHECK(g.r.viewQuestVar(0x500, 12, 5.0) == 5.0);  // watched quest, var without a rule
     CHECK(g.r.stats().condViews == 1);
+}
+TEST(condition_view_shows_each_player_its_own_float_variable) {
+    Rig g;
+    CHECK(g.r.viewQuestVar(0x600, 3, 9.5) == 0.25);                                       // the host's own copy, a float kept as a float
+    {
+        OriginScope s(g.r.origin(), OriginContext::Kind::Dialogue, 1);
+        CHECK(g.r.viewQuestVar(0x600, 3, 9.5) == 1.25);                                   // a guest's result script reads the guest's copy
+    }
+    {
+        OriginScope s(g.r.origin(), OriginContext::Kind::Acting, 2);
+        CHECK(g.r.viewQuestVar(0x600, 3, 9.5) == 2.25 && g.r.viewQuestVar(0x600, 8, 9.5) == 9.5);   // a variable without a copy is the real value
+    }
+    CHECK(g.r.viewQuestVar(0x601, 3, 9.5) == 9.5 && g.r.viewQuestVar(0x601, 3, 9.5) == 9.5);   // a quest without per-player variables is untouched ...
+    CHECK(g.playerVarAsks == 2);                                                          // ... and each quest is only asked about once (conditions run every frame)
+    g.r.invalidateViews();
+    CHECK(g.r.viewQuestVar(0x600, 3, 9.5) == 0.25 && g.playerVarAsks == 3);
 }
 TEST(condition_view_without_bridge_is_identity) {
     FakeEngine e;
@@ -606,6 +625,7 @@ int main() {
     run("condition_view_is_per_evaluating_slot", condition_view_is_per_evaluating_slot);
     run("condition_view_ignores_unwatched_quests_and_other_vars", condition_view_ignores_unwatched_quests_and_other_vars);
     run("condition_view_without_bridge_is_identity", condition_view_without_bridge_is_identity);
+    run("condition_view_shows_each_player_its_own_float_variable", condition_view_shows_each_player_its_own_float_variable);
     run("condition_local_slot_on_a_client", condition_local_slot_on_a_client);
     run("sayto_player_inside_acting_scope_targets_that_player", sayto_player_inside_acting_scope_targets_that_player);
     run("sayto_player_outside_any_scope_is_a_party_scene", sayto_player_outside_any_scope_is_a_party_scene);

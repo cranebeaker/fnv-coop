@@ -86,6 +86,10 @@ public:
     // Inventory (the owner's AI drinks a Stimpak, the other copies must lose it too). Defaults: not available, nothing is synced.
     virtual bool sampleInventory(NetId id, InvList& out) { (void)id; (void)out; return false; }   // false = cannot read it exactly now
     virtual bool applyInventory(NetId id, const InvList& want) { (void)id; (void)want; return false; }   // make the engine copy hold exactly `want`
+    // Non-owner copy: check the mirrored actor values against `expected` (the owner's, merged) and write the ones that differ. Returns how many it had to correct.
+    // An AV is mirrored once, when it changes; an engine that puts the actor's damage somewhere else while the actor is not fully loaded gives the copy another
+    // health once it loads (vats room behind bad_wifi, run 20261028-032920: the copy read -55 for the owner's 5 until the area digest healed it). Default: write all.
+    virtual size_t auditAv(NetId id, const std::vector<live::AvValue>& expected) { applyAv(id, expected); return 0; }
 };
 
 // ---- the network side --------------------------------------------------------------------------------------------------------
@@ -108,6 +112,10 @@ struct SyncConfig {
     uint32_t resyncMinMs = 500;    // client: at most one MResync per actor per this long
     uint32_t invPollMs = 500;      // owner: read an owned actor's inventory this often (a few actors per tick)
     uint32_t invSettleMs = 1000;   // owner: publish a changed inventory once it has stayed the same this long (a replicated AddItem has landed everywhere by then)
+    uint32_t avAuditMs = 500;      // non-owner: check a copy's mirrored actor values against the owner's this often (0 = never); under the area digest's settle time (1 s)
+    // Switches for an A/B run in game (nvcoop.ini [actors] norepeatfinal=1 nocommitnofinal=1 noavaudit=1 give the behaviour before the lab run of 2026-10-28; a key at 0 is "absent" to the lab's ini check, so the switches are off-by-default); all on by default.
+    bool acceptRepeatedFinal = true;   // new owner: a final state that only repeats what the copy already holds still completes the handoff (placed, acknowledged)
+    bool commitWithoutFinal = true;    // host: a handoff the host has no last state for commits at once instead of after the timeout
     uint32_t holdAiMaxMs = 4000;   // safety net: a new owner that committed without the old owner's final state waits at most this long before it drives the AI
     std::function<bool(CellId, CellId)> adjacent;   // neighbouring exterior cells (default: same cell only)
 };
@@ -131,7 +139,7 @@ struct Stats {
     uint64_t publishedNotOwner = 0;    // must stay 0
     uint64_t snapshotsApplied = 0, snapshotsDropped = 0;
     uint64_t staleEpochDropped = 0, notOwnerDropped = 0, futureEpoch = 0, unknownActor = 0, staleSeqDropped = 0;
-    uint64_t finalsApplied = 0, finalsSent = 0, acksSent = 0, takeovers = 0, handoffsOut = 0;
+    uint64_t finalsApplied = 0, finalsSent = 0, finalsRepeated = 0, acksSent = 0, takeovers = 0, handoffsOut = 0;   // finalsRepeated: a final that only repeated a snapshot already held (still completes the handoff)
     uint64_t standInsMade = 0, standInsRemoved = 0;
     uint64_t deathsApplied = 0, namedDeathsBlocked = 0, killsAuthorised = 0;
     uint64_t picksApplied = 0, picksRejected = 0;
@@ -140,6 +148,7 @@ struct Stats {
     uint64_t recruiterChanges = 0;
     uint64_t invPublished = 0, invApplied = 0, invRejected = 0, invDuplicate = 0, invApplyFailed = 0;   // MInventory
     uint64_t animEventsSent = 0, animEventsApplied = 0, animEventsRejected = 0, animEventsDuplicate = 0;   // enemy-anim MAnimEvent
+    uint64_t avAudits = 0, avDriftFixed = 0;   // non-owner copies checked / actor values that had drifted from the owner's and were written back
     uint64_t aiHolds = 0, aiHoldsReleased = 0, staleFinalsForwarded = 0;   // forced-commit hold of the new owner's AI (see ActorSync::onOwnApplied)
 };
 

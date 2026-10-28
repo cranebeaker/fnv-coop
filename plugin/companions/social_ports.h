@@ -37,6 +37,7 @@ struct ActorView {
     bool simulatedHere = false;      // this machine runs its AI (owner, no handoff in flight, not a stand-in)
     bool standIn = false;
     bool alive = true;
+    bool waiting = false;            // told to wait (the companion script's `Waiting` variable); only read for companions
     uint32_t cell = 0;
     cc::Vec3 pos;
     FormRef faction;                 // its crime faction (empty = none)

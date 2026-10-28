@@ -10,7 +10,7 @@ What the launcher writes into Data\\NVSE\\Plugins\\nvcoop.ini (only these keys, 
   [combat]  xpmode=1|0        1 = kill XP is shared by the party, 0 = the player who lands the killing blow gets it (read by plugin/combat)
   [party]   slowmo=0|1        host option: everyone slows down together while a player is in VATS      (NOT READ BY THE PLUGIN YET)
             tether=1|0        story moments wait for the whole party                                   (NOT READ BY THE PLUGIN YET)
-  [live]    actors avatars combat spawns   the experimental sync layers (docs/tools/dll-wiring.md), all off unless ticked
+  [live]    actors avatars combat spawns   the sync layers (docs/tools/dll-wiring.md), all on unless unticked
 
 The two [party] keys are the agreed names; the code that reads them lands with the combat and world work (docs/tools/release.md).
 """
@@ -51,10 +51,10 @@ class Settings:
     xp_share: bool = False
     slowmo: bool = False
     tether: bool = True
-    live_actors: bool = False
-    live_avatars: bool = False
-    live_combat: bool = False
-    live_spawns: bool = False
+    live_actors: bool = True
+    live_avatars: bool = True
+    live_combat: bool = True
+    live_spawns: bool = True
     game_dir: str = ""
     token: int = 0
 

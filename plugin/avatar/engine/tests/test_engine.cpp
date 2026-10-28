@@ -1080,12 +1080,50 @@ void sampler_teleport_and_cell_change_restart_the_speed() {
 }
 
 void sampler_speed_is_clamped() {
+    // 90 units in 33 ms (2700 u/s) is under the 100 unit floor of the teleport rule, so it is a speed, and never an unbounded one on the wire
+    LocalSamplerConfig cfg;
+    cfg.periodMs = 33;
+    LocalSampler fast(cfg);
+    fast.SetIdentity(0x77, 3);
+    LocalFrame f;
+    f.valid = true;
+    f.cell = 0x10;
+    f.pos = Vec3{1000, 1000, 0};
+    live::ActorSnapshot snap, lastSnap;
+    uint32_t t = 1000;
+    for (int i = 0; i < 60; ++i) {
+        f.pos.y += 90;
+        t += 33;
+        if (fast.Update(t, f, snap)) {
+            lastSnap = snap;
+            CHECK(std::sqrt(snap.vel.x * snap.vel.x + snap.vel.y * snap.vel.y) <= 2200.5f);
+        }
+    }
+    CHECK(fast.counters().teleports == 0);
+    CHECK(lastSnap.vel.y > 1500);
+    // 3000 u/s on the 50 ms period is faster than anything that falls or runs (maxSpeed 2200) and over 100 units a period: a teleport each period, restarted
+    LRig q;
+    q.Run(1500, [&](float dt) { q.be.Player().pos.y += 3000 * dt; });
+    CHECK(q.s.counters().teleports > 0);
+    for (const auto& snap : q.out) CHECK(std::sqrt(snap.vel.x * snap.vel.x + snap.vel.y * snap.vel.y) <= 2200.5f);
+}
+
+// A jump of 3 m in one period is no speed (the first version only called more than 350 units a teleport, so it went on the wire as 2200 u/s and the other copy
+// dead-reckoned it 330 units past the target: lab walk room, spawn room)
+void sampler_small_jump_is_a_teleport_not_a_speed() {
     LRig r;
-    // 3000 u/s without a teleport (150 units per period): a fall or a speed hack, never an unbounded speed on the wire
-    r.Run(1500, [&](float dt) { r.be.Player().pos.y += 3000 * dt; });
-    CHECK(r.s.counters().teleports == 0);
-    for (const auto& snap : r.out) CHECK(std::sqrt(snap.vel.x * snap.vel.x + snap.vel.y * snap.vel.y) <= 2200.5f);
-    CHECK(r.out.back().vel.y > 1500);
+    r.Run(1500, [&](float dt) { r.be.Player().pos.y += 300 * dt; });
+    r.be.Player().pos.y += 200;
+    r.Run(300);
+    CHECK(r.s.counters().teleports == 1);
+    for (size_t i = r.out.size() > 8 ? r.out.size() - 8 : 0; i < r.out.size(); ++i) CHECK(std::fabs(r.out[i].vel.y) < 400);
+    // the same jump spread over a long period (a hitch of 0.5 s) is a speed of 400 u/s: no teleport
+    LRig q;
+    q.Run(1500, [&](float dt) { q.be.Player().pos.y += 300 * dt; });
+    q.now += 450;
+    q.be.Player().pos.y += 135;
+    q.Run(100);
+    CHECK(q.s.counters().teleports == 0);
 }
 
 void sampler_flags_from_the_engine() {
@@ -1497,8 +1535,9 @@ void runtime_loopback_follows_the_player() {
     CHECK(f->restrained);
     CHECK(q.be.badLines.empty());
     CHECK(q.rt->engine().stats().foreignRefused == 0);
-    // published stream at 20 Hz, with the identity the co-op layer gave
-    CHECK(q.sent.size() >= 95 && q.sent.size() <= 105);
+    // published stream at the sampler's rate (30 Hz as shipped, avatar_tuning.h), with the identity the co-op layer gave
+    const double sentWant = 5.0 * 1000.0 / q.rt->config().sampler.periodMs;
+    CHECK(q.sent.size() >= sentWant - 8 && q.sent.size() <= sentWant + 8);
     CHECK(!q.sent.empty() && q.sent.front().netId == 0x10 && q.sent.front().ownerEpoch == 1 && q.sent.front().seq == 1);
     // console cost: running costs about a line a frame, standing nothing
     CHECK(q.rt->engine().stats().lines < 5000 / 16 * 2);
@@ -1666,6 +1705,51 @@ void runtime_status_json_contract() {
 
 // ======================================================================================================================
 
+// W3a item 3: the facts a guest's snapshot does not carry. Twin 77: no action id is sampled.
+void runtime_reads_the_local_facts() {
+    RRig r;
+    auto& p = r.be.Player();
+    p.level = 17;
+    p.sitState = 2;
+    p.actions = {9, 3};
+    r.be.playerRegions = {0x00ABCD, 0x01FF00};
+    PlayerFacts f;
+    CHECK(r.rt->ReadLocalFacts(f));
+    CHECK(f.level == 17 && f.sitting == 2);
+    CHECK(f.actions == ((1u << 9) | (1u << 3)));
+    CHECK(f.regions.size() == 2 && f.regions[0] == 0x00ABCD && f.regions[1] == 0x01FF00);
+    r.be.regionsReadable = false;                       // the region list cannot be read: the rest still goes
+    PlayerFacts g;
+    CHECK(r.rt->ReadLocalFacts(g) && g.level == 17 && g.regions.empty());
+    r.be.evalBroken = {Cond::GetLevel, Cond::GetSitting, Cond::IsPlayerActionActive};
+    PlayerFacts h;
+    CHECK(!r.rt->ReadLocalFacts(h));                    // nothing readable: no facts at all, not zeros
+}
+
+void runtime_reads_the_local_pack() {
+    RRig r;
+    auto& p = r.be.Player();
+    p.inv[0x00A84A] = 3;
+    p.inv[0x0093C4] = 1;
+    p.inv[0x00C0DE] = 50;                 // carried, not watched
+    p.inventoryWeight = 75.96;
+    const std::vector<FormId> watch = {0x00F85D, 0x0093C4, 0x00A84A, 0x0093C4};   // unsorted, a form twice, one not carried
+    PlayerPack k;
+    CHECK(r.rt->ReadLocalPack(watch, k));
+    CHECK(k.haveWeight && k.weightMilli == 75960);                                // InventoryWeight, in thousandths
+    CHECK(k.items.size() == 2 && k.items[0].form == 0x0093C4 && k.items[0].count == 1 && k.items[1].form == 0x00A84A && k.items[1].count == 3);   // sorted, only what is carried
+    CHECK(k.watchId == packWatchId({0x00A84A, 0x0093C4, 0x00F85D}));              // the id of the list, not of the order it came in
+    CHECK(k.watchId != packWatchId({0x00A84A, 0x0093C4}));
+    PlayerPack none;
+    CHECK(r.rt->ReadLocalPack({}, none) && none.items.empty() && none.haveWeight);   // no list: the weight alone
+    r.be.evalBroken = {Cond::GetActorValue};
+    PlayerPack noW;
+    CHECK(r.rt->ReadLocalPack(watch, noW) && !noW.haveWeight && noW.items.size() == 2);   // the weight cannot be read: the counts still go
+    r.be.evalBroken = {Cond::GetActorValue, Cond::GetItemCount};
+    PlayerPack h;
+    CHECK(!r.rt->ReadLocalPack(watch, h));                                        // nothing readable: no pack at all, not zeros
+}
+
 void runtime_remote_look_update_and_local_look() {
     RRig r;
     r.be.baseAppearance[7].height = 1050;              // the player's base (fake player base id 7)
@@ -1727,14 +1811,14 @@ const TestCase kTests[] = {
     T(stack_spawn_and_drive), T(stack_running_costs_one_line_per_step), T(stack_equipment_converges), T(stack_save_and_load_purge),
     T(stack_cell_change), T(stack_rebuilt_3d_is_reasserted), T(stack_menu_pauses_and_replays), T(stack_survives_all_evaluators_missing),
     T(stack_reused_ref_ids), T(stack_makes_room_for_the_local_player), T(sampler_period_identity_and_sequence), T(sampler_velocity_and_locomotion),
-    T(sampler_teleport_and_cell_change_restart_the_speed), T(sampler_speed_is_clamped), T(sampler_flags_from_the_engine), T(sampler_mover_flags_only_when_informative),
+    T(sampler_teleport_and_cell_change_restart_the_speed), T(sampler_speed_is_clamped), T(sampler_small_jump_is_a_teleport_not_a_speed), T(sampler_flags_from_the_engine), T(sampler_mover_flags_only_when_informative),
     T(sampler_not_ready_publishes_nothing), T(equip_watcher_publishes_stable_changes_only), T(local_appearance_is_read_from_the_base),
     T(runtime_loopback_follows_the_player), T(runtime_loopback_off_removes_the_puppet), T(runtime_loopback_refuses_the_local_slot),
     T(runtime_loopback_carries_equipment), T(runtime_remote_players_follow_their_own_streams), T(runtime_no_puppet_before_the_first_snapshot),
     T(runtime_game_events), T(runtime_status_json_contract),
     T(appearance_height_is_matched_with_setscale), T(weapon_mod_lines_and_readback), T(hit_target_health_lines),
     T(stack_weapon_mods_converge_and_follow_changes), T(stack_hit_target_puppet_survives_and_is_replaced), T(stack_look_update_keeps_the_puppet),
-    T(equip_watcher_carries_weapon_mods), T(runtime_remote_look_update_and_local_look), T(runtime_starts_only_with_a_player_and_says_why_not),
+    T(equip_watcher_carries_weapon_mods), T(runtime_reads_the_local_facts), T(runtime_reads_the_local_pack), T(runtime_remote_look_update_and_local_look), T(runtime_starts_only_with_a_player_and_says_why_not),
 };
 
 }  // namespace

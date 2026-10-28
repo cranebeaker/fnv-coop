@@ -19,4 +19,17 @@ struct GuestLocalRunList {
 
 bool parseGuestLocalRun(const std::string& jsonText, GuestLocalRunList* out, std::string* err);
 
+// The rule is the list (G47): the allow-list read straight from rules.json (docs/quest-policies/rules.json, deployed as nvcoop_rules.json, the very
+// text the rules engine loads). Every quest's `GuestLocalRun` rule names its scripts in params.scripts as "plugin:hexLocalId"; a quest may carry
+// the rule more than once. Entries that do not parse as a form are skipped and counted (a script EDID there is the rules engine's business, see
+// RulesEngine::guestLocalScripts). `quests` holds the owning quest EDID. Editing the rule changes what a guest runs; no second list exists.
+// False (and *err) when the text is not a rules file; an empty result is fine (no GuestLocalRun rules).
+bool parseGuestLocalRunRules(const std::string& rulesJsonText, GuestLocalRunList* out, std::string* err);
+
+// The DLC setup scripts (a subset of the allow-list) whose QUEST STATE is not per-machine: each DLC's MQ00 quest script starts its intro quest and sets its stage 10 once the player
+// has left Doc Mitchell's house (HonestHearts.esm:008A32, OldWorldBlues.esm:002FD0, LonesomeRoad.esm:003604, DeadMoney.esm:0062B1). Everything else such a script does (form lists,
+// the DLC player faction, messages) stays per machine, but a quest start / stage / objective is host-authoritative (the story's M1 line: a guest's own script must not start a quest,
+// and the digest otherwise "repairs" the copy that ran it, story-fix2). The host's run is captured and replicated; a guest's run of the same calls is dropped.
+const std::vector<fnvcoop::FormRef>& hostQuestStateScripts();
+
 }  // namespace nvhooks

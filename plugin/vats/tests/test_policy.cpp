@@ -47,6 +47,35 @@ TEST(vats_policy, the_menu_pause_is_lifted_only_for_the_vats_menu) {
     CHECK(!menuModeForWorld(session(), false));                   // the engine's own "not paused" is never turned into "paused"
 }
 
+TEST(vats_policy, the_interface_update_moves_to_the_main_thread_only_while_a_menu_is_open_in_a_realtime_session) {
+    // regression (FalloutNV.exe+400F66, 2026-10-27): the worker thread cleared the VATS highlight target while the main thread drew it
+    for (Mode m : {Mode::TargetSelect, Mode::LimbSelect, Mode::Mode3, Mode::Playback})
+        CHECK_MSG(interfaceUpdateOnMain(session(m, true), true), toString(m));   // the world runs under the open VATS menu: the main thread updates
+    CHECK(!interfaceUpdateOnMain(session(Mode::None, false), true));             // another menu (opened mid-frame): as the game does it
+    CHECK(!interfaceUpdateOnMain(session(Mode::None, true), true));              // the VATS menu is closing: the world is paused anyway
+    CHECK(!interfaceUpdateOnMain(session(), false));                              // no menu: the worker keeps its stage 0, as in the game
+    PolicyInput solo = session();
+    solo.sessionActive = false;
+    CHECK(!interfaceUpdateOnMain(solo, true));                                    // solo: vanilla never kicks the workers with a menu open anyway
+    PolicyInput off = session();
+    off.settings.realtime = false;
+    CHECK(!interfaceUpdateOnMain(off, true));
+}
+
+TEST(vats_policy, the_interface_update_runs_exactly_once_per_kicked_frame) {
+    InterfaceHandoff h;
+    CHECK(h.workerRuns());                          // before any kick: the game's own thread
+    CHECK(h.atKick(true, true));                    // a menu is open: the main thread runs it ...
+    CHECK(!h.workerRuns());                         // ... and the worker skips it
+    CHECK(!h.atKick(false, true));                  // the next frame without a menu: the worker again
+    CHECK(h.workerRuns());
+    CHECK(!h.atKick(true, false));                  // a worker site is not ours (another mod, a failed patch): never twice, the worker keeps it
+    CHECK(h.workerRuns());
+    CHECK(h.atKick(true, true));
+    h.reset();                                      // hooks removed (hot reload): the worker runs it
+    CHECK(h.workerRuns());
+}
+
 TEST(vats_policy, the_world_scale_request_becomes_one_or_the_party_scale) {
     PolicyInput in = session();
     CHECK(scaleForVatsRequest(in, 0.0001f) == 1.0f);   // the freeze on entry

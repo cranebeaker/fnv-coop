@@ -4,7 +4,7 @@ Code: `synccore/social/` (game-free rules, wire), `plugin/companions/` (per-mach
 Wire: `docs/protocol.md` section 18 (first byte `0x5C`). Status 2026-10-21: **unit-tested game-free only. NOTHING here has run in a game.** The module compiles and links into
 nvcoop.dll; it does nothing until `nvcoop.ini [companions] enabled=1` AND the live layer calls `glueFrame` (see "Wiring that belongs to other lanes").
 
-## Run it
+## Run it (G34 set pieces added 2026-10-27: twins 884-898 and 900 in synccore/social, 933-943 in plugin/companions)
 - `synccore\social\run_tests.cmd` : the rules (companions, crime, rewards, wire). Real run + 66 runtime mutation twins (`FNVCOOP_MUT=801..883`, nothing recompiled). Prints `ALL OK`.
 - `plugin\companions\run_tests.cmd` : `SocialSync` on a cluster of 3 machines (scripted worlds, recording fake engines, an in-memory star network, a committer that plays the
   story session). Real run + 28 runtime twins (`901..932`). Prints `ALL OK`.
@@ -25,6 +25,23 @@ nvcoop.dll; it does nothing until `nvcoop.ini [companions] enabled=1` AND the li
 | The companion wheel opens only for the owner: `allowActivation(who, npc)` is false for somebody else's companion (host setting `foreign=allow` lifts it). | `gateActivation` |
 | Companion inventory per owner: the owner's machine polls its companion's inventory changes (engine `ExtraContainerChanges` countDelta, i.e. changes against the base container, so UI moves, scripts and the NPC's own pickups all count) and sends signed deltas. The host accepts a delta from the owner only, once per txn, within range; other machines apply it to their copy once; the owner ignores the echo; a joiner gets the table and derives what to change. | `CompanionInventory`, `sampleInventories` |
 | Companions in combat: a hit inside the party (player to companion, companion to companion, companion to player) is neutralised unless friendly fire is on; enemies and companions still hurt each other. A party member is never a VATS target. A companion's kill credits its recruiter (XP, karma, crime). | `companionHitPolicy`, `vatsTargetAllowed`, `responsiblePlayer` |
+
+### Companion set pieces (campaign gap G34, owner decision D2: every player has their own companions, ED-E belongs to the whole party)
+Nothing here has run in a game. Switches in `[companions]`: `partyowned=1` `swapguard=1` `escort=1` `escortgrace=4000` `escortcooldown=12000` `escortfar=3500`. Data: `plugin/companions/data/companion_sets.txt`
+(embedded in the DLL as `companion_sets_default.h`; a file `nvcoop_companion_sets.txt` next to the DLL replaces it); regenerate both with `python -I plugin/companions/proof/gen_sets.py`.
+| Piece | Rule | Where |
+|---|---|---|
+| Party companion (ED-E) | A recruit that the rules engine names owner=party (`HostSession::isPartyCompanion`, installed by the `RulesEngine`, read through the runtime's host) or the data file's `party` lines marks the book entry `party`. It uses no follower slot or party-total slot, any player may command it (host judge), open its wheel and change its inventory, any player may dismiss it, and the `party` flag travels in the roster (`Companion` flags byte). The recruiter slot stays on the wire: that machine simulates ED-E and writes his engine state; a guest's order for him goes through the host (the host applies it when it simulates him). The host re-asks the oracle every second, so the order of the capture sink and the rules engine's filter does not matter. | `companions.cpp` `wantsParty` `refreshParty`, `social_sync.cpp` `refreshParty` |
+| Recruiter leaves | Ordinary companions are released as before; party companions are handed to the host (`handParty`) and the hand-over is committed (`party-companion-handed`) so the session, the dialogue registry and a joiner's baseline name the same owner. | `social_sync.cpp` `handPartyCompanions` |
+| Single slot groups | `group` lines (Dead Money: Dean, Christine, Dog; Honest Hearts: Follows-Chalk, Waking Cloud): a player gets one member at a time. A recruit that would give a player a second member is turned back and its stray flag taken off (repair: a dismiss is committed). | `slots.cpp` `vetCompanionTxn`, `SocialSync::onTxn` |
+| Swap guard | The Waking Cloud hire INFO fires "the hired Follows-Chalk" off the shared flag. When the dismissed companion belongs to ANOTHER player than the recruiter in the same transaction, the dismissal is not learnt and a re-recruit for the true owner is committed 250 ms later (`companion-repair`). A player's own swap is the vanilla behaviour and passes. What cannot be undone from outside: the fire script's side effects (teleport home, gear moved to the firing player). The real prevention is the per-player view of `bFollowsChalkHired` in the hire INFO (dialogue registry `viewVar`, see docs/handover/P7-requests.md). | same |
+| Hired sets, Fort entry / exit, Dam start | The book is the per-owner hired set. The scripts that move or disable every hired companion by name (vCCmovetothefortSCRIPT, YesManDeadSCRIPT and 215 more) read the shared hired flags, which hold the party aggregate: they move every player's companions. `glueViewSlot(script, acting)` says which view a script gets: `kViewParty` (0xFE, use the shared value) for the readers listed as `view-party`, the acting player for everything else (hire and fire scripts write the flags). | `slots.cpp` `viewSlotFor` |
+| Dead Money `rCurrentFollower` | `glueCurrentFollower(slot, "deadmoney", out)` answers with the companion that player has in the group (the shared ref variable keeps the last hire of anybody). | `slots.cpp` `currentMember` |
+| Escort | The recruiter's machine watches its own player: a companion it simulates that is loaded, alive, not waiting (the book's mode or the companion script's `Waiting`) and more than 3500 units from its player for 4 s is moved to the player (`MoveTo player`), at most once per 12 s. Covers PartyWarp, the Fort and Dam moves and any scripted `player.MoveTo` for companions the script did not move. | `escort.cpp`, `SocialSync::pollEscort` |
+| Host companions at the start | A save with Boone in the party: the adoption is committed (`seed-companions`) so the story session, the dialogue registry (Boone's "hired" flag for the host) and joiners know it. | `SocialSync::seedHostCompanions` |
+| Roster listener | `glueSetRosterListener` receives the whole roster (owner, kind, party) whenever it changed on this machine: the session wiring feeds the dialogue registry from it. | `Config::onRoster` |
+Known limits: a non-owner's Summon command for a party companion is judged and ignored (nothing moves him to the commander); gear moved by a fire script to the wrong player is not returned; the
+Arcade enslave INFO (164B1C) removes Arcade's `Hired` flag and the follower counters through the acting player's view, which only works once the view is wired.
 
 ### Crime, alarms, bounties, hostility (3.4)
 New Vegas has **no crime gold** (read from the engine's command table: the crime state is per-faction flags `SetPCFactionAttack`, `SetPCFactionMurder`, `SetPCEnemyOfFaction`, plus
@@ -93,6 +110,11 @@ Bridge: `social.status` (counters, digests), `social.dev {op}` with ops `crime {
 native}`, `forgive {faction}`, `cmd {kind, npc, arg}`, `interact {slot, pickup, target}`, `settings {xpmode, scope, friendly, foreign, crime}`.
 
 ## Mutation twins
+G34 (2026-10-27): rules 884 party companion uses a follower slot, 885 only the recruiter commands him, 886 wheel for the recruiter only, 887 inventory for the recruiter only, 888 leaver takes him along,
+889 hand-over not done, 899 another player's current follower, 890 party flag out of the digest, 891 only the recruiter dismisses him, 892 swap guard off, 893 single slot off, 894 own swap reverted, 895 own swap refused, 896 waiting companion
+escorted, 897 no grace, 898 no cooldown, 900 movers read the acting player. Wiring 933 host companions not committed, 934 transaction judgement skipped, 935 repair never committed, 936 oracle ignored,
+937 party companion released with the leaver, 938 hand-over not committed, 939 escort off, 940 every machine escorts, 941 commander writes his own copy, 942 host ignores a guest's order for its party
+companion, 943 roster listener not called.
 Rules (`synccore/social`, runtime `FNV_MUT`): 801-829 companions (caps, take-over, dismiss, leaver, revisions, commands, wheel, inventory, teammates, party), 831-854 crime (judge, witness
 window, burst, murder, alarms, pardon, decay, bounty revisions, guest interactions, detections), 861-870 rewards (once, native, karma, scope, effects, reputation sharing), 880-883 wire.
 Wiring (`plugin/companions`): 901 client believes another client, 902 author claim believed, 903 detection for another machine's NPC, 904 kill settled per report, 905 host paid twice,

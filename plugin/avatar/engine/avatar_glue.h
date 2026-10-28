@@ -41,7 +41,12 @@ void RemoveRemote(Slot slot);
 bool SetRemoteAppearance(Slot slot, const Appearance& a);
 // The local player's own look (race, sex, hair, eyes, body, face data), read from the game. False while unreadable.
 bool ReadLocalAppearance(Appearance& out);
+// The local player's level / sit state / actions / regions (W3a item 3) and its weight and watched item counts (guest pack facts). False: not readable now.
+bool ReadLocalFacts(PlayerFacts& out);
+bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out);
 void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs);
+// A timing figure of the network layer for avatar.status "stages" (see NetStage in avatar_types.h). No-op while the runtime does not exist.
+void NoteStage(NetStage st, double ms);
 void OnRemoteEquipment(Slot slot, const std::vector<EquipEntry>& wanted);
 
 // Around a save the game itself writes (NVSE's SaveGame message arrives AFTER the .fos is written, so the module cannot see it coming):

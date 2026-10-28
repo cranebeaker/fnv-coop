@@ -71,6 +71,7 @@ public:
     bool pose(NetId id, live::ActualPose& out) override;
     void drive(NetId id, const live::InterpOut& out) override;
     void applyAv(NetId id, const std::vector<live::AvValue>& values) override;
+    size_t auditAv(NetId id, const std::vector<live::AvValue>& expected) override;   // Health only: a read and, when it differs from the owner's, one write
     void place(NetId id, const live::ActorSnapshot& authoritative) override;
     void setAi(NetId id, bool on) override;
     void setProtected(NetId id, bool on) override;
@@ -78,6 +79,7 @@ public:
     void removeStandIn(NetId id) override;
     void setBase(NetId id, const FormRef& pick) override;
     void kill(NetId id) override;
+    void killRef(RefId r);   // kill (or retry) with the credit of a remote player when plugin/combat names one
     void revive(NetId id) override;
     bool sampleInventory(NetId id, InvList& out) override;
     bool applyInventory(NetId id, const InvList& want) override;

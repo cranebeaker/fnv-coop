@@ -1,6 +1,6 @@
 @echo off
 rem One-command T6a bot-driver tests:
-rem   real tests must report " 0 failed"; every mutation twin (FNVCOOP_MUT=1..73, switched at RUN time) must report ">0 failed".
+rem   real tests must report " 0 failed"; every mutation twin (FNVCOOP_MUT=1..75, switched at RUN time) must report ">0 failed".
 rem Build: the SHARED build tree (build\all, tools\build\build.py) when that script exists. Without it (main has no tools\build\build.py),
 rem a standalone build of plugin\bots in %TEMP%\nvbots_build (MSVC x64 + Ninja).
 rem BOTS_EXE: set NVCOOP_REF_EXE to a reference FalloutNV.exe image to compare the pinned prologues with it.
@@ -15,7 +15,7 @@ if exist "%REPO%\tools\build\build.py" (
   call :standalone || exit /b 1
   set "TESTEXE=%TEMP%\nvbots_build\bots_tests\nvbots_tests.exe"
 )
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "T6a bots" --twins 1-73 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%TESTEXE%" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "T6a bots" --twins 1-75 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%TESTEXE%" || exit /b 1
 exit /b 0
 
 :standalone

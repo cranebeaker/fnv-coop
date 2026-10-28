@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "common/nvcoop_api.h"
+#include "activate_args.h"   // plugin/hooks: the engine Activate arguments of the console / bridge activation
 #include "engine_hooks.h"
 #include "extract_pad.h"   // plugin/hooks: every ExtractArgs call gets spare out slots (issue #33)
 #include "ui_addrs.h"
@@ -334,6 +335,25 @@ bool __cdecl h_StartConversation(CMD_ARGS) {
     return o_StartConv(CMD_PASS);
 }
 
+// ---- say-once marks: TESTopicInfo::MarkSaid (0x61F220, thiscall(info), plain ret). Observe only: the original always runs; the 0 -> 1 change of
+// the said byte goes to the sink (plugin/dialogue routes it: a guest reports it to the host, the host commits it as SayOnceFlag). Routing lives in
+// fnvcoop_dlg::SayOncePolicy (game-free, tested), not here.
+using Fn_MarkSaid = void(__thiscall*)(void*);
+Fn_MarkSaid o_MarkSaid;
+SaidSink g_saidSink;
+int g_saidMute = 0;
+constexpr uint32_t kInfoSaidOffset = 0x22;
+void __fastcall h_MarkSaid(void* info, void*) {
+    const bool watch = info && g_saidSink && g_saidMute == 0;
+    uint8_t before = 1, after = 0;
+    if (watch && !safeRead(reinterpret_cast<uint32_t>(info) + kInfoSaidOffset, &before, 1)) before = 1;
+    o_MarkSaid(info);
+    if (!watch || before) return;
+    if (!safeRead(reinterpret_cast<uint32_t>(info) + kInfoSaidOffset, &after, 1) || !after) return;   // the engine declined (flags1 & 0x10)
+    ++g_cnt.seenMarkSaid;
+    g_saidSink(reinterpret_cast<uint32_t>(info));
+}
+
 // ---- ending slideshow: SwapTexture ref, oldPath, newPath ----
 Cmd o_Swap;
 bool __cdecl h_SwapTexture(CMD_ARGS) {
@@ -357,6 +377,7 @@ PIN_CDECL(CmdSay);
 PIN_CDECL(CmdSayTo);
 PIN_CDECL(CmdStartConversation);
 PIN_CDECL(CmdSwapTexture);
+PIN_CDECL(InfoMarkSaid);
 PIN_CDECL(GetTopicInfo);
 PIN_CDECL(CmdShowBarterMenu);
 PIN_CDECL(CmdShowRepairMenu);
@@ -389,6 +410,7 @@ const Entry kEntries[] = {
     E(CmdShowSlotMachine, h_Slot, o_Slot, true),
     E(CmdShowBlackJack, h_BlackJack, o_BlackJack, true),
     E(CmdShowRoulette, h_Roulette, o_Roulette, true),
+    E(InfoMarkSaid, h_MarkSaid, o_MarkSaid, false),   // both roles: a guest reports its marks, the host commits its own
 };
 
 }  // namespace
@@ -432,6 +454,19 @@ void Shutdown() {
 }
 UiRouter* router() { return g_router; }
 void setInfoReader(InfoReader f) { g_infoReader = std::move(f); }
+void setSaidSink(SaidSink f) { g_saidSink = std::move(f); }
+SaidMute::SaidMute() { ++g_saidMute; }
+SaidMute::~SaidMute() { if (g_saidMute > 0) --g_saidMute; }
+bool ops::recordSayOnce(const FormRef& info) {
+    nvhooks::CaptureHub* hub = nvhooks::hub();
+    if (!hub || !hub->enabled() || info.plugin.empty()) return false;
+    if (hub->active()) return hub->record(fnvcoop::SayOnceFlag{info});   // inside a script's capture scope: part of that txn
+    fnvcoop::Cause c;
+    c.kind = fnvcoop::CauseKind::Script;
+    c.source = info;
+    nvhooks::ScopedCapture scope(*hub, c);
+    return hub->record(fnvcoop::SayOnceFlag{info});
+}
 const Counters& counters() { return g_cnt; }
 std::vector<RecentBox> recentBoxes() { return {g_recentBoxes.begin(), g_recentBoxes.end()}; }
 bool installedByName(const std::string& n) {
@@ -601,9 +636,30 @@ bool sayTopic(uint32_t npcRefID, const FormRef& topic) {
     return nvhooks::execConsoleLineOn(line, npcRefID);
 }
 
+namespace {
+using ActivateFn = uint32_t(__thiscall*)(void*, void*, uint8_t, uint32_t, uint32_t);
+bool activateAsPlayerSEH(uint32_t npcRefID) {
+    __try {
+        void* npc = reinterpret_cast<void*>(lookupForm(npcRefID));
+        void* player = reinterpret_cast<void*>(lookupForm(0x14));
+        if (!npc || !player) return false;
+        const nvhooks::ActivateArgs a = nvhooks::consoleActivateArgs();
+        reinterpret_cast<ActivateFn>(0x573170)(npc, player, a.flagA, a.flagB, a.last);   // TESObjectREFR::Activate, as the player's key press (and the bridge's activate.ref) calls it
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+}  // namespace
+
 bool resumeTalk(uint32_t npcRefID) {
-    // the vanilla Activate was deferred by the activate observer; StartConversation opens the DialogMenu on the GREETING topic directly
-    return npcRefID && nvhooks::execConsoleLineOn("StartConversation player GREETING", npcRefID);
+    if (!npcRefID) return false;
+    // The vanilla Activate was deferred by the activate observer until the host granted the conversation: do it now, the way it was asked (story fix 2026-10-28).
+    // The grant makes the observer let this one through (the conversation role is no longer idle). `StartConversation player GREETING` is an AI order: the NPC
+    // first has to come to the player, and an NPC 200+ units away never opened the menu (the first Goodsprings story run: S01, S06, S13, S16), which left the
+    // granted conversation open on the host and the guest's role stuck.
+    if (activateAsPlayerSEH(npcRefID)) return true;
+    return nvhooks::execConsoleLineOn("StartConversation player GREETING", npcRefID);
 }
 
 void setControlsLocked(bool locked) { nvhooks::SetPlayerControlsLocked(locked); }

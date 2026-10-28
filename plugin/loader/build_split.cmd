@@ -14,4 +14,9 @@ set "PATH=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\Co
 if /i "%1"=="clean" rmdir /s /q "%REPO%\build\L1split" 2>nul
 cmake -S "%REPO%\plugin" -B "%REPO%\build\L1split" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DNVCOOP_SPLIT_LOADER=ON -DNVCOOP_OUT_DIR="%REPO%/out/L1split" %CMAKE_EXTRA% || exit /b 1
 cmake --build "%REPO%\build\L1split" || exit /b 1
+rem The coop module loads its data files from the folder of nvcoop.dll, and provisioning copies every nvcoop_* file found there into the
+rem game copies: without them the rules engine never runs in a lab or story run (no barriers, votes, tethers or per-player rules).
+if not defined PYTHON set "PYTHON=python"
+"%PYTHON%" -I "%REPO%\plugin\coop\tools\gen_coop_data.py" --out "%REPO%\out\L1split" >nul || exit /b 1
+copy /y "%REPO%\plugin\intents\data\nvcoop_intents.json" "%REPO%\out\L1split\" >nul || exit /b 1
 endlocal

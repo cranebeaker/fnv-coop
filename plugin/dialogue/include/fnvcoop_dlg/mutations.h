@@ -40,6 +40,7 @@ struct Mutations {
     bool sayOnceKeepHostMark = false; // the host keeps the said-mark its RunResultScript made for a guest's per-player line
     bool pollNoPick = false;          // the menu poller never reports the chosen INFO (the host never learns the pick)
     bool pollPickEveryFrame = false;  // the menu poller re-reports the spoken INFO every frame (duplicate picks)
+    bool grantNoWatchdog = false;     // a granted conversation whose menu never opens is never given back (the NPC stays locked on the host, the guest stays the initiator)
     bool pollNoLineDone = false;      // the menu poller never reports the end of a line (the gate waits for the timeout)
     bool pollLeaveAfterGoodbye = false; // closing the menu after a finished goodbye line is also reported as the player leaving
     bool nonOwnerPicksCommand = false;// the glue lets a non-owner send an owner-only companion command
@@ -52,7 +53,26 @@ struct Mutations {
     bool noChoiceConsent = false;     // a fork INFO runs its scripts at the pick, before the party was asked
     bool denyKeepsSaid = false;       // a denied fork leaves the INFO marked as said for the initiator (the choice is gone for good)
     bool actorAsksParty = false;      // a personal decision (Caesar's surgery, a trooper's treatment) is put to a vote too
+    bool partyCompanionCounts = false;// a party companion (ED-E) counts against its recruiter's slots and the party total
+    bool partyHiredPerSlot = false;   // the Hired variable of a party companion is per slot (only the recruiter sees ED-E as hired)
     bool hostTalkSilent = false;      // the host player's own conversation is not shown to the other players
+    // --- wave 1b (G08 / G27: the rules engine's ReadyCheck / ChoiceConsent votes carried by the dialogue host)
+    bool noInfoGate = false;          // an INFO's END script runs at once, the rules engine is never asked (an irreversible fork or a ready check is skipped)
+    bool heldEndRunsOnDeny = false;   // a held END script runs although the party declined / the ready check timed out
+    bool heldEndNeverReleased = false;// an accepted vote does not release the held END script (the conversation hangs at that line)
+    bool voteAnswerDropped = false;   // the other players' Agree / Not yet never reach the rules engine
+    bool voteAnswerInverted = false;  // Agree is sent as a no and Not yet as a yes
+    bool boxGateIgnored = false;      // a rules-owned message box resumes its script on the origin's answer alone
+    bool rulesOwnerKeepsOldHold = false; // an INFO the rules engine owns is also held at the pick by the old consent table (the party is asked twice)
+    // --- story run S06 (a guest's pick ran its result four times: the same INFO picked again right after its own line, no list in between)
+    bool repeatPickRuns = false;      // the host runs the scripts of a second pick of the INFO it just ran, although the initiator never offered a list in between
+    bool noPickLatch = false;         // the glue sends a second Pick for the INFO it already picked while the menu never went back to waiting for a pick
+    // --- story run S06 (say-once marks the engine makes on one machine only: scripted SayTo lines of a forced stage chain; D11)
+    bool sayOnceMarkNotReported = false;   // a guest's engine mark (TESTopicInfo::MarkSaid) is never reported to the host
+    bool sayOnceMarkTrainerShared = false; // a trainer / Speech-XP line is reported and committed like any other (the first player uses it up for all)
+    bool sayOnceMarkHostNoCommit = false;  // the host marks its own copy but never commits the SayOnceFlag effect (the other guests keep it unsaid)
+    bool sayOnceMarkHostNoMark = false;    // the host commits the effect for a guest's report but never marks its own copy (the flag stays absent on the host)
+    bool sayOnceMarkHostDrops = false;     // the host ignores a guest's report packet
 };
 inline Mutations& mutations() {
     static Mutations m;

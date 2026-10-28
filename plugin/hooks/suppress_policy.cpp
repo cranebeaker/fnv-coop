@@ -45,6 +45,20 @@ bool SuppressPolicy::blockMutation() {
     return true;
 }
 
+bool SuppressPolicy::blockQuestState() {
+    if (!guest_) return false;
+    if (applying_ > 0 && !kMutIgnoreApplying) return false;
+    if (depth_ <= 0 && !kMutIgnoreDepth) return false;
+#ifndef NVHOOKS_MUTANT
+    // inside an allow-listed per-machine script the quest calls pass too, except for the DLC setup scripts whose quest state belongs to the host
+    if (localDepth_ > 0 && !inHostQuestStateScript()) return false;
+#else
+    if (localDepth_ > 0) return false;   // mutant: the host-quest-state exemption is gone, a guest's DLC setup script starts the quests itself
+#endif
+    ++stats_.mutations;
+    return true;
+}
+
 bool SuppressPolicy::blockResultScript() {
     if (!guest_) return false;
     if (applying_ > 0 && !kMutIgnoreApplying) return false;

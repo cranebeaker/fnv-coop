@@ -205,3 +205,87 @@ optional flag, `needsParent`) is in `plugin/hooks/data/story_cmd_params.json`. D
 the PlayGroup parameter is the index) and critical stage names `g_criticalStageNames` 0x119BBB0 (5 entries). Left out: `Cmd_ReleaseWeatherOverride` 0x5B76D0 (its prologue is
 `push ebp; mov ebp, esp; call 0x46DD00`, a rel32 call inside the stolen bytes, which the patcher refuses). The four ownership commands (0x5B57E0, 0x5D6D10, 0x5D17F0, 0x5C7660) are hooked by the
 world-time lane (`plugin/hooks_world/world_owner_addrs.h`), not here.
+
+## 11. Party conditions, notes, kill attribution (P2, 2026-10-27; prologues and call graphs read from the reference image, `plugin/hooks/engine_addrs.h`)
+
+Condition evaluators (same signature as section 8: `bool eval(thisObj, param1, param2, double* result)`, cdecl, `ret`). The column says which operand is "the player" and how a member's value is obtained (`plugin/hooks/party_cond.h` MemberView).
+
+| address | function | conf | player operand / view | what the disassembly shows |
+|---|---|---|---|---|
+| `0x59F0C0` | `GetInWorldspace` eval | V | thisObj, ghost swap | param1 (form type 0x41 = worldspace) compared with the world of thisObj's parent cell (`0x575D70`) |
+| `0x5A3270` | `IsInInterior` eval | V | thisObj, ghost swap | `0x8D6F30(thisObj)` = parent cell, `0x425FD0(cell)` = interior flag |
+| `0x5A3F00` | `IsKiller` eval | V | param1, ghost swap | thisObj is the dead actor: IsActor (vtbl+0x100), IsDead (vtbl+0x22C), then `param1 == [actor+0xC0]` |
+| `0x59DA90` | `GetEquipped` eval | V | thisObj, provider | IsActor (vtbl+0x100) on thisObj, item in param1, equip query through vtbl+0xE4 |
+| `0x5A2F60` | `IsSneaking` eval | V | thisObj, provider | `0x4997B0(actor)` |
+| `0x5A4630` | `HasPerk` eval | V | thisObj, provider | IsActor, then `vtbl+0x4A0(perk = param1, alt = param2 != 0)` returns the rank |
+| `0x5A3BF0` | `GetHasNote` eval | V | none: reads the GLOBAL player, provider for the others | ignores thisObj, calls `PlayerCharacter::HasNote` `0x966C10` on `*0x11DEA3C` with param1 |
+| `0x5A4820` | `GetPlayerTeammate` eval | V | thisObj is an NPC, owner view | IsActor, `0x566950(actor)` = the teammate flag (+0x18D, see `Actor::SetPlayerTeammate` 0x8BCA90) |
+| `0x5CF490` | `IsPlayerInRegion` SCRIPT command (no condition evaluator: its eval column is 0) | V | none: reads `*0x11DEA3C + 0x764`, provider for the others | ExtractArgs (one region), `0x4F2770(player)` = `player+0x764` (the region list), then walks the region's parents; a ghost has no such list, so a swap cannot work |
+
+Other:
+
+| address | function | conf | note |
+|---|---|---|---|
+| `0x966A70` | `PlayerCharacter::AddNote(note, u8 verbose)` | V | thiscall, `ret 8`, hooked. The note list is `player+0x5E4`. Callers: `Cmd_AddNote` 0x5D5230, 0x4C37D0, 0x5E9360, 0x757F70, 0x892520 (the pickup / Pip-Boy paths), so hooking it captures every route, not only the script command. |
+| `0x966B80` | `PlayerCharacter::RemoveNote(note)` | V | thiscall, `ret 4`; only caller is `Cmd_RemoveNote` 0x5D52A0 (stays captured at command level) |
+| `0x966C10` | `PlayerCharacter::HasNote(note)` | V | thiscall, `ret 4`, not hooked; called by us to see whether an AddNote took |
+| `0x5C8340` | `Cmd_RemoveFromAllFactions` | V | `needsParent`, no parameters; IsActor check, MarkModified (vtbl+0x48, 0x80000000), then clears the actor's runtime ExtraFactionChanges list (`0x5D43C0` = the actor's extra list, `0x42E800` = lookup, `0x42E760` = create). Captured as one `SetFactionRank{actor, faction, -1}` per faction the actor was in. |
+| `0x89D900` | `Actor::Kill(victim, killer ref, float)` | V (name M) | aligned-frame prologue `53 8B DC ...`, NOT hookable by the entry patcher. Stores the killer pointer at `victim+0xC0` (`mov [ecx+0xC0], edx`, 0x89DAAC) before it raises the death. 13 callers (Cmd_KillActor 0x5BE2A0 among them). |
+| `0x5BE2A0` | `Cmd_KillActor` | V | params (command table): Actor (optional, the KILLER), Integer, Integer. It calls `Actor::Kill(victim = thisObj, killer = the first parameter, 0.0)` at 0x5BE426, so the console line `KillActor <killerRef>` run on the victim makes the engine store the killer in its own order. `killWithAttribution` uses that. |
+| `0x5B5690` | `Cmd_RemoveAllItems` | V | params: Container (optional, the destination), Ownership Added (optional int), No Message Flag (optional int); `needsParent` |
+
+Offsets used by the plugin without a hook: killer slot `actor+0xC0` (above), region list `player+0x764`, note list `player+0x5E4`. Base factions come from the xNVSE layout (`TESActorBase::baseData.factionList`) and the runtime list from `ExtraFactionChanges` (extra type 0x5E): xNVSE sources (S), not re-derived.
+
+Needs in-game proof (none of the above has run in a game): that the ghost reference answers `GetInWorldspace` / `IsInInterior` / `IsKiller` (it has a parent cell, and Actor+0xC0 compares equal to the ghost pointer); that `KillActor <ghostHex>` is accepted by the console and the victim's OnDeath block then sees `IsKiller` true for that ghost; that a looted note object ends in 0x966A70 on the machine that looted it (and with `verbose` as the engine passes it); that `RemoveFromAllFactions` lists exactly the factions `GetInFaction` reports before the call. Also: loading a save must not make the AddNote hook emit transactions (the engine should restore the note list without calling 0x966A70); a guest's own pickup of the Jessup note reaches the observer once and the host's GetHasNote is true afterwards; `IsPlayerInRegion` needs a provider that knows each member's region, without one it keeps the local answer.
+
+## 12. Wave 1b condition functions (fixer w1b, 2026-10-27; evaluator addresses are the eval column of `out/L5/re/command_table.json`, prologues and call graphs read from the reference image)
+
+Same evaluator signature as sections 8 and 11. All six are hooked in `plugin/hooks/engine_hooks.cpp` (`COND_HOOK`) and listed in `plugin/hooks/engine_addrs.h`, `tests/prologues_dump.txt` and `tests/retbytes.json` (ret 0, cdecl).
+
+| address | function | conf | player operand / view | what the disassembly shows |
+|---|---|---|---|---|
+| `0x5A00C0` | `GetLevel` eval | V | thisObj, provider | IsActor (vtbl+0x100) on thisObj, then `0x87F9F0(actor)` (the level, a word returned in ax, converted to the result double). **`Cmd_GetLevel` `0x5C84D0` is `call 0x5A00C0(thisObj, 0, 0, result)`** (0x5C84DF), so this one detour covers `Player.GetLevel` in scripts as well as the condition. |
+| `0x59F3C0` | `GetIsSex` eval | V | thisObj, provider | `0x7AF430(thisObj)`, `0x401170` (form type, compared with 0x2A = NPC), `0x5F0CC0` (the sex), compared with param1 (an integer). |
+| `0x59F770` | `GetPCIsSex` eval | V | none: reads the GLOBAL player `*0x11DEA3C`, provider | pushes (player, param1, param2) and calls the GetIsSex body; thisObj is ignored. |
+| `0x59DD90` | `GetSitting` eval | V | thisObj, provider | IsActor, then vtbl+0x214 (sit state) mapped through a 5-entry jump table. |
+| `0x59ED30` | `GetShouldAttack` eval | V | param1 (the target), ghost swap | thisObj is the NPC (IsActor), param1 must be an ACHR / ACRE (`0x401170` returns 0x3B or 0x3C), the NPC's own AI decides. |
+| `0x5A3B20` | `IsPlayerActionActive` eval | V | none: reads the GLOBAL player, provider | `0x963CE0(*0x11DEA3C, param1)` (the log string is "IsActionInList"). |
+
+Not hooked, with the reason (decided in `party_cond.cpp` `condCoverage`, walked against every `PartyAwareCond` function name in rules.json by a test):
+
+| function | eval column | why |
+|---|---|---|
+| `GetActionRef` `0x5CE360`, `IsActionRef` `0x5B5950` | 0 (script commands only) | the activator is the acting player of the intent: `coop_module.cpp` runs a guest's activation as the host's `0x14`, so `IsActionRef player` already holds for the guest who acted. |
+| `GetIsReference` `0x59FBB0` | `0x59FBB0` | a reference identity test (thisObj == param1); "the player" is the same reference for every member. |
+| `GetMapMarkerVisible` `0x5A51E0`, `GetTalkedToPC` `0x59E0F0` | set | a flag on the marker / on the NPC, no player operand. |
+| `GetButtonPressed`, `EnterTrigger` | n/a | the script's own box (UiRouter answers it) and the trigger event. |
+
+Needs in-game proof (none of the above has run in a game): that the six detours install (the prologues match the image only on paper until `Init` reports them); that `Player.GetLevel` in an XP-tier script reaches the `GetLevel` detour (the direct `call 0x5A00C0` is on the image, a detour at the entry catches it); that a ghost reference answers `GetShouldAttack` (the NPC's AI evaluates the ghost as a target); that a StateProvider answer for `GetIsSex` / `IsPlayerActionActive` is reduced as `initiator` (their only rules). `KillActor` of a ghost ref (`player_kill.h`): that the console accepts it and that `ModActorValue Health -100000` from the rules engine kills the receiving machine's own player.
+
+## 13. Worker threads, the InterfaceManager update and the VATS highlight (2026-10-27; `plugin/vats/vats_addrs.h`, read from the reference image, the crash log and a hang minidump)
+
+| address | what | conf | notes |
+|---|---|---|---|
+| `0x8C7290` | creates the AI linear task threads | V | more than 2 cores: "AI Linear Task Thread 1" (`0x8C7DA0`) and "... 2" (`0x8C7F50`); else one "AI Linear Task Thread" (`0x8C7BD0`). Events: group 0 (12, progress of the workers), group 1 (8, main to workers), all manual-reset |
+| `0x8C78C0` | the kick (main loop `0x86EC87`), thiscall on `0x11DFA50` | V | resets every event, zeroes the progress counters, byte `0x11DFA19` = 1, resumes the threads; only when the world is not paused (`0x11DEA2B`, `0x11DEA2D`, `0x11DEA2E`, main+7 all 0) |
+| `0x8C7990` | the join (main loop `0x86EE4E`) | V | byte `0x11DFA19` = 0 |
+| `0x8C79E0` / `0x8C7A70` | SetEvent(group, i) and record i / WaitForSingleObject(group, i, INFINITE) | V | |
+| `0x86FD70` | InterfaceManager per-frame update | V | `0x7027E0`, `0x702810` (-> `0x70C4A0`), `0x702840`. Stage 0 of the worker (`0x8C7DB9`, `0x8C7BE9`), then event (0, 1). A paused frame: the main thread calls it (`0x86ECBA`); one core: `0x86EB36` |
+| `0x713C70` | menu update | V | `if (cores > 1 && 0x713D90()) wait (0, 1)` at `0x713C8D` / `0x713CA4`; reached from the render path `0x870A00` / `0x870BD0` -> `0x871290` -> `0x871A50` (`0x871C77`) |
+| `IM+0x1DC` | VATSHighlightData (accessor `0x705910`: IM if IM->byte0, + 0x1DC) | V | +0 mode, +4 target ref, +8 NiPointer to the target's 3D, +0xC count, +0x10 index, +0x14 [32] {ref, 3D}, +0x118 flag. Set target `0x800AC0(ref, limb, flag)` (writes +4 then +8), add `0x800D50`, clear list `0x800ED0`, per-frame `0x800370` (clears the target when `vtbl+0x22C` IsDead says so, `0x800495`; takes the renderer lock at `0x800505`) |
+| `0x800F30` | draw the highlight (thiscall, 6 args) | V | reads +4 without a check (`0x800F66`); callers `0x8749B0` / `0x874AC0` check +8 first; `0x873200` calls it again at `0x8741AF` on the earlier check's result, several ms later |
+
+The game never kicks the workers with a menu open, so the update and the highlight draw never overlap. Real-time VATS does (the world runs under the VATS menu): waited for, the worker's update deadlocked on the renderer lock held by the main thread's highlight draw; not waited for, it cleared +4 while the main thread drew, the crash at `FalloutNV.exe+400F66`. plugin/vats now runs the update on the main thread before the kick while a menu is open.
+
+## 14. INFO conditions, GetItemCount / GetActorValue script commands, RemoveAllTypedItems (W3d, 2026-10-28; read from the reference image with capstone, `plugin/hooks/tools/check_cmd_routing.py` re-checks the call edges)
+
+| address | what | conf | notes |
+|---|---|---|---|
+| `0x61E600` | `TESTopicInfo::CheckConditions`, thiscall(info, a1, a2, a3, a4), `ret 0x10` | M (prologue `55 8B EC 83 EC 14 56 89 4D EC 8B 4D EC E8`, 6 bytes stolen; the name is inferred) | the one function that evaluates an INFO's condition list. It tests the INFO flags (`+0x26`), then calls `ConditionList::Evaluate` `0x680C60` on the list from `0x5F5760` and a second list from `0x500940`; a4 is the speaker (`IsActor` through vtbl+0x100). Callers: `GetTopicInfo` `0x61A7D0` (through `0x61A790`) and `0x61AF30` (called from the dialogue click handler `0x762FF0`). Hooked (`h_InfoConditions`): a `ConditionQuestScope` for the INFO's quest around the original, so the Jed weight gate and the Shaman's root count reduce under their quest's PartyAwareCond rule |
+| `0x5C6A70` | `Cmd_GetItemCount` | V | `ExtractArgs` `0x5ACCB0`, then `call 0x59D8E0` (the condition evaluator `Cond_GetItemCount`) at `0x5C6ABC` with `[ebp+0x10]` (the command's thisObj) as the first operand. The entry detour on `0x59D8E0` therefore sees the command too: `Player.GetItemCount X` in a quest script is reduced over the party by `condEval` |
+| `0x5BD8A0` | `Cmd_GetActorValue` | V | the same shape: `call 0x59C4F0` (`Cond_GetActorValue`) at `0x5BD8EC`, thisObj first. `Player.GetAV InventoryWeight` in a script is the max over the party where the quest's rule says so |
+| `0x5B55A0` | `Cmd_RemoveAllTypedItems`, command table entry `0x1196478` | V | parameters (read from the table, `0x118E170`): Container (optional ref, type 26), Ownership Added (int), No Message Flag (int), Type (int, a form type: 40 = TESObjectWEAP, 24 = TESObjectARMO), Holdout List (optional form list, type 37). `RemoveAllItems` `0x5B5690` has the first three |
+
+`h_GetItemCountCmd` / `h_GetAVCmd` (the `PlayerFactsScope` answer for a guest's INFO result script) are in front of the original command; with no facts scope they forward, and the original reaches the detoured evaluator. W3b request 7 ("the commands do not call the reducer") was a reading of the command hooks alone.
+
+Needs in-game proof: that `TESTopicInfo::CheckConditions` installs (the prologue matches the image on paper only) and that `status.w3d.infoScopesOpened` rises when a dialogue menu is built; that the per-slot re-run of a script (`status.w3d.perSlotHookRuns`) really sees `player` as the guest's puppet (`ActingPlayerScope`), which is the same mechanism a guest's activation already relies on.

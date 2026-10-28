@@ -301,7 +301,6 @@ class Playthroughs(unittest.TestCase):
         ("yesman", "ready_veto_ignored", "ready check"),
         ("goodsprings", "barrier_ignored", "before the players passed"),
         ("goodsprings", "pnr_early", "barrier"),
-        ("deadmoney", "barrier_ignored", "before the players passed"),
         ("systems", "guestlocal_replicated", "reached the clients"),
         ("systems", "guestlocal_clients_blocked", "guest scripts do not run"),
         ("act2", "reward_to_host_only", "reward"),
@@ -412,7 +411,7 @@ class RulesOverlay(unittest.TestCase):
         self.assertEqual(kinds("vHDBattleController")["Barrier"]["stages"], [30])
         self.assertEqual(kinds("VEnding")["Barrier"]["before"], "slideshow")
         self.assertEqual(kinds("NVDLC03MQ00")["PartyTether"]["anchor"], "NVDLC03CrashedSatelliteREF")
-        self.assertEqual(kinds("NVDLC03MQ05")["PerPlayerVars"]["vars"], ["bRestoreBodyParts", "bImplants", "nButton"])
+        self.assertEqual(kinds("NVDLC03MQ05")["PerPlayerVars"]["vars"], ["bRestoredBrain", "bRestoredHeart", "bRestoredSpine"], "organs are per player (wave 3b)")
         self.assertEqual(kinds("AchievementQuest")["PerPlayerScene"], {"run": "every-machine", "scope": "local-machine"})
 
     def test_dlc_setup_quests_keep_replicating_but_their_scripts_run_everywhere(self):
@@ -495,6 +494,310 @@ class RulesOverlay(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout[-800:])
         self.assertIn("0 failed", p.stdout)
         self.assertIn("loads_the_real_rules_json_and_is_strict", p.stdout)
+
+
+class Wave1Data(unittest.TestCase):
+    """Campaign fix wave 1 rule data (tools/questsweep/wave1_data.py, gen_cause_quests.py): the committed files are current, name real things, and a stale file is caught."""
+
+    @classmethod
+    def setUpClass(cls):
+        from questsweep import gen_cause_quests as GC, wave1_data as W1
+        cls.GC, cls.W1 = GC, W1
+        cls.rules = common.load_json(common.RULES_JSON)
+
+    def test_cause_map_is_current(self):
+        if not common.have_questdata():
+            self.skipTest(common.questdata_missing_reason())
+        self.assertEqual(self.GC.main(["--check"]), 0)
+
+    def test_cause_map_names_the_endgame_controllers(self):
+        doc = common.load_json(self.GC.OUT)
+        self.assertEqual(doc["schema"], 1)
+        s = doc["scripts"]
+        # object scripts that start an ending / a battle map to the quest that carries the scene rules (PartyWarp, SetPlayerControls, SaveSuppress, SlideshowEnd)
+        self.assertEqual(s["falloutnv.esm:144484"], "VHDHouseBattle")        # MrHouseSCRIPT
+        self.assertEqual(s["falloutnv.esm:15f047"], "VHDIndependentBattle")   # YesManDeadSCRIPT
+        self.assertEqual(s["falloutnv.esm:145ec2"], "VMQ05")                  # VHDColonelMooreSCRIPT
+        for ref, quest in s.items():
+            self.assertTrue(quest in self.rules["quests"], f"{ref} -> {quest} has no rules")
+        for key, ref in doc["keys"].items():
+            self.assertIn(key, self.rules["quests"])
+            self.assertEqual(s[ref], key)
+
+    def test_stale_cause_map_is_caught(self):
+        if not common.have_questdata():
+            self.skipTest(common.questdata_missing_reason())
+        doc = self.GC.build()
+        doc["scripts"]["falloutnv.esm:144484"] = "VCG01"      # the twin: a wrong owner for the House script
+        keep = self.GC.OUT
+        with tempfile.TemporaryDirectory() as d:
+            self.GC.OUT = os.path.join(d, "cause_quests.json")
+            try:
+                with open(self.GC.OUT, "w", encoding="utf-8", newline=chr(10)) as f:
+                    f.write(json.dumps(doc, indent=1) + chr(10))
+                self.assertEqual(self.GC.main(["--check"]), 1)
+                self.assertEqual(self.GC.main([]), 0)           # regenerating repairs it
+                self.assertEqual(self.GC.main(["--check"]), 0)
+            finally:
+                self.GC.OUT = keep
+
+    def test_perk_routing_is_written_for_the_named_cases(self):
+        q = self.rules["quests"]
+
+        def lists(edid):
+            return next(r["params"] for r in q[edid]["rules"] if r["kind"] == "PerkRecipient")
+        self.assertIn("RangerTakedown", lists("VDialogueNovac")["initiator"])        # the trainer teaches the player who talks
+        self.assertIn("PowerArmorTraining", lists("VDialogueHiddenValley")["all"])   # a quest-reward perk goes to everybody
+        self.assertTrue(lists("VDialogueCraigBoone")["recruiter"])                   # a recruit perk goes to the recruiter
+
+    def test_policy_object_and_new_kinds_validate(self):
+        self.assertEqual(self.rules["policy"]["death"]["mode"], "downed")
+        self.assertEqual(RO.validate(self.rules["quests"]), [])
+        kinds = {r["kind"] for v in self.rules["quests"].values() for r in v["rules"]}
+        for k in ("ChoiceConsent", "PerkRecipient", "FriendlyFireGuard", "PerPlayerState"):
+            self.assertIn(k, kinds)
+
+    def test_validator_rejects_bad_wave1_params(self):
+        for kind, params in (("ChoiceConsent", {"topics": []}), ("ChoiceConsent", {"topics": ["not an id"]}), ("ChoiceConsent", {"topics": ["A.esm:01"], "mode": "coin"}),
+                             ("PerkRecipient", {"default": "nobody"}), ("PerkRecipient", {}), ("FriendlyFireGuard", {}), ("PerPlayerState", {}),
+                             ("SetPlayerControls", {"scope": "nobody"}), ("CompanionOwner", {"owner": "nobody"})):
+            self.assertTrue(RO.validate({"Q": {"rules": [{"kind": kind, "params": params}]}}), f"{kind} {params} should be rejected")
+
+    def test_funcs_merge_keeps_existing_reductions(self):
+        dst = {"funcs": {"IsKiller": "any-party-member"}}
+        self.assertTrue(RO._merge(dst, {"funcs": {"GetLevel": "host"}}))
+        self.assertEqual(dst["funcs"], {"IsKiller": "any-party-member", "GetLevel": "host"})
+        self.assertFalse(RO._merge(dst, {"funcs": {"GetLevel": "host"}}))
+
+
+class Wave3bData(unittest.TestCase):
+    """Campaign fix wave 3b rule data (tools/questsweep/wave3b_data.py, refcheck.py): nothing invented, nothing that cannot work, and each check has a twin that proves it can fail."""
+
+    REF_KEYS = ("markers", "cells", "anchor", "anchor_ref", "actors", "items", "topics", "boxes", "all", "initiator", "recruiter", "npcs", "globals", "checkpoint", "infos")
+
+    @classmethod
+    def setUpClass(cls):
+        if not common.have_questdata():
+            raise unittest.SkipTest(common.questdata_missing_reason())
+        from questsweep import refcheck, wave3b_data as W3
+        cls.refcheck, cls.W3 = refcheck, W3
+        cls.refs = refcheck.Refs()
+        cls.doc = common.load_json(common.RULES_JSON)
+        cls.rules = cls.doc["quests"]
+        cls.quests = {q["edid"]: q for q in common.load_json(os.path.join(common.QD, "quests.json"))["quests"]}
+        cls.scripts = {s["edid"]: s for s in common.load_json(os.path.join(common.QD, "scripts.json.gz"))}
+
+    # ---- every id resolves ----------------------------------------------------------------------------------------------------------------
+    def unresolved(self, rules, refs=None):
+        refs = refs or self.refs
+        bad = []
+        for q, v in rules.items():
+            if not q.startswith("NVDLC"):
+                continue
+            for rule in v["rules"]:
+                for k, val in rule.get("params", {}).items():
+                    if k not in self.REF_KEYS:
+                        continue
+                    for x in (val if isinstance(val, list) else [val]):
+                        if isinstance(x, str) and not refs.resolve(x):
+                            bad.append((q, rule["kind"], k, x))
+        return bad
+
+    def test_every_form_the_dlc_rules_name_resolves_in_questdata_or_the_game_data(self):
+        self.assertEqual(self.unresolved(self.rules), [])
+
+    def test_twin_an_invented_form_is_found(self):
+        doc = json.loads(json.dumps(self.rules))
+        doc["NVDLC02MQ03a"]["rules"].append({"kind": "PooledItems", "params": {"items": ["NVDLC02TotemThatDoesNotExist", "HonestHearts.esm:0FFFFE"]}})
+        bad = self.unresolved(doc)
+        self.assertEqual(sorted(x[3] for x in bad), ["HonestHearts.esm:0FFFFE", "NVDLC02TotemThatDoesNotExist"])
+
+    def test_the_nuke_boxes_and_perks_are_what_the_data_says_they_are(self):
+        for ref, sig, edid in (("LonesomeRoad.esm:009C99", "MESG", "NVDLC04TempleCaesarConfirmMSG"), ("LonesomeRoad.esm:009C98", "MESG", "NVDLC04TempleNCRConfirmMSG"),
+                               ("LonesomeRoad.esm:00BF02", "MESG", "NVDLC04TempleNukeAllConfirmMSG"), ("OldWorldBlues.esm:015BBC", "PERK", "NVDLC03ReinforcedSpinePerk"),
+                               ("LonesomeRoad.esm:004D16", "ACRE", "NVDLC04EDEREF"), ("FalloutNV.esm:000037", "GLOB", "GameDay")):
+            r = self.refs.resolve(ref)
+            self.assertIsNotNone(r, ref)
+            self.assertEqual((r[1], r[2]), (sig, edid), ref)
+
+    # ---- variable lists name real variables ---------------------------------------------------------------------------------------------
+    def var_problems(self, rules):
+        out = []
+        for q, v in rules.items():
+            if not q.startswith("NVDLC"):
+                continue
+            have = {x["name"] for x in (self.quests[q].get("script_data") or {}).get("vars", [])} if q in self.quests else None
+            for rule in v["rules"]:
+                p = rule.get("params", {})
+                if rule["kind"] in ("PerPlayerVars", "PerPlayerState"):
+                    for n in p.get("vars", []):
+                        if have is None or n not in have:
+                            out.append((q, rule["kind"], "vars", n))
+                    for n in p.get("scripts", []):
+                        if n not in self.scripts:
+                            out.append((q, rule["kind"], "scripts", n))
+                    for n in p.get("objvars", []):
+                        sc, _, var = n.partition(".")
+                        if sc not in self.scripts or var not in {x["name"] for x in self.scripts[sc]["script"].get("vars", [])}:
+                            out.append((q, rule["kind"], "objvars", n))
+        return out
+
+    def test_per_player_variable_lists_name_variables_their_scripts_declare(self):
+        self.assertEqual(self.var_problems(self.rules), [])
+
+    def test_twin_a_made_up_variable_is_found(self):
+        doc = json.loads(json.dumps(self.rules))
+        for r in doc["NVDLC03MQ05"]["rules"]:
+            if r["kind"] == "PerPlayerVars":
+                r["params"]["vars"] = ["bRestoreBodyParts", "perks"]       # the lists wave 1 shipped
+        doc["NVDLC01BombCollarQuest"]["rules"].append({"kind": "PerPlayerState", "params": {"scope": "x", "objvars": ["NVDLC01RadioSpeakerSCRIPT.bNoSuchFlag"], "scripts": ["NVDLC01NoSuchScript"]}})
+        got = {(x[0], x[3]) for x in self.var_problems(doc)}
+        self.assertEqual(got, {("NVDLC03MQ05", "bRestoreBodyParts"), ("NVDLC03MQ05", "perks"), ("NVDLC01BombCollarQuest", "NVDLC01RadioSpeakerSCRIPT.bNoSuchFlag"),
+                               ("NVDLC01BombCollarQuest", "NVDLC01NoSuchScript")})
+
+    # ---- stage scoping ---------------------------------------------------------------------------------------------------------------------
+    def unscoped_holds(self, rules):
+        out = []
+        for q, v in rules.items():
+            if not q.startswith("NVDLC") or q not in self.quests or not self.quests[q]["stages"]:
+                continue
+            have = {s["index"] for s in self.quests[q]["stages"]}
+            for r in v["rules"]:
+                if r["kind"] in ("Barrier", "PartyTether"):
+                    st = r["params"].get("stages")
+                    if not st:
+                        out.append((q, r["kind"], "no stages list"))
+                    elif not set(st) <= have:
+                        out.append((q, r["kind"], "stages %s are not stages of the quest" % sorted(set(st) - have)))
+        return out
+
+    def test_no_dlc_barrier_or_tether_holds_every_stage_of_its_quest(self):
+        self.assertEqual(self.unscoped_holds(self.rules), [])
+
+    def test_twin_a_stage_less_hold_is_found(self):
+        doc = json.loads(json.dumps(self.rules))
+        for r in doc["NVDLC01MQ03a"]["rules"]:
+            if r["kind"] == "PartyTether":
+                r["params"].pop("stages")
+        doc["NVDLC03MQ05"]["rules"].append({"kind": "Barrier", "params": {"step": "all-players-pass"}})
+        got = self.unscoped_holds(doc)
+        self.assertEqual({(x[0], x[1]) for x in got}, {("NVDLC01MQ03a", "PartyTether"), ("NVDLC03MQ05", "Barrier")})
+
+    def test_stage_holds_table_matches_the_committed_rules(self):
+        for quest, kind, stages, _why in self.W3.STAGE_HOLDS:
+            rule = next(r for r in self.rules[quest]["rules"] if r["kind"] == kind)
+            self.assertEqual(rule["params"]["stages"], stages, f"{quest}/{kind}")
+        for quest, kind, _why in self.W3.DROPS:
+            self.assertFalse([r for r in self.rules[quest]["rules"] if r["kind"] == kind], f"{quest}/{kind} should have been dropped")
+
+    # ---- the cause map, kinds, ops ---------------------------------------------------------------------------------------------------------
+    def test_cause_map_carries_the_set_piece_scripts(self):
+        cm = common.load_json(os.path.join(common.REPO, "docs", "quest-policies", "cause_quests.json"))
+        s = cm["scripts"]
+
+        def key(edid):
+            sc = self.scripts[edid]
+            return self.refcheck.norm_ref(sc["ref"]).lower()
+        for edid, (entry, _why) in self.W3.CAUSE.items():
+            self.assertEqual(s[key(edid)], entry, edid)
+            self.assertIn(entry, self.rules, edid)
+        for edid in ("NVDLC03SinkMainComputerSCRIPT", "NVDLC03SinkMuggySCRIPT", "NVDLC03SinkBioResearchStationSCRIPT"):
+            self.assertEqual(s[key(edid)], "NVDLC03HQBuddy", edid)
+        self.assertEqual(sorted(k for k in cm["keys"] if k.startswith("NVDLC03")), ["NVDLC03AutoDoc", "NVDLC03Teleporter", "NVDLC03ThinkTankWeaponLock"])
+
+    def test_the_new_params_validate_and_bad_ones_are_rejected(self):
+        self.assertEqual(RO.validate(self.rules), [])
+        for kind, params in (("PerPlayerState", {"scope": "c", "down": "forever"}), ("PerPlayerState", {"scope": "c", "objvars": ["NoDot"]}), ("PerPlayerState", {"scope": "c", "scripts": ["not an id"]}),
+                             ("PerPlayerState", {"scope": "c", "checkpoint": "NotAList"}), ("PooledItems", {}), ("OncePerEvent", {}), ("OncePerEvent", {"effects": ["RemoveItem"]}),
+                             ("OncePerEvent", {"globals": ["GameDay"], "window_s": 0}), ("PartyWarp", {"markers": ["M"], "range": 0})):
+            self.assertTrue(RO.validate({"Q": {"rules": [{"kind": kind, "params": params}]}}), f"{kind} {params} should be rejected")
+
+    def test_drop_mode_removes_a_rule_and_is_reported_until_applied(self):
+        rules = {"Q": {"rules": [{"kind": "Barrier", "params": {"step": "x"}}, {"kind": "PartyTether", "params": {"cells": ["C"]}}]}}
+        ops = [{"quest": "Q", "kind": "Barrier", "mode": "drop", "params": {}}]
+        self.assertEqual(len(RO.held(rules, ops)), 1)
+        self.assertEqual(RO.apply_ops(rules, ops), 1)
+        self.assertEqual([r["kind"] for r in rules["Q"]["rules"]], ["PartyTether"])
+        self.assertEqual(RO.held(rules, ops), [])
+        self.assertEqual(RO.apply_ops(rules, ops), 0)
+
+    # ---- the set pieces the backlog names have data -------------------------------------------------------------------------------------------
+    def kinds(self, quest):
+        out = {}
+        for r in self.rules[quest]["rules"]:
+            out.setdefault(r["kind"], []).append(r["params"])
+        return out
+
+    def test_dead_money_collar_cloud_vault_suites_kitchen_and_entry_are_per_player(self):
+        c = self.kinds("NVDLC01BombCollarQuest")["PerPlayerState"][0]
+        self.assertEqual(c["down"], "until-checkpoint")                 # D9: collar death is downed until a checkpoint
+        self.assertEqual(len(c["vars"]), 18)
+        for v in ("iNumRadii", "fCollarTimer", "bBoom"):
+            self.assertIn(v, c["vars"])
+        self.assertIn("NVDLC01RadioSpeakerSCRIPT.bInRadius", c["objvars"])
+        for quest, script in (("NVDLC01MQ03", "NVDLC01VaultCollarBeepScript"), ("NVDLC01MQ03", "NVDLC01KitchenGasTrapSCRIPT"), ("NVDLC01MQ03c", "NVDLC01SuitesSetupSCRIPT"),
+                              ("NVDLC01MQ00", "NVDLC01VillaTravelTriggerScript"), ("NVDLC01GlobalToxicDamage", "NVDLC01GlobalToxicDamageSCRIPT"), ("NVDLC01ToxicCloud", "NVDLC01ToxicCloudSCRIPT")):
+            self.assertIn(script, self.kinds(quest)["PerPlayerState"][0]["scripts"], f"{quest} {script}")
+        # the 70 s vault timer and the 16 s suites timer are the scripts' own constants: the data keeps one copy of their state per slot
+        self.assertIn("NVDLC01VaultCollarBeepScript.fTimer", self.kinds("NVDLC01MQ03")["PerPlayerState"][0]["objvars"])
+        self.assertIn("NVDLC01SuitesSetupSCRIPT.fCollarTimer", self.kinds("NVDLC01MQ03c")["PerPlayerState"][0]["objvars"])
+        # the collar item is duplicated and equipped for everybody (a stage result: QuestItemDup + the RefCommand EquipItem of the player is a reward)
+        self.assertEqual(self.kinds("NVDLC01MQ01")["QuestItemDup"][0], {"recipient": "all"})
+        for cell in c["checkpoint"]:
+            self.assertEqual(self.refs.resolve(cell)[1], "CELL", cell)
+
+    def test_old_world_blues_organs_implants_autodoc_teleporter_and_ending_hold(self):
+        ad = self.kinds("NVDLC03AutoDoc")
+        self.assertEqual(ad["SetPlayerControls"][0]["scope"], "initiator")
+        init = ad["PerkRecipient"][0]["initiator"]
+        for edid in ("NVDLC03BrainlessPerk", "NVDLC03HeartlessPerk", "NVDLC03SpinelessPerk", "NVDLC03BigBrainedPerk", "NVDLC03CardiacArrestPerk", "NVDLC03ReinforcedSpinePerk"):
+            self.assertIn(self.refs.ref_of(edid), init, edid)
+        self.assertTrue([x for x in init if self.refs.resolve(x)[2].startswith("NVDLC03Implant")], "the implants")
+        self.assertEqual(self.kinds("NVDLC03MQ05")["PerPlayerVars"][0]["vars"], ["bRestoredBrain", "bRestoredHeart", "bRestoredSpine"])
+        self.assertIn("nImplantGRXRank", self.kinds("NVDLC03GenericPerkQUEST")["PerPlayerState"][0]["vars"])      # implants run per slot (GenericPerkQUEST)
+        self.assertNotIn("PerPlayerVars", self.kinds("NVDLC03GenericPerkQUEST"))
+        tp = self.kinds("NVDLC03Teleporter")["PartyWarp"][0]
+        self.assertEqual(tp["range"], self.W3.TELEPORTER_RANGE)
+        self.assertEqual(sorted(tp["markers"]), ["MojaveDriveInMarkerHeadingREF", "NVDLC03SinkArrivalMarker"])
+        sat = next(p for p in self.kinds("NVDLC03MQ00")["PartyTether"] if p.get("anchor"))
+        self.assertEqual((sat["gather"], sat["timeout_s"], sat["stages"]), ("auto-warp", 120, [100]))       # D10: wait up to a timeout, then warp the rest
+        self.assertEqual(self.kinds("NVDLC03MQ05")["PartyTether"][0]["stages"], [60, 70])                       # the Think Tank ending decision waits for everybody
+
+    def test_lonesome_road_vote_party_ede_clock_and_weak_player_scaling(self):
+        boxes = self.kinds("NVDLC04MQ03b")["ChoiceConsent"][0]["boxes"]
+        for ref in ("LonesomeRoad.esm:009C99", "LonesomeRoad.esm:009C98", "LonesomeRoad.esm:00BF02"):
+            self.assertIn(ref, boxes)
+        ede = self.refs.ref_of("NVDLC04EDEREF")
+        for quest in ("NVDLC04MQ01a", "NVDLC04MQ03a", "NVDLC04MQ03b", "NVDLC04MQ04", "NVDLC04DialogueEDE", "NVDLC04EDEFinaleQuest"):
+            co = self.kinds(quest)["CompanionOwner"]
+            self.assertTrue(any(p.get("owner") == "party" for p in co), quest)
+        for quest in ("NVDLC04MQ01a", "NVDLC04MQ03a", "NVDLC04MQ03b", "NVDLC04MQ04"):
+            self.assertEqual([p for p in self.kinds(quest)["CompanionOwner"] if p.get("owner") == "party"][0]["npcs"], [ede])
+        once = self.kinds("NVDLC04MQ00")["OncePerEvent"][0]
+        self.assertEqual(sorted(self.refs.resolve(g)[2] for g in once["globals"]), ["GameDay", "GameHour", "GameMonth", "GameYear"])
+        self.assertEqual(self.kinds("NVDLC04MQ03a")["PartyAwareCond"][0]["funcs"]["GetActorValue"], "max-over-party")
+        self.assertEqual(self.kinds("NVDLC04MQ03b")["PartyTether"][0]["stages"], [30, 255])
+
+    def test_honest_hearts_gate_ambush_fork_pools_and_the_clock(self):
+        self.assertEqual(self.kinds("NVDLC02DialogueCaravanMaster")["PartyAwareCond"][0]["funcs"]["GetActorValue"], "max-over-party")
+        self.assertEqual(self.kinds("NVDLC02MQ00")["PartyAwareCond"][0]["funcs"]["IsKiller"], "any-party-member")
+        self.assertEqual(self.kinds("NVDLC02MQ00")["ExclusiveStages"][0]["stages"], [100, 255])
+        self.assertTrue(self.kinds("NVDLC02MQ00")["FriendlyFireGuard"][0]["actors"])
+        topics = self.kinds("NVDLC02DialogueDaniel")["ChoiceConsent"][0]["topics"]
+        for t in ("HonestHearts.esm:010718", "HonestHearts.esm:010723", "HonestHearts.esm:0093AA", "HonestHearts.esm:01049F"):
+            self.assertIn(t, topics)
+        for quest, item in (("NVDLC02MQ03a", "NVDLC02WhiteLegTotem"), ("NVDLC02MS01", "NVDLC02SacredDaturaRoot"), ("NVDLC02MQ02c", "NVDLC02LilScoutLunch"),
+                            ("NVDLC02MQ02b", "NVDLC02WalkieTalkie"), ("NVDLC02DialogueShaman", "NVDLC02SacredDaturaRoot"), ("NVDLC02DialogueDaniel", "NVDLC02LilScoutLunch")):
+            self.assertIn(self.refs.ref_of(item), self.kinds(quest)["PooledItems"][0]["items"], f"{quest} {item}")
+            if quest != "NVDLC02DialogueDaniel":      # Daniel's INFO only removes the items; the count is read in the quests above
+                self.assertEqual(self.kinds(quest)["PartyAwareCond"][0]["funcs"]["GetItemCount"], "sum-over-party", quest)
+        self.assertIn("OncePerEvent", self.kinds("NVDLC02MQ00"))
+
+    def test_derived_ops_equal_the_committed_overlay_for_the_wave3b_tables(self):
+        ov = RO.load_overlay()
+        derived = {json.dumps(o, sort_keys=True) for o in self.W3.ops(self.rules, gen_plans.QData(), self.refs)}
+        committed = {json.dumps(o, sort_keys=True) for o in ov["ops"]}
+        self.assertEqual(derived - committed, set())
 
 
 if __name__ == "__main__":
