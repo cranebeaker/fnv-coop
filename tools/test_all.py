@@ -101,6 +101,7 @@ SUITES = [
     ("Readiness wait shared by prove.py and the proof scripts (+ twins, wiring of every script)", [sys.executable, "-I", "tools/runner/tests/test_nvready.py"], False, NO),
     ("NPC pick for the in-game NPC proofs: loaded NPC or the nearest one, runtime ids (+ 7 twins)", [sys.executable, "-I", "tools/runner/tests/test_npc_pick.py"], False, NO),
     ("Proton launch scripts: Steam launch option and in-session runner (stubbed Steam client + 7 twins)", [sys.executable, "-I", "tools/runner/tests/test_proton_scripts.py"], False, NO),
+    ("provision --no-pad: copies ignore game controllers, the low-cost restore keeps it or stops (+ 6 twins)", [sys.executable, "-I", "tools/runner/tests/test_no_pad.py"], False, NO),
     ("loot in-game proof checker (selftest + late-session twin)", [sys.executable, "-I", "plugin/loot/tools/loot_proof.py", "--selftest"], False, NO),
     ("world-time in-game proof checker (selftest + press-blind twin)", [sys.executable, "-I", "plugin/world_time/tools/worldtime_proof.py", "--selftest"], False, NO),
     ("T1a flight recorder", ["cmd", "/c", r"plugin\flight\run_tests.cmd"], True, CM),

@@ -28,6 +28,10 @@ instances 2k (host) and 2k+1 (client) on co-op port <port-base>+k (default 27960
 Without --pairs the port is not written and every client joins the plugin's default port, as before. With --pairs,
 --ini coop.port / coop.host are an error (exit 2), and --n must match or be left out. show and destroy take --pairs too.
 
+--no-pad writes [Interface] bDisable360Controller=1 into each copy's FalloutPrefs.ini, so the copies ignore game
+controllers. Use it where a pad always answers (a Steam Deck: Steam Input shows its controls as one) and bots or the
+input probe have to walk: in gamepad mode the game ignores the keyboard movement controls that bot.move holds.
+
 Environment overrides: FNV_GAME_DIR, FNV_INSTANCES_ROOT.
 """
 from __future__ import annotations
@@ -146,6 +150,13 @@ PREFS_EDITS = [
     ("Display", "iPresentInterval", "0"),
     ("Display", "iMultiSample", "0"),
 ]
+# --no-pad. Gamepad mode = an XInput pad answered and bDisable360Controller:Interface is 0 (docs/tools/T6a-actions.md); in it
+# the game takes movement from the pad and ignores the keyboard controls bot.move holds (plugin/bots). Under Proton on a Steam
+# Deck (2026-10-25), where Steam Input always answers as a pad, a 3 s bot.move forward moved the player 0 units; with this
+# key set to 1 the same move went 1008 units. The key is in FalloutPrefs.ini, which the game reads after Fallout.ini.
+NO_PAD_EDITS = [
+    ("Interface", "bDisable360Controller", "1"),
+]
 
 
 class PrefsUnavailable(RuntimeError):
@@ -218,7 +229,7 @@ def _base_ini(name: str) -> str:
     return ""
 
 
-def render_inis() -> Dict[str, str]:
+def render_inis(no_pad: bool = False) -> Dict[str, str]:
     fo = _base_ini("Fallout.ini")
     play = os.environ.get("NVCOOP_PLAY") == "1"   # a person plays: only the focused copy may read the keyboard and mouse
     for s, k, v in FALLOUT_INI_EDITS:
@@ -226,7 +237,7 @@ def render_inis() -> Dict[str, str]:
             v = "0"
         fo = ini_set(fo, s, k, v)
     pr = _base_ini("FalloutPrefs.ini")
-    for s, k, v in PREFS_EDITS:
+    for s, k, v in PREFS_EDITS + (NO_PAD_EDITS if no_pad else []):
         pr = ini_set(pr, s, k, v)
     if os.environ.get("NVCOOP_LEAN") == "1":
         fo, pr = _apply_lean(fo, pr)
@@ -385,7 +396,7 @@ def provision(i: int, *, role: str = "host", nvse_dir: Optional[Path] = None,
               autoload: str = "", autoload_delay_frames: int = 600, modes=LINK_MODES,
               root: Optional[Path] = None, appid: Optional[str] = STEAM_APPID,
               extra_ini: Optional[Dict[str, Dict[str, str]]] = None, core_dll: Optional[Path] = None,
-              port_base: Optional[int] = None, dxvk: bool = False) -> Dict:
+              port_base: Optional[int] = None, dxvk: bool = False, no_pad: bool = False) -> Dict:
     # Check every input before the first write: a missing dll or a bad ini entry must not leave a half instance.
     sources, plan_ini = plugin_plan(plugin_dll, core_dll, plugin_files)
     ini_extra = provision_ini(plan_ini, extra_ini)
@@ -405,7 +416,7 @@ def provision(i: int, *, role: str = "host", nvse_dir: Optional[Path] = None,
     (d / "Saves").mkdir(exist_ok=True)
     plugins.mkdir(parents=True, exist_ok=True)
     check_plugins_inside(d)  # and again before anything is deleted from or written into Plugins
-    for name, text in render_inis().items():
+    for name, text in render_inis(no_pad).items():
         (d / name).write_text(text, encoding="latin-1", newline="")
     if appid:
         (d / "steam_appid.txt").write_text(appid, encoding="ascii")
@@ -448,7 +459,7 @@ def provision(i: int, *, role: str = "host", nvse_dir: Optional[Path] = None,
     meta = {
         "instance": i, "role": role, "dir": str(d), "pipe": rf"\\.\pipe\nvcoop-{i}",
         "exe": str(d / "FalloutNV.exe"), "link_counts": counts, "installed": installed, "removed": removed,
-        "ini": cfg, "game_dir": str(g),
+        "ini": cfg, "game_dir": str(g), "no_pad": no_pad,
         **({"pair": pairs.pair_of(i), "port": int(cfg["coop"].get("port") or 0)} if port_base is not None else {}),
         "pinned": {p: sha256_file(d / p) for p in PINNED_FILES if (d / p).exists()},
     }
@@ -665,6 +676,9 @@ def main(argv=None) -> int:
     p.add_argument("--autoload", default="")
     p.add_argument("--no-appid", action="store_true")
     p.add_argument("--no-dxvk", action="store_true", help="do not install the cached DXVK d3d9.dll + 60 fps cap (python tools/runner/fetch_deps.py fills the cache)")
+    p.add_argument("--no-pad", action="store_true",
+                   help="the copies ignore game controllers (FalloutPrefs.ini bDisable360Controller=1), so bot.move can walk "
+                        "where a pad always answers, as on a Steam Deck")
     p.add_argument("--modes", default=",".join(LINK_MODES))
     for c in ("show", "destroy"):
         q = sub.add_parser(c)
@@ -710,7 +724,7 @@ def main(argv=None) -> int:
                               autoload=a.autoload, modes=tuple(a.modes.split(",")),
                               appid=None if a.no_appid else STEAM_APPID,
                               port_base=a.port_base if a.pairs else None,
-                              dxvk=not a.no_dxvk)
+                              dxvk=not a.no_dxvk, no_pad=a.no_pad)
             except UnsafeInstance as e:
                 print(f"error: instance {i}: {e}", file=sys.stderr)
                 return 2

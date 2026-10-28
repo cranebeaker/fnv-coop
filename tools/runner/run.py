@@ -2,7 +2,7 @@
 """Multi-instance launcher + job runner for fnv-coop (L2).
 
     run.py provision --n 2 [--plugin-dll out/L1/nvcoop.dll] [--nvse-dir DIR]
-                     [--core-dll out/L1split/nvcoop_mod.dll] [--ini SECTION.KEY=VALUE ...]
+                     [--core-dll out/L1split/nvcoop_mod.dll] [--ini SECTION.KEY=VALUE ...] [--no-pad]
         passes these options to `instances.py provision` (see its help). --ini is repeatable, e.g.
         --ini coop.enable=1 --ini dev.bots=1 --ini dev.animprobe=1. provision rewrites nvcoop.ini, so hand
         edits are lost. One --ini value applies to every instance: with --n 2 or more, the per-instance keys
@@ -339,6 +339,7 @@ def provision_argv(a) -> List[str]:
     argv += ([f"--nvse-dir={a.nvse_dir}"] if a.nvse_dir else []) + ([f"--autoload={a.autoload}"] if a.autoload else [])
     argv += [f"--core-dll={a.core_dll}"] if a.core_dll else []
     argv += [f"--ini={spec}" for spec in a.ini]
+    argv += ["--no-pad"] if getattr(a, "no_pad", False) else []
     return argv
 
 
@@ -360,6 +361,8 @@ def main(argv=None) -> int:
     p.add_argument("--ini", action="append", default=[], type=instances.ini_arg, metavar=instances.INI_FORM,
                    help="extra nvcoop.ini entry, repeatable, e.g. --ini coop.enable=1; with --n 2 or more, "
                         "the per-instance keys bridge.instance, coop.instanceId, coop.pipe and coop.role are an error")
+    p.add_argument("--no-pad", action="store_true",
+                   help="the copies ignore game controllers, so bot.move works with a pad present (see instances.py)")
     p = sub.add_parser("up")
     p.add_argument("--n", type=int, default=2)
     p.add_argument("--pairs", type=int, default=0, help="N two-copy pairs: --n 2N, and refuse when the free RAM is too small")

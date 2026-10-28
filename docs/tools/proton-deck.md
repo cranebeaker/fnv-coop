@@ -49,7 +49,7 @@ game-free work (see `docs/tools/linux-dev.md`).
 export FNV_GAME_DIR=~/.steam/steam/steamapps/common/"Fallout New Vegas"
 export FNV_DOCUMENTS_DIR=~/.steam/steam/steamapps/compatdata/22380/pfx/drive_c/users/steamuser/Documents
 export NVCOOP_VISIBLE=1
-python -I tools/runner/instances.py provision --n 2 --nvse-dir out/cache/deps/nvse --no-dxvk --ini coop.enable=1 --ini coop.baseline=1 --ini coop.handshake=1 --ini coop.dialogue=1 --ini live.avatars=1 --ini dev.bots=1 --ini dev.animprobe=1
+python -I tools/runner/instances.py provision --n 2 --nvse-dir out/cache/deps/nvse --no-dxvk --no-pad --ini coop.enable=1 --ini coop.baseline=1 --ini coop.handshake=1 --ini coop.dialogue=1 --ini live.avatars=1 --ini dev.bots=1 --ini dev.animprobe=1
 ```
 - The copies go to `fnv-instances` next to the checkout. Every game file is hardlinked, so the copies take almost no disk
   space, and nothing is written to the Steam folder.
@@ -61,6 +61,10 @@ python -I tools/runner/instances.py provision --n 2 --nvse-dir out/cache/deps/nv
 - `dev.bots=1` turns on the bot module (`bot.fire`, `bot.move`, the input probe). Without it the playbooks can't shoot or
   walk with input, and in the runs on #17 the game clock stood still the whole time (so nothing that depends on game time
   was tested).
+- `--no-pad` makes the copies ignore game controllers (`bDisable360Controller=1` in each copy's `FalloutPrefs.ini`). Steam
+  Input always shows the Deck's own controls to the game as a pad, and in gamepad mode the game ignores the keyboard
+  movement controls that `bot.move` holds: without `--no-pad` the input probe and every bot walk with input stand still.
+  The Deck's sticks don't move the player in these copies. Your own game install isn't changed.
 
 Each copy loads saves from its own `Saves` folder. The playbooks' scenarios start from a save named `autosave`. Copy one of
 yours into both copies (they only read it):
@@ -102,12 +106,10 @@ proof then fails "host has a puppet ref for the client", and `call avatar.status
 ## Known gaps
 - The host commits the clock globals about 27 times a second while game time runs, so the playbooks' convergence wait
   fails at step 1 (#17). The `fight` playbook stops there.
-- Until #61 is merged, `tools/test_all.py` stops with `TypeError: 'tuple' object is not callable` once `out/questdata`
-  exists.
 - `L7 snapshot` fails once `out/questdata` exists, on two generated files that aren't in the repo (#62).
 - The benchmark reads CPU and RAM through the runner's state file, which only `run.py up` writes, so `--no-boot` here has
   no CPU or RAM numbers.
-- In the benchmark run on a Deck, the input probe (real movement input) moved neither avatar: `stuck: 150 units left`,
-  with no menu open and the avatar never leaving its start. The cause isn't known yet. The other walk phases set
-  positions directly and aren't affected.
+- Copies provisioned without `--no-pad` are in gamepad mode on a Deck, and `bot.move` doesn't move the player there: the
+  input probe fails `stuck: 150 units left` with the avatar never leaving its start. A fix in `bot.move` itself (driving the
+  stick, or leaving gamepad mode while a bot moves) is on #17.
 - A save that doesn't exist makes `loadSave` wait its full 180 s before it fails.
