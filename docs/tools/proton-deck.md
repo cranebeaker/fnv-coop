@@ -39,10 +39,22 @@ game-free work (see `docs/tools/linux-dev.md`).
    `fetch_deps.py` needs `7z` (SteamOS has it). It also fetches DXVK. Under Proton you don't need that one (Proton has
    its own), so provision below says `--no-dxvk`. The quest data reads the game's master files read-only (about
    30 s on a Deck). The playbooks and scenarios need it.
-4. **A Win32 `nvcoop.dll`** at `out/L1/nvcoop.dll` (provision's default), built on Windows or taken from a CI build of the
-   same commit. If the build folder's `nvcoop_guest_local_run.json` didn't come with it, copy
-   `plugin/hooks/data/guest_local_run.json` next to the DLL under that name. Without it a guest blocks every DLC setup
-   script.
+4. **A Win32 `nvcoop.dll`** at `out/L1/nvcoop.dll` (provision's default), with the data files the build writes next to it
+   (`nvcoop_guest_local_run.json`; without it a guest blocks every DLC setup script). Build it on Windows
+   (`tools/runner/build_l1.cmd`), or take CI's build of the commit you have checked out: every CI run keeps the plugin
+   job's DLL and data files as the artifact `nvcoop-plugin-win32` for 14 days. With the GitHub CLI (`gh`, logged in
+   through `gh auth login`), from the checkout. It looks up the `ci` run of the checked-out commit, downloads into a
+   temporary folder, and replaces the files in `out/L1` only when that worked. With no run for the commit it stops:
+   without a run ID, `gh run download` would take the newest artifact of any commit.
+   ```
+   RUN="$(gh run list -R cranebeaker/fnv-coop --workflow ci --commit "$(git rev-parse HEAD)" --limit 1 --json databaseId --jq '.[0].databaseId')"
+   DL="$(mktemp -d)"
+   if [ -n "$RUN" ] && gh run download -R cranebeaker/fnv-coop -n nvcoop-plugin-win32 -D "$DL" "$RUN"; then mkdir -p out/L1 && mv -f "$DL"/* out/L1/; else echo "no CI build of $(git rev-parse --short HEAD) downloaded; out/L1 left as it was"; fi
+   rm -rf "$DL"
+   ```
+   That needs a commit CI ran on: one on `main`, or the head of a pull request (CI builds a pull request merged into
+   `main`). In a browser, also logged in to GitHub: the commit's `ci` run, Summary, Artifacts; unzip
+   `nvcoop-plugin-win32.zip` into `out/L1`.
 
 ## Each time the plugin or the settings change: provision two copies
 ```

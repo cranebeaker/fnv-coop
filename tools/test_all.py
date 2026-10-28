@@ -36,6 +36,8 @@ SUITES = [
     ("lint host engine readers wiring", [sys.executable, "-I", "tools/lint/check_host_readers_wiring.py"], False, NO),
     ("lint workflow inputs stay out of run scripts, soak seed and count checked (+ twins)", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py", "--self-test"], False, NO),
     ("lint workflow inputs", [sys.executable, "-I", "tools/lint/check_workflow_inputs.py"], False, NO),
+    ("lint CI plugin artifact holds what provision installs, the Proton doc downloads it by name, only from the commit's own run (+ 13 twins)", [sys.executable, "-I", "tools/lint/check_plugin_artifact.py", "--self-test"], False, NO),
+    ("lint CI plugin artifact", [sys.executable, "-I", "tools/lint/check_plugin_artifact.py"], False, NO),
     ("test_all preflight", [sys.executable, "-I", "tools/test_all_selftest.py"], False, NO),
     ("canonical nvcoop.dll build", ["cmd", "/c", r"tools\runner\build_l1.cmd"], True, CM),
     ("T5 chaos box (+ chaos_pair: a pair joined through the relay)", [sys.executable, "-I", "tools/chaos/run_tests.py"], False, NO),

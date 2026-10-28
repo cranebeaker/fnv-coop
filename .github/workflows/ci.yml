@@ -70,6 +70,7 @@ jobs:
   plugin:
     # nvcoop.dll as the game loads it (Win32/x86, static CRT), against xNVSE pinned to the version docs/tools/T4a-pool.md uses.
     # xNVSE is public source, not game files. This only proves the DLL builds and is loadable by shape; nothing here runs it.
+    # The built DLL and its data files are kept as the run's nvcoop-plugin-win32 artifact.
     name: plugin build (windows-latest, Win32)
     runs-on: windows-latest
     timeout-minutes: 45
@@ -99,3 +100,29 @@ jobs:
           print("twin kernel32.dll (must be rejected):", twin)
           sys.exit(1 if problems or not any("32-bit" in p for p in twin) else 0)
           PY
+      # The data files the build writes next to nvcoop.dll (nvcoop_guest_local_run.json): provision installs them with it,
+      # and without them a guest blocks every DLC setup script. The upload below matches them by pattern, which a missing
+      # file would pass silently, so this step fails instead.
+      - name: Check the plugin's data files
+        shell: bash
+        run: |
+          python -I - <<'PY'
+          import json, sys
+          from pathlib import Path
+          data = sorted(Path("out/L1").glob("nvcoop_*.json"))
+          for p in data:
+              json.loads(p.read_text(encoding="utf-8-sig"))
+          print("data files next to nvcoop.dll:", [p.name for p in data] or "none")
+          sys.exit(0 if data else 1)
+          PY
+      # Not a release: this commit's build for testers without Visual Studio (Linux, Proton on a Steam Deck), kept 14 days.
+      # docs/tools/proton-deck.md downloads it into out/L1; tools/lint/check_plugin_artifact.py keeps the list, the build
+      # outputs and that command in step.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nvcoop-plugin-win32
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            out/L1/nvcoop.dll
+            out/L1/nvcoop_*.json
