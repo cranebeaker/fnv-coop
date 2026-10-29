@@ -68,6 +68,15 @@ void io(fnvcoop::Archive& a, MPart& m) {
     }
     a.bytes(m.value, kMaxPartBytes);
 }
+void io(fnvcoop::Archive& a, MUntrack& m) { a.varu32(m.id); }
+void io(fnvcoop::Archive& a, MEvent& m) {
+    a.varu32(m.id); a.varu32(m.epoch); a.varu(m.eventId); a.u8(m.kind);
+    uint8_t r = static_cast<uint8_t>(m.route);
+    a.u8(r);
+    if (a.reading()) { if (r > 2) { a.fail(); return; } m.route = static_cast<EventRoute>(r); }
+    a.u8(m.hops); a.u8(m.origin);
+    a.bytes(m.payload, 4096);
+}
 void io(fnvcoop::Archive& a, MAnimEvent& m) { a.varu32(m.id); a.varu32(m.epoch); a.varu(m.eventId); a.bytes(m.payload, 256); }
 
 template <size_t I>
@@ -89,7 +98,7 @@ bool readBody(fnvcoop::Archive& a, size_t idx, Body& out) {
 }  // namespace
 
 const char* bodyName(const Body& b) {
-    static const char* names[] = {"Own", "Track", "SnapFull", "Death", "Pick", "PickReport", "Resync", "AnimEvent", "Part"};
+    static const char* names[] = {"Own", "Track", "SnapFull", "Death", "Pick", "PickReport", "Resync", "AnimEvent", "Part", "Untrack", "Event"};
     return names[b.index()];
 }
 

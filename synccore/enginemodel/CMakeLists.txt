@@ -24,6 +24,7 @@ add_test(NAME engine_world COMMAND fnvcoop_engine_tests --group world)
 add_test(NAME engine_sim   COMMAND fnvcoop_engine_tests --group engine)
 add_test(NAME engine_combat COMMAND fnvcoop_engine_tests --group combat)
 foreach(twin own_no_epoch own_stale_epoch own_adopt_echo own_transfer_no_ack own_no_hysteresis own_follower_ignored own_accept_non_owner own_commit_to_gone_owner
+             own_pinned_can_move own_no_epoch_floor own_leave_keeps_pinned own_model_leave_keeps_pinned own_model_no_epoch_floor
              no_dedupe hit_no_validation hit_by_non_owner pickup_no_arbitration pickup_no_rollback spawn_no_arbitration
              loot_per_machine pick_per_machine container_no_lock named_killable no_session_epoch heal_disabled drop_no_idempotency
              owner_keeps_publishing join_no_ownership death_not_idempotent limb_not_synced visual_shot_damages blast_runs_everywhere hit_no_validation_combat digest_buckets_positions digest_no_seq new_owner_no_wait created_key_is_player stale_final_not_forwarded join_no_tombstones)

@@ -71,6 +71,12 @@ bool AvatarRuntime::SetRemoteAppearance(Slot slot, const Appearance& a) {
 
 bool AvatarRuntime::ReadLocalAppearance(Appearance& out) { return be_.ReadAppearance(kPlayerRef, out); }
 
+bool AvatarRuntime::ReadLocalEquipment(std::vector<EquipEntry>& out) {
+    if (!equip_.hasPublished()) return false;
+    out = equip_.published();
+    return true;
+}
+
 bool AvatarRuntime::ReadLocalFacts(PlayerFacts& out) {
     PlayerFacts f;
     bool any = false;

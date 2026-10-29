@@ -970,6 +970,45 @@ def room_parity(ctx: Ctx) -> Dict[str, Any]:
     return {}
 
 
+def room_entity(ctx: Ctx) -> Dict[str, Any]:
+    """Wave 2 identity (docs/entity-core-plan.md S13b): every copy's coop.entities table. Each player's entity is owned by that player on BOTH copies
+    (pinned, never handed off), both copies hold the same epoch for it, and each copy binds the other player's entity to its puppet (the local one to 0x14)."""
+    ctx.stand_all()
+    slots = sorted({0, 1})
+
+    def players(m: K.Machine) -> Dict[int, Dict[str, Any]]:
+        try:
+            return {int(p["slot"]): p for p in (m.entities().get("players") or []) if p.get("known")}
+        except NotImplementedError:
+            return {}
+
+    ctx.agree("every copy lists every player's entity", lambda m: sorted(players(m)) == slots, 10.0, True, area="plugin/actors (player records), plugin/coop/live (coop.entities)")
+    tables = {m.name: players(m) for m in ctx.ms}
+    ctx.metric("entity_tables", tables)
+    owners = {f"{name} slot {s}": t[s]["owner"] for name, t in tables.items() for s in slots}
+    ctx.check("each player owns its own entity on both copies", all(int(v) == int(k.split()[-1]) for k, v in owners.items()), "owner = slot", owners,
+              area="synccore/src/ownership.cpp (pin), plugin/actors (trackPlayer)")
+    epochs = {s: {name: t[s]["epoch"] for name, t in tables.items()} for s in slots}
+    ctx.check("both copies hold the same epoch for each player's entity", all(len(set(v.values())) == 1 for v in epochs.values()), "equal", epochs,
+              area="plugin/actors (pinned Grants), synccore/src/ownership.cpp (epoch floor)")
+
+    def bound(m: K.Machine) -> bool:
+        t = players(m)
+        me = next((s for s, p in t.items() if p.get("role") == "local"), None)
+        if me is None or str(t[me].get("ref", "")).lower() not in ("0x14", "0x00000014"):
+            return False
+        return all(p.get("role") == "puppet" and int(str(p.get("ref", "0")), 16) != 0 for s, p in t.items() if s != me)
+
+    ctx.agree("each copy binds the other player's entity to its puppet", bound, 15.0, True, area="plugin/avatar (binding hook), synccore/live (entity map)")
+    for _ in range(12):   # 6 s with the players standing next to each other: nothing may move a player's entity (the NPC rule would hand it to the nearest player)
+        ctx.clock.sleep(0.5)
+        ctx.tick()
+    later = {m.name: {s: (p["owner"], p["epoch"]) for s, p in players(m).items()} for m in ctx.ms}
+    ctx.check("no player entity changed owner or epoch while the players stood together", later == {n: {s: (p["owner"], p["epoch"]) for s, p in t.items()} for n, t in tables.items()},
+              "unchanged", later, area="synccore/src/ownership.cpp (pinned records are never evaluated)")
+    return {}
+
+
 # spawn also loads the save and enters the lab cell (minutes on a loaded PC: the first in-game run used 70+ s of its 120 s before the first check);
 # every other room starts inside the lab
 SPAWN_BOX_S = 240.0
@@ -991,6 +1030,7 @@ ROOMS: Dict[str, RoomSpec] = {s.name: s for s in (
     RoomSpec("vats", room_vats, "plugin/vats, plugin/combat", 120),
     RoomSpec("quest", room_quest, "plugin/hooks, plugin/snapshot, synccore", 50),
     RoomSpec("parity", room_parity, "plugin/actors, plugin/avatar, plugin/world_time", 110, budget_s=180.0),
+    RoomSpec("entity", room_entity, "plugin/actors, synccore/live, plugin/avatar", 40),
 )}
 ROOM_ORDER = tuple(ROOMS)
 

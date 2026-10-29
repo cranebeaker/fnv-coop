@@ -128,6 +128,7 @@ public:
     bool Poll(IGameBackend& be, uint32_t nowMs, std::vector<EquipEntry>& out);
     void Reset();
     const std::vector<EquipEntry>& published() const { return published_; }
+    bool hasPublished() const { return havePublished_; }
 
 private:
     uint32_t pollMs_, stableMs_;

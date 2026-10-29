@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <ctime>
 
-#include "fnvcoop_mut.h"   // FNV_MUT(n): twins 41..51 of the live wiring suite, 105..110 of the avatar suite (plugin/avatar/full)
+#include "look_codec.h"
+#include "fnvcoop_mut.h"   // FNV_MUT(n): twins 41..51 and 1170..1179 of the live wiring suite, 105..110 of the avatar suite (plugin/avatar/full)
 
 namespace nvcoop::livewire {
 
@@ -82,6 +83,8 @@ void AvatarNet::sessionBegin(const SessionInfo& info, ILiveLink& link) {
     localOut_.clear();
     queuedTicks_.clear();
     early_.clear();
+    remoteEquip_.clear();
+    samples_.clear();
     haveEquip_ = false;
     lookSentValid_ = false;
     packSentValid_ = false;
@@ -120,6 +123,8 @@ void AvatarNet::sessionEnd() {
     localOut_.clear();
     queuedTicks_.clear();
     early_.clear();
+    remoteEquip_.clear();
+    samples_.clear();
     inSession_ = false;
     hostUp_ = false;
     link_ = nullptr;
@@ -156,6 +161,7 @@ void AvatarNet::removePuppet(PlayerId slot) {
     applied_.erase(slot);
     rx_.erase(slot);
     early_.erase(slot);
+    remoteEquip_.erase(slot);
     rate_.removePlace(slot);
     queuedTicks_.erase(slot);
     recv_.forget(playerNetId(slot));
@@ -165,6 +171,7 @@ void AvatarNet::removePuppet(PlayerId slot) {
 
 void AvatarNet::sendRoster(PlayerId to) {
     if (!isHost_) return;
+    if (opt_.partsUnified && !FNV_MUT(1170)) return;   // the roster is the set of player records (MUTANT 1170: the old message is sent too, two carriers for one fact)
     std::vector<uint8_t> slots{kHostPlayer};
     for (PlayerId p : joined_) slots.push_back(p);
     Bytes b = encodeRoster(slots);
@@ -174,6 +181,7 @@ void AvatarNet::sendRoster(PlayerId to) {
 }
 
 void AvatarNet::sendLook(const AvLook& l, PlayerId to, PlayerId skip) {
+    if (opt_.partsUnified && !FNV_MUT(1170)) return;   // look and equipment are parts of the player entity
     Bytes b = encodeLook(l);
     ++stats_.looksSent;
     if (to == kNoPlayer) broadcastReliable(b, skip);
@@ -206,7 +214,7 @@ void AvatarNet::hostLinkUp() {
     lookSentValid_ = false;   // the host (maybe a new one) learns our look again
     factsSentValid_ = false;  // ... and our facts
     packSentValid_ = false;   // ... and our pack
-    sendTo(kHostPlayer, true, Bytes{kChannelAvatars, kAvKindResync});   // and we learn the roster and every look again
+    if (!opt_.partsUnified || FNV_MUT(1170)) sendTo(kHostPlayer, true, Bytes{kChannelAvatars, kAvKindResync});   // and we learn the roster and every look again (parts=unified: ActorSync asks for its own join state)
 }
 
 void AvatarNet::hostLinkDown() {
@@ -234,6 +242,10 @@ void AvatarNet::receive(PlayerId from, const uint8_t* data, size_t size) {
     if (!inSession_ || size < 2 || data[0] != kChannelAvatars) { ++stats_.badDatagrams; return; }
     ++stats_.received;
     const uint8_t kind = data[1];
+    if (opt_.partsUnified && FNV_MUT(1171) && (kind == kAvKindRoster || kind == kAvKindLook || kind == kAvKindLook2 || kind == kAvKindFacts || kind == kAvKindPack)) {
+        ++stats_.badDatagrams;   // MUTANT 1171: the old messages are not understood under parts=unified (the decoders must accept both forms)
+        return;
+    }
     if (kind == static_cast<uint8_t>(live::MsgKind::SnapshotBatch)) {
         onSnapshotDatagram(from, data + 1, size - 1);
     } else if (kind == static_cast<uint8_t>(live::MsgKind::SnapshotAck)) {
@@ -369,24 +381,28 @@ void AvatarNet::onLook(PlayerId from, const uint8_t* data, size_t size) {
     const nvcoop::avatar::Appearance oldApp = oldHadLook ? old->second.appearance : nvcoop::avatar::Appearance{};
     looks_[l.slot] = l;
     if (roster_.count(l.slot)) {
-        // compare with what the PUPPET was built from, not with the previous look: the first look of a player arrives after the roster
-        // created its puppet from the default appearance (a client learns who exists before it learns what they look like)
-        auto ap = applied_.find(l.slot);
-        bool appearanceChanged = ap == applied_.end() || !sameAppearance(ap->second, l.appearance);
-        if (FNV_MUT(106)) appearanceChanged = oldHadLook && !sameAppearance(oldApp, l.appearance);   // MUTANT 106: the FIRST look of a player never reaches its puppet
-        if (appearanceChanged || FNV_MUT(105)) {
-            const bool templateChanged = ap == applied_.end() || ap->second.race != l.appearance.race || ap->second.female != l.appearance.female;
-            // MUTANT 105: every look change rebuilds the puppet (it flashes; the interpolation state and equipment start over)
-            if (FNV_MUT(105)) side_.addRemote(l.slot, l.appearance);
-            else side_.setRemoteAppearance(l.slot, l.appearance);
-            applied_[l.slot] = l.appearance;
-            ++stats_.appearanceUpdates;
-            if (templateChanged) ++stats_.puppetRespawnsForLook;
-        }
+        applyRemoteAppearance(l.slot, l.appearance, oldHadLook, oldApp);
         if (!FNV_MUT(45)) side_.onRemoteEquipment(l.slot, l.equipment);   // MUTANT 45: the equipment of other players is never applied
         ++stats_.looksApplied;
     }
     if (isHost_ && newLook) sendLook(l, kNoPlayer, from);
+}
+
+// Compare with what the PUPPET was built from, not with the previous look: the first look of a player arrives after the roster created its puppet from the default
+// appearance (a client learns who exists before it learns what they look like).
+void AvatarNet::applyRemoteAppearance(PlayerId slot, const nvcoop::avatar::Appearance& app, bool oldHadLook, const nvcoop::avatar::Appearance& oldApp) {
+    auto ap = applied_.find(slot);
+    bool appearanceChanged = ap == applied_.end() || !sameAppearance(ap->second, app);
+    if (FNV_MUT(106)) appearanceChanged = oldHadLook && !sameAppearance(oldApp, app);   // MUTANT 106: the FIRST look of a player never reaches its puppet
+    if (appearanceChanged || FNV_MUT(105)) {
+        const bool templateChanged = ap == applied_.end() || ap->second.race != app.race || ap->second.female != app.female;
+        // MUTANT 105: every look change rebuilds the puppet (it flashes; the interpolation state and equipment start over)
+        if (FNV_MUT(105)) side_.addRemote(slot, app);
+        else side_.setRemoteAppearance(slot, app);
+        applied_[slot] = app;
+        ++stats_.appearanceUpdates;
+        if (templateChanged) ++stats_.puppetRespawnsForLook;
+    }
 }
 
 // Host: a client's facts. Only the host consumes them (host-run scripts ask the party conditions), so they are neither relayed nor accepted by a client.
@@ -400,6 +416,7 @@ void AvatarNet::onFacts(PlayerId from, const uint8_t* data, size_t size) {
 
 // A client: its level, sit state, active actions and regions go to the host when they change (read once per factsCheckMs). The host's own player is read by the conditions themselves.
 void AvatarNet::checkLocalFacts(uint64_t nowMs) {
+    if (opt_.partsUnified && !FNV_MUT(1170)) return;
     if (isHost_ || !hostUp_ || FNV_MUT(69)) return;   // MUTANT 69: a guest never tells the host its facts
     if (factsSentValid_ && nowMs - lastFactsCheck_ < opt_.factsCheckMs) return;
     lastFactsCheck_ = nowMs;
@@ -441,6 +458,7 @@ void AvatarNet::onPack(PlayerId from, const uint8_t* data, size_t size) {
 // A client: its weight and the counts of the watched item forms go to the host when they change (read once per packCheckMs, sent at most once per packMinGapMs). The host's own
 // player is read by the conditions themselves.
 void AvatarNet::checkLocalPack(uint64_t nowMs) {
+    if (opt_.partsUnified && !FNV_MUT(1170)) return;
     if (isHost_ || !hostUp_ || FNV_MUT(952)) return;   // twin 952: a guest never tells the host its pack
     if (packSentValid_ && nowMs - lastPackCheck_ < opt_.packCheckMs) return;
     lastPackCheck_ = nowMs;
@@ -483,30 +501,40 @@ bool AvatarNet::packWeight(PlayerId slot, double* out) const {
 // ---------------------------------------------------------------------------------------------------------------------------------
 // per frame
 // ---------------------------------------------------------------------------------------------------------------------------------
+// The worn list: what the watcher last published (read, so a session that began after it still has it), else what the sink delivered.
+bool AvatarNet::localEquipmentNow(std::vector<nvcoop::avatar::EquipEntry>& out) {
+    if (side_.readLocalEquipment(out)) return true;
+    if (!haveEquip_) return false;
+    out = equip_;
+    return true;
+}
+
+// The local look as the game has it: an injected reader is asked every time, the game itself at most once per appearancePollMs.
+bool AvatarNet::localAppearanceNow(nvcoop::avatar::Appearance& out) {
+    if (localAppearance_) return localAppearance_(out);
+    if (haveLocalApp_ && nowMs_ - lastAppRead_ < opt_.appearancePollMs) {
+        out = localApp_;
+        return true;
+    }
+    nvcoop::avatar::Appearance a;
+    lastAppRead_ = nowMs_;
+    if (side_.readLocalAppearance(a)) {
+        localApp_ = a;
+        haveLocalApp_ = true;
+    }
+    if (!haveLocalApp_) return false;
+    out = localApp_;
+    return true;
+}
+
 void AvatarNet::checkLocalLook(uint64_t nowMs) {
+    if (opt_.partsUnified && !FNV_MUT(1170)) return;   // the Look and Equipment parts carry it
     if (nowMs - lastLookCheck_ < opt_.lookCheckMs && lookSentValid_) return;
     lastLookCheck_ = nowMs;
     if (!(isHost_ || hostUp_)) return;
     AvLook l;
     l.slot = self_;
-    bool haveApp = false;
-    if (localAppearance_) {
-        haveApp = localAppearance_(l.appearance);   // an injected reader is asked at every check
-    } else if (haveLocalApp_ && nowMs - lastAppRead_ < opt_.appearancePollMs) {
-        l.appearance = localApp_;
-        haveApp = true;
-    } else {
-        nvcoop::avatar::Appearance a;
-        lastAppRead_ = nowMs;
-        if (side_.readLocalAppearance(a)) {
-            localApp_ = a;
-            haveLocalApp_ = true;
-        }
-        if (haveLocalApp_) {
-            l.appearance = localApp_;
-            haveApp = true;
-        }
-    }
+    const bool haveApp = localAppearanceNow(l.appearance);
     if (!haveEquip_ && !haveApp) return;
     l.equipment = equip_;
     if (lookSentValid_ && l == lastLookSent_) return;
@@ -569,6 +597,7 @@ void AvatarNet::tick(uint64_t nowMs) {
     if (!inSession_) return;
     if (opt_.tickSide) side_.tick(static_cast<uint32_t>(nowMs));   // publishes the local snapshot (sink), drives puppets
     side_.noteStage(nvcoop::avatar::NetStage::NetFrame, static_cast<double>(clock()));
+    if (opt_.streamUnified) absorbLocalSamples();   // ActorSync takes the local player's samples through PlayerPort and sends them with its own planner and sender
     const uint32_t id = playerNetId(self_);
     for (const live::ActorSnapshot& s : localOut_) {
         ++stats_.localSnapshots;
@@ -585,13 +614,225 @@ void AvatarNet::tick(uint64_t nowMs) {
         }
     }
     localOut_.clear();
-    releasePending(nowMs);
+    if (!opt_.streamUnified) releasePending(nowMs);
     checkLocalLook(nowMs);
     checkLocalFacts(nowMs);
     checkLocalPack(nowMs);
-    flushStreams(nowMs);
-    sendAcks(nowMs);
+    if (!opt_.streamUnified) {
+        flushStreams(nowMs);
+        sendAcks(nowMs);
+    }
+    syncRosterFromEntities();
     reportPoses(nowMs);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// the player entities (parts=unified, stream=unified): the roster, and PlayerPort's endpoint
+// ---------------------------------------------------------------------------------------------------------------------------------
+// stream=unified: the sampler's snapshots (the avatar module samples before the live layer runs) wait for ActorSync, which may run before this service's own tick in the
+// same frame; PlayerPort::sample absorbs them itself, so a sample is never a frame late.
+void AvatarNet::absorbLocalSamples() {
+    const uint32_t id = playerNetId(self_);
+    for (const live::ActorSnapshot& s : localOut_) {
+        ++stats_.localSnapshots;
+        live::ActorSnapshot snap = s;
+        snap.netId = id;
+        snap.ownerEpoch = epoch_;
+        lastLocal_ = snap;
+        haveLocal_ = true;
+        rate_.setPlace(self_, snap.cell, snap.pos);
+        samples_.push_back(snap);
+        if (samples_.size() > 8) samples_.pop_front();
+    }
+    localOut_.clear();
+}
+
+// A client's roster is the set of player records ActorSync holds (the host's own is its joined clients, kept by playerJoined / playerLeft). While the host link is down
+// the puppets are gone and stay gone; they come back with the link and the host's join state.
+void AvatarNet::syncRosterFromEntities() {
+    if (!opt_.partsUnified || !entities_ || isHost_ || !hostUp_ || FNV_MUT(1172)) return;   // MUTANT 1172: a client never learns who exists
+    std::set<PlayerId> want;
+    for (PlayerId s : entities_->playerSlots())
+        if (s != self_ && s < fnvcoop::kMaxSlots) want.insert(s);
+    for (PlayerId s : std::vector<PlayerId>(roster_.begin(), roster_.end()))
+        if (!want.count(s)) removePuppet(s);
+    for (PlayerId s : want)
+        if (!roster_.count(s)) addPuppet(s);
+}
+
+fnvcoop::FormRef AvatarNet::toRef(nvcoop::avatar::FormId id) const {
+    fnvcoop::FormRef r;
+    if (formCodec_.toRef) r = formCodec_.toRef(id);
+    if (r.plugin.empty()) r = fnvcoop::FormRef("@rt", id);   // not resolvable: the runtime id, which an equal load order makes the same everywhere
+    return r;
+}
+
+nvcoop::avatar::FormId AvatarNet::fromRef(const fnvcoop::FormRef& r) const {
+    if (r.plugin == "@rt") return r.localId;
+    return formCodec_.fromRef ? formCodec_.fromRef(r) : 0;
+}
+
+bool AvatarNet::readLocalPart(nvcoop::actors::PartKind kind, Bytes& out) {
+    using nvcoop::actors::PartKind;
+    switch (kind) {
+        case PartKind::Look: {
+            nvcoop::avatar::Appearance a;
+            if (!localAppearanceNow(a)) return false;
+            out = nvcoop::avatar::encodeAppearance(a);
+            lastLookSent_.slot = self_;
+            lastLookSent_.appearance = a;
+            lookSentValid_ = true;
+            if (isHost_) looks_[self_] = lastLookSent_;
+            return true;
+        }
+        case PartKind::Equipment: {
+            std::vector<nvcoop::avatar::EquipEntry> worn;
+            if (!localEquipmentNow(worn)) return false;
+            nvcoop::actors::EquipList forms;
+            for (const nvcoop::avatar::EquipEntry& e : worn) forms.push_back(toRef(e.form));
+            out = nvcoop::actors::encodeEquipment(std::move(forms));
+            lastLookSent_.equipment = worn;
+            if (isHost_) looks_[self_].equipment = worn;
+            return true;
+        }
+        case PartKind::WeaponState: {
+            std::vector<nvcoop::avatar::EquipEntry> worn;
+            if (!localEquipmentNow(worn)) return false;
+            nvcoop::actors::WeaponState w;
+            for (const nvcoop::avatar::EquipEntry& e : worn)
+                if (e.weapon) {
+                    w.weapon = toRef(e.form);
+                    w.mods = static_cast<uint8_t>(e.mods & nvcoop::avatar::kWeaponModMask);
+                    break;
+                }
+            if (FNV_MUT(1175)) w.weapon = fnvcoop::FormRef();   // MUTANT 1175: the held weapon is never named (a puppet draws nothing)
+            out = nvcoop::actors::encodeWeaponState(w);
+            return true;
+        }
+        case PartKind::Facts: {
+            nvcoop::avatar::PlayerFacts f;
+            if (!side_.readLocalFacts(f)) return false;
+            out = nvcoop::avatar::encodeFacts(f);
+            return true;
+        }
+        case PartKind::Pack: {
+            ensureWatch();
+            nvcoop::avatar::PlayerPack p;
+            if (!side_.readLocalPack(watch_, p)) return false;
+            out = nvcoop::avatar::encodePack(p);
+            return true;
+        }
+        case PartKind::Inventory: break;   // a player's pack is its own; Pack is the story-visible slice
+    }
+    return false;
+}
+
+void AvatarNet::rebuildRemoteEquipment(PlayerId slot) {
+    RemoteEquip& re = remoteEquip_[slot];
+    if (!re.haveForms) return;   // the worn forms come first; a weapon state alone names no item
+    std::vector<nvcoop::avatar::EquipEntry> list;
+    for (const fnvcoop::FormRef& f : re.forms) {
+        const nvcoop::avatar::FormId id = fromRef(f);
+        if (!id) continue;
+        nvcoop::avatar::EquipEntry e;
+        e.form = id;
+        if (re.haveWeapon && !re.weapon.weapon.plugin.empty() && f == re.weapon.weapon) {   // the held weapon, with the mods it wears
+            e.weapon = true;
+            e.mods = FNV_MUT(1173) ? 0 : static_cast<uint8_t>(re.weapon.mods & nvcoop::avatar::kWeaponModMask);   // MUTANT 1173: the weapon modifications never reach the puppet
+        }
+        list.push_back(e);
+    }
+    std::sort(list.begin(), list.end(), [](const nvcoop::avatar::EquipEntry& a, const nvcoop::avatar::EquipEntry& b) { return a.form < b.form; });
+    AvLook& l = looks_[slot];
+    l.slot = slot;
+    l.equipment = list;
+    if (roster_.count(slot) && !FNV_MUT(45)) {
+        side_.onRemoteEquipment(slot, list);
+        ++stats_.looksApplied;
+    }
+}
+
+bool AvatarNet::writeRemotePart(PlayerId slot, nvcoop::actors::PartKind kind, const Bytes& value) {
+    using nvcoop::actors::PartKind;
+    if (!inSession_ || slot >= fnvcoop::kMaxSlots || slot == self_) return false;
+    switch (kind) {
+        case PartKind::Look: {
+            nvcoop::avatar::Appearance a;
+            if (!nvcoop::avatar::decodeAppearance(value, a)) return false;
+            auto old = looks_.find(slot);
+            const bool oldHad = old != looks_.end();
+            const nvcoop::avatar::Appearance oldApp = oldHad ? old->second.appearance : nvcoop::avatar::Appearance{};
+            AvLook& l = looks_[slot];
+            l.slot = slot;
+            l.appearance = a;
+            if (roster_.count(slot) && !FNV_MUT(1174)) {   // MUTANT 1174: the look is stored and never reaches the puppet
+                applyRemoteAppearance(slot, a, oldHad, oldApp);
+                ++stats_.looksApplied;
+            }
+            return true;
+        }
+        case PartKind::Equipment: {
+            nvcoop::actors::EquipList forms;
+            if (!nvcoop::actors::decodeEquipment(value, forms)) return false;
+            RemoteEquip& re = remoteEquip_[slot];
+            re.forms = std::move(forms);
+            re.haveForms = true;
+            rebuildRemoteEquipment(slot);
+            return true;
+        }
+        case PartKind::WeaponState: {
+            nvcoop::actors::WeaponState w;
+            if (!nvcoop::actors::decodeWeaponState(value, w)) return false;
+            RemoteEquip& re = remoteEquip_[slot];
+            re.weapon = w;
+            re.haveWeapon = true;
+            rebuildRemoteEquipment(slot);
+            return true;
+        }
+        case PartKind::Facts: {
+            nvcoop::avatar::PlayerFacts f;
+            if (!isHost_ || !nvcoop::avatar::decodeFacts(value, f)) return false;
+            facts_[slot] = std::move(f);
+            ++stats_.factsApplied;
+            return true;
+        }
+        case PartKind::Pack: {
+            nvcoop::avatar::PlayerPack p;
+            if (!isHost_ || !nvcoop::avatar::decodePack(value, p)) return false;
+            packs_[slot] = std::move(p);
+            ++stats_.packsApplied;
+            return true;
+        }
+        case PartKind::Inventory: break;
+    }
+    return false;
+}
+
+bool AvatarNet::takeLocalSample(fnvcoop::live::ActorSnapshot& out) {
+    if (!opt_.streamUnified || !inSession_) return false;
+    absorbLocalSamples();
+    if (samples_.empty()) return false;
+    out = samples_.front();
+    samples_.pop_front();
+    side_.noteStage(nvcoop::avatar::NetStage::Send, static_cast<double>(static_cast<int32_t>(clock() - out.tick)));   // the Send stage ends where ActorSync takes it
+    return true;
+}
+
+// A remote snapshot ActorSync has judged (pinned owner, epoch, order), for the avatar layer's playback buffer: the same steps as an accepted 0xAD snapshot, minus the relay
+// (the host relays inside ActorSync).
+void AvatarNet::remoteSnapshot(PlayerId slot, const fnvcoop::live::ActorSnapshot& s, uint32_t) {
+    if (!opt_.streamUnified || slot >= fnvcoop::kMaxSlots || slot == self_) return;
+    if (!roster_.count(slot)) {   // the record is known before the puppet: kept for it, newest wins
+        ++stats_.noRoster;
+        early_[slot] = s;
+        return;
+    }
+    side_.onRemoteSnapshot(slot, s, static_cast<uint32_t>(nowMs_));
+    side_.noteStage(nvcoop::avatar::NetStage::Rx, static_cast<double>(static_cast<int32_t>(clock() - s.tick)));
+    lastSnap_[slot] = s;
+    rate_.setPlace(slot, s.cell, s.pos);
+    ++stats_.accepted;
+    ++rx_[slot];
 }
 
 void AvatarNet::idleTick(uint64_t nowMs) {
@@ -642,6 +883,7 @@ std::string AvatarNet::statusJson() const {
     ensureWatch();   // the host resolves its list lazily; the status shows it
     std::string s = "{\"inSession\":";
     s += inSession_ ? "true" : "false";
+    s += std::string(",\"entities\":{\"parts\":\"") + (opt_.partsUnified ? "unified" : "legacy") + "\",\"stream\":\"" + (opt_.streamUnified ? "unified" : "legacy") + "\"}";
     s += ",\"self\":" + std::to_string(static_cast<int>(self_)) + ",\"epoch\":" + std::to_string(epoch_) + ",\"roster\":[";
     bool first = true;
     for (PlayerId p : roster_) {

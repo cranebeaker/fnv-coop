@@ -230,4 +230,49 @@ bool commitNothingToHandOverHolds(std::string* why) {
     return ok;
 }
 
+bool pinnedPlayersHold(std::string* why) {
+    bool ok = true;
+    auto bad = [&](const std::string& m) { ok = false; note(why, m); };
+    const ActorNetId p1 = 0xFE000001u, p2 = 0xFE000002u;
+    OwnershipService s; s.playerJoined(0); s.playerJoined(1); s.playerJoined(2);
+    OwnershipService::Out out;
+    s.pin(p1, 1, 0, out);
+    s.pin(p2, 2, 0, out);
+    if (out.size() != 2 || out[0].kind != OwnMsg::Grant || out[0].owner != 1 || out[0].epoch != 1 || out[1].owner != 2) bad("pin did not grant at epoch 1");
+    if (!s.pinned(p1) || !s.pinned(p2) || s.pinned(7)) bad("pinned() wrong");
+    out.clear();
+    s.pin(p1, 1, 10, out);
+    if (!out.empty()) bad("a second pin to the same slot changed something");
+    // the host is right next to player 1's entity, for a long time: nothing moves
+    for (uint32_t t = 2000; t < 60000; t += 997) {
+        s.evaluate(p1, {P(0, true, true, 1), P(1, false, false, 99999), P(2, true, true, 5)}, t, out);
+        s.setRecruiter(p1, 0, {P(0, true, true, 1)}, t, out);
+        s.tick(t, out);
+    }
+    if (!out.empty() || s.ownerOf(p1) != 1 || s.epochOf(p1) != 1 || s.handoffPending(p1)) bad("a pinned player entity was moved");
+    // the snapshot a joiner gets carries both pins
+    OwnershipService::Out snap;
+    s.snapshot(snap);
+    int pins = 0;
+    for (auto& m : snap) if ((m.netId == p1 && m.owner == 1) || (m.netId == p2 && m.owner == 2)) ++pins;
+    if (pins != 2) bad("the snapshot does not carry the pins");
+    // player 1 leaves: its entity is released and forgotten, player 2 keeps its own
+    out.clear();
+    const auto orphans = s.playerLeft(1, 70000, out);
+    if (!orphans.empty()) bad("a pinned entity was offered to someone else");
+    if (out.size() != 1 || out[0].kind != OwnMsg::Release || out[0].netId != p1) bad("no Release of the leaving player's entity");
+    if (s.pinned(p1) || s.ownerOf(p1) != kNoPlayer || s.ownerOf(p2) != 2) bad("the leaving player still owns its entity");
+    const OwnerEpoch released = out.empty() ? 0 : out[0].epoch;
+    // the same slot rejoins: the new epoch is above every epoch the old session used
+    s.playerJoined(1);
+    out.clear();
+    s.pin(p1, 1, 80000, out);
+    if (out.size() != 1 || out[0].epoch <= released || out[0].epoch <= 1) bad("rejoin epoch is not above the old session");
+    OwnershipView v(0);
+    v.apply(out.empty() ? OwnMsg{} : out[0]);
+    if (v.check(p1, 1, 1) != UpdateVerdict::StaleEpoch) bad("an old session's datagram was accepted");
+    if (v.check(p1, 1, s.epochOf(p1)) != UpdateVerdict::Accept) bad("the new session's datagram was refused");
+    return ok;
+}
+
 }  // namespace fnvcoop::testing

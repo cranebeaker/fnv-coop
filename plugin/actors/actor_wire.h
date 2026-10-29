@@ -5,6 +5,7 @@
 //   sub 0  SubBatch     payload = live::SnapshotSender::flush() bytes     (unreliable)
 //   sub 1  SubAck       payload = live::SnapshotReceiver::takeAcks() bytes (unreliable)
 //   sub 2  SubEnvelope  payload = fnvcoop::Archive of an Envelope          (reliable)
+//   sub 3  SubBatchPlayer / sub 4 SubAckPlayer: the same two packets for the player stream's own sender and receiver (StreamProfile, S10)
 #pragma once
 #include <variant>
 #include "actors/actor_types.h"
@@ -16,7 +17,7 @@ namespace nvcoop::actors {
 // 2: ActorSnapshot carries the live schema v2 animation extension (synccore/live/live.h), + MAnimEvent. 3: MPart (a state part, state_parts.h)
 // took the place of MInventory (inventory is one part now, equipment another).
 constexpr uint8_t kActorWireVersion = 3;
-enum Sub : uint8_t { SubBatch = 0, SubAck = 1, SubEnvelope = 2 };
+enum Sub : uint8_t { SubBatch = kSubBatchNpc, SubAck = kSubAckNpc, SubEnvelope = 2, SubBatchPlayer = kSubBatchPlayer, SubAckPlayer = kSubAckPlayer };
 
 struct MOwn { fnvcoop::OwnMsg m; };                                   // host -> all; client -> host only for Ack
 struct MTrack { ActorMeta meta; };                                    // client -> host: "I have this actor loaded"
@@ -34,7 +35,24 @@ struct MAnimEvent { NetId id = 0; OwnerEpoch epoch = 0; uint64_t eventId = 0; By
 // One state part of an actor (state_parts.h): the owner's value in its canonical bytes. Owner to everyone, reliable.
 struct MPart { NetId id = 0; OwnerEpoch epoch = 0; uint64_t eventId = 0; PartKind kind = PartKind::Inventory; Bytes value; };
 
-using Body = std::variant<MOwn, MTrack, MSnapFull, MDeath, MPick, MPickReport, MResync, MAnimEvent, MPart>;   // append only: the index is on the wire
+// Host -> all: this record is gone for everybody (a player left; docs/entity-core-plan.md S3). Clients drop the record and its receiver state.
+struct MUntrack { NetId id = 0; };
+
+// The event bus (docs/entity-core-plan.md S6): one reliable envelope for everything that happens to an entity.
+//   Owner    the entity's owner tells everyone; the host judges owner + epoch, relays, everyone de-duplicates by eventId
+//   ToOwner  anyone asks the entity's CURRENT owner (a hit on it, an activation); the host routes it and re-routes when the owner changed
+//   Nack     host -> origin: the entity has no owner to take the request (the origin may retry or drop it)
+enum class EventRoute : uint8_t { Owner = 0, ToOwner = 1, Nack = 2 };
+struct MEvent {
+    NetId id = 0; OwnerEpoch epoch = 0; uint64_t eventId = 0;
+    uint8_t kind = 0;                     // what the payload is; ActorSync never looks inside (handlers per kind)
+    EventRoute route = EventRoute::Owner;
+    uint8_t hops = 0;                     // ToOwner: re-routes so far (a limit stops a request that chases a moving owner)
+    PlayerId origin = kNoPlayer;          // who sent it first (a ToOwner's answer and a Nack go there)
+    Bytes payload;
+};
+
+using Body = std::variant<MOwn, MTrack, MSnapFull, MDeath, MPick, MPickReport, MResync, MAnimEvent, MPart, MUntrack, MEvent>;   // append only: the index is on the wire
 
 struct Envelope {
     PlayerId src = kNoPlayer;

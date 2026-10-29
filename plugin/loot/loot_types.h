@@ -27,7 +27,21 @@ struct ContainerDesc {
     lc::ContainerKind kind = lc::ContainerKind::Container;
     lc::CellId cell = 0;
     lc::Vec3 pos;
+    bool uniqueActor = false;           // a corpse of a unique (named) character: its kit is hand-written, scarcity leaves it alone (docs/rebalance.md)
 };
+
+// What an item is, for the scarcity rule of plugin/rebalance (supplies: food, drink, medicine; ammo).
+enum class ItemClass : uint8_t { Other, Ammo, Supply };
+
+// A scarcity hook (plugin/rebalance, Co-op balanced): called ONCE for every container or corpse this machine registers, with the real contents it read, BEFORE they become
+// the shared ones. It may remove items from `items` and returns true when it did; LootSync then makes the engine copy match, so every machine ends with the same list.
+struct TrimContext {
+    NetId net = 0;
+    lc::ContainerKind kind = lc::ContainerKind::Container;
+    bool uniqueActor = false;
+    std::function<ItemClass(const FormRef&)> classify;     // what an item is (the engine knows its form)
+};
+using TrimHook = std::function<bool(const TrimContext&, Items&)>;
 
 struct ItemDesc {
     NetId net = 0;                      // placed: derived from the ref. dropped: the issued id it was bound to. 0 = unknown / not an item
@@ -49,6 +63,7 @@ public:
     // the totals call was not available): such a read is never offered as the shared contents.
     virtual bool readContents(NetId net, Items& out, bool& exact) = 0;
     virtual bool setContents(NetId net, const Items& want) = 0;                 // make the engine copy hold exactly `want` (diff, then add / remove)
+    virtual ItemClass classifyItem(const FormRef& base) { (void)base; return ItemClass::Other; }   // ammo / food, drink, medicine / anything else
     virtual RefId openMenuRef() = 0;                                            // the container ref whose menu is up right now; 0 = no container menu
     virtual bool closeMenu() = 0;                                               // close the container menu (TODO-RE in the real engine)
     virtual bool adjustPlayer(const FormRef& base, int32_t delta) = 0;          // add / remove items of the LOCAL player; false when it could not
@@ -131,6 +146,7 @@ struct Stats {
     uint64_t revertedItems = 0;          // items taken back from / given back to the local player by a refused transfer (sum of |delta|)
     uint64_t scanKnown = 0;              // containers looked at by the last transfer pass (engine list + shared table entries with a ref here)
     uint64_t sessions = 0, loads = 0;
+    uint64_t trimmedContainers = 0, trimmedItems = 0;   // scarcity: containers and corpses the hook thinned / items it took out
     uint64_t containersDiscovered = 0;   // containers found in the player's cell by tickDiscover (not announced by a cell attach)
     uint64_t activateEvents = 0, activateByPlayer = 0;   // OnActivate events the module saw / of those, the ones the player did (the pickup detector's input)
     uint64_t pickupsClaimed = 0;                         // pickups handed to the claim rules (a world item the player took)

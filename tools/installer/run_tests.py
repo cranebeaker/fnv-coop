@@ -10,6 +10,7 @@ Nothing here starts a game, touches the registry or writes outside out\\release\
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import sys
@@ -678,11 +679,21 @@ def check_package_builds_a_verified_zip():
                          "PLAYER-GUIDE.md", "LICENSE.txt", "THIRD-PARTY.txt", "payload/nvcoop.dll", "payload/nvcoop.ini",
                          "payload/nvcoop_rules.json", "payload/nvcoop_edids.json", "payload/nvcoop_infoquest.json",
                          "payload/nvcoop_guest_local_run.json", "payload/nvcoop_intents.json", "payload/nvcoop_cause_quests.json", "payload/nvcoop_pack_watch.json", "payload/nvcoop_consent_messages.txt", "payload/nvcoop_volatile_keys.txt",
-                         "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/launcher_gui.py", "launcher/fnv_launcher_core.py", "launcher/fnv_terminal.py", "launcher/fnv_lobby.py",
-                         "launcher/terminal.html", "launcher/VT323-Regular.ttf", "Launcher-Classic.cmd",
+                         "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/fnv_launcher_core.py", "launcher/fnv_terminal.py", "launcher/fnv_lobby.py",
+                         "launcher/fnv_party_saves.py", "launcher/terminal.html", "launcher/VT323-Regular.ttf",
                          "launcher/fnv_portcheck.py", "launcher/fnv_steam.py", "launcher/fnvsteam.exe", "launcher/steam_appid.txt"):
                 assert root + need in names, need
             assert zf.read(root + "launcher/steam_appid.txt").strip() == b"22380", "the helper runs under the game's own AppID"
+            assert not any(n.endswith("launcher_gui.py") or n.endswith("Launcher-Classic.cmd") for n in names), "the old Tk launcher is not shipped"
+            # every fnv_* module a shipped script imports is shipped too (0.1.4 nearly went out without fnv_party_saves.py: the launcher would not start)
+            shipped_mods = {n.rsplit("/", 1)[-1][:-3] for n in names if n.endswith(".py")}
+            for n in names:
+                if not n.endswith(".py"):
+                    continue
+                for line in zf.read(n).decode("utf-8", "replace").splitlines():
+                    m = re.match(r"\s*(?:import|from)\s+(fnv_\w+)", line)
+                    if m:
+                        assert m.group(1) in shipped_mods, f"{n} imports {m.group(1)}, which the zip does not ship"
             assert not any(n.lower().endswith("steam_api.dll") or "fnv_steam_fake" in n for n in names), "nothing from Valve and no test double is shipped"
             assert zf.read(root + "launcher/fnvsteam.exe") == (td / "in" / "fnvsteam.exe").read_bytes()
             assert b"CONNECTION to STEAM" in zf.read(root + "README-FIRST.txt")
@@ -849,6 +860,7 @@ REAL = [check_pe_version, check_find_steam, check_find_steam_ansi_library_path, 
         check_verify_zip_detects_tampering]
 
 TWINS = [
+    (check_package_builds_a_verified_zip, "pkg_drop_party_saves"),
     (check_pe_version, "pe_swap_words"),
     (check_find_steam, "find_ignore_libraries"),
     (check_find_steam_ansi_library_path, "find_no_ansi_fallback"),

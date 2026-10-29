@@ -18,6 +18,7 @@ bool rejoinEpochsMonotonic(std::string* why = nullptr);
 bool commitNothingToHandOverHolds(std::string* why = nullptr);                // a handoff the old owner has nothing to hand over commits at once, only to a connected new owner, only once
 bool noFlap(std::string* why = nullptr);                                 // two players equally near: ownership must not flap (engine level)
 bool followerStaysWithRecruiter(std::string* why = nullptr);
+bool pinnedPlayersHold(std::string* why = nullptr);                       // S2: a player entity stays with its player, leave releases it, rejoin starts above the old epochs
 
 // ---- engine scenarios (Cluster) ----
 engine::ClusterConfig baseConfig(uint64_t seed, int players, const LinkParams& link = {});
@@ -35,6 +36,7 @@ bool namedProtected(uint64_t seed, std::string* why = nullptr);
 bool questStageSync(uint64_t seed, const LinkParams& link, std::string* why = nullptr);
 bool recruitCompanion(uint64_t seed, std::string* why = nullptr);
 bool saveLoadRejoin(uint64_t seed, std::string* why = nullptr);
+bool playerLeavesAndRejoins(uint64_t seed, std::string* why = nullptr);   // S13a: a slot that left owns nothing; its rejoin starts above its old epoch
 bool healsCorruption(uint64_t seed, std::string* why = nullptr);
 bool dropIdempotent(uint64_t seed, std::string* why = nullptr);
 bool forgedHitsRejected(uint64_t seed, std::string* why = nullptr);

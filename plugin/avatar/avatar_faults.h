@@ -29,6 +29,7 @@ struct AvatarFaults {
     bool noJumpLand = false;             // jump never ends in the landing group
     bool ignoreBudget = false;           // per-Tick engine call budget is ignored
     bool staleMapEntries = false;        // slot -> ref map keeps entries for despawned puppets
+    bool bindingUnbindForgotten = false; // the binding hook is never told that a puppet stopped being usable (parked, deleted, load)
     bool noPostMenuSnap = false;         // after a menu the puppet is not moved to the latest pose at once
     bool noSaveWait = false;             // puppets respawn while the save is still being written
     bool noWeaponMods = false;           // weapon modifications are never put on the puppet's weapon

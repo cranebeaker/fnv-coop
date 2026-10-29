@@ -3,6 +3,7 @@
 // (the oracle sees the damage). The compile-time mutants (NVA_MUT=n) run this whole file against a deliberately broken ActorSync.
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include "minitest.h"
@@ -1150,7 +1151,7 @@ TEST(wire, net_ids) {
     CHECK(a == b && a != 0);
     CHECK(deriveNetId(FormRef("falloutnv.esm", 1)) != deriveNetId(FormRef("deadmoney.esm", 1)));
     int bad = 0;
-    for (uint32_t i = 1; i < 200000; ++i) { const NetId n = deriveNetId(FormRef("falloutnv.esm", i)); if (n == 0 || (n >> 24) == 0xFF) ++bad; }
+    for (uint32_t i = 1; i < 200000; ++i) { const NetId n = deriveNetId(FormRef("falloutnv.esm", i)); if (n == 0 || (n >> 24) == 0xFF || (n >> 24) == 0xFE) ++bad; }   // 0xFE.. players, 0xFF.. host-issued (twin 43)
     CHECK(bad == 0);
 }
 
@@ -1310,3 +1311,637 @@ TEST(runtime, mux_session_roundtrip) {
     }
 }
 
+
+// ---- player entities (docs/entity-core-plan.md S3): pinned records on every machine, no NPC work on them, MUntrack, early snapshots ----
+// Twins NVA_MUT 44 (owned like an NPC), 45 (no MUntrack), 46 (NPC takeover on a player), 47 (early snapshot lost), 48 (NPC tick on a player).
+TEST(players, every_machine_agrees_a_player_owns_its_entity_and_nothing_npc_runs_on_it) {
+    Rig r(3);
+    r.addActor(100, 3, V(0));
+    for (int m = 0; m < 3; ++m)   // the engine has the local player and both puppets loaded: NPC code must still leave them alone
+        for (PlayerId s = 0; s < 3; ++s) r.at(m).eng.addReal(live::playerNet(s), 3, V(50.0f * s), FormRef("falloutnv.esm", 0x7));
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(5)); r.setPose(2, 3, V(10));
+    r.run(1500);
+    for (int step = 0; step < 300; ++step) {   // players roam right past each other's entities
+        for (int s = 0; s < 3; ++s) r.setPose(s, 3 + static_cast<CellId>((step + s) % 3), V(static_cast<float>((step * 37 + s * 11) % 400)));
+        r.run(20);
+    }
+    for (PlayerId s = 0; s < 3; ++s) {
+        const NetId id = live::playerNet(s);
+        const OwnerInfo h = r.host().sync->ownerOf(id);
+        CHECK_MSG(h.known && h.owner == s && !h.pending, "slot " + std::to_string(s));
+        CHECK(r.host().sync->service()->pinned(id));
+        for (int m = 1; m < 3; ++m) {
+            const OwnerInfo o = r.at(m).sync->ownerOf(id);
+            CHECK_MSG(o.known && o.owner == s && o.epoch == h.epoch, "machine " + std::to_string(m) + " slot " + std::to_string(s));
+        }
+        for (int m = 0; m < 3; ++m) CHECK_MSG(r.at(m).eng.opsFor(id).empty(), "the engine was told something about player " + std::to_string(s));
+    }
+    CHECK(r.host().sync->service()->stats().transfers == 0 || r.host().sync->ownerOf(100).known);   // NPC handoffs are fine; players never moved (above)
+    CHECK(r.host().sync->stats().publishedNotOwner == 0);
+}
+
+TEST(players, a_leaving_player_is_untracked_everywhere_and_a_rejoin_starts_above_the_old_epoch) {
+    Rig r(3);
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(5)); r.setPose(2, 3, V(10));
+    r.run(1000);
+    const NetId p1 = live::playerNet(1);
+    const OwnerEpoch before = r.host().sync->ownerOf(p1).epoch;
+    REQUIRE(r.at(2).sync->tracked(p1) && before >= 1);
+    r.host().sync->playerLeft(1);
+    r.setPose(1, 3, V(5), false);
+    r.run(500);
+    CHECK(!r.host().sync->tracked(p1));
+    CHECK(!r.at(2).sync->tracked(p1));
+    CHECK(r.at(2).sync->stats().playersUntracked >= 1);
+    r.host().sync->playerJoined(1);
+    r.at(1).sync->hostConnected();
+    r.setPose(1, 3, V(5));
+    r.run(1000);
+    const OwnerInfo h = r.host().sync->ownerOf(p1);
+    CHECK(h.known && h.owner == 1 && h.epoch > before);
+    CHECK(r.at(2).sync->ownerOf(p1).epoch == h.epoch && r.at(1).sync->ownerOf(p1).epoch == h.epoch);
+}
+
+TEST(players, nobody_can_track_or_claim_a_player_entity) {
+    Rig r(2);
+    r.run(500);
+    ActorMeta m;
+    m.netId = live::playerNet(1); m.ref = live::playerFormRef(1);
+    CHECK(!r.host().sync->track(m));                          // an engine feed never tracks a player
+    ActorMeta forged;
+    forged.netId = 0x00ABCDEF; forged.ref = live::playerFormRef(0);
+    inject(r, 0, 1, envelopeBytes(1, kNoPlayer, MTrack{m}));      // a client claiming a player entity
+    inject(r, 0, 1, envelopeBytes(1, kNoPlayer, MTrack{forged}));
+    CHECK(r.host().sync->stats().playerRefused >= 3);
+    CHECK(r.host().sync->ownerOf(live::playerNet(1)).owner == 1);
+    CHECK(!r.host().sync->tracked(0x00ABCDEF));
+}
+
+TEST(players, a_snapshot_that_arrives_before_its_record_and_ownership_is_applied_once_they_arrive) {
+    Rig r(2);
+    r.run(500);
+    const NetId id = 555;
+    inject(r, 1, 0, craftBatch(1, craftSnap(id, 1, 7, 3, V(321))));   // the host's stream overtook its reliable messages
+    CHECK(r.at(1).sync->stats().unknownActor >= 1);
+    ActorMeta m;
+    m.netId = id; m.ref = refOf(id); m.cell = 3;
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, MTrack{m}));
+    fnvcoop::OwnMsg g; g.kind = fnvcoop::OwnMsg::Grant; g.netId = id; g.epoch = 1; g.owner = 0;
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, MOwn{g}));
+    live::ActorSnapshot got;
+    CHECK(r.at(1).sync->latestState(id, got) && closeTo(got.pos.x, 321, 1));
+    CHECK(r.at(1).sync->stats().earlyApplied == 1);
+}
+
+// ---- the event bus (docs/entity-core-plan.md S6). Twins NVA_MUT 80 (anyone sends owner events), 81 (duplicates applied), 82 (no Nack),
+// 83 (no re-route from a past owner), 84 (an event ahead of its record lost), 85 (the host believes a non-owner).
+namespace {
+struct BusLog { std::vector<ActorSync::EventIn> got; };
+void listen(Rig& r, std::vector<BusLog>& logs, uint8_t kind) {
+    logs.resize(static_cast<size_t>(r.n()));
+    for (int i = 0; i < r.n(); ++i) {
+        BusLog* l = &logs[static_cast<size_t>(i)];
+        r.at(i).sync->setEventHandler(kind, [l](const ActorSync::EventIn& in) { l->got.push_back(in); });
+    }
+}
+}  // namespace
+
+TEST(bus, an_owner_event_reaches_everyone_once_and_nobody_else_may_send_one) {
+    Rig r(3);
+    r.addActor(100, 3, V(0));
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(3000)); r.setPose(2, 3, V(3000));
+    r.run(1000);
+    REQUIRE(r.host().sync->ownerOf(100).owner == 0);
+    std::vector<BusLog> logs;
+    listen(r, logs, 7);
+    CHECK(r.host().sync->sendOwnerEvent(100, 7, Bytes{1, 2, 3}));
+    CHECK(!r.at(1).sync->sendOwnerEvent(100, 7, Bytes{9}));   // not the owner
+    r.run(300);
+    CHECK(logs[1].got.size() == 1 && logs[2].got.size() == 1 && logs[1].got[0].payload == (Bytes{1, 2, 3}));
+    // a client forging an owner event: the host refuses it, nobody else hears it
+    MEvent forged;
+    forged.id = 100; forged.epoch = r.host().sync->ownerOf(100).epoch; forged.eventId = (uint64_t(1) << 48) | 99; forged.kind = 7; forged.origin = 1; forged.payload = {6};
+    inject(r, 0, 1, envelopeBytes(1, kNoPlayer, forged));
+    r.run(300);
+    CHECK(logs[0].got.empty() && logs[2].got.size() == 1);
+    CHECK(r.host().sync->stats().eventsRejected >= 1);
+    // the same owner event delivered twice: applied once
+    MEvent dup;
+    dup.id = 100; dup.epoch = r.host().sync->ownerOf(100).epoch; dup.eventId = 777; dup.kind = 7; dup.origin = 0; dup.payload = {5};
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, dup));
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, dup));
+    CHECK(logs[1].got.size() == 2);
+}
+
+TEST(bus, a_request_reaches_the_current_owner_and_one_that_reached_a_past_owner_is_re_routed) {
+    Rig r(3);
+    r.addActor(101, 3, V(1000));
+    r.setPose(0, 9, V(0)); r.setPose(1, 3, V(5000)); r.setPose(2, 3, V(1000));   // client 2 is next to it
+    r.run(1500);
+    REQUIRE(r.host().sync->ownerOf(101).owner == 2);
+    std::vector<BusLog> logs;
+    listen(r, logs, 8);
+    CHECK(r.at(1).sync->sendToOwner(101, 8, Bytes{4}));
+    r.run(300);
+    REQUIRE(logs[2].got.size() == 1);
+    CHECK(logs[2].got[0].origin == 1 && logs[2].got[0].toOwner && logs[0].got.empty() && logs[1].got.empty());
+    // a request the host forwarded to client 1, who does not own it (its table moved on): client 1 hands it back, the owner gets it
+    MEvent stale;
+    stale.id = 101; stale.eventId = (uint64_t(0) << 48) | 4242; stale.kind = 8; stale.route = EventRoute::ToOwner; stale.origin = 0; stale.payload = {2};
+    inject(r, 1, 0, envelopeBytes(0, 1, stale));
+    r.run(300);
+    CHECK(logs[2].got.size() == 2);
+    CHECK(r.host().sync->stats().eventsRerouted >= 1);
+}
+
+TEST(bus, a_request_for_an_entity_nobody_owns_is_answered_with_a_nack) {
+    Rig r(2);
+    r.addActor(102, 50, V(0));   // far from everyone: nobody owns it
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(10));
+    r.run(1000);
+    REQUIRE(r.host().sync->ownerOf(102).owner == kNoPlayer);
+    std::vector<BusLog> logs;
+    listen(r, logs, 9);
+    CHECK(r.at(1).sync->sendToOwner(102, 9, Bytes{1}));
+    r.run(300);
+    CHECK(logs[1].got.size() == 1 && logs[1].got[0].nack);
+}
+
+TEST(bus, an_event_ahead_of_its_record_is_held_and_delivered) {
+    Rig r(2);
+    r.run(500);
+    std::vector<BusLog> logs;
+    listen(r, logs, 10);
+    MEvent m;
+    m.id = 556; m.epoch = 1; m.eventId = 31337; m.kind = 10; m.origin = 0; m.payload = {8};
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, m));
+    CHECK(logs[1].got.empty());
+    ActorMeta meta;
+    meta.netId = 556; meta.ref = refOf(556); meta.cell = 3;
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, MTrack{meta}));
+    fnvcoop::OwnMsg g; g.kind = fnvcoop::OwnMsg::Grant; g.netId = 556; g.epoch = 1; g.owner = 0;
+    inject(r, 1, 0, envelopeBytes(0, kNoPlayer, MOwn{g}));
+    r.at(1).sync->tick(r.now + 10);
+    CHECK(logs[1].got.size() == 1);
+}
+
+// ---- NPC byte identity (docs/entity-core-plan.md S5, S10) ----------------------------------------------------------------------------------
+// The player parts and the player stream profile are additions: not one byte of what the NPC path sends may change. A fixed NPC scenario (walkers, a handoff,
+// an inventory and an equipment change, a death, on a lossy and duplicating link) is replayed and every datagram of every machine is folded into one hash;
+// the constant was taken from ActorSync as it was before S5. NVA_GOLDEN_PRINT=1 prints the value of the current code instead of checking it.
+namespace {
+uint64_t npcTrafficHash(uint64_t* datagrams) {
+    Rig r(3, 11, NetOpts{20, 8, 0.03, 0.03});
+    uint64_t h = 1469598103934665603ull, n = 0;
+    auto mix = [&](const void* p, size_t len) {
+        const uint8_t* b = static_cast<const uint8_t*>(p);
+        for (size_t i = 0; i < len; ++i) { h ^= b[i]; h *= 1099511628211ull; }
+    };
+    r.net.dropIf = [&](const NetMsg& m) {
+        ++n;
+        const uint64_t head[4] = {r.net.now, static_cast<uint64_t>(m.from), static_cast<uint64_t>(m.to), static_cast<uint64_t>(m.reliable)};
+        mix(head, sizeof head);
+        mix(m.data.data(), m.data.size());
+        return false;
+    };
+    const FormRef stim = refOf(0x15169), rifle = refOf(0x1B2C4), armor = refOf(0x2C3D5);
+    r.addActor(100, 3, V(1000), false, ~0u, 40, 0);
+    r.addActor(101, 3, V(1500), false, ~0u, 0, 30);
+    r.addActor(102, 4, V(6500), true, ~0u, -20, 10);
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(3000)); r.setPose(2, 4, V(6000));
+    for (auto& mc : r.m) { mc->eng.a[101].inv[stim] = 3; mc->eng.a[102].equip.insert(armor); }
+    r.run(1500);
+    const int o101 = r.aiMachine(101);
+    if (o101 >= 0) { r.at(o101).eng.a[101].inv[stim] = 2; r.at(o101).eng.a[101].equip.insert(rifle); }
+    r.run(1500);
+    r.setPose(1, 9, V(100));   // client 1 leaves the area: ownership moves
+    r.run(1500);
+    r.setPose(1, 3, V(1200));
+    r.run(1200);
+    const int o100 = r.aiMachine(100);
+    if (o100 >= 0) r.at(o100).sync->onLocalDeath(100);
+    r.run(1200);
+    if (datagrams) *datagrams = n;
+    return h;
+}
+}  // namespace
+
+TEST(golden, npc_traffic_is_byte_identical_to_the_version_before_the_player_parts_and_the_player_stream) {
+    uint64_t n = 0;
+    const uint64_t h = npcTrafficHash(&n);
+    if (const char* p = std::getenv("NVA_GOLDEN_PRINT")) { (void)p; std::printf("NPC-TRAFFIC datagrams=%llu hash=%llu\n", static_cast<unsigned long long>(n), static_cast<unsigned long long>(h)); }
+    CHECK(n > 200);
+    CHECK_MSG(h == 9335289451351416134ull, "datagrams=" + std::to_string(n) + " hash=" + std::to_string(h));
+}
+
+// ---- player parts (docs/entity-core-plan.md S5): Look, Equipment, WeaponState everywhere, Facts and Pack to the host only ----
+// Twins NVA_MUT 49 (player calls reach the NPC port), 50 (silent baseline), 51 (host-only parts relayed), 52 (join state sends them), 53 (a non-owner's player
+// part believed), 54 (respawned puppet not dressed again), 55 (join state without player parts), 56 (an NPC record takes a player part), 57 (no republish).
+namespace {
+Bytes pv(const std::string& s) { return Bytes(s.begin(), s.end()); }
+const PartKind kAllPlayerKinds[] = {PartKind::Look, PartKind::Equipment, PartKind::WeaponState, PartKind::Facts, PartKind::Pack};
+const PartKind kSharedKinds[] = {PartKind::Look, PartKind::Equipment, PartKind::WeaponState};
+const PartKind kHostOnlyKinds[] = {PartKind::Facts, PartKind::Pack};
+
+std::string valueOf(PlayerId slot, PartKind k) { return std::string(partName(k)) + "-" + std::to_string(slot); }
+
+// every machine's avatar layer is up and has a puppet of every other player
+void playersUp(Rig& r) {
+    for (int m = 0; m < r.n(); ++m) {
+        FakePlayerPort& pp = r.at(m).pp;
+        pp.up = true;
+        for (int s = 0; s < r.n(); ++s) if (s != m) pp.puppets.insert(static_cast<PlayerId>(s));
+    }
+}
+void setLocalParts(Rig& r, int m) {
+    for (PartKind k : kAllPlayerKinds) r.at(m).pp.local[k] = pv(valueOf(static_cast<PlayerId>(m), k));
+}
+}  // namespace
+
+TEST(playerparts, the_first_read_is_published_and_every_puppet_gets_look_equipment_and_weapon) {
+    Rig r(3);
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2500);
+    for (int viewer = 0; viewer < 3; ++viewer)
+        for (int owner = 0; owner < 3; ++owner) {
+            if (viewer == owner) continue;
+            for (PartKind k : kSharedKinds)
+                CHECK_MSG(r.at(viewer).pp.lastWritten(static_cast<PlayerId>(owner), k) == valueOf(static_cast<PlayerId>(owner), k),
+                          std::string("machine ") + std::to_string(viewer) + " never dressed player " + std::to_string(owner) + " with its " + partName(k));
+        }
+    for (int m = 0; m < 3; ++m) {
+        CHECK(r.at(m).pp.wrong == 0);
+        for (PartKind k : kSharedKinds) CHECK(r.at(m).sync->stats().parts[partIndex(k)].published == 1);
+        // the local player is never written onto
+        CHECK(r.at(m).pp.written.count(static_cast<PlayerId>(m)) == 0);
+        // and no NPC call was made for a player
+        for (PlayerId s = 0; s < 3; ++s) CHECK(r.at(m).eng.opsFor(live::playerNet(s)).empty());
+    }
+    // a change is published once it stayed the same for the settle time, and reaches both others
+    r.at(1).pp.local[PartKind::Equipment] = pv("equipment-1-b");
+    r.run(100);
+    CHECK(r.at(0).pp.lastWritten(1, PartKind::Equipment) == "equipment-1");   // not yet: 0.2 s settle
+    r.run(1500);
+    for (int viewer : {0, 2}) CHECK(r.at(viewer).pp.lastWritten(1, PartKind::Equipment) == "equipment-1-b");
+    CHECK(r.at(0).pp.writeCount(1, PartKind::Equipment) == 2 && r.at(2).pp.writeCount(1, PartKind::Equipment) == 2);
+    CHECK(r.at(1).sync->stats().parts[partIndex(PartKind::Equipment)].published == 2);
+}
+
+TEST(playerparts, facts_and_pack_are_stored_on_the_host_and_never_reach_another_guest) {
+    Rig r(3);
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2500);
+    for (PartKind k : kHostOnlyKinds) {
+        for (PlayerId s : std::initializer_list<PlayerId>{1, 2}) CHECK_MSG(r.at(0).pp.lastWritten(s, k) == valueOf(s, k), std::string("the host never got ") + partName(k) + " of " + std::to_string(s));
+        Bytes stored;
+        CHECK(r.host().sync->partValue(live::playerNet(1), k, stored) && stored == pv(valueOf(1, k)));
+        for (int g : {1, 2}) {
+            for (PlayerId s = 0; s < 3; ++s) CHECK(r.at(g).pp.writeCount(s, k) == 0);   // no guest hears anything of another's facts or pack
+            CHECK(r.at(g).sync->stats().parts[partIndex(k)].applied == 0);
+        }
+        CHECK(r.at(0).pp.writeCount(0, k) == 0);   // the host's own are not written onto itself
+    }
+    // on the wire: no host-only part ever travels to a guest
+    for (const NetMsg& m : r.net.captured) {
+        Envelope env;
+        if (m.data.size() > 2 && m.data[1] == SubEnvelope && decodeEnvelope(m.data.data() + 2, m.data.size() - 2, env))
+            if (const MPart* p = std::get_if<MPart>(&env.body))
+                if (p->kind == PartKind::Facts || p->kind == PartKind::Pack) CHECK_MSG(m.to == 0, "a host-only part was sent to machine " + std::to_string(m.to));
+    }
+    // a changed fact reaches the host once
+    r.at(2).pp.local[PartKind::Facts] = pv("facts-2-b");
+    r.run(1500);
+    CHECK(r.at(0).pp.lastWritten(2, PartKind::Facts) == "facts-2-b" && r.at(0).pp.writeCount(2, PartKind::Facts) == 2);
+    CHECK(r.at(1).pp.writeCount(2, PartKind::Facts) == 0);
+}
+
+TEST(playerparts, a_guest_cannot_publish_another_players_part) {
+    Rig r(3);
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2000);
+    const OwnerEpoch ep = r.host().sync->ownerOf(live::playerNet(1)).epoch;
+    for (PartKind k : {PartKind::Look, PartKind::Facts}) {
+        MPart forged; forged.id = live::playerNet(1); forged.epoch = ep; forged.eventId = (2ull << 48) | (900 + partIndex(k)); forged.kind = k; forged.value = pv("forged");
+        Envelope fe; fe.src = 2; fe.dest = kNoPlayer; fe.body = forged;
+        r.net.send(2, 0, true, encodeEnvelope(fe));
+    }
+    r.run(500);
+    for (int m = 0; m < 3; ++m)
+        for (PartKind k : kAllPlayerKinds) CHECK_MSG(r.at(m).pp.lastWritten(1, k) != "forged", "a forged part was applied on machine " + std::to_string(m));
+    CHECK(r.host().sync->stats().parts[partIndex(PartKind::Look)].rejected >= 1);
+    CHECK(r.host().sync->stats().parts[partIndex(PartKind::Facts)].rejected >= 1);
+    // and a part kind that does not belong to a player record is refused
+    MPart inv; inv.id = live::playerNet(2); inv.epoch = r.host().sync->ownerOf(live::playerNet(2)).epoch; inv.eventId = (2ull << 48) | 950; inv.kind = PartKind::Inventory; inv.value = pv("x");
+    Envelope ie; ie.src = 2; ie.dest = kNoPlayer; ie.body = inv;
+    r.net.send(2, 0, true, encodeEnvelope(ie));
+    r.run(300);
+    CHECK(r.host().sync->stats().parts[partIndex(PartKind::Inventory)].rejected >= 1);
+}
+
+TEST(playerparts, a_late_joiner_hears_every_part_of_every_player_and_a_player_that_comes_back_tells_the_host_again) {
+    Rig r(3);
+    r.net.down.insert(2);   // machine 2 joins late: the join burst never reaches it
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2000);
+    CHECK(r.at(2).pp.written.empty());
+    r.net.down.erase(2);
+    r.at(2).sync->hostConnected();
+    r.run(2500);
+    for (PlayerId owner : std::initializer_list<PlayerId>{0, 1})
+        for (PartKind k : kSharedKinds) CHECK_MSG(r.at(2).pp.lastWritten(owner, k) == valueOf(owner, k), std::string("the late joiner never got ") + partName(k) + " of " + std::to_string(owner));
+    for (PlayerId owner : std::initializer_list<PlayerId>{0, 1})
+        for (PartKind k : kHostOnlyKinds) CHECK(r.at(2).pp.writeCount(owner, k) == 0);   // host-only parts are not part of a join burst
+    // what the late joiner wears reaches the others, too (its first parts went nowhere while it was cut off)
+    for (int viewer : {0, 1})
+        for (PartKind k : kSharedKinds) CHECK_MSG(r.at(viewer).pp.lastWritten(2, k) == valueOf(2, k), std::string("machine ") + std::to_string(viewer) + " never got " + partName(k) + " of the late joiner");
+    Bytes pack;
+    CHECK(r.host().sync->partValue(live::playerNet(2), PartKind::Pack, pack) && pack == pv(valueOf(2, PartKind::Pack)));
+    // a guest whose link to the host was lost and came back tells the host everything again (a restarted host has none of it)
+    const uint64_t before = r.at(1).sync->stats().parts[partIndex(PartKind::Look)].published;
+    r.at(1).sync->hostLost();
+    r.run(200);
+    r.at(1).sync->hostConnected();
+    r.run(2500);
+    CHECK_MSG(r.at(1).sync->stats().parts[partIndex(PartKind::Look)].published == before + 1, "the guest did not publish its look again after the host link came back");
+    CHECK(r.at(1).sync->stats().playerPartsRepublished >= 3);
+}
+
+TEST(playerparts, a_puppet_that_was_made_again_is_dressed_again) {
+    Rig r(3);
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2500);
+    CHECK(r.at(0).pp.writeCount(1, PartKind::Look) == 1 && r.at(0).pp.writeCount(1, PartKind::Equipment) == 1);
+    r.at(0).sync->onPlayerBound(live::playerNet(1));   // the puppet of player 1 on the host was deleted and spawned again (a save, a cell park, another race)
+    r.run(1200);
+    for (PartKind k : kSharedKinds) CHECK_MSG(r.at(0).pp.writeCount(1, k) == 2, std::string("the new puppet was not given its ") + partName(k) + " again");
+    CHECK(r.at(0).pp.lastWritten(1, PartKind::Look) == valueOf(1, PartKind::Look));
+    for (PartKind k : kHostOnlyKinds) CHECK(r.at(0).pp.writeCount(1, k) == 1);   // facts and pack are no puppet's business
+    CHECK(r.at(2).pp.writeCount(1, PartKind::Look) == 1);   // the others' puppets are untouched
+}
+
+TEST(playerparts, an_npc_record_never_takes_a_player_part_and_the_switch_off_keeps_the_avatar_channel_in_charge) {
+    {
+        Rig r(2);
+        playersUp(r);
+        r.addActor(100, 3, V(1000));
+        r.run(500);
+        MPart m; m.id = 100; m.epoch = r.host().sync->ownerOf(100).epoch; m.eventId = 7000; m.kind = PartKind::Look; m.value = pv("look");
+        inject(r, 1, 0, envelopeBytes(0, kNoPlayer, m));
+        CHECK(r.at(1).sync->stats().parts[partIndex(PartKind::Look)].rejected >= 1);
+        CHECK(r.at(1).pp.writeCount(0, PartKind::Look) == 0);
+    }
+    {
+        Rig r(2);   // [entities] parts=legacy: ActorSync leaves the player parts to the avatar channel
+        for (int i = 0; i < 2; ++i) r.at(i).sync->enablePlayerEntities(&r.at(i).pp, false, false);
+        playersUp(r);
+        for (int m = 0; m < 2; ++m) setLocalParts(r, m);
+        r.run(2500);
+        for (int m = 0; m < 2; ++m) {
+            CHECK(r.at(m).pp.readCalls == 0 && r.at(m).pp.written.empty());
+            for (PartKind k : kAllPlayerKinds) CHECK(r.at(m).sync->stats().parts[partIndex(k)].published == 0);
+        }
+    }
+}
+
+TEST(playerparts, a_player_that_leaves_and_comes_back_in_a_new_session_is_dressed_again_on_the_host) {
+    Rig r(3);
+    playersUp(r);
+    for (int m = 0; m < 3; ++m) setLocalParts(r, m);
+    r.run(2500);
+    CHECK(r.host().pp.lastWritten(2, PartKind::Look) == valueOf(2, PartKind::Look) && r.host().pp.writeCount(2, PartKind::Look) == 1);
+    // player 2 quits (the host untracks it) and starts a fresh session: a new ActorSync whose event counter starts again from 1
+    r.host().sync->playerLeft(2);
+    r.run(300);
+    CHECK(!r.host().sync->tracked(live::playerNet(2)));
+    Machine& m2 = r.at(2);
+    SyncConfig c;
+    c.self = 2; c.isHost = false;
+    c.adjacent = [](CellId a, CellId b) { return a == b || a + 1 == b || b + 1 == a; };
+    m2.sync = std::make_unique<ActorSync>(c, m2.eng, *m2.ep);
+    m2.sync->enablePlayerEntities(&m2.pp, true, false);
+    m2.pp.local[PartKind::Look] = pv("look-2-again");
+    r.host().sync->playerJoined(2);
+    m2.sync->hostConnected();
+    r.run(2500);
+    CHECK(r.host().sync->ownerOf(live::playerNet(2)).epoch >= 2);
+    CHECK_MSG(r.host().pp.lastWritten(2, PartKind::Look) == "look-2-again", "the host never heard the look of the player who came back");
+    CHECK(r.at(1).pp.lastWritten(2, PartKind::Look) == "look-2-again");
+    CHECK(r.host().pp.lastWritten(2, PartKind::Equipment) == valueOf(2, PartKind::Equipment));
+}
+
+// ---- the player stream profile (docs/entity-core-plan.md S10): 30 Hz, own sender and receiver, relay on arrival, near / far / out tiers, a jump at once ----
+// Twins NVA_MUT 58 (a player shares the NPC sender), 59 (the rate is ignored), 60 (the uplink follows the lowest tier), 61 (held snapshots never released),
+// 62 (no jump pass), 64 (a client may publish another player's stream), 67 (the sampler's tick replaced), 69 (the relay goes back to the owner), 72 (places never learned).
+namespace {
+struct Walkers {
+    Rig& r;
+    std::vector<uint64_t> next;
+    std::vector<float> x, vx;
+    std::vector<CellId> cell;
+    std::vector<bool> on;
+    std::vector<float> lastX;   // where the last sample was
+    explicit Walkers(Rig& rig) : r(rig), next(8, 0), x(8, 0.0f), vx(8, 0.0f), cell(8, 3), on(8, true), lastX(8, 0.0f) {}
+    void feed() {   // the sampler's output, 33 ms apart
+        for (int m = 0; m < r.n(); ++m) {
+            if (!on[static_cast<size_t>(m)] || r.now < next[static_cast<size_t>(m)]) continue;
+            const size_t i = static_cast<size_t>(m);
+            live::ActorSnapshot s;
+            s.cell = cell[i]; s.pos = V(x[i]); s.vel = V(vx[i]); s.tick = static_cast<uint32_t>(r.now) + 9000u * static_cast<uint32_t>(m + 1);   // each machine's own clock
+            r.at(m).pp.samples.push_back(s);
+            lastX[i] = x[i];
+            next[i] = (next[i] ? next[i] : r.now) + 33;
+            x[i] += vx[i] * 0.033f;
+        }
+    }
+    void run(uint32_t ms) { for (uint32_t t = 0; t < ms; t += 10) { feed(); r.step(10); } }
+};
+
+void streamsOn(Rig& r) {
+    playersUp(r);
+    for (int m = 0; m < r.n(); ++m) r.at(m).sync->enablePlayerEntities(&r.at(m).pp, true, true);
+}
+
+int rxCount(Rig& r, int viewer, int owner, uint64_t from = 0, uint64_t to = ~0ull) {
+    int n = 0;
+    for (const auto& x : r.at(viewer).pp.rx) if (x.id == live::playerNet(static_cast<PlayerId>(owner)) && x.at >= from && x.at < to) ++n;
+    return n;
+}
+const FakePlayerPort::Rx* lastRx(Rig& r, int viewer, int owner) {
+    const FakePlayerPort::Rx* last = nullptr;
+    for (const auto& x : r.at(viewer).pp.rx) if (x.id == live::playerNet(static_cast<PlayerId>(owner))) last = &x;
+    return last;
+}
+}  // namespace
+
+TEST(playerstream, the_profiles_say_what_differs_between_a_player_and_an_npc) {
+    Rig r(2);
+    const StreamProfile p = r.host().sync->profileFor(live::playerNet(1)), n = r.host().sync->profileFor(100);
+    CHECK(p.interp.lowLatency && !n.interp.lowLatency && n.interp.delayMs == 100);
+    CHECK(p.sampleMs == 33 && p.nearMs == 33 && p.farMs == 200 && p.outMs == 1000 && p.jumpUnits == 350.0f);
+    CHECK(p.relayOnArrival && p.uplinkFromObservers && p.interpInPort && p.tickFromPort);
+    CHECK(p.sub == SubBatchPlayer && p.ackSub == SubAckPlayer && n.sub == SubBatch && n.ackSub == SubAck);
+    CHECK(!n.relayOnArrival && !n.uplinkFromObservers && !n.interpInPort && n.outMs == 0 && n.jumpUnits == 0.0f && n.nearMs == 50 && n.farMs == 200);
+}
+
+TEST(playerstream, every_puppet_follows_its_owner_at_30_hz_through_the_pinned_epoch_and_the_players_own_packets) {
+    Rig r(3, 5, NetOpts{20, 0, 0, 0});
+    streamsOn(r);
+    int bySub[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    r.net.dropIf = [&](const NetMsg& m) { if (m.data.size() > 1 && m.data[1] < 8) ++bySub[m.data[1]]; return false; };
+    Walkers w(r);
+    w.vx[0] = 100; w.vx[1] = 200; w.vx[2] = 300;
+    w.x[1] = 50; w.x[2] = 90;
+    w.run(3500);
+    for (int viewer = 0; viewer < 3; ++viewer)
+        for (int owner = 0; owner < 3; ++owner) {
+            if (viewer == owner) { CHECK(rxCount(r, viewer, owner) == 0); continue; }   // nobody is played its own stream back
+            const int n = rxCount(r, viewer, owner, 1500, 3500);
+            CHECK_MSG(n >= 50 && n <= 70, "machine " + std::to_string(viewer) + " got " + std::to_string(n) + " snapshots of player " + std::to_string(owner) + " in two seconds (about 60)");
+            const FakePlayerPort::Rx* l = lastRx(r, viewer, owner);
+            CHECK(l && l->s.ownerEpoch == r.host().sync->ownerOf(live::playerNet(static_cast<PlayerId>(owner))).epoch && l->s.netId == live::playerNet(static_cast<PlayerId>(owner)));
+            CHECK(l && std::fabs(l->s.pos.x - w.x[static_cast<size_t>(owner)]) < 3.0f * static_cast<float>(w.vx[static_cast<size_t>(owner)]) / 10.0f + 30.0f);   // within about a tenth of a second of the walker
+            CHECK(l && l->s.tick > 9000u * static_cast<uint32_t>(owner + 1));   // the sampler's own tick, not ActorSync's clock
+            // seq strictly rises per owner
+            uint32_t prev = 0;
+            bool ordered = true;
+            for (const auto& x : r.at(viewer).pp.rx) if (x.id == live::playerNet(static_cast<PlayerId>(owner))) { if (x.s.seq <= prev) ordered = false; prev = x.s.seq; }
+            CHECK(ordered);
+        }
+    CHECK(bySub[SubBatchPlayer] > 100 && bySub[SubAckPlayer] > 10 && bySub[SubBatch] == 0);   // the player stream rides its own packets and acknowledgements
+    for (int m = 0; m < 3; ++m) {
+        CHECK(r.at(m).pp.wrong == 0 && r.at(m).eng.ops.empty());
+        CHECK(r.at(m).sync->stats().playerForged == 0 && r.at(m).sync->stats().playerSampled > 80);
+        CHECK(r.at(m).sync->stats().playerEchoed == 0);   // the host never plays a player its own stream back
+    }
+    CHECK(r.host().sync->stats().playerRelayed > 100);   // the host relays at once
+    CHECK(r.host().sync->playerSenderStats().packets > 100 && r.host().sync->senderStats().packets == 0);
+}
+
+TEST(playerstream, a_far_player_is_trickled_once_a_second_the_last_place_is_never_lost_and_a_jump_passes_at_once) {
+    Rig r(3, 5, NetOpts{20, 0, 0, 0});
+    streamsOn(r);
+    Walkers w(r);
+    w.cell[2] = 9;   // player 2 is in another cell, further than adjacent: the out tier for everybody in cell 3
+    w.vx[1] = 120;
+    w.vx[2] = 120;
+    w.run(4000);
+    CHECK_MSG(rxCount(r, 0, 1, 2000, 4000) >= 50, "the host (same cell as player 1) must see it at the near rate");
+    const int out = rxCount(r, 2, 1, 2000, 4000);
+    CHECK_MSG(out >= 1 && out <= 4, "player 2 (another cell) got " + std::to_string(out) + " snapshots of player 1 in two seconds (the out tier: about 2)");
+    const int up = rxCount(r, 0, 2, 2000, 4000);
+    CHECK_MSG(up >= 1 && up <= 4, "the host got " + std::to_string(up) + " snapshots from player 2 in two seconds (every observer is out: about 2)");
+    // the uplink follows the HIGHEST tier any observer has: player 1 (cell 3) stays near for the host and is sent at 30 Hz although player 2 is out
+    CHECK(rxCount(r, 0, 1, 2000, 4000) >= 50);
+    // player 1 stops sampling at six different moments of the out tier's period: the last place it was at always reaches the observer (the planner keeps the newest
+    // snapshot that was not due and releases it), though nothing newer follows
+    for (int k = 0; k < 6; ++k) {
+        w.on[1] = true;
+        w.next[1] = r.now;   // (no backlog of samples from the time it was off)
+        w.vx[1] = 200;
+        w.run(1000 + static_cast<uint32_t>(k) * 170);
+        w.on[1] = false;
+        const float stopX = w.lastX[1];
+        w.run(1300);
+        const FakePlayerPort::Rx* l = lastRx(r, 2, 1);
+        CHECK_MSG(l && std::fabs(l->s.pos.x - stopX) < 0.5f, "round " + std::to_string(k) + ": the last place of player 1 never reached the out-tier observer");
+    }
+    // a jump goes through the rate gate at once, at every tier and at any phase of the period
+    w.on[1] = true;
+    w.next[1] = r.now;
+    w.vx[1] = 0;
+    for (int k = 0; k < 6; ++k) {
+        w.run(137 + static_cast<uint32_t>(k) * 61);
+        const uint64_t t0 = r.now;
+        w.x[1] += (k & 1) ? -900.0f : 900.0f;
+        w.run(200);
+        bool arrived = false;
+        uint64_t at = 0;
+        for (const auto& x : r.at(2).pp.rx) if (x.id == live::playerNet(1) && x.at >= t0 && std::fabs(x.s.pos.x - w.x[1]) < 1.0f) { arrived = true; at = x.at; break; }
+        CHECK_MSG(arrived, "jump " + std::to_string(k) + " of player 1 did not reach the out-tier observer within 200 ms");
+        CHECK_MSG(arrived && at - t0 <= 140, "jump " + std::to_string(k) + " arrived after " + std::to_string(at - t0) + " ms");
+    }
+}
+
+TEST(playerstream, a_player_does_not_wait_behind_an_npc_burst) {
+    Rig r(3, 5, NetOpts{20, 0, 0, 0});
+    streamsOn(r);
+    for (uint32_t i = 0; i < 60; ++i) r.addActor(300 + i, 3, V(100.0f * static_cast<float>(i)), false, ~0u, 40, 10);   // sixty walking NPCs fill the NPC packets
+    for (int i = 0; i < 3; ++i) r.setPose(i, 3, V(500.0f * static_cast<float>(i)));
+    int bySub[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    r.net.dropIf = [&](const NetMsg& m) { if (m.data.size() > 1 && m.data[1] < 8) ++bySub[m.data[1]]; return false; };
+    Walkers w(r);
+    w.vx[1] = 150; w.vx[2] = 150; w.vx[0] = 150;
+    w.run(3000);
+    CHECK(bySub[SubBatch] > 50 && bySub[SubBatchPlayer] > 50);   // both streams flow, in packets of their own
+    CHECK(rxCount(r, 0, 1, 1000, 3000) >= 50 && rxCount(r, 2, 0, 1000, 3000) >= 50);
+    CHECK(r.host().sync->senderStats().packets > 0 && r.host().sync->playerSenderStats().packets > 0);
+    CHECK(r.at(2).sync->stats().snapshotsApplied > 100);   // and the NPCs went on being played, too
+}
+
+TEST(playerstream, a_client_cannot_publish_another_players_stream_and_an_old_session_is_not_believed_after_a_rejoin) {
+    Rig r(3, 5, NetOpts{20, 0, 0, 0});
+    streamsOn(r);
+    Walkers w(r);
+    w.vx[1] = 100; w.vx[2] = 100;
+    w.run(2000);
+    // client 2 sends a snapshot that claims to be player 1's, at the right epoch, far away
+    live::SnapshotSender evil;
+    live::ActorSnapshot s = craftSnap(live::playerNet(1), r.host().sync->ownerOf(live::playerNet(1)).epoch, 900000, 3, V(70000));
+    evil.queue(0, s, 5);
+    for (Bytes& d : evil.flush(0, 5)) inject(r, 0, 2, wrapLive(SubBatchPlayer, d));
+    r.run(200);
+    CHECK(r.host().sync->stats().playerForged >= 1);
+    for (int m = 0; m < 3; ++m) for (const auto& x : r.at(m).pp.rx) CHECK(x.s.pos.x < 60000.0f);
+    // player 1 leaves and comes back in a new session (epoch above the old one): a datagram of the old session is not believed
+    live::SnapshotSender old;
+    live::ActorSnapshot os = craftSnap(live::playerNet(1), r.host().sync->ownerOf(live::playerNet(1)).epoch, 800000, 3, V(40000));
+    const OwnerEpoch oldEpoch = os.ownerEpoch;
+    old.queue(0, os, 5);
+    std::vector<Bytes> oldDatagrams = old.flush(0, 5);
+    r.host().sync->playerLeft(1);
+    r.run(300);
+    r.host().sync->playerJoined(1);
+    r.at(1).sync->hostConnected();
+    w.run(800);
+    CHECK(r.host().sync->ownerOf(live::playerNet(1)).epoch > oldEpoch);
+    const size_t before = r.host().pp.rx.size();
+    for (Bytes& d : oldDatagrams) inject(r, 0, 1, wrapLive(SubBatchPlayer, d));
+    r.run(200);
+    for (size_t i = before; i < r.host().pp.rx.size(); ++i) CHECK(r.host().pp.rx[i].s.pos.x < 30000.0f);
+}
+
+TEST(playerstream, a_snapshot_ahead_of_its_record_is_kept_and_played_when_the_record_arrives) {
+    Rig r(3, 5, NetOpts{20, 0, 0, 0});
+    r.net.down.insert(2);   // machine 2 has heard nothing yet
+    streamsOn(r);
+    r.run(300);
+    live::SnapshotSender hostSender;
+    live::ActorSnapshot s = craftSnap(live::playerNet(1), 1, 5, 3, V(1234));
+    hostSender.queue(2, s, 5);
+    for (Bytes& d : hostSender.flush(2, 5)) inject(r, 2, 0, wrapLive(SubBatchPlayer, d));   // the host's stream overtook its reliable messages
+    CHECK(r.at(2).sync->stats().playerUnknown >= 1 && r.at(2).pp.rx.empty());
+    r.net.down.erase(2);
+    r.at(2).sync->hostConnected();
+    r.run(1500);
+    CHECK(r.at(2).sync->stats().earlyApplied >= 1);
+    bool played = false;
+    for (const auto& x : r.at(2).pp.rx) if (x.id == live::playerNet(1) && std::fabs(x.s.pos.x - 1234.0f) < 0.5f) played = true;
+    CHECK(played);
+}
+
+TEST(playerstream, with_the_stream_switched_off_the_avatar_channel_keeps_it) {
+    Rig r(2, 5, NetOpts{20, 0, 0, 0});
+    playersUp(r);   // parts on, stream off (the default of a session that runs stream=legacy)
+    Walkers w(r);
+    w.vx[0] = 100; w.vx[1] = 100;
+    w.run(1500);
+    for (int m = 0; m < 2; ++m) {
+        CHECK(r.at(m).pp.samples.size() > 20 && r.at(m).pp.rx.empty());   // nothing was sampled, sent or played
+        CHECK(r.at(m).sync->stats().playerSampled == 0 && r.at(m).sync->playerSenderStats().packets == 0);
+    }
+}

@@ -68,6 +68,9 @@ struct Config {
     SocialHooks social;
     // plugin/threat: every hit that lands on an actor this machine simulates (the engine's own, an accepted forwarded one, a light blow), so an enemy's damage ledger is exact
     std::function<void(uint32_t victimRef, uint32_t attackerRef, float damage)> onHitLanded;
+    // plugin/rebalance (Co-op balanced): how much of the engine's damage this hit does, from where it lands and what the victim wears. Asked by the
+    // hit gate before anything else, on the machine whose engine computed the hit, so every hit is scaled exactly once. Null or 1 = the game's own.
+    std::function<float(uint32_t victimRef, cc::Limb limb)> hitScale;
 };
 
 // One hit as the engine hit gate sees it, BEFORE the damage is applied. All raw; the glue fills what it can read.

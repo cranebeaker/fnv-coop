@@ -24,10 +24,15 @@
 #include "party_save_glue.h"
 #include "reload/reload_state.h"
 #include "rebalance/director.h"
+#include "rebalance/armor_real.h"
+#include "rebalance/effects_real.h"
 #include "rebalance/rebalance_glue.h"
 #include "threat/threat_glue.h"
 #ifdef NVCOOP_REBALANCE_AVATAR
 #include "avatar/avatar_api.h"
+#endif
+#ifdef NVCOOP_WITH_LOOT
+#include "loot/loot_glue.h"
 #endif
 #ifdef NVCOOP_WITH_COMBAT
 #include "combat/combat_glue.h"
@@ -122,11 +127,13 @@ struct State {
     std::string iniMode = "normal";
     bool iniFriendlyFire = false;
     GameGmst gmst;
+    rb::GameEffects effects;
     std::unique_ptr<rb::Director> director;
     std::map<uint32_t, Seen> driveTargets;   // net id of an actor a guest owns -> the combat target its owner reported (a player's net id) and when
     eng::ListenerId driveListener = 0;
     rb::CampaignSettings picked;             // the last pick handed to the party code
     rb::GmstApplier::State carried;          // a hot reload brings the applier's originals back
+    rb::EffectApplier::State carriedEffects; // ... and the Stimpak forms' originals
     bool haveCarried = false;
     bool announcedBroken = false;
 } g;
@@ -250,6 +257,35 @@ void RemoveExtra(uint32_t ref) {
     if (eng::IActorEngine* e = eng::actorEngine()) e->markForDelete(ref);
 }
 
+// ---- supplies and ammo: the hook plugin/loot calls for every container or corpse this machine registers (once, before the contents are shared) ----------------
+#ifdef NVCOOP_WITH_LOOT
+bool TrimLootHook(const nvcoop::loot::TrimContext& c, nvcoop::loot::Items& items) {
+    namespace nl = nvcoop::loot;
+    if (!g.director || !g.director->balancedOn()) return false;
+    std::vector<rb::LootStack> stacks;
+    std::vector<fnvcoop::FormRef> bases;
+    for (const auto& kv : items) {
+        rb::LootStack s;
+        s.id = kv.first.plugin + ":" + std::to_string(kv.first.localId);
+        s.count = kv.second;
+        const nl::ItemClass k = c.classify ? c.classify(kv.first) : nl::ItemClass::Other;
+        s.kind = k == nl::ItemClass::Ammo ? rb::ItemKind::Ammo : k == nl::ItemClass::Supply ? rb::ItemKind::Supply : rb::ItemKind::Other;
+        stacks.push_back(s);
+        bases.push_back(kv.first);
+    }
+    rb::LootSource src;
+    src.net = c.net;
+    src.corpse = c.kind == nl::lc::ContainerKind::Corpse;
+    src.uniqueActor = c.uniqueActor;
+    if (g.director->trimLoot(src, stacks) <= 0) return false;
+    for (size_t i = 0; i < stacks.size(); ++i) {
+        if (stacks[i].count > 0) items[bases[i]] = stacks[i].count;
+        else items.erase(bases[i]);
+    }
+    return true;
+}
+#endif
+
 // ---- the director over the real game --------------------------------------------------------------------------------------------------------------
 void Create() {
     const std::string ini = IniPath();
@@ -285,9 +321,18 @@ void Create() {
     env.fight.inspect = InspectExtra;
     env.fight.remove = RemoveExtra;
     env.fight.log = env.log;
-    g.director.reset(new rb::Director(g.cfg, env, g.gmst));
+    g.director.reset(new rb::Director(g.cfg, env, g.gmst, g.effects));
+#ifdef NVCOOP_WITH_LOOT
+    nvcoop::loot::setTrimHook(TrimLootHook);   // the loot service thins what a container or corpse holds, once, on the machine that registers it
+#endif
+#ifdef NVCOOP_WITH_COMBAT
+    nvcoop::combat::glueSetHitScale([](uint32_t victimRef, int limb) -> float {   // head, limb and armour factor, Co-op balanced only (balance.cpp)
+        if (!g.director || !g.director->balancedOn() || limb < 0 || limb > 5) return 1.0f;
+        return rb::bodyHitFactor(g.director->profile(), static_cast<uint8_t>(limb), rb::armorClassOf(victimRef));
+    });
+#endif
     nvcoop::threat::setBalancedQuery([] { return nvcoop::rebalance::glueBalancedOn(); });   // the threat AI's cover / side-step / flee tactics follow the campaign
-    if (g.haveCarried) g.director->applier().restoreState(g.carried);
+    if (g.haveCarried) { g.director->applier().restoreState(g.carried); g.director->effects().restoreState(g.carriedEffects); }
     g.driveListener = eng::addDriveListener([](const eng::DriveEvent& ev) {
         if (!ev.out || ev.standIn) return;
         g.driveTargets[ev.netId] = Seen{static_cast<uint32_t>(ev.out->ai.combatTarget), NowMs()};
@@ -329,24 +374,54 @@ int gluePartySize() { return g.director ? g.director->players() : 0; }
 
 NVCOOP_MODULE_LATE(rebalance, "rebalance", nullptr, nullptr, Frame);
 
-NVCOOP_RELOAD_STATE(rebalance, "rebalance", 1, 41,
+namespace {
+
+// A hot reload must not lose what the old core changed: the new one would take a changed value for the game's own. Version 2 adds the Stimpak forms.
+bool SaveState(nvreload::Writer& w) {
+    const rb::GmstApplier::State st = g.director ? g.director->applier().state() : g.carried;
+    w.u32(static_cast<uint32_t>(st.originals.size()));
+    for (const auto& [k, v] : st.originals) { w.str(k); w.f64(v); }
+    w.u32(static_cast<uint32_t>(st.written.size()));
+    for (const auto& [k, v] : st.written) { w.str(k); w.f64(v); }
+    const rb::EffectApplier::State fx = g.director ? g.director->effects().state() : g.carriedEffects;
+    w.u32(static_cast<uint32_t>(fx.originals.size()));
+    for (const auto& [k, v] : fx.originals) { w.u32(k); w.f64(v); }
+    w.u32(static_cast<uint32_t>(fx.written.size()));
+    for (const auto& [k, v] : fx.written) { w.u32(k); w.f64(v); }
+    return true;
+}
+
+bool RestoreState(uint32_t version, nvreload::Reader& r) {
+    rb::GmstApplier::State st;
+    for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 256; ++i) { std::string k = r.str(); st.originals[k] = static_cast<float>(r.f64()); }
+    for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 256; ++i) { std::string k = r.str(); st.written[k] = static_cast<float>(r.f64()); }
+    rb::EffectApplier::State fx;
+    if (version >= 2) {
+        for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 64; ++i) { uint32_t k = r.u32(); fx.originals[k] = static_cast<float>(r.f64()); }
+        for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 64; ++i) { uint32_t k = r.u32(); fx.written[k] = static_cast<float>(r.f64()); }
+    }
+    if (r.ok()) { g.carried = st; g.carriedEffects = fx; g.haveCarried = true; }
+    return true;
+}
+
+void ShutdownState() {
+#ifdef NVCOOP_WITH_LOOT
+    nvcoop::loot::setTrimHook(nullptr);
+#endif
+#ifdef NVCOOP_WITH_COMBAT
+    nvcoop::combat::glueSetHitScale(nullptr);
+#endif
+    if (g.driveListener) eng::removeListener(g.driveListener);
+    g.driveListener = 0;
+    g.director.reset();
+}
+
+}  // namespace
+
+NVCOOP_RELOAD_STATE(rebalance, "rebalance", 2, 41,
     /*canUnload*/ [] { return std::string(); },
-    /*save*/ [](nvreload::Writer& w) {
-        // the game's own values must survive a reload: the new core would take a changed value for the original
-        const rb::GmstApplier::State st = g.director ? g.director->applier().state() : g.carried;
-        w.u32(static_cast<uint32_t>(st.originals.size()));
-        for (const auto& [k, v] : st.originals) { w.str(k); w.f64(v); }
-        w.u32(static_cast<uint32_t>(st.written.size()));
-        for (const auto& [k, v] : st.written) { w.str(k); w.f64(v); }
-        return true;
-    },
-    /*restore*/ [](uint32_t, nvreload::Reader& r) {
-        rb::GmstApplier::State st;
-        for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 256; ++i) { std::string k = r.str(); st.originals[k] = static_cast<float>(r.f64()); }
-        for (uint32_t n = r.u32(), i = 0; r.ok() && i < n && i < 256; ++i) { std::string k = r.str(); st.written[k] = static_cast<float>(r.f64()); }
-        if (r.ok()) { g.carried = st; g.haveCarried = true; }
-        return true;
-    },
-    /*migrate*/ nullptr,
-    /*shutdown*/ [] { if (g.driveListener) eng::removeListener(g.driveListener); g.driveListener = 0; g.director.reset(); },
+    /*save*/ [](nvreload::Writer& w) { return SaveState(w); },
+    /*restore*/ [](uint32_t version, nvreload::Reader& r) { return RestoreState(version, r); },
+    /*migrate*/ [](uint32_t version, nvreload::Reader& r) { return RestoreState(version, r); },   // version 1 has no Stimpak forms
+    /*shutdown*/ [] { ShutdownState(); },
     /*fresh*/ nullptr);

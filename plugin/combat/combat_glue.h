@@ -34,6 +34,9 @@ GateDecision glueGate(const EngineHit& h);
 // Friendly fire (player-vs-player damage) from the campaign (plugin/rebalance; docs/rebalance.md): 1 on, 0 off, -1 back to nvcoop.ini [combat] friendlyfire. Takes effect
 // at once in a running session and is kept for the next one. Every machine sets it to the campaign's value, so a hit between players is neutralised (or not) the same everywhere.
 void glueSetFriendlyFire(int mode);
+// plugin/rebalance (Co-op balanced): the factor for one hit's engine damage, from the victim and where it lands (combat's limb order: 0 torso, 1 head,
+// 2..5 arms and legs). Asked once per hit by the hit gate of the machine whose engine computed it. Null = the game's own.
+void glueSetHitScale(std::function<float(uint32_t victimRef, int limb)> scale);
 
 // The avatar layer's puppet map (optional). Default: the NV:MP ghost map (nvmp::GhostRefOfPlayer). A puppet that is not mapped is not a
 // "player" to combat: hits on it are not forwarded to its real player.

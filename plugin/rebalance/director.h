@@ -6,6 +6,9 @@
 //   * the game's numbers (damage to / by players, carry weight, skill points, kill XP): every machine sets them to the same absolute values worked out from the
 //     same inputs (the campaign setting and the party size, both told by the host). A shot is computed by the engine of the player who fires it, a hit on a
 //     player by that player's engine, so each hit is scaled once, by one machine. Setting an absolute value twice is the same as once.
+//   * Stimpak strength (the first effect of the Stimpak forms, EffectApplier): the same absolute value on every machine, from the form's original.
+//   * supplies and ammo (trimLoot): thinned ONCE per container or corpse, by the machine that registers it with the loot service (plugin/loot), before its
+//     contents become the shared ones; every other machine gets the thinned list through the loot sync.
 //   * friendly fire: every machine sets the combat module's switch to the campaign's value.
 //   * reinforcements: the host only; the extra is a host-made actor and the guests get it through the normal sync.
 #pragma once
@@ -16,9 +19,11 @@
 
 #include "rebalance/balance.h"
 #include "rebalance/campaign_settings.h"
+#include "rebalance/effect_applier.h"
 #include "rebalance/fights.h"
 #include "rebalance/gmst_applier.h"
 #include "rebalance/ramp.h"
+#include "rebalance/scarcity.h"
 
 namespace nvcoop::rebalance {
 
@@ -46,7 +51,7 @@ struct DirectorEnv {
 
 class Director {
 public:
-    Director(const DirectorConfig& cfg, DirectorEnv env, IGmst& gmst);
+    Director(const DirectorConfig& cfg, DirectorEnv env, IGmst& gmst, IEffectPort& effects);
     void tick();                                  // every frame
     // The flag other modules read: this campaign plays Co-op balanced (and the director is on).
     bool balancedOn() const { return cfg_.enabled && settings_.balanced(); }
@@ -56,13 +61,20 @@ public:
     const Profile& target() const { return ramp_.target(); }
     std::string statusJson() const;
     GmstApplier& applier() { return applier_; }
+    EffectApplier& effects() { return effects_; }
     FightDirector& fights() { return fights_; }
     uint64_t hudLines() const { return hudLines_; }
+    // The loot hook (plugin/loot calls it for a container or corpse this machine registers, once): thins the stacks for the campaign's TARGET profile. Returns how
+    // many items went; 0 (and nothing touched) in Normal, in an unchosen campaign, and while the director is off.
+    int32_t trimLoot(const LootSource& src, std::vector<LootStack>& stacks);
+    uint64_t trimmedSources() const { return trimmedSources_; }
+    uint64_t trimmedItems() const { return trimmedItems_; }
 private:
     void say(const std::string& line);
     DirectorConfig cfg_;
     DirectorEnv env_;
     GmstApplier applier_;
+    EffectApplier effects_;
     ProfileRamp ramp_;
     FightDirector fights_;
     CampaignSettings settings_;
@@ -74,7 +86,7 @@ private:
     CampaignSettings announced_;
     bool haveAnnounced_ = false;
     int announcedPlayers_ = -1;
-    uint64_t lastSizeNotice_ = 0, nextApply_ = 0, nextFights_ = 0, hudLines_ = 0;
+    uint64_t lastSizeNotice_ = 0, nextApply_ = 0, nextFights_ = 0, hudLines_ = 0, trimmedSources_ = 0, trimmedItems_ = 0;
 };
 
 }  // namespace nvcoop::rebalance

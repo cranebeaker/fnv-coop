@@ -54,10 +54,13 @@ void ioEnum(Archive& a, E& e, uint8_t maxExclusive) {
     }
 }
 
-void ioEntity(Archive& a, Entity& e) {
-    ioEnum(a, e.kind, 3);
-    if (e.kind == EntityKind::None) { if (a.reading()) e.id = 0; return; }
-    a.varu32(e.id);
+void ioEntity(Archive& a, Entity& e) {   // wire v2: the bare NetId (players playerNet(slot)), 0 = nobody
+    uint32_t net = e.netId();
+    a.varu32(net);
+    if (!a.reading()) return;
+    if (fnvcoop::live::kindOf(net) == fnvcoop::live::EntityKind::None && net != 0) { a.fail(); return; }   // the reserved part of 0xFE..
+    if (fnvcoop::live::isPlayerNet(net) && fnvcoop::live::slotOfPlayerNet(net) >= kMaxSlots) { a.fail(); return; }
+    e = Entity::fromNet(net);
 }
 
 void ioVec(Archive& a, Vec3& v) {
@@ -80,6 +83,8 @@ int32_t ageMs(uint64_t nowMs, uint32_t stamp) { return static_cast<int32_t>(stat
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------ wire
+void io(Archive& a, Entity& e) { ioEntity(a, e); }
+
 void io(Archive& a, HitEvent& h) {
     a.u64(h.hitId);
     ioEntity(a, h.attacker);
@@ -295,6 +300,9 @@ HitVerdict HitValidator::judge(const HitEvent& h, PlayerId sender, PlayerId self
         if (!FNV_MUT(307) && (h.attacker.id != sender || h.attacker.id >= kMaxSlots)) return reject(HitReason::AttackerNotSender, toString(h.attacker) + " from " + std::to_string(sender));
         if (!haveAtk) return reject(HitReason::AttackerUnknown, toString(h.attacker));
         if (!FNV_MUT(316) && !atk.alive && !explosion) return reject(HitReason::AttackerDead, toString(h.attacker));   // a grenade already in the air still goes off
+        // a player's entity epoch rises with every join of that slot: a hit sent before a rejoin is the old session's (twin 366)
+        if (!FNV_MUT(366) && h.attackerEpoch != 0 && atk.epoch != 0 && h.attackerEpoch < atk.epoch)
+            return reject(HitReason::StaleAttackerEpoch, toString(h.attacker) + " " + std::to_string(h.attackerEpoch) + " < " + std::to_string(atk.epoch));
     } else if (h.attacker.isActor()) {
         if (!haveAtk) return reject(HitReason::AttackerUnknown, toString(h.attacker));
         if (!FNV_MUT(308) && atk.owner != sender) return reject(HitReason::ForgedAttacker, toString(h.attacker) + " is owned by " + std::to_string(atk.owner) + ", sender " + std::to_string(sender));

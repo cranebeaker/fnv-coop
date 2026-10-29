@@ -31,6 +31,7 @@ namespace {
 bool g_created = false, g_inited = false, g_enabled = false;
 std::unique_ptr<RealLootEngine> g_engine;
 std::unique_ptr<LootSync> g_sync;
+TrimHook g_trim;   // plugin/rebalance's scarcity hook, handed to every service this module builds
 NVSEInterface* g_nvse = nullptr;
 NVSEEventManagerInterface* g_events = nullptr;
 bool g_dropHandler = false, g_activateHandler = false;
@@ -143,6 +144,7 @@ void Create() {
             return g_engine->setContents(net, items);
         });
     g_sync = std::make_unique<LootSync>(*g_engine, cfg);
+    g_sync->setTrimHook(g_trim);
 }
 
 void Init() {
@@ -188,6 +190,11 @@ void OnMessage(uint32_t type, void*, uint32_t) {
 }  // namespace
 
 bool enabled() { return g_enabled && g_sync != nullptr; }
+
+void setTrimHook(TrimHook hook) {
+    g_trim = std::move(hook);
+    if (g_sync) g_sync->setTrimHook(g_trim);
+}
 
 LootSync& service() {
     Create();   // asked before DeferredInit (the hub is built early): read the ini now, the handlers follow in Init()

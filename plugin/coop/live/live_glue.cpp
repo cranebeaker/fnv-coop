@@ -16,6 +16,7 @@
 #include "common/nvcoop_api.h"
 #include "coop_runtime.h"
 #include "live_hub.h"
+#include "live/entity_map.h"   // S4: the one slot <-> ref table of this process (fed by the avatar module)
 
 #ifdef NVCOOP_WITH_ACTORS
 #include "actors/actor_glue.h"
@@ -75,6 +76,7 @@ std::string iniOrEnv(const char* section, const char* key, const char* def) {
 }
 
 // ---- services ---------------------------------------------------------------------------------------------------------------------------
+void bindPlayerEntities();   // defined below (avatar service): gives ActorSync the player port for the [entities] modes that run
 // A switched-off or not-built lane still appears in the status, so "why does nothing happen" has an answer.
 class PlaceholderService : public ILiveService {
 public:
@@ -112,7 +114,10 @@ public:
 #endif
     }
     const char* name() const override { return "actors"; }
-    void tick(uint64_t) override { nvcoop::actors::glueFrame(g_rt); }
+    void tick(uint64_t) override {
+        nvcoop::actors::glueFrame(g_rt);
+        bindPlayerEntities();   // a new ActorSync (a new session) gets the player port and the modes before its next tick
+    }
     void sessionEnd() override { nvcoop::actors::glueFrame(nullptr); }   // tears the ActorSync down
     void loadEnd() override { purge(); }
     void gameExit() override { purge(); }
@@ -149,6 +154,7 @@ public:
     bool readLocalAppearance(nvcoop::avatar::Appearance& out) override { return nvcoop::avatar::glue::ReadLocalAppearance(out); }
     bool readLocalFacts(nvcoop::avatar::PlayerFacts& out) override { return nvcoop::avatar::glue::ReadLocalFacts(out); }   // the shipped side never forwarded these two: no Facts message ever left a guest in game (2026-10-28)
     bool readLocalPack(const std::vector<nvcoop::avatar::FormId>& watch, nvcoop::avatar::PlayerPack& out) override { return nvcoop::avatar::glue::ReadLocalPack(watch, out); }
+    bool readLocalEquipment(std::vector<nvcoop::avatar::EquipEntry>& out) override { return nvcoop::avatar::glue::ReadLocalEquipment(out); }
     void onRemoteSnapshot(nvcoop::avatar::Slot s, const fnvcoop::live::ActorSnapshot& snap, uint32_t) override {
         nvcoop::avatar::glue::OnRemoteSnapshot(s, snap, QpcMs());   // arrival on the module's own clock
     }
@@ -175,6 +181,8 @@ struct GlueSideHolder { GlueSide side; };
 AvatarNetOptions avatarOptions() {
     AvatarNetOptions o;
     o.tickSide = false;   // the avatar module ticks its runtime itself
+    o.partsUnified = glueSwitches().partsUnified();    // [entities] parts / stream (docs/entity-core-plan.md): read once, when the service is made
+    o.streamUnified = glueSwitches().streamUnified();
     // The near-tier rate (30 Hz) comes from the same table as the sender and the playback buffer; nvcoop.ini [avatar] nearHz overrides it (the avatar module reads
     // the other keys). The far and out rates stay as they are.
     nvcoop::avatar::engine::LagTuning lag = nvcoop::avatar::engine::DefaultLagTuning();
@@ -183,9 +191,29 @@ AvatarNetOptions avatarOptions() {
     return o;
 }
 
+#ifdef NVCOOP_WITH_ACTORS
+// The roster of parts=unified: the player records of this machine's ActorSync.
+class ActorDirectory : public IEntityDirectory {
+public:
+    std::vector<PlayerId> playerSlots() const override {
+        const nvcoop::actors::ActorSync* s = nvcoop::actors::glueSync();
+        return s ? s->playerSlots() : std::vector<PlayerId>();
+    }
+};
+#endif
+
 class AvatarsService : private GlueSideHolder, public AvatarNet {
 public:
     AvatarsService() : GlueSideHolder(), AvatarNet(side, avatarOptions()) {
+#ifdef NVCOOP_WITH_ACTORS
+        setEntityDirectory(&dir_);
+        // A puppet that was bound again (a respawn after a save, a cell park, another template) is dressed again from the last parts known.
+        mapListener_ = fnvcoop::live::processEntities().onChange([](fnvcoop::live::EntityNetId id, uint32_t, fnvcoop::live::EntityRole role, bool bound) {
+            if (bound && role == fnvcoop::live::EntityRole::Puppet && fnvcoop::live::isPlayerNet(id))
+                if (nvcoop::actors::ActorSync* s = nvcoop::actors::glueSync()) s->onPlayerBound(id);
+        });
+        haveListener_ = true;
+#endif
         setPoseSink([this](PlayerId slot, bool present, fnvcoop::live::CellId cell, const fnvcoop::live::Vec3& pos) {
 #ifdef NVLIVE_ACTOR_ENGINE
             if (slot != self()) {   // the local player is read by the port itself (it also knows the adjacent cells)
@@ -202,21 +230,22 @@ public:
             (void)slot; (void)present; (void)cell; (void)pos;
         });
     }
+    ~AvatarsService() override {
+#ifdef NVCOOP_WITH_ACTORS
+        if (haveListener_) fnvcoop::live::processEntities().removeListener(mapListener_);
+#endif
+    }
     void sessionBegin(const SessionInfo& info, ILiveLink& link) override {
         AvatarNet::sessionBegin(info, link);
 #ifdef NVLIVE_ACTOR_ENGINE
         // combat targets between actors and players survive the wire: the port asks which net id stands for a player ref
         nvcoop::actors::engine::setPlayerNetIdResolver(
-            [this](nvcoop::actors::engine::RefId ref) -> nvcoop::actors::NetId {
-                if (ref == nvcoop::actors::engine::kLocalPlayerRef) return self() == kNoPlayer ? 0 : playerNetId(self());
-                PlayerId s = kNoPlayer;
-                return slotOfPuppetRef(ref, s) ? playerNetId(s) : 0;
+            [](nvcoop::actors::engine::RefId ref) -> nvcoop::actors::NetId {
+                const fnvcoop::live::EntityNetId n = fnvcoop::live::processEntities().netOf(ref);
+                return fnvcoop::live::isPlayerNet(n) ? n : 0;   // the local player (0x14) and every usable puppet
             },
-            [this](nvcoop::actors::NetId id) -> nvcoop::actors::engine::RefId {
-                if (!isPlayerNetId(id)) return 0;
-                const PlayerId s = slotOfPlayerNetId(id);
-                if (s == self()) return nvcoop::actors::engine::kLocalPlayerRef;
-                return puppetRef(s);
+            [](nvcoop::actors::NetId id) -> nvcoop::actors::engine::RefId {
+                return fnvcoop::live::isPlayerNet(id) ? fnvcoop::live::processEntities().refOf(id) : 0;
             });
 #endif
     }
@@ -226,9 +255,24 @@ public:
 #endif
         AvatarNet::sessionEnd();
     }
+#ifdef NVCOOP_WITH_ACTORS
+private:
+    ActorDirectory dir_;
+    size_t mapListener_ = 0;
+    bool haveListener_ = false;
+#endif
 };
 AvatarNet* g_avatarNet = nullptr;
+
+void bindPlayerEntities() {
+    if (!g_avatarNet || !(g_avatarNet->partsUnified() || g_avatarNet->streamUnified())) return;
+#ifdef NVCOOP_WITH_ACTORS
+    if (nvcoop::actors::ActorSync* s = nvcoop::actors::glueSync()) s->enablePlayerEntities(&g_avatarNet->playerPort(), g_avatarNet->partsUnified(), g_avatarNet->streamUnified());
+#endif
+}
 std::function<std::vector<uint32_t>()> g_packWatch;   // coop_module's resolver of nvcoop_pack_watch.json (guest pack facts)
+#else
+void bindPlayerEntities() {}   // no avatar layer in this build: nothing to hand ActorSync
 #endif
 
 #ifdef NVCOOP_WITH_SPAWN
@@ -442,10 +486,45 @@ SessionView makeView(nvcoop::coop::Runtime* rt, uint64_t nowMs) {
 }
 
 // coop.live {}: what the live layer is doing on this machine.
+// coop.entities (docs/entity-core-plan.md S13b): this machine's identity table. One row per player slot that has an entity here (its pinned owner and
+// epoch from the actor port, how this machine binds it: 0x14 for the local player, the puppet for the others), plus every other binding of the EntityMap.
+bool MEntities(const std::string&, std::string& out) {
+    const fnvcoop::live::EntityMap& m = fnvcoop::live::processEntities();
+    char b[160];
+    out = "{\"v\":1,\"self\":" + std::to_string(m.localSlot() == kNoPlayer ? -1 : static_cast<int>(m.localSlot())) + ",\"players\":[";
+    bool first = true;
+    for (PlayerId s = 0; s < fnvcoop::kMaxSlots; ++s) {
+        const fnvcoop::live::EntityNetId id = fnvcoop::live::playerNet(s);
+        bool known = false;
+        int owner = -1;
+        unsigned epoch = 0;
+#ifdef NVLIVE_ACTOR_ENGINE
+        const nvcoop::actors::engine::OwnerRef o = nvcoop::actors::engine::ownerOfNet(id);
+        known = o.known;
+        owner = o.ownerSlot == kNoPlayer ? -1 : static_cast<int>(o.ownerSlot);
+        epoch = o.epoch;
+#endif
+        const fnvcoop::live::EntityBinding* bd = m.binding(id);
+        if (!known && !bd) continue;
+        std::snprintf(b, sizeof b, "%s{\"slot\":%u,\"net\":\"0x%08X\",\"known\":%s,\"owner\":%d,\"epoch\":%u,\"role\":\"%s\",\"ref\":\"0x%08X\"}", first ? "" : ",",
+                      static_cast<unsigned>(s), static_cast<unsigned>(id), known ? "true" : "false", owner, epoch, fnvcoop::live::toString(bd ? bd->role : fnvcoop::live::EntityRole::None),
+                      static_cast<unsigned>(bd ? bd->ref : 0));
+        out += b;
+        first = false;
+    }
+    out += "],\"bindings\":" + std::to_string(m.size());
+    const fnvcoop::live::EntityMapStats& st = m.stats();
+    std::snprintf(b, sizeof b, ",\"stats\":{\"binds\":%llu,\"unbinds\":%llu,\"rebinds\":%llu,\"conflicts\":%llu}}", (unsigned long long)st.binds,
+                  (unsigned long long)st.unbinds, (unsigned long long)st.rebinds, (unsigned long long)st.conflicts);
+    out += b;
+    return true;
+}
+
 bool MLive(const std::string&, std::string& out) {
     Glue& g = G();
     nvcoop::json::Value o = nvcoop::json::Value::object();
     o.set("switches", describeSwitches(g.sw)).set("warnings", g.sw.warnings).set("configured", g.configured).set("loaded", g.loaded);
+    o.set("entities", describeEntities(g.sw));   // "parts=unified stream=unified": how the player is carried (a new key; "switches" keeps its four lanes)
     o.set("actorsConfigNotes", g.actorsNotes);
     out = o.dump();
     // splice the hub (and avatar) status in as raw JSON (already JSON text)
@@ -540,6 +619,7 @@ void glueConfigure(const std::string& iniPath) {
     g.sw = readLiveSwitches(glueIni());
     g.configured = true;
     nvcoop::Log("live: switches %s", describeSwitches(g.sw).c_str());
+    nvcoop::Log("live: entities %s", describeEntities(g.sw).c_str());
     if (!g.sw.warnings.empty()) nvcoop::Log("live: %s", g.sw.warnings.c_str());
 #ifdef NVLIVE_ACTOR_ENGINE
     {   // the real actor port is tuned from [actors] (its module reads the same values through readActorsConfig). [live] actors=0 keeps the port
@@ -611,10 +691,9 @@ void glueLoad() {
     if (g.sw.social && g.sw.avatars)   // a puppet is a "player" to the party rules: a hit on it is a hit on its real player
         nvcoop::social::setPlayerRefMap(
             [](uint32_t ref, uint8_t& slot) {
-                PlayerId s = kNoPlayer;
-                if (!g_avatarNet || !g_avatarNet->slotOfPuppetRef(ref, s)) return false;
-                slot = s;
-                return true;
+                if (!glueAvatarIsPuppet(ref)) return false;
+                slot = fnvcoop::live::processEntities().slotOfRef(ref);
+                return slot != kNoPlayer;
             },
             [](uint8_t slot) { return glueAvatarRef(slot); });
 #endif
@@ -622,14 +701,14 @@ void glueLoad() {
     if (g.sw.combat && g.sw.avatars)   // a puppet is a "player" to combat: hits on it go to its real player
         nvcoop::combat::setPlayerRefMap(
             [](uint32_t ref, uint8_t& slot) {
-                PlayerId s = kNoPlayer;
-                if (!g_avatarNet || !g_avatarNet->slotOfPuppetRef(ref, s)) return false;
-                slot = s;
-                return true;
+                if (!glueAvatarIsPuppet(ref)) return false;
+                slot = fnvcoop::live::processEntities().slotOfRef(ref);
+                return slot != kNoPlayer;
             },
             [](uint8_t slot) { return glueAvatarRef(slot); });
 #endif
     nvcoop::RegisterMethod("coop.live", MLive, true);
+    nvcoop::RegisterMethod("coop.entities", MEntities, true);
 #ifdef NVCOOP_WITH_SPAWN
     nvcoop::RegisterMethod("coop.spawn", [](const std::string& params, std::string& out) { return nvcoop::spawn::glueRpc(params, out); }, true);
 #endif
@@ -673,7 +752,10 @@ void glueShutdown() {
 
 uint32_t glueAvatarRef(uint8_t slot) {
 #ifdef NVCOOP_WITH_AVATAR_ENGINE
-    return g_avatarNet ? g_avatarNet->puppetRef(slot) : 0;
+    if (slot >= fnvcoop::kMaxSlots) return 0;
+    const fnvcoop::live::EntityMap& m = fnvcoop::live::processEntities();
+    const fnvcoop::live::EntityNetId id = fnvcoop::live::playerNet(slot);
+    return m.roleOf(id) == fnvcoop::live::EntityRole::Puppet ? m.refOf(id) : 0;   // a puppet only: the local slot answers 0, as before
 #else
     (void)slot;
     return 0;
@@ -740,8 +822,8 @@ bool gluePackWeight(uint8_t slot, double* weight) {
 namespace {
 bool glueAvatarIsPuppet(uint32_t ref) {
 #ifdef NVCOOP_WITH_AVATAR_ENGINE
-    PlayerId s = kNoPlayer;
-    return g_avatarNet && g_avatarNet->slotOfPuppetRef(ref, s);
+    const fnvcoop::live::EntityMap& m = fnvcoop::live::processEntities();
+    return ref && m.roleOf(m.netOf(ref)) == fnvcoop::live::EntityRole::Puppet;
 #else
     (void)ref;
     return false;

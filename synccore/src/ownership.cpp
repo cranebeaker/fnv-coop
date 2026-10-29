@@ -125,13 +125,30 @@ void OwnershipService::untrack(ActorNetId id, Out& out) {
     auto it = actors_.find(id);
     if (it == actors_.end()) return;
     if (it->second.owner != kNoPlayer || it->second.pending) release(id, it->second, 0, out);
+    if (it->second.pinned) floor_[id] = it->second.epoch;
     actors_.erase(it);
 }
+
+void OwnershipService::pin(ActorNetId id, PlayerId slot, uint32_t nowMs, Out& out) {
+    if (slot >= kMaxSlots) return;
+    Rec& r = actors_[id];
+    if (r.pinned && r.owner == slot) return;
+    if (!ownershipFaults().noEpochFloor) {
+        auto f = floor_.find(id);
+        if (f != floor_.end()) r.epoch = std::max(r.epoch, f->second);
+    }
+    r.pinned = true; r.recruiter = kNoPlayer;
+    ++stats_.pins;
+    grant(id, r, slot, nowMs, out);
+}
+
+bool OwnershipService::pinned(ActorNetId id) const { auto it = actors_.find(id); return it != actors_.end() && it->second.pinned; }
 
 void OwnershipService::evaluate(ActorNetId id, const std::vector<Presence>& who, uint32_t nowMs, Out& out) {
     auto it = actors_.find(id);
     if (it == actors_.end()) return;
     Rec& r = it->second;
+    if (r.pinned && !ownershipFaults().pinnedCanMove) { ++stats_.pinnedSkips; return; }   // a player entity stays with its player
     if (r.pending) return;   // one handoff at a time
     PlayerId target;
     const bool follower = r.recruiter != kNoPlayer && isConnected(r.recruiter) && !ownershipFaults().followerIgnored;
@@ -150,6 +167,7 @@ void OwnershipService::evaluate(ActorNetId id, const std::vector<Presence>& who,
 void OwnershipService::setRecruiter(ActorNetId id, PlayerId recruiter, const std::vector<Presence>& who, uint32_t nowMs, Out& out) {
     auto it = actors_.find(id);
     if (it == actors_.end()) return;
+    if (it->second.pinned && !ownershipFaults().pinnedCanMove) { ++stats_.pinnedSkips; return; }   // nobody recruits a player
     it->second.recruiter = recruiter;
     evaluate(id, who, nowMs, out);
 }
@@ -189,9 +207,17 @@ bool OwnershipService::commitNothingToHandOver(ActorNetId id, uint32_t nowMs, Ou
 
 std::vector<ActorNetId> OwnershipService::playerLeft(PlayerId p, uint32_t nowMs, Out& out) {
     if (p < kMaxSlots) connected_ = static_cast<uint8_t>(connected_ & ~(1u << p));
-    std::vector<ActorNetId> orphans;
+    std::vector<ActorNetId> orphans, gone;
     for (auto& kv : actors_) {
         Rec& r = kv.second;
+        if (r.pinned && r.owner == p) {   // the player's own entity: released and forgotten, its epoch kept as the floor of a rejoin
+            if (ownershipFaults().leaveKeepsPinned) continue;
+            release(kv.first, r, nowMs, out);
+            floor_[kv.first] = r.epoch;
+            ++stats_.pinsReleased;
+            gone.push_back(kv.first);
+            continue;
+        }
         if (r.recruiter == p) r.recruiter = kNoPlayer;
         if (r.pending) {
             if (r.to == p) {                       // the new owner left: cancel, the old owner keeps the actor
@@ -204,6 +230,7 @@ std::vector<ActorNetId> OwnershipService::playerLeft(PlayerId p, uint32_t nowMs,
         }
         if (r.owner == p) { release(kv.first, r, nowMs, out); orphans.push_back(kv.first); }
     }
+    for (ActorNetId id : gone) actors_.erase(id);
     return orphans;
 }
 

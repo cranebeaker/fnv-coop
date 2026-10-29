@@ -7,10 +7,15 @@
 //   sector_far_m=170                from this far a friend's place and sector are named
 //   stale_ms=4000                   a friend not heard of for this long is not shown
 //   beacon_ms=500                   how often a guest tells the host where it is / the host sends the table
-//   compass_x=0.5 compass_w=0.30 compass_y=36   the strip: centre and width as fractions of the screen width, pixels from the top
+//   compass_tile=compass_window     the HUD tile the compass marks go over (its rectangle is read at run time)
+//   compass_x=0.5 compass_w=0.30 compass_y=36   optional overrides of the compass tile's centre and width (fractions of the screen width) and of the
+//                                   glyph line (pixels from the top); with no readable compass tile they are the strip of our own
+//   compass_span_deg=180            how many degrees the compass shows (-half .. +half from the heading); beyond it a mark is pinned to the end
 //   banner_y=520 tag_lift=75        pixel placement of the banner and of the tags over the point WorldToScreen gives
-//   map_mode=list                   list = a text list in the Pip-Boy map; local / world = markers over that map inside map_rect
-//   map_rect=0.2,0.18,0.6,0.62      x,y,w,h as fractions of the screen (must be calibrated to the Pip-Boy, see docs/markers.md)
+//   map_mode=auto                   auto = markers over the map tile's rectangle read at run time (text list when it cannot be read);
+//                                   list = the text list only; local / world = markers over that map inside map_rect
+//   map_world_tile= map_local_tile= exact tile names of the two maps for auto mode (else found by name; the log lists the map menu's tiles)
+//   map_rect=0.2,0.18,0.6,0.62      x,y,w,h as fractions of the screen, for map_mode=local / world only
 //   local_map_range_m=117           metres from the middle of the local map to its edge
 //
 //   [revive]                        revive of a downed friend (default on)
@@ -112,14 +117,32 @@ void LoadCfg() {
     m.staleMs = static_cast<uint32_t>(num("markers", "stale_ms", 4000));
     g_cfg.svc.beaconMs = g_cfg.svc.tableMs = static_cast<uint32_t>((std::max)(100, num("markers", "beacon_ms", 500)));
     HudLayout& l = g_cfg.layout;
-    l.compassX = IniFloat("markers", "compass_x", l.compassX, ini);
-    l.compassW = IniFloat("markers", "compass_w", l.compassW, ini);
-    l.compassY = num("markers", "compass_y", l.compassY);
+    auto isSet = [&](const char* key) {
+        char b[16] = {};
+        GetPrivateProfileStringA("markers", key, "", b, sizeof b, ini.c_str());
+        return b[0] != 0;
+    };
+    l.compass.hasX = isSet("compass_x");
+    l.compass.hasW = isSet("compass_w");
+    l.compass.hasY = isSet("compass_y");
+    l.compass.x = IniFloat("markers", "compass_x", l.compass.x, ini);
+    l.compass.w = IniFloat("markers", "compass_w", l.compass.w, ini);
+    l.compass.y = static_cast<float>(num("markers", "compass_y", static_cast<int>(l.compass.y)));
+    char tileName[64] = {};
+    GetPrivateProfileStringA("markers", "compass_tile", "", tileName, sizeof tileName, ini.c_str());
+    if (tileName[0]) l.compassTile = tileName;
+    m.compassSpanRad = (std::max)(30.0f, (std::min)(360.0f, IniFloat("markers", "compass_span_deg", 180.0f, ini))) * nvmk::kPi / 180.0f;
     l.bannerY = num("markers", "banner_y", l.bannerY);
     l.tagLift = num("markers", "tag_lift", l.tagLift);
     char mode[16] = {};
-    GetPrivateProfileStringA("markers", "map_mode", "list", mode, sizeof mode, ini.c_str());
-    l.mapMode = (std::string(mode) == "local" || std::string(mode) == "world") ? mode : "list";
+    GetPrivateProfileStringA("markers", "map_mode", "auto", mode, sizeof mode, ini.c_str());
+    const std::string mm = mode;
+    l.mapMode = (mm == "local" || mm == "world" || mm == "list") ? mm : "auto";
+    char wt[64] = {}, lt[64] = {};
+    GetPrivateProfileStringA("markers", "map_world_tile", "", wt, sizeof wt, ini.c_str());
+    GetPrivateProfileStringA("markers", "map_local_tile", "", lt, sizeof lt, ini.c_str());
+    l.mapWorldTile = wt;
+    l.mapLocalTile = lt;
     char rect[96] = {};
     GetPrivateProfileStringA("markers", "map_rect", "", rect, sizeof rect, ini.c_str());
     if (rect[0]) std::sscanf(rect, "%f,%f,%f,%f", &l.mapX, &l.mapY, &l.mapW, &l.mapH);
@@ -488,6 +511,7 @@ void OnFrame() {
     if (g_hud && g_hud->ready()) {
         MapContext mc;
         mc.pipboyMapOpen = g_port->pipboyMapOpen;
+        mc.engineOk = PinsOk();   // the tile reads (menu array 0x11F350C) only on the exe the other pins were taken from
         mc.viewer = g_port->viewer;
         mc.bounds = g_port->bounds;
         g_hud->setMapContext(mc);

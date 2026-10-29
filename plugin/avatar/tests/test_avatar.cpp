@@ -1712,6 +1712,44 @@ static void t_pose_override_no_dead_respawn() {
 }
 
 // Clearing returns to normal driving at once, not at the next heartbeat; clearing what was never set, or for an unknown slot, is harmless.
+// S4 (docs/entity-core-plan.md): the binding hook tells the EntityMap every change of RefOf as it happens, so a mirror of what it was told always
+// equals the live puppets (twin bindingUnbindForgotten: a parked or deleted puppet stays bound to its player).
+static bool MirrorMatches(const Rig& r, const std::map<Slot, RefId>& mirror) {
+    std::map<Slot, RefId> live;
+    for (const auto& kv : r.pm.LivePuppets()) live[kv.first] = kv.second;
+    return live == mirror;
+}
+
+static void t_binding_hook_follows_the_live_puppets() {
+    g_test = "binding_hook_follows_the_live_puppets";
+    Rig r;
+    std::map<Slot, RefId> mirror;
+    int calls = 0;
+    r.pm.SetBindingHook([&](Slot s, RefId ref) { ++calls; if (ref) mirror[s] = ref; else mirror.erase(s); });
+    r.Add(1, MkPose(kCellA, 100, 200, 0, 0, kLocoWalkFwd, Vec3{0, 120, 0}));
+    r.Add(2, MkPose(kCellA, 300, 200, 0, 0, kLocoWalkFwd, Vec3{0, 120, 0}));
+    r.Run(1500);
+    CHECK(mirror.size() == 2 && MirrorMatches(r, mirror));
+    r.pm.OnSaveBegin();                                   // despawned for the save
+    CHECK(mirror.empty() && MirrorMatches(r, mirror));
+    r.pm.OnSaveEnd();
+    r.Run(1500);
+    CHECK(mirror.size() == 2 && MirrorMatches(r, mirror));
+    r.pm.OnLoadBegin();                                   // refs dropped without the engine
+    CHECK(mirror.empty() && MirrorMatches(r, mirror));
+    r.pm.OnLoadEnd();
+    r.Run(3000);
+    CHECK(MirrorMatches(r, mirror));
+    r.pm.RemovePlayer(2);
+    CHECK(MirrorMatches(r, mirror) && !mirror.count(2));
+    const int before = calls;
+    r.Run(500);                                           // nothing changed: nothing is reported
+    CHECK(calls == before && MirrorMatches(r, mirror));
+    std::map<Slot, RefId> late;                           // a hook set later is told the current state at once
+    r.pm.SetBindingHook([&](Slot s, RefId ref) { if (ref) late[s] = ref; else late.erase(s); });
+    CHECK(MirrorMatches(r, late));
+}
+
 static void t_pose_override_clear() {
     g_test = "pose_override_clear";
     Rig r;
@@ -2002,6 +2040,7 @@ static void RunSuite() {
     RUN(t_pose_override_holds);
     RUN(t_pose_override_no_dead_respawn);
     RUN(t_pose_override_clear);
+    RUN(t_binding_hook_follows_the_live_puppets);
     RUN(t_pose_override_survives_respawn);
     RUN(t_pose_override_no_one_shots);
     RUN(t_api_map);
@@ -2027,6 +2066,7 @@ static const Twin kTwins[] = {
     TWIN(bridgeDropsAction), TWIN(oneShotAdoptsStale), TWIN(oneShotNoResync),
     TWIN(poseOverrideIgnored), TWIN(poseReplaysPlanned), TWIN(poseHeartbeats), TWIN(poseNoDeathGuard), TWIN(poseOneShotsPlay),
     TWIN(poseClearIgnored), TWIN(poseLostOnRespawn), TWIN(poseSurvivesRemove),
+    TWIN(bindingUnbindForgotten),
 };
 
 int main(int argc, char** argv) {

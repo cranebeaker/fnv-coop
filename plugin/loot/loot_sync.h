@@ -70,6 +70,9 @@ public:
     NetId openNet() const { return menuNet_; }
     std::string statusJson() const;
     void setCellOwnerHook(std::function<bool(lc::CellId)> f) { ownsCell_ = std::move(f); }   // true: this machine resolves that cell's containers right away
+    // Scarcity (plugin/rebalance, Co-op balanced): every container or corpse THIS machine registers is passed through the hook once, before its contents are offered
+    // as the shared ones, and the engine copy is made to match (docs/rebalance.md). Without a hook nothing is touched.
+    void setTrimHook(TrimHook h) { trim_ = std::move(h); }
 
 private:
     void makeClient(PlayerId self);
@@ -131,6 +134,8 @@ private:
     std::vector<PendingRemove> removes_;   // taken placed items whose world ref is not loaded here yet (a late joiner, or a player in another cell)
     std::set<NetId> ownedClutter_;
     std::function<bool(lc::CellId)> ownsCell_;
+    TrimHook trim_;
+    std::set<NetId> trimmed_;              // containers the hook already ran for in this world: its rule is not idempotent, so it must never run twice for one
     uint64_t nextSweep_ = 0, nextAudit_ = 0, nextClutter_ = 0;
     size_t sweepCursor_ = 0, auditCursor_ = 0;
     // menu-less transfers

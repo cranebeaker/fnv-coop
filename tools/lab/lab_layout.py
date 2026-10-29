@@ -23,10 +23,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOM_ORDER = ("spawn", "walk", "fight", "loot", "door", "npc", "vats", "quest", "parity")
+ROOM_ORDER = ("spawn", "walk", "fight", "loot", "door", "npc", "vats", "quest", "parity", "entity")
 # A room that has no placed content of its own and borrows another room's (the parity room compares what both copies show of the npc room's NPC). A layout that has
 # a room of that name (a generator that adds a parity room with its own chair) wins over the borrowed one.
-BORROWS = {"parity": "npc"}
+BORROWS = {"parity": "npc", "entity": "npc"}
 FORM_RE = re.compile(r"^[A-Za-z0-9_ .\-]+\.(?:esp|esm|esl):[0-9A-Fa-f]{1,8}$")
 
 # what each room needs from the layout: (kind, prefixes, minimum count)

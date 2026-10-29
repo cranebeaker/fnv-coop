@@ -1,5 +1,6 @@
 // Machine: ownership glue, story effects, loot / containers, spawn-site arbitration, digests and repair, full state.
 #include <algorithm>
+#include "../../live/entity.h"
 #include <cmath>
 #include <set>
 #include "fnvcoop/engine/machine.h"
@@ -559,6 +560,8 @@ bool Machine::hostLoad(const Bytes& save) {
         if (kv.second.dead || !kv.second.enabled) continue;
         svc_->track(kv.first, presenceFor(kv.second), static_cast<uint32_t>(now_), out);
     }
+    svc_->pin(fnvcoop::live::playerNet(kHostPlayer), kHostPlayer, static_cast<uint32_t>(now_), out);   // a new session: every player entity again
+    for (auto& kv : links_) svc_->pin(fnvcoop::live::playerNet(static_cast<PlayerId>(kv.first)), static_cast<PlayerId>(kv.first), static_cast<uint32_t>(now_), out);
     for (const OwnMsg& m : out) view_.apply(m);   // silent: the FullState below carries the table
     refreshAiFlags();
     for (auto& kv : links_) sendBody(buildFullState(), static_cast<PlayerId>(kv.first));

@@ -31,6 +31,10 @@ public:
     PuppetManager& operator=(const PuppetManager&) = delete;
 
     void SetLog(std::function<void(const std::string&)> log) { log_ = std::move(log); }
+    // Told every time RefOf(slot) changes (ref 0 = no usable puppet any more), from inside the call that changed it: the per-machine EntityMap
+    // (synccore/live/entity_map.h) binds a player's entity to its puppet with it, so nothing ever answers a stale runtime id.
+    using BindingHook = std::function<void(Slot slot, RefId ref)>;
+    void SetBindingHook(BindingHook h) { bindingHook_ = std::move(h); published_.clear(); PublishBindings(); }
 
     // ---- lifecycle -----------------------------------------------------------------------------------------------
     // False when the slot is the local slot, or the puppet limit is reached. A second call for a known slot replaces
@@ -164,6 +168,14 @@ private:
     CellId localCell_ = 0;
     Vec3 localPos_;
     std::map<Slot, RefId> staleMap_;   // only used by the staleMapEntries fault
+    BindingHook bindingHook_;
+    std::map<Slot, RefId> published_;   // what the binding hook was last told, per slot
+    void PublishBindings();
+    struct BindingScope {   // every public call that may change a binding reports it when it returns
+        PuppetManager& pm;
+        explicit BindingScope(PuppetManager& p) : pm(p) {}
+        ~BindingScope() { pm.PublishBindings(); }
+    };
 };
 
 }  // namespace nvcoop::avatar

@@ -29,7 +29,7 @@ inline int32_t count(const Items& i, uint32_t base) { auto f = i.find(F(base)); 
 
 class FakeEngine : public ILootEngine {
 public:
-    struct Cont { RefId ref = 0; lc::ContainerKind kind = lc::ContainerKind::Container; lc::CellId cell = 7; lc::Vec3 pos; Items items; bool exact = true; bool loaded = true; };
+    struct Cont { RefId ref = 0; lc::ContainerKind kind = lc::ContainerKind::Container; lc::CellId cell = 7; lc::Vec3 pos; Items items; bool exact = true; bool loaded = true; bool uniqueActor = false; };
     struct WItem { RefId ref = 0; lc::WorldItem it; NetId net = 0; bool alive = true; FormRef placed; };   // placed: a plugin's own ref (the real engine finds it from this alone)
 
     bool ready = true;
@@ -56,6 +56,7 @@ public:
     int adjustCalls = 0;
     int setContentsCalls = 0;
     bool readsFail = false;
+    std::map<FormRef, ItemClass> classes;                      // what classifyItem answers (scarcity); anything not listed is Other
 
     Cont& add(NetId net, Items items, lc::ContainerKind kind = lc::ContainerKind::Container, lc::CellId cell = 7) {
         Cont c;
@@ -121,7 +122,7 @@ public:
     bool describeContainer(RefId ref, ContainerDesc& out) override {
         Cont* c = byRef(ref);
         if (!c || !c->loaded) return false;
-        out.net = netOfRef(ref); out.kind = c->kind; out.cell = c->cell; out.pos = c->pos;
+        out.net = netOfRef(ref); out.kind = c->kind; out.cell = c->cell; out.pos = c->pos; out.uniqueActor = c->uniqueActor;
         described.insert(out.net);
         return true;
     }
@@ -146,6 +147,7 @@ public:
         it->second.items = next;
         return ok;
     }
+    ItemClass classifyItem(const FormRef& base) override { auto it = classes.find(base); return it == classes.end() ? ItemClass::Other : it->second; }
     RefId openMenuRef() override { return menu; }
     bool closeMenu() override { ++closeCalls; if (closeWorks) menu = 0; return closeWorks; }
     bool adjustPlayer(const FormRef& base, int32_t delta) override {

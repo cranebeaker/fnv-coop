@@ -48,6 +48,19 @@ TEST(combat_hit_edit, decode_reads_every_field_the_gate_uses) {
     CHECK(!decodeHit(nullptr, &d));
 }
 
+TEST(combat_hit_edit, a_balanced_scale_multiplies_health_and_limb_damage_once) {   // twin 830 (Co-op balanced head / limb / armour factor)
+    Buf h = sample();
+    HitBuf d;
+    decodeHit(h.b, &d);
+    const float health = d.health, limb = d.limb;
+    CHECK(!scaleHitDamage(h.b, d, 1.0f) && !scaleHitDamage(h.b, d, -1.0f) && !scaleHitDamage(h.b, d, 50.0f));
+    CHECK(h.get<float>(addr::hit::kHealthDmg) == health);
+    CHECK(scaleHitDamage(h.b, d, 1.5f));
+    CHECK(h.get<float>(addr::hit::kHealthDmg) == health * 1.5f && d.health == health * 1.5f);
+    CHECK(h.get<float>(addr::hit::kLimbDmg) == limb * 1.5f && d.limb == limb * 1.5f);
+    CHECK(limb > 0.0f);
+}
+
 TEST(combat_hit_edit, proceed_changes_nothing) {
     Buf h = sample();
     const Buf before = h;

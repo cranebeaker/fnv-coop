@@ -8,7 +8,7 @@
 set(NVF_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(NVF_LIVE "${NVF_DIR}/../../coop/live")
 set(NVF_REPO "${NVF_DIR}/../../..")
-if(NOT (TARGET nvcoop_coop_synccore AND TARGET nvcoop_actors_live AND TARGET nvcoop_avatar_engine))
+if(NOT (TARGET nvcoop_coop_synccore AND TARGET nvcoop_actors_live AND TARGET nvcoop_avatar_engine AND TARGET nvcoop_actors_core))
   return()
 endif()
 
@@ -26,9 +26,11 @@ target_link_libraries(nvcoop_avatar_full_combat PUBLIC nvcoop_coop_synccore)
 nvf_flags(nvcoop_avatar_full_combat)
 
 # the network service and the hub, runtime-twin flavour
-add_library(nvcoop_avatar_full_net STATIC ${NVAV_EXCLUDE} ${NVF_LIVE}/avatar_net.cpp ${NVF_LIVE}/avatar_wire.cpp ${NVF_LIVE}/live_hub.cpp)
+add_library(nvcoop_avatar_full_net STATIC ${NVAV_EXCLUDE} ${NVF_LIVE}/avatar_net.cpp ${NVF_LIVE}/avatar_wire.cpp ${NVF_LIVE}/live_hub.cpp ${NVF_LIVE}/player_port.cpp
+  ${NVF_DIR}/../look_codec.cpp)
 target_include_directories(nvcoop_avatar_full_net PUBLIC ${NVF_LIVE} ${NVF_REPO}/tools/mut ${NVF_REPO}/plugin)
 target_link_libraries(nvcoop_avatar_full_net PUBLIC nvcoop_avatar_engine nvcoop_actors_live nvcoop_coop_synccore)
+target_link_libraries(nvcoop_avatar_full_net PUBLIC nvcoop_actors_core)   # PlayerPort is an IActorPort (state_parts.cpp)
 target_compile_definitions(nvcoop_avatar_full_net PUBLIC FNVCOOP_RUNTIME_MUT)
 nvf_flags(nvcoop_avatar_full_net)
 

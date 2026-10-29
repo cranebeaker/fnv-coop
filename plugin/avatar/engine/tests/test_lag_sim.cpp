@@ -7,6 +7,9 @@
 //   avatar_lag_tests               regression run: the shipped tuning must stay inside the limits below on every profile (exit 1 on a failed check)
 //   avatar_lag_tests --report      print the before / after table (error p95 and max, overshoot on a stop, teleports, jitter, bytes per second)
 //   avatar_lag_tests --report --fps 30 --speed 250
+//   avatar_lag_tests --path actorsync [--report]   the same walker tracks and chaos profiles with the stream carried by ActorSync's player profile (docs/entity-core-plan.md
+//                                                  S10) instead of AvatarNet: the real ActorSync on both machines, the real receiver inside it, the playback buffer and the puppet as ever
+//   avatar_lag_tests --gate                        both paths side by side on the same seeds and profiles, with the numeric gate of step S11 (exit 1 if it fails)
 //   FNVCOOP_MUT=201..208           mutation twins (tools/mut/run_twins.py): each breaks one part of the round and MUST fail a check
 //   LAG_TUNE="minDelayMs=10,nearHz=60" ... --report   sweep the shipped tuning with nvcoop.ini [avatar] keys (avatar_tuning.h) without rebuilding
 //   LAG_TRACE=<ms> / LAG_STEPS=<ms>   (with --report) print the walker and puppet positions / per-frame puppet steps from that time on
@@ -22,6 +25,10 @@
 #include <string>
 #include <vector>
 
+#ifdef LAG_HAVE_ACTORSYNC
+#include <deque>
+#include "actors/actor_sync.h"
+#endif
 #include "avatar_tuning.h"
 #include "fnvcoop_mut.h"
 #include "live_bridge.h"
@@ -53,6 +60,7 @@ namespace {
 
 constexpr CellId kCell = 0x10;
 constexpr uint32_t kSenderClockOffset = 123456;   // the two machines do not share a clock
+constexpr uint32_t kHostClockOffset = 1000;           // (the ActorSync path: the host's own clock, after the session setup)
 
 // ---- the walker --------------------------------------------------------------------------------------------------------------------
 struct Knot { float t, speed, heading, facing; };   // seconds, units/s, degrees (heading = direction of travel, facing = where the body looks)
@@ -151,6 +159,73 @@ Track MakeTrack(float speedScale, int kind = 0) {
     return tr;
 }
 
+#ifdef LAG_HAVE_ACTORSYNC
+// ---- the ActorSync path -------------------------------------------------------------------------------------------------------------
+// The owner is a client (slot 1) and the receiver is the host (slot 0): the walker's stream goes owner ActorSync -> chaos link -> host ActorSync (its own receiver,
+// the pinned owner and epoch check) -> the port's playback buffer -> the puppet. The reliable messages (join state, ownership) are not impaired: the model measures the
+// stream. The port does what the live glue's PlayerPort does: sample() hands over what the sampler produced, onSnapshot() puts the snapshot in the avatar layer's buffer.
+namespace asim {
+using namespace nvcoop::actors;
+
+struct PortBase : IActorPort {
+    bool cellLoaded(CellId) override { return true; }
+    bool sample(NetId, live::ActorSnapshot&) override { return false; }
+    bool pose(NetId, live::ActualPose&) override { return false; }
+    void drive(NetId, const live::InterpOut&) override { ++wrong; }
+    void applyAv(NetId, const std::vector<live::AvValue>&) override {}
+    void place(NetId, const live::ActorSnapshot&) override { ++wrong; }
+    void setAi(NetId, bool) override { ++wrong; }
+    void setProtected(NetId, bool) override { ++wrong; }
+    bool spawnStandIn(const ActorMeta&, const live::ActorSnapshot&) override { ++wrong; return false; }
+    void removeStandIn(NetId) override { ++wrong; }
+    void setBase(NetId, const FormRef&) override { ++wrong; }
+    void kill(NetId) override { ++wrong; }
+    void revive(NetId) override { ++wrong; }
+    int wrong = 0;
+};
+struct OwnerPort : PortBase {
+    std::deque<live::ActorSnapshot> samples;
+    bool loaded(NetId id) override { return live::isPlayerNet(id); }
+    bool sample(NetId, live::ActorSnapshot& out) override {
+        if (samples.empty()) return false;
+        out = samples.front();
+        samples.pop_front();
+        return true;
+    }
+};
+struct HostPort : PortBase {
+    live::InterpBuffer* buf = nullptr;
+    const uint32_t* clock = nullptr;
+    uint64_t received = 0;
+    bool loaded(NetId id) override { return live::isPlayerNet(id); }
+    void onSnapshot(NetId, const live::ActorSnapshot& s, uint32_t) override {
+        buf->push(s, *clock);   // the avatar layer stamps the arrival with its own clock: this frame's time
+        ++received;
+    }
+};
+// One machine's network: unreliable datagrams go through the chaos link of that direction, reliable ones are queued and delivered at once (not impaired).
+struct Net : IActorNet {
+    std::function<void(const Bytes&)> unreliable;
+    std::deque<Bytes> reliable;
+    uint64_t wireBytes = 0, datagrams = 0;
+    void send(PlayerId, bool rel, Bytes data) override {
+        if (rel) { reliable.push_back(std::move(data)); return; }
+        wireBytes += data.size();
+        ++datagrams;
+        unreliable(data);
+    }
+};
+}  // namespace asim
+#endif
+
+double DefaultClockStep() {
+    const char* e = std::getenv("LAG_CLOCKSTEP");
+    return e ? std::atof(e) : 15.625;
+}
+// The clock each path plans on in the game. The avatar layer's network service is ticked by the live hub with the co-op module's clock (GetTickCount64, steps of
+// 15.625 ms); ActorSync is ticked by ActorRuntime with std::chrono::steady_clock in whole milliseconds (plugin/actors/actors_glue.cpp), which has no steps.
+double ClockStepOf(bool actorsync) { return actorsync ? 0.0 : DefaultClockStep(); }
+
 // ---- one run -----------------------------------------------------------------------------------------------------------------------
 struct SimOpts {
     LagTuning tune;
@@ -165,8 +240,9 @@ struct SimOpts {
     // version of this model polled before it drove, which gave every packet a free frame.
     bool netAfterDrive = true;
     // The rate planner runs on the co-op module's clock, GetTickCount64, which moves in steps of 15.625 ms (0 = exact ms, the first version of the model).
-    double plannerClockStepMs = 15.625;
+    double plannerClockStepMs = DefaultClockStep();   // LAG_CLOCKSTEP=<ms> overrides (0 = exact)
     int track = 0;   // 0 walking, 1 teleport (arriveMs), 2 start from a long stand (startMax), 3 the lab's walk room (stop and go legs of 300 units)
+    bool actorsync = false;   // the stream through ActorSync's player profile instead of the avatar layer's own planner and sender (docs/entity-core-plan.md S10)
 };
 
 struct SimResult {
@@ -181,6 +257,9 @@ struct SimResult {
     double startMax = 0;               // start track: the largest error in the second after the first step
     double bytesPerSec = 0, packetsPerSec = 0, snapshotsPerSec = 0;
     double runBytesPerSec = 0;         // payload while running steadily (the stream when it matters), not averaged with standing still
+    double runWireBytesPerSec = 0;     // the same window, counted as datagrams on the wire (the channel byte, and ActorSync's sub byte, included)
+    double wireBytesPerSec = 0;        // the whole track, counted as datagrams on the wire
+    uint64_t delivered = 0;            // the ActorSync path: snapshots its host handed to the playback buffer (the stream really went through it)
     unsigned frames = 0;
 };
 
@@ -222,11 +301,22 @@ SimResult RunSim(const SimOpts& o) {
 
     // sender side
     LocalSampler sampler(tune.sampler);
-    const live::NetId kNet = 77;
-    sampler.SetIdentity(kNet, 1);
+    // The identity AvatarNet gives the local stream in the game: the player's entity id (0xFE000000 | slot) and an epoch taken from the clock at session start. (The
+    // first version of this model used id 77 and epoch 1, which made the avatar path a few bytes a snapshot cheaper than it is.) The ActorSync path restamps both:
+    // the same id, and the pinned epoch of the slot.
+    const live::NetId kNet = 0xFE000001u;
+    sampler.SetIdentity(kNet, 1761700000u);
     StreamRatePlanner planner(tune.rate);
     live::SnapshotSender sender;
     const ::fnvcoop::PlayerId kOwner = 1, kMe = 2;
+    uint64_t avatarWireBytes = 0, wireAt2s = 0, wireAt39s = 0;
+#ifdef LAG_HAVE_ACTORSYNC
+    asim::OwnerPort ownerPort;
+    asim::HostPort hostPort;
+    asim::Net ownerNet, hostNet;
+    std::unique_ptr<nvcoop::actors::ActorSync> ownerSync, hostSync;   // the owner is a client (slot 1), the receiver the host (slot 0)
+    uint32_t simNow = 0;
+#endif
 
     // the link, one impairment per direction like the relay
     chaos::Params prm = chaos::Params::make(1, 0, 0, 0, 0, 0.5, 1, 0, 0, 0, 0, 200);
@@ -235,6 +325,43 @@ SimResult RunSim(const SimOpts& o) {
     prm.seed = prm.seed + o.seed * 7919;
     chaos::Impairment c2s(prm, "c2s"), s2c(prm, "s2c");
     std::multimap<double, live::Bytes> toMe, toOwner;
+#ifdef LAG_HAVE_ACTORSYNC
+    if (o.actorsync) {
+        hostPort.buf = &buf;
+        hostPort.clock = &simNow;
+        ownerPort.samples.clear();
+        nvcoop::actors::SyncConfig oc, hc;
+        oc.self = 1; oc.isHost = false;
+        hc.self = 0; hc.isHost = true;
+        ownerNet.unreliable = [&](const nvcoop::actors::Bytes& d) {
+            chaos::Verdict v = c2s.decide(simNow, static_cast<uint32_t>(d.size()));
+            for (double dl : v.delaysMs) toMe.emplace(simNow + dl, d);
+        };
+        hostNet.unreliable = [&](const nvcoop::actors::Bytes& d) {
+            chaos::Verdict v = s2c.decide(simNow, static_cast<uint32_t>(d.size()));
+            for (double dl : v.delaysMs) toOwner.emplace(simNow + dl, d);
+        };
+        ownerSync.reset(new nvcoop::actors::ActorSync(oc, ownerPort, ownerNet));
+        hostSync.reset(new nvcoop::actors::ActorSync(hc, hostPort, hostNet));
+        ownerSync->enablePlayerEntities(&ownerPort, false, true);
+        hostSync->enablePlayerEntities(&hostPort, false, true);
+    }
+    auto drainReliable = [&]() {   // the control plane: join state, ownership, tracks; delivered at once, in order, never impaired
+        for (int guard = 0; guard < 64 && (!ownerNet.reliable.empty() || !hostNet.reliable.empty()); ++guard) {
+            while (!hostNet.reliable.empty()) { nvcoop::actors::Bytes d = std::move(hostNet.reliable.front()); hostNet.reliable.pop_front(); ownerSync->receive(0, d.data(), d.size()); }
+            while (!ownerNet.reliable.empty()) { nvcoop::actors::Bytes d = std::move(ownerNet.reliable.front()); ownerNet.reliable.pop_front(); hostSync->receive(1, d.data(), d.size()); }
+        }
+    };
+    if (o.actorsync) {   // the session starts: the host pins the entity of slot 1, both know it before the walker moves
+        hostSync->playerJoined(1);
+        ownerSync->hostConnected();
+        for (uint32_t t = 0; t <= 30; t += 10) {   // (before the run's own clocks start: the host's runs from 1000, the owner's from its offset)
+            hostSync->tick(t);
+            ownerSync->tick(kSenderClockOffset - 100 + t);
+            drainReliable();
+        }
+    }
+#endif
 
     std::vector<double> movingErr;
     std::vector<double> errAt(tr.durMs + 1, -1.0);
@@ -265,6 +392,9 @@ SimResult RunSim(const SimOpts& o) {
             while (!toOwner.empty() && toOwner.begin()->first <= now) {
                 live::Bytes data = toOwner.begin()->second;
                 toOwner.erase(toOwner.begin());
+#ifdef LAG_HAVE_ACTORSYNC
+                if (o.actorsync) { simNow = now; ownerSync->receive(0, data.data(), data.size()); continue; }
+#endif
                 sender.onAckPacket(kMe, data.data(), data.size());
             }
             LocalFrame f;
@@ -274,6 +404,15 @@ SimResult RunSim(const SimOpts& o) {
             f.rot = Vec3{0.0f, tr.facing[now] * 3.14159265f / 180.0f, 0.0f};
             live::ActorSnapshot snap;
             const uint32_t pNow = o.plannerClockStepMs > 0 ? static_cast<uint32_t>(std::floor(sNow / o.plannerClockStepMs) * o.plannerClockStepMs) : sNow;
+#ifdef LAG_HAVE_ACTORSYNC
+            if (o.actorsync) {   // ActorSync takes the sample from its port, plans, queues and flushes (ownerSync->tick); the time it plans on is the planner clock
+                simNow = now;
+                if (sampler.Update(sNow, f, snap)) ownerPort.samples.push_back(snap);
+                ownerSync->tick(pNow);
+                drainReliable();
+            } else
+#endif
+            {
             if (sampler.Update(sNow, f, snap)) {
                 live::ActorSnapshot out;
                 if (planner.offerAtTier(StreamRatePlanner::kUplink, 1, StreamTier::Near, snap, pNow, out))
@@ -284,17 +423,39 @@ SimResult RunSim(const SimOpts& o) {
             for (auto& r : rel)
                 if (sender.queue(kMe, r.snap, sNow)) snapshotsSent += 1;
             for (auto& pkt : sender.flush(kMe, sNow)) {
+                avatarWireBytes += pkt.size() + 1;   // + the channel byte
                 chaos::Verdict v = c2s.decide(now, static_cast<uint32_t>(pkt.size()));
                 for (double d : v.delaysMs) toMe.emplace(now + d, pkt);
             }
+            }
         }
-        if (now == 2000) bytesAt2s = sender.stats().bytes;
-        if (now == 3900) bytesAt39s = sender.stats().bytes;
+#ifdef LAG_HAVE_ACTORSYNC
+        const uint64_t payloadNow = o.actorsync ? ownerSync->playerSenderStats().bytes : sender.stats().bytes;
+        const uint64_t wireNow = o.actorsync ? ownerNet.wireBytes : avatarWireBytes;
+#else
+        const uint64_t payloadNow = sender.stats().bytes;
+        const uint64_t wireNow = avatarWireBytes;
+#endif
+        if (now == 2000) { bytesAt2s = payloadNow; wireAt2s = wireNow; }
+        if (now == 3900) { bytesAt39s = payloadNow; wireAt39s = wireNow; }
         if (now >= nextR) {
             nextR += gap();
             // ---- receiving machine: one frame. The network pump (packets that arrived since the last frame are stamped with this frame's time) runs either
             // before the drive (the first version of the model) or after it (the game: the co-op module is a late one).
             auto pump = [&]() {
+#ifdef LAG_HAVE_ACTORSYNC
+                if (o.actorsync) {   // the host's ActorSync: judges the stream, hands it to the port's buffer, acknowledges at its own interval
+                    simNow = now;
+                    while (!toMe.empty() && toMe.begin()->first <= now) {
+                        live::Bytes data = toMe.begin()->second;
+                        toMe.erase(toMe.begin());
+                        hostSync->receive(1, data.data(), data.size());
+                    }
+                    hostSync->tick(now + kHostClockOffset);
+                    drainReliable();
+                    return;
+                }
+#endif
                 while (!toMe.empty() && toMe.begin()->first <= now) {
                     live::Bytes data = toMe.begin()->second;
                     toMe.erase(toMe.begin());
@@ -373,6 +534,7 @@ SimResult RunSim(const SimOpts& o) {
         }
     }
     R.runBytesPerSec = (bytesAt39s - bytesAt2s) / 1.9;
+    R.runWireBytesPerSec = (wireAt39s - wireAt2s) / 1.9;
     if (o.track == 1) {
         R.arriveMs = 9999;
         uint32_t lastBad = kJumpAtMs;
@@ -407,9 +569,21 @@ SimResult RunSim(const SimOpts& o) {
         R.settle10Ms = std::max(R.settle10Ms, settle10);
     }
     const double secs = tr.durMs / 1000.0;
+#ifdef LAG_HAVE_ACTORSYNC
+    if (o.actorsync) {
+        const live::SenderStats& ss = ownerSync->playerSenderStats();
+        R.bytesPerSec = ss.bytes / secs;
+        R.packetsPerSec = ss.packets / secs;
+        R.snapshotsPerSec = ownerSync->stats().playerSent / secs;
+        R.wireBytesPerSec = ownerNet.wireBytes / secs;
+        R.delivered = hostPort.received;
+        return R;
+    }
+#endif
     R.bytesPerSec = sender.stats().bytes / secs;
     R.packetsPerSec = sender.stats().packets / secs;
     R.snapshotsPerSec = snapshotsSent / secs;
+    R.wireBytesPerSec = avatarWireBytes / secs;
     return R;
 }
 
@@ -433,6 +607,9 @@ SimResult Worst(const SimOpts& base, const std::vector<uint64_t>& seeds) {
         w.packetsPerSec = std::max(w.packetsPerSec, r.packetsPerSec);
         w.snapshotsPerSec = std::max(w.snapshotsPerSec, r.snapshotsPerSec);
         w.runBytesPerSec = std::max(w.runBytesPerSec, r.runBytesPerSec);
+        w.runWireBytesPerSec = std::max(w.runWireBytesPerSec, r.runWireBytesPerSec);
+        w.wireBytesPerSec = std::max(w.wireBytesPerSec, r.wireBytesPerSec);
+        w.delivered = w.delivered ? std::min(w.delivered, r.delivered) : r.delivered;   // the fewest: every seed must have delivered
         w.arriveMs = std::max(w.arriveMs, r.arriveMs);
         w.startMax = std::max(w.startMax, r.startMax);
         w.frames = r.frames;
@@ -451,7 +628,16 @@ void PrintRow(const char* what, const std::string& profile, const SimResult& r) 
                 r.steadyLagMs, r.bytesPerSec, r.runBytesPerSec);
 }
 
-const std::vector<uint64_t> kSeeds = {1, 2, 3};
+// The seeds every row is the worst of. LAG_SEEDS=<n> (with --report or --gate) uses seeds 1..n instead, to tell a systematic difference between two paths from the luck of three draws.
+std::vector<uint64_t> MakeSeeds() {
+    if (const char* e = std::getenv("LAG_SEEDS")) {
+        std::vector<uint64_t> v;
+        for (int i = 1; i <= std::atoi(e) && i <= 200; ++i) v.push_back(static_cast<uint64_t>(i));
+        if (!v.empty()) return v;
+    }
+    return {1, 2, 3};
+}
+const std::vector<uint64_t> kSeeds = MakeSeeds();
 
 // The limits the shipped tuning must keep (units; run speed 400 u/s, 60 fps, worst of 3 seeds). The goal of the round was p95 under 40 on a clean link and
 // under 60 behind bad wifi; the measured values (tools: `avatar_lag_tests --report`) leave about a quarter of room. The "before" numbers are in --report.
@@ -463,26 +649,118 @@ const Limit kLimits[] = {
 
 }  // namespace
 
+#ifdef LAG_HAVE_ACTORSYNC
+constexpr bool kHaveActorSync = true;
+#else
+constexpr bool kHaveActorSync = false;
+#endif
+
+// The numeric gate of step S11 (docs/entity-core-plan.md): the stream through ActorSync's player profile against the avatar layer's own, on the same seeds, the same walker
+// tracks and the same chaos profiles. Every row must hold:
+//   error p95 (walking and the lab's walk room)  within 5 percent of the avatar path, and never over the avatar path's own limit (kLimits)
+//   bytes on the wire per second                 under 10 percent more than the avatar path (whole track, and while running steadily)
+//   a teleport's arrival, a start from a long stand  no later than the avatar path (one frame of tolerance for the arrival, the start's error within 5 percent)
+// The lab rows of the gate (walk room sync lag, spawn room) need a game and are not in this table.
+int RunGate(uint32_t frameMs) {
+    int failed = 0;
+    // `block` runs the table once with the given planner clocks for the two paths: the same (15.625 ms steps, the like-for-like row set) and each its own in the game
+    // (avatar 15.625 ms steps, ActorSync exact milliseconds).
+    auto block = [&](const char* title, double avatarStep, double actorStep, bool absoluteLimits) {
+        auto verdict = [&](bool ok, const char* what, const std::string& profile, double a, double b) {
+            if (!ok) { ++failed; std::printf("    GATE FAILED  %-38s %-14s avatar %8.2f  actorsync %8.2f\n", what, profile.c_str(), a, b); }
+        };
+        std::printf("%s (planner clock step: avatar %.3f ms, actorsync %.3f ms)\n", title, avatarStep, actorStep);
+        std::printf("  %-14s %-9s %8s %8s %7s | %11s %11s %7s | %10s %10s %7s | %9s %9s\n", "profile", "track", "p95 av", "p95 as", "limit", "wire B/s av", "wire B/s as", "diff", "run B/s av", "run B/s as", "diff", "overshoot", "settle10");
+        for (const char* p : {"lan", "good_wifi", "bad_wifi", "mobile_tether"}) {
+            const Limit* lim = nullptr;
+            for (const Limit& L : kLimits) if (!std::strcmp(L.profile, p)) lim = &L;
+            for (int track : {0, 3}) {
+                SimOpts o;
+                o.profile = p;
+                o.frameMs = frameMs;
+                o.tune = DefaultLagTuning();
+                o.track = track;
+                o.plannerClockStepMs = avatarStep;
+                const SimResult av = Worst(o, kSeeds);
+                o.actorsync = true;
+                o.plannerClockStepMs = actorStep;
+                const SimResult as = Worst(o, kSeeds);
+                const double wireDiff = av.wireBytesPerSec > 0 ? (as.wireBytesPerSec / av.wireBytesPerSec - 1.0) * 100.0 : 0.0;
+                const double runDiff = av.runWireBytesPerSec > 0 ? (as.runWireBytesPerSec / av.runWireBytesPerSec - 1.0) * 100.0 : 0.0;
+                std::printf("  %-14s %-9s %8.2f %8.2f %7.0f | %11.0f %11.0f %+6.1f%% | %10.0f %10.0f %+6.1f%% | %4.1f/%4.1f %4.0f/%4.0f\n", p, track == 0 ? "walking" : "walk room", av.errP95, as.errP95,
+                            track == 0 && lim ? lim->p95 : 0.0, av.wireBytesPerSec, as.wireBytesPerSec, wireDiff, av.runWireBytesPerSec, as.runWireBytesPerSec, runDiff, av.overshoot, as.overshoot,
+                            av.settle10Ms, as.settle10Ms);
+                verdict(as.errP95 <= av.errP95 * 1.05 + 0.25, "error p95 within 5 percent", p, av.errP95, as.errP95);
+                if (track == 0 && lim) verdict(as.errP95 <= lim->p95, "error p95 under the limit", p, lim->p95, as.errP95);
+                verdict(as.wireBytesPerSec <= av.wireBytesPerSec * 1.10, "wire bytes per second under +10 percent", p, av.wireBytesPerSec, as.wireBytesPerSec);
+                if (track == 0) verdict(as.runWireBytesPerSec <= av.runWireBytesPerSec * 1.10, "running wire bytes under +10 percent", p, av.runWireBytesPerSec, as.runWireBytesPerSec);
+                if (absoluteLimits && track == 0 && lim) {   // the other limits of the avatar path's regression, for the path that plans on its own clock
+                    verdict(as.overshoot <= lim->overshoot, "stop overshoot under the limit", p, lim->overshoot, as.overshoot);
+                    verdict(as.settle10Ms <= 250, "puppet back on the walker within 250 ms", p, 250, as.settle10Ms);
+                }
+            }
+            SimOpts o;
+            o.profile = p;
+            o.frameMs = frameMs;
+            o.tune = DefaultLagTuning();
+            o.plannerClockStepMs = avatarStep;
+            o.track = 1;
+            const SimResult tpa = Worst(o, kSeeds);
+            o.track = 2;
+            const SimResult sta = Worst(o, kSeeds);
+            o.actorsync = true;
+            o.plannerClockStepMs = actorStep;
+            o.track = 1;
+            const SimResult tps = Worst(o, kSeeds);
+            o.track = 2;
+            const SimResult sts = Worst(o, kSeeds);
+            std::printf("  %-14s teleport arrives after %5.0f ms (avatar) %5.0f ms (actorsync);  start max error %5.1f (avatar) %5.1f (actorsync)\n", p, tpa.arriveMs, tps.arriveMs, sta.startMax, sts.startMax);
+            verdict(tps.arriveMs <= tpa.arriveMs + frameMs, "teleport arrival no later (one frame)", p, tpa.arriveMs, tps.arriveMs);
+            verdict(sts.startMax <= sta.startMax * 1.05 + 0.25, "start from a stand within 5 percent", p, sta.startMax, sts.startMax);
+        }
+    };
+    std::printf("S11 gate: ActorSync player profile vs the avatar path, worst of %zu seeds, %u ms frames\n", kSeeds.size(), frameMs);
+    block("A. like for like", DefaultClockStep(), DefaultClockStep(), false);
+    block("B. each path on the clock it has in the game", ClockStepOf(false), ClockStepOf(true), true);
+    std::printf("S11 gate: %s\n", failed ? "FAILED" : "every number holds");
+    return failed ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
-    bool report = false;
+    bool report = false, viaActorSync = false, gate = false;
     uint32_t fps = 60;
     float speed = 1.0f;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--report")) report = true;
+        else if (!std::strcmp(argv[i], "--gate")) gate = true;
+        else if (!std::strcmp(argv[i], "--path") && i + 1 < argc) {
+            const char* path = argv[++i];
+            if (!std::strcmp(path, "actorsync")) viaActorSync = true;
+            else if (std::strcmp(path, "avatar")) { std::printf("--path: avatar or actorsync\n"); return 2; }
+        }
         else if (!std::strcmp(argv[i], "--fps") && i + 1 < argc) fps = static_cast<uint32_t>(std::atoi(argv[++i]));
         else if (!std::strcmp(argv[i], "--speed") && i + 1 < argc) speed = static_cast<float>(std::atof(argv[++i])) / 400.0f;
     }
     const uint32_t frameMs = fps ? 1000 / fps : 16;
+    if ((viaActorSync || gate) && !kHaveActorSync) {
+        std::printf("avatar_lag_tests was built without ActorSync (plugin/actors is not part of this build tree): --path actorsync and --gate are not available\n");
+        return 2;
+    }
+    if (gate) return RunGate(frameMs);
     if (report) {
-        std::printf("avatar lag report: run speed %.0f u/s, %u fps (%u ms frames), worst of %zu seeds per row; units are game units (70 per metre)\n", 400.0f * speed, fps, frameMs, kSeeds.size());
+        std::printf("avatar lag report (%s path): run speed %.0f u/s, %u fps (%u ms frames), worst of %zu seeds per row; units are game units (70 per metre)\n", viaActorSync ? "actorsync" : "avatar", 400.0f * speed, fps, frameMs, kSeeds.size());
         for (const std::string& p : Profiles()) {
             SimOpts o;
             o.profile = p;
             o.frameMs = frameMs;
             o.speedScale = speed;
-            o.tune = LegacyLagTuning();
-            PrintRow("before", p, Worst(o, kSeeds));
+            if (!viaActorSync) {   // (the player profile of ActorSync is the shipped tuning: there is no "before" to run through it)
+                o.tune = LegacyLagTuning();
+                PrintRow("before", p, Worst(o, kSeeds));
+            }
             o.tune = DefaultLagTuning();
+            o.actorsync = viaActorSync;
+            o.plannerClockStepMs = ClockStepOf(viaActorSync);
             if (const char* e = std::getenv("LAG_TUNE")) {   // sweeps: LAG_TUNE="minDelayMs=10,jitterFactor=0.5" (same keys as nvcoop.ini [avatar])
                 const std::string spec = std::string(",") + e + ",";
                 ApplyLagIni(o.tune, [&](const char* key, const char*) -> std::string {
@@ -496,23 +774,27 @@ int main(int argc, char** argv) {
         }
         std::printf("the lab's walk room (legs of 300 units at 375 u/s, 0.4 s stops, 90 degree corners; error p95 / max while moving, lag of the steady stretches is not defined here):\n");
         for (const std::string& p : Profiles()) {
-            for (int after = 0; after < 2; ++after) {
+            for (int after = viaActorSync ? 1 : 0; after < 2; ++after) {
                 SimOpts o;
                 o.profile = p;
                 o.frameMs = frameMs;
                 o.tune = after ? DefaultLagTuning() : LegacyLagTuning();
                 o.track = 3;
+                o.actorsync = viaActorSync && after;
+                o.plannerClockStepMs = ClockStepOf(o.actorsync);
                 const SimResult w = Worst(o, kSeeds);
                 std::printf("  %-8s %-14s p95 %5.1f  max %6.1f  overshoot %5.1f  settle10 %4.0f ms\n", after ? "after" : "before", p.c_str(), w.errP95, w.errMax, w.overshoot, w.settle10Ms);
             }
         }
         std::printf("teleport of 450 units (arrival: until the puppet is within 40 units for good) and a start from a 6 s stand (largest error in the following 1.5 s):\n");
         for (const std::string& p : Profiles()) {
-            for (int after = 0; after < 2; ++after) {
+            for (int after = viaActorSync ? 1 : 0; after < 2; ++after) {
                 SimOpts o;
                 o.profile = p;
                 o.frameMs = frameMs;
                 o.tune = after ? DefaultLagTuning() : LegacyLagTuning();
+                o.actorsync = viaActorSync && after;
+                o.plannerClockStepMs = ClockStepOf(o.actorsync);
                 o.track = 1;
                 const SimResult t = Worst(o, kSeeds);
                 o.track = 2;
@@ -523,70 +805,84 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // ---- regression: the shipped tuning, every profile
-    for (const Limit& L : kLimits) {
-        SimOpts o;
-        o.profile = L.profile;
-        o.tune = DefaultLagTuning();
-        o.mutate = true;
-        SimResult r = Worst(o, kSeeds);
-        PrintRow("after", L.profile, r);
-        CHECK(r.errP95 <= L.p95);
-        CHECK(r.errMax <= L.max);
-        CHECK(r.overshoot <= L.overshoot);    // a stop does not run past where the walker stopped
-        CHECK(r.teleports == 0);              // no teleport, no rubber band
-        CHECK(r.snapped == 0);
-        CHECK(r.reversals == 0);              // a steady run never steps backwards
-        CHECK(r.jitterPct <= L.jitterPct);    // and its per-frame steps stay close to the nominal one (the old buffer: 17 to 240 percent)
-        CHECK(r.settle10Ms <= 250);           // the puppet is on the walker again 250 ms after a stop
-        CHECK(r.runBytesPerSec <= 800.0);     // 30 Hz near stream: well under a kilobyte a second of snapshot payload per player
-    }
-    // ---- a teleport and a start from a long stand (the lab's spawn room: "the puppet arrives 650 to 2700 ms late, catching up from 773 units away")
-    for (const char* p : {"lan", "good_wifi", "bad_wifi"}) {
-        SimOpts o;
-        o.profile = p;
-        o.tune = DefaultLagTuning();
-        o.mutate = true;
-        o.track = 1;
-        const SimResult t = Worst(o, kSeeds);
-        o.track = 2;
-        const SimResult st = Worst(o, kSeeds);
-        std::printf("  after    %-14s teleport arrives after %5.0f ms   start max error %5.1f units\n", p, t.arriveMs, st.startMax);
-        const bool lan = std::strcmp(p, "lan") == 0;
-        CHECK(t.arriveMs <= (lan ? 80.0 : (std::strcmp(p, "good_wifi") == 0 ? 100.0 : 140.0)));   // the link and the buffer delay, not a catch-up (the old rules: 375 to 420 ms)
-        CHECK(st.startMax <= (lan ? 40.0 : (std::strcmp(p, "good_wifi") == 0 ? 45.0 : 65.0)));    // the old rules: 100 to 130 units in the first 1.5 s after a long stand
-    }
-    // ---- slower game copies (two copies on one PC at 30 and 20 fps): the frame length sets the floor, the shipped tuning stays well inside the old numbers
-    for (uint32_t frame : {33u, 50u}) {
-        SimOpts o;
-        o.frameMs = frame;
-        double p95[2] = {0, 0};
-        for (int i = 0; i < 2; ++i) {
-            o.profile = i == 0 ? "lan" : "bad_wifi";
+    // ---- regression: the shipped tuning, every profile, on the avatar layer's own sender chain and (when built) through ActorSync's player profile
+    auto regression = [&](bool via) {
+        std::printf("--- path: %s\n", via ? "actorsync" : "avatar");
+        for (const Limit& L : kLimits) {
+            SimOpts o;
+            o.profile = L.profile;
             o.tune = DefaultLagTuning();
             o.mutate = true;
+            o.actorsync = via;
+            o.plannerClockStepMs = ClockStepOf(via);
             SimResult r = Worst(o, kSeeds);
-            std::printf("  after @ %u ms frames:", frame);
-            PrintRow("", o.profile, r);
-            p95[i] = r.errP95;
-            CHECK(r.teleports == 0);
-            CHECK(r.reversals == 0);
+            PrintRow("after", L.profile, r);
+            CHECK(r.errP95 <= L.p95);
+            CHECK(r.errMax <= L.max);
+            CHECK(r.overshoot <= L.overshoot);    // a stop does not run past where the walker stopped
+            CHECK(r.teleports == 0);              // no teleport, no rubber band
+            CHECK(r.snapped == 0);
+            CHECK(r.reversals == 0);              // a steady run never steps backwards
+            CHECK(r.jitterPct <= L.jitterPct);    // and its per-frame steps stay close to the nominal one (the old buffer: 17 to 240 percent)
+            CHECK(r.settle10Ms <= 250);           // the puppet is on the walker again 250 ms after a stop
+            CHECK(r.runBytesPerSec <= 800.0);     // 30 Hz near stream: well under a kilobyte a second of snapshot payload per player
+            if (via) CHECK(r.delivered > 100);    // and through ActorSync means through ActorSync: its host handed the stream to the playback buffer
         }
-        CHECK(p95[0] <= (frame == 33 ? 32.0 : 48.0));
-        CHECK(p95[1] <= (frame == 33 ? 50.0 : 66.0));
-    }
-    // ---- the claim itself: the shipped tuning is much closer than the old one, on a clean link and behind bad wifi
-    for (const char* p : {"lan", "bad_wifi"}) {
-        SimOpts o;
-        o.profile = p;
-        o.tune = LegacyLagTuning();
-        SimResult before = Worst(o, kSeeds);
-        o.tune = DefaultLagTuning();
-        o.mutate = true;
-        SimResult after = Worst(o, kSeeds);
-        PrintRow("before", p, before);
-        CHECK(after.errP95 * (std::strcmp(p, "lan") == 0 ? 2.0 : 1.4) <= before.errP95);
-    }
+        // ---- a teleport and a start from a long stand (the lab's spawn room: "the puppet arrives 650 to 2700 ms late, catching up from 773 units away")
+        for (const char* p : {"lan", "good_wifi", "bad_wifi"}) {
+            SimOpts o;
+            o.profile = p;
+            o.tune = DefaultLagTuning();
+            o.mutate = true;
+            o.actorsync = via;
+            o.plannerClockStepMs = ClockStepOf(via);
+            o.track = 1;
+            const SimResult t = Worst(o, kSeeds);
+            o.track = 2;
+            const SimResult st = Worst(o, kSeeds);
+            std::printf("  after    %-14s teleport arrives after %5.0f ms   start max error %5.1f units\n", p, t.arriveMs, st.startMax);
+            const bool lan = std::strcmp(p, "lan") == 0;
+            CHECK(t.arriveMs <= (lan ? 80.0 : (std::strcmp(p, "good_wifi") == 0 ? 100.0 : 140.0)));   // the link and the buffer delay, not a catch-up (the old rules: 375 to 420 ms)
+            CHECK(st.startMax <= (lan ? 40.0 : (std::strcmp(p, "good_wifi") == 0 ? 45.0 : 65.0)));    // the old rules: 100 to 130 units in the first 1.5 s after a long stand
+        }
+        // ---- slower game copies (two copies on one PC at 30 and 20 fps): the frame length sets the floor, the shipped tuning stays well inside the old numbers
+        for (uint32_t frame : {33u, 50u}) {
+            SimOpts o;
+            o.frameMs = frame;
+            o.actorsync = via;
+            o.plannerClockStepMs = ClockStepOf(via);
+            double p95[2] = {0, 0};
+            for (int i = 0; i < 2; ++i) {
+                o.profile = i == 0 ? "lan" : "bad_wifi";
+                o.tune = DefaultLagTuning();
+                o.mutate = true;
+                SimResult r = Worst(o, kSeeds);
+                std::printf("  after @ %u ms frames:", frame);
+                PrintRow("", o.profile, r);
+                p95[i] = r.errP95;
+                CHECK(r.teleports == 0);
+                CHECK(r.reversals == 0);
+            }
+            CHECK(p95[0] <= (frame == 33 ? 32.0 : 48.0));
+            CHECK(p95[1] <= (frame == 33 ? 50.0 : 66.0));
+        }
+        // ---- the claim itself: the shipped tuning is much closer than the old one, on a clean link and behind bad wifi
+        for (const char* p : {"lan", "bad_wifi"}) {
+            SimOpts o;
+            o.profile = p;
+            o.tune = LegacyLagTuning();
+            SimResult before = Worst(o, kSeeds);
+            o.tune = DefaultLagTuning();
+            o.mutate = true;
+            o.actorsync = via;
+            o.plannerClockStepMs = ClockStepOf(via);
+            SimResult after = Worst(o, kSeeds);
+            PrintRow("before", p, before);
+            CHECK(after.errP95 * (std::strcmp(p, "lan") == 0 ? 2.0 : 1.4) <= before.errP95);
+        }
+    };
+    if (!viaActorSync) regression(false);
+    if (viaActorSync || kHaveActorSync) regression(true);
     std::printf("avatar lag: %d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

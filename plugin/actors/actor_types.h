@@ -10,6 +10,7 @@
 #include "fnvcoop/ownership.h"
 #include "fnvcoop/transport.h"
 #include "fnvcoop/types.h"
+#include "live/entity.h"
 #include "live/live.h"
 
 namespace nvcoop::actors {
@@ -56,17 +57,28 @@ using InvList = std::vector<InvItem>;
 using EquipList = std::vector<FormRef>;
 
 // State parts (state_parts.h): the non-motion state of an actor the owner's engine changes by itself. On the wire (MPart::kind): append only.
+// Kinds 2 to 5 belong to player entities (docs/entity-core-plan.md 2.2); an NPC record never carries them, and a player never carries Inventory.
 enum class PartKind : uint8_t {
-    Inventory = 0,   // item totals (InvList)
-    Equipment = 1,   // what it holds and wears (EquipList)
+    Inventory = 0,     // item totals (InvList)
+    Equipment = 1,     // what it holds and wears (EquipList)
+    Look = 2,          // player: its Appearance (plugin/avatar/look_codec.h)
+    WeaponState = 3,   // player: the held weapon and its modification flags (state_parts.h WeaponState)
+    Facts = 4,         // player, host only: level, sit state, actions, regions (PlayerFacts, look_codec.h)
+    Pack = 5,          // player, host only: weight and watched item counts (PlayerPack, look_codec.h)
 };
-constexpr size_t kPartCount = 2;
+constexpr size_t kPartCount = 6;
 inline size_t partIndex(PartKind k) { return static_cast<size_t>(k); }
+inline bool partOfNpc(size_t k) { return k <= 1; }        // Inventory, Equipment
+inline bool partOfPlayer(size_t k) { return k >= 1; }     // everything but Inventory
+// Who hears about a part: everybody, or only the host (it stores/applies the value and never relays it).
+enum class PartAudience : uint8_t { All, HostOnly };
 struct PartSpec {
     uint32_t pollMs = 500;     // owner: read the part of an owned actor this often
-    uint32_t settleMs = 1000;  // owner: a changed value is published once it stayed the same this long
+    uint32_t settleMs = 1000;  // owner: a changed value is published once it stayed the same this long (0 = at once)
     size_t maxBytes = 4096;    // a value larger than this is never sent (an engine read that went wrong)
-    bool reapplyOnLoad = false;   // copy: write the last known value again when the actor loads here again (the engine rebuilt it from its base form)
+    bool reapplyOnLoad = false;   // copy: write the last known value again when the actor loads here again (the engine rebuilt it from its base form); for a player: when its puppet was made again (the "applied" memory is cleared)
+    PartAudience audience = PartAudience::All;
+    bool silentBaseline = true;   // owner: the first read is only a baseline (both worlds start equal). A player's parts are published at the first read: a silent baseline would leave every puppet a naked template
 };
 struct PartStats {
     uint64_t published = 0, applied = 0, rejected = 0, duplicate = 0, applyFailed = 0;
@@ -116,7 +128,40 @@ public:
     // An AV is mirrored once, when it changes; an engine that puts the actor's damage somewhere else while the actor is not fully loaded gives the copy another
     // health once it loads (vats room behind bad_wifi, run 20261028-032920: the copy read -55 for the owner's 5 until the area digest healed it). Default: write all.
     virtual size_t auditAv(NetId id, const std::vector<live::AvValue>& expected) { applyAv(id, expected); return 0; }
+    // A player entity's snapshot, judged and de-duplicated by ActorSync (owner, epoch, seq), for the port's own playback buffer (the avatar layer keeps its
+    // low-latency InterpBuffer: StreamProfile::interpInPort). arrivalMs is ActorSync's clock; a port with a clock of its own may ignore it. Default: nothing.
+    virtual void onSnapshot(NetId id, const live::ActorSnapshot& snap, uint32_t arrivalMs) { (void)id; (void)snap; (void)arrivalMs; }
 };
+
+// ---- the stream profile (docs/entity-core-plan.md 2.2, S10) -------------------------------------------------------------------------------
+// Same message kind, same codec, same ids for every entity; what differs is policy. An NPC snapshot rides the interest manager (50 ms near, 200 ms far,
+// nothing beyond) and is played back from Rec::interp; a player's is tuned separately (docs/tools/avatar.md, round of 2026-10-27): 30 Hz, a low-latency
+// playback buffer that lives in the avatar layer, the host relays it the moment it arrives, a 1 Hz out tier so the ownership and spawn services always know
+// where every player is, a jump passes the rate gate at once, and a client sends its stream at the highest tier any other player has for it.
+// sub / ackSub: the datagram sub bytes of the stream's own sender and receiver pair (a player never waits behind an NPC burst in the same 1200 byte packet).
+constexpr uint8_t kSubBatchNpc = 0, kSubAckNpc = 1, kSubBatchPlayer = 3, kSubAckPlayer = 4;
+struct StreamProfile {
+    live::InterpConfig interp;       // the playback buffer: player low-latency (the shipped avatar tuning), NPC delayMs 100
+    uint32_t sampleMs = 0;           // owner sample period (player 33 = 30 Hz; NPC 0 = ActorSync::ownerPeriod as before)
+    uint32_t nearMs = 50, farMs = 200, outMs = 0;   // relay periods per tier (player 33 / 200 / 1000, NPC 50 / 200 / no out tier)
+    float jumpUnits = 0;             // a snapshot further than this from the last one sent passes the rate gate at once (player 350, NPC off)
+    bool relayOnArrival = false;     // the host queues the relay when the datagram arrives (player) instead of pulling it once per tick (NPC)
+    bool uplinkFromObservers = false;   // a client sends at the highest tier any other player has for it (player)
+    bool interpInPort = false;       // the playback buffer stays behind the port (IActorPort::onSnapshot) and Rec::interp is unused (player)
+    bool tickFromPort = false;       // the snapshot keeps the tick its sampler stamped (the avatar layer's clock) instead of ActorSync's
+    uint32_t ackMs = 0;              // acknowledgements are sent at most this often (0 = every tick)
+    uint8_t sub = kSubBatchNpc, ackSub = kSubAckNpc;
+};
+inline StreamProfile defaultPlayerProfile() {
+    StreamProfile p;
+    p.interp.lowLatency = true;
+    p.sampleMs = 33; p.nearMs = 33; p.farMs = 200; p.outMs = 1000;
+    p.jumpUnits = 350.0f;
+    p.relayOnArrival = true; p.uplinkFromObservers = true; p.interpInPort = true; p.tickFromPort = true;
+    p.ackMs = 50;
+    p.sub = kSubBatchPlayer; p.ackSub = kSubAckPlayer;
+    return p;
+}
 
 // ---- the network side --------------------------------------------------------------------------------------------------------
 class IActorNet {
@@ -138,7 +183,20 @@ struct SyncConfig {
     uint32_t resyncMinMs = 500;    // client: at most one MResync per actor per this long
     // State parts (state_parts.h). Inventory settles for 1 s: a replicated AddItem / RemoveItem has landed on every machine by then, so it is not
     // applied twice. Equipment settles for 0.3 s: long enough for a weapon swap in the middle of a draw, short enough that the copy draws the same gun. Equipment is written again when a copy loads again (a cell reload gives an NPC its base outfit back); inventory is not.
-    std::array<PartSpec, kPartCount> parts{{PartSpec{500, 1000, 4096, false}, PartSpec{500, 300, 1024, true}}};
+    std::array<PartSpec, kPartCount> parts{{PartSpec{500, 1000, 4096, false}, PartSpec{500, 300, 1024, true}, PartSpec{}, PartSpec{}, PartSpec{}, PartSpec{}}};   // NPC records use the first two
+    // Player records (docs/entity-core-plan.md 2.2): every kind but Inventory. The first read is published (no silent baseline). Look settles at once (the avatar layer
+    // caches the appearance it reads); equipment waits 0.2 s so a swap in the middle of a draw is one change; Facts and Pack go to the host only (it answers
+    // the party conditions and the hand-ins for a guest), Pack at most about once per half second of change.
+    std::array<PartSpec, kPartCount> playerPartSpecs{{
+        PartSpec{500, 1000, 4096, false},                                                                    // Inventory: unused
+        PartSpec{250, 200, 4096, true, PartAudience::All, false},                                            // Equipment
+        PartSpec{500, 0, 2048, true, PartAudience::All, false},                                              // Look
+        PartSpec{250, 200, 512, true, PartAudience::All, false},                                             // WeaponState
+        PartSpec{1000, 0, 512, false, PartAudience::HostOnly, false},                                        // Facts
+        PartSpec{500, 500, 16384, false, PartAudience::HostOnly, false}}};                                   // Pack
+    bool playerParts = false;      // replicate the player parts (the live layer's [entities] parts=unified; ActorSync::enablePlayerEntities)
+    bool playerStream = false;     // carry the player stream here instead of the avatar channel ([entities] stream=unified)
+    StreamProfile playerProfile = defaultPlayerProfile();
     uint32_t avAuditMs = 500;      // non-owner: check a copy's mirrored actor values against the owner's this often (0 = never); under the area digest's settle time (1 s)
     // Switches for an A/B run in game (nvcoop.ini [actors] norepeatfinal=1 nocommitnofinal=1 noavaudit=1 give the behaviour before the lab run of 2026-10-28; a key at 0 is "absent" to the lab's ini check, so the switches are off-by-default); all on by default.
     bool acceptRepeatedFinal = true;   // new owner: a final state that only repeats what the copy already holds still completes the handoff (placed, acknowledged)
@@ -177,6 +235,14 @@ struct Stats {
     uint64_t animEventsSent = 0, animEventsApplied = 0, animEventsRejected = 0, animEventsDuplicate = 0;   // enemy-anim MAnimEvent
     uint64_t avAudits = 0, avDriftFixed = 0;   // non-owner copies checked / actor values that had drifted from the owner's and were written back
     uint64_t aiHolds = 0, aiHoldsReleased = 0, staleFinalsForwarded = 0;   // forced-commit hold of the new owner's AI (see ActorSync::onOwnApplied)
+    uint64_t playersTracked = 0, playersUntracked = 0, playerRefused = 0;   // player entities (S3); playerRefused: an engine or a client tried to track one
+    uint64_t earlyHeld = 0, earlyApplied = 0, earlyDropped = 0;   // snapshots that arrived before their record or its ownership (kept, applied later)
+    uint64_t eventsSent = 0, eventsDelivered = 0, eventsRejected = 0, eventsDuplicate = 0, eventsRerouted = 0, eventsNacked = 0;   // the event bus (S6)
+    uint64_t eventsHeld = 0, eventsExpired = 0, eventsHopLimit = 0;
+    // the player stream profile (S10): own sender and receiver, see StreamProfile
+    uint64_t playerSampled = 0, playerSent = 0, playerRateKept = 0, playerRateReleased = 0, playerAccepted = 0, playerRelayed = 0;
+    uint64_t playerForged = 0, playerEchoed = 0, playerRejected = 0, playerStale = 0, playerUnknown = 0, playerAcksSent = 0;
+    uint64_t playerPartsRepublished = 0;
 };
 
 }  // namespace nvcoop::actors

@@ -1,5 +1,6 @@
 // Machine: reliable-ordered link over a lossy datagram transport, envelope dispatch, peer lifecycle.
 #include <algorithm>
+#include "../../live/entity.h"   // player entities: playerNet(slot), pinned to their own slot (docs/entity-core-plan.md S13a)
 #include <cstring>
 #include "fnvcoop/engine/machine.h"
 #include "fnvcoop/wire.h"
@@ -36,6 +37,7 @@ Machine::Machine(const MachineConfig& cfg)
             if (kv.second.dead || !kv.second.enabled) continue;
             svc_->track(kv.first, presenceFor(kv.second), 0, out);
         }
+        svc_->pin(fnvcoop::live::playerNet(kHostPlayer), kHostPlayer, 0, out);   // the host's own entity
         emitOwn(out);
     }
 }
@@ -182,6 +184,11 @@ void Machine::peerConnected(PeerId peer, uint32_t connEpoch) {
         return;
     }
     svc_->playerJoined(p);
+    {   // the joiner's entity: pinned to its slot, at an epoch above every earlier session of that slot
+        std::vector<OwnMsg> po;
+        svc_->pin(fnvcoop::live::playerNet(p), p, static_cast<uint32_t>(now_), po);
+        emitOwn(po);
+    }
     PlayerState& ps = world_.player(p);
     ps = PlayerState{};
     ps.slot = p; ps.present = true; ps.cell = 1; ps.pos = world_.cellCenter(1);

@@ -371,3 +371,16 @@ TEST(hits, unknown_things) {
     CHECK(!judge(v, h, 1, 0, w).apply);
     CHECK(std::string(toString(HitReason::OutOfRange)) == "out of weapon range");
 }
+
+TEST(hits, a_players_hit_from_before_its_rejoin_is_refused) {   // twin 366 (docs/entity-core-plan.md S7)
+    FakeWorld w = standardWorld();
+    w.f[Entity::player(1)].epoch = 3;          // player 1 rejoined twice: its pinned entity is at epoch 3
+    HitValidator v;
+    HitEvent h = goodHit(1);
+    h.attackerEpoch = 2;                       // sent by the session before the rejoin
+    CHECK(judge(v, h, 1, 0, w).reason == HitReason::StaleAttackerEpoch);
+    h.hitId = 2; h.attackerEpoch = 3;
+    CHECK(judge(v, h, 1, 0, w).apply);
+    h.hitId = 3; h.attackerEpoch = 0;          // a reporter that does not know the epoch yet: judged as before
+    CHECK(judge(v, h, 1, 0, w).apply);
+}

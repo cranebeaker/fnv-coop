@@ -28,6 +28,23 @@ social=0     companions / crime / kill rewards (plugin/companions)   needs actor
 * `[live] actors=0` keeps the actor port INSTALLED but unfed (`[actors] engine=1`, default): it never tracks an actor without a session, and its only
   work is undoing the restraints a crashed run left in its ledger. `engine=0` removes even that.
 
+## How the player is carried: `[entities]` (docs/entity-core-plan.md, wave 2)
+
+```
+[entities]
+parts=unified    look, equipment, held weapon, facts and pack are parts of the player entities (ActorSync's part replicator); the roster is the set of player records.
+                 AvatarNet sends no Roster / Look / Facts / Pack / Resync (it still decodes all of them). legacy = the old messages on the avatar channel.
+stream=unified   the player's snapshot stream goes through ActorSync's player profile (own sender / receiver, relay on arrival, near / far / out tiers) instead of
+                 the avatar channel 0xAD. legacy = AvatarNet's own stream, unchanged.
+```
+* Both default to `unified` (the lag gate of step S11 held, `avatar_lag_tests --gate`); `legacy` is a fallback switch. A typo keeps the default. Environment: `NVCOOP_ENTITIES_PARTS`,
+  `NVCOOP_ENTITIES_STREAM`. Read once, when the session starts.
+* Both need `[live] actors=1` and `[live] avatars=1` (ActorSync carries them, the player layer is the other end); without those they stay with the avatar channel.
+* `coop.live` shows what runs under `entities` ("parts=unified stream=unified"); the `switches` line keeps its four lanes. The live glue gives each new `ActorSync` the player port
+  every frame (`bindPlayerEntities`), the roster comes from its player records, and the entity map's puppet binds tell it to dress a respawned puppet again.
+* With `stream=unified` AvatarNet's own stream counters (`sent`, the `stream` block) stay 0; the traffic is in ActorSync's stats (`playerSampled`, `playerSent`, `playerAccepted`,
+  `playerRelayed`, `playerForged`, ...).
+
 ## Shape
 
 ```

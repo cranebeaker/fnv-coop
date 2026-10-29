@@ -10,7 +10,7 @@ for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
 if not defined PYTHON set "PYTHON=python"
 set "CMAKE_BUILD_PARALLEL_LEVEL=2"
 "%PYTHON%" -I "%REPO%\tools\build\build.py" --target combat_tests fnvcoop_engine_tests --label "combat-core" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "combat-core rules" --twins 301-365 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\synccore\combat\combat_tests.exe" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "combat-core rules" --twins 301-366 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\synccore\combat\combat_tests.exe" || exit /b 1
 set "ENG=%REPO%\build\all\synccore\enginemodel\fnvcoop_engine_tests.exe"
 "%ENG%" --group combat > "%REPO%\build\all\synccore\enginemodel\combat_real.txt"
 set "RC=%ERRORLEVEL%"
@@ -20,5 +20,5 @@ findstr /C:", 0 failed" "%REPO%\build\all\synccore\enginemodel\combat_real.txt" 
 for %%T in (hit_no_validation hit_by_non_owner named_killable death_not_idempotent limb_not_synced visual_shot_damages blast_runs_everywhere hit_no_validation_combat) do (
   "%ENG%" --group twin --name %%T > nul || ( echo combat-core: engine twin %%T SURVIVED & exit /b 1 )
 )
-echo combat-core: rules suite and all 65 twins caught, engine-model combat group green, 8 engine twins caught - ALL OK
+echo combat-core: rules suite and all 66 twins caught, engine-model combat group green, 8 engine twins caught - ALL OK
 exit /b 0

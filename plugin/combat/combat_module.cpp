@@ -141,7 +141,7 @@ bool g_inited = false;
 volatile PlayerId g_self = kNoPlayer;
 volatile LONG g_nativeFaults = 0;
 bool g_nativeOk = false;           // the pins of the hit-data constructor and the funnel matched
-uint64_t g_gateLogged = 0, g_gateNeutralLogged = 0, g_gateByPlayer = 0, g_gateByPlayerOnCopy = 0, g_touchReplays = 0, g_gateCalls = 0, g_gateErrors = 0, g_gateOffThread = 0, g_nativeReplays = 0, g_consoleDamage = 0, g_consoleLines = 0, g_consoleFailed = 0;
+uint64_t g_gateLogged = 0, g_gateNeutralLogged = 0, g_gateByPlayer = 0, g_gateByPlayerOnCopy = 0, g_touchReplays = 0, g_gateCalls = 0, g_gateErrors = 0, g_gateOffThread = 0, g_hitsScaled = 0, g_nativeReplays = 0, g_consoleDamage = 0, g_consoleLines = 0, g_consoleFailed = 0;
 volatile DWORD g_mainThread = 0;   // the game main thread: set at DeferredInit and every session frame; the gate only acts there
 
 std::function<bool(uint32_t, uint8_t&)> g_slotOfRef;
@@ -228,6 +228,8 @@ public:
             if (e.id >= kMaxSlots) return false;
             ref = RefOfSlot(static_cast<uint8_t>(e.id));
             out.owner = static_cast<PlayerId>(e.id);
+            const eng::OwnerRef po = eng::ownerOfNet(e.netId());   // the pinned player entity (S3): its epoch rises with every rejoin
+            if (po.known && po.ownerSlot == out.owner) out.entityEpoch = po.epoch;
             out.simulatedHere = e.id == g_self;
         } else if (e.isActor()) {
             const eng::OwnerRef o = eng::ownerOfNet(e.id);
@@ -507,8 +509,13 @@ int __fastcall HitGateThunk(void* victim, void*, void* hd, int flag) {
             EngineHit eh;
             eh.attackerRef = FormIdOf(reinterpret_cast<const void*>(raw.source));
             eh.victimRef = FormIdOf(victim);
-            eh.healthDmg = raw.health; eh.fatigueDmg = raw.fatigue; eh.limbDmg = raw.limb;
             eh.hitLocation = raw.location;
+            // Co-op balanced (plugin/rebalance): head, limb and armour factor, once, before the gate judges the hit, so a forwarded hit carries it too
+            if (g_rt && g_rt->config().hitScale) {
+                const float f = g_rt->config().hitScale(eh.victimRef, nvcoop::combat::limbOfLocation(raw.location));
+                if (nvcoop::combat::scaleHitDamage(buf, raw, f)) ++g_hitsScaled;
+            }
+            eh.healthDmg = raw.health; eh.fatigueDmg = raw.fatigue; eh.limbDmg = raw.limb;
             eh.impact = raw.impact;
             eh.critical = (raw.flags & addr::hit::kFlagCrit) != 0;
             const uint32_t weaponForm = FormIdOf(reinterpret_cast<const void*>(raw.weapon));
@@ -663,6 +670,10 @@ NVCOOP_RELOAD_STATE(combat_hooks, "combat_hooks", 1, 40,
 
 namespace nvcoop::combat {
 
+std::function<float(uint32_t, int)> g_hitScaleHook;   // plugin/rebalance: Co-op balanced head, limb and armour factor (glueSetHitScale)
+
+void glueSetHitScale(std::function<float(uint32_t victimRef, int limb)> scale) { g_hitScaleHook = std::move(scale); }
+
 void glueSetFriendlyFire(int mode) {
     g_ffMode = mode < 0 ? -1 : (mode ? 1 : 0);
     if (g_rt) g_rt->setFriendlyFire(EffectiveFriendlyFire());
@@ -721,6 +732,7 @@ void glueFrame(nvcoop::coop::Runtime* rt) {
         });
         g_rt->config().friendlyFire = EffectiveFriendlyFire();
         g_rt->config().crimeSync = g_set.crime;
+        g_rt->config().hitScale = [](uint32_t victimRef, cc::Limb limb) { return g_hitScaleHook ? g_hitScaleHook(victimRef, static_cast<int>(limb)) : 1.0f; };
         g_rt->config().onHitLanded = [](uint32_t victimRef, uint32_t attackerRef, float damage) { nvcoop::threat::noteHit(victimRef, attackerRef, damage); };
         g_rt->config().xpMode = g_set.xpMode == 1 ? cc::XpMode::PartyShare : cc::XpMode::KillingBlow;
         g_rt->config().social.blockProtectedHit = [](uint32_t victimRef, fnvcoop::PlayerId attacker, bool splash) {   // G40: rules FriendlyFireGuard (host only; "allow" without them)

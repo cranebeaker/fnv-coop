@@ -44,6 +44,8 @@ bool ReadLocalAppearance(Appearance& out);
 // The local player's level / sit state / actions / regions (W3a item 3) and its weight and watched item counts (guest pack facts). False: not readable now.
 bool ReadLocalFacts(PlayerFacts& out);
 bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out);
+// The local player's worn items and the held weapon with its mods, as the equipment watcher last published them (also what the equipment sink got). False until it did.
+bool ReadLocalEquipment(std::vector<EquipEntry>& out);
 void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs);
 // A timing figure of the network layer for avatar.status "stages" (see NetStage in avatar_types.h). No-op while the runtime does not exist.
 void NoteStage(NetStage st, double ms);

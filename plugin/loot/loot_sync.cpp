@@ -28,6 +28,7 @@ void LootSync::sessionBegin(const nvcoop::livewire::SessionInfo& info, nvcoop::l
     suppressClose_.clear(); blockedMenu_.clear();
     ownedClutter_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();
+    if (!FNV_MUT(1494)) trimmed_.clear();   // twin 1494: a new session's containers count as already thinned
     if (!FNV_MUT(153)) { resolves_.clear(); creates_.clear(); createsDue_.clear(); removes_.clear(); notesDone_.clear(); }
     discovered_.clear(); nextDiscover_ = 0;
     host_.reset();
@@ -57,6 +58,7 @@ void LootSync::sessionEnd() {
     menuRef_ = 0; menuNet_ = 0; blockedMenu_.clear();
     ownedClutter_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();
+    if (!FNV_MUT(1494)) trimmed_.clear();   // twin 1494: a new session's containers count as already thinned
     if (!FNV_MUT(153)) { resolves_.clear(); creates_.clear(); createsDue_.clear(); removes_.clear(); notesDone_.clear(); }   // twin 153: scheduled work of a dead session survives into the next one
     discovered_.clear();
 }
@@ -99,6 +101,7 @@ void LootSync::loadBegin() {
     discovered_.clear(); nextDiscover_ = 0;
     inbox_.clear();
     playerSeen_.clear(); suspect_.clear(); implicit_.clear(); engineBase_.clear();   // engine counts of the old world mean nothing in the loaded one
+    trimmed_.clear();
     if (client_ && !FNV_MUT(152)) client_->worldReset();   // twin 152: the view (and its "already has a ref" memory) survives a load
 }
 
@@ -500,6 +503,32 @@ void LootSync::tickResolve(uint64_t now) {
             if (++r.tries < 6) { r.due = now + cfg_.resolveRetryMs; resolves_.push_back(r); ++stats_.resolveRetries; }
             continue;
         }
+        if (trim_ && !FNV_MUT(1490) && (trimmed_.insert(d.net).second || FNV_MUT(1491))) {   // twin 1490: the scarcity hook is never asked; 1491: it may run again for the same container
+            // Co-op balanced scarcity: this machine registers the container, so it thins the contents ONCE, here, before they become the shared ones, and makes its own
+            // copy match. The thinning is not idempotent, so trimmed_ remembers the container; a second resolve (a retry, a second event for the same ref) reads the
+            // already thinned copy and offers it as it is.
+            TrimContext tc;
+            tc.net = d.net;
+            tc.kind = d.kind;
+            tc.uniqueActor = d.uniqueActor;
+            tc.classify = [this](const FormRef& b) { return eng_.classifyItem(b); };
+            Items want = items;
+            if (trim_(tc, want)) {
+                lc::normalize(want);
+                uint64_t before = 0, after = 0;
+                for (const auto& kv : items) before += static_cast<uint64_t>(kv.second > 0 ? kv.second : 0);
+                for (const auto& kv : want) after += static_cast<uint64_t>(kv.second);
+                ++stats_.trimmedContainers;
+                stats_.trimmedItems += before > after ? before - after : 0;
+                if (!FNV_MUT(1492)) eng_.setContents(d.net, want);   // twin 1492: the engine copy keeps the full list
+                if (FNV_MUT(1493)) {   // twin 1493: offered as the hook wanted it, whatever the engine copy now holds
+                    items = want;
+                } else if (!readExact(d.net, items)) {   // what the engine REALLY holds now is what is shared (an item it would not give up stays in)
+                    if (++r.tries < 6) { r.due = now + cfg_.resolveRetryMs; resolves_.push_back(r); ++stats_.resolveRetries; }
+                    continue;
+                }
+            }
+        }
         client_->resolved(d.net, d.kind, d.cell, d.pos, items, now);
         if (cfg_.menuless) { Items b = items; lc::normalize(b); engineBase_[d.net] = b; }
         seedPlayer(d.net, items);
@@ -781,7 +810,7 @@ bool LootSync::loadState(const std::vector<uint8_t>& bytes) {
 }
 
 std::string LootSync::statusJson() const {
-    char b[3200];
+    char b[3400];
     const lc::ClientStats* cs = client_ ? &client_->stats() : nullptr;
     const lc::HostStats* hs = host_ ? &host_->stats() : nullptr;
     std::snprintf(b, sizeof b,
@@ -793,7 +822,8 @@ std::string LootSync::statusJson() const {
                   "\"pickups\":{\"activates\":%llu,\"byPlayer\":%llu,\"seen\":%llu,\"ignored\":%llu,\"claimed\":%llu,\"claims\":%llu,\"duplicate\":%llu,\"won\":%llu,\"lost\":%llu,"
                   "\"removesRun\":%llu,\"removesDone\":%llu,\"removesGone\":%llu,\"removesPlaced\":%llu,\"hostWon\":%llu,\"hostLost\":%llu,\"hostRepeated\":%llu},"
                   "\"menuless\":{\"enabled\":%s,\"known\":%llu,\"scans\":%llu,\"seen\":%llu,\"suspects\":%llu,\"arbitrated\":%llu,\"graceExpired\":%llu,"
-                  "\"setsDeferred\":%llu,\"countFails\":%llu,\"reverted\":%llu,\"revertedItems\":%llu,\"refused\":%llu,\"busy\":%llu,\"rollbackItems\":%llu}}",
+                  "\"setsDeferred\":%llu,\"countFails\":%llu,\"reverted\":%llu,\"revertedItems\":%llu,\"refused\":%llu,\"busy\":%llu,\"rollbackItems\":%llu},"
+                  "\"trim\":{\"hook\":%s,\"containers\":%llu,\"items\":%llu}}",
                   cfg_.enabled ? "true" : "false", link_ ? "true" : "false", host_ ? "true" : "false", linkUp_ ? "true" : "false", menuNet_,
                   client_ ? client_->containerCount() : 0, client_ ? client_->itemCount() : 0, client_ ? client_->pendingCount() : 0,
                   (unsigned long long)(client_ ? client_->digest() : 0), (unsigned long long)(host_ ? host_->digest() : 0),
@@ -817,7 +847,8 @@ std::string LootSync::statusJson() const {
                   (unsigned long long)stats_.transferSuspects, (unsigned long long)stats_.transfersMenuless, (unsigned long long)stats_.transferGraceExpired,
                   (unsigned long long)stats_.setsDeferred, (unsigned long long)stats_.playerCountFails, (unsigned long long)stats_.rollbacksApplied,
                   (unsigned long long)stats_.revertedItems, (unsigned long long)(cs ? cs->rollbacks : 0), (unsigned long long)(cs ? cs->busy : 0),
-                  (unsigned long long)(cs ? cs->rollbackItems : 0));
+                  (unsigned long long)(cs ? cs->rollbackItems : 0),
+                  trim_ ? "true" : "false", (unsigned long long)stats_.trimmedContainers, (unsigned long long)stats_.trimmedItems);
     return b;
 }
 

@@ -29,10 +29,11 @@
 #include "fnvcoop/ownership.h"
 #include "fnvcoop/types.h"
 #include "fnvcoop/wire.h"
+#include "../live/entity.h"   // one NetId space: players are playerNet(slot) (docs/entity-core-plan.md S7)
 
 namespace fnvcoop::combat {
 
-constexpr uint8_t kCombatWireVersion = 1;
+constexpr uint8_t kCombatWireVersion = 2;   // 2: an Entity is written as its bare NetId (players playerNet(slot))
 
 using CellId = uint32_t;
 using NetId = ActorNetId;   // network id of an actor (placed ref: plugin+local id mapped by the actor layer; created ref: 0xFF prefix)
@@ -61,11 +62,20 @@ struct Entity {
     bool isPlayer() const { return kind == EntityKind::Player; }
     bool isActor() const { return kind == EntityKind::Actor; }
     bool none() const { return kind == EntityKind::None; }
+    // The wire and the EntityMap name everything by NetId: a player is fnvcoop::live::playerNet(slot), an actor its own id, 0 nobody.
+    static Entity fromNet(uint32_t net) {
+        if (!net) return {};
+        if (fnvcoop::live::isPlayerNet(net)) return player(fnvcoop::live::slotOfPlayerNet(net));
+        return actor(net);
+    }
+    uint32_t netId() const { return isPlayer() ? fnvcoop::live::playerNet(static_cast<PlayerId>(id)) : isActor() ? id : 0; }
+    PlayerId slot() const { return isPlayer() && id < kMaxSlots ? static_cast<PlayerId>(id) : kNoPlayer; }
     friend bool operator==(const Entity& a, const Entity& b) { return a.kind == b.kind && a.id == b.id; }
     friend bool operator!=(const Entity& a, const Entity& b) { return !(a == b); }
     friend bool operator<(const Entity& a, const Entity& b) { return a.kind != b.kind ? a.kind < b.kind : a.id < b.id; }
 };
 std::string toString(const Entity& e);
+void io(Archive& a, Entity& e);   // the wire form inside every combat message (v2: the bare NetId)
 
 // ------------------------------------------------------------------------------------------------ rules (tunable) and weapon table
 struct WeaponInfo {
@@ -115,7 +125,7 @@ struct ActorFacts {
     Vec3 pos;
     float radius = 0;              // body size added to impact checks
     PlayerId owner = kNoPlayer;    // actor: its owner; player: its own slot
-    OwnerEpoch epoch = 0;          // actor: owner epoch; player: 0
+    OwnerEpoch epoch = 0;          // actor: owner epoch; player: the epoch of its pinned entity (0 = not known)
     bool handingOff = false;       // an ownership handoff is in flight (the new owner decides, not us)
     int32_t health = 0, maxHealth = 0;
     uint8_t limbMask = 0;
@@ -148,7 +158,7 @@ struct HitEvent {
     uint64_t projectile = 0;       // id of the projectile that carried it (0 = hitscan / melee)
     uint64_t explosionId = 0;      // non-zero: this hit is explosion damage (impact point = blast centre, range = radius)
     uint32_t firedAtTick = 0;      // host-time ms when the shot was fired (0 = unstamped)
-    OwnerEpoch attackerEpoch = 0;  // NPC attacker: its owner epoch as the reporter knows it. Player attacker: 0
+    OwnerEpoch attackerEpoch = 0;  // the attacker's owner epoch as the reporter knows it (a player: its pinned entity's; 0 = not known)
     float claimedRange = 0;        // weapon range the attacker claims (used only when the weapon is not in the table; 0 = none)
     bool critical = false;         // informational (kill-cam, crit chance already inside `damage`)
     bool vats = false;             // informational: VATS shot resolved in real time like any other

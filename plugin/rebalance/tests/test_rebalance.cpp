@@ -1,6 +1,6 @@
 // plugin/rebalance (docs/rebalance.md): the campaign setting, the profile by party size, the smooth ramp, the GMST applier ("applied once"), the bigger fights
 // (host only, once per enemy), and the director that ties them together on a host and on guests. Game-free; the engine is a fake.
-// Each behaviour has a twin (FNVCOOP_MUT=1200..1252): the test must FAIL with its twin on. The party-save half (the setting in the sidecar and in the campaign
+// Each behaviour has a twin (FNVCOOP_MUT=1200..1252 and 1470..1482): the test must FAIL with its twin on. The party-save half (the setting in the sidecar and in the campaign
 // order) is tested in plugin/coop/tests/test_party_save.cpp.
 #include <cmath>
 #include <cstdio>
@@ -13,9 +13,11 @@
 #include "rebalance/balance.h"
 #include "rebalance/campaign_settings.h"
 #include "rebalance/director.h"
+#include "rebalance/effect_applier.h"
 #include "rebalance/fights.h"
 #include "rebalance/gmst_applier.h"
 #include "rebalance/ramp.h"
+#include "rebalance/scarcity.h"
 
 using namespace nvcoop::rebalance;
 
@@ -152,6 +154,15 @@ struct FakeGmst : IGmst {
     bool write(const std::string& n, float x) override { ++writes; if (!ready || !v.count(n)) return false; v[n] = x; return true; }
 };
 
+struct FakeEffects : IEffectPort {
+    std::map<uint32_t, float> v;
+    int reads = 0, writes = 0;
+    bool ready = true;
+    FakeEffects() { v[0x00015169u] = 5.0f; v[0x000CCEF2u] = 20.0f; }   // the game's own Stimpak and Super Stimpak healing per second
+    bool read(uint32_t id, float& out) override { ++reads; if (!ready || !v.count(id)) return false; out = v[id]; return true; }
+    bool write(uint32_t id, float x) override { ++writes; if (!ready || !v.count(id)) return false; v[id] = x; return true; }
+};
+
 static void testApplier() {
     std::printf("rebalance: the GMST applier\n");
     CampaignSettings bal = chooseSettings("balanced", false);
@@ -196,6 +207,130 @@ static void testApplier() {
     GmstApplier c(late);
     c.restoreState(b.state());
     CHECK(c.apply(Profile()) && nearf(late.v["fDiffMultHPToPCN"], 1.0f));
+}
+
+// ---- the resource shares in the profile -----------------------------------------------------------------------------------------------------------
+static void testResourceProfile() {
+    std::printf("rebalance: supplies, ammo and Stimpak strength by party size\n");
+    CampaignSettings bal = chooseSettings("balanced", false);
+    const Profile p2 = profileFor(bal, 2), p3 = profileFor(bal, 3), p4 = profileFor(bal, 4);
+    CHECK(profileFor(chooseSettings("normal", false), 4).stimpakHeal == 1.0f && profileFor(CampaignSettings(), 4).suppliesKept == 1.0f);   // Normal: the game's own
+    CHECK(nearf(p2.suppliesKept, 0.5f) && nearf(p2.bodyAmmoKept, 0.5f) && nearf(p2.stimpakHeal, 2.0f / 3.0f));   // the base numbers at the tuning point
+    CHECK(nearf(resourceShare(1), 1.0f) && nearf(resourceShare(2), 1.0f) && nearf(resourceShare(3), 1.0f / 1.25f) && nearf(resourceShare(4), 1.0f / 1.5f));
+    CHECK(nearf(p3.suppliesKept, 0.5f / 1.25f) && nearf(p4.suppliesKept, 0.5f / 1.5f));
+    CHECK(nearf(p3.bodyAmmoKept, 0.5f / 1.25f) && nearf(p4.bodyAmmoKept, 0.5f / 1.5f));
+    CHECK(nearf(p3.stimpakHeal, (2.0f / 3.0f) / 1.25f) && nearf(p4.stimpakHeal, (2.0f / 3.0f) / 1.5f));
+    CHECK(p4.stimpakHeal < p3.stimpakHeal && p3.stimpakHeal < p2.stimpakHeal);   // a bigger party: each Stimpak is worth less
+    CHECK(profileFor(bal, 1) == p2);
+    // the shares ride along in the smooth change
+    const Profile m = mix(Profile(), p2, 0.5f);
+    CHECK(nearf(m.suppliesKept, 0.75f) && nearf(m.stimpakHeal, 0.5f * (1.0f + 2.0f / 3.0f)));
+}
+
+// ---- Stimpak strength: the effect applier ---------------------------------------------------------------------------------------------------------
+static void testEffects() {
+    std::printf("rebalance: the Stimpak effect applier\n");
+    CampaignSettings bal = chooseSettings("balanced", false);
+    const uint32_t kStim = 0x00015169u, kSuper = 0x000CCEF2u;
+    {   // Normal never touches the forms
+        FakeEffects f;
+        EffectApplier a(f);
+        CHECK(a.apply(Profile()) && f.reads == 0 && f.writes == 0 && !a.changedAnything());
+    }
+    FakeEffects f;
+    EffectApplier a(f);
+    const Profile p2 = profileFor(bal, 2);
+    CHECK(a.apply(p2));
+    CHECK(nearf(f.v[kStim], 5.0f * 2.0f / 3.0f) && nearf(f.v[kSuper], 20.0f * 2.0f / 3.0f));   // 20 and 40 in all instead of 30 and 60
+    CHECK(nearf(a.original(kStim), 5.0f) && a.changedAnything());
+    const int w = f.writes;
+    CHECK(w == 2 && a.writes() == 2);
+    for (int i = 0; i < 6; ++i) CHECK(a.apply(p2));
+    CHECK(f.writes == w && nearf(f.v[kStim], 5.0f * 2.0f / 3.0f));    // applied again and again: nothing written, nothing shrunk twice
+    // a bigger party and back: worked out from the game's own magnitude every time
+    a.apply(profileFor(bal, 4));
+    CHECK(nearf(f.v[kStim], 5.0f * (2.0f / 3.0f) / 1.5f));
+    a.apply(profileFor(bal, 2));
+    CHECK(nearf(f.v[kStim], 5.0f * 2.0f / 3.0f) && nearf(f.v[kSuper], 20.0f * 2.0f / 3.0f));   // exactly where it was
+    // something else put the magnitude back (the form was reloaded): the next pass corrects it, from the original and not from what it found
+    f.v[kStim] = 5.0f;
+    const int w2 = f.writes;
+    a.apply(p2);
+    CHECK(f.writes == w2 + 1 && nearf(f.v[kStim], 5.0f * 2.0f / 3.0f));
+    // a new instance (a hot reload) that gets the state back writes nothing and does not take the changed magnitude for the original
+    EffectApplier b(f);
+    b.restoreState(a.state());
+    const int w3 = f.writes;
+    CHECK(b.apply(p2) && f.writes == w3);
+    CHECK(b.apply(profileFor(bal, 3)) && nearf(f.v[kStim], 5.0f * (2.0f / 3.0f) / 1.25f));
+    // Normal puts the game's own magnitudes back, and then the applier is "never changed" again
+    CHECK(b.apply(Profile()));
+    CHECK(nearf(f.v[kStim], 5.0f) && nearf(f.v[kSuper], 20.0f) && !b.changedAnything());
+    const int r = f.reads, w4 = f.writes;
+    CHECK(b.apply(Profile()) && f.reads == r && f.writes == w4);
+    // the forms were not there yet (the game is loading): nothing is lost, the next call reads the originals
+    FakeEffects late;
+    late.ready = false;
+    EffectApplier c(late);
+    CHECK(!c.apply(p2) && late.writes == 0 && c.readsFailed() > 0);
+    late.ready = true;
+    CHECK(c.apply(p2) && nearf(late.v[kStim], 5.0f * 2.0f / 3.0f));
+}
+
+// ---- supplies and ammo scarcity: the rule ---------------------------------------------------------------------------------------------------------
+static LootStack stack(const char* id, int32_t n, ItemKind k) { LootStack s; s.id = id; s.count = n; s.kind = k; return s; }
+static int32_t countOf(const std::vector<LootStack>& v, const char* id) { for (const LootStack& s : v) if (s.id == id) return s.count; return -1; }
+
+static void testScarcity() {
+    std::printf("rebalance: supplies and ammo scarcity\n");
+    const CampaignSettings bal = chooseSettings("balanced", false);
+    const Profile p2 = profileFor(bal, 2), p4 = profileFor(bal, 4);
+    // the share: exact for whole stacks, right on average for small ones, and the same answer every time
+    CHECK(keptCount(7, "a", 10, 0.5f) == 5 && keptCount(7, "a", 10, 1.0f) == 10 && keptCount(7, "a", 10, 0.0f) == 0 && keptCount(7, "a", 0, 0.5f) == 0);
+    CHECK(keptCount(7, "a", 1, 0.5f) == keptCount(7, "a", 1, 0.5f));
+    int survivors = 0;
+    for (uint32_t net = 1; net <= 1000; ++net) survivors += keptCount(net, "stimpak", 1, 0.5f);
+    CHECK(survivors > 440 && survivors < 560);                           // a single Stimpak survives about half the time
+    int fewer = 0, more = 0;
+    for (uint32_t net = 1; net <= 1000; ++net) { fewer += keptCount(net, "stimpak", 3, 0.5f); more += keptCount(net, "stimpak", 3, 0.75f); }
+    CHECK(fewer > 1440 && fewer < 1560 && more > 2190 && more < 2310);   // 1.5 and 2.25 on average
+    int differ = 0;
+    for (uint32_t net = 1; net <= 64; ++net) differ += keptCount(net, "stimpak", 1, 0.5f) != keptCount(net + 1, "stimpak", 1, 0.5f);
+    CHECK(differ > 10);                                                  // not the same answer for every container
+
+    auto body = [] { return std::vector<LootStack>{stack("stimpak", 40, ItemKind::Supply), stack("9mm", 40, ItemKind::Ammo), stack("pistol", 1, ItemKind::Other), stack("caps", 40, ItemKind::Other)}; };
+    LootSource corpse; corpse.net = 11; corpse.corpse = true;
+    {   // a generic body: supplies and ammo halved at two players, everything else whole
+        std::vector<LootStack> s = body();
+        const int32_t gone = trimLoot(corpse, s, p2);
+        CHECK(countOf(s, "stimpak") == 20 && countOf(s, "9mm") == 20 && countOf(s, "pistol") == 1 && countOf(s, "caps") == 40 && gone == 40);
+        // a bigger party: less of both
+        std::vector<LootStack> t = body();
+        trimLoot(corpse, t, p4);
+        CHECK(countOf(t, "stimpak") < 20 && countOf(t, "9mm") < 20 && countOf(t, "caps") == 40);
+        CHECK(countOf(t, "stimpak") == keptCount(11, "stimpak", 40, p4.suppliesKept));
+    }
+    {   // a box: supplies thinned, its ammo is a stash and stays whole
+        LootSource box; box.net = 12;
+        std::vector<LootStack> s = body();
+        trimLoot(box, s, p2);
+        CHECK(countOf(s, "stimpak") == 20 && countOf(s, "9mm") == 40);
+    }
+    {   // the body of a unique character is left alone
+        LootSource uniq = corpse; uniq.uniqueActor = true;
+        std::vector<LootStack> s = body();
+        CHECK(trimLoot(uniq, s, p2) == 0 && countOf(s, "stimpak") == 40 && countOf(s, "9mm") == 40);
+    }
+    {   // the game's own numbers: nothing happens
+        std::vector<LootStack> s = body();
+        CHECK(trimLoot(corpse, s, Profile()) == 0 && countOf(s, "stimpak") == 40 && countOf(s, "9mm") == 40);
+    }
+    {   // the answer for one container is the same on every machine
+        std::vector<LootStack> a = body(), b = body();
+        trimLoot(corpse, a, p4);
+        trimLoot(corpse, b, p4);
+        CHECK(countOf(a, "stimpak") == countOf(b, "stimpak") && countOf(a, "9mm") == countOf(b, "9mm"));
+    }
 }
 
 // ---- bigger fights ------------------------------------------------------------------------------------------------------------------------------
@@ -296,6 +431,7 @@ struct Machine {
     int players = 0;
     uint64_t now = 0;
     FakeGmst gmst;
+    FakeEffects effects;
     FakeFights fights;
     std::vector<std::string> hud;
     int ff = -2, ffCalls = 0;
@@ -314,7 +450,7 @@ struct Machine {
         e.hud = [this](const std::string& s) { hud.push_back(s); };
         e.fighters = [this] { return fights.fighters; };
         e.fight = fights.env();
-        d.reset(new Director(cfg, e, gmst));
+        d.reset(new Director(cfg, e, gmst, effects));
     }
     void run(uint64_t ms, uint64_t step = 50) {
         for (uint64_t t = 0; t < ms; t += step) { now += step; d->tick(); }
@@ -416,14 +552,98 @@ static void testDirector() {
     }
 }
 
+// ---- the director: Stimpak strength and the loot hook --------------------------------------------------------------------------------------------
+static void testDirectorResources() {
+    std::printf("rebalance: the director, Stimpak strength and loot scarcity\n");
+    const CampaignSettings bal = chooseSettings("balanced", false), nor = chooseSettings("normal", false);
+    const uint32_t kStim = 0x00015169u;
+    LootSource corpse; corpse.net = 21; corpse.corpse = true;
+    auto stacks = [] { return std::vector<LootStack>{stack("stimpak", 12, ItemKind::Supply), stack("9mm", 12, ItemKind::Ammo)}; };
+    {   // Normal: the forms are never read or written, the loot hook does nothing
+        Machine m(true);
+        m.settings = nor; m.players = 3;
+        m.run(2000);
+        CHECK(m.effects.reads == 0 && m.effects.writes == 0);
+        std::vector<LootStack> s = stacks();
+        CHECK(m.d->trimLoot(corpse, s) == 0 && countOf(s, "stimpak") == 12 && m.d->trimmedSources() == 0);
+        Machine u(true);
+        u.settings = CampaignSettings(); u.players = 3;
+        u.run(500);
+        std::vector<LootStack> t = stacks();
+        CHECK(u.d->trimLoot(corpse, t) == 0 && countOf(t, "9mm") == 12);   // a campaign that never chose: Normal
+    }
+    {   // balanced, two players: Stimpak at two thirds at once on a fresh load, and the loot hook thins the stacks
+        Machine m(true);
+        m.settings = bal; m.players = 2;
+        m.run(100);
+        CHECK(nearf(m.effects.v[kStim], 5.0f * 2.0f / 3.0f));
+        std::vector<LootStack> s = stacks();
+        CHECK(m.d->trimLoot(corpse, s) == 12 && countOf(s, "stimpak") == 6 && countOf(s, "9mm") == 6);
+        CHECK(m.d->trimmedSources() == 1 && m.d->trimmedItems() == 12);
+        const std::string j = m.d->statusJson();
+        CHECK(j.find("\"stimpakHeal\":0.667") != std::string::npos && j.find("\"suppliesKept\":0.500") != std::string::npos && j.find("\"itemsRemoved\":12") != std::string::npos);
+    }
+    {   // the loot hook uses the numbers the campaign is HEADING to, not a point of the smooth change
+        Machine m(true, 4000);
+        m.settings = bal; m.players = 2;
+        m.run(200);
+        m.players = 4;
+        m.run(100);                                                       // the ramp has barely started: the live numbers are still the two player ones
+        CHECK(m.d->profile().suppliesKept > 0.45f);
+        std::vector<LootStack> s = stacks();
+        m.d->trimLoot(corpse, s);
+        CHECK(countOf(s, "stimpak") == keptCount(21, "stimpak", 12, 0.5f / 1.5f) && countOf(s, "stimpak") <= 4);
+    }
+    {   // a host and two guests: the same Stimpak magnitude everywhere, and the same thinned list for the same container whoever registers it
+        Machine host(true), g1(false), g2(false);
+        Machine* all[3] = {&host, &g1, &g2};
+        for (Machine* m : all) { m->settings = bal; m->players = 3; m->run(3000, 1000); }
+        CHECK(nearf(host.effects.v[kStim], g1.effects.v[kStim]) && nearf(host.effects.v[kStim], g2.effects.v[kStim]) && nearf(host.effects.v[kStim], 5.0f * (2.0f / 3.0f) / 1.25f));
+        std::vector<LootStack> a = stacks(), b = stacks(), c = stacks();
+        host.d->trimLoot(corpse, a); g1.d->trimLoot(corpse, b); g2.d->trimLoot(corpse, c);
+        CHECK(countOf(a, "stimpak") == countOf(b, "stimpak") && countOf(b, "stimpak") == countOf(c, "stimpak") && countOf(a, "9mm") == countOf(c, "9mm"));
+    }
+    {   // back to Normal (a different campaign is loaded): the game's Stimpak comes back
+        Machine m(true);
+        m.settings = bal; m.players = 2;
+        m.run(200);
+        m.ready = false; m.run(100);
+        m.settings = nor; m.ready = true;
+        m.run(2500);
+        CHECK(nearf(m.effects.v[kStim], 5.0f) && !m.d->effects().changedAnything());
+    }
+}
+
+// Co-op balanced head, limb and armour factor (balance.cpp bodyHitFactor, twins 1495 and 1496).
+static void testBodyHits() {
+    std::printf("rebalance: head, limb and armour factor\n");
+    CampaignSettings bal = chooseSettings("balanced", false), nor = chooseSettings("normal", false);
+    const Profile b = profileFor(bal, 2), n = profileFor(nor, 2);
+    auto near = [](float a, float x) { return a > x - 0.001f && a < x + 0.001f; };
+    CHECK(near(bodyHitFactor(n, 1, ArmorClass::Heavy), 1.0f));          // Normal: the game's own
+    CHECK(near(bodyHitFactor(b, 0, ArmorClass::None), 1.0f));           // a body shot on nothing
+    CHECK(near(bodyHitFactor(b, 1, ArmorClass::None), 1.5f));           // the head
+    for (uint8_t limb = 2; limb <= 5; ++limb) CHECK(near(bodyHitFactor(b, limb, ArmorClass::Light), 0.85f));
+    CHECK(near(bodyHitFactor(b, 0, ArmorClass::Medium), 0.9f));         // +10 DR
+    CHECK(near(bodyHitFactor(b, 0, ArmorClass::Heavy), 0.8f));          // +20 DR
+    CHECK(near(bodyHitFactor(b, 1, ArmorClass::Heavy), 1.2f));          // both
+    const Profile half = mix(n, b, 0.5f);                                // the smooth change goes through every factor
+    CHECK(near(bodyHitFactor(half, 1, ArmorClass::None), 1.25f) && near(bodyHitFactor(half, 0, ArmorClass::Heavy), 0.9f));
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);   // a crashing twin still shows where
     testSettings();
     testProfile();
+    testBodyHits();
+    testResourceProfile();
     testRamp();
     testApplier();
+    testEffects();
+    testScarcity();
     testFights();
     testDirector();
+    testDirectorResources();
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

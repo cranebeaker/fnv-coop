@@ -8,5 +8,5 @@ setlocal
 for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
 if not defined PYTHON set "PYTHON=python"
 "%PYTHON%" -I "%REPO%\tools\build\build.py" --target nvcoop_combat_tests --label "combat-hooks" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "combat-hooks" --twins 701-712,714,716-724,731,789-807,808-813,820-822,761-763,771-780,781-788,301,302,307,308,309,317,318,329,330,331,334,337,338,344 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\combat_tests\nvcoop_combat_tests.exe" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "combat-hooks" --twins 701-712,714,716-724,731,789-807,808-813,820-822,830,761-763,771-780,781-788,301,302,307,308,309,317,318,329,330,331,334,337,338,344 --real-regex " 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\combat_tests\nvcoop_combat_tests.exe" || exit /b 1
 exit /b 0

@@ -70,6 +70,9 @@ public:
     // Guest pack facts: the local player's InventoryWeight and the counts of the watched item forms (only those above zero, sorted by form). False when nothing could be read
     // (the player is not readable, or every evaluator is unavailable).
     bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out);
+    // The worn list the equipment watcher last published (the stable one the equipment sink got). For a consumer that was not listening at that moment: a session
+    // that began after it, or a player entity's Equipment part (docs/entity-core-plan.md S5), which is read, not pushed. False until the watcher published once.
+    bool ReadLocalEquipment(std::vector<EquipEntry>& out);
     void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs);
     void OnRemoteEquipment(Slot slot, const std::vector<EquipEntry>& wanted);
 

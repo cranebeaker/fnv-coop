@@ -59,6 +59,7 @@ bool PuppetManager::Budget(unsigned n) {
 }
 
 bool PuppetManager::AddPlayer(Slot slot, const Appearance& a) {
+    BindingScope publish(*this);
     const AvatarFaults& F = avatarFaults();
     if (slot == cfg_.localSlot && !F.allowLocalSlot) {
         ++stats_.rejectedLocalSlot;
@@ -90,6 +91,7 @@ bool PuppetManager::AddPlayer(Slot slot, const Appearance& a) {
 }
 
 void PuppetManager::RemovePlayer(Slot slot) {
+    BindingScope publish(*this);
     Puppet* p = Find(slot);
     if (!p) return;
     DeleteRef(*p, true);
@@ -99,15 +101,18 @@ void PuppetManager::RemovePlayer(Slot slot) {
 }
 
 void PuppetManager::SetLocalSlot(Slot slot) {
+    BindingScope publish(*this);
     cfg_.localSlot = slot;
     if (!avatarFaults().allowLocalSlot) RemovePlayer(slot);
 }
 
 void PuppetManager::SetEquipment(Slot slot, const std::vector<EquipEntry>& wanted) {
+    BindingScope publish(*this);
     if (Puppet* p = Find(slot)) p->equip.SetDesired(wanted);
 }
 
 bool PuppetManager::SetAppearance(Slot slot, const Appearance& a) {
+    BindingScope publish(*this);
     Puppet* p = Find(slot);
     if (!p) return false;
     // another race / sex needs another template NPC: that is a new puppet (equipment is kept by AddPlayer). So does any look change when the
@@ -120,6 +125,7 @@ bool PuppetManager::SetAppearance(Slot slot, const Appearance& a) {
 }
 
 void PuppetManager::SetPose(Slot slot, const PuppetPose& pose) {
+    BindingScope publish(*this);
     Puppet* p = Find(slot);
     if (!p) return;
     p->pose = pose;
@@ -129,6 +135,7 @@ void PuppetManager::SetPose(Slot slot, const PuppetPose& pose) {
 }
 
 void PuppetManager::SetPoseOverride(Slot slot, int baseGroup) {
+    BindingScope publish(*this);
     if (baseGroup == kNoGroup) {
         if (avatarFaults().poseClearIgnored) return;
         poseOverride_.erase(slot);
@@ -187,6 +194,7 @@ void PuppetManager::Purge() {
 // ---- game events ----------------------------------------------------------------------------------------------------
 
 void PuppetManager::OnSaveBegin() {
+    BindingScope publish(*this);
     saving_ = true;
     if (avatarFaults().saveKeepsPuppets) return;
     for (auto& kv : puppets_)
@@ -197,16 +205,19 @@ void PuppetManager::OnSaveBegin() {
 }
 
 void PuppetManager::OnSaveEnd() {
+    BindingScope publish(*this);
     saving_ = false;
 }
 
 void PuppetManager::OnLoadBegin() {
+    BindingScope publish(*this);
     loading_ = true;
     ++stats_.loadResets;
     DespawnAll(false);   // the world is going away: refs are meaningless, never call into it
 }
 
 void PuppetManager::OnLoadEnd() {
+    BindingScope publish(*this);
     loading_ = false;
     worldEpoch_ = e_.WorldEpoch();
     haveEpoch_ = true;
@@ -214,6 +225,24 @@ void PuppetManager::OnLoadEnd() {
 }
 
 // ---- map ------------------------------------------------------------------------------------------------------------
+
+void PuppetManager::PublishBindings() {
+    if (!bindingHook_) return;
+    std::map<Slot, RefId> now;
+    for (const auto& kv : puppets_) { const RefId r = RefOf(kv.first); if (r) now[kv.first] = r; }
+    for (auto it = published_.begin(); it != published_.end();) {   // unbinds first: a respawn reports the old ref gone, then the new one
+        auto n = now.find(it->first);
+        if (n == now.end() || n->second != it->second) {
+            if (!avatarFaults().bindingUnbindForgotten) bindingHook_(it->first, 0);
+            it = published_.erase(it);
+        } else ++it;
+    }
+    for (const auto& kv : now) {
+        if (published_.count(kv.first)) continue;
+        published_[kv.first] = kv.second;
+        bindingHook_(kv.first, kv.second);
+    }
+}
 
 RefId PuppetManager::RefOf(Slot slot) const {
     const Puppet* p = Find(slot);
@@ -424,6 +453,7 @@ bool PuppetManager::Configure(Puppet& p, uint32_t now) {
 // ---- per-frame driving ----------------------------------------------------------------------------------------------
 
 void PuppetManager::Tick(uint32_t now) {
+    BindingScope publish(*this);
     callsLeft_ = cfg_.maxEngineCalls;
     localRead_ = false;
     if (loading_) return;

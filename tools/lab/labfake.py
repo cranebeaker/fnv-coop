@@ -26,6 +26,10 @@ BUGS = {
     "client_stays_out": "the client never follows into the lab cell",
     "not_joined": "the client never joins the session",
     "no_puppet": "the host copy has no puppet of the client",
+    # entity (wave 2): the identity table of every copy
+    "entity_owner_moved": "the client copy says the host owns the client player's entity (a player entity handed off like an NPC)",
+    "entity_epoch_split": "the two copies hold different epochs for the client player's entity",
+    "entity_no_puppet": "the host copy never binds the client player's entity to its puppet",
     "digest_noise": "every kill, take and pickup raises the digest repair counter",
     "ref_id_differs": "the client resolves the first enemy to another id than the host",
     "global_missing": "the client lacks a global the host has (the digest never agrees and no repair fixes it; the first in-game run's SetGlobal 37)",
@@ -446,6 +450,21 @@ class FakeMachine(Machine):
         if self.w.has("var_unreadable"):
             return None
         return float(self.s.vars.get(quest + "/" + name, 0.0))
+
+    def entities(self) -> Dict[str, Any]:
+        self._up()
+        rows = []
+        for slot in (0, 1):
+            owner, epoch = slot, 1
+            if slot == 1 and self.s.slot == 1 and self.w.has("entity_owner_moved"):
+                owner = 0
+            if slot == 1 and self.s.slot == 1 and self.w.has("entity_epoch_split"):
+                epoch = 2
+            local = slot == self.s.slot
+            bound = local or not (self.s.slot == 0 and self.w.has("entity_no_puppet"))
+            rows.append({"slot": slot, "owner": owner, "epoch": epoch, "known": True, "role": "local" if local else ("puppet" if bound else "none"),
+                         "ref": "0x00000014" if local else ("0xff00%04x" % (0x100 + slot) if bound else "0x00000000")})
+        return {"v": 1, "self": self.s.slot, "players": rows}
 
     def owner(self, ref: str) -> Dict[str, Any]:
         self._up()

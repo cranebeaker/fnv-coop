@@ -20,4 +20,15 @@ bool decodeInventory(const Bytes& b, InvList& out);
 Bytes encodeEquipment(EquipList forms);
 bool decodeEquipment(const Bytes& b, EquipList& out);
 
+// A player's held weapon (docs/entity-core-plan.md 2.2, PartKind::WeaponState): the weapon form (empty plugin = none held) and its modification flags
+// (bit 0 = mod 1 ... bit 2 = mod 3). The worn forms, the held weapon included, are the Equipment part; this part says which one is held and how it is modded.
+struct WeaponState {
+    FormRef weapon;
+    uint8_t mods = 0;
+    friend bool operator==(const WeaponState& a, const WeaponState& b) { return a.weapon == b.weapon && a.mods == b.mods; }
+    friend bool operator!=(const WeaponState& a, const WeaponState& b) { return !(a == b); }
+};
+Bytes encodeWeaponState(const WeaponState& w);
+bool decodeWeaponState(const Bytes& b, WeaponState& out);
+
 }  // namespace nvcoop::actors

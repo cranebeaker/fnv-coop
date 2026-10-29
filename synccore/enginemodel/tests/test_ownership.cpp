@@ -6,6 +6,11 @@
 using namespace fnvcoop;
 using namespace fnvcoop::testing;
 
+TEST(own, a_pinned_player_entity_never_moves_and_a_rejoin_starts_above_the_old_session) {
+    std::string why;
+    CHECK_MSG(pinnedPlayersHold(&why), why);
+}
+
 namespace {
 Presence P(PlayerId p, bool inCell, bool adj, float d, bool connected = true) {
     Presence x; x.player = p; x.inCell = inCell; x.adjacent = adj; x.distance = d; x.connected = connected; return x;

@@ -15,6 +15,10 @@ const char* partName(PartKind k) {
     switch (k) {
         case PartKind::Inventory: return "inventory";
         case PartKind::Equipment: return "equipment";
+        case PartKind::Look: return "look";
+        case PartKind::WeaponState: return "weapon";
+        case PartKind::Facts: return "facts";
+        case PartKind::Pack: return "pack";
     }
     return "?";
 }
@@ -58,6 +62,25 @@ bool decodeEquipment(const Bytes& b, EquipList& out) {
     return a.ok() && a.atEnd();
 }
 
+Bytes encodeWeaponState(const WeaponState& w) {
+    fnvcoop::Archive a = fnvcoop::Archive::writer();
+    FormRef f = w.weapon;
+    fnvcoop::io(a, f);
+    uint8_t mods = static_cast<uint8_t>(w.mods & 0x07);
+    a.u8(mods);
+    return a.finish();
+}
+
+bool decodeWeaponState(const Bytes& b, WeaponState& out) {
+    fnvcoop::Archive a = fnvcoop::Archive::reader(b.data(), b.size());
+    WeaponState w;
+    fnvcoop::io(a, w.weapon);
+    a.u8(w.mods);
+    if (!a.ok() || !a.atEnd() || (w.mods & ~0x07)) return false;
+    out = w;
+    return true;
+}
+
 // The default bridge from the generic part calls to the typed ones of a port.
 bool IActorPort::readPart(NetId id, PartKind kind, Bytes& out) {
     switch (kind) {
@@ -73,6 +96,7 @@ bool IActorPort::readPart(NetId id, PartKind kind, Bytes& out) {
             out = encodeEquipment(std::move(v));
             return true;
         }
+        case PartKind::Look: case PartKind::WeaponState: case PartKind::Facts: case PartKind::Pack: break;   // player parts: the player port's
     }
     return false;
 }
@@ -87,6 +111,7 @@ bool IActorPort::writePart(NetId id, PartKind kind, const Bytes& value) {
             EquipList v;
             return decodeEquipment(value, v) && applyEquipment(id, v);
         }
+        case PartKind::Look: case PartKind::WeaponState: case PartKind::Facts: case PartKind::Pack: break;   // player parts: the player port's
     }
     return false;
 }

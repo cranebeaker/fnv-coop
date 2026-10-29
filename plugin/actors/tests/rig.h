@@ -2,6 +2,7 @@
 // multi-machine Rig that advances a virtual clock. Machine 0 is the host. No threads, no wall clock.
 #pragma once
 #include <cmath>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -231,9 +232,82 @@ private:
     int self_;
 };
 
+// The player half of a machine's engine port (what the avatar layer answers): the local player's parts and samples, a puppet's writes, the playback of a stream.
+// `up` = a session is running here; a remote player takes writes once it is in `puppets`. Every NPC-only call is counted in `wrong` (must stay 0).
+class FakePlayerPort : public IActorPort {
+public:
+    PlayerId self = 0;
+    bool up = false;
+    std::set<PlayerId> puppets;
+    std::map<PartKind, Bytes> local;                          // the local player's parts as the avatar layer reads them now
+    std::set<PartKind> unreadable;
+    std::map<PlayerId, std::map<PartKind, Bytes>> written;    // remote slot -> kind -> the last value written
+    std::map<PlayerId, std::map<PartKind, int>> writes;       // ... how many writes
+    int readCalls = 0;
+    bool refuseWrites = false;
+    std::deque<live::ActorSnapshot> samples;                  // the sampler's output waiting to be taken
+    struct Rx { NetId id; live::ActorSnapshot s; uint32_t at; };
+    std::vector<Rx> rx;                                       // every snapshot handed to the playback buffer
+    int wrong = 0;
+
+    bool loaded(NetId id) override {
+        if (!live::isPlayerNet(id) || !up) return false;
+        const PlayerId s = live::slotOfPlayerNet(id);
+        return s == self || puppets.count(s) != 0;
+    }
+    bool cellLoaded(CellId) override { ++wrong; return false; }
+    bool sample(NetId id, live::ActorSnapshot& out) override {
+        if (!live::isPlayerNet(id) || live::slotOfPlayerNet(id) != self || samples.empty()) return false;
+        out = samples.front();
+        samples.pop_front();
+        return true;
+    }
+    bool pose(NetId, live::ActualPose&) override { ++wrong; return false; }
+    void drive(NetId, const live::InterpOut&) override { ++wrong; }
+    void applyAv(NetId, const std::vector<live::AvValue>&) override { ++wrong; }
+    void place(NetId, const live::ActorSnapshot&) override { ++wrong; }
+    void setAi(NetId, bool) override { ++wrong; }
+    void setProtected(NetId, bool) override { ++wrong; }
+    bool spawnStandIn(const ActorMeta&, const live::ActorSnapshot&) override { ++wrong; return false; }
+    void removeStandIn(NetId) override { ++wrong; }
+    void setBase(NetId, const FormRef&) override { ++wrong; }
+    void kill(NetId) override { ++wrong; }
+    void revive(NetId) override { ++wrong; }
+    bool readPart(NetId id, PartKind kind, Bytes& out) override {
+        ++readCalls;
+        if (!live::isPlayerNet(id) || live::slotOfPlayerNet(id) != self || unreadable.count(kind)) return false;
+        auto it = local.find(kind);
+        if (it == local.end()) return false;
+        out = it->second;
+        return true;
+    }
+    bool writePart(NetId id, PartKind kind, const Bytes& value) override {
+        if (!live::isPlayerNet(id) || refuseWrites) return false;
+        const PlayerId s = live::slotOfPlayerNet(id);
+        written[s][kind] = value;
+        ++writes[s][kind];
+        return true;
+    }
+    void onSnapshot(NetId id, const live::ActorSnapshot& snap, uint32_t at) override { rx.push_back({id, snap, at}); }
+    // what the last value written for `slot` / `kind` is, "" when none
+    std::string lastWritten(PlayerId slot, PartKind kind) const {
+        auto a = written.find(slot);
+        if (a == written.end()) return "";
+        auto b = a->second.find(kind);
+        return b == a->second.end() ? std::string() : std::string(b->second.begin(), b->second.end());
+    }
+    int writeCount(PlayerId slot, PartKind kind) const {
+        auto a = writes.find(slot);
+        if (a == writes.end()) return 0;
+        auto b = a->second.find(kind);
+        return b == a->second.end() ? 0 : b->second;
+    }
+};
+
 struct Machine {
     int slot = 0;
     FakeEngine eng;
+    FakePlayerPort pp;
     std::unique_ptr<Endpoint> ep;
     std::unique_ptr<ActorSync> sync;
 };
@@ -260,6 +334,8 @@ public:
             SyncConfig c = base;
             c.self = static_cast<PlayerId>(i); c.isHost = i == 0;
             mc->sync = std::make_unique<ActorSync>(c, mc->eng, *mc->ep);
+            mc->pp.self = static_cast<PlayerId>(i);
+            mc->sync->enablePlayerEntities(&mc->pp, true, false);   // the player parts are replicated here; a player is "loaded" only once a test says so (FakePlayerPort::up)
             m.push_back(std::move(mc));
         }
         for (int i = 1; i < n; ++i) { m[0]->sync->playerJoined(static_cast<PlayerId>(i)); m[static_cast<size_t>(i)]->sync->hostConnected(); }

@@ -45,6 +45,17 @@ bool applyDecisionToHit(uint8_t* hit, const HitBuf& before, GateAction action, i
     return true;
 }
 
+bool scaleHitDamage(uint8_t* hit, HitBuf& before, float factor) {
+    if (!hit || !(factor >= 0.0f && factor <= 10.0f) || factor == 1.0f) return false;
+    const float health = before.health * factor;
+    const float limb = FNV_MUT(830) ? before.limb : before.limb * factor;   // 830: the limb damage of a scaled hit is the game's (a head shot cripples as before)
+    wr<float>(hit, addr::hit::kHealthDmg, health);
+    wr<float>(hit, addr::hit::kLimbDmg, limb);
+    before.health = health;
+    before.limb = limb;
+    return true;
+}
+
 int32_t hitLocationOfLimb(cc::Limb l) {
     switch (l) {
         case cc::Limb::Head: return 1;

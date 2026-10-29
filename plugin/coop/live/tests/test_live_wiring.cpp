@@ -2,6 +2,7 @@
 // three machines, and the avatar wire codec. Game-free. Built once with FNVCOOP_RUNTIME_MUT; run once for real and once per mutation
 // twin (FNVCOOP_MUT=<n>, tools/mut/run_twins.py) - every twin MUST make this binary fail.
 //   1..4   switches        11..23 hub        31..33 wire        41..51 avatar net        61..64 [actors] ini
+//   1170..1178 player entities ([entities] parts / stream, plugin/coop/live and plugin/avatar/look_codec.cpp)
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -17,6 +18,7 @@
 #include <tuple>
 #include <vector>
 
+#include "actors/actor_runtime.h"
 #include "avatar_net.h"
 #include "avatar_runtime_side.h"
 #include "avatar_wire.h"
@@ -681,6 +683,32 @@ using nvcoop::avatar::engine::RuntimeConfig;
 constexpr uint32_t kTemplate = 0x1002;
 constexpr av::CellId kCell = FakeGameBackend::kExtA;
 
+// The NPC half of the engine port: there is no NPC in these scenarios, so nothing is ever loaded (ActorSync keeps only the player records).
+class NullNpcPort : public nvcoop::actors::IActorPort {
+public:
+    bool loaded(nvcoop::actors::NetId) override { return false; }
+    bool cellLoaded(nvcoop::actors::CellId) override { return false; }
+    bool sample(nvcoop::actors::NetId, live::ActorSnapshot&) override { return false; }
+    bool pose(nvcoop::actors::NetId, live::ActualPose&) override { return false; }
+    void drive(nvcoop::actors::NetId, const live::InterpOut&) override { ++calls; }
+    void applyAv(nvcoop::actors::NetId, const std::vector<live::AvValue>&) override { ++calls; }
+    void place(nvcoop::actors::NetId, const live::ActorSnapshot&) override { ++calls; }
+    void setAi(nvcoop::actors::NetId, bool) override { ++calls; }
+    void setProtected(nvcoop::actors::NetId, bool) override { ++calls; }
+    bool spawnStandIn(const nvcoop::actors::ActorMeta&, const live::ActorSnapshot&) override { ++calls; return false; }
+    void removeStandIn(nvcoop::actors::NetId) override { ++calls; }
+    void setBase(nvcoop::actors::NetId, const fnvcoop::FormRef&) override { ++calls; }
+    void kill(nvcoop::actors::NetId) override { ++calls; }
+    void revive(nvcoop::actors::NetId) override { ++calls; }
+    int calls = 0;   // a call for a player that reached the NPC port (must stay 0)
+};
+
+// The roster of parts=unified: the player records of this machine's ActorSync.
+struct EntDir : IEntityDirectory {
+    nvcoop::actors::ActorRuntime* rt = nullptr;
+    std::vector<PlayerId> playerSlots() const override { return rt && rt->sync() ? rt->sync()->playerSlots() : std::vector<PlayerId>(); }
+};
+
 struct Node {
     fnvcoop::PeerId peer = 0;
     PlayerId slot = 0;
@@ -696,8 +724,14 @@ struct Node {
     uint32_t epoch = 1000;
     std::vector<std::tuple<PlayerId, bool, live::Vec3>> poses;
     float vx = 0;             // the local player walks along +x at this speed (units/s)
+    // [entities] parts / stream = unified: the actor module's ActorSync runs next to AvatarNet and carries what the mode says (docs/entity-core-plan.md S5, S11)
+    bool parts = false, stream = false;
+    std::unique_ptr<NullNpcPort> npcPort;
+    std::unique_ptr<nvcoop::actors::ActorRuntime> actors;
+    EntDir dir;
 
-    Node(fnvcoop::PeerId p, PlayerId s, bool h, fnvcoop::MuxTransport* m) : peer(p), slot(s), host(h), mux(m) {
+    Node(fnvcoop::PeerId p, PlayerId s, bool h, fnvcoop::MuxTransport* m, bool partsUnified = false, bool streamUnified = false)
+        : peer(p), slot(s), host(h), mux(m), parts(partsUnified), stream(streamUnified) {
         be.knownBases = {kTemplate};
         be.vanishAfterFrames = 2;
         RuntimeConfig rc;
@@ -705,7 +739,16 @@ struct Node {
         // localSlot stays at the ini default 0, exactly as the shipped module has it: the session start (AvatarNet::sessionBegin) must tell the runtime its slot
         rt.reset(new AvatarRuntime(be, rc));
         side.reset(new RuntimeSide(*rt));
-        an.reset(new AvatarNet(*side, AvatarNetOptions{}, [this] { return epoch++; }));
+        AvatarNetOptions ao;
+        ao.partsUnified = parts;
+        ao.streamUnified = stream;
+        an.reset(new AvatarNet(*side, ao, [this] { return epoch++; }));
+        if (parts || stream) {
+            npcPort.reset(new NullNpcPort);
+            actors.reset(new nvcoop::actors::ActorRuntime(*npcPort));
+            dir.rt = actors.get();
+            an->setEntityDirectory(&dir);
+        }
         an->setPoseSink([this](PlayerId sl, bool pr, live::CellId, const live::Vec3& pos) { poses.emplace_back(sl, pr, pos); });
         hub.add(an.get(), true);
         be.Player().pos = {1000.0f * (slot + 1), 0, 0};
@@ -726,17 +769,18 @@ struct Node {
 
 struct Rig3 {
     Net3 n;
+    bool parts, stream;
     std::vector<std::unique_ptr<Node>> nodes;   // [0] host (peer 0), then clients (peer = slot)
-    Rig3() {
+    explicit Rig3(bool partsUnified = false, bool streamUnified = false) : parts(partsUnified), stream(streamUnified) {
         fnvcoop::LinkParams lp;
         lp.minLatencyMs = 20;
         lp.maxLatencyMs = 50;   // a decent connection: 20 to 50 ms one way, with reordering
         n.net.setLink(lp);
-        nodes.emplace_back(new Node(0, 0, true, n.m(0)));
+        nodes.emplace_back(new Node(0, 0, true, n.m(0), parts, stream));
     }
     Node& host() { return *nodes[0]; }
     Node& addClient(PlayerId slot) {
-        nodes.emplace_back(new Node(slot, slot, false, n.m(slot)));
+        nodes.emplace_back(new Node(slot, slot, false, n.m(slot), parts, stream));
         return *nodes.back();
     }
     Node* bySlot(PlayerId s) { for (auto& p : nodes) if (p->slot == s) return p.get(); return nullptr; }
@@ -754,6 +798,14 @@ struct Rig3 {
             } else {
                 v = clientView(p->mux, p->slot, p->linkUp, n.now);
                 v.active = p->present;
+            }
+            if (p->actors) {   // the actor module's frame, as the live glue drives it (ActorsService), before the avatar service's
+                nvcoop::actors::FrameInfo fi;
+                fi.active = v.active; fi.isHost = v.isHost; fi.self = v.isHost ? kHostPlayer : v.self; fi.hostLinkUp = v.hostLinkUp;
+                for (const ClientLink& c : v.clients) fi.clients.push_back({c.slot, c.peer, c.joined});
+                fi.mux = v.mux; fi.nowMs = v.nowMs;
+                p->actors->frame(fi);
+                if (nvcoop::actors::ActorSync* sy = p->actors->sync()) sy->enablePlayerEntities(&p->an->playerPort(), p->parts, p->stream);
             }
             p->hub.frame(v);
             p->be.Frame();
@@ -1348,12 +1400,422 @@ TEST(avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet) {
     c.an->sessionEnd();
 }
 
+// =============================================================================================================================
+// [entities] (docs/entity-core-plan.md S5, S11): the switches, the Look codec's golden bytes, and the player entities on the loopback
+// Twins 1170 (parts=unified still sends the old messages) 1171 (the old messages are not understood) 1172 (a client never learns the roster) 1173 (weapon mods lost)
+// 1174 (the look never reaches the puppet) 1175 (the held weapon is not named) 1176 (parts default legacy) 1177 (unified without actors) 1178 (Look v2 bytes changed)
+// =============================================================================================================================
+TEST(switches_entities) {
+    LiveSwitches s = readLiveSwitches(fakeIni({}));
+    CHECK(s.entities.parts == EntityMode::Unified);               // the new path is the default; legacy is only a fallback switch
+    CHECK(s.entities.stream == kDefaultStreamMode);
+    CHECK(!s.partsUnified() && !s.streamUnified());               // nothing runs without actors and avatars
+    CHECK(s.warnings.empty() && !s.any());
+    s = readLiveSwitches(fakeIni({{"live.actors", "1"}, {"live.avatars", "1"}}));
+    CHECK(s.partsUnified());
+    CHECK(describeEntities(s) == std::string("parts=unified stream=") + toString(kDefaultStreamMode));
+    s = readLiveSwitches(fakeIni({{"live.actors", "1"}, {"live.avatars", "1"}, {"entities.parts", " Legacy "}, {"entities.stream", "UNIFIED"}}));
+    CHECK(!s.partsUnified() && s.streamUnified());
+    CHECK(describeEntities(s) == "parts=legacy stream=unified");
+    s = readLiveSwitches(fakeIni({{"live.actors", "1"}, {"live.avatars", "1"}, {"entities.parts", "bus"}, {"entities.stream", "1"}}));   // a typo keeps the default
+    CHECK(s.partsUnified() && s.entities.stream == kDefaultStreamMode);
+    s = readLiveSwitches(fakeIni({{"live.avatars", "1"}, {"entities.stream", "unified"}}));   // no actors: ActorSync is not there to carry anything
+    CHECK(!s.partsUnified() && !s.streamUnified());
+    s = readLiveSwitches(fakeIni({{"live.actors", "1"}, {"entities.stream", "unified"}}));    // no avatars: no player
+    CHECK(!s.partsUnified() && !s.streamUnified());
+    CHECK(describeSwitches(readLiveSwitches(fakeIni({{"live.actors", "1"}, {"entities.parts", "legacy"}}))) == "actors=1 avatars=0 combat=0 spawns=0");   // the four-lane line is untouched
+    CHECK(parseEntityMode("unified", EntityMode::Legacy) == EntityMode::Unified && parseEntityMode("", EntityMode::Legacy) == EntityMode::Legacy);
+    CHECK(parseEntityMode("LEGACY ", EntityMode::Unified) == EntityMode::Legacy && parseEntityMode("uni", EntityMode::Unified) == EntityMode::Unified);
+}
+
+// The Look v2 message exactly as the codec in avatar_wire.cpp wrote it before its field codec moved to plugin/avatar/look_codec.cpp: kept here, verbatim, as the oracle.
+namespace {
+void oput8(AvBytes& b, uint8_t v) { b.push_back(v); }
+void oput16(AvBytes& b, uint16_t v) { b.push_back(static_cast<uint8_t>(v)); b.push_back(static_cast<uint8_t>(v >> 8)); }
+void oput32(AvBytes& b, uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(static_cast<uint8_t>(v >> (8 * i))); }
+AvBytes oldEncodeLook(const AvLook& l) {
+    constexpr uint8_t kLkFemale = 0x01, kLkHairColor = 0x02, kLkBody = 0x04, kLkFace = 0x08, kEqWeapon = 0x01, kEqMods = 0x02;
+    AvBytes b;
+    oput8(b, kChannelAvatars);
+    oput8(b, kAvKindLook2);
+    oput8(b, kAvatarWireVersion);
+    oput8(b, l.slot);
+    const av::Appearance& a = l.appearance;
+    const size_t nFace = a.faceCoeffs.size() > av::kMaxFaceCoeffs ? av::kMaxFaceCoeffs : a.faceCoeffs.size();
+    uint8_t flags = a.female ? kLkFemale : 0;
+    if (a.hairColor) flags |= kLkHairColor;
+    if (a.height || a.weight) flags |= kLkBody;
+    if (nFace) flags |= kLkFace;
+    oput8(b, flags);
+    oput32(b, a.race);
+    oput32(b, a.hair);
+    oput32(b, a.eyes);
+    oput32(b, a.faceHash);
+    if (flags & kLkHairColor) oput32(b, a.hairColor);
+    if (flags & kLkBody) {
+        oput16(b, a.height);
+        oput16(b, a.weight);
+    }
+    if (flags & kLkFace) {
+        oput8(b, static_cast<uint8_t>(nFace));
+        for (size_t i = 0; i < nFace; ++i) oput8(b, static_cast<uint8_t>(a.faceCoeffs[i]));
+    }
+    std::string name = a.name.substr(0, kMaxLookName);
+    oput8(b, static_cast<uint8_t>(name.size()));
+    b.insert(b.end(), name.begin(), name.end());
+    size_t n = l.equipment.size() > kMaxLookEquip ? kMaxLookEquip : l.equipment.size();
+    oput8(b, static_cast<uint8_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        const av::EquipEntry& e = l.equipment[i];
+        const uint8_t mods = static_cast<uint8_t>(e.mods & av::kWeaponModMask);
+        oput32(b, e.form);
+        oput8(b, static_cast<uint8_t>((e.weapon ? kEqWeapon : 0) | (mods ? kEqMods : 0)));
+        if (mods) oput8(b, mods);
+    }
+    return b;
+}
+std::string hex(const AvBytes& b) {
+    static const char* d = "0123456789abcdef";
+    std::string s;
+    for (uint8_t c : b) { s += d[c >> 4]; s += d[c & 15]; }
+    return s;
+}
+}  // namespace
+
+TEST(wire_look_v2_bytes_are_the_old_codecs_bytes) {
+    std::vector<AvLook> corpus;
+    corpus.push_back(AvLook{});
+    corpus.push_back(sampleLook(1));
+    uint32_t x = 20261029;
+    auto rnd = [&]() { x = x * 1664525u + 1013904223u; return x >> 8; };
+    for (int i = 0; i < 400; ++i) {
+        AvLook l;
+        l.slot = static_cast<uint8_t>(rnd() % 8);
+        av::Appearance& a = l.appearance;
+        a.race = rnd(); a.female = rnd() & 1; a.hair = rnd(); a.eyes = rnd(); a.faceHash = rnd();
+        if (rnd() & 1) a.hairColor = rnd();
+        if (rnd() & 1) { a.height = static_cast<uint16_t>(rnd()); a.weight = static_cast<uint16_t>(rnd()); }
+        if (rnd() & 1) { a.faceCoeffs.resize(1 + rnd() % (av::kMaxFaceCoeffs + 4)); for (auto& c : a.faceCoeffs) c = static_cast<int8_t>(rnd()); }
+        a.name = std::string(rnd() % 60, static_cast<char>('a' + rnd() % 26));
+        const size_t ne = rnd() % 70;
+        for (size_t k = 0; k < ne; ++k) { av::EquipEntry e; e.form = rnd(); e.weapon = rnd() & 1; e.mods = e.weapon ? static_cast<uint8_t>(rnd() & 0xFF) : 0; l.equipment.push_back(e); }
+        corpus.push_back(l);
+    }
+    for (const AvLook& l : corpus) {
+        CHECK(encodeLook(l) == oldEncodeLook(l));
+        // the same bytes assembled from the shared pieces (what the Look part and the Equipment list are made of)
+        AvBytes viaPieces{kChannelAvatars, kAvKindLook2, kAvatarWireVersion, l.slot};
+        av::encodeAppearanceFields(viaPieces, l.appearance);
+        av::encodeEquipEntries(viaPieces, l.equipment);
+        CHECK(viaPieces == oldEncodeLook(l));
+    }
+    // the Look part's value is the appearance fields of that message and round trips
+    av::Appearance a = sampleLook(1).appearance;
+    a.faceCoeffs = {3, -4, 5};
+    a.hairColor = 0xABCDEF;
+    a.height = 1010; a.weight = 990;
+    const av::LookBytes v = av::encodeAppearance(a);
+    av::Appearance back;
+    CHECK(av::decodeAppearance(v, back) && back.race == a.race && back.name == a.name && back.faceCoeffs == a.faceCoeffs && back.hairColor == a.hairColor && back.height == 1010);
+    av::LookBytes more = v;
+    more.push_back(0);
+    CHECK(!av::decodeAppearance(more, back));                                  // the whole buffer or nothing
+    for (size_t n = 0; n < v.size(); ++n) CHECK(!av::decodeAppearance(av::LookBytes(v.begin(), v.begin() + static_cast<long>(n)), back));
+    // one frozen message: the bytes of the codec of 2026-10-29, by hand
+    AvLook g;
+    g.slot = 2;
+    g.appearance.race = 0x00001234; g.appearance.female = true; g.appearance.hair = 0x55; g.appearance.eyes = 0x66; g.appearance.faceHash = 0x77;
+    g.appearance.hairColor = 0x00A0B0C0; g.appearance.height = 1000; g.appearance.weight = 900; g.appearance.faceCoeffs = {1, -1};
+    g.appearance.name = "Ann";
+    g.equipment = {{0x2000, false, 0}, {0x3000, true, 3}};
+    if (std::getenv("LOOK_PRINT")) std::printf("LOOK-GOLDEN %s\n", hex(oldEncodeLook(g)).c_str());
+    CHECK(hex(encodeLook(g)) == "ad4302020f34120000550000006600000077000000c0b0a000e80384030201ff03416e6e020020000000003000000303");
+    CHECK(hex(oldEncodeLook(g)) == "ad4302020f34120000550000006600000077000000c0b0a000e80384030201ff03416e6e020020000000003000000303");
+}
+
+namespace {
+struct Mode { const char* name; bool parts, stream; };
+const Mode kModes[] = {{"legacy", false, false}, {"parts unified", true, false}, {"parts and stream unified", true, true}};
+constexpr uint32_t kArmor = 0x2000, kGun = 0x3000;
+
+const av::PlayerFacts* factsAt(Node& n, PlayerId of) { return n.an->factsOf(of); }
+
+void dress(Node& n, uint8_t gunMods) {
+    n.be.weaponItems = {kGun};
+    n.be.Player().worn = {kArmor, kGun};
+    n.be.Player().inv[kArmor] = 1;
+    n.be.Player().inv[kGun] = 1;
+    n.be.Player().mods[kGun] = gunMods;
+}
+bool wears(Node& viewer, PlayerId of, uint32_t form) {
+    const av::RefId ref = viewer.an->puppetRef(of);
+    const auto* f = ref ? viewer.be.Get(ref) : nullptr;
+    return f && f->worn.count(form) == 1;
+}
+int modsOn(Node& viewer, PlayerId of, uint32_t form) {
+    const av::RefId ref = viewer.an->puppetRef(of);
+    const auto* f = ref ? viewer.be.Get(ref) : nullptr;
+    if (!f) return -1;
+    auto it = f->mods.find(form);
+    return it == f->mods.end() ? 0 : it->second;
+}
+}  // namespace
+
+// Roster, look, equipment with a held weapon and its mods, facts and pack: the same assertions in every mode.
+static void looksFactsPacksAndRoster(const Mode& m) {
+    std::printf("    mode: %s\n", m.name);
+    Rig3 r(m.parts, m.stream);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    b.present = false;   // joins later
+    for (Node* n : {&h, &a, &b}) { watchThese(*n, {kTotem, kRoot}); n->be.weaponItems = {kGun}; }   // every backend knows which item is a weapon
+    dress(a, 3);
+    dress(b, 1);
+    h.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Host"; return true; });
+    a.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Alpha"; ap.height = 1010; return true; });
+    b.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Beta"; return true; });
+    a.be.Player().level = 12;
+    a.be.Player().sitState = 2;
+    a.be.Player().actions = {9};
+    a.be.playerRegions = {0x1111, 0x2222};
+    a.be.Player().inv[kTotem] = 3;
+    a.be.Player().inventoryWeight = 75.96;
+    r.run(5500);
+    CHECK(h.an->roster() == std::set<PlayerId>({1}));
+    CHECK(a.an->roster() == std::set<PlayerId>({0}));
+    CHECK(h.an->hasLook(1) && h.an->lookOf(1) && h.an->lookOf(1)->appearance.name == "Alpha" && h.an->lookOf(1)->appearance.height == 1010);
+    CHECK(a.an->hasLook(0) && a.an->lookOf(0)->appearance.name == "Host");
+    CHECK(h.an->stats().appearanceUpdates >= 1 && a.an->stats().appearanceUpdates >= 1);   // the look reached the puppet, not only the table
+    CHECK(wears(h, 1, kArmor) && wears(h, 1, kGun) && modsOn(h, 1, kGun) == 3);             // the held weapon, with the two mods it wears
+    const av::PlayerFacts* fa = factsAt(h, 1);
+    CHECK(fa && fa->level == 12 && fa->sitting == 2 && fa->actions == (1u << 9) && fa->regions.size() == 2 && fa->regions[0] == 0x1111);
+    int64_t n = -1;
+    double w = -1;
+    CHECK(h.an->packCount(1, kTotem, &n) && n == 3 && h.an->packWeight(1, &w) && std::abs(w - 75.96) < 0.0006);
+    CHECK(h.an->packCount(1, kRoot, &n) && n == 0);                                         // watched and not carried: a zero
+    // B joins: everybody gets a puppet of everybody else, wearing what they wear, through the host's relay
+    b.present = true;
+    r.run(6000);
+    CHECK(h.an->roster() == std::set<PlayerId>({1, 2}));
+    CHECK(a.an->roster() == std::set<PlayerId>({0, 2}));
+    CHECK(b.an->roster() == std::set<PlayerId>({0, 1}));
+    CHECK(h.puppets() == 2 && a.puppets() == 2 && b.puppets() == 2);
+    CHECK(b.an->hasLook(1) && b.an->lookOf(1)->appearance.name == "Alpha" && a.an->hasLook(2) && a.an->lookOf(2)->appearance.name == "Beta");
+    CHECK(wears(b, 1, kGun) && modsOn(b, 1, kGun) == 3 && wears(a, 2, kGun) && modsOn(a, 2, kGun) == 1 && wears(h, 2, kArmor));
+    CHECK(factsAt(h, 2) != nullptr);                       // B's facts reach the host, whatever its level is
+    CHECK(factsAt(a, 2) == nullptr && factsAt(b, 1) == nullptr && a.an->packOf(2) == nullptr && b.an->packOf(1) == nullptr);   // facts and pack are the host's alone
+    // a change travels: A swaps its armour and its gun loses a mod
+    a.be.Player().worn = {0x2001, kGun};
+    a.be.Player().inv[0x2001] = 1;
+    a.be.Player().mods[kGun] = 1;
+    a.be.Player().level = 13;
+    r.run(5000);
+    CHECK(wears(h, 1, 0x2001) && !wears(h, 1, kArmor) && wears(b, 1, 0x2001) && !wears(b, 1, kArmor));
+    CHECK(factsAt(h, 1) && factsAt(h, 1)->level == 13);
+    // B leaves: its puppets and its facts go with it
+    b.present = false;
+    r.run(2500);
+    CHECK(h.an->roster() == std::set<PlayerId>({1}) && a.an->roster() == std::set<PlayerId>({0}));
+    CHECK(h.puppets() == 1 && a.puppets() == 1 && factsAt(h, 2) == nullptr);
+    // what travels: the old messages in legacy; in the unified modes none of them, and no player call ever reached the NPC port
+    if (m.parts) {
+        for (Node* nd : {&h, &a, &b}) CHECK(nd->an->stats().rostersSent == 0 && nd->an->stats().looksSent == 0 && nd->an->stats().factsSent == 0 && nd->an->stats().packsSent == 0);
+        for (Node* nd : {&h, &a, &b}) CHECK(nd->npcPort->calls == 0);
+        CHECK(h.actors->sync()->playerSlots().size() == 2);   // the host and A
+    } else {
+        CHECK(h.an->stats().rostersSent > 0 && a.an->stats().looksSent > 0 && a.an->stats().factsSent > 0 && a.an->stats().packsSent > 0);
+    }
+    CHECK(h.be.badLines.empty() && a.be.badLines.empty() && b.be.badLines.empty());
+}
+
+TEST(entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode) {
+    for (const Mode& m : kModes) looksFactsPacksAndRoster(m);
+}
+
+// A session where the roster changes and the link to the host drops: the puppets come back, dressed, in every mode.
+static void churn(const Mode& m) {
+    std::printf("    mode: %s\n", m.name);
+    Rig3 r(m.parts, m.stream);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    for (Node* n : {&h, &a, &b}) n->be.weaponItems = {kGun};
+    dress(a, 3);
+    dress(b, 1);
+    h.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Host"; return true; });
+    a.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Alpha"; return true; });
+    b.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Beta"; return true; });
+    a.vx = 60;
+    r.run(5000);
+    CHECK(h.puppets() == 2 && a.puppets() == 2 && b.puppets() == 2);
+    // the link of A to the host drops and comes back (a baseline): its puppets go and return, dressed again
+    a.linkUp = false;
+    r.run(1500);
+    CHECK(a.puppets() == 0);
+    a.linkUp = true;
+    r.run(6000);
+    CHECK(a.puppets() == 2);
+    CHECK(wears(a, 2, kGun) && modsOn(a, 2, kGun) == 1 && a.an->lookOf(2) && a.an->lookOf(2)->appearance.name == "Beta");
+    CHECK(a.an->lookOf(0) && a.an->lookOf(0)->appearance.name == "Host");
+    CHECK(wears(h, 1, kGun) && modsOn(h, 1, kGun) == 3);                 // nothing changed for the host's puppet of A
+    // B leaves and comes back
+    b.present = false;
+    r.run(2500);
+    CHECK(h.puppets() == 1 && a.puppets() == 1);
+    b.present = true;
+    r.run(6000);
+    CHECK(h.puppets() == 2 && a.puppets() == 2);
+    CHECK(wears(h, 2, kGun));
+    CHECK(modsOn(h, 2, kGun) == 1);
+    CHECK(wears(a, 2, kArmor));
+    bool ok = false;
+    const float x = xOfPuppet(h, 1, &ok);
+    CHECK(ok && std::abs(x - playerX(a)) < 300.0f);
+    if (m.parts) for (Node* nd : {&h, &a, &b}) CHECK(nd->npcPort->calls == 0);
+}
+
+TEST(entities_link_loss_leave_and_rejoin_in_every_mode) {
+    for (const Mode& m : kModes) churn(m);
+}
+
+// The decoders accept both forms in every mode: a unified host still applies a legacy Look, Facts and Pack, and a unified client a legacy Roster.
+TEST(entities_the_old_messages_are_still_understood_under_parts_unified) {
+    Rig3 r(true, false);
+    Node& a = r.addClient(1);
+    r.run(2500);
+    AvLook l = sampleLook(1);
+    l.appearance.name = "Legacy";
+    l.equipment = {{0x4444, false, 0}};
+    a.mux->sendEx(0, encodeLook(l), fnvcoop::ITransport::Channel::Reliable);
+    AvFacts f;
+    f.slot = 1;
+    f.facts.level = 77;
+    a.mux->sendEx(0, encodeFacts(f), fnvcoop::ITransport::Channel::Reliable);
+    AvPack pk;
+    pk.slot = 1;
+    pk.pack.haveWeight = true;
+    pk.pack.weightMilli = 5000;
+    a.mux->sendEx(0, encodePack(pk), fnvcoop::ITransport::Channel::Reliable);
+    r.run(500);
+    CHECK(r.host().an->lookOf(1) && r.host().an->lookOf(1)->appearance.name == "Legacy");
+    CHECK(r.host().an->factsOf(1) && r.host().an->factsOf(1)->level == 77);
+    double w = 0;
+    CHECK(r.host().an->packWeight(1, &w) && w == 5.0);
+    Bytes roster = encodeRoster({kHostPlayer, 1});   // an old host's roster at a unified client: applied (and the same set the records give)
+    r.host().mux->sendEx(1, roster, fnvcoop::ITransport::Channel::Reliable);
+    r.run(500);
+    CHECK(a.an->roster() == std::set<PlayerId>({0}));
+}
+
+// stream=unified: the player's snapshots go through ActorSync (own sender and receiver pair, pinned owner and epoch), the puppets follow as before.
+TEST(entities_the_stream_through_actor_sync_follows_like_the_avatar_channel) {
+    Rig3 r(true, true);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    a.present = true;
+    b.present = false;
+    a.vx = 150;
+    r.run(2500);
+    CHECK(h.an->roster() == std::set<PlayerId>({1}));
+    bool ok = false;
+    float ax = xOfPuppet(h, 1, &ok);
+    CHECK(ok && std::abs(ax - playerX(a)) < 150.0f);
+    float hx = xOfPuppet(a, 0, &ok);
+    CHECK(ok && std::abs(hx - playerX(h)) < 30.0f);
+    b.present = true;
+    b.vx = -100;
+    r.run(3500);
+    CHECK(h.puppets() == 2 && a.puppets() == 2 && b.puppets() == 2);
+    float bxAtA = xOfPuppet(a, 2, &ok);
+    CHECK(ok && std::abs(bxAtA - playerX(b)) < 150.0f);   // A sees B only through the host's relay
+    float axAtB = xOfPuppet(b, 1, &ok);
+    CHECK(ok && std::abs(axAtB - playerX(a)) < 180.0f);
+    // the traffic went through ActorSync, not the avatar channel
+    for (Node* nd : {&h, &a, &b}) {
+        CHECK(nd->an->stats().sent == 0 && nd->an->stats().accepted > 0);
+        const nvcoop::actors::Stats& st = nd->actors->sync()->stats();
+        CHECK(st.playerSampled > 0 && st.playerSent > 0 && st.playerForged == 0);
+        CHECK(nd->npcPort->calls == 0);
+    }
+    CHECK(h.actors->sync()->stats().playerRelayed > 0 && h.actors->sync()->stats().playerAccepted > 0);
+    CHECK(a.actors->sync()->playerSenderStats().packets > 0 && a.actors->sync()->playerReceiverStats().accepted > 0);
+    // A claims to be B: the pinned owner is B, the host drops it
+    live::SnapshotSender evil;
+    live::ActorSnapshot s;
+    s.netId = playerNetId(2);
+    s.ownerEpoch = h.actors->sync()->ownerOf(playerNetId(2)).epoch;
+    s.seq = 900000; s.tick = 5; s.cell = kCell;
+    s.pos = {90000, 0, 0};
+    evil.queue(0, s, 5);
+    for (auto& d : evil.flush(0, 5)) a.mux->sendEx(0, nvcoop::actors::wrapLive(nvcoop::actors::SubBatchPlayer, d), fnvcoop::ITransport::Channel::Unreliable);
+    r.run(900);
+    CHECK(h.actors->sync()->stats().playerForged >= 1);
+    const float after = xOfPuppet(h, 2);
+    CHECK(std::abs(after - playerX(b)) < 200.0f && std::abs(after - 90000.0f) > 1000.0f);
+    // a client that leaves and comes back (a higher epoch) is followed again
+    a.vx = 0;
+    a.present = false;
+    r.run(1500);
+    CHECK(h.puppets() == 1);
+    a.be.Player().pos.x = 50000;
+    a.present = true;
+    r.run(3500);
+    float x = xOfPuppet(h, 1, &ok);
+    CHECK(ok && std::abs(x - playerX(a)) < 300.0f);
+    CHECK(h.actors->sync()->ownerOf(playerNetId(1)).epoch >= 2);
+}
+
+// The lab's spawn-room case: a teleport arrives at once through ActorSync's profile, too (the same limits as the avatar channel's).
+TEST(entities_teleport_through_actor_sync_arrives_at_once) {
+    Rig3 r(true, true);
+    quickLink(r);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    h.be.Player().pos = {0, 0, 0};
+    a.be.Player().pos = {9000, 0, 0};
+    r.run(5000);
+    bool ok = false;
+    CHECK(std::abs(xOfPuppet(a, 0, &ok) - 0.0f) < 100.0f && ok);
+    h.be.Player().pos = {8800, 0, 0};
+    a.be.Player().pos = {9200, 0, 0};
+    const uint64_t t0 = r.n.now;
+    uint64_t hostSeesClient = 0, clientSeesHost = 0;
+    while (r.n.now - t0 < 4000 && (!hostSeesClient || !clientSeesHost)) {
+        r.step(16);
+        const float cx = xOfPuppet(h, 1, &ok);
+        if (!hostSeesClient && ok && std::abs(cx - 9200.0f) < 100.0f) hostSeesClient = r.n.now - t0;
+        const float hx = xOfPuppet(a, 0, &ok);
+        if (!clientSeesHost && ok && std::abs(hx - 8800.0f) < 100.0f) clientSeesHost = r.n.now - t0;
+    }
+    std::printf("    teleport through ActorSync: host sees the client after %llu ms, the client sees the host after %llu ms\n", (unsigned long long)hostSeesClient, (unsigned long long)clientSeesHost);
+    CHECK(hostSeesClient > 0 && hostSeesClient <= 400);
+    CHECK(clientSeesHost > 0 && clientSeesHost <= 400);
+    uint64_t worst = 0;   // one player jumps next to one he has not heard of: no wait for the far tier's turn
+    for (int phase = 0; phase < 8; ++phase) {
+        Rig3 r2(true, true);
+        quickLink(r2);
+        Node& h2 = r2.host();
+        Node& a2 = r2.addClient(1);
+        h2.be.Player().pos = {0, 0, 0};
+        a2.be.Player().pos = {9000, 0, 0};
+        r2.run(5000);
+        for (int k = 0; k < phase * 2; ++k) r2.step(16);
+        h2.be.Player().pos = {8700, 0, 0};
+        worst = std::max(worst, arrivalAfterTeleport(r2, a2, 0, h2, 8700.0f, 100.0f, 4000));
+    }
+    std::printf("    teleport through ActorSync: the client sees the host after at most %llu ms\n", (unsigned long long)worst);
+    CHECK(worst <= 130);
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     run("switches_default_off", switches_default_off);
     run("switches_parse_values", switches_parse_values);
     run("switches_dependencies", switches_dependencies);
     run("switches_social", switches_social);
+    run("switches_entities", switches_entities);
     run("hub_disabled_service_is_never_called", hub_disabled_service_is_never_called);
     run("hub_session_lifecycle_host", hub_session_lifecycle_host);
     run("hub_existing_clients_are_announced_after_begin", hub_existing_clients_are_announced_after_begin);
@@ -1374,6 +1836,7 @@ int main() {
     run("wire_facts_roundtrip_and_truncation", wire_facts_roundtrip_and_truncation);
     run("wire_pack_roundtrip_and_truncation", wire_pack_roundtrip_and_truncation);
     run("wire_player_net_ids", wire_player_net_ids);
+    run("wire_look_v2_bytes_are_the_old_codecs_bytes", wire_look_v2_bytes_are_the_old_codecs_bytes);
     run("avatars_three_machines_see_each_other", avatars_three_machines_see_each_other);
     run("avatars_attacks_show_on_every_other_machine", avatars_attacks_show_on_every_other_machine);
     run("avatars_never_a_puppet_of_oneself", avatars_never_a_puppet_of_oneself);
@@ -1395,6 +1858,11 @@ int main() {
     run("avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet", avatars_a_snapshot_ahead_of_the_roster_reaches_the_puppet);
     run("avatars_teleport_arrives_at_once", avatars_teleport_arrives_at_once);
     run("avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet", avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet);
+    run("entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode", entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode);
+    run("entities_link_loss_leave_and_rejoin_in_every_mode", entities_link_loss_leave_and_rejoin_in_every_mode);
+    run("entities_the_old_messages_are_still_understood_under_parts_unified", entities_the_old_messages_are_still_understood_under_parts_unified);
+    run("entities_the_stream_through_actor_sync_follows_like_the_avatar_channel", entities_the_stream_through_actor_sync_follows_like_the_avatar_channel);
+    run("entities_teleport_through_actor_sync_arrives_at_once", entities_teleport_through_actor_sync_arrives_at_once);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -23,6 +23,10 @@ bool decodeHit(const uint8_t* hit, HitBuf* out);
 // damage and clears the fatal / dismember / explode / cripple flags; Neutralize zeroes health too. Returns true when anything was written.
 bool applyDecisionToHit(uint8_t* hit, const HitBuf& before, GateAction action, int32_t maxHealthDamage);
 
+// Multiplies the health and limb damage of `hit` by `factor` (0..10; 1 and anything out of range write nothing) and updates `before` to match.
+// Returns true when anything was written.
+bool scaleHitDamage(uint8_t* hit, HitBuf& before, float factor);
+
 // What the native replay puts into a constructor-initialised hit.
 struct NativeHitSpec {
     uint32_t source = 0, target = 0, weapon = 0;   // 32-bit pointers

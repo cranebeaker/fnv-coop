@@ -59,10 +59,15 @@ foreach(v 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 2
 endforeach()
 
 # How far behind the remote player's puppet appears (round of 2026-10-27): walking tracks through the real sender chain, the chaos profiles and the
-# real receiver, before / after (tests/test_lag_sim.cpp). Twins 201..208 (FNVCOOP_MUT) are in the same exe.
+# real receiver, before / after (tests/test_lag_sim.cpp). Twins 201..208 (FNVCOOP_MUT) are in the same exe. With ActorSync in the tree the same tracks also run through its
+# player stream profile (--path actorsync) and --gate compares the two paths (docs/entity-core-plan.md S10, S11).
 add_executable(avatar_lag_tests ${NVAV_EXCLUDE} ${NVAE_DIR}/tests/test_lag_sim.cpp)
 target_include_directories(avatar_lag_tests PRIVATE ${NVAE_DIR} ${NVAV_DIR} ${NVAV_DIR}/.. ${NVAE_MUT_INC} ${NVAV_SYNC}/chaos)
 target_link_libraries(avatar_lag_tests PRIVATE nvcoop_avatar_engine_rt ${NVAE_LIVE})
+if(TARGET nvcoop_actors_core)   # the stream through ActorSync's player profile (--path actorsync, --gate); not in the standalone avatar build
+  target_link_libraries(avatar_lag_tests PRIVATE nvcoop_actors_core)
+  target_compile_definitions(avatar_lag_tests PRIVATE LAG_HAVE_ACTORSYNC=1)
+endif()
 if(MSVC)
   target_compile_options(avatar_lag_tests PRIVATE /W4 /EHsc /permissive- /utf-8 /wd4100 /D_CRT_SECURE_NO_WARNINGS)
 else()

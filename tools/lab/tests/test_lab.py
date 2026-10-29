@@ -78,6 +78,9 @@ EXPECT = {
     "puppet_default_look": ("parity", "agrees", "SYNC"),
     "puppet_no_punch": ("parity", "agrees", "SYNC"),
     "guest_time_30x": ("parity", "agrees", "SYNC"),
+    "entity_owner_moved": ("entity", "owns its own entity", "SYNC"),
+    "entity_epoch_split": ("entity", "same epoch", "SYNC"),
+    "entity_no_puppet": ("entity", "binds the other player", "SYNC"),
 }
 NOT_A_FAILURE = set(labfake.NET_ONLY) | {"var_unreadable",         # a build that cannot read a quest variable skips that check, it does not fail the lab
                  "kill_health_split",      # how the real game reports a kill (own test below)

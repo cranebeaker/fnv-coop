@@ -26,7 +26,7 @@ using fnvcoop::kMaxSlots;
 // First byte of every datagram this module sends through the coop MuxTransport (0xFC story, 0xD1 dialogue, 0xE5 slides, 0xAC actors,
 // 0xA1 reserved by the handshake). Registered in docs/protocol.md section 14.
 constexpr uint8_t kChannelCombat = 0xCB;
-constexpr uint8_t kCombatModuleWire = 1;
+constexpr uint8_t kCombatModuleWire = 2;   // 2: entities are bare NetIds (synccore/combat wire v2)
 
 // ---- identity and facts --------------------------------------------------------------------------------------------------------
 // Everything CombatSync asks about one combatant (a player slot or a synced actor). Refreshed on every call: nothing is cached by the caller.
@@ -36,6 +36,7 @@ struct EntityView {
     uint32_t ref = 0;                // engine runtime ref of the copy/real actor that exists HERE; 0 = not loaded on this machine
     PlayerId owner = kNoPlayer;      // actor: committed owner (kNoPlayer = nobody yet); player: its own slot
     OwnerEpoch epoch = 0;            // actor: owner epoch; player: 0
+    OwnerEpoch entityEpoch = 0;      // player: the epoch of its pinned entity (S7; rises with every rejoin), 0 = not known. Judges a player's hits only
     bool simulatedHere = false;      // this machine runs its AI / is that player's machine. False for a copy, a stand-in, a puppet
     bool pending = false;            // an ownership handoff is in flight
     bool standIn = false;

@@ -45,6 +45,7 @@
 #include "nvse/PluginAPI.h"
 #ifdef NVCOOP_WITH_LIVE
 #include "coop/live/live_glue.h"   // dll-wiring: glueSwitches()
+#include "live/entity_map.h"        // the process EntityMap: each puppet is its player's entity on this machine
 #endif
 #ifdef NVCOOP_WITH_COMBAT
 #include "combat/combat_glue.h"    // glueRunning() / glueGate(): the combat layer carries the hit to the real player's machine
@@ -208,6 +209,12 @@ void CreateRuntime() {
     for (auto& kv : g.pendingEquip)
         if (g.pendingRemotes.count(kv.first)) g.rt->OnRemoteEquipment(kv.first, kv.second);
     for (auto& kv : g.pendingPose) g.rt->SetPoseOverride(kv.first, kv.second);
+    g.rt->manager().SetBindingHook([](Slot slot, RefId ref) {   // S4: told from inside the call that changed it, so the map never holds a stale id
+        fnvcoop::live::EntityMap& m = fnvcoop::live::processEntities();
+        if (ref) m.bind(fnvcoop::live::playerNet(slot), ref, fnvcoop::live::EntityRole::Puppet);
+        else m.unbind(fnvcoop::live::playerNet(slot));
+    });
+    fnvcoop::live::processEntities().setLocalSlot(c.puppet.localSlot);
     g.dir = std::make_unique<ManagerDirectory>(g.rt->manager(), c.puppet.localSlot);
     setPuppetDirectory(g.dir.get());
     if (g.loopbackAtStart) g.rt->SetLoopback(true);
@@ -527,6 +534,7 @@ void SetEquipSink(std::function<void(const std::vector<EquipEntry>&)> sink) {
 void SetLocalSlot(Slot slot) {
     g.cfg.puppet.localSlot = slot;      // a runtime that does not exist yet is created with it
     g.cfg.loopbackSlot = static_cast<Slot>(slot == 1 ? 2 : 1);
+    fnvcoop::live::processEntities().setLocalSlot(slot);
     if (g.rt) {
         g.rt->SetLocalSlot(slot);
         if (g.dir) g.dir->SetLocalSlot(slot);
@@ -556,6 +564,7 @@ bool SetRemoteAppearance(Slot slot, const Appearance& a) {
 bool ReadLocalAppearance(Appearance& out) { return g.rt && g.rt->ReadLocalAppearance(out); }
 bool ReadLocalFacts(PlayerFacts& out) { return g.rt && g.rt->ReadLocalFacts(out); }
 bool ReadLocalPack(const std::vector<FormId>& watch, PlayerPack& out) { return g.rt && g.rt->ReadLocalPack(watch, out); }
+bool ReadLocalEquipment(std::vector<EquipEntry>& out) { return g.rt && g.rt->ReadLocalEquipment(out); }
 void OnRemoteSnapshot(Slot slot, const live::ActorSnapshot& s, uint32_t arrivalMs) {
     if (g.rt) g.rt->OnRemoteSnapshot(slot, s, arrivalMs);
 }

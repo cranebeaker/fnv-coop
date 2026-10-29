@@ -4,8 +4,8 @@
 
 namespace nvcoop::rebalance {
 
-Director::Director(const DirectorConfig& cfg, DirectorEnv env, IGmst& gmst)
-    : cfg_(cfg), env_(std::move(env)), applier_(gmst), ramp_(cfg.rampMs), fights_(env_.fight) {}
+Director::Director(const DirectorConfig& cfg, DirectorEnv env, IGmst& gmst, IEffectPort& effects)
+    : cfg_(cfg), env_(std::move(env)), applier_(gmst), effects_(effects), ramp_(cfg.rampMs), fights_(env_.fight) {}
 
 void Director::say(const std::string& line) {
     ++hudLines_;
@@ -46,7 +46,9 @@ void Director::tick() {
     }
     if (now >= nextApply_) {
         nextApply_ = now + cfg_.applyEveryMs;
-        applied_ = applier_.apply(ramp_.step(now));
+        const Profile& stepped = ramp_.step(now);
+        applied_ = applier_.apply(stepped);
+        applied_ = effects_.apply(stepped) && applied_;
         if (!applied_) nextApply_ = now + 1000;   // the originals could not be read yet: not every frame
     }
 
@@ -73,16 +75,29 @@ void Director::tick() {
     }
 }
 
+int32_t Director::trimLoot(const LootSource& src, std::vector<LootStack>& stacks) {
+    if (!cfg_.enabled || !settings_.balanced()) return 0;
+    const int32_t removed = rebalance::trimLoot(src, stacks, FNV_MUT(1476) ? ramp_.current() : ramp_.target());   // MUTANT 1476: the point of the smooth change, not where it is heading
+    ++trimmedSources_;
+    if (removed > 0) trimmedItems_ += static_cast<uint64_t>(removed);
+    return removed;
+}
+
 std::string Director::statusJson() const {
     const Profile& p = ramp_.current();
-    char b[768];
+    char b[1280];
     std::snprintf(b, sizeof b,
         "{\"enabled\":%s,\"chosen\":%s,\"mode\":\"%s\",\"friendlyFire\":%s,\"balanced\":%s,\"players\":%d,\"settled\":%s,"
-        "\"profile\":{\"blend\":%.3f,\"damageToPlayers\":%.3f,\"damageByPlayers\":%.3f,\"killXp\":%.3f},"
-        "\"gmstWrites\":%llu,\"gmstReadsFailed\":%llu,\"extras\":{\"alive\":%zu,\"spawned\":%llu,\"removed\":%llu,\"counted\":%llu},\"hudLines\":%llu}",
+        "\"profile\":{\"blend\":%.3f,\"damageToPlayers\":%.3f,\"damageByPlayers\":%.3f,\"killXp\":%.3f,\"suppliesKept\":%.3f,\"bodyAmmoKept\":%.3f,\"stimpakHeal\":%.3f},"
+        "\"gmstWrites\":%llu,\"gmstReadsFailed\":%llu,\"stimpak\":{\"writes\":%llu,\"readsFailed\":%llu,\"changed\":%s},"
+        "\"scarcity\":{\"sources\":%llu,\"itemsRemoved\":%llu},"
+        "\"extras\":{\"alive\":%zu,\"spawned\":%llu,\"removed\":%llu,\"counted\":%llu},\"hudLines\":%llu}",
         cfg_.enabled ? "true" : "false", settings_.chosen ? "true" : "false", modeName(settings_.mode), settings_.friendlyFire ? "true" : "false",
-        balancedOn() ? "true" : "false", players_, ramp_.settled() ? "true" : "false", p.blend, p.damageToPlayers, p.damageByPlayers, p.killXp,
-        static_cast<unsigned long long>(applier_.writes()), static_cast<unsigned long long>(applier_.readsFailed()), fights_.extrasKnown(),
+        balancedOn() ? "true" : "false", players_, ramp_.settled() ? "true" : "false", p.blend, p.damageToPlayers, p.damageByPlayers, p.killXp, p.suppliesKept,
+        p.bodyAmmoKept, p.stimpakHeal,
+        static_cast<unsigned long long>(applier_.writes()), static_cast<unsigned long long>(applier_.readsFailed()),
+        static_cast<unsigned long long>(effects_.writes()), static_cast<unsigned long long>(effects_.readsFailed()), effects_.changedAnything() ? "true" : "false",
+        static_cast<unsigned long long>(trimmedSources_), static_cast<unsigned long long>(trimmedItems_), fights_.extrasKnown(),
         static_cast<unsigned long long>(fights_.spawned()), static_cast<unsigned long long>(fights_.removed()),
         static_cast<unsigned long long>(fights_.counted()), static_cast<unsigned long long>(hudLines_));
     return b;

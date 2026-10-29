@@ -1,13 +1,12 @@
 #include "avatar_wire.h"
 
-#include "fnvcoop_mut.h"   // FNV_MUT(n): twins 31..33 of the live wiring suite, 101..104 of the avatar suite (plugin/avatar/full)
+#include "look_codec.h"    // the field codecs of Look, Facts and Pack (shared with the parts of the player entity)
+#include "fnvcoop_mut.h"   // FNV_MUT(n): twins 31, 33 of the live wiring suite, 103 of the avatar suite (plugin/avatar/full); 32, 67, 101, 102, 104, 951 sit in look_codec.cpp
 
 namespace nvcoop::livewire {
 
 namespace {
 void put8(AvBytes& b, uint8_t v) { b.push_back(v); }
-void put32(AvBytes& b, uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(static_cast<uint8_t>(v >> (8 * i))); }
-void put16(AvBytes& b, uint16_t v) { b.push_back(static_cast<uint8_t>(v)); b.push_back(static_cast<uint8_t>(v >> 8)); }
 struct Rd {
     const uint8_t* p;
     size_t n, i = 0;
@@ -58,18 +57,14 @@ bool decodeRoster(const uint8_t* data, size_t size, std::vector<uint8_t>& slots)
     return true;
 }
 
+// Facts: [ch][0x44][ver][slot] then the Facts fields (look_codec.h)
 AvBytes encodeFacts(const AvFacts& f) {
     AvBytes b;
     put8(b, kChannelAvatars);
     put8(b, kAvKindFacts);
     put8(b, kAvFactsVersion);
     put8(b, f.slot);
-    put16(b, f.facts.level);
-    put8(b, f.facts.sitting);
-    put32(b, f.facts.actions);
-    const size_t n = f.facts.regions.size() > nvcoop::avatar::kMaxFactRegions ? nvcoop::avatar::kMaxFactRegions : f.facts.regions.size();
-    put8(b, static_cast<uint8_t>(n));
-    for (size_t i = 0; i < n; ++i) put32(b, f.facts.regions[i]);
+    nvcoop::avatar::encodeFactsFields(b, f.facts);
     return b;
 }
 
@@ -79,35 +74,21 @@ bool decodeFacts(const uint8_t* data, size_t size, AvFacts& out) {
     AvFacts f;
     f.slot = r.u8();
     if (f.slot >= 8) r.ok = false;   // fnvcoop::kMaxSlots
-    f.facts.level = r.u16();
-    f.facts.sitting = r.u8();
-    f.facts.actions = r.u32();
-    const uint8_t n = r.u8();
-    if (n > nvcoop::avatar::kMaxFactRegions && !FNV_MUT(67)) r.ok = false;   // twin 67: an oversized region list is accepted
-    for (uint8_t i = 0; i < n && r.ok; ++i) f.facts.regions.push_back(r.u32());
-    if (!r.done()) return false;
+    if (!r.ok) return false;
+    size_t pos = r.i;
+    if (!nvcoop::avatar::decodeFactsFields(data, size, pos, f.facts) || pos != size) return false;
     out = std::move(f);
     return true;
 }
 
-// Pack: [0x45][ver][slot][flags][watchId][weight?][n u16][(form, count) * n]. Entries are sorted by form with a count above zero; anything else is rejected as a whole.
-constexpr uint8_t kPkWeight = 0x01, kPkReserved = 0xFE;
-
+// Pack: [ch][0x45][ver][slot] then the Pack fields (look_codec.h). Entries are sorted by form with a count above zero; anything else is rejected as a whole.
 AvBytes encodePack(const AvPack& p) {
     AvBytes b;
     put8(b, kChannelAvatars);
     put8(b, kAvKindPack);
     put8(b, kAvPackVersion);
     put8(b, p.slot);
-    put8(b, p.pack.haveWeight ? kPkWeight : 0);
-    put32(b, p.pack.watchId);
-    if (p.pack.haveWeight) put32(b, p.pack.weightMilli);
-    const size_t n = p.pack.items.size() > nvcoop::avatar::kMaxPackItems ? nvcoop::avatar::kMaxPackItems : p.pack.items.size();
-    put16(b, static_cast<uint16_t>(n));
-    for (size_t i = 0; i < n; ++i) {
-        put32(b, p.pack.items[i].form);
-        put32(b, static_cast<uint32_t>(p.pack.items[i].count));
-    }
+    nvcoop::avatar::encodePackFields(b, p.pack);
     return b;
 }
 
@@ -117,70 +98,22 @@ bool decodePack(const uint8_t* data, size_t size, AvPack& out) {
     AvPack p;
     p.slot = r.u8();
     if (p.slot >= 8) r.ok = false;   // fnvcoop::kMaxSlots
-    const uint8_t flags = r.u8();
-    if (flags & kPkReserved) r.ok = false;
-    p.pack.watchId = r.u32();
-    p.pack.haveWeight = (flags & kPkWeight) != 0;
-    if (p.pack.haveWeight) p.pack.weightMilli = r.u32();
-    const uint16_t n = r.u16();
-    if (n > nvcoop::avatar::kMaxPackItems && !FNV_MUT(951)) r.ok = false;   // twin 951: an oversized item list is accepted
-    uint32_t prev = 0;
-    for (uint16_t i = 0; i < n && r.ok; ++i) {
-        nvcoop::avatar::PackEntry e;
-        e.form = r.u32();
-        e.count = static_cast<int32_t>(r.u32());
-        if (e.count <= 0 || (i > 0 && e.form <= prev)) r.ok = false;   // sorted, de-duplicated, only counts above zero
-        prev = e.form;
-        p.pack.items.push_back(e);
-    }
-    if (!r.done()) return false;
+    if (!r.ok) return false;
+    size_t pos = r.i;
+    if (!nvcoop::avatar::decodePackFields(data, size, pos, p.pack) || pos != size) return false;
     out = std::move(p);
     return true;
 }
 
-// Look v2 flags byte
-constexpr uint8_t kLkFemale = 0x01, kLkHairColor = 0x02, kLkBody = 0x04, kLkFace = 0x08, kLkReserved = 0xF0;
-// per equipment entry flags byte
-constexpr uint8_t kEqWeapon = 0x01, kEqMods = 0x02, kEqReserved = 0xFC;
-
+// Look v2: [ch][0x43][ver=2][slot] then the Appearance fields and the equipment list (look_codec.h)
 AvBytes encodeLook(const AvLook& l) {
     AvBytes b;
     put8(b, kChannelAvatars);
     put8(b, kAvKindLook2);
     put8(b, kAvatarWireVersion);
     put8(b, l.slot);
-    const nvcoop::avatar::Appearance& a = l.appearance;
-    const size_t nFace = a.faceCoeffs.size() > nvcoop::avatar::kMaxFaceCoeffs ? nvcoop::avatar::kMaxFaceCoeffs : a.faceCoeffs.size();
-    uint8_t flags = a.female ? kLkFemale : 0;
-    if (a.hairColor) flags |= kLkHairColor;
-    if (a.height || a.weight) flags |= kLkBody;
-    if (nFace) flags |= kLkFace;
-    put8(b, flags);
-    put32(b, a.race);
-    put32(b, a.hair);
-    put32(b, a.eyes);
-    put32(b, a.faceHash);
-    if (flags & kLkHairColor) put32(b, a.hairColor);
-    if (flags & kLkBody) {
-        put16(b, a.height);
-        put16(b, a.weight);
-    }
-    if (flags & kLkFace) {
-        put8(b, static_cast<uint8_t>(nFace));
-        for (size_t i = 0; i < nFace; ++i) put8(b, static_cast<uint8_t>(a.faceCoeffs[i]));
-    }
-    std::string name = a.name.substr(0, kMaxLookName);
-    put8(b, static_cast<uint8_t>(name.size()));
-    b.insert(b.end(), name.begin(), name.end());
-    size_t n = l.equipment.size() > kMaxLookEquip ? kMaxLookEquip : l.equipment.size();
-    put8(b, static_cast<uint8_t>(n));   // the count is the LAST byte of a look without equipment (the wire tests rely on it)
-    for (size_t i = 0; i < n; ++i) {
-        const nvcoop::avatar::EquipEntry& e = l.equipment[i];
-        const uint8_t mods = static_cast<uint8_t>(e.mods & nvcoop::avatar::kWeaponModMask);
-        put32(b, e.form);
-        put8(b, static_cast<uint8_t>((e.weapon ? kEqWeapon : 0) | (mods ? kEqMods : 0)));
-        if (mods) put8(b, mods);
-    }
+    nvcoop::avatar::encodeAppearanceFields(b, l.appearance);
+    nvcoop::avatar::encodeEquipEntries(b, l.equipment);
     return b;
 }
 
@@ -216,42 +149,11 @@ bool decodeLookV2(Rd& r, AvLook& out) {
     AvLook l;
     l.slot = r.u8();
     if (l.slot >= 8 && !FNV_MUT(33)) r.ok = false;
-    const uint8_t flags = r.u8();
-    if ((flags & kLkReserved) && !FNV_MUT(102)) r.ok = false;   // twin 102: reserved flag bits are ignored (a future field would be misread)
-    nvcoop::avatar::Appearance& a = l.appearance;
-    a.female = (flags & kLkFemale) != 0;
-    a.race = r.u32();
-    a.hair = r.u32();
-    a.eyes = r.u32();
-    a.faceHash = r.u32();
-    if (flags & kLkHairColor) a.hairColor = r.u32();
-    if (flags & kLkBody) {
-        a.height = r.u16();
-        a.weight = r.u16();
-    }
-    if (flags & kLkFace) {
-        const uint8_t nf = r.u8();
-        if ((nf == 0 || nf > nvcoop::avatar::kMaxFaceCoeffs) && !FNV_MUT(101)) r.ok = false;   // twin 101: an oversized face block is accepted
-        for (uint8_t i = 0; i < nf && r.ok; ++i) a.faceCoeffs.push_back(static_cast<int8_t>(r.u8()));
-    }
-    uint8_t nl = r.u8();
-    if (nl > kMaxLookName) r.ok = false;
-    a.name = r.str(r.ok ? nl : 0);
-    uint8_t ne = r.u8();
-    if (ne > kMaxLookEquip && !FNV_MUT(32)) r.ok = false;
-    for (uint8_t i = 0; i < ne && r.ok; ++i) {
-        nvcoop::avatar::EquipEntry e;
-        e.form = r.u32();
-        const uint8_t ef = r.u8();
-        if (ef & kEqReserved) r.ok = false;
-        e.weapon = (ef & kEqWeapon) != 0;
-        if (ef & kEqMods) {
-            e.mods = r.u8();
-            if ((e.mods == 0 || (e.mods & ~nvcoop::avatar::kWeaponModMask) || !e.weapon) && !FNV_MUT(104)) r.ok = false;   // twin 104: junk mod flags are accepted
-        }
-        l.equipment.push_back(e);
-    }
-    if (!r.done()) return false;
+    if (!r.ok) return false;
+    size_t pos = r.i;
+    if (!nvcoop::avatar::decodeAppearanceFields(r.p, r.n, pos, l.appearance)) return false;
+    if (!nvcoop::avatar::decodeEquipEntries(r.p, r.n, pos, l.equipment)) return false;
+    if (pos != r.n) return false;
     out = std::move(l);
     return true;
 }

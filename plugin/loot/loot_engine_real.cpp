@@ -126,6 +126,21 @@ bool CallThis2(uint32_t fn, uint32_t self, uint32_t arg, int32_t* out) {
 
 constexpr uint8_t kTypeCell = 0x39;   // TESObjectCELL (xNVSE kFormType_TESObjectCELL)
 constexpr uint8_t kTypeCont = 0x1B, kTypeLevItem = 0x34, kTypeListForm = 0x55, kTypeRefr = 0x3A, kTypeNpcRef = 0x3B, kTypeCreatureRef = 0x3C;
+constexpr uint8_t kTypeAmmo = 0x29, kTypeAlch = 0x2F, kTypeNpc = 0x2A;
+constexpr uint32_t kAlchFlagsOffset = 0xBC;                          // AlchemyItem::alchFlags (xNVSE GameForms.h), the ENIT flags byte
+constexpr uint8_t kAlchFood = 0x02, kAlchMedicine = 0x04;            // GECK wiki GetIngestibleFlag: 2 food (drink included), 4 medicine
+constexpr uint32_t kAcbsUniqueNpc = 0x20;                            // TESActorBaseData flags, plugin/actors/engine/engine_real.cpp
+
+// A unique (named) NPC base form; creatures and levelled characters are generic. Plain data only inside the __try.
+bool IsUniqueNpcBase(uint32_t base) {
+    __try {
+        TESForm* f = reinterpret_cast<TESForm*>(base);
+        if (f->typeID != kTypeNpc) return false;
+        return (static_cast<TESActorBase*>(f)->baseData.flags & kAcbsUniqueNpc) != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 bool IsInventoryType(uint8_t t) {
     switch (t) {
     case 0x18: case 0x19: case 0x1A: case 0x1F: case 0x28: case 0x29: case 0x2E: case 0x2F: case 0x31: case 0x32: case 0x1D: case 0x1E:   // ARMO BOOK CLOT MISC WEAP AMMO KEYM ALCH NOTE CHIP INGR LIGH
@@ -178,6 +193,8 @@ bool RealLootEngine::describeContainer(RefId ref, ContainerDesc& out) {
         uint32_t life = 0;
         if (!Rd32(obj + 0x108, &life) || (life != 1 && life != 2)) return false;   // Actor+0x108: 1 dying, 2 dead (docs/tools/actor-port.md)
         corpse = true;
+        uint32_t base = 0;
+        out.uniqueActor = Rd32(obj + 0x20, &base) && base && IsUniqueNpcBase(base);
     } else {
         return false;
     }
@@ -249,6 +266,18 @@ bool RealLootEngine::readContents(NetId net, Items& out, bool& exact) {
         out[fr] += total;
     }
     return true;
+}
+
+// Ammo (AMMO), and the supplies a scarcity rule thins: an ALCH that is flagged food (drink included) or medicine. Chems and the rest of the ALCH forms are not.
+ItemClass RealLootEngine::classifyItem(const FormRef& base) {
+    const uint32_t id = nvhooks::resolver().fromRef(base);
+    const uint32_t form = id ? formAddr(id) : 0;
+    uint8_t t = 0;
+    if (!form || !Rd8(form + 4, &t)) return ItemClass::Other;
+    if (t == kTypeAmmo) return ItemClass::Ammo;
+    if (t != kTypeAlch) return ItemClass::Other;
+    uint8_t flags = 0;
+    return Rd8(form + kAlchFlagsOffset, &flags) && (flags & (kAlchFood | kAlchMedicine)) ? ItemClass::Supply : ItemClass::Other;
 }
 
 bool RealLootEngine::runOn(RefId ref, const std::string& line) {

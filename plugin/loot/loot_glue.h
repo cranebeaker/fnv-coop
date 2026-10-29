@@ -16,5 +16,8 @@ namespace nvcoop::loot {
 bool enabled();                       // [loot] enabled=1 and the module initialised
 LootSync& service();                  // valid for the life of the process (a service with enabled=false is inert)
 bool glueRpc(const std::string& paramsJson, std::string& out);   // coop.loot
+// Scarcity (plugin/rebalance, docs/rebalance.md): the hook every container or corpse this machine registers is passed through once, before its contents are shared.
+// Kept across the service being rebuilt; an empty function removes it.
+void setTrimHook(TrimHook hook);
 
 }  // namespace nvcoop::loot

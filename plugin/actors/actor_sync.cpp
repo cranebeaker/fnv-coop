@@ -23,19 +23,39 @@ NetId deriveNetId(const FormRef& ref) {
     uint64_t h = fnvcoop::hash64(name.data(), name.size());
     h = fnvcoop::hash64(&ref.localId, sizeof ref.localId, h);
     NetId id = static_cast<NetId>(h ^ (h >> 32));
-    if ((id >> 24) == 0xFF) id &= 0x7FFFFFFFu;   // 0xFF.. is the host-allocated created-ref range
-    return id ? id : 1u;
+    if (MUT(43)) return id ? id : 1u;   // MUTANT 43: a placed ref may get a player's (0xFE..) or a created (0xFF..) id
+    return live::maskPlacedNetId(id);         // 0xFE.. players, 0xFF.. host-issued (synccore/live/entity.h)
 }
 
 namespace {
 bool sameState(const live::ActorSnapshot& a, const live::ActorSnapshot& b) {
     return a.cell == b.cell && a.pos == b.pos && a.rot == b.rot && a.vel == b.vel && a.anim == b.anim && a.ai == b.ai && a.avDeltas == b.avDeltas;
 }
+
+// The rate planner of the player stream: the profile's tiers and jump rule (the avatar layer's StreamRateConfig, now in synccore/live).
+live::StreamRateConfig plannerConfig(const SyncConfig& cfg) {
+    const StreamProfile& p = cfg.playerProfile;
+    live::StreamRateConfig rc;
+    rc.nearPeriodMs = p.nearMs; rc.farPeriodMs = p.farMs; rc.outPeriodMs = p.outMs;
+    rc.jumpUnits = MUT(62) ? 0.0f : p.jumpUnits;   // MUT 62 BAD: a teleport waits for its tier's period like any other snapshot
+    rc.nearRadius = cfg.interest.nearRadius; rc.hysteresis = cfg.interest.hysteresis;
+    rc.enabled = !MUT(59);                          // MUT 59 BAD: the rate is ignored (everything goes at full rate to everybody)
+    return rc;
+}
+
+// A player's snapshots are checked by ActorSync against the pinned owner and epoch; the receiver only decodes, orders and acknowledges them.
+live::ReceiverConfig playerReceiverConfig() {
+    live::ReceiverConfig rc;
+    rc.checkSenderIsOwner = false;
+    rc.maxActors = 64;
+    return rc;
+}
 }  // namespace
 
 ActorSync::ActorSync(const SyncConfig& cfg, IActorPort& port, IActorNet& net)
     : cfg_(cfg), port_(port), net_(net), view_(cfg.self), sender_(cfg.sender),
       receiver_([&cfg] { live::ReceiverConfig rc; rc.checkSenderIsOwner = cfg.isHost; return rc; }()),   // host: sender must be the owner; clients get host-relayed packets
+      senderP_(cfg.sender), receiverP_(playerReceiverConfig()), planner_(plannerConfig(cfg)),
       interest_(cfg.interest) {
     if (cfg_.isHost) {
         svc_.reset(new fnvcoop::OwnershipService(cfg_.own));
@@ -81,6 +101,7 @@ ActorSync::Rec* ActorSync::ensureRec(const ActorMeta& m, bool local) {
     if (it == recs_.end()) {
         it = recs_.emplace(std::piecewise_construct, std::forward_as_tuple(m.netId), std::forward_as_tuple(cfg_.interp)).first;
         it->second.meta = m;
+        it->second.player = live::isPlayerNet(m.netId);
         refToNet_[m.ref] = m.netId;
         auto pk = pendingPick_.find(m.netId);
         if (pk != pendingPick_.end()) { it->second.havePick = true; it->second.pick = pk->second; pendingPick_.erase(pk); }
@@ -111,8 +132,87 @@ void ActorSync::playerJoined(PlayerId slot) {
     if (!cfg_.isHost || slot == cfg_.self || slot >= fnvcoop::kMaxSlots) return;
     joined_.insert(slot);
     svc_->playerJoined(slot);
+    trackPlayer(cfg_.self);   // (once: the host's own entity)
+    trackPlayer(slot);
     sendJoinState(slot);
     nextEvalMs_ = 0;
+}
+
+bool ActorSync::isPlayerRecord(NetId id) const { const Rec* r = find(id); return r && r->player; }
+
+void ActorSync::enablePlayerEntities(IActorPort* port, bool parts, bool stream) {
+    playerPort_ = port;
+    cfg_.playerParts = parts && port != nullptr;
+    cfg_.playerStream = stream && port != nullptr;
+}
+
+std::vector<PlayerId> ActorSync::playerSlots() const {
+    std::vector<PlayerId> v;
+    for (const auto& kv : recs_) if (kv.second.player) v.push_back(live::slotOfPlayerNet(kv.first));
+    return v;
+}
+
+StreamProfile ActorSync::profileFor(NetId id) const {
+    if (live::isPlayerNet(id)) return cfg_.playerProfile;
+    StreamProfile p;
+    p.interp = cfg_.interp;
+    p.nearMs = cfg_.interest.nearPeriodMs; p.farMs = cfg_.interest.farPeriodMs; p.outMs = 0;
+    return p;
+}
+
+bool ActorSync::partValue(NetId id, PartKind kind, Bytes& out) const {
+    const Rec* r = find(id);
+    if (!r || !partApplies(*r, partIndex(kind))) return false;
+    const Rec::Part& p = r->parts[partIndex(kind)];
+    if (!p.publishedAny) return false;
+    out = p.shared;
+    return true;
+}
+
+void ActorSync::trackPlayer(PlayerId slot) {
+    if (!cfg_.isHost || !svc_ || slot >= fnvcoop::kMaxSlots) return;
+    const NetId id = live::playerNet(slot);
+    if (find(id) && svc_->pinned(id)) return;
+    ActorMeta m;
+    m.netId = id; m.ref = live::playerFormRef(slot);
+    const bool fresh = !find(id);
+    Rec* r = ensureRec(m, slot == cfg_.self);
+    r->player = true;
+    if (fresh) { ++stats_.playersTracked; sendBody(MTrack{r->meta}, kNoPlayer); }
+    std::vector<OwnMsg> out;
+    if (!MUT(44)) svc_->pin(id, slot, static_cast<uint32_t>(now_), out);   // MUT 44 BAD: a player entity is owned like an NPC (the nearest player)
+    else svc_->track(id, presenceFor(*r), static_cast<uint32_t>(now_), out);
+    emitOwn(out);
+}
+
+void ActorSync::untrackPlayer(PlayerId slot) {
+    if (!cfg_.isHost || slot >= fnvcoop::kMaxSlots) return;
+    const NetId id = live::playerNet(slot);
+    if (!find(id)) return;
+    if (!MUT(45)) sendBody(MUntrack{id}, kNoPlayer);   // MUT 45 BAD: the clients keep a record of a player that left
+    ++stats_.playersUntracked;
+    dropRecord(id);
+}
+
+void ActorSync::onUntrack(const MUntrack& m) {
+    if (cfg_.isHost || !live::isPlayerNet(m.id)) return;   // only player records are untracked by message (NPCs leave through ownership)
+    if (!find(m.id)) return;
+    ++stats_.playersUntracked;
+    dropRecord(m.id);
+}
+
+void ActorSync::dropRecord(NetId id) {
+    Rec* r = find(id);
+    if (!r) return;
+    interest_.removeActor(id);
+    receiver_.forget(id);
+    receiverP_.forget(id);
+    if (live::isPlayerNet(id)) planner_.removePlace(live::slotOfPlayerNet(id));
+    if (!cfg_.isHost) view_.forget(id);
+    refToNet_.erase(r->meta.ref);
+    acked_.erase(id);
+    early_.erase(id);
+    recs_.erase(id);
 }
 
 // Everything a client needs to know the host's actors: every record, every pick, the whole ownership table. Sent when a client joins and
@@ -126,6 +226,12 @@ void ActorSync::sendJoinState(PlayerId slot) {
         for (size_t k = 0; k < kPartCount; ++k) {
             const Rec::Part& p = kv.second.parts[k];
             if (!p.publishedAny || kv.second.dead || MUT(37)) continue;   // MUT 37 BAD: a joining client never hears about earlier item use / weapon draws
+            if (!partApplies(kv.second, k)) continue;
+            if (kv.second.player) {
+                if (MUT(55)) continue;   // MUT 55 BAD: a late joiner hears nothing of the players' looks and equipment
+                if (kv.first == live::playerNet(slot)) continue;   // its own parts are its own
+                if (specFor(kv.second, k).audience == PartAudience::HostOnly && !MUT(52)) continue;   // MUT 52 BAD: host-only parts (facts, pack) are sent to a joining client
+            }
             MPart m;
             m.id = kv.first; m.epoch = view_.epochOf(kv.first); m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++partEventCounter_;
             m.kind = static_cast<PartKind>(k); m.value = p.shared;
@@ -143,9 +249,11 @@ void ActorSync::playerLeft(PlayerId slot) {
     players_[slot].present = false;
     interest_.removeObserver(slot);
     sender_.forgetPeer(slot);
+    senderP_.forgetPeer(slot);
     std::vector<OwnMsg> out;
     const std::vector<NetId> orphans = svc_->playerLeft(slot, static_cast<uint32_t>(now_), out);
     emitOwn(out);
+    untrackPlayer(slot);
     std::vector<OwnMsg> out2;
     for (NetId id : orphans) {
         Rec* r = find(id);
@@ -159,8 +267,10 @@ void ActorSync::hostConnected() {
     hostUp_ = true;
     for (auto& kv : recs_) {
         kv.second.reported = false;
-        if (kv.second.local) { sendBody(MTrack{kv.second.meta}, kHostPlayer); kv.second.reported = true; }
+        if (kv.second.local && !kv.second.player) { sendBody(MTrack{kv.second.meta}, kHostPlayer); kv.second.reported = true; }
     }
+    senderP_.forgetPeer(kHostPlayer);
+    if (!MUT(57)) resetOwnParts();   // MUT 57 BAD: the host (maybe a new one) never hears the local player's look and equipment again
     if (!MUT(23)) { ++stats_.resyncsSent; sendBody(MResync{0}, kHostPlayer); }   // "send me the whole table": the host's join burst may have been lost, or never sent
 }
 
@@ -172,6 +282,8 @@ void ActorSync::hostLost() {
     // one may survive. The cleared view is what keeps stale datagrams out until the new host's ownership table has arrived.
     for (auto& kv : recs_) { if (!MUT(22)) receiver_.forget(kv.first); else receiver_.clearAuthority(kv.first); }
     sender_.forgetPeer(kHostPlayer);
+    senderP_.forgetPeer(kHostPlayer);
+    receiverP_ = live::SnapshotReceiver(playerReceiverConfig());
     acked_.clear();
     for (auto& kv : recs_) {
         Rec& r = kv.second;
@@ -217,9 +329,14 @@ void ActorSync::onOwnApplied(const OwnMsg& m, ApplyResult res) {
     if (res != ApplyResult::Applied && !MUT(8)) return;   // idempotent: a replayed message changes nothing
     if (m.kind == OwnMsg::Ack) return;
     if (m.kind == OwnMsg::Transfer) { /* the committed owner does not change until the Commit */ }
-    else if (m.kind == OwnMsg::Release) receiver_.clearAuthority(m.netId);
-    else receiver_.setAuthority(m.netId, m.epoch, m.owner);   // epoch floor and (host) sender check for the snapshot stream
+    else {
+        live::SnapshotReceiver& rx = live::isPlayerNet(m.netId) ? receiverP_ : receiver_;   // a player's stream has its own receiver (StreamProfile)
+        if (m.kind == OwnMsg::Release) rx.clearAuthority(m.netId);
+        else rx.setAuthority(m.netId, m.epoch, m.owner);   // epoch floor and (host) sender check for the snapshot stream
+    }
     Rec* r = find(m.netId);
+    if (r && m.kind != OwnMsg::Transfer && m.kind != OwnMsg::Release) feedEarly(m.netId, static_cast<uint32_t>(now_));
+    if (r && r->player && !MUT(46)) { r->handingOff = false; r->finalApplied = false; r->awaitPrev = kNoPlayer; return; }   // MUT 46 BAD: the NPC takeover runs on a player
     if (m.kind == OwnMsg::Transfer) {
         if (!r) return;
         if (m.prevOwner == cfg_.self) {   // we give it away: AI off at once, then our last state, reliably
@@ -345,6 +462,7 @@ void ActorSync::ensureProtected(Rec& r) {
 }
 
 void ActorSync::syncToView(Rec& r) {
+    if (r.player) return;
     if (r.dead) {
         if (r.killPending && port_.loaded(r.meta.netId)) { r.killPending = false; port_.kill(r.meta.netId); }
         return;
@@ -390,7 +508,7 @@ void ActorSync::evalOwnership() {
     std::vector<OwnMsg> out;
     for (auto& kv : recs_) {
         const Rec& r = kv.second;
-        if (r.dead) continue;
+        if (r.dead || r.player) continue;
         svc_->track(r.meta.netId, presenceFor(r), static_cast<uint32_t>(now_), out);
     }
     emitOwn(out);
@@ -400,6 +518,7 @@ void ActorSync::evalOwnership() {
 
 bool ActorSync::track(const ActorMeta& meta) {
     if (meta.netId == 0) return false;
+    if (live::isPlayerNet(meta.netId) || live::isPlayerFormRef(meta.ref)) { ++stats_.playerRefused; return false; }   // the host's trackPlayer makes those
     auto byRef = refToNet_.find(meta.ref);
     auto byId = recs_.find(meta.netId);
     if ((byRef != refToNet_.end() && byRef->second != meta.netId) || (byId != recs_.end() && !(byId->second.meta.ref == meta.ref))) {
@@ -421,7 +540,7 @@ bool ActorSync::track(const ActorMeta& meta) {
 
 void ActorSync::untrack(NetId id) {
     Rec* r = find(id);
-    if (!r) return;
+    if (!r || r->player) return;
     dropStandIn(*r);
     if (svc_) {
         std::vector<OwnMsg> out;
@@ -435,9 +554,16 @@ void ActorSync::untrack(NetId id) {
     recs_.erase(id);
 }
 
+void ActorSync::onPlayerBound(NetId id) {
+    Rec* r = find(id);
+    if (!r || !r->player) return;
+    rewantParts(*r);   // a new puppet (a respawn after a save, a cell park, a template change) is dressed again from the last values known
+}
+
 void ActorSync::onActorLoaded(NetId id) {
     Rec* r = find(id);
     if (!r) return;
+    if (r->player) { rewantParts(*r); return; }
     dropStandIn(*r);   // the real ref replaces the clone
     r->local = true;
     rewantParts(*r);
@@ -602,7 +728,9 @@ void ActorSync::onLiveBatch(PlayerId from, const uint8_t* data, size_t size, uin
         if (res.verdict != live::Verdict::Accepted) { ++stats_.snapshotsDropped; continue; }
         const live::ActorSnapshot& s = res.snap;
         Rec* r = find(s.netId);
-        if (!r) { ++stats_.unknownActor; continue; }
+        if (!r) { ++stats_.unknownActor; holdEarly(from, s); continue; }
+        if (r->player) { ++stats_.snapshotsDropped; continue; }   // a player's stream still rides the avatar layer (S11 moves it here)
+        if (!view_.known(s.netId) && !MUT(47)) { holdEarly(from, s); continue; }   // MUT 47 BAD: a snapshot ahead of its ownership is lost
         UpdateVerdict v;
         if (MUT(7)) v = UpdateVerdict::Accept;   // BAD: no epoch / owner check (STR #906)
         else if (cfg_.isHost) v = view_.check(s.netId, from, s.ownerEpoch);
@@ -622,6 +750,7 @@ void ActorSync::onLiveBatch(PlayerId from, const uint8_t* data, size_t size, uin
 bool ActorSync::onSnapFull(const Envelope& e, const MSnapFull& m, uint32_t now) {
     Rec* r = find(m.s.netId);
     if (!r) { ++stats_.unknownActor; return false; }
+    if (r->player) { ++stats_.snapshotsDropped; return false; }
     UpdateVerdict v = MUT(7) ? UpdateVerdict::Accept : view_.check(m.s.netId, e.src, m.s.ownerEpoch);
     switch (v) {
         case UpdateVerdict::Accept: break;
@@ -704,7 +833,7 @@ void ActorSync::relayToClients(uint32_t now) {
     }
     for (auto& kv : recs_) {
         const Rec& r = kv.second;
-        if (r.dead) continue;
+        if (r.dead || r.player) continue;
         live::InterestActor a;
         a.id = kv.first;
         a.cell = r.haveLatest ? r.latest.cell : r.meta.cell;
@@ -726,7 +855,7 @@ void ActorSync::relayToClients(uint32_t now) {
         }
         for (NetId id : due) {
             Rec* r = find(id);
-            if (!r || r->dead || !r->haveLatest || r->latest.seq == 0) continue;
+            if (!r || r->dead || r->player || !r->haveLatest || r->latest.seq == 0) continue;
             if (view_.ownerOf(id) == slot) continue;   // never back to its owner
             sender_.queue(slot, r->latest, now);
         }
@@ -741,6 +870,170 @@ void ActorSync::flushPeers(uint32_t now) {
     }
 }
 
+// ---- the player stream (StreamProfile of a player, docs/entity-core-plan.md S10) -----------------------------------------------------------
+// The same snapshot kind, codec, ids and ownership checks as an NPC's, with the avatar layer's policy: the owner's port samples at 30 Hz, a client sends its stream
+// to the host at the highest tier any other player has for it, the host judges it (pinned owner, epoch), hands it to the port's playback buffer and relays it to
+// every other client the moment it arrives, through the rate planner (near / far / out tiers, a teleport passes at once, the last place is never lost behind the
+// rate). Its own sender and receiver pair keeps a player's snapshot out of the packets NPC bursts fill.
+
+// Who a client's own stream is relayed to by the host: every other player it knows of, the host included.
+std::vector<PlayerId> ActorSync::uplinkObservers() const {
+    std::vector<PlayerId> v;
+    for (const auto& kv : recs_) {
+        if (!kv.second.player) continue;
+        const PlayerId p = live::slotOfPlayerNet(kv.first);
+        if (p != cfg_.self) v.push_back(p);
+    }
+    if (std::find(v.begin(), v.end(), kHostPlayer) == v.end()) v.push_back(kHostPlayer);
+    return v;
+}
+
+// One snapshot of `subject` for `peer` through the planner. A snapshot that is not due yet is kept (latest wins) and released by releasePlayerPending when its turn
+// comes. `peer == kNoPlayer` is the uplink of the local stream, to the host.
+void ActorSync::queuePlayer(PlayerId peer, PlayerId subject, const live::ActorSnapshot& snap, uint32_t now) {
+    live::ActorSnapshot out;
+    bool go = false;
+    if (peer == kNoPlayer) {
+        const std::vector<PlayerId> obs = uplinkObservers();
+        if (MUT(60)) {   // MUT 60 BAD: the uplink follows the LOWEST tier of its observers (a near neighbour would see 5 or 1 Hz)
+            live::StreamTier lo = live::StreamTier::Near;
+            for (PlayerId o : obs) {
+                const live::StreamTier t = planner_.tierOf(o, subject);
+                if (static_cast<uint8_t>(t) < static_cast<uint8_t>(lo)) lo = t;
+            }
+            go = planner_.offerAtTier(live::StreamRatePlanner::kUplink, subject, lo, snap, now, out);
+        } else {
+            go = planner_.offerUplink(subject, obs, snap, now, out);
+        }
+    } else {
+        go = planner_.offer(peer, subject, snap, now, out);
+    }
+    if (!go) { ++stats_.playerRateKept; return; }
+    const PlayerId to = peer == kNoPlayer ? kHostPlayer : peer;
+    live::SnapshotSender& snd = MUT(58) ? sender_ : senderP_;   // MUT 58 BAD: a player's snapshot shares the NPC sender (and its packets)
+    if (snd.queue(to, out, now)) {
+        ++stats_.playerSent;
+        if (subject != cfg_.self) ++stats_.playerRelayed;
+    }
+}
+
+void ActorSync::samplePlayer(uint32_t now) {
+    const NetId id = live::playerNet(cfg_.self);
+    Rec* r = find(id);
+    if (!r || !r->player) return;
+    OwnerEpoch ep = 0;
+    if (!view_.mayPublish(id, ep)) return;   // the host has not granted the entity yet (or it is not ours)
+    IActorPort& pt = portFor(id);
+    if (!pt.loaded(id)) return;
+    const StreamProfile& prof = cfg_.playerProfile;
+    for (int i = 0; i < 4; ++i) {   // a slow frame may have produced more than one sample
+        live::ActorSnapshot s;
+        if (!pt.sample(id, s)) break;
+        s.netId = id; s.ownerEpoch = ep; s.seq = seqs_.next(id, ep);
+        if (!prof.tickFromPort || MUT(67)) s.tick = now;   // MUT 67 BAD: the sampler's tick is replaced by ActorSync's clock (the playback buffer's offset filter sees another clock)
+        ++stats_.playerSampled;
+        for (auto& v : s.avDeltas) r->av[v.av] = v.value;
+        r->latest = s; r->haveLatest = true; r->published = true;
+        r->lastEpoch = ep; r->lastSeq = s.seq;
+        planner_.setPlace(cfg_.self, s.cell, s.pos);
+        if (cfg_.isHost) {
+            for (PlayerId c : joined_) queuePlayer(c, cfg_.self, s, now);
+        } else if (hostUp_) {
+            queuePlayer(kNoPlayer, cfg_.self, s, now);   // the uplink: the host relays it onward at the tier each other player has
+        }
+    }
+}
+
+void ActorSync::releasePlayerPending(uint32_t now) {
+    if (MUT(61)) return;   // MUT 61 BAD: a snapshot held back by the rate is never released (a stopped player stays where the last sent one was)
+    std::vector<live::StreamRatePlanner::Release> rel;
+    planner_.poll(now, rel);
+    for (auto& r : rel) {
+        const PlayerId to = r.observer == live::StreamRatePlanner::kUplink ? kHostPlayer : r.observer;
+        if (!cfg_.isHost && (to != kHostPlayer || !hostUp_)) continue;   // a client only talks to the host, and only while the link is up
+        if (cfg_.isHost && !joined_.count(to)) continue;                  // the observer left meanwhile
+        if (senderP_.queue(to, r.snap, now)) {
+            ++stats_.playerSent; ++stats_.playerRateReleased;
+            if (r.subject != cfg_.self) ++stats_.playerRelayed;
+        }
+    }
+}
+
+void ActorSync::flushPlayerPeers(uint32_t now) {
+    for (PlayerId p : peers())
+        for (Bytes& d : senderP_.flush(p, now)) net_.send(p, false, wrapLive(SubBatchPlayer, d));
+    const uint32_t ackMs = cfg_.playerProfile.ackMs;
+    if (ackMs && now_ - lastAckP_ < ackMs) return;
+    lastAckP_ = now_;
+    for (PlayerId p : peers()) {
+        Bytes ack = receiverP_.takeAcks(p);
+        if (ack.empty()) continue;
+        ++stats_.playerAcksSent;
+        net_.send(p, false, wrapLive(SubAckPlayer, ack));
+    }
+}
+
+void ActorSync::onPlayerBatch(PlayerId from, const uint8_t* data, size_t size, uint32_t now) {
+    if (!cfg_.playerStream || !playerPort_) { ++stats_.playerRejected; return; }   // the avatar channel carries the stream in this session
+    for (const live::ReceivedSnapshot& res : receiverP_.receive(from, data, size)) {
+        if (res.verdict != live::Verdict::Accepted) { ++stats_.playerRejected; continue; }
+        if (!live::isPlayerNet(res.snap.netId)) { ++stats_.playerRejected; continue; }
+        Rec* r = find(res.snap.netId);
+        if (!r || !r->player || !view_.known(res.snap.netId)) {
+            // The receiver acknowledged this snapshot already, so a player who stands still would send nothing but a heartbeat for a second from now on:
+            // keep the newest per player and feed it the moment the record and its ownership are known (the avatar layer's early buffer, for every entity).
+            ++stats_.playerUnknown;
+            live::ActorSnapshot held = res.snap;
+            held.avDeltas = res.avAll;
+            holdEarly(from, held);
+            continue;
+        }
+        if (live::slotOfPlayerNet(res.snap.netId) == cfg_.self) { ++stats_.playerEchoed; continue; }   // our own stream echoed back
+        UpdateVerdict v = cfg_.isHost ? view_.check(res.snap.netId, from, res.snap.ownerEpoch) : view_.check(res.snap.netId, view_.ownerOf(res.snap.netId), res.snap.ownerEpoch);
+        if (cfg_.isHost && MUT(64)) v = UpdateVerdict::Accept;                         // MUT 64 BAD: a client may publish another player's stream
+        switch (v) {
+            case UpdateVerdict::Accept: break;
+            case UpdateVerdict::StaleEpoch: ++stats_.playerStale; continue;
+            case UpdateVerdict::FutureEpoch: ++stats_.futureEpoch; requestResync(*r); continue;
+            case UpdateVerdict::NotOwner: case UpdateVerdict::NotYetActive: ++stats_.playerForged; continue;
+            case UpdateVerdict::EchoOfSelf: ++stats_.playerEchoed; continue;
+            case UpdateVerdict::UnknownActor: ++stats_.playerUnknown; continue;
+        }
+        acceptPlayerSnapshot(*r, res, from, now);
+    }
+}
+
+void ActorSync::acceptPlayerSnapshot(Rec& r, const live::ReceivedSnapshot& res, PlayerId from, uint32_t now) {
+    (void)from;
+    const live::ActorSnapshot& s = res.snap;
+    if (live::serialLess(s.ownerEpoch, r.lastEpoch)) { ++stats_.playerStale; return; }
+    if (s.ownerEpoch == r.lastEpoch && r.lastSeq != 0 && live::serialLE(s.seq, r.lastSeq)) { ++stats_.playerStale; return; }
+    r.lastEpoch = s.ownerEpoch; r.lastSeq = s.seq;
+    for (const live::AvValue& v : res.avAll) r.av[v.av] = v.value;
+    r.latest = s; r.latest.avDeltas = res.avAll; r.haveLatest = true;
+    const PlayerId slot = live::slotOfPlayerNet(r.meta.netId);
+    if (!MUT(72)) planner_.setPlace(slot, s.cell, s.pos);   // MUT 72 BAD: the places the tiers are decided by are never learned
+    ++stats_.playerAccepted;
+    portFor(r.meta.netId).onSnapshot(r.meta.netId, s, now);   // the playback buffer is the port's (StreamProfile::interpInPort)
+    if (cfg_.isHost && cfg_.playerProfile.relayOnArrival) {   // the host relays at once, to every other client, at the tier it has for them
+        live::ActorSnapshot relayed = s;
+        relayed.avDeltas = res.avAll;
+        for (PlayerId c : joined_)
+            if (c != slot || MUT(69)) queuePlayer(c, slot, relayed, now);   // MUT 69 BAD: the relay goes back to the owner too
+    }
+}
+
+void ActorSync::applyEarlyPlayer(Rec& r, const Early& e, uint32_t now) {
+    const UpdateVerdict v = cfg_.isHost ? view_.check(r.meta.netId, e.from, e.s.ownerEpoch) : view_.check(r.meta.netId, view_.ownerOf(r.meta.netId), e.s.ownerEpoch);
+    if (v != UpdateVerdict::Accept || live::slotOfPlayerNet(r.meta.netId) == cfg_.self) { ++stats_.earlyDropped; return; }
+    live::ReceivedSnapshot res;
+    res.verdict = live::Verdict::Accepted;
+    res.snap = e.s;
+    res.avAll = e.s.avDeltas;   // held with every value known (onPlayerBatch)
+    acceptPlayerSnapshot(r, res, e.from, now);
+    ++stats_.earlyApplied;
+}
+
 // ---- receive / dispatch ----------------------------------------------------------------------------------------------------
 
 void ActorSync::receive(PlayerId from, const uint8_t* data, size_t size) {
@@ -749,6 +1042,8 @@ void ActorSync::receive(PlayerId from, const uint8_t* data, size_t size) {
     const uint8_t sub = data[1];
     if (sub == SubBatch) { onLiveBatch(from, data + 2, size - 2, now); return; }
     if (sub == SubAck) { if (!sender_.onAckPacket(from, data + 2, size - 2)) ++stats_.undecodable; return; }
+    if (sub == SubBatchPlayer) { onPlayerBatch(from, data + 2, size - 2, now); return; }
+    if (sub == SubAckPlayer) { if (!senderP_.onAckPacket(from, data + 2, size - 2)) ++stats_.undecodable; return; }
     if (sub != SubEnvelope) { ++stats_.undecodable; return; }
     Envelope e;
     if (!decodeEnvelope(data + 2, size - 2, e)) { ++stats_.undecodable; return; }
@@ -785,7 +1080,111 @@ void ActorSync::dispatch(PlayerId from, const Envelope& e, uint32_t now) {
         onAnimEvent(e, *m8);
     } else if (auto* m9 = std::get_if<MPart>(&e.body)) {
         onPart(e, *m9);
+    } else if (auto* m10 = std::get_if<MUntrack>(&e.body)) {
+        onUntrack(*m10);
+    } else if (auto* m11 = std::get_if<MEvent>(&e.body)) {
+        onEvent(e, *m11);
     }
+}
+
+// ---- the event bus (S6) ---------------------------------------------------------------------------------------------------------
+
+bool ActorSync::sendOwnerEvent(NetId id, uint8_t kind, const Bytes& payload) {
+    Rec* r = find(id);
+    if (!r || payload.size() > 4096) return false;
+    if (!MUT(80) && (view_.ownerOf(id) != cfg_.self || r->handingOff)) return false;   // MUT 80 BAD: anybody may send an owner event
+    MEvent m;
+    m.id = id; m.epoch = view_.epochOf(id); m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++busCounter_;
+    m.kind = kind; m.route = EventRoute::Owner; m.origin = cfg_.self; m.payload = payload;
+    busSeen_.insert(m.eventId);
+    ++stats_.eventsSent;
+    sendBody(m, kNoPlayer);
+    return true;
+}
+
+bool ActorSync::sendToOwner(NetId id, uint8_t kind, const Bytes& payload) {
+    if (!find(id) || payload.size() > 4096) return false;
+    MEvent m;
+    m.id = id; m.epoch = view_.epochOf(id); m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++busCounter_;
+    m.kind = kind; m.route = EventRoute::ToOwner; m.origin = cfg_.self; m.payload = payload;
+    ++stats_.eventsSent;
+    if (view_.ownerOf(id) == cfg_.self) { deliverEvent(m, cfg_.self); return true; }
+    if (cfg_.isHost) routeToOwner(m, cfg_.self);
+    else sendBody(m, kHostPlayer);
+    return true;
+}
+
+void ActorSync::deliverEvent(const MEvent& m, PlayerId from) {
+    if (!MUT(81) && !busSeen_.insert(m.eventId).second && m.route != EventRoute::Nack) { ++stats_.eventsDuplicate; return; }   // MUT 81 BAD: a duplicate is applied twice
+    while (busSeen_.size() > 8192) busSeen_.erase(busSeen_.begin());
+    ++stats_.eventsDelivered;
+    if (m.route == EventRoute::Nack) ++stats_.eventsNacked;
+    auto h = eventHandlers_.find(m.kind);
+    if (h == eventHandlers_.end() || !h->second) return;
+    EventIn in;
+    in.id = m.id; in.kind = m.kind; in.from = from; in.origin = m.origin; in.epoch = m.epoch; in.eventId = m.eventId;
+    in.toOwner = m.route == EventRoute::ToOwner; in.nack = m.route == EventRoute::Nack; in.payload = m.payload;
+    h->second(in);
+}
+
+// Host: hand a request to whoever owns the entity now. The sender's table may be behind (it asked an owner that gave the entity away), so
+// the host decides from its own service, re-routes a request that comes back, and answers the origin with a Nack when nobody owns it.
+void ActorSync::routeToOwner(MEvent m, PlayerId from) {
+    const PlayerId owner = svc_ ? svc_->ownerOf(m.id) : view_.ownerOf(m.id);
+    if (owner == cfg_.self) { deliverEvent(m, from); return; }
+    if (owner == kNoPlayer || owner >= fnvcoop::kMaxSlots || !joined_.count(owner)) {
+        if (MUT(82)) return;   // MUT 82 BAD: a request for an entity nobody owns vanishes without an answer
+        MEvent n = m;
+        n.route = EventRoute::Nack;
+        if (m.origin == cfg_.self) deliverEvent(n, cfg_.self);
+        else if (m.origin < fnvcoop::kMaxSlots && joined_.count(m.origin)) sendBody(n, m.origin);
+        return;
+    }
+    if (m.hops >= 3) { ++stats_.eventsHopLimit; return; }
+    if (from != cfg_.self && from != m.origin) { ++m.hops; ++stats_.eventsRerouted; }   // it came back from an old owner
+    sendBody(m, owner);
+}
+
+void ActorSync::onEvent(const Envelope& e, const MEvent& m) {
+    if (!find(m.id) && m.route != EventRoute::Nack) {   // an event can overtake the record it is about (late join): hold it briefly
+        if (MUT(84)) { ++stats_.eventsRejected; return; }   // MUT 84 BAD: an event ahead of its record is lost
+        if (heldEvents_.size() < 256) { heldEvents_.push_back(HeldEvent{e, now_}); ++stats_.eventsHeld; }
+        else ++stats_.eventsRejected;
+        return;
+    }
+    switch (m.route) {
+        case EventRoute::Owner:
+            if (cfg_.isHost) {
+                const UpdateVerdict v = view_.check(m.id, e.src, m.epoch);
+                if (v != UpdateVerdict::Accept && !MUT(85)) { ++stats_.eventsRejected; return; }   // MUT 85 BAD: a non-owner or a stale owner is believed
+                relay(e, e.src);
+            }
+            deliverEvent(m, e.src);
+            return;
+        case EventRoute::ToOwner:
+            if (m.origin >= fnvcoop::kMaxSlots) { ++stats_.spoofed; return; }   // (an old owner may hand back someone else's request: origin != src)
+            if (cfg_.isHost) { routeToOwner(m, e.src); return; }
+            if (view_.ownerOf(m.id) == cfg_.self) { deliverEvent(m, e.src); return; }
+            if (MUT(83)) { ++stats_.eventsRejected; return; }   // MUT 83 BAD: a request that reached a past owner is dropped instead of re-routed
+            sendBody(m, kHostPlayer);   // we gave it away meanwhile: back to the host, which knows the new owner
+            return;
+        case EventRoute::Nack:
+            if (m.origin == cfg_.self) deliverEvent(m, e.src);
+            return;
+    }
+}
+
+void ActorSync::retryHeldEvents() {
+    if (heldEvents_.empty()) return;
+    std::vector<HeldEvent> keep;
+    for (HeldEvent& h : heldEvents_) {
+        const MEvent* m = std::get_if<MEvent>(&h.e.body);
+        if (!m) continue;
+        if (find(m->id) && view_.known(m->id)) { onEvent(h.e, *m); continue; }
+        if (now_ > h.at + 2000) { ++stats_.eventsExpired; continue; }
+        keep.push_back(std::move(h));
+    }
+    heldEvents_.swap(keep);
 }
 
 // ---- enemy-anim events (opaque payload, owner to everyone, reliable) -------------------------------------------------------------
@@ -804,7 +1203,7 @@ bool ActorSync::sendAnimEvent(NetId id, const Bytes& payload) {
 }
 
 void ActorSync::onAnimEvent(const Envelope& e, const MAnimEvent& m) {
-    if (!find(m.id)) { ++stats_.animEventsRejected; return; }
+    if (!find(m.id) || find(m.id)->player) { ++stats_.animEventsRejected; return; }
     if (cfg_.isHost) {
         const UpdateVerdict v = view_.check(m.id, e.src, m.epoch);
         if (v != UpdateVerdict::Accept && !MUT(31)) { ++stats_.animEventsRejected; return; }   // MUT 31 BAD: a non-owner or stale-epoch event is relayed
@@ -830,7 +1229,13 @@ void ActorSync::onAnimEvent(const Envelope& e, const MAnimEvent& m) {
 // applied twice) is sent as the new truth. The first read of an actor is a silent baseline: both worlds start from the same save.
 
 bool ActorSync::readPart(Rec& r, PartKind k, Bytes& out) {
-    return port_.readPart(r.meta.netId, k, out) && out.size() <= cfg_.parts[partIndex(k)].maxBytes;
+    return portFor(r.meta.netId).readPart(r.meta.netId, k, out) && out.size() <= specFor(r, partIndex(k)).maxBytes;
+}
+
+// A player entity's calls go to the player port, everything else to the engine port. Without a player port a player record has no engine at all.
+IActorPort& ActorSync::portFor(NetId id) {
+    if (playerPort_ && live::isPlayerNet(id) && !MUT(49)) return *playerPort_;   // MUT 49 BAD: a call for a player id reaches the NPC port
+    return port_;
 }
 
 bool ActorSync::publishPart(Rec& r, PartKind k, const Bytes& cur) {
@@ -839,31 +1244,44 @@ bool ActorSync::publishPart(Rec& r, PartKind k, const Bytes& cur) {
     if (!view_.mayPublish(id, ep)) return false;
     MPart m;
     m.id = id; m.epoch = ep; m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++partEventCounter_;
+    if (r.player && !MUT(73)) m.eventId |= static_cast<uint64_t>(ep & 0xFFFFu) << 32;   // a player who comes back runs a new ActorSync whose counter starts again: the epoch (it rises with every join) keeps its ids apart from the old session's, which the host still remembers (MUT 73 BAD: they collide and the rejoined player's parts are dropped as duplicates)
     m.kind = k; m.value = cur;
     partEvents_.insert(m.eventId);
     Rec::Part& p = r.parts[partIndex(k)];
     p.shared = cur; p.publishedAny = true; p.pendingValid = false;
     ++stats_.parts[partIndex(k)].published;
+    if (specFor(r, partIndex(k)).audience == PartAudience::HostOnly && !MUT(51)) {
+        if (!cfg_.isHost) sendBody(m, kHostPlayer);   // a guest's facts and pack go to the host only; the host keeps its own to itself
+        return true;
+    }
     if (!MUT(33)) sendBody(m, kNoPlayer);   // MUT 33 BAD: the owner keeps its changes to itself
     return true;
 }
 
 void ActorSync::pollParts(Rec& r) {
     const NetId id = r.meta.netId;
-    if (r.dead || !r.active || r.handingOff || !port_.loaded(id)) return;
+    if (r.dead || !(r.active || r.player) || r.handingOff || !portFor(id).loaded(id)) return;
+    uint32_t& budget = r.player ? playerPartBudget_ : partBudget_;
     for (size_t k = 0; k < kPartCount; ++k) {
+        if (!partApplies(r, k)) continue;
         Rec::Part& p = r.parts[k];
-        const PartSpec& spec = cfg_.parts[k];
-        if (now_ < p.nextMs || partBudget_ == 0) continue;
-        --partBudget_;
+        const PartSpec& spec = specFor(r, k);
+        if (now_ < p.nextMs || budget == 0) continue;
+        --budget;
         p.nextMs = now_ + spec.pollMs;
         Bytes cur;
         if (!readPart(r, static_cast<PartKind>(k), cur)) continue;
-        if (!p.base) { p.shared = cur; p.base = true; p.pendingValid = false; continue; }
-        if (cur == p.shared) { p.pendingValid = false; continue; }
+        const bool silent = spec.silentBaseline || (MUT(50) && r.player);   // MUT 50 BAD: a player's first read is a silent baseline (every puppet stays a naked template)
+        if (!p.base) {
+            p.base = true; p.pendingValid = false;
+            if (silent) { p.shared = cur; continue; }
+            p.shared.clear();   // not silent: the first read is a change from "nothing"
+        }
+        const bool first = !silent && !p.publishedAny;
+        if (cur == p.shared && !first) { p.pendingValid = false; continue; }
         if (!p.pendingValid || cur != p.pending) {
             p.pending = cur; p.pendingValid = true; p.pendingAt = now_;
-            if (!MUT(35)) continue;   // MUT 35 BAD: no settle time, the first sight of a change is published
+            if (!MUT(35) && spec.settleMs > 0) continue;   // MUT 35 BAD: no settle time, the first sight of a change is published
         }
         if (MUT(35) || now_ >= p.pendingAt + spec.settleMs) publishPart(r, static_cast<PartKind>(k), cur);
     }
@@ -874,7 +1292,7 @@ void ActorSync::flushParts(Rec& r) {
     if (!port_.loaded(id) || MUT(38)) return;   // MUT 38 BAD: a value still inside its settle time is lost at a handoff or a death
     for (size_t k = 0; k < kPartCount; ++k) {
         Rec::Part& p = r.parts[k];
-        if (!p.base) continue;
+        if (!p.base || !partApplies(r, k)) continue;
         Bytes cur;
         if (!readPart(r, static_cast<PartKind>(k), cur)) continue;
         if (cur != p.shared) publishPart(r, static_cast<PartKind>(k), cur);
@@ -885,22 +1303,39 @@ void ActorSync::flushParts(Rec& r) {
 // form says, not as the owner's AI left it. The parts that say so (PartSpec::reapplyOnLoad) are written again from the last value known.
 void ActorSync::rewantParts(Rec& r) {
     if (MUT(39)) return;   // MUT 39 BAD: a clone or a rebuilt NPC keeps the engine's base outfit (it draws nothing)
+    if (MUT(54) && r.player) return;   // MUT 54 BAD: a puppet that was made again keeps the "already applied" memory (it stays a naked template)
     for (size_t k = 0; k < kPartCount; ++k) {
         Rec::Part& p = r.parts[k];
-        if (cfg_.parts[k].reapplyOnLoad && p.publishedAny && !p.wantValid) { p.want = p.shared; p.wantValid = true; p.tries = 0; p.nextMs = 0; }
+        if (!partApplies(r, k)) continue;
+        const PartSpec& spec = specFor(r, k);
+        if (spec.reapplyOnLoad && spec.audience == PartAudience::All && p.publishedAny && !p.wantValid) { p.want = p.shared; p.wantValid = true; p.tries = 0; p.nextMs = 0; }
     }
 }
 
 void ActorSync::applyWantedParts(Rec& r) {
     const NetId id = r.meta.netId;
-    if (r.dead || !port_.loaded(id)) return;
+    if (r.dead) return;
+    IActorPort& pt = portFor(id);
+    if (!pt.loaded(id)) return;
     for (size_t k = 0; k < kPartCount; ++k) {
         Rec::Part& p = r.parts[k];
         if (!p.wantValid || now_ < p.nextMs) continue;
-        p.nextMs = now_ + cfg_.parts[k].pollMs;
-        if (port_.writePart(id, static_cast<PartKind>(k), p.want)) { p.wantValid = false; p.tries = 0; ++stats_.parts[k].applied; continue; }
+        p.nextMs = now_ + specFor(r, k).pollMs;
+        if (pt.writePart(id, static_cast<PartKind>(k), p.want)) { p.wantValid = false; p.tries = 0; ++stats_.parts[k].applied; continue; }
         ++stats_.parts[k].applyFailed;
         if (++p.tries >= 5) { p.wantValid = false; p.tries = 0; }   // never hammer an actor the engine refuses
+    }
+}
+
+// The local player's own parts are read and published again: a new host (or a host that never heard of this client) has none of them.
+void ActorSync::resetOwnParts() {
+    Rec* r = find(live::playerNet(cfg_.self));
+    if (!r || !r->player) return;
+    for (size_t k = 0; k < kPartCount; ++k) {
+        Rec::Part& p = r->parts[k];
+        if (!p.base && !p.publishedAny) continue;
+        p.base = false; p.publishedAny = false; p.pendingValid = false; p.nextMs = 0;
+        ++stats_.playerPartsRepublished;
     }
 }
 
@@ -908,10 +1343,16 @@ void ActorSync::onPart(const Envelope& e, const MPart& m) {
     const size_t k = partIndex(m.kind);
     Rec* r = find(m.id);
     if (!r) { ++stats_.parts[k].rejected; return; }
+    if (!partApplies(*r, k) && !(MUT(56) && !r->player)) { ++stats_.parts[k].rejected; return; }   // MUT 56 BAD: an NPC record takes a player part (a look, a pack)
+    if (r->player && !cfg_.playerParts) { ++stats_.parts[k].rejected; return; }                  // the avatar channel carries these in this session
+    const PartSpec& spec = specFor(*r, k);
     if (cfg_.isHost) {
         const UpdateVerdict v = view_.check(m.id, e.src, m.epoch);
-        if (v != UpdateVerdict::Accept && !MUT(36)) { ++stats_.parts[k].rejected; return; }   // MUT 36 BAD: a non-owner's value is believed and relayed
-        relay(e, e.src);
+        if (v != UpdateVerdict::Accept && !MUT(36) && !(MUT(53) && r->player)) { ++stats_.parts[k].rejected; return; }   // MUT 36 BAD: a non-owner's value is believed and relayed; 53 BAD: ... for a player's parts
+        if (spec.audience == PartAudience::All || MUT(51)) relay(e, e.src);   // MUT 51 BAD: the host relays a guest's facts and pack to the other guests
+    } else if (spec.audience == PartAudience::HostOnly) {
+        ++stats_.parts[k].rejected;   // only the host hears these
+        return;
     }
     if (!partEvents_.insert(m.eventId).second) { ++stats_.parts[k].duplicate; return; }
     while (partEvents_.size() > 4096) partEvents_.erase(partEvents_.begin());
@@ -926,6 +1367,11 @@ void ActorSync::onPart(const Envelope& e, const MPart& m) {
 
 void ActorSync::onTrack(PlayerId from, const MTrack& m) {
     if (m.meta.netId == 0) return;
+    const bool playerMeta = live::isPlayerNet(m.meta.netId) || live::isPlayerFormRef(m.meta.ref);
+    if (playerMeta && (cfg_.isHost || !live::isPlayerNet(m.meta.netId) || !(m.meta.ref == live::playerFormRef(live::slotOfPlayerNet(m.meta.netId))))) {
+        ++stats_.playerRefused;   // a client claiming a player entity, or a player meta that does not name itself
+        return;
+    }
     auto byRef = refToNet_.find(m.meta.ref);
     auto byId = recs_.find(m.meta.netId);
     if ((byRef != refToNet_.end() && byRef->second != m.meta.netId) || (byId != recs_.end() && !(byId->second.meta.ref == m.meta.ref))) {
@@ -933,8 +1379,10 @@ void ActorSync::onTrack(PlayerId from, const MTrack& m) {
         return;
     }
     const bool fresh = byId == recs_.end();
-    Rec* r = ensureRec(m.meta, false);
+    Rec* r = ensureRec(m.meta, playerMeta && live::slotOfPlayerNet(m.meta.netId) == cfg_.self);
     if (fresh) { r->latest.cell = m.meta.cell; r->latest.pos = m.meta.pos; }
+    if (fresh && playerMeta) ++stats_.playersTracked;
+    if (fresh) feedEarly(m.meta.netId, static_cast<uint32_t>(now_));
     if (cfg_.isHost && fresh) {
         Envelope e;
         e.src = from; e.dest = kNoPlayer; e.body = m;
@@ -978,7 +1426,7 @@ void ActorSync::applyDeath(Rec& r, bool engineKills) {
 
 bool ActorSync::onLocalDeath(NetId id) {
     Rec* r = find(id);
-    if (!r || r->dead) return true;
+    if (!r || r->dead || r->player) return true;
     if (r->meta.named && !r->killAuthorized && !MUT(10)) { ++stats_.namedDeathsBlocked; return false; }   // story NPCs die only by KillActor
     if (!r->killAuthorized && !ownedByMe(*r) && !MUT(10)) return false;   // only the owner declares death
     MDeath m;
@@ -993,7 +1441,7 @@ bool ActorSync::onLocalDeath(NetId id) {
 
 void ActorSync::onDeath(const Envelope& e, const MDeath& m) {
     Rec* r = find(m.id);
-    if (!r) return;
+    if (!r || r->player) return;
     if (r->meta.named && !r->killAuthorized && !MUT(9)) { ++stats_.namedDeathsBlocked; return; }   // a named NPC's death is not an owner's call
     if (cfg_.isHost) {
         const UpdateVerdict v = view_.check(m.id, e.src, m.epoch);
@@ -1036,6 +1484,7 @@ void ActorSync::onEffect(const fnvcoop::Effect& e) {
         const PlayerId recruiter = c->active ? c->owner : kNoPlayer;
         NetId id = 0;
         if (!netIdOf(c->npc, id)) { pendingRecruiter_[c->npc] = recruiter; return; }
+        if (isPlayerRecord(id)) return;
         std::vector<OwnMsg> out;
         svc_->setRecruiter(id, recruiter, presenceFor(*find(id)), static_cast<uint32_t>(now_), out);
         ++stats_.recruiterChanges;
@@ -1092,12 +1541,15 @@ void ActorSync::tick(uint64_t nowMs) {
         svc_->tick(now, out);
         emitOwn(out);
         if (now_ >= nextEvalMs_) { nextEvalMs_ = now_ + cfg_.ownEvalMs; evalOwnership(); }
+        trackPlayer(cfg_.self);   // a solo host too (cheap when it is pinned already)
     }
     partBudget_ = 4 * static_cast<uint32_t>(kPartCount);
+    playerPartBudget_ = 2 * static_cast<uint32_t>(kPartCount);
     avAuditBudget_ = 4;
     for (auto& kv : recs_) {
         Rec& r = kv.second;
         if (r.dead) continue;
+        if (r.player && !MUT(48)) { tickPlayerRec(r); continue; }   // MUT 48 BAD: the NPC tick (AI, takeover, stand-ins, parts) runs on a player record
         const NetId id = kv.first;
         const bool owner = ownedByMe(r);
         if (r.awaitPrev != kNoPlayer && (now_ >= r.awaitSince + cfg_.holdAiMaxMs || !playerHere(r.awaitPrev))) releaseAiHold(r);   // safety net / the old owner is gone
@@ -1107,8 +1559,48 @@ void ActorSync::tick(uint64_t nowMs) {
         if (owner) pollParts(r);
         else applyWantedParts(r);
     }
+    retryHeldEvents();
+    for (auto it = early_.begin(); it != early_.end();) {   // nothing claimed it: an actor that never reached this machine
+        if (now_ > it->second.at + 5000) { ++stats_.earlyDropped; it = early_.erase(it); } else ++it;
+    }
     relayToClients(now);
     flushPeers(now);
+    if (cfg_.playerStream && playerPort_) {   // the player stream: its own sender, receiver and planner
+        samplePlayer(now);
+        releasePlayerPending(now);
+        flushPlayerPeers(now);
+    }
+}
+
+// A player record has no AI, no takeover, no stand-in: its whole tick is its parts. The owner (the pinned machine) reads and publishes them; the others write
+// what they received onto the puppet (or, for the host-only parts, keep it for the party conditions).
+void ActorSync::tickPlayerRec(Rec& r) {
+    if (!cfg_.playerParts || !playerPort_) return;
+    if (ownedByMe(r)) pollParts(r);
+    else applyWantedParts(r);
+}
+
+void ActorSync::holdEarly(PlayerId from, const live::ActorSnapshot& s) {
+    if (MUT(47)) return;
+    auto it = early_.find(s.netId);
+    if (it != early_.end() && !live::serialLess(it->second.s.ownerEpoch, s.ownerEpoch) &&
+        !(it->second.s.ownerEpoch == s.ownerEpoch && live::serialLess(it->second.s.seq, s.seq))) return;   // keep the newest
+    if (it == early_.end() && early_.size() >= 512) { ++stats_.earlyDropped; return; }
+    if (it == early_.end()) ++stats_.earlyHeld;
+    early_[s.netId] = Early{from, s, now_};
+}
+
+void ActorSync::feedEarly(NetId id, uint32_t now) {
+    auto it = early_.find(id);
+    if (it == early_.end()) return;
+    Rec* r = find(id);
+    if (!r || !view_.known(id)) return;   // still waiting for the record or its ownership
+    const Early e = it->second;
+    early_.erase(it);
+    if (r->player) { applyEarlyPlayer(*r, e, now); return; }
+    const UpdateVerdict v = cfg_.isHost ? view_.check(id, e.from, e.s.ownerEpoch) : view_.check(id, view_.ownerOf(id), e.s.ownerEpoch);
+    if (v != UpdateVerdict::Accept) { ++stats_.earlyDropped; return; }
+    if (acceptSnapshot(*r, e.s, now)) ++stats_.earlyApplied;
 }
 
 // ---- queries ---------------------------------------------------------------------------------------------------------------

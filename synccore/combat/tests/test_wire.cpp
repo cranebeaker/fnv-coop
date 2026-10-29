@@ -179,3 +179,22 @@ TEST(wire, the_node_resets_everything_for_a_new_world) {
     n.setRules(r);
     CHECK(n.hits.rules().maxDamage == 5);
 }
+
+TEST(wire, an_entity_is_its_net_id_on_the_wire) {   // S7: players are playerNet(slot), the reserved part of 0xFE.. is refused
+    for (PlayerId s = 0; s < kMaxSlots; ++s) {
+        CHECK(Entity::fromNet(Entity::player(s).netId()) == Entity::player(s));
+        CHECK(Entity::player(s).slot() == s && Entity::player(s).netId() == fnvcoop::live::playerNet(s));
+    }
+    CHECK(Entity::fromNet(0).none() && Entity::fromNet(0x0012ABCD) == Entity::actor(0x0012ABCD) && Entity::fromNet(0xFF000010u) == Entity::actor(0xFF000010u));
+    CHECK(Entity::actor(77).slot() == kNoPlayer);
+    for (const uint32_t bad : {0xFE000100u, 0xFE001234u, 0xFE000009u}) {
+        Archive w = Archive::writer();
+        uint32_t n = bad;
+        w.varu32(n);
+        std::vector<uint8_t> b = w.finish();
+        Archive r = Archive::reader(b.data(), b.size());
+        Entity e;
+        io(r, e);
+        CHECK_MSG(!r.ok(), std::to_string(bad));
+    }
+}

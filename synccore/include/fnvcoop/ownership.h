@@ -12,6 +12,10 @@
 //   Transfer(e+1, to) -> old owner keeps publishing at epoch e -> new owner applies the last state, sends Ack
 //   -> host sends Commit(e+1) -> new owner restores native AI and publishes at e+1; old owner stops.
 // If the Ack does not arrive in time the host commits anyway (new owner connected) or grants the actor back.
+//
+// Player entities (docs/entity-core-plan.md S2) are PINNED: owned by their own slot from the first Grant on, never evaluated, never
+// handed off, released and forgotten when the player leaves. Their epoch keeps rising across leave and rejoin (an epoch floor), so a
+// datagram of the old session can never pass as the new one.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -72,6 +76,9 @@ struct OwnershipFaults {
     bool followerIgnored = false;   // companions are owned by whoever is nearest
     bool acceptNonOwner = false;    // views accept updates from any player
     bool commitToGoneOwner = false; // commitNothingToHandOver also commits to a new owner that is not connected any more
+    bool pinnedCanMove = false;     // evaluate / setRecruiter treat a pinned player entity like an NPC (it is handed to the nearest player)
+    bool noEpochFloor = false;      // a rejoin pins the player at epoch 1 again (an old session's datagrams pass)
+    bool leaveKeepsPinned = false;  // playerLeft keeps the pinned record (the gone player still owns its entity)
 };
 inline OwnershipFaults& ownershipFaults() { static OwnershipFaults f; return f; }
 struct OwnershipFaultScope {
@@ -82,6 +89,7 @@ struct OwnershipFaultScope {
 
 struct OwnershipStats {
     uint64_t grants = 0, transfers = 0, commits = 0, releases = 0, forcedCommits = 0, abortedHandoffs = 0, immediateCommits = 0;
+    uint64_t pins = 0, pinsReleased = 0, pinnedSkips = 0;
 };
 
 // The pure owner-choice rule (exposed for tests). `current` is kNoPlayer if unowned; `held` is true while
@@ -104,6 +112,11 @@ public:
 
     // Re-decides one actor from fresh presence data. Idempotent: no change -> nothing appended.
     void evaluate(ActorNetId id, const std::vector<Presence>& who, uint32_t nowMs, Out& out);
+
+    // A player entity: owned by `slot` from now on at (floor + 1), Grant appended. Never evaluated, never transferred; playerLeft(slot)
+    // releases and removes it and keeps its epoch as the floor of the next pin. Pinning an id that is already pinned to `slot` does nothing.
+    void pin(ActorNetId id, PlayerId slot, uint32_t nowMs, Out& out);
+    bool pinned(ActorNetId id) const;
 
     // Follower exception: a companion is owned by its recruiter wherever it goes (kNoPlayer clears it).
     void setRecruiter(ActorNetId id, PlayerId recruiter, const std::vector<Presence>& who, uint32_t nowMs, Out& out);
@@ -135,6 +148,7 @@ private:
         OwnerEpoch epoch = 0;
         uint32_t changedAtMs = 0;
         PlayerId recruiter = kNoPlayer;
+        bool pinned = false;   // a player entity
         // pending handoff
         bool pending = false;
         PlayerId to = kNoPlayer;
@@ -152,6 +166,7 @@ private:
     OwnershipStats stats_;
     uint8_t connected_ = 0;
     std::map<ActorNetId, Rec> actors_;
+    std::map<ActorNetId, OwnerEpoch> floor_;   // the last epoch of a released pinned record
 };
 
 enum class ApplyResult : uint8_t { Applied, Duplicate, Stale };

@@ -145,6 +145,7 @@ offered, 146 claimed sender believed, 147 no host sweep, 148 no audit, 149 host 
 164 compared with today's shared contents instead of the last matched engine copy, 165 an eager write over a moved engine copy, 166 reverted items not counted, 167 a refused menu the engine cannot close keeps the player's takes.
 Placed-item pickups (2026-10-27, the lab's "loose item 1 is gone on both copies" failure): synccore/loot 170 the gone message does not name the placed ref, 171 the winner's own repeated claim is a loss,
 172 a pickup seen twice is claimed twice, 173 the remove action does not carry the placed ref; plugin/loot 174 the engine is asked by net id only, 175 the claim does not name the ref (171 is guarded by the core suite only).
+Scarcity hook (Co-op balanced, docs/rebalance.md 2b; `test_scarcity.cpp`): 1490 the hook is never asked, 1491 it runs again for a container it already thinned, 1492 the engine copy keeps the full list, 1493 the shared list is what the hook wanted instead of what the engine holds, 1494 a new session keeps the "already thinned" memory.
 Each must make its suite fail; `run_tests.cmd` checks that.
 
 ## In-game proof (for the helper)

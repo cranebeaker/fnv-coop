@@ -19,7 +19,9 @@ function(nvlive_flags tgt)
   target_compile_definitions(${tgt} PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOMINMAX)
 endfunction()
 
-set(NVLIVE_SRC ${NVLIVE_DIR}/live_switches.cpp ${NVLIVE_DIR}/live_hub.cpp ${NVLIVE_DIR}/avatar_wire.cpp ${NVLIVE_DIR}/avatar_net.cpp)
+# look_codec.cpp (plugin/avatar) holds the field codecs of Look / Facts / Pack and their twins: compiled here, in both flavours, next to the wire code that uses it
+set(NVLIVE_SRC ${NVLIVE_DIR}/live_switches.cpp ${NVLIVE_DIR}/live_hub.cpp ${NVLIVE_DIR}/avatar_wire.cpp ${NVLIVE_DIR}/avatar_net.cpp ${NVLIVE_DIR}/player_port.cpp
+  ${NVLIVE_REPO}/plugin/avatar/look_codec.cpp)
 if(EXISTS ${NVLIVE_REPO}/plugin/actors/engine/actor_engine_api.h)   # [actors] ini -> actors::engine::Config
   list(APPEND NVLIVE_SRC ${NVLIVE_DIR}/live_actors_cfg.cpp)
 endif()
@@ -28,6 +30,9 @@ foreach(sfx "" _rt)
   target_include_directories(nvcoop_live${sfx} PUBLIC ${NVLIVE_DIR} ${NVLIVE_REPO}/tools/mut ${NVLIVE_REPO}/plugin)
   # the PRODUCTION avatar engine library in both variants: its own runtime twins (FNVCOOP_MUT numbers 1..70) must not fire in our test binary
   target_link_libraries(nvcoop_live${sfx} PUBLIC nvcoop_avatar_engine nvcoop_actors_live)
+  if(TARGET nvcoop_actors_core)   # PlayerPort is an IActorPort (the part codecs and the default part calls live in plugin/actors/state_parts.cpp)
+    target_link_libraries(nvcoop_live${sfx} PUBLIC nvcoop_actors_core)
+  endif()
   nvlive_flags(nvcoop_live${sfx})
   if(sfx STREQUAL "_rt")
     target_compile_definitions(nvcoop_live${sfx} PUBLIC FNVCOOP_RUNTIME_MUT)

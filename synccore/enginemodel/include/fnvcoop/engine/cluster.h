@@ -103,6 +103,8 @@ private:
     IEngineObserver* user_ = nullptr;
     std::unique_ptr<Oracle> oracle_;
     std::vector<Violation> violations_;
+    std::map<uint8_t, OwnerEpoch> playerEpochTop_;   // S13a: the highest epoch the host held for each slot's entity, in this host session
+    uint64_t playerEpochSess_ = 0;
     size_t reported_ = 0;
     std::map<FormRef, int64_t> baseline_;
     uint64_t lastBusyMs_ = 0;

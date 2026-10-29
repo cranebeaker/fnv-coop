@@ -8,9 +8,15 @@
 //                   other clients, sends the Roster (who exists) and relays Look messages (appearance + equipment).
 //   look          : appearance and what the player wears travel reliably when they change, and again to every newcomer / returning link.
 //
+// Under [entities] (docs/entity-core-plan.md, live_switches.h) two parts of this move to the actor module's player entities and AvatarNet becomes a shell around the
+// avatar layer: parts=unified stops sending Roster, Look, Facts, Pack and Resync (the roster is the set of player records, the rest are parts of those records that
+// ActorSync replicates; PlayerPort, below, is how it reads the local player's and writes a puppet's), and stream=unified hands the local snapshots to ActorSync
+// and takes remote ones from it. Every decoder keeps working in every mode. The modes are read when the session starts.
+//
 // Game-free: the engine side is behind IAvatarSide (real: RuntimeSide over plugin/avatar/engine AvatarRuntime; tests: the same runtime on a
 // FakeGameBackend). Unit-tested with a loopback of 3 machines (tests/test_live_wiring.cpp).
 #pragma once
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -21,13 +27,31 @@
 #include "avatar_side.h"
 #include "avatar_types.h"
 #include "avatar_wire.h"
+#include "player_port.h"
 #include "stream_rate.h"
 #include "live/live.h"
 #include "live_hub.h"
+#include "actors/state_parts.h"
 
 namespace nvcoop::livewire {
 
+// Which players exist, as the actor module's player records say (parts=unified: the roster). The host's records follow its joined clients; a client's follow the host's.
+class IEntityDirectory {
+public:
+    virtual ~IEntityDirectory() = default;
+    virtual std::vector<PlayerId> playerSlots() const = 0;
+};
+
+// Runtime form id <-> FormRef for the Equipment and WeaponState parts (they name items by FormRef, so they do not depend on the load order). The default maps a
+// runtime id to FormRef("@rt", id): lossless and game-free, which is what the handshake's equal mod list makes correct; the live glue installs the load-order resolver.
+struct FormCodec {
+    std::function<fnvcoop::FormRef(nvcoop::avatar::FormId)> toRef;
+    std::function<nvcoop::avatar::FormId(const fnvcoop::FormRef&)> fromRef;   // 0 = unknown here
+};
+
 struct AvatarNetOptions {
+    bool partsUnified = false;   // [entities] parts=unified: no Roster / Look / Facts / Pack / Resync is sent; the player parts carry them (always decoded)
+    bool streamUnified = false;  // [entities] stream=unified: the local snapshots go to ActorSync (PlayerPort::sample), remote ones come from it (PlayerPort::onSnapshot)
     uint32_t ackIntervalMs = 50;
     uint32_t lookCheckMs = 500;            // how often the local look is compared with the one last sent
     uint32_t factsCheckMs = 1000;          // how often the local player's facts (level, sit state, actions, regions) are read; a guest sends them to the host only when they changed
@@ -50,7 +74,7 @@ struct AvatarNetStats {
     uint64_t packsSent = 0, packsApplied = 0, packsRejected = 0;
 };
 
-class AvatarNet : public ILiveService {
+class AvatarNet : public ILiveService, public IPlayerEndpoint {
 public:
     AvatarNet(IAvatarSide& side, AvatarNetOptions opt = {}, std::function<uint32_t()> epochSeed = nullptr);
     ~AvatarNet() override;
@@ -63,6 +87,20 @@ public:
     // Race / sex of the local player (for the template NPC of its puppets on the other machines). Optional; without it the default template.
     // Without it the look is read through IAvatarSide::readLocalAppearance (the game).
     void setLocalAppearanceReader(std::function<bool(nvcoop::avatar::Appearance&)> f) { localAppearance_ = std::move(f); }
+    // parts=unified: where the roster comes from, how items are named in the parts, and the port ActorSync routes player calls to.
+    void setEntityDirectory(const IEntityDirectory* d) { entities_ = d; }
+    void setFormCodec(FormCodec c) { formCodec_ = std::move(c); }
+    PlayerPort& playerPort() { return port_; }
+    bool partsUnified() const { return opt_.partsUnified; }
+    bool streamUnified() const { return opt_.streamUnified; }
+
+    // ---- IPlayerEndpoint (PlayerPort) ----
+    PlayerId playerSelf() const override { return self_; }
+    bool playerSessionUp() const override { return inSession_; }
+    bool readLocalPart(nvcoop::actors::PartKind kind, Bytes& out) override;
+    bool writeRemotePart(PlayerId slot, nvcoop::actors::PartKind kind, const Bytes& value) override;
+    bool takeLocalSample(fnvcoop::live::ActorSnapshot& out) override;
+    void remoteSnapshot(PlayerId slot, const fnvcoop::live::ActorSnapshot& s, uint32_t arrivalMs) override;
 
     // ---- ILiveService ----
     const char* name() const override { return "avatars"; }
@@ -114,6 +152,14 @@ private:
     void noteQueued(PlayerId to, PlayerId subject, uint32_t tick) { if (subject == self_) queuedTicks_[to].push_back(tick); }
     void addPuppet(PlayerId slot);
     void removePuppet(PlayerId slot);
+    void syncRosterFromEntities();
+    void absorbLocalSamples();
+    bool localAppearanceNow(nvcoop::avatar::Appearance& out);
+    bool localEquipmentNow(std::vector<nvcoop::avatar::EquipEntry>& out);
+    void applyRemoteAppearance(PlayerId slot, const nvcoop::avatar::Appearance& app, bool oldHadLook, const nvcoop::avatar::Appearance& oldApp);
+    void rebuildRemoteEquipment(PlayerId slot);
+    fnvcoop::FormRef toRef(nvcoop::avatar::FormId id) const;
+    nvcoop::avatar::FormId fromRef(const fnvcoop::FormRef& r) const;
     void applyRoster(const std::vector<uint8_t>& slots);
     void sendTo(PlayerId peer, bool reliable, Bytes data);
     void broadcastReliable(const Bytes& data, PlayerId except);
@@ -168,6 +214,13 @@ private:
     std::map<PlayerId, fnvcoop::live::ActorSnapshot> reportedSnap_;
     mutable nvcoop::avatar::StreamRatePlanner rate_;   // tierOf() keeps the hysteresis state, so reading a tier in a const query is fine
     std::map<PlayerId, fnvcoop::live::ActorSnapshot> early_;   // the newest snapshot of a player the roster has not named yet (kept for his puppet, see onSnapshotDatagram)
+    // parts=unified / stream=unified
+    PlayerPort port_{*this};
+    const IEntityDirectory* entities_ = nullptr;
+    FormCodec formCodec_;
+    struct RemoteEquip { std::vector<fnvcoop::FormRef> forms; bool haveForms = false; nvcoop::actors::WeaponState weapon; bool haveWeapon = false; };
+    std::map<PlayerId, RemoteEquip> remoteEquip_;              // the Equipment and WeaponState parts of each remote player, combined into the corrector's list
+    std::deque<fnvcoop::live::ActorSnapshot> samples_;         // stream=unified: local snapshots waiting for ActorSync
     std::map<PlayerId, std::vector<uint32_t>> queuedTicks_;   // ticks of the local snapshots waiting in the sender for the next flush (their age is the Send stage)
     std::map<PlayerId, uint64_t> rx_;                  // accepted snapshots per remote slot (statusJson: the in-game proof turns the difference into a rate)
     std::map<PlayerId, nvcoop::avatar::Appearance> applied_;   // the look each puppet was last built / updated with

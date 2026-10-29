@@ -31,6 +31,7 @@ SCENARIO(engine, doors_locks_and_teleports_agree_everywhere, doorsAndLocks(1, &w
 SCENARIO(engine, named_npc_survives_combat_and_dies_to_story_effect, namedProtected(1, &why))
 SCENARIO(engine, quest_stage_is_max_and_redelivery_is_ignored, questStageSync(1, {}, &why))
 SCENARIO(engine, save_load_and_guest_rejoin, saveLoadRejoin(1, &why))
+SCENARIO(engine, a_player_that_left_owns_nothing_and_rejoins_above_its_old_epoch, playerLeavesAndRejoins(1, &why))
 SCENARIO(engine, silent_corruption_is_detected_and_repaired, healsCorruption(1, &why))
 SCENARIO(engine, repeated_drop_request_creates_one_item, dropIdempotent(1, &why))
 SCENARIO(engine, forged_hits_are_rejected_real_hits_land, forgedHitsRejected(1, &why))

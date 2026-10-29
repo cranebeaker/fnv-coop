@@ -23,6 +23,7 @@ public:
     RefId refOfContainer(NetId net) override;
     bool readContents(NetId net, Items& out, bool& exact) override;
     bool setContents(NetId net, const Items& want) override;
+    ItemClass classifyItem(const FormRef& base) override;
     RefId openMenuRef() override;
     bool closeMenu() override;
     bool adjustPlayer(const FormRef& base, int32_t delta) override;

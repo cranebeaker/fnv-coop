@@ -44,8 +44,10 @@ DEFAULT_STEAM_HELPER = REPO / "out" / "steamlink" / "fnvsteam.exe"
 INSTALLER_FILES = ("fnv_mut.py", "fnv_pe.py", "fnv_ini.py", "fnv_find.py", "fnv_manifest.py", "fnv_install.py")
 STEAM_HELPER = "fnvsteam.exe"
 STEAM_APPID = b"22380\r\n"   # Fallout: New Vegas; the helper runs under the game's own AppID so Steam shows "playing Fallout: New Vegas"
-LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "fnv_lobby.py", "fnv_steam.py", "fnv_terminal.py", "terminal.html", "VT323-Regular.ttf",
-                  "VT323-OFL.txt", "launcher_gui.py")
+# The terminal launcher only (the old Tk window, launcher_gui.py, is no longer shipped). Every fnv_* module a shipped script imports must be here or in
+# installer/ (run_tests.py check_shipped_imports_are_shipped).
+LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "fnv_lobby.py", "fnv_party_saves.py", "fnv_steam.py", "fnv_terminal.py", "terminal.html",
+                  "VT323-Regular.ttf", "VT323-OFL.txt")
 DEFAULT_INI = ("; nvcoop.ini - settings of the co-op plugin. The launcher edits this file when you press Host or Join.\n"
                "; Co-op is OFF until you start the game from the launcher; the feature switches below only act while it is on.\n"
                "[coop]\n"
@@ -229,9 +231,6 @@ def cmd_files(version: str) -> Dict[str, bytes]:
         "Launcher.cmd": _cmd_script(["@echo off", "setlocal", "cd /d \"%~dp0\"", "call :findpy", "if not defined PY goto nopy",
                                      "where pyw >nul 2>nul && (start \"\" pyw -3 launcher\\fnv_terminal.py & exit /b)",
                                      "%PY% launcher\\fnv_terminal.py", "exit /b"] + FIND_PY),
-        "Launcher-Classic.cmd": _cmd_script(["@echo off", "setlocal", "cd /d \"%~dp0\"", "call :findpy", "if not defined PY goto nopy",
-                                             "where pyw >nul 2>nul && (start \"\" pyw -3 launcher\\launcher_gui.py & exit /b)",
-                                             "%PY% launcher\\launcher_gui.py", "exit /b"] + FIND_PY),
     }
 
 
@@ -312,6 +311,8 @@ def collect(args) -> Tuple[Dict[str, bytes], dict, List[str], List[str]]:
     for n in INSTALLER_FILES:
         files[f"installer/{n}"] = (HERE / n).read_bytes()
     for n in LAUNCHER_FILES:
+        if n == "fnv_party_saves.py" and fnv_mut.on("pkg_drop_party_saves"):   # twin: the module the launcher imports is left out (the 0.1.4 near miss)
+            continue
         src = REPO / "tools" / "launcher" / n
         if src.is_file():
             files[f"launcher/{n}"] = src.read_bytes()

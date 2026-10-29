@@ -192,6 +192,9 @@ class LiveMachine(Machine):
     def owner(self, ref: str) -> Dict[str, Any]:
         return dict(self.nv.call("coop.owner", {"ref": self.bot._norm(ref)[0]}, timeout_s=10))   # noqa: SLF001
 
+    def entities(self) -> Dict[str, Any]:
+        return dict(self.nv.call("coop.entities", {}, timeout_s=10))
+
     puppet_diag: Dict[str, Any] = {}
 
     def puppet_pos(self) -> Optional[Tuple[float, float, float]]:

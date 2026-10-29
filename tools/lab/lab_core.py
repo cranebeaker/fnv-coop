@@ -156,6 +156,7 @@ class Machine:
     def var(self, quest: str, name: str) -> Optional[float]: raise NotImplementedError                      # None: this build cannot read it
     def set_var(self, quest: str, name: str, value: float) -> Tuple[bool, str]: raise NotImplementedError
     def owner(self, ref: str) -> Dict[str, Any]: raise NotImplementedError                                  # coop.owner: owner, epoch, known, mine
+    def entities(self) -> Dict[str, Any]: raise NotImplementedError                                         # coop.entities: {self, players: [{slot, owner, epoch, known, role, ref}]}
 
     # ---- the parity room (lab_parity.py): what this copy shows, and the scripted situations that change it
     def parity_view(self) -> Dict[str, Any]:

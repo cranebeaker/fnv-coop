@@ -37,6 +37,8 @@ public:
     virtual bool readLocalFacts(nvcoop::avatar::PlayerFacts& /*out*/) { return false; }
     // The local player's weight and the counts of the watched item forms (guest pack facts). Default: unknown (nothing is sent).
     virtual bool readLocalPack(const std::vector<nvcoop::avatar::FormId>& /*watch*/, nvcoop::avatar::PlayerPack& /*out*/) { return false; }
+    // The local player's worn list as the equipment watcher last published it (what setEquipSink got), for a reader that was not listening then. Default: unknown.
+    virtual bool readLocalEquipment(std::vector<nvcoop::avatar::EquipEntry>& /*out*/) { return false; }
     virtual void onRemoteSnapshot(nvcoop::avatar::Slot slot, const fnvcoop::live::ActorSnapshot& s, uint32_t arrivalMs) = 0;
     virtual void onRemoteEquipment(nvcoop::avatar::Slot slot, const std::vector<nvcoop::avatar::EquipEntry>& wanted) = 0;
 

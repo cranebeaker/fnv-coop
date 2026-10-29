@@ -17,6 +17,9 @@
 //                                               "zero" only when its own list has the same id). GetItemCount / GetActorValue InventoryWeight / PooledItems of a guest are answered from it.
 //   [kChannelAvatars][0x42]                     Resync : client -> host, reliable. Answered with the Roster and every known Look for that client.
 //
+// Under [entities] parts=unified (docs/entity-core-plan.md) Roster, Look, Facts, Pack and Resync are no longer SENT: the player entities' parts carry them (ActorSync). They are
+// always decoded, whichever mode is set. The field codecs (Look, Facts, Pack) are shared with those parts: plugin/avatar/look_codec.h.
+//
 // Roster and Look are decoded defensively: a truncated or oversized message is rejected as a whole, never half applied.
 #pragma once
 #include <cstdint>
@@ -24,6 +27,7 @@
 #include <vector>
 
 #include "avatar_types.h"
+#include "look_codec.h"
 
 namespace nvcoop::livewire {
 
@@ -37,8 +41,8 @@ constexpr uint8_t kAvKindPack = 0x45;     // Pack (kAvPackVersion inside the mes
 constexpr uint8_t kAvPackVersion = 1;
 constexpr uint8_t kAvatarWireVersion = 2;
 constexpr uint8_t kAvKindResync = 0x42;   // client -> host, reliable: "my host link came back, send me the roster and every look again" (2 bytes)
-constexpr size_t kMaxLookEquip = 64;
-constexpr size_t kMaxLookName = 48;
+constexpr size_t kMaxLookEquip = nvcoop::avatar::kMaxLookEquip;   // the field codecs moved to plugin/avatar/look_codec.h; the limits stay under their old names
+constexpr size_t kMaxLookName = nvcoop::avatar::kMaxLookName;
 
 using AvBytes = std::vector<uint8_t>;
 

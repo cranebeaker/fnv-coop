@@ -460,6 +460,20 @@ bool saveLoadRejoin(uint64_t seed, std::string* why) {
     return finish(c, k);
 }
 
+bool playerLeavesAndRejoins(uint64_t seed, std::string* why) {
+    Check k(why);
+    Cluster c(baseConfig(seed, 3));
+    c.run(1500);
+    c.leave(2);
+    c.run(1000);
+    c.quiesce(20000);
+    const std::vector<Violation> gone = c.checkQuiescent();   // nobody may still see player 2 owning its entity
+    for (const Violation& v : gone) k.expect(false, v.what);
+    c.join(2);
+    c.run(1500);
+    return finish(c, k);
+}
+
 bool healsCorruption(uint64_t seed, std::string* why) {
     Check k(why);
     Cluster c(baseConfig(seed, 2));

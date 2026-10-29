@@ -43,6 +43,11 @@ std::string statsJson(const ActorSync& sync) {
     n("finalsSent", s.finalsSent); n("finalsApplied", s.finalsApplied); n("finalsRepeated", s.finalsRepeated); n("acksSent", s.acksSent);
     n("takeovers", s.takeovers); n("handoffsOut", s.handoffsOut); n("aiHolds", s.aiHolds);
     n("avAudits", s.avAudits); n("avDriftFixed", s.avDriftFixed);
+    // The player stream through ActorSync (docs/entity-core-plan.md S10): what AvatarNet's own counters show under [entities] stream=legacy.
+    n("playerSampled", s.playerSampled); n("playerSent", s.playerSent); n("playerAccepted", s.playerAccepted); n("playerRelayed", s.playerRelayed);
+    n("playerRateKept", s.playerRateKept); n("playerRateReleased", s.playerRateReleased); n("playerForged", s.playerForged); n("playerEchoed", s.playerEchoed);
+    n("playerStale", s.playerStale); n("playerUnknown", s.playerUnknown); n("playerRejected", s.playerRejected); n("playerAcksSent", s.playerAcksSent);
+    n("earlyHeld", s.earlyHeld); n("earlyApplied", s.earlyApplied); n("earlyDropped", s.earlyDropped); n("playersTracked", s.playersTracked); n("playersUntracked", s.playersUntracked);
     // State parts (state_parts.h), by kind: {"parts":{"inventory":{"published":..,"applied":..,"rejected":..,"duplicate":..,"applyFailed":..},"equipment":{..}}}
     nvcoop::json::Value parts = nvcoop::json::Value::object();
     for (size_t k = 0; k < kPartCount; ++k) {

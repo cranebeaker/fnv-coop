@@ -44,7 +44,7 @@ public:
         if (!w_.entity(e, v) || !v.known) { out = cc::ActorFacts{}; return false; }
         out = cc::ActorFacts{};
         out.known = true; out.who = e; out.alive = maskAlive ? true : v.alive; out.named = v.named; out.essential = v.essential;
-        out.cell = v.cell; out.pos = v.pos; out.radius = v.radius; out.owner = v.owner; out.epoch = v.epoch;
+        out.cell = v.cell; out.pos = v.pos; out.radius = v.radius; out.owner = v.owner; out.epoch = e.isPlayer() ? v.entityEpoch : v.epoch;
         out.handingOff = v.pending; out.health = v.health; out.maxHealth = v.maxHealth; out.limbMask = v.limbMask; out.recruiter = v.recruiter;
         return true;
     }
@@ -178,7 +178,7 @@ bool CombatSync::buildHit(const EngineHit& e, const cc::Entity& atk, const Entit
     h.ammo = e.ammo;
     h.projectile = e.projectileKey;
     h.firedAtTick = 0;   // unstamped: machines have no shared clock yet (rules.requireTick stays false)
-    h.attackerEpoch = atk.isActor() ? av.epoch : 0;
+    h.attackerEpoch = atk.isActor() ? av.epoch : av.entityEpoch;   // an NPC's owner epoch, or the player's pinned entity epoch (S7)
     h.claimedRange = e.weaponRange;
     // A weapon the table does not know (there is no weapon table in the real world view yet) still needs a plausible reach: the validator rejects 0.
     if (!(h.claimedRange > 0) && !FNV_MUT(778)) h.claimedRange = e.melee ? 300.0f : validator_.rules().maxWeaponRange;

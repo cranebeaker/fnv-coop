@@ -1,4 +1,5 @@
 #include "fnvcoop/engine/cluster.h"
+#include "../../live/entity.h"
 #include <algorithm>
 #include <set>
 #include "fnvcoop/wire.h"
@@ -250,6 +251,17 @@ std::vector<Violation> Cluster::checkAlways() {
         for (auto& d : m.world().duplicates()) add("machine " + std::to_string(p) + ": duplicate " + d);
     }
     for (auto& kv : drivers) if (kv.second > 1) add("actor " + std::to_string(kv.first) + " is AI-driven on " + std::to_string(kv.second) + " machines:" + who[kv.first]);
+    // player entities (S13a): within one host session the epoch of a slot's entity never goes back, across leaves and rejoins (a host load starts a
+    // new session, and every older datagram is dropped by its session number, so the epochs may start again there)
+    if (machines_[0]->sess() != playerEpochSess_) { playerEpochSess_ = machines_[0]->sess(); playerEpochTop_.clear(); }
+    for (uint8_t s = 0; s < kMaxSlots; ++s) {
+        const NetId pid = fnvcoop::live::playerNet(s);
+        if (!machines_[0]->view().known(pid)) continue;
+        const OwnerEpoch e = machines_[0]->view().epochOf(pid);
+        OwnerEpoch& top = playerEpochTop_[s];
+        if (e < top) add("player " + std::to_string(s) + "'s entity epoch went back from " + std::to_string(top) + " to " + std::to_string(e));
+        if (e > top) top = e;
+    }
 
     std::vector<Violation> fresh(violations_.begin() + static_cast<std::ptrdiff_t>(reported_), violations_.end());
     reported_ = violations_.size();
@@ -283,6 +295,17 @@ std::vector<Violation> Cluster::checkQuiescent() {
                 add("machine " + std::to_string(p) + " actor " + std::to_string(kv.first) + " state differs exactly from host");
         }
         if (m.view().digest() != h.view().digest()) add("machine " + std::to_string(p) + " ownership table differs from host");
+    }
+    // player entities: every connected player owns its own entity on every machine; a slot that left owns nothing any more
+    for (size_t s = 0; s < machines_.size(); ++s) {
+        const NetId pid = fnvcoop::live::playerNet(static_cast<PlayerId>(s));
+        const bool here = machines_[s] && (s == 0 || machines_[s]->synced());
+        for (size_t p = 0; p < machines_.size(); ++p) {
+            if (!machines_[p] || (p != 0 && !machines_[p]->synced())) continue;
+            const PlayerId o = machines_[p]->view().ownerOf(pid);
+            if (here && o != static_cast<PlayerId>(s)) add("machine " + std::to_string(p) + " says player " + std::to_string(s) + "'s entity is owned by p" + std::to_string(o));
+            if (!here && o == static_cast<PlayerId>(s)) add("machine " + std::to_string(p) + " still has player " + std::to_string(s) + " owning its entity after it left");
+        }
     }
     const int64_t want = baselineItems(kGroundItem);
     const int64_t got = itemCensus()[kGroundItem];

@@ -19,6 +19,7 @@ public:
     bool readLocalAppearance(nvcoop::avatar::Appearance& out) override { return rt_.ReadLocalAppearance(out); }
     bool readLocalFacts(nvcoop::avatar::PlayerFacts& out) override { return rt_.ReadLocalFacts(out); }
     bool readLocalPack(const std::vector<nvcoop::avatar::FormId>& watch, nvcoop::avatar::PlayerPack& out) override { return rt_.ReadLocalPack(watch, out); }
+    bool readLocalEquipment(std::vector<nvcoop::avatar::EquipEntry>& out) override { return rt_.ReadLocalEquipment(out); }
     void onRemoteSnapshot(nvcoop::avatar::Slot s, const fnvcoop::live::ActorSnapshot& snap, uint32_t arrivalMs) override { rt_.OnRemoteSnapshot(s, snap, arrivalMs); }
     void onRemoteEquipment(nvcoop::avatar::Slot s, const std::vector<nvcoop::avatar::EquipEntry>& w) override { rt_.OnRemoteEquipment(s, w); }
     void noteStage(nvcoop::avatar::NetStage st, double ms) override { rt_.NoteStage(st, ms); }
