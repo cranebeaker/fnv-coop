@@ -69,6 +69,49 @@ std::string EnvOr(const char* name, const std::string& fallback) {
     return (n > 0 && n < sizeof buf) ? std::string(buf) : fallback;
 }
 
+// The folder the game saves into, decided the way the game does: the Fallout.ini it reads (My Games first, else the one next to
+// the exe) says bUseMyGamesDirectory (default 1: <Documents>\My Games\FalloutNV\) and SLocalSavePath (default Saves\).
+std::string GameSaveDir() {
+    char docs[MAX_PATH] = {0};
+    std::string myGames;
+    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, 0, docs))) myGames = std::string(docs) + "\\My Games\\FalloutNV\\";
+    std::string ini = myGames + "Fallout.ini";
+    if (myGames.empty() || GetFileAttributesA(ini.c_str()) == INVALID_FILE_ATTRIBUTES) ini = g_gameDir + "Fallout.ini";
+    const bool useMyGames = GetPrivateProfileIntA("General", "bUseMyGamesDirectory", 1, ini.c_str()) != 0 && !myGames.empty();
+    char local[MAX_PATH];
+    GetPrivateProfileStringA("General", "SLocalSavePath", "Saves\\", local, sizeof local, ini.c_str());
+    std::string dir = (useMyGames ? myGames : g_gameDir) + local;
+    if (!dir.empty() && dir.back() != '\\' && dir.back() != '/') dir += '\\';
+    return dir;
+}
+
+// [coop] autostart=start (the launcher lobby): the party starts from the start save we ship (nvcoop_start.fos, taken in a clean
+// game right after the opening movie, black screen at Doc Mitchell's, quest timer stopped). Copy it into the game's save folder;
+// the bridge then loads it with the console's LoadGame as soon as the main menu is up. The coop module holds everyone on the black
+// screen until the whole party is in, then plays the opening movie for all at once (coop_module.cpp, IntroFrame).
+constexpr const char* kStartSave = "nvcoop_start";
+bool PrepareStartSave(std::string& err) {
+    const std::string src = g_gameDir + "Data\\NVSE\\Plugins\\" + kStartSave + ".fos";
+    if (GetFileAttributesA(src.c_str()) == INVALID_FILE_ATTRIBUTES) { err = "missing " + src; return false; }
+    const std::string dir = GameSaveDir();
+    CreateDirectoryA(dir.c_str(), nullptr);
+    const std::string dst = dir + kStartSave + ".fos";
+    if (!CopyFileA(src.c_str(), dst.c_str(), FALSE)) { err = "copy to " + dst + " failed: " + std::to_string(GetLastError()); return false; }
+    Log("autostart: start save copied to %s", dst.c_str());
+    return true;
+}
+
+// [coop] autostart=load:<save name> (the launcher's CONTINUE, docs/party-save.md): a save name the console's LoadGame can take, and the file must be in the
+// game's save folder. A name with a path, a quote or a control character is refused: it goes into a console line.
+bool LoadableSaveName(const std::string& name, std::string& err) {
+    if (name.empty() || name.size() > 150) { err = "empty or too long"; return false; }
+    for (unsigned char c : name)
+        if (c < 32 || c == 127 || std::strchr("\\/:*?\"<>|", c)) { err = "not a plain save name"; return false; }
+    const std::string path = GameSaveDir() + name + ".fos";
+    if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) { err = "no such save: " + path; return false; }
+    return true;
+}
+
 // --- multiInstance: per-process name for the game's single-instance mutex (own process only) ---
 // FalloutNV.exe calls CreateMutexA("FalloutNVGameMutex") and refuses to start if it already exists. With
 // [bridge] multiInstance=1 we patch this exe's kernel32 IAT entry so that name gets a "-<pid>" suffix.
@@ -313,13 +356,40 @@ char* ConsoleOutputFileBuf() {
 // ---- keep the game window out of the owner's way: minimize without activating, never steal focus ----
 std::atomic<bool> g_stopMinimizer{false};
 std::thread g_minimizer;
-std::atomic<bool> g_minimize{true};
+std::atomic<bool> g_minimize{false};
 std::atomic<bool> g_focusGuard{false};  // plugin/splitscreen/focus_guard.h: deactivation must not open the pause menu
+std::atomic<int> g_windowSide{0};       // [bridge] windowSide=left|right (two copies on one PC): -1 left, 1 right, 0 leave the window where the game puts it
+
+// Two copies on one PC start on top of each other. Put this copy's window on its side of its monitor, keeping the size and never activating it.
+// The game moves its window itself at start-up (and re-creates it after the splash), so a new window is held there for its first seconds only;
+// after that the player may move it.
+constexpr DWORD kWindowHoldMs = 5000;
+void PlaceWindow(HWND h) {
+    static HWND s_win = nullptr;
+    static DWORD s_firstSeen = 0;
+    if (h != s_win) { s_win = h; s_firstSeen = GetTickCount(); }
+    if (GetTickCount() - s_firstSeen > kWindowHoldMs) return;
+    RECT wr;
+    MONITORINFO mi = {sizeof mi};
+    if (!GetWindowRect(h, &wr) || !GetMonitorInfoA(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi)) return;
+    const LONG w = wr.right - wr.left, ht = wr.bottom - wr.top;
+    if (w <= 0 || ht <= 0) return;
+    const RECT& a = mi.rcWork;
+    const LONG x = g_windowSide.load() < 0 ? a.left : (std::max)(a.left, a.right - w);
+    const LONG y = a.top + (std::max)(0L, (a.bottom - a.top - ht) / 2);
+    if (wr.left == x && wr.top == y) return;
+    SetWindowPos(h, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
 
 BOOL CALLBACK MinimizeEnumProc(HWND h, LPARAM) {
     DWORD pid = 0;
     GetWindowThreadProcessId(h, &pid);
     if (pid != GetCurrentProcessId() || !IsWindowVisible(h) || GetWindow(h, GW_OWNER) != nullptr) return TRUE;
+    if (g_windowSide.load() != 0 && !IsIconic(h)) {
+        char wcls[128] = {0};
+        const char* gcls = *reinterpret_cast<const char* const*>(0x11A2FE8);  // see Diag_FindWindowA
+        if (gcls && GetClassNameA(h, wcls, sizeof(wcls)) && lstrcmpA(wcls, gcls) == 0) PlaceWindow(h);
+    }
 #ifdef NVCOOP_WITH_FOCUS_GUARD
     // Before minimizing: minimizing deactivates the window, and in gameplay the engine answers that with the pause menu.
     char cls[128] = {0};
@@ -683,6 +753,32 @@ __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
     cfg.instance = std::atoi(EnvOr("NVCOOP_INSTANCE", ReadIni("bridge", "instance", "0")).c_str());
     cfg.autoloadSave = EnvOr("NVCOOP_AUTOLOAD", ReadIni("bridge", "autoload", ""));
     cfg.autoloadDelayFrames = std::atoi(EnvOr("NVCOOP_AUTOLOAD_FRAMES", ReadIni("bridge", "autoloadDelayFrames", "600")).c_str());
+    // [coop] autostart=start: written by the launcher when the lobby starts the party. One-shot: cleared at once, so the next
+    // plain start of the game opens the main menu as usual.
+    const std::string autostart = ReadIni("coop", "enable", "0") == "1" ? ReadIni("coop", "autostart", "") : std::string();
+    if (autostart == "start") {
+        WritePrivateProfileStringA("coop", "autostart", "", IniPath().c_str());
+        std::string err;
+        if (PrepareStartSave(err)) {
+            cfg.autoloadSave = kStartSave;
+            cfg.autoloadDelayFrames = 30;
+            Log("autostart: the party's start save loads when the main menu is up (launcher lobby)");
+        } else {
+            Log("autostart: no start save (%s); the main menu stays", err.c_str());
+        }
+    } else if (autostart.compare(0, 5, "load:") == 0) {
+        // autostart=load:<save name> (the launcher's CONTINUE): the host loads its co-op save, a guest loads its own save for that host save. Same one-shot.
+        WritePrivateProfileStringA("coop", "autostart", "", IniPath().c_str());
+        const std::string name = autostart.substr(5);
+        std::string err;
+        if (LoadableSaveName(name, err)) {
+            cfg.autoloadSave = name;
+            cfg.autoloadDelayFrames = 30;
+            Log("autostart: the saved game '%s' loads when the main menu is up (launcher lobby, continue)", name.c_str());
+        } else {
+            Log("autostart: not loading '%s' (%s); the main menu stays", name.c_str(), err.c_str());
+        }
+    }
 #ifdef NVCOOP_WITH_SNAPSHOT
     nvcoop::RegisterMethod("plugins", PluginsMethod, true);
 #endif
@@ -692,15 +788,22 @@ __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
 #ifdef NVCOOP_WITH_SNAPSHOT
     nvcoop::SetStateProvider(StateProviderImpl);
 #endif
-    g_minimize = EnvOr("NVCOOP_MINIMIZED", ReadIni("bridge", "minimized", "1")) != "0";
+    // Off unless asked for: players must see their game. The test runner (tools/runner/instances.py) writes minimized=1 itself.
+    // With the old default of 1 a player's window was minimized every 100 ms and could not be restored (alpha 0.1.0, 2026-10-29).
+    g_minimize = EnvOr("NVCOOP_MINIMIZED", ReadIni("bridge", "minimized", "0")) != "0";
 #ifdef NVCOOP_WITH_FOCUS_GUARD
     // Default on whenever the plugin minimizes the window; split-screen sets it explicitly for visible copies.
     g_focusGuard = EnvOr("NVCOOP_FOCUS_GUARD", ReadIni("bridge", "focusGuard", g_minimize.load() ? "1" : "0")) != "0";
     nvcoop::RegisterMethod("focus.status", FocusStatusMethod, false);
 #endif
-    if (g_minimize.load() || g_focusGuard.load()) {
+    {
+        const std::string side = ReadIni("bridge", "windowSide", "");
+        g_windowSide = side == "left" ? -1 : side == "right" ? 1 : 0;
+    }
+    if (g_minimize.load() || g_focusGuard.load() || g_windowSide.load() != 0) {
         g_minimizer = std::thread(MinimizerLoop);
-        Log("window thread started (minimize=%d focusGuard=%d)", g_minimize.load() ? 1 : 0, g_focusGuard.load() ? 1 : 0);
+        Log("window thread started (minimize=%d focusGuard=%d windowSide=%d)", g_minimize.load() ? 1 : 0, g_focusGuard.load() ? 1 : 0,
+            g_windowSide.load());
     }
 
 #ifdef NVCOOP_WITH_LIVE

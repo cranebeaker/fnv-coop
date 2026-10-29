@@ -41,6 +41,16 @@ struct FakeNpc {
     bool refuseAll = false;
     bool hideMoveGroup = false;    // reads cannot tell the movement group
     bool rateSupported = false, knockSupported = false, weaponSupported = true, aimSupported = true;
+    // furniture: the engine's raw sit / sleep state (anim_sit.h), the furniture reference and the traps around sitting down and standing up
+    int sitSleep = 0;
+    uint32_t furniture = 0;
+    uint32_t standDoneAt = 0;          // the stand-up animation ends (the state goes back to 0) at this time; 0 = no stand-up under way
+    bool sitReadable = true, furnitureReadable = true, sitSupported = true;
+    int ignoreSitCalls = 0, ignoreStandCalls = 0;   // the first n calls return Ok but do nothing
+    int minStandAttempt = 0;           // stand-ups below this escalation rung do nothing (the gentle way does not work on this actor)
+    uint32_t standMs = 400;
+    bool restrained = true;            // the remote-driven hold; an escalated stand-up lets the actor's AI run
+    int sitCalls = 0, standCalls = 0, restrainCalls = 0, playsWhileInFurniture = 0;
     // counters
     int playsAfterDeath = 0, kills = 0, placeCalls = 0, releaseCalls = 0, knockCalls = 0, getUpCalls = 0;
     bool placedWhileSliding = false;   // PlaceCorpse was called while the ragdoll was still moving (it carries on to its own rest place)
@@ -55,6 +65,7 @@ public:
     bool menuOpen = false, worldReady = true;
     bool resetOnMenuClose = true;
     uint64_t totalCommands = 0;
+    uint64_t sitAttempts = 0, standAttempts = 0;   // SitIn / StandUp calls, including refused and unsupported ones
 
     FakeNpc& add(NetId id, Vec3 pos = {}) {
         FakeNpc& n = a[id];
@@ -67,6 +78,7 @@ public:
             FakeNpc& n = kv.second;
             if (n.nonHoldEnds && static_cast<int32_t>(now - n.nonHoldEnds) >= 0 && !n.hold) { n.moveGroup = kGroupIdle; n.nonHoldEnds = 0; }
             if (n.actionGroup >= 0 && n.actionEnd && static_cast<int32_t>(now - n.actionEnd) >= 0) n.actionGroup = -1;
+            if (n.standDoneAt && static_cast<int32_t>(now - n.standDoneAt) >= 0) { n.standDoneAt = 0; n.sitSleep = 0; n.furniture = 0; }
             if (n.sliding) {
                 const float t = std::min(1.0f, static_cast<float>(now - n.slideStart) / static_cast<float>(n.slideMs));
                 n.pos.x = n.slideFrom.x + (n.restPos.x - n.slideFrom.x) * t;
@@ -109,6 +121,7 @@ public:
         out.swimming = n.swimming; out.sneaking = n.sneak; out.weaponOut = n.weaponOut; out.aiming = n.aiming; out.inAir = n.inAir; out.talking = n.talking;
         out.moveGroup = n.hideMoveGroup ? NpcReads::kUnknownGroup : n.moveGroup;
         if (n.actionGroup >= 0) { out.actionGroup = n.actionGroup; out.actionPlayMs = static_cast<int>(now - n.actionStart); }
+        out.sitKnown = n.sitReadable; out.sitSleep = n.sitReadable ? n.sitSleep : 0; out.furniture = n.furnitureReadable ? n.furniture : 0;
         return true;
     }
     uint32_t Generation3D(NetId id) override { auto it = a.find(id); return it == a.end() ? 0 : it->second.gen3D; }
@@ -123,6 +136,7 @@ public:
         FakeNpc* n = target(id);
         if (!n) return Result::Refused;
         n->log.push_back("play:" + std::to_string(g) + ":" + (holdFlag ? "1" : "0") + "@" + std::to_string(now));
+        if (n->sitSleep != 0) ++n->playsWhileInFurniture;
         if (n->dead) { ++n->playsAfterDeath; return Result::Ok; }
         if (isActionGroup(g)) {
             n->actionGroup = g; n->actionStart = now;
@@ -197,6 +211,37 @@ public:
         ++n->kills; n->log.push_back("kill");
         if (n->ignoreKillCalls > 0) { --n->ignoreKillCalls; return Result::Ok; }
         startDeath(id, n->pos);
+        return Result::Ok;
+    }
+    Result SitIn(NetId id, uint32_t furn) override {
+        ++sitAttempts;
+        FakeNpc* n = target(id);
+        if (!n) return Result::Refused;
+        if (!n->sitSupported) return Result::Unsupported;
+        ++totalCommands;
+        ++n->sitCalls; n->log.push_back("sit:" + std::to_string(furn) + "@" + std::to_string(now));
+        if (n->ignoreSitCalls > 0) { --n->ignoreSitCalls; return Result::Ok; }
+        n->sitSleep = 4; n->furniture = furn; n->standDoneAt = 0;
+        return Result::Ok;
+    }
+    Result StandUp(NetId id, uint32_t, uint32_t attempt) override {
+        ++standAttempts;
+        FakeNpc* n = target(id);
+        if (!n) return Result::Refused;
+        if (!n->sitSupported) return Result::Unsupported;
+        ++totalCommands;
+        ++n->standCalls; n->log.push_back("stand:" + std::to_string(attempt) + "@" + std::to_string(now));
+        if (attempt >= 1) n->restrained = false;
+        if (n->ignoreStandCalls > 0) { --n->ignoreStandCalls; return Result::Ok; }
+        if (static_cast<int>(attempt) < n->minStandAttempt || n->sitSleep == 0) return Result::Ok;
+        n->sitSleep = 5; n->standDoneAt = now + n->standMs;
+        return Result::Ok;
+    }
+    Result Restrain(NetId id) override {
+        ++totalCommands;
+        FakeNpc* n = target(id);
+        if (!n) return Result::Refused;
+        ++n->restrainCalls; n->restrained = true; n->log.push_back("restrain");
         return Result::Ok;
     }
     Result PlaceCorpse(NetId id, const Vec3& pos, float yawRad) override {

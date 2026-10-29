@@ -7,12 +7,14 @@
 
 What goes in (see PAYLOAD below): nvcoop.dll and the data files it reads from its own folder (rules, quest name maps, consent
 table, guest-script list, volatile-key list), a default nvcoop.ini with co-op switched off (the launcher switches it on) and the feature switches on, the installer and launcher
-(Python, no third-party packages), PLAYER-GUIDE.md, the licence texts, manifest.json (every payload file with size and
+(Python, no third-party packages), the launcher's Steam helper fnvsteam.exe (docs/steam.md; it uses the steam_api.dll of the player's own game, so no
+Valve file is shipped), PLAYER-GUIDE.md, the licence texts, manifest.json (every payload file with size and
 SHA-256, plus the supported game and xNVSE versions) and SHA256SUMS.txt (every file in the zip).
 
 Checks before the zip is written, each one stops the build with a clear message:
   * a required file is missing (--allow-missing downgrades this to a warning, for a dry look at an incomplete build);
-  * nvcoop.dll is not a 32-bit Windows DLL, or does not export the xNVSE plugin entry points;
+  * nvcoop.dll is not a 32-bit Windows DLL, or does not export the xNVSE plugin entry points; fnvsteam.exe is not a 32-bit Windows program
+    (it loads the game's 32-bit steam_api.dll);
   * any shipped file contains a personal Windows path (C:\\Users\\<name>\\...) or a --forbid string, as plain text or UTF-16.
 The zip is reproducible: same inputs and the same source date give the same bytes. After writing it, the zip is opened again
 and checked against its own manifest and checksums, exactly like a player's installer will.
@@ -38,8 +40,12 @@ import fnv_pe  # noqa: E402
 
 REPO = HERE.parent.parent
 DEFAULT_NAME = "FNV-CoOp"
+DEFAULT_STEAM_HELPER = REPO / "out" / "steamlink" / "fnvsteam.exe"
 INSTALLER_FILES = ("fnv_mut.py", "fnv_pe.py", "fnv_ini.py", "fnv_find.py", "fnv_manifest.py", "fnv_install.py")
-LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "launcher_gui.py")
+STEAM_HELPER = "fnvsteam.exe"
+STEAM_APPID = b"22380\r\n"   # Fallout: New Vegas; the helper runs under the game's own AppID so Steam shows "playing Fallout: New Vegas"
+LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "fnv_lobby.py", "fnv_steam.py", "fnv_terminal.py", "terminal.html", "VT323-Regular.ttf",
+                  "VT323-OFL.txt", "launcher_gui.py")
 DEFAULT_INI = ("; nvcoop.ini - settings of the co-op plugin. The launcher edits this file when you press Host or Join.\n"
                "; Co-op is OFF until you start the game from the launcher; the feature switches below only act while it is on.\n"
                "[coop]\n"
@@ -81,7 +87,11 @@ DEFAULT_INI = ("; nvcoop.ini - settings of the co-op plugin. The launcher edits 
                "enabled=1\n"
                "[rules]\n"
                "; Party tether (keeps the players together in a scene zone): on = hold and auto-warp (default), warn = only tell a far player, off = ignore.\n"
-               "tether=on\n")
+               "tether=on\n"
+               "[bridge]\n"
+               "; Test-rig switches: keep 0. minimized=1 hides the game window and keeps it minimized.\n"
+               "minimized=0\n"
+               "focusGuard=0\n")
 # generic folder names that are not a person
 HARMLESS_USERS = {"public", "default", "all users", "default user", "yourname", "your name", "username", "user", "name", "you", "<you>", "<name>", "%username%"}
 _USER_PATH = re.compile(rb"[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}([^\\/\x00\r\n\"'<>|*?]{1,64})", re.I)
@@ -122,6 +132,8 @@ def _payload_spec(args) -> List[dict]:
         {"name": "nvcoop_intents.json", "path": first("nvcoop_intents.json", [dll_dir]), "required": True, "what": "shared storage containers and gear stashes (guest intents)"},
         {"name": "nvcoop_consent_messages.txt", "path": Path(args.consent) if Path(args.consent).is_file() else None, "required": True, "what": "consent prompt table"},
         {"name": "nvcoop_volatile_keys.txt", "path": Path(args.volatile) if Path(args.volatile).is_file() else None, "required": True, "what": "list of script variables that differ per machine (every player must have the same list)"},
+        # taken in a clean game (FalloutNV.esm only) right after the opening movie; the launcher lobby starts the party from it (plugin/main.cpp)
+        {"name": "nvcoop_start.fos", "path": Path(args.start_save) if Path(args.start_save).is_file() else None, "required": True, "what": "the party's start save"},
     ]
 
 
@@ -215,8 +227,11 @@ def cmd_files(version: str) -> Dict[str, bytes]:
         "Uninstall.cmd": _cmd_script(head + ["%PY% installer\\fnv_install.py uninstall", "echo.", "pause", "exit /b"] + FIND_PY),
         "Check.cmd": _cmd_script(head + ["%PY% installer\\fnv_install.py check", "echo.", "%PY% installer\\fnv_install.py status", "echo.", "pause", "exit /b"] + FIND_PY),
         "Launcher.cmd": _cmd_script(["@echo off", "setlocal", "cd /d \"%~dp0\"", "call :findpy", "if not defined PY goto nopy",
-                                     "where pyw >nul 2>nul && (start \"\" pyw -3 launcher\\launcher_gui.py & exit /b)",
-                                     "%PY% launcher\\launcher_gui.py", "exit /b"] + FIND_PY),
+                                     "where pyw >nul 2>nul && (start \"\" pyw -3 launcher\\fnv_terminal.py & exit /b)",
+                                     "%PY% launcher\\fnv_terminal.py", "exit /b"] + FIND_PY),
+        "Launcher-Classic.cmd": _cmd_script(["@echo off", "setlocal", "cd /d \"%~dp0\"", "call :findpy", "if not defined PY goto nopy",
+                                             "where pyw >nul 2>nul && (start \"\" pyw -3 launcher\\launcher_gui.py & exit /b)",
+                                             "%PY% launcher\\launcher_gui.py", "exit /b"] + FIND_PY),
     }
 
 
@@ -226,7 +241,9 @@ def readme_first(version: str) -> bytes:
             f"and Python 3 (for the installer and launcher). Links: xNVSE {fnv_find.LINK_NVSE}  Python {fnv_find.LINK_PYTHON}\n\n"
             "1. Unzip this folder anywhere.\n"
             "2. Double-click Install.cmd. It finds your game, checks the version, backs up what it changes and copies the plugin.\n"
-            "3. Double-click Launcher.cmd. One player presses Host, the others press Join and type the host's address.\n\n"
+            "3. Double-click Launcher.cmd and type your courier name. One player picks HOST A GAME, the others JOIN A FRIEND with\n"
+            "   the host's address. Everyone readies up in the lobby, the host starts, and every game starts a new game together.\n"
+            "   No address and no router settings? Set the launcher's CONNECTION to STEAM: you join your Steam friends who host.\n\n"
             "Every player must use the same release. To remove everything: Uninstall.cmd. Your saves are never touched.\n"
             "Read PLAYER-GUIDE.md for the details and for fixing common problems.\n")
     return text.encode("utf-8")
@@ -237,6 +254,9 @@ def third_party_text() -> bytes:
     lic = enet.read_text(encoding="utf-8", errors="replace") if enet.is_file() else "See https://github.com/lsalzman/enet"
     return ("Third-party software\n\n"
             "nvcoop.dll contains ENet (networking), MIT licence:\n\n" + lic.strip() + "\n\n"
+            "Co-op over Steam uses the steam_api.dll of the player's own Fallout: New Vegas install and the Steam client already on the PC; no file\n"
+            "from Valve is included.\n\n"
+            "The launcher's terminal font is VT323 (The VT323 Project Authors), SIL Open Font License 1.1: launcher\\VT323-OFL.txt\n\n"
             "xNVSE is NOT included. Get it from its official page: " + fnv_find.LINK_NVSE + "\n").encode("utf-8")
 
 
@@ -274,6 +294,21 @@ def collect(args) -> Tuple[Dict[str, bytes], dict, List[str], List[str]]:
     files["payload/nvcoop.ini"] = ini
     entries.append({"src": "payload/nvcoop.ini", "dest": f"{fnv_manifest.DEST_PREFIX}nvcoop.ini", "sha256": fnv_manifest.sha256_bytes(ini),
                     "size": len(ini), "keep_existing": True})
+    helper = Path(getattr(args, "steam_helper", None) or DEFAULT_STEAM_HELPER)
+    if helper.is_file():
+        data = helper.read_bytes()
+        if fnv_pe.machine_type(helper) != fnv_pe.MACHINE_I386 and not fnv_mut.on("skip_helper_check"):
+            errors.append(f"{STEAM_HELPER} is not a 32-bit Windows program (it has to load the game's 32-bit steam_api.dll)")
+        data, blanked = scrub_paths(data)
+        if blanked:
+            warnings.append(f"{STEAM_HELPER}: blanked {blanked} string(s) that held a build-machine path")
+        files[f"launcher/{STEAM_HELPER}"] = data
+        mt = max(mt, helper.stat().st_mtime)
+    else:
+        (warnings if args.allow_missing else errors).append(
+            f"launcher/{STEAM_HELPER}: not found (the Steam helper; build it: python -I tools/build/build.py --source tools/steamlink "
+            "--build build/steamlink --target fnvsteam)")
+    files["launcher/steam_appid.txt"] = STEAM_APPID
     for n in INSTALLER_FILES:
         files[f"installer/{n}"] = (HERE / n).read_bytes()
     for n in LAUNCHER_FILES:
@@ -402,7 +437,9 @@ def main(argv=None) -> int:
     b.add_argument("--rules", default=str(REPO / "docs" / "quest-policies" / "rules.json"))
     b.add_argument("--consent", default=str(REPO / "plugin" / "dialogue" / "data" / "consent_messages.txt"))
     b.add_argument("--volatile", default=str(REPO / "plugin" / "snapshot" / "data" / "volatile_keys.txt"))
+    b.add_argument("--start-save", default=str(REPO / "plugin" / "coop" / "data" / "nvcoop_start.fos"))
     b.add_argument("--data-dir", action="append", help="folder with nvcoop_edids.json etc. (repeatable; searched before the defaults)")
+    b.add_argument("--steam-helper", default=str(DEFAULT_STEAM_HELPER), help="the launcher's Steam helper (tools/steamlink), shipped as launcher\\fnvsteam.exe")
     b.add_argument("--license", help="licence file to include (default: LICENSE in the repo root)")
     b.add_argument("--out", default=str(REPO / "out" / "release"))
     b.add_argument("--forbid", action="append", help="text that must not appear in any shipped file (repeatable; also env FNVCOOP_FORBID, ';' separated)")

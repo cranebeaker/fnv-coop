@@ -74,16 +74,20 @@ size_t pollRefVarsNow(std::vector<fnvcoop::RefScriptVar>* out);  // test/diagnos
 // Client side. Applies SpawnRef/DespawnRef/RefScriptVar and WorldEffects without running scripts.
 class WorldApplier {
 public:
-    WorldApplier(nvhooks::CaptureHub& hub, nvhooks::FormResolver& res) : hub_(hub), res_(res) {}
+    WorldApplier(nvhooks::CaptureHub& hub, nvhooks::FormResolver& res) : hub_(hub), idres_(res), res_(idres_) {}
     void setExecLine(std::function<bool(const std::string&, uint32_t)> f) { exec_ = std::move(f); }
     // Effects of every lane go through here: world-lane effects are applied by this class, all others by `fallback` (L10 sets it to
     // L5's RemoteApplier::apply, which must share the world resolver so created-ref targets are translated). An effect on a
     // created ref that does not exist locally yet is HELD and replayed once the spawn is created (dropped on despawn); one whose
     // form / script instance is not there yet is retried by tick(true). A held effect reports Ok.
     void setFallback(std::function<nvhooks::ApplyStatus(const fnvcoop::Effect&)> f) { fallback_ = std::move(f); }
-    nvhooks::ApplyStatus applyAny(const fnvcoop::Effect& e);
+    // Identity layer (plugin/hooks/identity.h): `sender` is the slot whose machine produced the effect (the host unless a relayed txn says otherwise). A reference
+    // to that player's own character is mapped to its puppet here or the effect is dropped (reported Ok) BEFORE anything is planned, held or retried, so the
+    // lambda path of a live world effect and the baseline replay of a late joiner (applyBaseline) are translated the same way. Effects this class does not handle
+    // itself go to the fallback untouched: RemoteApplier translates those.
+    nvhooks::ApplyStatus applyAny(const fnvcoop::Effect& e, fnvcoop::PlayerId sender = fnvcoop::kHostPlayer);
     nvhooks::ApplyStatus apply(const fnvcoop::Effect& e);  // == applyAny
-    nvhooks::ApplyStatus applyWorld(const WorldEffect& e);
+    nvhooks::ApplyStatus applyWorld(const WorldEffect& e, fnvcoop::PlayerId sender = fnvcoop::kHostPlayer);
     // Join / rejoin: created refs the host no longer has are deleted, then every baseline effect is applied (idempotent).
     size_t applyBaseline(const BaselineSnapshot& b);
     // Create queued spawns whose cell has loaded, release held follow-ups of created refs; retry=true also retries the waiters for
@@ -96,6 +100,7 @@ private:
     nvhooks::ApplyStatus run(const Plan& p);
     int gateSteps_ = 0;   // > 0: run() holds a ScriptGate around every step that is not a console line (see stepRunsScripts)
     nvhooks::CaptureHub& hub_;
+    nvhooks::IdentityResolver idres_;   // res_ with the identity placeholders (identity.h) resolved
     nvhooks::FormResolver& res_;
     std::function<bool(const std::string&, uint32_t)> exec_;
     std::function<nvhooks::ApplyStatus(const fnvcoop::Effect&)> fallback_;

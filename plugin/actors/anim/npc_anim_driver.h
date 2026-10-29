@@ -14,6 +14,7 @@
 #include <set>
 #include <vector>
 
+#include "anim_sit.h"
 #include "corpse.h"
 #include "npc_anim_config.h"
 #include "npc_anim_engine.h"
@@ -30,6 +31,7 @@ struct DriverStats {
     uint64_t deaths = 0, killRetries = 0, killGaveUp = 0, corpsePoses = 0, corpseCorrections = 0, corpseWithinTolerance = 0;
     uint64_t corpseGaveUp = 0, corpseMissing = 0, corpseLate = 0;
     uint64_t releases = 0;
+    uint64_t sitsIssued = 0, standsIssued = 0, standsConfirmed = 0, standGiveUps = 0, sitDrops = 0, sitDrifts = 0, sitNoFurniture = 0, restrains = 0;
 };
 
 // What a test or the dashboard can ask about one driven actor.
@@ -45,6 +47,9 @@ struct PuppetInfo {
     int lastActionGroup = 0;
     uint8_t lastActionSeq = 0;
     bool turning = false;
+    bool seated = false;           // the driver believes the copy is in the furniture it was told to use
+    bool standPending = false;     // a stand-up was issued and the copy has not read "out of the furniture" yet
+    uint32_t furniture = 0;
 };
 struct DeadInfo {
     bool known = false;
@@ -75,6 +80,9 @@ public:
 
     PuppetInfo info(NetId id) const;
     DeadInfo deadInfo(NetId id) const;
+    // A stand-up is under way: the copy is still in the furniture. The actor port may keep the copy where it is until this turns false, so a
+    // body that is told "standing" is out of the furniture before it is moved (the driver itself plays no movement group until then).
+    bool poseLocked(NetId id) const;
     bool isDead(NetId id) const { return dead_.count(id) != 0; }
     std::vector<NetId> deadActors() const { std::vector<NetId> v; for (auto& kv : dead_) v.push_back(kv.first); return v; }
     const DriverStats& stats() const { return stats_; }
@@ -158,6 +166,21 @@ private:
         uint32_t actionUntil = 0;       // a reaction (stagger ...) is assumed to play until here: the movement group is not forced over it
         int heldAction = 0;             // a held action (block, automatic fire) is playing
         bool afterActionReassert = false;
+        // furniture: what the driver believes the copy is doing in the furniture, and what the last read-back said
+        enum class Seat : uint8_t { Unknown, Standing, Seated };
+        Seat seat = Seat::Unknown;
+        uint32_t seatFurniture = 0;
+        uint32_t sitCmdAt = 0;          // when the last sit / stand command went out (a read-back before the grace is not judged)
+        bool standPending = false;      // stand-up issued, the copy is not out yet: no movement group is played over it
+        uint32_t standSince = 0, standTries = 0, standRetryAt = 0, pendingReadAt = 0;
+        bool unrestrained = false;      // an escalated stand-up let the actor's AI run: the hold has to go back
+        Backoff sitBo, standBo;
+        bool poseHeld = false;          // the furniture owns the pose right now (seated, or on the way out): no movement group, no re-assert
+        bool sitReadable = false;       // the backend can read the sit state of this copy
+        bool obsFresh = false;
+        SitView obs;
+        uint32_t obsFurniture = 0;
+        bool noFurnitureCounted = false;
         // verification
         uint32_t nextVerifyMs = 0;
         bool dirty = true;              // re-issue everything at the next chance (menu closed, cell change ...)
@@ -192,6 +215,8 @@ private:
     void issueWeapon(NetId id, Puppet& p, uint32_t now);
     void applyOneShot(NetId id, Puppet& p, const live::AnimState& a, uint32_t now);
     void applyKnock(NetId id, Puppet& p, const live::InterpOut& out, uint32_t now);
+    bool applySeat(NetId id, Puppet& p, const live::AnimState& a, uint32_t now);
+    void observeSeat(Puppet& p, const NpcReads& r);
     void verifyPuppet(NetId id, Puppet& p, uint32_t now);
     void tickDead(NetId id, Dead& d, uint32_t now);
     void markAllDirty();
@@ -209,7 +234,7 @@ private:
     bool menuWas_ = false;
     bool blockedCache_ = false, haveBlocked_ = false;
     uint32_t blockedAt_ = 0;
-    bool noRate_ = false, noWeapon_ = false, noAim_ = false, noKnock_ = false;   // the backend answered Unsupported once: never asked again
+    bool noRate_ = false, noWeapon_ = false, noAim_ = false, noKnock_ = false, noSeat_ = false;   // the backend answered Unsupported once: never asked again
 };
 
 }  // namespace nvcoop::actors::anim

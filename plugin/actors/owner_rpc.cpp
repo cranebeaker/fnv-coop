@@ -1,4 +1,5 @@
 #include "actors/owner_rpc.h"
+#include "actors/state_parts.h"
 #include <cctype>
 #include <cstdlib>
 #include "common/minijson.h"
@@ -42,6 +43,17 @@ std::string statsJson(const ActorSync& sync) {
     n("finalsSent", s.finalsSent); n("finalsApplied", s.finalsApplied); n("finalsRepeated", s.finalsRepeated); n("acksSent", s.acksSent);
     n("takeovers", s.takeovers); n("handoffsOut", s.handoffsOut); n("aiHolds", s.aiHolds);
     n("avAudits", s.avAudits); n("avDriftFixed", s.avDriftFixed);
+    // State parts (state_parts.h), by kind: {"parts":{"inventory":{"published":..,"applied":..,"rejected":..,"duplicate":..,"applyFailed":..},"equipment":{..}}}
+    nvcoop::json::Value parts = nvcoop::json::Value::object();
+    for (size_t k = 0; k < kPartCount; ++k) {
+        const PartStats& ps = s.parts[k];
+        nvcoop::json::Value pv = nvcoop::json::Value::object();
+        pv.set("published", static_cast<int64_t>(ps.published)); pv.set("applied", static_cast<int64_t>(ps.applied));
+        pv.set("rejected", static_cast<int64_t>(ps.rejected)); pv.set("duplicate", static_cast<int64_t>(ps.duplicate));
+        pv.set("applyFailed", static_cast<int64_t>(ps.applyFailed));
+        parts.set(partName(static_cast<PartKind>(k)), pv);
+    }
+    v.set("parts", parts);
     if (const fnvcoop::OwnershipService* o = sync.service()) {   // host only
         const fnvcoop::OwnershipStats& os = o->stats();
         n("grants", os.grants); n("transfers", os.transfers); n("commits", os.commits); n("forcedCommits", os.forcedCommits);

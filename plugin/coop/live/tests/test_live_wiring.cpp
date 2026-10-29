@@ -833,6 +833,59 @@ TEST(avatars_leave_removes_puppets_everywhere) {
     CHECK(b.an->roster().empty());
 }
 
+// A player's attacks are owner events: the host punches, a client throws, the other client swings. Every OTHER machine shows each one on that player's puppet exactly
+// once (the host relays between the clients), over a link that loses a fifth of the datagrams and duplicates another fifth; the attacker's own machine plays nothing.
+TEST(avatars_attacks_show_on_every_other_machine) {
+    Rig3 r;
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    r.run(4500);
+    CHECK(h.puppets() == 2 && a.puppets() == 2 && b.puppets() == 2);
+    fnvcoop::LinkParams lp;
+    lp.minLatencyMs = 20;
+    lp.maxLatencyMs = 50;
+    lp.loss = 0.2;
+    lp.duplicate = 0.2;
+    r.n.net.setLink(lp);
+    auto swing = [&](Node& who, int group, uint32_t ms) {
+        auto& p = who.be.Player();
+        p.group = group;
+        p.groupSlot = 1;
+        p.groupState = 1;
+        p.groupPlayMs = 0;
+        for (uint32_t t = 0; t < ms; t += 33) {
+            r.step();
+            p.groupPlayMs += 33;
+        }
+        p.group = -1;
+        p.groupPlayMs = -1;
+        r.run(1500);
+    };
+    auto seen = [&](Node& viewer, PlayerId of, const std::string& line) {
+        const av::RefId ref = viewer.an->puppetRef(of);
+        int n = 0;
+        for (const auto& l : viewer.be.lines)
+            if (ref && l.ctx == ref && l.text == line) ++n;
+        return n;
+    };
+    swing(h, 26, 400);    // the host punches
+    CHECK(seen(a, 0, "PlayGroup AttackLeft 0") == 1);
+    CHECK(seen(b, 0, "PlayGroup AttackLeft 0") == 1);
+    swing(a, 114, 400);   // client 1 throws
+    CHECK(seen(h, 1, "PlayGroup AttackThrow 0") == 1);
+    CHECK(seen(b, 1, "PlayGroup AttackThrow 0") == 1);   // through the host's relay
+    swing(b, 92, 600);    // client 2 makes a power attack
+    CHECK(seen(h, 2, "PlayGroup AttackPower 0") == 1);
+    CHECK(seen(a, 2, "PlayGroup AttackPower 0") == 1);
+    swing(h, 26, 400);    // the host punches again: a second event, not a replay of the first
+    CHECK(seen(a, 0, "PlayGroup AttackLeft 0") == 2);
+    CHECK(seen(b, 0, "PlayGroup AttackLeft 0") == 2);
+    // nothing plays on the attacker's own machine: it has no puppet of itself, and the real player is never driven
+    CHECK(h.be.count("PlayGroup AttackLeft") == 0 && a.be.count("PlayGroup AttackThrow") == 0 && b.be.count("PlayGroup AttackPower") == 0);
+    CHECK(h.be.badLines.empty() && a.be.badLines.empty() && b.be.badLines.empty());
+}
+
 TEST(avatars_rejoin_follows_again) {
     Rig3 r;
     Node& a = r.addClient(1);
@@ -1322,6 +1375,7 @@ int main() {
     run("wire_pack_roundtrip_and_truncation", wire_pack_roundtrip_and_truncation);
     run("wire_player_net_ids", wire_player_net_ids);
     run("avatars_three_machines_see_each_other", avatars_three_machines_see_each_other);
+    run("avatars_attacks_show_on_every_other_machine", avatars_attacks_show_on_every_other_machine);
     run("avatars_never_a_puppet_of_oneself", avatars_never_a_puppet_of_oneself);
     run("avatars_leave_removes_puppets_everywhere", avatars_leave_removes_puppets_everywhere);
     run("avatars_rejoin_follows_again", avatars_rejoin_follows_again);

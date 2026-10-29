@@ -85,6 +85,8 @@ public:
     // ---- ghost-ref map ----------------------------------------------------------------------------------------------
     RefId RefOf(Slot slot) const { return pm_.RefOf(slot); }
     std::optional<Slot> SlotOf(RefId ref) const { return pm_.SlotOf(ref); }
+    // A pose held over the puppet's planned group (a downed friend lies there); kNoGroup = back to normal driving. See PuppetManager::SetPoseOverride.
+    void SetPoseOverride(Slot slot, int baseGroup) { pm_.SetPoseOverride(slot, baseGroup); }
 
     // ---- introspection ----------------------------------------------------------------------------------------------
     PuppetManager& manager() { return pm_; }

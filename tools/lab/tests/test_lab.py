@@ -68,6 +68,16 @@ EXPECT = {
     "stage_client_lost": ("quest", "host agrees on stage 20", "SYNC"),
     "var_unsynced": ("quest", "quest variable", "SYNC"),
     "stage_rollback": ("quest", "does not roll back", "SYNC"),
+    # parity: one check at the end collects every mismatch (the entity, field and both values are asserted in test_parity.py)
+    "npc_equip_unsynced": ("parity", "agrees", "SYNC"),
+    "npc_draw_unsynced": ("parity", "agrees", "SYNC"),
+    "npc_sit_unsynced": ("parity", "agrees", "SYNC"),
+    "npc_stand_unsynced": ("parity", "agrees", "SYNC"),
+    "npc_anim_stuck": ("parity", "agrees", "SYNC"),
+    "puppet_equip_unsynced": ("parity", "agrees", "SYNC"),
+    "puppet_default_look": ("parity", "agrees", "SYNC"),
+    "puppet_no_punch": ("parity", "agrees", "SYNC"),
+    "guest_time_30x": ("parity", "agrees", "SYNC"),
 }
 NOT_A_FAILURE = set(labfake.NET_ONLY) | {"var_unreadable",         # a build that cannot read a quest variable skips that check, it does not fail the lab
                  "kill_health_split",      # how the real game reports a kill (own test below)

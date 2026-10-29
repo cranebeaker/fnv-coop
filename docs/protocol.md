@@ -38,6 +38,8 @@ game hooks (L5)  ->  effects  ->  HostSession / ClientSession (synccore)  ->  IT
 | `0x8D` | guest intents: Intent (guest -> host) and Verdict (host -> guest) for activations, pickups, triggers, container locks, terminal entries (section 19) | guest-intents `plugin/intents/intent_wire.h` |
 | `0xB7` | real-time VATS: host settings, a player's VATS mode, queued VATS actions, the party slow-mo grant (section 20) | vats `plugin/vats/vats_wire.h` |
 | `0xB1` | loot: container / corpse open, take, put, close, register; dropped items, pickup claims, physics clutter (section 22) | loot `synccore/loot/loot_wire.h`, `plugin/loot` |
+| `0xC8` | text chat: Say (guest -> host), Line (host -> guests), Hello, Notice; always reliable (docs/chat.md) | chat `plugin/chat/chat_wire.h` |
+| `0x56` | voice: Opus frames, guest -> host -> other guests, unreliable, self-versioned (docs/voice.md) | voice `plugin/voice` |
 
 New channels must pick an unused first byte that is not 0xFC and is not 0xA1 (see 3.2), and be registered here and in
 `transport_util.h`. Datagrams with an unknown first byte are dropped by the mux. `AppData` (type 8) is an alternative for small

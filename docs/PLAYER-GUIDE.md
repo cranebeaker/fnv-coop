@@ -46,7 +46,7 @@ Your saves are never touched. If the game is running, close it first.
    stop the listener again. If the friend sees "answered", the path works. Stop the listener before you start the game,
    because the game needs the port itself.
 6. Press **Start game**. When you are in the world, friends can join. Load the save you want to play, or start a new
-   game. **The host's save is the world.** Everybody else keeps their own character, inventory, level and skills.
+   game. **The host's save is the world.** Everybody else keeps their own character, inventory, level and skills. See "Save and continue a campaign" below for how saving works.
 
 ## Join a friend
 
@@ -57,6 +57,49 @@ Your saves are never touched. If the game is running, close it first.
 4. Press **Start game**. Wait for the host to be in the world. (Steam players: leave Steam running, the game needs it.)
 
 Your launcher remembers a private number for your PC, so when you rejoin you get the same player slot.
+
+## Play over Steam (no address, no router settings)
+
+If you and your host are **Steam friends**, you can skip the IP address and the port forwarding: Steam carries the game traffic between your PCs.
+
+You need: Fallout: New Vegas **from Steam** (a GOG copy has no Steam to use), Steam running and logged in on every PC, and the host on your Steam friends list.
+The launcher shows you as "playing Fallout: New Vegas" in Steam while it is open. That is normal.
+
+**Host.** In the launcher's main menu press **CONNECTION** until it reads **STEAM FRIENDS**, then **HOST A GAME** (or **CONTINUE A GAME**). The lobby opens;
+you give nobody an address. Your friends see you in their launcher, and in Steam's friends list a **Join Game** button appears next to your name.
+
+**Join.** Set **CONNECTION** to **STEAM FRIENDS**, then press **JOIN A FRIEND**. The list shows your Steam friends who are hosting (the list refreshes itself).
+Pick your host. If the host is still in the lobby you land in it and ready up as usual; if the host is already in the world, your game starts and joins them.
+You can also keep the launcher open and click **Join Game** next to the host's name in Steam: the launcher then offers that host at the top of the list.
+
+The lobby (ready-up, begin transmission, continue a saved campaign) works exactly as it does over an IP address. When the host presses begin, the launcher closes its
+Steam link and each game starts and talks to Steam itself.
+
+A host on a different release of FNV Co-Op is listed greyed out ("other release"): everyone needs the same release, as always.
+
+## Save and continue a campaign
+
+**Every save is a party save.** When the host saves (Escape, Save; quicksave; autosave), every player's game saves its own character at the same
+moment, in a save called `Co-op <campaign code> <the host's save name>`, for example `Co-op 00ab12 Save 4 - Ann Primm`. The code is the same for the whole
+campaign. If you cannot save right now (a menu is open, a story scene is running), your game saves as soon as you can; nothing else is needed.
+
+**A friend saves, not the host?** A friend's Escape, Save (or quicksave) works too: the friend's game saves, then the host's game makes the matching save
+(named `Co-op <campaign code> Host <the friend's save name>`) and every other player's game saves as well. If the host cannot save at that moment, the friend sees
+a line on screen and the party save follows as soon as the host can.
+
+**To continue later**, everybody starts the launcher as usual.
+
+1. The host presses **CONTINUE A GAME** (next to HOST A GAME) and picks the save to continue. The list shows the host's co-op saves, newest first.
+2. Friends press **JOIN A FRIEND** and connect to the lobby as always. The lobby says which save is being continued.
+3. Everybody presses ready, the host presses **BEGIN TRANSMISSION**. The host's game loads the host's save; each friend's game loads that friend's own
+   save for it (the one made at the same moment, or else the newest of the campaign).
+
+A friend who has **no save of this campaign** (new to the group, or lost the file) joins as a new character: the game skips the opening, you make your
+character as in a new game, and you are moved to the host. Ordinary single-player saves are not offered by CONTINUE.
+
+Where the files are: your saves are where the game always keeps them (`Documents\My Games\FalloutNV\Saves`). Next to each co-op save is a small `.fnvparty`
+file (keep it with the save); `Data\NVSE\Plugins\nvcoop_party_index.txt` in your game folder lists which of your saves belongs to which host save.
+The design is in `docs/party-save.md`.
 
 ## Party settings
 
@@ -98,6 +141,10 @@ backup is just there in case).
 | "Fallout: New Vegas is already running" | Close the game, then try again. |
 | Installer says Windows did not allow the change | Right-click **Install.cmd** and choose "Run as administrator" (a game under Program Files can need it), and close programs that may hold the files open. Nothing was changed. |
 | Launcher: "UDP port ... already in use" | Another program, or a game that is already hosting, has the port. Pick another port (everyone must use the same one) or close the other program. |
+| Launcher: "Steam is not running or you are not logged in" | Start Steam, log in, then press the button again. The game must be the Steam copy. |
+| Steam: your host is not in the list | You must be Steam friends. The host must have pressed HOST A GAME with CONNECTION set to STEAM (or be in the world as host). The list refreshes every few seconds; press REFRESH. |
+| Steam: "the host did not answer" / stays on "Calling the host through Steam" | The host's game may still be loading (it answers once it is in the world), or the host is not on your Steam friends list. Wait a minute, then pick the host from the list again. |
+| Launcher: "this copy has no fnvsteam.exe" | The release is incomplete. Download it again; until then use the IP address instead. |
 | Friend cannot join | Run Test connection. Check the router rule is for **UDP**, the port number matches, and Windows Firewall allows the game. If you both are on the same home network, use the local address that Check port shows. |
 | Join is refused with a message | Read the message: the usual reasons are a different release, a different list of mods, or a full session (4 players). |
 | The game opens its own small launcher window instead of the game | Start the game once through Steam or GOG so it writes its settings, then use the co-op launcher again. |

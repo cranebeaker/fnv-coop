@@ -3,7 +3,7 @@
 #   cmake --build build/L1 --config Release
 # Artifacts land in <repo>/out/L1/ (nvcoop.dll, nvbridge_fakehost*.exe).
 cmake_minimum_required(VERSION 3.20)
-project(nvcoop CXX)
+project(nvcoop C CXX)   # C: third_party/opus (voice chat)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,7 +81,7 @@ endif()
 # NOTE: xNVSE headers use max()/min(): do NOT define NOMINMAX for targets that include them.
 option(NVCOOP_LINK_SNAPSHOT "Link L7 fnvcoop_snapshot into nvcoop.dll (needs the xNVSE game-API sources; links in L7 snapshot)" ON)
 set(NVCOOP_SKIP_SUBDIRS "" CACHE STRING "semicolon list of plugin/<dir> to leave out (e.g. a lane whose code does not build yet)")
-foreach(sub hooks hooks_ui hooks_world snapshot nvmp coop flight animprobe reload bots actors avatar combat spawn splitscreen intents world_time vats companions areadigest loot)
+foreach(sub hooks hooks_ui hooks_world snapshot nvmp coop flight animprobe reload bots actors avatar combat spawn splitscreen intents world_time vats companions areadigest loot rebalance threat chat voice markers)
   if(sub IN_LIST NVCOOP_SKIP_SUBDIRS)
     continue()
   endif()
@@ -110,6 +110,12 @@ endif()
 # story-capture: RefCommand AI orders are performed only by the machine that owns the actor; needs the actors engine API (plugin/hooks/story_owner_gate.cpp)
 if(TARGET nvcoop AND TARGET nvcoop_actor_engine_core AND EXISTS "${CMAKE_CURRENT_LIST_DIR}/hooks/story_owner_gate.cpp")
   target_sources(nvcoop PRIVATE ${CMAKE_CURRENT_LIST_DIR}/hooks/story_owner_gate.cpp)
+endif()
+
+
+# parity probe: the read-only bridge method parity.look for the lab's parity room (tools/lab); xNVSE headers only, no NVSE .cpp
+if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND TARGET nvcoop AND EXISTS "${CMAKE_CURRENT_LIST_DIR}/probe/parity_probe.cpp")
+  target_sources(nvcoop PRIVATE ${CMAKE_CURRENT_LIST_DIR}/probe/parity_probe.cpp)
 endif()
 
 if(NVCOOP_SPLIT_LOADER)

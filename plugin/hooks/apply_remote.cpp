@@ -112,7 +112,34 @@ const TESObjectREFR* cellAnchor(TESObjectCELL* cell) {
 }
 }  // namespace
 
-ApplyStatus RemoteApplier::apply(const Effect& e) {
+namespace {
+std::function<bool()> g_controlsLockVeto;
+}  // namespace
+void setControlsLockVeto(std::function<bool()> veto) { g_controlsLockVeto = std::move(veto); }
+bool enableAllPlayerControls() {
+    void* p = thePlayer();
+    if (!p) return false;
+    tc<void, UInt32, UInt32>(addr::PlayerSetControlsDisabled.target, p, 0u, 0xFFu);
+    return true;
+}
+
+ApplyStatus RemoteApplier::apply(const Effect& e) { return applyFrom(kHostPlayer, e); }
+
+ApplyStatus RemoteApplier::applyFrom(PlayerId sender, const Effect& e) {
+    IdentityView view = currentIdentity();
+    if (!view.on) return applyNow(e);
+    view.opDefaultsToPlayer = &refOpDefaultsToPlayer;
+    Effect fx = e;
+    const Verdict v = translateIncoming(fx, sender, view);
+    if (v == Verdict::Dropped) {
+        err_.clear();
+        if (traceEnabled()) traceLine(std::string("applyremote: ") + effectTypeName(e) + " from slot " + std::to_string(int(sender)) + " dropped: it acts on that player's own character, not on this machine's player");
+        return ApplyStatus::Ok;
+    }
+    return applyNow(v == Verdict::Rewritten ? fx : e);
+}
+
+ApplyStatus RemoteApplier::applyNow(const Effect& e) {
     EchoGuard echo(&hub_.echo());  // hooks must not re-capture what we apply
     ApplyScope applyScope;         // lifts the guest suppression for host-authored effects
     std::unique_ptr<ScriptGate> gate;  // and no result script may run as a side effect
@@ -281,6 +308,7 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
     if (auto* x = std::get_if<SetPlayerControls>(&e)) {
         void* p = thePlayer();
         if (!p) return ApplyStatus::FormMissing;
+        if (!x->enable && g_controlsLockVeto && g_controlsLockVeto()) return ApplyStatus::Ok;
         tc<void, UInt32, UInt32>(addr::PlayerSetControlsDisabled.target, p, x->enable ? 0u : 1u, x->controls & 0xFFu);
         return ApplyStatus::Ok;
     }
@@ -412,7 +440,7 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
             return run(enableFastTravelCmd(travelLocks_.travelEnabled()), 0);
         }
         if (auto* x = std::get_if<CompanionOwner>(&e)) {
-            if (!companionForMe(x->owner, localSlot_)) return ApplyStatus::NotForMe;
+            if (!companionForMe(x->owner, localSlotOf(currentIdentity(), localSlot_))) return ApplyStatus::NotForMe;   // a guest's slot comes from the identity layer (applyTxn is not on the game's path)
             uint32_t id;
             if (!idOf(x->npc, &id)) return ApplyStatus::FormMissing;
             gate.reset();
@@ -439,7 +467,7 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
     return ApplyStatus::Unsupported;  // MoveRef, KillActor, ResurrectActor
 }
 
-RemoteApplier::RemoteApplier(CaptureHub& hub, FormResolver& res) : hub_(hub), res_(res) { instances().push_back(this); }
+RemoteApplier::RemoteApplier(CaptureHub& hub, FormResolver& res) : hub_(hub), idres_(res), res_(idres_) { instances().push_back(this); }
 RemoteApplier::~RemoteApplier() {
     auto& v = instances();
     v.erase(std::remove(v.begin(), v.end(), this), v.end());
@@ -612,7 +640,7 @@ ApplyStatus RemoteApplier::applyForce(const Effect& e) {
         if (*status != want) *status = want;  // SetState refuses some transitions (e.g. un-complete): force the byte
         return ApplyStatus::Ok;
     }
-    return apply(e);  // nested EchoGuard/ApplyScope/ScriptGate are re-entrant
+    return apply(e);  // nested EchoGuard/ApplyScope/ScriptGate are re-entrant; baseline state is the host's, so the identity layer sees the host as sender
 }
 
 size_t RemoteApplier::applyTxn(const EffectTxn& t, PlayerId me) {
@@ -630,7 +658,7 @@ size_t RemoteApplier::applyTxn(const EffectTxn& t, PlayerId me) {
         else if (auto* c2 = std::get_if<SetPlayerControls>(&e)) r = &c2->to;
         else if (auto* rc = std::get_if<RefCommand>(&e)) r = &rc->to;
         if (r && !forMe(*r, t.origin, me)) continue;
-        if (apply(e) == ApplyStatus::Ok) ++n;
+        if (applyFrom(t.origin, e) == ApplyStatus::Ok) ++n;
     }
     return n;
 }

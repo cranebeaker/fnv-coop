@@ -83,6 +83,8 @@ public:
     void revive(NetId id) override;
     bool sampleInventory(NetId id, InvList& out) override;
     bool applyInventory(NetId id, const InvList& want) override;
+    bool sampleEquipment(NetId id, EquipList& out) override;
+    bool applyEquipment(NetId id, const EquipList& want) override;
 
     // ---- diagnostics ----
     const PortStats& stats() const { return st_; }

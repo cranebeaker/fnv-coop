@@ -289,6 +289,7 @@ void AvatarNet::onSnapshotDatagram(PlayerId from, const uint8_t* body, size_t si
         if (isHost_ && !FNV_MUT(41)) {   // MUTANT 41: the host does not relay (a client never sees the other clients)
             live::ActorSnapshot relay = s;
             relay.avDeltas = r.avAll;
+            if (FNV_MUT(213)) { relay.anim.action = 0; relay.anim.block = false; }   // twin 213: the relay drops the player's one-shot (a third machine never sees the attack)
             for (PlayerId c : joined_)
                 if (c != slot) queueTo(c, slot, relay, nowMs_);
         }

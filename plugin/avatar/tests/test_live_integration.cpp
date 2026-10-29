@@ -311,6 +311,105 @@ static int Judge(const Result& r) {
     return bad;
 }
 
+// ---- attacks over the real wire ------------------------------------------------------------------------------------------------
+// The owner stands and fights: a swing, a power attack, a throw, a shot, a block hit, a stagger, 1.5 s apart, each held in the stream for 600 ms with a
+// counter that bumps when it starts (what the owner's sampler publishes). Through the delta codec, a lossy and jittery link, the interpolation buffer and
+// the driver, every one of them must show on the puppet exactly once, however long it stays in the stream, and the silence after the fight replays none.
+struct AttackResult {
+    unsigned plays[6] = {0, 0, 0, 0, 0, 0};   // PlayGroup calls per attack
+    unsigned spawns = 0;
+};
+
+static const int kAttackGroups[6] = {32 /*AttackRight*/, 92 /*AttackPower*/, 114 /*AttackThrow*/, 38 /*Attack3*/, 171 /*BlockHit*/, 223 /*Stagger*/};
+
+static AttackResult RunAttackScenario(unsigned lossPercent, uint32_t seed, bool lowLatency) {
+    AttackResult res;
+    FakePuppetEngine eng;
+    eng.loadedCells = {kCell};
+    Config cfg;
+    cfg.localSlot = 0;
+    cfg.templates = {{1, false, 0x1000}};
+    PuppetManager pm(eng, cfg);
+    Appearance app;
+    app.race = 1;
+    pm.AddPlayer(1, app);
+
+    live::SnapshotSender sender;
+    live::ReceiverConfig rcfg;
+    rcfg.checkSenderIsOwner = false;
+    live::SnapshotReceiver receiver(rcfg);
+    live::InterpConfig icfg;
+    icfg.lowLatency = lowLatency;
+    live::InterpBuffer buf(icfg);
+    live::SeqAllocator seqs;
+    const ::fnvcoop::PlayerId kOwner = 1, kMe = 2;
+    const live::NetId kNet = 77;
+    std::mt19937 rng(seed);
+    struct InFlight { uint32_t arrive; live::Bytes data; };
+    std::vector<InFlight> wire, backWire;
+
+    const uint32_t kEnd = 15000, kSilentFrom = 11000;   // the owner's machine goes quiet after the fight
+    uint32_t nextSend = 0;
+    for (uint32_t now = 0; now <= kEnd; now += 16) {
+        if (now >= nextSend) {
+            nextSend += 50;
+            Anim a;
+            a.weaponDrawn = true;
+            // attack i starts at 2000 + 1500 i and stays in the stream 600 ms
+            int idx = -1;
+            for (int i = 0; i < 6; ++i)
+                if (now >= 2000u + 1500u * i && now < 2000u + 1500u * i + 600u) idx = i;
+            a.actionSeq = static_cast<uint8_t>(10 + (now >= 2000 ? std::min<uint32_t>((now - 2000) / 1500 + 1, 6) : 0));
+            if (idx >= 0) a.action = static_cast<uint8_t>(kAttackGroups[idx]);
+            live::ActorSnapshot s = MakeLocalSnapshot(kNet, 1, seqs.next(kNet, 1), now, kCell, Vec3{1000, 1000, 0}, Vec3{0, 0, 0}, Vec3{}, a);
+            if (now < kSilentFrom && sender.queue(kMe, s, now))
+                for (auto& pkt : sender.flush(kMe, now)) {
+                    if (rng() % 100 < lossPercent) continue;
+                    wire.push_back({now + 40 + rng() % 25, pkt});
+                }
+        }
+        for (size_t i = 0; i < wire.size();) {
+            if (wire[i].arrive <= now) {
+                for (auto& rs : receiver.receive(kOwner, wire[i].data.data(), wire[i].data.size()))
+                    if (rs.verdict == live::Verdict::Accepted) buf.push(rs.snap, now);
+                live::Bytes ack = receiver.takeAcks(kOwner);
+                if (!ack.empty()) backWire.push_back({now + 40, ack});
+                wire.erase(wire.begin() + i);
+            } else {
+                ++i;
+            }
+        }
+        for (size_t i = 0; i < backWire.size();) {
+            if (backWire[i].arrive <= now) {
+                sender.onAckPacket(kMe, backWire[i].data.data(), backWire[i].data.size());
+                backWire.erase(backWire.begin() + i);
+            } else {
+                ++i;
+            }
+        }
+        live::InterpOut io = buf.sample(now, nullptr);
+        eng.Frame();
+        if (io.state != live::InterpState::Empty) pm.SetPose(1, FromInterp(io));
+        pm.Tick(now + 1000);
+    }
+    for (const auto& g : eng.groupLog)
+        for (int i = 0; i < 6; ++i)
+            if (g.second == kAttackGroups[i]) ++res.plays[i];
+    res.spawns = eng.spawnCalls;
+    return res;
+}
+
+static int JudgeAttacks(const AttackResult& r) {
+    int bad = 0;
+    auto chk = [&](bool c) {
+        ++g_checks;
+        if (!c) ++bad;
+    };
+    for (int i = 0; i < 6; ++i) chk(r.plays[i] == 1);
+    chk(r.spawns == 1);
+    return bad;
+}
+
 static bool Twin(const char* name, int bad) {
     std::printf("  twin %-26s %s\n", name, bad ? "killed" : "SURVIVED");
     return bad != 0;
@@ -354,6 +453,19 @@ int main() {
         if (bad) std::printf("  FAIL: %d judgements failed\n", bad);
         g_fail += bad;
     }
+    // the owner's attacks: each shows once on the puppet, over a clean link and a lossy one, in both playback modes
+    for (unsigned loss : {0u, 30u}) {
+        for (uint32_t seed : {1u, 2u, 3u}) {
+            for (bool ll : {false, true}) {
+                AttackResult r = RunAttackScenario(loss, seed, ll);
+                std::printf("  attacks loss=%u%% seed=%u ll=%d: plays %u %u %u %u %u %u spawns=%u\n", loss, seed, (int)ll, r.plays[0], r.plays[1], r.plays[2],
+                            r.plays[3], r.plays[4], r.plays[5], r.spawns);
+                int bad = JudgeAttacks(r);
+                if (bad) std::printf("  FAIL: %d judgements failed\n", bad);
+                g_fail += bad;
+            }
+        }
+    }
     std::printf("avatar live: %d checks, %d failed\n", g_checks, g_fail);
     if (g_fail) return 1;
 
@@ -388,6 +500,30 @@ int main() {
         f.adoptPhysicsPush = true;     // the buffer is told the pushed place: it eases the puppet back from it
         AvatarFaultScope sc(f);
         survivors += Twin("adoptPhysicsPush", Judge(RunScenario(0, 4, true))) ? 0 : 1;
+    }
+    {
+        AvatarFaults f;
+        f.oneShotReplays = true;       // a one-shot still in the stream is played on every frame
+        AvatarFaultScope sc(f);
+        survivors += Twin("oneShotReplays", JudgeAttacks(RunAttackScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        AvatarFaults f;
+        f.bridgeDropsAction = true;    // the conversion between the live layer and the puppet forgets the action
+        AvatarFaultScope sc(f);
+        survivors += Twin("bridgeDropsAction", JudgeAttacks(RunAttackScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        live::LiveFaults lf;
+        lf.dropAnimExt = true;         // the live layer's encoder forgets the animation extension
+        live::LiveFaultScope sc(lf);
+        survivors += Twin("live.dropAnimExt", JudgeAttacks(RunAttackScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        live::LiveFaults lf;
+        lf.animExtNoDelta = true;      // a lone counter bump is not noticed by the delta encoder
+        live::LiveFaultScope sc(lf);
+        survivors += Twin("live.animExtNoDelta", JudgeAttacks(RunAttackScenario(0, 1, true))) ? 0 : 1;
     }
     if (survivors) {
         std::printf("avatar live: %d twins survived\n", survivors);

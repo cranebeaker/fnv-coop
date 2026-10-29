@@ -215,6 +215,8 @@ def a_talk(ctx: Ctx, a: Dict[str, Any], rep: Dict[str, Any]) -> None:
     ms = int(round((ctx.now() - t0) * 1000))
     rep.setdefault("talk_ms", {})[m.name] = ms
     guest = m.name == CLIENT
+    if not ok and a.get("open_ok") and "already_in_dialogue" in (why or ""):   # the NPC greeted first (Sunny's forced greeting): the menu is open, which is all the step needs
+        ok, why = True, "open (the NPC greeted first)"
     ctx.check(f"{m.name} talks to {a['npc']} and the dialogue opens", ok, "dialogue open", why or "open", cls="SYNC" if guest else "TEST",
               area="plugin/dialogue, plugin/intents (guest talk request, host grant)" if guest else "tools/story (route), tools/bots (talk)")
     ctx.metric(f"{m.name}_talk_ms", ms)
@@ -263,7 +265,7 @@ def a_pick(ctx: Ctx, a: Dict[str, Any], script: D.Script, rep: Dict[str, Any]) -
         pick, how = _choose(offered, wanted, picked, fallback, script)
         if pick is None:
             if n == 0 and wanted:
-                ctx.check(f"{m.name} is offered one of the scripted lines {wanted}", False, wanted, [c.get("info") for c in offered][:8],
+                ctx.check(f"{m.name} is offered one of the scripted lines {wanted}", False, wanted, [(c.get("info"), c.get("topic")) for c in offered][:8],
                           cls="TEST", area="tools/story (script), plugin/dialogue (conditions, say-once state)")
             break
         info = D.norm_form(pick["info"])
@@ -286,9 +288,19 @@ def a_pick(ctx: Ctx, a: Dict[str, Any], script: D.Script, rep: Dict[str, Any]) -
                 break
             info = D.norm_form(pick["info"])
             ok, why, extra = m.say(info, ctx.p("pick_s"))
-        rec = {"who": m.name, "info": info, "text": D.info_text(info, script, 80), "how": how, "offered_infos": [c.get("info", "").rpartition(":")[2] for c in offered][:6], "said": bool(ok), "ms": int(round((ctx.now() - t0) * 1000)), "offered": len(offered)}
+        rec = {"who": m.name, "info": info, "text": D.info_text(info, script, 80), "how": how, "offered_infos": [c.get("info", "").rpartition(":")[2] for c in offered][:6], "offered_topics": [c.get("topic", "") for c in offered][:8], "said": bool(ok), "ms": int(round((ctx.now() - t0) * 1000)), "offered": len(offered)}
         if extra.get("speech_check"):
             rec["speech_check"] = True
+        if wanted and how != "script" and not picked:   # the scripted line was not on offer: is its quest running on each copy? (S03 / S11, guest topic lists)
+            quests = sorted({(D.infos_table().get(w) or {}).get("quest", "") for w in wanted} - {""})
+            seen: Dict[str, Any] = {}
+            for mm in ctx.ms:
+                for q in quests:
+                    try:
+                        seen.setdefault(mm.name, {})[q.rpartition(":")[2]] = mm.quest_running(q)
+                    except Exception as e:   # noqa: BLE001 - evidence only
+                        seen.setdefault(mm.name, {})[q.rpartition(":")[2]] = str(e)[:60]
+            rec["wanted_quest_running"] = seen
         if not ok:
             rec["why"] = (why or "")[:200]
         if MUTANT != "picks_unrecorded":

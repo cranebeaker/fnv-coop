@@ -2,6 +2,7 @@
 // Game-free. The engine is reached only through IActorPort (in-game: the hooks glue; tests: a fake engine) and the network only
 // through IActorNet (in-game: the coop mux; tests: an in-memory net with loss and duplication).
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -51,6 +52,25 @@ struct InvItem {
     friend bool operator!=(const InvItem& a, const InvItem& b) { return !(a == b); }
 };
 using InvList = std::vector<InvItem>;
+// What an actor holds and wears (weapon, armour, clothing): its equipped item forms, sorted, no duplicates.
+using EquipList = std::vector<FormRef>;
+
+// State parts (state_parts.h): the non-motion state of an actor the owner's engine changes by itself. On the wire (MPart::kind): append only.
+enum class PartKind : uint8_t {
+    Inventory = 0,   // item totals (InvList)
+    Equipment = 1,   // what it holds and wears (EquipList)
+};
+constexpr size_t kPartCount = 2;
+inline size_t partIndex(PartKind k) { return static_cast<size_t>(k); }
+struct PartSpec {
+    uint32_t pollMs = 500;     // owner: read the part of an owned actor this often
+    uint32_t settleMs = 1000;  // owner: a changed value is published once it stayed the same this long
+    size_t maxBytes = 4096;    // a value larger than this is never sent (an engine read that went wrong)
+    bool reapplyOnLoad = false;   // copy: write the last known value again when the actor loads here again (the engine rebuilt it from its base form)
+};
+struct PartStats {
+    uint64_t published = 0, applied = 0, rejected = 0, duplicate = 0, applyFailed = 0;
+};
 
 // One player as the ownership service needs to see them (fed by the avatar layer).
 struct PlayerPose {
@@ -86,6 +106,12 @@ public:
     // Inventory (the owner's AI drinks a Stimpak, the other copies must lose it too). Defaults: not available, nothing is synced.
     virtual bool sampleInventory(NetId id, InvList& out) { (void)id; (void)out; return false; }   // false = cannot read it exactly now
     virtual bool applyInventory(NetId id, const InvList& want) { (void)id; (void)want; return false; }   // make the engine copy hold exactly `want`
+    // Equipment (the owner's AI draws a rifle from its pack: the copies must hold the same one, or they draw nothing and cower). Defaults: not available.
+    virtual bool sampleEquipment(NetId id, EquipList& out) { (void)id; (void)out; return false; }   // false = cannot read it now
+    virtual bool applyEquipment(NetId id, const EquipList& want) { (void)id; (void)want; return false; }   // make the engine copy wear exactly `want`
+    // The generic form ActorSync uses: one part's value in its canonical bytes (state_parts.h). The defaults go through the typed calls above.
+    virtual bool readPart(NetId id, PartKind kind, Bytes& out);
+    virtual bool writePart(NetId id, PartKind kind, const Bytes& value);
     // Non-owner copy: check the mirrored actor values against `expected` (the owner's, merged) and write the ones that differ. Returns how many it had to correct.
     // An AV is mirrored once, when it changes; an engine that puts the actor's damage somewhere else while the actor is not fully loaded gives the copy another
     // health once it loads (vats room behind bad_wifi, run 20261028-032920: the copy read -55 for the owner's 5 until the area digest healed it). Default: write all.
@@ -110,8 +136,9 @@ struct SyncConfig {
     uint32_t ownEvalMs = 250;      // host: re-decide every tracked actor this often
     uint32_t settleMs = 300;       // owner: an idle actor sends one reliable settle snapshot after this long
     uint32_t resyncMinMs = 500;    // client: at most one MResync per actor per this long
-    uint32_t invPollMs = 500;      // owner: read an owned actor's inventory this often (a few actors per tick)
-    uint32_t invSettleMs = 1000;   // owner: publish a changed inventory once it has stayed the same this long (a replicated AddItem has landed everywhere by then)
+    // State parts (state_parts.h). Inventory settles for 1 s: a replicated AddItem / RemoveItem has landed on every machine by then, so it is not
+    // applied twice. Equipment settles for 0.3 s: long enough for a weapon swap in the middle of a draw, short enough that the copy draws the same gun. Equipment is written again when a copy loads again (a cell reload gives an NPC its base outfit back); inventory is not.
+    std::array<PartSpec, kPartCount> parts{{PartSpec{500, 1000, 4096, false}, PartSpec{500, 300, 1024, true}}};
     uint32_t avAuditMs = 500;      // non-owner: check a copy's mirrored actor values against the owner's this often (0 = never); under the area digest's settle time (1 s)
     // Switches for an A/B run in game (nvcoop.ini [actors] norepeatfinal=1 nocommitnofinal=1 noavaudit=1 give the behaviour before the lab run of 2026-10-28; a key at 0 is "absent" to the lab's ini check, so the switches are off-by-default); all on by default.
     bool acceptRepeatedFinal = true;   // new owner: a final state that only repeats what the copy already holds still completes the handoff (placed, acknowledged)
@@ -146,7 +173,7 @@ struct Stats {
     uint64_t resyncsSent = 0, resyncsAnswered = 0, idCollisions = 0, undecodable = 0, spoofed = 0;
     uint64_t ownershipApplied = 0, ownershipDuplicates = 0, ownershipStale = 0;
     uint64_t recruiterChanges = 0;
-    uint64_t invPublished = 0, invApplied = 0, invRejected = 0, invDuplicate = 0, invApplyFailed = 0;   // MInventory
+    std::array<PartStats, kPartCount> parts{};   // MPart, by PartKind
     uint64_t animEventsSent = 0, animEventsApplied = 0, animEventsRejected = 0, animEventsDuplicate = 0;   // enemy-anim MAnimEvent
     uint64_t avAudits = 0, avDriftFixed = 0;   // non-owner copies checked / actor values that had drifted from the owner's and were written back
     uint64_t aiHolds = 0, aiHoldsReleased = 0, staleFinalsForwarded = 0;   // forced-commit hold of the new owner's AI (see ActorSync::onOwnApplied)

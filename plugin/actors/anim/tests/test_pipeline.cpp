@@ -55,6 +55,7 @@ struct AnimPipe {
     double loss = 0;
     float ownerYaw = 0, speed = 0, moveOffset = 0;   // moveOffset: the body moves along yaw + offset (pi/2 = strafing right)
     SlideMeter meter;
+    bool holdPoseWhileLocked = false;   // the actor port keeps a copy where it is while the driver says its pose is locked (poseLocked)
     uint32_t t0 = 1000;
     int epoch = 1;
 
@@ -98,7 +99,8 @@ struct AnimPipe {
         if (now % 33 == 0 && ib.size() > 0) {
             live::ActualPose act; act.cell = R().cell; act.pos = R().pos;
             live::InterpOut out = ib.sample(now, &act);
-            if (!R().dead) { R().pos = out.pos; R().yaw = out.rot.y; R().cell = out.cell; }
+            const bool held = holdPoseWhileLocked && sysR.driver().poseLocked(kId);
+            if (!R().dead && !held) { R().pos = out.pos; R().yaw = out.rot.y; R().cell = out.cell; }
             sysR.drive(kId, out, now);
             meter.frame(now, R());
         }
@@ -274,3 +276,49 @@ static std::string corpseOverActorSync(int owner, bool viaHostRelay) {
 
 TEST(actorsync, a_client_owned_corpse_reaches_the_host_and_the_other_client) { const std::string e = corpseOverActorSync(1, true); CHECK_MSG(e.empty(), e); }
 TEST(actorsync, a_host_owned_corpse_reaches_both_clients) { const std::string e = corpseOverActorSync(0, false); CHECK_MSG(e.empty(), e); }
+
+// ---- furniture: an NPC sits, stands up and walks off (2026-10-29: "he floated over sitting down") -----------------------------------------
+TEST(pipeline, an_npc_sits_then_stands_up_and_walks_off_and_the_copy_does_the_same_in_that_order) {
+    AnimPipe p;
+    p.loss = 0.1;
+    p.holdPoseWhileLocked = true;
+    const Vec3 chair = V(1000, 1000, 0);
+    p.O().sitSleep = 4; p.O().furniture = 0x1A2B;           // the owner's NPC starts in its chair
+    p.run(3000);
+    CHECK(p.R().sitSleep == 4 && p.R().furniture == 0x1A2B);
+    CHECK(p.R().sitCalls == 1);
+    CHECK(p.R().playsWhileInFurniture == 0);
+    // the owner's NPC stands up (400 ms animation) and walks off
+    p.O().sitSleep = 5; p.O().standDoneAt = p.now + 400;
+    uint32_t displacedWhileInFurniture = 0;
+    for (uint32_t t = 0; t < 400; ++t) {
+        p.step();
+        if (p.R().sitSleep != 0 && std::sqrt((p.R().pos.x - chair.x) * (p.R().pos.x - chair.x) + (p.R().pos.y - chair.y) * (p.R().pos.y - chair.y)) > 25.0f) ++displacedWhileInFurniture;
+    }
+    p.speed = 130; p.ownerYaw = 0;
+    for (uint32_t t = 0; t < 3000; ++t) {
+        p.step();
+        if (p.R().sitSleep != 0 && std::sqrt((p.R().pos.x - chair.x) * (p.R().pos.x - chair.x) + (p.R().pos.y - chair.y) * (p.R().pos.y - chair.y)) > 25.0f) ++displacedWhileInFurniture;
+    }
+    CHECK(p.O().sitSleep == 0);
+    CHECK(p.R().sitSleep == 0 && p.R().standCalls == 1 && p.R().sitCalls == 1);
+    CHECK(p.R().playsWhileInFurniture == 0);                 // no movement group over the pose
+    CHECK(displacedWhileInFurniture == 0);                   // it was not moved until it was out of the furniture
+    CHECK(p.R().moveGroup == kGroupForward);
+    CHECK(p.R().pos.y > chair.y + 100.0f);                   // and it did walk off
+    CHECK(p.sysR.driver().stats().standsConfirmed == 1);
+}
+
+TEST(pipeline, without_the_pose_lock_the_copy_is_still_stood_up_before_a_movement_group_plays) {
+    AnimPipe p;                                              // a port that moves the body regardless
+    p.loss = 0.1;
+    p.O().sitSleep = 4; p.O().furniture = 0x1A2B;
+    p.run(3000);
+    p.O().sitSleep = 5; p.O().standDoneAt = p.now + 400;
+    p.run(400);
+    p.speed = 130;
+    p.run(3000);
+    CHECK(p.R().sitSleep == 0 && p.R().standCalls == 1);
+    CHECK(p.R().playsWhileInFurniture == 0);
+    CHECK(p.R().moveGroup == kGroupForward);
+}

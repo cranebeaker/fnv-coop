@@ -25,6 +25,7 @@
 #include "actors/engine/actor_feed.h"
 #include "actors/engine/engine_port.h"
 #include "actors/engine/engine_real.h"
+#include "actors/engine/equipment_real.h"
 #include "actors/engine/ledger.h"
 #include "actors/engine/registry.h"
 #include "actors/engine/script_engine.h"
@@ -87,6 +88,18 @@ private:
     std::string path_;
 };
 
+// How many of `form` the reference carries, from the inventory provider (plugin/loot reads base container + changes): < 0 = unknown, then no AddItem.
+int ItemCountOf(RefId ref, const fnvcoop::FormRef& form) {
+    Registry& reg = registry();
+    if (!reg.invRead || !reg.netOfRef) return -1;
+    const NetId n = reg.netOfRef(ref);
+    InvList items;
+    if (!n || !reg.invRead(n, items)) return -1;
+    for (const InvItem& it : items)
+        if (it.form == form) return it.count;
+    return 0;
+}
+
 struct State {
     RealEngineHost host;
     ScriptActorEngine eng{host};
@@ -94,9 +107,11 @@ struct State {
     Ledger ledger;
     EnginePort port;
     ActorFeed feed;
+    EquipmentAccess equip;
     explicit State(const Config& c)
         : store(ModuleDir() + "nvcoop_actors_ledger.txt"), ledger(&store), port(eng, ledger, c),
-          feed(eng, port, ledger, [] { return glueSync(); }, [] { return glueSessionGeneration(); }) {
+          feed(eng, port, ledger, [] { return glueSync(); }, [] { return glueSessionGeneration(); }),
+          equip(host, readWornEntries, ItemCountOf) {
         feed.setConfig(c);
     }
 };
@@ -157,7 +172,7 @@ Value StatsJson(const PortStats& s) {
     n("scans", s.scans); n("trackedNew", s.trackedNew); n("trackedGone", s.trackedGone); n("deathsPolled", s.deathsPolled);
     n("deathsReported", s.deathsReportedToSync); n("deathsRefused", s.deathsRefused); n("consoleLines", s.consoleLines);
     n("consoleFailed", s.consoleFailed); n("linesDeferred", s.linesDeferred); n("drives", s.drives); n("drivesSkippedSmall", s.drivesSkippedSmall);
-    n("drivesSkippedRate", s.drivesSkippedRate); n("snaps", s.snaps); n("places", s.places); n("aiOff", s.aiOff); n("aiOn", s.aiOn);
+    n("drivesSkippedRate", s.drivesSkippedRate); n("drivesHeldSeated", s.drivesHeldSeated); n("snaps", s.snaps); n("places", s.places); n("aiOff", s.aiOff); n("aiOn", s.aiOn);
     n("aiFailed", s.aiFailed); n("combatRestarted", s.combatRestarted); n("combatTargetUnresolved", s.combatTargetUnresolved);
     n("standInsMade", s.standInsMade); n("standInsRemoved", s.standInsRemoved); n("standInsRefused", s.standInsRefused);
     n("standInsPurged", s.standInsPurged); n("baseSwaps", s.baseSwaps); n("baseSwapFailed", s.baseSwapFailed);
@@ -187,6 +202,13 @@ bool MPort(const std::string&, std::string& out) {
         pins.set("placeAtMe", p.placeAtMe).set("getActorValue", p.getActorValue).set("isDisabled", p.isDisabled);
         o.set("pins", pins).set("sehFaults", static_cast<int64_t>(g_st->host.sehFaults()));
         o.set("stats", StatsJson(portStats()));
+        const EquipmentCounters& ec = g_st->equip.counters();
+        Value eq = Value::object();
+        eq.set("reads", static_cast<int64_t>(ec.reads)).set("writes", static_cast<int64_t>(ec.writes)).set("writesDone", static_cast<int64_t>(ec.writesDone))
+            .set("equipLines", static_cast<int64_t>(ec.equipLines)).set("unequipLines", static_cast<int64_t>(ec.unequipLines))
+            .set("addLines", static_cast<int64_t>(ec.addLines)).set("lineFailures", static_cast<int64_t>(ec.lineFailures))
+            .set("unresolved", static_cast<int64_t>(ec.unresolved));
+        o.set("equipment", eq);
     }
     out = o.dump();
     return true;
@@ -389,6 +411,16 @@ void OnLoad(void* nvse) {
     g_st->ledger.load();
     State* st = g_st.get();
     wireApi(st->port, st->feed, st->eng, [] { return glueSync(); });
+    // Equipment part (what an NPC holds and wears): the port asks by NetId, the access works on the live ref the port has bound to it.
+    setEquipmentAccess(
+        [st](NetId id, EquipList& out) {
+            const RefId ref = registry().refOfNet ? registry().refOfNet(id) : 0;
+            return ref && st->equip.read(ref, out);
+        },
+        [st](NetId id, const EquipList& want) {
+            const RefId ref = registry().refOfNet ? registry().refOfNet(id) : 0;
+            return ref && st->equip.write(ref, want);
+        });
     nvcoop::actors::setGamePort(&st->port);
     nvcoop::actors::setSyncConfigurer([st](SyncConfig& sc) {
         sc.adjacent = [st](CellId a, CellId b) { return st->feed.adjacent(a, b); };

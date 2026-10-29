@@ -12,6 +12,7 @@ The real layout (tools/lab/esp, out/lab/layout.json) puts per-room facts under `
   walk: wp1..wp4        fight: enemy1..enemy3 (initially_disabled)   loot: chest (or container), loose1..loose4
   door: door, terminal  npc: npc, patrol_a, patrol_b                  vats: target1, target2 (initially_disabled)
   quest: quest, anchor
+  parity: no room of its own (it borrows the npc room: npc, stand); a `chair` (or furniture / seat) ref in the parity or npc room lets it make the NPC sit.
 Info keys (read from `rooms.<r>.<key>` or `rooms.<r>.info.<key>`): loot container_items [{form, count}] and loose_items [form x4, same order as the
 loose refs], door terminal_entry (default 0), quest var (default labvar).
 """
@@ -22,7 +23,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOM_ORDER = ("spawn", "walk", "fight", "loot", "door", "npc", "vats", "quest")
+ROOM_ORDER = ("spawn", "walk", "fight", "loot", "door", "npc", "vats", "quest", "parity")
+# A room that has no placed content of its own and borrows another room's (the parity room compares what both copies show of the npc room's NPC). A layout that has
+# a room of that name (a generator that adds a parity room with its own chair) wins over the borrowed one.
+BORROWS = {"parity": "npc"}
 FORM_RE = re.compile(r"^[A-Za-z0-9_ .\-]+\.(?:esp|esm|esl):[0-9A-Fa-f]{1,8}$")
 
 # what each room needs from the layout: (kind, prefixes, minimum count)
@@ -35,6 +39,7 @@ NEEDS = {
     "npc": [("refs", ("npc",), 1)],
     "vats": [("refs", ("target",), 2)],
     "quest": [("refs", ("quest",), 1)],
+    "parity": [("refs", ("npc",), 1)],
 }
 
 
@@ -111,10 +116,10 @@ class Layout:
 
     # ---- accessors
     def has_room(self, name: str) -> bool:
-        return name in self.rooms
+        return name in self.rooms or BORROWS.get(name) in self.rooms
 
     def room(self, name: str) -> Dict[str, Any]:
-        return self.rooms.get(name) or {}
+        return self.rooms.get(name) or self.rooms.get(BORROWS.get(name, "")) or {}
 
     def origin(self, name: str):
         o = self.room(name).get("origin")
@@ -205,7 +210,7 @@ def sample_layout() -> Dict[str, Any]:
                      "info": {"container_items": [{"form": "FalloutNV.esm:015169", "count": 5}, {"form": "FalloutNV.esm:015167", "count": 3}],
                               "loose_items": ["FalloutNV.esm:015169", "FalloutNV.esm:01519E", "FalloutNV.esm:015197", "FalloutNV.esm:015167"]}},
             "door": {"origin": [2992, -5216, 7040], "stand": f(0x85F), "refs": {"door": f(0x851), "terminal": f(0x852)}, "info": {"lock_level": 25}},
-            "npc": {"origin": [3472, -5216, 7040], "stand": f(0x86F), "refs": {"patrol_a": f(0x861), "patrol_b": f(0x862), "npc": f(0x863)}},
+            "npc": {"origin": [3472, -5216, 7040], "stand": f(0x86F), "refs": {"patrol_a": f(0x861), "patrol_b": f(0x862), "npc": f(0x863), "chair": f(0x864)}},
             "vats": {"origin": [3952, -5216, 7040], "stand": f(0x87F), "refs": {"target1": f(0x871), "target2": f(0x872)},
                      "initially_disabled": ["target1", "target2"]},
             "quest": {"origin": [4432, -5216, 7040], "stand": f(0x88F), "refs": {"anchor": f(0x881), "quest": f(0x802)},

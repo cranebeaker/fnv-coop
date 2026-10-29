@@ -80,6 +80,33 @@ accepted, 763 a chained-over site overwritten. `hit_edit.cpp` (the byte-level ga
 neutralised hit keeps its health damage, 773 fatigue not zeroed, 774 limb damage not zeroed, 775 lethal flags kept, 776 left and right leg share a body part, 777
 base weapon damage left 0 in the native hit. Also caught through these tests (combat-core's numbers): 301 302 307 308 309 317 318 329 330 331 334 337 338 344. 713 and 715 are retired numbers.
 
+## A guest's blow on a host-owned copy: exact damage, light blows and touches (2026-10-29)
+Playtest: the guest punched a non-hostile Goodsprings settler the host owns (on the guest a restrained copy driven from snapshots). Nothing happened and the guest's log had
+no combat line. The engine's melee target search has no restrained / AI-off / hostility filter (static RE of 0x9A60E0, called from the swing function 0x899200), so the
+likely cause is in the gate: `buildHit` rounded the health damage to whole points and refused a result of 0, so a fist under half a point was NEUTRALISED without a log line
+(the module logged only Proceed / Clamp). What the gate does now, for any blow by a combatant simulated here on a synced actor copy (hostile or not, armed or not):
+- **Exact damage.** `MHit.centi` carries the engine's health damage in hundredths (varint, `kMaxCenti` = 1,000,000 points, a larger value is refused when decoding). The rules'
+  own `HitEvent.damage` stays whole points (the nearest, at least 1 for any blow that hurt) and only gets the hit judged. The owner applies the exact amount natively
+  (`ICombatEngine::damageHealthExact`, the native replay takes a float): a 0.5 fist takes 0.5 off the settler, never 1. When the rules change the amount (a named / essential
+  floor, a lethal replay) their whole points are applied instead. A build that sends no `centi` falls back to the rules' points.
+- **Light blows** (exact damage under one point). The rules' whole-point health is not touched; the owner replays the blow natively with exactly that amount
+  (`ICombatEngine::touchVictim(..., amount)`), provokes the victim against the attacker's puppet, and publishes the coalesced vitals so the copies follow the engine's float
+  health (two 0.5 fists = one point off, on both screens). Counters `lightHitsSent` (attacker) / `lightHitsApplied` (owner).
+- **Touches** (exactly 0 health damage, a hundredth counts as 0: armour took it all). Sent as damage 1 for the rules plus `MHit.touch`; the owner replays a token-amount hit
+  (0.01 health) for the reaction, provokes, takes nothing off. Only for a blow on an ACTOR by a combatant simulated here; explosions, negative amounts, hits with no attacker
+  and hits on a player are still neutralised. Counters `touchesSent` / `touchesApplied` / `touchesEngine` (the engine took the replay).
+- **Diagnostics.** The module now logs `Neutralize` decisions on synced victims (own budget of 60) with fatigue, limb and body part. `combat.status` adds `gate.byPlayer` (the
+  local player's hits that reached the gate on a synced actor), `gate.byPlayerOnCopy` (... and the victim was a copy: it not rising after a punch means the engine produced
+  no hit on the copy at all, an engine-side problem), `native.touchReplays` and `stats.lightHitsSent`, `lightHitsApplied`, `touchesSent`, `touchesApplied`,
+  `touchesEngine`, `hitsOnCopies`, `provoked`, `hitsForwarded`.
+- **Twins** 801 (a light blow stays 0 and is dropped as a touch), 802 (a zero-damage blow is dropped), 803 (a touch is applied as a point), 804 (the owner's engine never sees a
+  light blow / touch), 805 (no provoke), 806 (touch flag not on the wire), 807 (exact amount not on the wire), 808 (hit_edit: a touch's base damage follows its token health),
+  809 (the amount is rounded to whole points before sending), 810 (a light blow is applied as the rules' point), 811 (fractions rounded away on the owner), 812 (a light
+  blow's result is not published). Tests: `tests/test_melee.cpp`, `test_wire_fuzz.cpp`, `test_hit_edit.cpp`.
+- **Not verified in a game.** The token-amount replay for a touch (does the engine play a flinch for 0.01 health?), and whether the guest's engine produces a hit on the copy
+  in every case. Proof: `python -I plugin/combat/proof/melee_proof.py run --ref FalloutNV.esm:104F0A` (see its docstring; `--selftest` is game-free). A protected story NPC
+  (FriendlyFireGuard) blocks the first two deliberate hits on the host by design: use a non-protected settler.
+
 ## In-game proof (for the helper; code-only agents did not run any of it)
 1. Two copies, host + client in one session, `nvcoop.ini` `[live] actors=1 avatars=1 combat=1`, `[combat] enabled=1`. `nvbridge combat.status` on both: expect
    `{"enabled":true,"running":true,"gate":{"sites":6,...,"errors":0},"native":{"pinsOk":true,"faults":0,...},"stats":{...}}`. `gate.sites` 0 or `native.pinsOk` false

@@ -23,6 +23,7 @@ using RefId = uint32_t;    // engine refID, 0 = none
 using FormId = uint32_t;   // engine form id (base form, item); 0 = none
 using CellId = uint32_t;
 constexpr Slot kNoSlot = 0xFF;
+constexpr int kNoGroup = -1;   // PuppetManager::SetPoseOverride: no override, the planned group plays
 
 struct Vec3 {
     float x = 0, y = 0, z = 0;
@@ -32,6 +33,10 @@ struct Vec3 {
 struct Anim {
     uint8_t loco = 0;
     bool weaponDrawn = false, sneak = false, jump = false, reload = false, aim = false;
+    // The owner's one-shot (live::AnimState::action / actionSeq): the base group id of the attack swing / shot / throw, power attack, block,
+    // stagger ... it is playing right now, and a counter that bumps every time one STARTS (wraps at 256). 0 = none. `block` = the block group is held.
+    uint8_t action = 0, actionSeq = 0;
+    bool block = false;
 };
 
 // One interpolated sample for a puppet (what live::InterpBuffer::sample returns, see live_bridge.h).
@@ -193,6 +198,8 @@ struct Stats {
     uint64_t modOps = 0, modFailures = 0, modGaveUp = 0;             // weapon modification writes (EnableWeaponMod) and their outcome
     uint64_t pushesIgnored = 0;                                      // engine pushes (body in the way) not handed to the interpolation buffer
     uint64_t bodyYields = 0;                                         // driven places moved out of the local player's body (frames, not episodes)
+    uint64_t oneShots = 0, oneShotsStale = 0, oneShotsMissed = 0;    // the owner's attacks / reactions played; counter replays or reordering dropped; events over before this copy saw them
+    uint64_t oneShotsFrozen = 0, oneShotsFailed = 0;                 // dropped because the stream was dry; refused by the engine for good
 };
 
 }  // namespace nvcoop::avatar

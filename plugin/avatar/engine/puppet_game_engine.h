@@ -47,6 +47,7 @@ struct EngineStats {
     uint64_t setPosCalls = 0, setPosSkipped = 0, setYawCalls = 0, setYawSkipped = 0;
     uint64_t appearanceApproximate = 0;    // the face / hair of the template was kept (no engine path to change it)
     uint64_t scaleApplied = 0;             // SetScale sent to match the owner's height
+    uint64_t lookCopies = 0, lookWrites = 0, lookFaces = 0, lookFailures = 0;   // LookBase: copies made, looks written, of them with the face morphs, refusals
     uint64_t modLines = 0, modReads = 0;   // EnableWeaponMod lines sent / weapon-mod reads that knew the answer
     uint64_t drift3D = 0;                  // the scene object was more than 20 units from the reference position
     float maxDrift3D = 0;
@@ -80,6 +81,8 @@ public:
     bool IsRestrained(RefId ref) override;
     bool MakeNonCombatant(RefId ref) override;
     bool ApplyAppearance(RefId ref, const Appearance& a) override;
+    FormId LookBase(Slot slot, FormId templateBase, const Appearance& a) override;
+    bool LooksByBase() override { return looksByBase_; }
 
     bool SetPos(RefId ref, const Vec3& pos) override;
     bool SetYaw(RefId ref, float yawRad) override;
@@ -138,6 +141,9 @@ private:
     std::map<RefId, RefState> state_;
     std::map<RefId, FormId> owned_;   // spawned this session and not deleted yet: ref -> base
     std::vector<uint64_t> spawnTimes_;   // NowUs of the recent spawns (circuit breaker)
+    struct LookCopy { FormId copy = 0, from = 0; uint32_t epoch = 0; };
+    std::map<Slot, LookCopy> lookCopies_;   // per remote player: the private copy of its template with its look written in (LookBase)
+    bool looksByBase_ = true;               // false once the game refused to make a copy (then every puppet is the template, as before)
     std::vector<uint32_t> costs_;     // ring of the last console line costs (us)
     size_t costNext_ = 0;
     uint32_t costMax_ = 0;

@@ -19,6 +19,7 @@
 #include "effect_json.h"
 #include "engine_addrs.h"
 #include "world_addrs.h"
+#include "world_identity.h"
 #include "world_owner_addrs.h"
 #include "world_present_addrs.h"
 #include "world_query.h"
@@ -919,21 +920,32 @@ struct GateSteps {
 };
 }  // namespace
 
-ApplyStatus WorldApplier::applyAny(const Effect& e) {
-    if (auto* os = std::get_if<fnvcoop::ObjectState>(&e))
+ApplyStatus WorldApplier::applyAny(const Effect& e, fnvcoop::PlayerId sender) {
+    // Identity layer, for the effects this lane applies itself (RefScriptVar, ObjectState): the sender's player is its own character, not this machine's 0x14.
+    // The others go to the fallback unchanged, where RemoteApplier does the same.
+    Effect fx = e;
+    if (handlesEffect(e)) {
+        nvhooks::IdentityView view = nvhooks::currentIdentity();
+        if (nvhooks::translateIncoming(fx, sender, view) == nvhooks::Verdict::Dropped) return ApplyStatus::Ok;
+    }
+    if (auto* os = std::get_if<fnvcoop::ObjectState>(&fx))
         if (g_objObserver) g_objObserver(*os);   // the host's word, noted before the apply (the object may not be loaded here yet)
     fnvcoop::EchoGuard echo(&hub_.echo());
     nvhooks::ApplyScope applyScope;
     GateSteps gs(gateSteps_);
     PlanEnv env{res_, g_ledger, cellIsReady};
     Outcome o = applyRouted(
-        e, env, [this](const Plan& p) { return toOutcome(run(p)); },
+        fx, env, [this](const Plan& p) { return toOutcome(run(p)); },
         [this](const Effect& x) { nvhooks::ScriptGate gate; return fallback_ ? toOutcome(fallback_(x)) : Outcome::Other; });
     return toStatus(o);
 }
 
-ApplyStatus WorldApplier::applyWorld(const WorldEffect& e) {
-    if (auto* os = std::get_if<SetObjectState>(&e))
+ApplyStatus WorldApplier::applyWorld(const WorldEffect& e, fnvcoop::PlayerId sender) {
+    // Identity layer: every world effect of the host that names the host's player (its AI package, restrained / essential flags, actor values) is state of the
+    // host's own client; applied here it would act on this machine's player. Live effects and the baseline replay (applyBaseline) both come through here.
+    WorldEffect fx = e;
+    if (translateWorldIncoming(fx, sender, nvhooks::currentIdentity()) == nvhooks::Verdict::Dropped) return ApplyStatus::Ok;
+    if (auto* os = std::get_if<SetObjectState>(&fx))
         if (g_objObserver) {   // the host's word, noted before the apply (the object may not be loaded here yet); the poll heals toward it
             fnvcoop::ObjectState o;
             o.ref = os->ref; o.mask = os->mask; o.open = os->open; o.locked = os->locked; o.level = os->level; o.destroyed = os->destroyed;
@@ -942,10 +954,10 @@ ApplyStatus WorldApplier::applyWorld(const WorldEffect& e) {
     fnvcoop::EchoGuard echo(&hub_.echo());
     nvhooks::ApplyScope applyScope;
     PlanEnv env{res_, g_ledger, cellIsReady};
-    return toStatus(applyWorldRouted(e, env, [this](const Plan& p) { return toOutcome(run(p)); }));
+    return toStatus(applyWorldRouted(fx, env, [this](const Plan& p) { return toOutcome(run(p)); }));
 }
 
-ApplyStatus WorldApplier::apply(const Effect& e) { return applyAny(e); }
+ApplyStatus WorldApplier::apply(const Effect& e) { return applyAny(e, fnvcoop::kHostPlayer); }
 
 size_t WorldApplier::tick(bool retry) {
     fnvcoop::EchoGuard echo(&hub_.echo());

@@ -63,6 +63,25 @@ TEST(combat_wire, every_message_round_trips) {
     CHECK(h.attackerEpoch == 9); CHECK(h.impactPoint == (cc::Vec3{1, 2, 3}));
 }
 
+TEST(combat_wire, the_touch_flag_and_the_exact_damage_of_a_hit_travel) {
+    // a blow with no health damage is sent as damage 1 plus the touch flag; every other blow carries its exact damage in hundredths next to the rules' whole points
+    struct Case { bool touch; uint32_t centi; };
+    for (const Case k : {Case{false, 0}, Case{true, 0}, Case{false, 50}, Case{false, 1240}, Case{false, kMaxCenti}}) {
+        Envelope e; e.src = 2; e.dest = 0; e.body = MHit{sampleHit(), k.touch, k.centi};
+        const Bytes w = encodeEnvelope(e);
+        Envelope back;
+        REQUIRE(decodeEnvelope(w.data(), w.size(), back));
+        CHECK(std::get<MHit>(back.body).touch == k.touch);
+        CHECK(std::get<MHit>(back.body).centi == k.centi);
+        CHECK(encodeEnvelope(back) == w);
+    }
+    // a hostile amount beyond any real blow is refused, not decoded into a float nobody meant
+    Envelope big; big.src = 2; big.dest = 0; big.body = MHit{sampleHit(), false, kMaxCenti + 1};
+    const Bytes wb = encodeEnvelope(big);
+    Envelope out;
+    CHECK(!decodeEnvelope(wb.data(), wb.size(), out));
+}
+
 TEST(combat_wire, truncation_wrong_channel_and_trailing_bytes_are_refused) {
     Envelope e; e.src = 1; e.dest = 0; e.body = MHit{sampleHit()};
     const Bytes wire = encodeEnvelope(e);

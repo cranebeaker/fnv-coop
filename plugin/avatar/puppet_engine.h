@@ -40,6 +40,11 @@ public:
     // still makes it a ghost).
     virtual bool MakeNonCombatant(RefId ref) = 0;
     virtual bool ApplyAppearance(RefId ref, const Appearance& a) = 0;
+    // The base the puppet of `slot` is spawned from: `templateBase` itself, or the engine's private copy of it with the look `a` written in
+    // (sex, race, hair, face). With a copy, a look change needs a new puppet (the game builds the head and body from the base when it loads
+    // the 3D), so the manager respawns it.
+    virtual FormId LookBase(Slot /*slot*/, FormId templateBase, const Appearance& /*a*/) { return templateBase; }
+    virtual bool LooksByBase() { return false; }
 
     // ---- driving (every Tick) -----------------------------------------------------------------------------------
     virtual bool SetPos(RefId ref, const Vec3& pos) = 0;

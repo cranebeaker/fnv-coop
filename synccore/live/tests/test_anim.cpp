@@ -5,7 +5,7 @@
 
 using namespace live_test;
 
-TEST(anim, schema_version_is_two) { CHECK(kLiveSchemaVersion == 2); }
+TEST(anim, schema_version_is_three) { CHECK(kLiveSchemaVersion == 3); }
 
 TEST(anim, extension_round_trips_in_full_and_delta_snapshots) { CHECK(animExtRoundTrips()); }
 
@@ -57,4 +57,46 @@ TEST(anim, interpolation_buffer_carries_the_extension_of_the_older_snapshot) {
     InterpOut late = ib.sample(1000 + 100 + 20 + 160);    // render at tick 1160: after it
     CHECK(early.anim.action == 0 && early.anim.actionSeq == 0);
     CHECK(late.anim.action == 223 && late.anim.actionSeq == 1);
+}
+
+// ---- schema v3: the furniture block (sit state, bed flag, furniture reference) ----------------------------------------------------------
+TEST(anim, furniture_block_round_trips_in_full_and_delta_snapshots) { CHECK(sitRoundTrips()); }
+
+TEST(anim, a_furniture_only_change_is_sent) { CHECK(sitOnlyChangeSent()); }
+
+TEST(anim, a_sit_in_a_lost_datagram_arrives_with_the_next_one) { CHECK(sitSurvivesLoss()); }
+
+TEST(anim, no_furniture_means_the_v2_wire_form) { CHECK(sitWireSizes()); }
+
+TEST(anim, furniture_block_has_one_canonical_form) { CHECK(sitCanonicalForms()); }
+
+TEST(anim, decoder_accepts_only_canonical_furniture_blocks) { CHECK(sitMalformedRejected()); }
+
+TEST(anim, furniture_block_helpers_pack_and_reject) {
+    AnimState a;
+    CHECK(packAnimSit(a) == 0);
+    a.sit = SitState::Using; a.furniture = 5;
+    CHECK(packAnimSit(a) == 2);
+    a.sleep = true;
+    CHECK(packAnimSit(a) == 6);
+    a.sit = SitState::None;
+    CHECK(packAnimSit(a) == 0);                      // a bed flag alone is nothing
+    AnimState b;
+    CHECK(unpackAnimSit(b, 7, 9) && b.sit == SitState::Leaving && b.sleep && b.furniture == 9);
+    CHECK(unpackAnimSit(b, 0, 0) && b.sit == SitState::None && !b.sleep && b.furniture == 0);
+    CHECK(!unpackAnimSit(b, 4, 0) && !unpackAnimSit(b, 0x0A, 0) && !unpackAnimSit(b, 0, 3));
+}
+
+TEST(anim, interpolation_buffer_carries_the_furniture_block_of_the_older_snapshot) {
+    // Like the v2 extension, the sit state is a zero order hold: the copy sits down when the interpolated body reaches the snapshot that says so.
+    InterpBuffer ib;
+    for (uint32_t k = 0; k < 6; ++k) {
+        ActorSnapshot s = mk(55, 1, k + 1, 1000 + k * 50, 0);
+        if (k >= 3) s.anim = sittingAnim(SitState::Using, 0x555);
+        ib.push(s, s.tick + 20);
+    }
+    InterpOut early = ib.sample(1000 + 100 + 20 + 90);
+    InterpOut late = ib.sample(1000 + 100 + 20 + 160);
+    CHECK(early.anim.sit == SitState::None && early.anim.furniture == 0);
+    CHECK(late.anim.sit == SitState::Using && late.anim.furniture == 0x555);
 }

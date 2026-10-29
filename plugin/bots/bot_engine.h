@@ -62,7 +62,7 @@ using Addr32 = uint32_t;
 namespace eng {  // addresses and offsets (see the RE note)
 constexpr Addr32 kDialogMenuPtr = 0x11D9510, kInfoSpoken = 0x11D9518, kClockObj = 0x11F6394;
 constexpr uint32_t kDlgState = 0x28, kDlgListBox = 0x70, kDlgPartner = 0x80, kDlgClickGate = 0x10C, kDlgPending = 0x104;
-constexpr uint32_t kItemInfo = 0x18, kItemFlag = 0x25, kFormId = 0x0C;
+constexpr uint32_t kItemInfo = 0x18, kItemTopic = 0x1C, kItemFlag = 0x25, kFormId = 0x0C;
 constexpr Addr32 kInterfaceMgrPtr = 0x11D8A80, kVatsCamera = 0x11F2250, kVatsMenuPtr = 0x11DB0D4;
 constexpr uint32_t kVatsMode = 8;
 // bot.vats (static RE of 1.4.0.525, see the VatsJob comment). Camera modes: 0 off, 1 target overview, 3 zoom, 2 limb select, 4 playback.
@@ -314,7 +314,7 @@ inline bool closeOpenMenu(IEngine& e, const std::string& want, Value* out, std::
 }
 
 // ---- bot.say ----
-struct Choice { int idx; Addr32 item, info; uint32_t formId; };
+struct Choice { int idx; Addr32 item, info; uint32_t formId; uint32_t topicId = 0; };
 
 inline bool dialogChoices(IEngine& e, std::vector<Choice>* out, std::string* err) {
     uint32_t dlg = 0, lb = 0;
@@ -325,6 +325,8 @@ inline bool dialogChoices(IEngine& e, std::vector<Choice>* out, std::string* err
         if (!c.item) break;
         uint32_t info = 0;
         if (e.rd32(c.item + eng::kItemInfo, &info) && info) { c.info = info; e.rd32(info + eng::kFormId, &c.formId); }
+        uint32_t topic = 0;
+        if (e.rd32(c.item + eng::kItemTopic, &topic) && topic) e.rd32(topic + eng::kFormId, &c.topicId);   // the row's TESTopic (evidence: one INFO can serve several rows)
         out->push_back(c);
     }
     return true;

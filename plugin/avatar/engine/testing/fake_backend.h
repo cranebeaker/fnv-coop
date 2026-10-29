@@ -39,6 +39,8 @@ public:
         bool restrained = false, ghost = false, ignoreFriendly = false, sneak = false, alert = false, aiming = false;
         int groupSlot = 1;
         int group = -1;                      // running group id (-1 none)
+        int groupState = 1;                  // its play state as the engine reports it (1 = animated, 0 = a finished leftover in the slot)
+        int groupPlayMs = -1;                // how long it has been playing (-1 = the backend cannot tell)
         std::map<FormId, int> inv;
         std::set<FormId> worn;
         std::map<FormId, uint8_t> mods;      // weapon form -> ExtraWeaponModFlags
@@ -269,6 +271,8 @@ public:
         out.valid = true;
         if (f->group >= 0) {
             out.groups[f->groupSlot] = f->group;
+            out.state[f->groupSlot] = f->groupState;
+            out.playMs[f->groupSlot] = f->groupPlayMs;
             out.nGroups = 1;
         }
         out.aiming = f->aiming;
@@ -469,8 +473,10 @@ private:
         if (Ieq(cmd, "PlayGroup")) {
             if (w.size() != 3 || !IsInt(w[2])) return Bad(line);
             int id = -1;
-            for (const GroupInfo& g : kGroupTable)
-                if (Ieq(w[1], g.name)) id = g.id;
+            for (int g = 0; g < 245; ++g) {   // every group the layer can name (the locomotion table and the action groups)
+                const char* n = GroupName(g);
+                if (n && Ieq(w[1], n)) id = g;
+            }
             if (id < 0) return Bad(line);
             if (needs3D) return 0;
             c.group = id;

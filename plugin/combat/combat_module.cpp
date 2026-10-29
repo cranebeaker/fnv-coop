@@ -38,6 +38,7 @@
 #ifdef NVCOOP_WITH_COMPANIONS
 #include "companions/companions_glue.h"   // kill reports, crime reports and the party hit policy ([companions] enabled, default off)
 #endif
+#include "threat/threat_glue.h"   // the exact damage feed of the attention split (inline no-ops without NVCOOP_WITH_THREAT)
 
 namespace {
 
@@ -134,11 +135,13 @@ struct Settings {
     int xpMode = 0;
 };
 Settings g_set;
+int g_ffMode = -1;   // the campaign's friendly fire (plugin/rebalance): -1 nvcoop.ini [combat] friendlyfire, 0 off, 1 on
+bool EffectiveFriendlyFire() { return g_ffMode < 0 ? g_set.friendlyFire : g_ffMode != 0; }
 bool g_inited = false;
 volatile PlayerId g_self = kNoPlayer;
 volatile LONG g_nativeFaults = 0;
 bool g_nativeOk = false;           // the pins of the hit-data constructor and the funnel matched
-uint64_t g_gateLogged = 0, g_gateCalls = 0, g_gateErrors = 0, g_gateOffThread = 0, g_nativeReplays = 0, g_consoleDamage = 0, g_consoleLines = 0, g_consoleFailed = 0;
+uint64_t g_gateLogged = 0, g_gateNeutralLogged = 0, g_gateByPlayer = 0, g_gateByPlayerOnCopy = 0, g_touchReplays = 0, g_gateCalls = 0, g_gateErrors = 0, g_gateOffThread = 0, g_nativeReplays = 0, g_consoleDamage = 0, g_consoleLines = 0, g_consoleFailed = 0;
 volatile DWORD g_mainThread = 0;   // the game main thread: set at DeferredInit and every session frame; the gate only acts there
 
 std::function<bool(uint32_t, uint8_t&)> g_slotOfRef;
@@ -316,32 +319,56 @@ float KillXpRaw(void* actor) {
     }
 }
 
+// The engine hit the owner replays for an accepted MHit: source = the attacker's ref HERE (the guest's puppet, a local NPC), the weapon by form, the body part and the
+// impact point as reported. `health` is filled by the caller.
+nvcoop::combat::NativeHitSpec SpecFor(void* victim, uint32_t attackerRef, const cc::HitEvent& hit) {
+    nvcoop::combat::NativeHitSpec n;
+    n.target = reinterpret_cast<uint32_t>(victim);
+    n.source = attackerRef ? reinterpret_cast<uint32_t>(LookupRef(attackerRef)) : 0;
+    const uint32_t wid = hit.weapon.plugin.empty() ? 0 : nvhooks::resolver().fromRef(hit.weapon);
+    n.weapon = wid ? reinterpret_cast<uint32_t>(nvhooks::resolver().lookup(wid)) : 0;   // an unarmed blow has no weapon form: 0, the engine's fists
+    n.location = nvcoop::combat::hitLocationOfLimb(hit.limb);
+    n.haveImpact = !hit.impactPoint.zero();
+    n.impact = hit.impactPoint;
+    n.crit = hit.critical;
+    return n;
+}
+
 class LiveEngine : public ICombatEngine {
 public:
     bool damageHealth(const cc::Entity& victim, uint32_t victimRef, int32_t amount, uint32_t attackerRef, const cc::HitEvent& hit) override {
-        if (amount <= 0 || !victimRef) return false;
+        return damageHealthExact(victim, victimRef, static_cast<float>(amount), attackerRef, hit);
+    }
+    // The exact amount the attacker's engine computed (a fist's 0.5 is 0.5, not a point): the native replay takes a float.
+    bool damageHealthExact(const cc::Entity& victim, uint32_t victimRef, float amount, uint32_t attackerRef, const cc::HitEvent& hit) override {
+        if (!(amount > 0) || !victimRef) return false;
         void* v = LookupRef(victimRef);
         if (!v) return false;
         if (g_set.native && g_nativeOk && g_nativeFaults == 0) {
-            nvcoop::combat::NativeHitSpec n;
-            n.target = reinterpret_cast<uint32_t>(v);
-            n.source = attackerRef ? reinterpret_cast<uint32_t>(LookupRef(attackerRef)) : 0;
-            const uint32_t wid = hit.weapon.plugin.empty() ? 0 : nvhooks::resolver().fromRef(hit.weapon);
-            n.weapon = wid ? reinterpret_cast<uint32_t>(nvhooks::resolver().lookup(wid)) : 0;
-            n.health = static_cast<float>(amount);
-            n.location = nvcoop::combat::hitLocationOfLimb(hit.limb);
-            n.haveImpact = !hit.impactPoint.zero();
-            n.impact = hit.impactPoint;
-            n.crit = hit.critical;
+            nvcoop::combat::NativeHitSpec n = SpecFor(v, attackerRef, hit);
+            n.health = amount;
             if (NativeReplayRaw(v, n)) { ++g_nativeReplays; return true; }
             InterlockedIncrement(&g_nativeFaults);
             nvcoop::Log("combat: the native hit replay FAULTED, falling back to console damage for the rest of the session");
         }
         ++g_consoleDamage;
         char line[64];
-        std::snprintf(line, sizeof line, "DamageActorValue Health %d", amount);
+        std::snprintf(line, sizeof line, "DamageActorValue Health %.2f", static_cast<double>(amount));
         (void)victim;
         return ExecOn(line, victimRef);
+    }
+    // A blow of under one point of health, or none, reached the owner: the engine's own hit path with exactly that amount (a token one for no damage at all, so the victim
+    // reacts and notices the attacker: the funnel only runs its damage and reaction code for a positive amount). Native replay only; without it provoke() alone runs.
+    bool touchVictim(uint32_t victimRef, uint32_t attackerRef, const cc::HitEvent& hit, float amount) override {
+        void* v = victimRef ? LookupRef(victimRef) : nullptr;
+        if (!v || !g_set.native || !g_nativeOk || g_nativeFaults != 0) return false;
+        nvcoop::combat::NativeHitSpec n = SpecFor(v, attackerRef, hit);
+        n.health = amount > 0 ? amount : 0.01f;
+        n.baseDamage = amount > 0 ? -1.0f : 1.0f;   // a real light blow scales its reaction from its own amount, like every replayed hit
+        if (NativeReplayRaw(v, n)) { ++g_nativeReplays; ++g_touchReplays; return true; }
+        InterlockedIncrement(&g_nativeFaults);
+        nvcoop::Log("combat: the native hit replay FAULTED, falling back to console damage for the rest of the session");
+        return false;
     }
     // The owner's own kill, for a victim an accepted lethal hit left standing: the same console command the actor port uses for a death
     // (script_engine.cpp lines::kill); the port's death poll then sees the corpse and declares the death.
@@ -508,10 +535,20 @@ int __fastcall HitGateThunk(void* victim, void*, void* hd, int flag) {
             } catch (...) {
                 ++g_gateErrors;
             }
-            if (decided && g_gateLogged < 60 && eh.victimRef && (eng::netIdOf(eh.victimRef) || eh.attackerRef == eng::kLocalPlayerRef) && d.action != GateAction::Neutralize) {
-                ++g_gateLogged;
-                nvcoop::Log("combat: gate %s on victim %08X by %08X, damage %.1f, cap %d: %s", d.action == GateAction::Proceed ? "PROCEED" : "CLAMP", eh.victimRef,
-                            eh.attackerRef, static_cast<double>(eh.healthDmg), d.maxHealthDamage, d.why);   // (a victim that is no synced actor reads "not a synced combatant")
+            // Every hit the local player lands on a synced actor is counted, and every decision on one is logged, a NEUTRALIZE included (it used to be silent: a guest's
+            // punch that the gate dropped left no line at all, which looked the same as the hit never reaching the gate). The two kinds have their own budgets.
+            const bool syncedVictim = eh.victimRef && (eng::netIdOf(eh.victimRef) || eh.attackerRef == eng::kLocalPlayerRef);
+            if (decided && eh.attackerRef == eng::kLocalPlayerRef && eng::netIdOf(eh.victimRef)) {
+                ++g_gateByPlayer;
+                if (eng::isRemoteDriven(eh.victimRef)) ++g_gateByPlayerOnCopy;
+            }
+            const bool neutral = decided && d.action == GateAction::Neutralize;
+            if (decided && syncedVictim && (neutral ? g_gateNeutralLogged < 60 : g_gateLogged < 60)) {
+                ++(neutral ? g_gateNeutralLogged : g_gateLogged);
+                nvcoop::Log("combat: gate %s on victim %08X by %08X, damage %.1f fatigue %.1f limb %.1f, location %d, cap %d: %s",
+                            d.action == GateAction::Proceed ? "PROCEED" : d.action == GateAction::Clamp ? "CLAMP" : "NEUTRALIZE", eh.victimRef, eh.attackerRef,
+                            static_cast<double>(eh.healthDmg), static_cast<double>(eh.fatigueDmg), static_cast<double>(eh.limbDmg), eh.hitLocation, d.maxHealthDamage,
+                            d.why);   // (a victim that is no synced actor reads "not a synced combatant")
             }
             if (decided && nvcoop::combat::applyDecisionToHit(buf, raw, d.action, d.maxHealthDamage) && !PokeHit(hd, buf)) ++g_gateErrors;
         } else {
@@ -626,6 +663,11 @@ NVCOOP_RELOAD_STATE(combat_hooks, "combat_hooks", 1, 40,
 
 namespace nvcoop::combat {
 
+void glueSetFriendlyFire(int mode) {
+    g_ffMode = mode < 0 ? -1 : (mode ? 1 : 0);
+    if (g_rt) g_rt->setFriendlyFire(EffectiveFriendlyFire());
+}
+
 void setPlayerRefMap(std::function<bool(uint32_t, uint8_t&)> slotOfRef, std::function<uint32_t(uint8_t)> refOfSlot) {
     g_slotOfRef = std::move(slotOfRef);
     g_refOfSlot = std::move(refOfSlot);
@@ -677,8 +719,9 @@ void glueFrame(nvcoop::coop::Runtime* rt) {
             const CombatSync* cs = g_rt ? g_rt->sync() : nullptr;
             return cs ? cs->killerPuppetOf(victimRef) : 0u;
         });
-        g_rt->config().friendlyFire = g_set.friendlyFire;
+        g_rt->config().friendlyFire = EffectiveFriendlyFire();
         g_rt->config().crimeSync = g_set.crime;
+        g_rt->config().onHitLanded = [](uint32_t victimRef, uint32_t attackerRef, float damage) { nvcoop::threat::noteHit(victimRef, attackerRef, damage); };
         g_rt->config().xpMode = g_set.xpMode == 1 ? cc::XpMode::PartyShare : cc::XpMode::KillingBlow;
         g_rt->config().social.blockProtectedHit = [](uint32_t victimRef, fnvcoop::PlayerId attacker, bool splash) {   // G40: rules FriendlyFireGuard (host only; "allow" without them)
             nvcoop::coop::Runtime* rt = nvcoop::coop::Runtime::active();
@@ -725,14 +768,14 @@ std::string JsonEscape(const std::string& in) {
 }  // namespace
 
 std::string glueStatusJson() {
-    char b[3072];
+    char b[4096];
     const CombatSync* cs = g_rt ? g_rt->sync() : nullptr;
     const Stats* s = cs ? &cs->stats() : nullptr;
     auto u = [&](uint64_t Stats::*m) { return static_cast<unsigned long long>(s ? s->*m : 0); };
     std::snprintf(b, sizeof b,
                   "{\"enabled\":%s,\"running\":%s,"
-                  "\"gate\":{\"sites\":%d,\"calls\":%llu,\"errors\":%llu,\"offThread\":%llu},"
-                  "\"native\":{\"pinsOk\":%s,\"faults\":%ld,\"replays\":%llu,\"consoleDamage\":%llu,\"consoleLines\":%llu,\"consoleFailed\":%llu},"
+                  "\"gate\":{\"sites\":%d,\"calls\":%llu,\"errors\":%llu,\"offThread\":%llu,\"byPlayer\":%llu,\"byPlayerOnCopy\":%llu},"
+                  "\"native\":{\"pinsOk\":%s,\"faults\":%ld,\"replays\":%llu,\"consoleDamage\":%llu,\"consoleLines\":%llu,\"consoleFailed\":%llu,\"touchReplays\":%llu},"
                   "\"stats\":{\"engineHits\":%llu,\"proceeded\":%llu,\"clamped\":%llu,\"neutralized\":%llu,\"ghostHitsNeutralized\":%llu,"
                   "\"hitsSent\":%llu,\"hitsReceived\":%llu,\"hitsApplied\":%llu,\"hitsRejected\":%llu,\"hitDuplicates\":%llu,"
                   "\"nacksSent\":%llu,\"hitRetries\":%llu,\"hitsAbandoned\":%llu,\"damageApplied\":%llu,"
@@ -740,11 +783,13 @@ std::string glueStatusJson() {
                   "\"deathsRejected\":%llu,\"deathsDeferred\":%llu,\"deathsRefusedLocal\":%llu,\"undecodable\":%llu,\"spoofed\":%llu,\"unroutable\":%llu,"
                   "\"naturalHits\":%llu,\"envHitsNeutralized\":%llu,\"hitsResolvedLate\":%llu,\"killsForced\":%llu,\"damageRefused\":%llu,\"engineRefused\":%llu,"
                   "\"naturalLethal\":%llu,\"naturalLethalStuck\":%llu,\"lastGate\":\"%s\",\"rejections\":\"%s\","
+                  "\"lightHitsSent\":%llu,\"lightHitsApplied\":%llu,\"touchesSent\":%llu,\"touchesApplied\":%llu,\"touchesEngine\":%llu,\"hitsOnCopies\":%llu,\"provoked\":%llu,\"hitsForwarded\":%llu,"
                   "\"rebuilds\":%llu,\"droppedUnknownPeer\":%llu}}",
                   g_set.enabled ? "true" : "false", cs ? "true" : "false",
                   g_patches ? g_patches->installed() : 0, (unsigned long long)g_gateCalls, (unsigned long long)g_gateErrors, (unsigned long long)g_gateOffThread,
+                  (unsigned long long)g_gateByPlayer, (unsigned long long)g_gateByPlayerOnCopy,
                   g_nativeOk ? "true" : "false", (long)g_nativeFaults, (unsigned long long)g_nativeReplays, (unsigned long long)g_consoleDamage,
-                  (unsigned long long)g_consoleLines, (unsigned long long)g_consoleFailed,
+                  (unsigned long long)g_consoleLines, (unsigned long long)g_consoleFailed, (unsigned long long)g_touchReplays,
                   u(&Stats::engineHits), u(&Stats::proceeded), u(&Stats::clamped), u(&Stats::neutralized), u(&Stats::ghostHitsNeutralized),
                   u(&Stats::hitsSent), u(&Stats::hitsReceived), u(&Stats::hitsApplied), u(&Stats::hitsRejected), u(&Stats::hitDuplicates),
                   u(&Stats::nacksSent), u(&Stats::hitRetries), u(&Stats::hitsAbandoned), u(&Stats::damageApplied),
@@ -753,6 +798,7 @@ std::string glueStatusJson() {
                   u(&Stats::unroutable),   // a death or hit the host had nobody to send to: the client was never seen as joined
                   u(&Stats::naturalHits), u(&Stats::envHitsNeutralized), u(&Stats::hitsResolvedLate), u(&Stats::killsForced), u(&Stats::damageRefused),
                   u(&Stats::engineRefused), u(&Stats::naturalLethal), u(&Stats::naturalLethalStuck), JsonEscape(cs ? cs->lastGate() : std::string()).c_str(), JsonEscape(cs ? cs->lastRejections() : std::string()).c_str(),
+                  u(&Stats::lightHitsSent), u(&Stats::lightHitsApplied), u(&Stats::touchesSent), u(&Stats::touchesApplied), u(&Stats::touchesEngine), u(&Stats::hitsOnCopies), u(&Stats::provoked), u(&Stats::hitsForwarded),
                   (unsigned long long)(g_rt ? g_rt->rebuilds() : 0), (unsigned long long)(g_rt ? g_rt->droppedUnknownPeer() : 0));
     return b;
 }

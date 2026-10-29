@@ -27,6 +27,7 @@ class GameScript : public INpcScript {
 public:
     explicit GameScript(ConsoleRunner run) : run_(std::move(run)) {}
     bool Exec(NetId id, const std::string& line) override;
+    bool ExecOnRef(uint32_t ref, const std::string& line) override { return ref && run_ && run_(ref, line); }
 private:
     ConsoleRunner run_;
 };
@@ -45,6 +46,7 @@ public:
     Result SetGroupRate(NetId id, float rate) override;
     Result KnockDown(NetId id, float yawRad, float force) override;
     Result GetUp(NetId id) override;
+    uint32_t RefIdOf(NetId id) override;
     // Which direct calls passed their start-up check (shown by anim.npc).
     std::string pinStatusJson() const;
 private:

@@ -161,6 +161,17 @@ using InventoryReader = std::function<bool(NetId, InvList&)>;
 using InventoryWriter = std::function<bool(NetId, const InvList&)>;
 void setInventoryAccess(InventoryReader read, InventoryWriter write);
 
+// What a tracked actor holds and wears (weapon, armour, clothing: equipment.h). The reader says false when it cannot read the actor now; the writer
+// makes the engine copy wear exactly the list and says false while it does not (not loaded, no 3D yet, the engine refused): the caller retries.
+// Without them an owner's weapon draw is not copied to the other machines.
+using EquipmentReader = std::function<bool(NetId, EquipList&)>;
+using EquipmentWriter = std::function<bool(NetId, const EquipList&)>;
+void setEquipmentAccess(EquipmentReader read, EquipmentWriter write);
+
+// A copy told to stand up is still in its furniture: its position is held until this says false (plugin/actors/anim NpcAnimDriver::poseLocked),
+// so a seated body is never slid across the room (Doc Mitchell, 2026-10-29). A snapped pose (teleport, cell change) is applied anyway.
+void setPoseLock(std::function<bool(NetId)> locked);
+
 // Story effects applied on this machine (the host's captured ones too): KillActor, ResurrectActor and CompanionOwner reach ActorSync::onEffect().
 // Any other effect is ignored here. Called by the effect applier / capture sink wiring.
 void onEffect(const fnvcoop::Effect& e);
@@ -203,6 +214,7 @@ struct PortStats {
     uint64_t scans = 0, trackedNew = 0, trackedGone = 0, deathsPolled = 0, deathsReportedToSync = 0, deathsRefused = 0;
     uint64_t consoleLines = 0, consoleFailed = 0, linesDeferred = 0;
     uint64_t drives = 0, drivesSkippedSmall = 0, drivesSkippedRate = 0, snaps = 0, places = 0;
+    uint64_t drivesHeldSeated = 0;   // a pose held while the copy was still getting out of furniture (setPoseLock)
     uint64_t aiOff = 0, aiOn = 0, aiFailed = 0, combatRestarted = 0, combatTargetUnresolved = 0;
     uint64_t standInsMade = 0, standInsRemoved = 0, standInsRefused = 0, standInsPurged = 0;
     uint64_t baseSwaps = 0, baseSwapFailed = 0, protectOn = 0, protectOff = 0, kills = 0, revives = 0;

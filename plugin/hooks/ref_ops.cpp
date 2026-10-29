@@ -320,6 +320,11 @@ bool opPerformedHere(const RefOpSpec& s, uint32_t callingRef, const std::functio
     return !remoteDriven(callingRef);
 }
 
+bool refOpDefaultsToPlayer(uint16_t op) {
+    const RefOpSpec* s = storySpecFor(op);
+    return s && (s->flags & kRoPlayerRef) != 0;
+}
+
 bool activateTypeSafe(unsigned t) {
     // Base form types (xNVSE GameForms.h): TESObjectACTI 0x15 and TESObjectDOOR 0x1C are safe to activate from a script on a machine that did not
     // ask for it. BGSTalkingActivator 0x16 starts a conversation, BGSTerminal 0x17 opens the terminal, TESObjectCONT 0x1B opens a container menu,

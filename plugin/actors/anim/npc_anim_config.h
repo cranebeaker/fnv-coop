@@ -52,6 +52,12 @@ struct DriverConfig {
     uint32_t retryBackoffMs = 400;  // base for the exponential backoff after a refused command (x2 per failure, capped at 8 s)
     uint32_t weaponVerifyMs = 700;  // the drawn / holstered state must read back within this
     uint32_t weaponRetryMs = 3000;  // after a failed ladder, try again this much later
+    // ---- furniture (sit / sleep) ----
+    uint32_t standWaitMs = 1500;    // after a stand-up command the copy must read "out of the furniture" within this, else the next escalation
+    uint32_t standPollMs = 100;     // while a stand-up is under way the copy's sit state is read this often (otherwise every reassertMs)
+    uint32_t standSettleMs = 900;   // a backend that cannot read the sit state: the stand-up is assumed finished after this
+    uint32_t standMaxTries = 3;     // escalations (gentle, then harder) before the layer gives up for sitRetryMs
+    uint32_t sitRetryMs = 3000;     // after giving up a stand-up, look again this much later
     // ---- death / corpse ----
     uint32_t deathVerifyMs = 600;   // the actor must read dead this long after we were told it died; else Kill again
     uint32_t deathMaxRetries = 4;
@@ -67,6 +73,7 @@ struct DriverConfig {
     bool playAttacks = true;        // replay the owner's attack / reload / reaction groups
     bool playTurns = true;
     bool playTalking = true;
+    bool playSit = true;            // sit / stand like the owner's actor (furniture)
     bool useRate = true;            // SetGroupRate when the backend has it
     bool playBlock = true;
     bool knockdown = true;

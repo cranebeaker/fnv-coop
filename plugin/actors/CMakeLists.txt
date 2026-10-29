@@ -38,19 +38,19 @@ nva_flags(nvcoop_actors_live)
 set(NVA_INC "${NVA_DIR}/.." "${NVA_REPO}/synccore" "${NVA_REPO}/synccore/include")
 
 # ---- the module itself (shipped) ----
-add_library(nvcoop_actors_core STATIC ${NVA_DIR}/actor_sync.cpp ${NVA_DIR}/actor_wire.cpp ${NVA_DIR}/owner_rpc.cpp ${NVA_DIR}/actor_runtime.cpp)
+add_library(nvcoop_actors_core STATIC ${NVA_DIR}/actor_sync.cpp ${NVA_DIR}/actor_wire.cpp ${NVA_DIR}/state_parts.cpp ${NVA_DIR}/owner_rpc.cpp ${NVA_DIR}/actor_runtime.cpp)
 target_include_directories(nvcoop_actors_core PUBLIC ${NVA_INC})
 target_link_libraries(nvcoop_actors_core PUBLIC nvcoop_actors_live)
 nva_flags(nvcoop_actors_core)
 
 # ---- tests + mutation twins. The unmutated files and the test file are compiled once (OBJECT libs); each twin recompiles only
 #      actor_sync.cpp with NVA_MUT=<n> and must FAIL the whole suite. ----
-set(NVA_MUTANTS 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 20 21 22 23 24 25 26 27 30 31 32 33 34 35 36 37 40 41 42)
+set(NVA_MUTANTS 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 20 21 22 23 24 25 26 27 30 31 32 33 34 35 36 37 38 39 40 41 42)
 set(NVA_TEST_EXCL "")
 if(TARGET nvcoop)
   set(NVA_TEST_EXCL EXCLUDE_FROM_ALL)   # plugin build: skip tests unless asked for
 endif()
-add_library(nva_base_objs OBJECT ${NVA_TEST_EXCL} ${NVA_DIR}/actor_wire.cpp ${NVA_DIR}/owner_rpc.cpp ${NVA_DIR}/actor_runtime.cpp)
+add_library(nva_base_objs OBJECT ${NVA_TEST_EXCL} ${NVA_DIR}/actor_wire.cpp ${NVA_DIR}/state_parts.cpp ${NVA_DIR}/owner_rpc.cpp ${NVA_DIR}/actor_runtime.cpp)
 add_library(nva_test_objs OBJECT ${NVA_TEST_EXCL} ${NVA_DIR}/tests/test_actors.cpp ${NVA_REPO}/synccore/tests/main.cpp)
 foreach(t nva_base_objs nva_test_objs)
   target_include_directories(${t} PRIVATE ${NVA_INC} ${NVA_REPO}/synccore/tests ${NVA_DIR}/tests)

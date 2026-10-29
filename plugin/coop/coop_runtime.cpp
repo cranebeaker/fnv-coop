@@ -14,6 +14,7 @@
 #include "effect_json.h"
 #include "fnvcoop_mut.h"
 #include "fnvcoop_dlg/rules_link.h"
+#include "steam_binding.h"
 
 // Mutation twins: RUNTIME-switchable (tools/mut/fnvcoop_mut.h). The test builds (nvcoop_coop_core_rt) read FNVCOOP_MUT=<n>; the
 // shipped core has them compiled out. They prove the integration tests can fail:
@@ -122,7 +123,7 @@ bool ParseConfig(const std::string& text, Config* out, std::string* err) {
         else if (k == "listen") c.listen = v;
         else if (k == "host" || k == "hostaddress") c.host = v;
         else if (k == "port") { if (!parseU64(v, &u) || u == 0 || u > 65535) return bad("port out of range"); c.port = static_cast<uint16_t>(u); }
-        else if (k == "transport") { std::string t = lower(v); if (t != "enet" && t != "udp") return bad("transport must be enet|udp"); c.transport = t; }
+        else if (k == "transport") { std::string t = lower(v); if (t != "enet" && t != "udp" && t != "steam") return bad("transport must be enet|udp|steam"); c.transport = t; }
         else if (k == "forward_activate") { if (!parseBool(v, &c.forwardActivate)) return bad("forward_activate must be 0/1"); }
         else if (k == "clientload") { std::string t = lower(v); if (t != "rejoin" && t != "block") return bad("clientload must be rejoin|block"); c.clientLoadBlock = t == "block"; }
         else if (k == "rules") c.rulesFile = v;
@@ -134,6 +135,7 @@ bool ParseConfig(const std::string& text, Config* out, std::string* err) {
         else if (k == "capture") { if (!parseBool(v, &c.captureEnabled)) return bad("capture must be 0/1"); }
         else if (k == "apply") { if (!parseBool(v, &c.applyEnabled)) return bad("apply must be 0/1"); }
         else if (k == "maxplayers") { if (!parseU64(v, &u) || u < 1 || u > kMaxSlots) return bad("maxPlayers 1..8"); c.maxPlayers = static_cast<uint32_t>(u); }
+        else if (k == "party") { if (!v.empty() && (!parseU64(v, &u) || u > kMaxSlots)) return bad("party 0..8"); c.party = v.empty() ? 0 : static_cast<int>(u); }
     }
     *out = c;
     return true;
@@ -245,11 +247,35 @@ bool Runtime::makeTransport(bool server, std::string* err) {
         transport_ = std::move(t);
         return true;
     }
+    if (cfg_.transport == "steam") {
+        std::string why;
+        fnvcoop::ISteamApi* api = nullptr;
+        if (steamProvider_) api = steamProvider_(&why);
+        else if (SteamBinding::instance().attachToGame(&why)) api = &SteamBinding::instance();
+        if (!api) { if (err) *err = why.empty() ? "Steam is not available" : why; return false; }
+        auto t = std::make_unique<fnvcoop::SteamTransport>(*api);
+        bool ok;
+        if (server) {
+            if (!FNV_MUT(1271)) api->setHostTag(std::to_string(fnvcoop::kProtocolVersion), "");   // MUTANT 1271: friends are never told this host is joinable
+            ok = t->listen(8);
+        } else {
+            char* end = nullptr;
+            const unsigned long long id = std::strtoull(cfg_.host.c_str(), &end, 10);
+            if (cfg_.host.empty() || *end || id < 76561197960265728ull) { if (err) *err = "host must be the host's Steam ID (a 17-digit number) with transport=steam"; return false; }
+            ok = t->connect(id);
+        }
+        if (!ok) { if (err) *err = "steam " + std::string(server ? "listen" : "connect") + " failed"; return false; }
+        steam_ = t.get();
+        link_ = FNV_MUT(1270) ? nullptr : t.get();   // MUTANT 1270: the Steam link's events are not wired (no Disconnected for the host, no reconnect for a guest)
+        transport_ = std::move(t);
+        return true;
+    }
     auto t = std::make_unique<fnvcoop::EnetTransport>();
     // ClientSession keeps sending Hello until Welcome, so it is fine that the ENet connect completes asynchronously.
     bool ok = server ? t->listen(cfg_.port, 8, cfg_.listen == "127.0.0.1" || cfg_.listen == "localhost") : t->connect(cfg_.host, cfg_.port);
     if (!ok) { if (err) *err = "enet " + std::string(server ? "listen" : "connect") + " failed"; return false; }
     enet_ = t.get();
+    link_ = t.get();
     transport_ = std::move(t);
     return true;
 }
@@ -554,7 +580,7 @@ void Runtime::stop() {
     lateJoinSeen_.clear();
     lateJoinPending_.clear();
     lateJoinLocked_.clear();
-    if (enet_) enet_->disconnect();   // graceful: peers see Disconnected now instead of a timeout
+    if (link_) link_->disconnect();   // graceful: peers see Disconnected now instead of a timeout
     if (cfg_.role == Role::Host) captureOn_ = false;
     if (dlg_) { dlg_->setRulesGates(nullptr, nullptr); dlg_->setVoteSink(nullptr); }   // before the engine they point at is destroyed
     rulesLinked_ = false;
@@ -581,6 +607,8 @@ void Runtime::stop() {
     transport_.reset();
     udp_ = nullptr;
     enet_ = nullptr;
+    steam_ = nullptr;
+    link_ = nullptr;
     running_ = false;
 }
 
@@ -814,10 +842,10 @@ void Runtime::frame() {
     uint64_t t = now_();
     if (host_) {
         host_->tick(t);
-        if (enet_) {
-            fnvcoop::EnetTransport::Event ev;
-            while (enet_->nextEvent(ev)) {
-                if (ev.type == fnvcoop::EnetTransport::Event::Disconnected) { ++counters_.disconnects; host_->peerDisconnected(ev.peer); }
+        if (link_) {
+            fnvcoop::ILinkTransport::Event ev;
+            while (link_->nextEvent(ev)) {
+                if (ev.type == fnvcoop::ILinkTransport::Event::Disconnected) { ++counters_.disconnects; host_->peerDisconnected(ev.peer); }
             }
         }
         if (rules_) { rules_->tick(t); tickRulesSession(t); }
@@ -831,19 +859,19 @@ void Runtime::frame() {
         }
     }
     if (client_) {
-        if (enet_) {
+        if (link_) {
             // The host link dropped (a stall or long load past the peer timeout, a network blip): re-create it and rejoin. The session
             // keeps its shadow, so the host replays what it missed (or sends a snapshot) instead of a full rejoin.
-            fnvcoop::EnetTransport::Event ev;
-            while (enet_->nextEvent(ev)) {
-                if (ev.type == fnvcoop::EnetTransport::Event::Disconnected) {
+            fnvcoop::ILinkTransport::Event ev;
+            while (link_->nextEvent(ev)) {
+                if (ev.type == fnvcoop::ILinkTransport::Event::Disconnected) {
                     ++counters_.disconnects;
                     client_->disconnect();
                     reconnectAt_ = t + kReconnectDelayMs;
                 }
             }
             if (reconnectAt_ && t >= reconnectAt_) {
-                if (enet_->reconnect()) {
+                if (link_->reconnect()) {
                     reconnectAt_ = 0;
                     ++counters_.reconnects;
                     client_->connect(t, client_->lastSession() + 1);
@@ -1726,6 +1754,13 @@ std::string Runtime::statusJson() const {
         Value t = Value::object();
         t.set("kind", "enet").set("datagramsIn", (int64_t)s.datagramsIn).set("datagramsOut", (int64_t)s.datagramsOut)
             .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("connected", enet_->connected());
+        o.set("transport", t);
+    } else if (steam_) {
+        const auto& s = steam_->stats();
+        Value t = Value::object();
+        t.set("kind", "steam").set("packetsIn", (int64_t)s.packetsIn).set("packetsOut", (int64_t)s.packetsOut)
+            .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("refused", (int64_t)s.refused)
+            .set("connected", steam_->connected()).set("error", steam_->lastError());
         o.set("transport", t);
     }
     if (hub_) {

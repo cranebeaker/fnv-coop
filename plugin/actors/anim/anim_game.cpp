@@ -126,6 +126,34 @@ TESForm* LookupSafe(uint32_t id) {
         return nullptr;
     }
 }
+// The placed furniture reference nearest to (x, y, z) in a cell, within the pinned reach; 0 = none. Plain data only (SEH).
+uint32_t NearestFurnitureRef(TESObjectCELL* cell, float x, float y, float z) {
+    uint32_t best = 0;
+    float bestD2 = P::kFurnitureReachXY * P::kFurnitureReachXY;
+    __try {
+        int guard = 0;
+        for (auto* node = cell->objectList.Head(); node && guard < 20000; node = node->next, ++guard) {
+            TESObjectREFR* r = node->data;
+            if (!r || !r->refID || !r->baseForm || (r->flags & P::kFormFlagDeleted)) continue;
+            if (r->typeID != kFormType_TESObjectREFR || r->baseForm->typeID != kFormType_TESFurniture) continue;
+            const float dx = r->posX - x, dy = r->posY - y, dz = r->posZ - z;
+            if (dz > P::kFurnitureReachZ || dz < -P::kFurnitureReachZ) continue;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) { bestD2 = d2; best = r->refID; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    return best;
+}
+TESObjectCELL* CellOf(TESObjectREFR* r) {
+    __try {
+        return r->parentCell;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
 uint32_t FormTypeOf(TESForm* f) {
     __try {
         return f->typeID;
@@ -141,6 +169,15 @@ std::map<NetId, uint32_t>& Overrides() {
 uint32_t RefFor(NetId id) {
     auto it = Overrides().find(id);
     return it != Overrides().end() ? it->second : engine::refOf(id);
+}
+
+struct FurnCache {
+    uint32_t ref = 0;
+    float x = 0, y = 0, z = 0;
+};
+std::map<uint32_t, FurnCache>& FurnitureCache() {
+    static std::map<uint32_t, FurnCache> m;
+    return m;
 }
 
 Actor* ActorOf(NetId id) {
@@ -268,6 +305,15 @@ bool GameAccess::ReadActor(NetId id, NpcReads& out) {
         if (CallSlot0(p, P::kSlotIsWeaponOut, v)) out.weaponOut = (v & 0xFF) != 0;
         if (CallSlot0(p, 0x101, v)) out.aiming = (v & 0xFF) != 0;                       // IsAiming (slot proven by verify_engine.py)
         if (CallSlot0(p, P::kSlotGetKnockedState, v)) out.knocked = static_cast<int32_t>(v) != 0;
+        // sit / sleep state: only from a process whose slot IS the pinned getter (a process of another class reads as "cannot tell")
+        {
+            void* sp = nullptr;
+            uintptr_t sfn = 0;
+            if (ResolveProcFn(a, P::kSlotGetSitSleepState, P::kFnGetSitSleepState, sp, sfn) && CallSlot0(sp, P::kSlotGetSitSleepState, v)) {
+                out.sitKnown = true;
+                out.sitSleep = static_cast<int>(v);
+            }
+        }
 
         uint32_t animData = 0;
         if (CallSlot0(p, P::kProcGetAnimData, animData) && animData) {
@@ -289,6 +335,18 @@ bool GameAccess::ReadActor(NetId id, NpcReads& out) {
         }
     }
 
+    if (out.sitKnown && out.sitSleep != 0) {
+        // The furniture in use: cached per actor while the state stays non-zero and the actor does not move (the cell scan is not free).
+        FurnCache& fc = FurnitureCache()[a->refID];
+        if (fc.ref == 0 || std::fabs(rp.px - fc.x) > 8.0f || std::fabs(rp.py - fc.y) > 8.0f || std::fabs(rp.pz - fc.z) > 8.0f) {
+            fc.ref = NearestFurnitureRef(CellOf(a), rp.px, rp.py, rp.pz);
+            fc.x = rp.px; fc.y = rp.py; fc.z = rp.pz;
+        }
+        out.furniture = fc.ref;
+    } else {
+        FurnitureCache().erase(a->refID);
+    }
+
     uintptr_t mover = 0;
     if (Rd(ap + P::kActorMover, mover) && mover) {
         uintptr_t vt = 0;
@@ -306,6 +364,8 @@ bool GameAccess::ReadActor(NetId id, NpcReads& out) {
 }
 
 // ---- direct calls ------------------------------------------------------------------------------------------------------------------------
+
+uint32_t GameAccess::RefIdOf(NetId id) { return RefFor(id); }
 
 Result GameAccess::SetWeaponOut(NetId id, bool on) {
     if (!cfg_.directWeaponOut) return Result::Unsupported;
@@ -378,10 +438,11 @@ std::string GameAccess::pinStatusJson() const {
     };
     uint8_t b[8] = {};
     const bool menu = SafeRead(P::kMenuModeAny, b, sizeof b) && std::memcmp(b, P::kMenuModeBytes, sizeof b) == 0;
-    char buf[320];
+    char buf[360];
     std::snprintf(buf, sizeof buf,
-        "{\"set_weapon_out\":%s,\"set_aiming\":%s,\"push_actor_away\":%s,\"set_knocked_state\":%s,\"menu_mode\":%s,"
+        "{\"get_sit_sleep_state\":%s,\"set_weapon_out\":%s,\"set_aiming\":%s,\"push_actor_away\":%s,\"set_knocked_state\":%s,\"menu_mode\":%s,"
         "\"direct_weapon_out\":%s,\"direct_aiming\":%s,\"direct_rate\":%s,\"direct_knock\":%s}",
+        slotOk(P::kSlotGetSitSleepState, P::kFnGetSitSleepState) ? "true" : "false",
         slotOk(P::kSlotSetWeaponOut, P::kFnSetWeaponOut) ? "true" : "false", slotOk(P::kSlotSetIsAiming, P::kFnSetIsAiming) ? "true" : "false",
         slotOk(P::kSlotPushActorAway, P::kFnPushActorAway) ? "true" : "false", slotOk(P::kSlotSetKnockedState, P::kFnSetKnockedState) ? "true" : "false",
         menu ? "true" : "false", cfg_.directWeaponOut ? "true" : "false", cfg_.directAiming ? "true" : "false", cfg_.directRate ? "true" : "false",

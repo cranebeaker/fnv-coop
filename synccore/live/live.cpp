@@ -94,6 +94,18 @@ uint8_t packAnimExt(const AnimState& a) {
     return static_cast<uint8_t>((a.dead ? 1 : 0) | (a.knocked ? 2 : 0) | (a.swim ? 4 : 0) | (a.talk ? 8 : 0) | (a.block ? 16 : 0) | (a.ragdoll ? 32 : 0));
 }
 bool animHasExt(const AnimState& a) { return a.action != 0 || a.actionSeq != 0 || packAnimExt(a) != 0; }
+uint8_t packAnimSit(const AnimState& a) {
+    if (a.sit == SitState::None) return 0;   // the bed flag and the reference mean nothing without a state
+    return static_cast<uint8_t>((static_cast<uint8_t>(a.sit) & 3) | (a.sleep ? 4 : 0));
+}
+bool unpackAnimSit(AnimState& a, uint8_t sitByte, uint32_t furniture) {
+    if (sitByte == 0) { a.sit = SitState::None; a.sleep = false; a.furniture = 0; return furniture == 0; }
+    if ((sitByte & 0xF8) != 0 || (sitByte & 3) == 0) return false;
+    a.sit = static_cast<SitState>(sitByte & 3);
+    a.sleep = (sitByte & 4) != 0;
+    a.furniture = furniture;
+    return true;
+}
 AnimState unpackAnim(uint8_t loco, uint8_t f, uint8_t action, uint8_t actionSeq, uint8_t ext) {
     AnimState a;
     a.locomotion = loco;
@@ -154,7 +166,8 @@ const char* toString(Tier t) {
 bool operator==(const QState& a, const QState& b) {
     return a.cell == b.cell && std::memcmp(a.pos, b.pos, sizeof a.pos) == 0 && std::memcmp(a.rot, b.rot, sizeof a.rot) == 0 &&
            std::memcmp(a.vel, b.vel, sizeof a.vel) == 0 && a.loco == b.loco && a.animFlags == b.animFlags &&
-           a.action == b.action && a.actionSeq == b.actionSeq && a.animExt == b.animExt && a.target == b.target && a.package == b.package && a.alert == b.alert && a.av == b.av;
+           a.action == b.action && a.actionSeq == b.actionSeq && a.animExt == b.animExt && a.sit == b.sit && a.furniture == b.furniture &&
+           a.target == b.target && a.package == b.package && a.alert == b.alert && a.av == b.av;
 }
 
 QState quantize(const ActorSnapshot& s) {
@@ -166,6 +179,7 @@ QState quantize(const ActorSnapshot& s) {
     q.loco = s.anim.locomotion;
     q.animFlags = packAnimFlags(s.anim);
     if (!liveFaults().dropAnimExt) { q.action = s.anim.action; q.actionSeq = s.anim.actionSeq; q.animExt = packAnimExt(s.anim); }
+    if (!liveFaults().dropSit) { q.sit = packAnimSit(s.anim); q.furniture = q.sit ? s.anim.furniture : 0; }
     q.target = s.ai.combatTarget; q.package = s.ai.package; q.alert = s.ai.alert;
     for (const auto& a : s.avDeltas) q.av[a.av] = a.value;
     return q;
@@ -179,6 +193,7 @@ ActorSnapshot dequantize(const QState& q, NetId id, OwnerEpoch epoch, uint32_t s
     s.rot = {dang(q.rot[0]), dang(q.rot[1]), dang(q.rot[2])};
     s.vel = {q.vel[0] * kVelStep, q.vel[1] * kVelStep, q.vel[2] * kVelStep};
     s.anim = unpackAnim(q.loco, q.animFlags, q.action, q.actionSeq, q.animExt);
+    unpackAnimSit(s.anim, q.sit, q.furniture);   // (a QState is only ever built canonical: quantize() or the checked decoder)
     s.ai.combatTarget = q.target; s.ai.package = q.package; s.ai.alert = q.alert;
     for (const auto& kv : q.av) s.avDeltas.push_back({kv.first, kv.second});
     return s;
@@ -253,7 +268,8 @@ bool SnapshotSender::queue(PlayerId peer, const ActorSnapshot& s, uint32_t nowMs
         if (std::memcmp(cur.rot, b.rot, sizeof cur.rot) != 0) mask |= kMaskRot;
         if (std::memcmp(cur.vel, b.vel, sizeof cur.vel) != 0) mask |= kMaskVel;
         const bool extChanged = cur.action != b.action || cur.actionSeq != b.actionSeq || cur.animExt != b.animExt;
-        if (cur.loco != b.loco || cur.animFlags != b.animFlags || (extChanged && !liveFaults().animExtNoDelta)) mask |= kMaskAnim;
+        const bool sitChanged = cur.sit != b.sit || cur.furniture != b.furniture;
+        if (cur.loco != b.loco || cur.animFlags != b.animFlags || (extChanged && !liveFaults().animExtNoDelta) || (sitChanged && !liveFaults().sitNoDelta)) mask |= kMaskAnim;
         if (cur.target != b.target || cur.package != b.package || cur.alert != b.alert) mask |= kMaskAi;
         for (const auto& kv : cur.av) { auto f = b.av.find(kv.first); if (f == b.av.end() || f->second != kv.second) { mask |= kMaskAv; break; } }
     }
@@ -267,10 +283,13 @@ bool SnapshotSender::queue(PlayerId peer, const ActorSnapshot& s, uint32_t nowMs
     if (mask & kMaskRot) for (int i = 0; i < 3; ++i) w.u16(cur.rot[i]);
     if (mask & kMaskVel) for (int i = 0; i < 3; ++i) w.vari(static_cast<int64_t>(cur.vel[i]) - b.vel[i]);
     if (mask & kMaskAnim) {
-        const bool ext = cur.action != 0 || cur.actionSeq != 0 || cur.animExt != 0;
+        const bool ext = cur.action != 0 || cur.actionSeq != 0 || cur.animExt != 0 || cur.sit != 0;
         w.u8(cur.loco);
         w.u8(static_cast<uint8_t>(cur.animFlags | (ext ? kAnimFlagExt : 0)));
-        if (ext) { w.u8(cur.action); w.u8(cur.actionSeq); w.u8(cur.animExt); }
+        if (ext) {
+            w.u8(cur.action); w.u8(cur.actionSeq); w.u8(static_cast<uint8_t>(cur.animExt | (cur.sit ? kAnimExtSit : 0)));
+            if (cur.sit) { w.u8(cur.sit); w.varu(cur.furniture); }
+        }
     }
     if (mask & kMaskAi) { w.varu(cur.target); w.varu(cur.package); w.u8(cur.alert); }
     if (mask & kMaskAv) {
@@ -404,8 +423,8 @@ std::vector<ReceivedSnapshot> SnapshotReceiver::receive(PlayerId from, const uin
         CellId cell = 0;
         int64_t dpos[3] = {0, 0, 0}, dvel[3] = {0, 0, 0};
         uint16_t rot[3] = {0, 0, 0};
-        uint8_t loco = 0, flags = 0, alert = 0, action = 0, actionSeq = 0, animExt = 0;
-        uint32_t target = 0, package = 0;
+        uint8_t loco = 0, flags = 0, alert = 0, action = 0, actionSeq = 0, animExt = 0, sit = 0;
+        uint32_t target = 0, package = 0, furniture = 0;
         std::vector<AvValue> avs;
         if (mask & kMaskCell) cell = r.varu32();
         if (mask & kMaskPos) for (int i = 0; i < 3; ++i) dpos[i] = r.vari();
@@ -417,9 +436,15 @@ std::vector<ReceivedSnapshot> SnapshotReceiver::receive(PlayerId from, const uin
             if (flags & kAnimFlagExt) {
                 action = r.u8(); actionSeq = r.u8(); animExt = r.u8();
                 if (!liveFaults().acceptBadAnimExt) {
-                    if (animExt & 0xC0) r.ok = false;                                  // reserved extension bits
+                    if (animExt & kAnimExtReserved) r.ok = false;                      // reserved extension bit
                     if (action == 0 && actionSeq == 0 && animExt == 0) r.ok = false;   // an all-zero extension is never sent (canonical form)
                 }
+                if (animExt & kAnimExtSit) {
+                    sit = r.u8(); furniture = r.varu32();
+                    AnimState probe;
+                    if ((sit == 0 || !unpackAnimSit(probe, sit, furniture)) && !liveFaults().acceptBadSit) r.ok = false;   // state 0 / reserved bits: never sent
+                }
+                animExt &= static_cast<uint8_t>(~kAnimExtSit);   // (the flag only announced the block; the stored state keeps the six v2 bits)
             }
             flags &= static_cast<uint8_t>(~kAnimFlagsReserved);   // (only reachable with the fault on: keeps the stored state canonical)
             flags &= static_cast<uint8_t>(~kAnimFlagExt);
@@ -493,7 +518,7 @@ std::vector<ReceivedSnapshot> SnapshotReceiver::receive(PlayerId from, const uin
         if (mask & kMaskPos) for (int i = 0; i < 3; ++i) addChecked(base.pos[i], dpos[i], q.pos[i]);
         if (mask & kMaskRot) for (int i = 0; i < 3; ++i) q.rot[i] = rot[i];
         if (mask & kMaskVel) for (int i = 0; i < 3; ++i) addChecked(base.vel[i], dvel[i], q.vel[i]);
-        if (mask & kMaskAnim) { q.loco = loco; q.animFlags = flags; q.action = action; q.actionSeq = actionSeq; q.animExt = animExt; }
+        if (mask & kMaskAnim) { q.loco = loco; q.animFlags = flags; q.action = action; q.actionSeq = actionSeq; q.animExt = animExt; q.sit = sit; q.furniture = sit ? furniture : 0; }
         if (mask & kMaskAi) { q.target = target; q.package = package; q.alert = alert; }
         for (const auto& v : avs) q.av[v.av] = v.value;
         if (!r.ok) { bad(); return out; }

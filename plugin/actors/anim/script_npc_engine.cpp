@@ -66,4 +66,28 @@ Result ScriptNpcAnimEngine::PlaceCorpse(NetId id, const Vec3& pos, float yawRad)
     return line(id, "SetAngle Z " + formatNumber(yawRadToDegrees(yawRad)));
 }
 
+Result ScriptNpcAnimEngine::useFurniture(NetId id, uint32_t furniture) {
+    const uint32_t actor = game_.RefIdOf(id);
+    if (!furniture || !actor) return Result::Refused;
+    char buf[48];
+    if (FNV_MUT(86)) {   // twin 86: the roles are swapped, the actor "activates" the furniture reference as its argument
+        std::snprintf(buf, sizeof buf, "Activate %08X 1", furniture);
+        return run_.ExecOnRef(actor, buf) ? Result::Ok : Result::Refused;
+    }
+    std::snprintf(buf, sizeof buf, "Activate %08X 1", actor);
+    return run_.ExecOnRef(furniture, buf) ? Result::Ok : Result::Refused;
+}
+
+Result ScriptNpcAnimEngine::SitIn(NetId id, uint32_t furniture) { return useFurniture(id, furniture); }
+
+Result ScriptNpcAnimEngine::StandUp(NetId id, uint32_t furniture, uint32_t attempt) {
+    if (attempt == 0 && furniture) return useFurniture(id, furniture);
+    // Escalation: let the actor's own AI run, it leaves furniture its package does not ask for. The driver puts the hold back (Restrain).
+    Result r = line(id, "SetRestrained 0");
+    if (r != Result::Ok) return r;
+    return line(id, "EvaluatePackage");
+}
+
+Result ScriptNpcAnimEngine::Restrain(NetId id) { return line(id, "SetRestrained 1"); }
+
 }  // namespace nvcoop::actors::anim

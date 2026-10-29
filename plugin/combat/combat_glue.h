@@ -31,6 +31,10 @@ std::string glueStatusJson();                    // combat.status
 // Neutralize (apply nothing). With no running session the answer is always Proceed.
 GateDecision glueGate(const EngineHit& h);
 
+// Friendly fire (player-vs-player damage) from the campaign (plugin/rebalance; docs/rebalance.md): 1 on, 0 off, -1 back to nvcoop.ini [combat] friendlyfire. Takes effect
+// at once in a running session and is kept for the next one. Every machine sets it to the campaign's value, so a hit between players is neutralised (or not) the same everywhere.
+void glueSetFriendlyFire(int mode);
+
 // The avatar layer's puppet map (optional). Default: the NV:MP ghost map (nvmp::GhostRefOfPlayer). A puppet that is not mapped is not a
 // "player" to combat: hits on it are not forwarded to its real player.
 void setPlayerRefMap(std::function<bool(uint32_t ref, uint8_t& slot)> slotOfRef, std::function<uint32_t(uint8_t slot)> refOfSlot);

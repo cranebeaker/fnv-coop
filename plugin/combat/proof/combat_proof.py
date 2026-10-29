@@ -63,7 +63,8 @@ def flatten(st: Dict[str, Any]) -> Dict[str, Any]:
     flat: Dict[str, Any] = {"enabled": st.get("enabled"), "running": st.get("running")}
     g, n = st.get("gate", {}), st.get("native", {})
     flat.update(gateSites=g.get("sites", 0), gateCalls=g.get("calls", 0), gateErrors=g.get("errors", 0), nativeFaults=n.get("faults", 0),
-                nativeReplays=n.get("replays", 0), consoleDamage=n.get("consoleDamage", 0), pinsOk=n.get("pinsOk"))
+                nativeReplays=n.get("replays", 0), consoleDamage=n.get("consoleDamage", 0), pinsOk=n.get("pinsOk"),
+                gateByPlayer=g.get("byPlayer", 0), gateByPlayerOnCopy=g.get("byPlayerOnCopy", 0), touchReplays=n.get("touchReplays", 0))   # lastGate / rejections ride in stats
     flat.update(st.get("stats", {}))
     return flat
 

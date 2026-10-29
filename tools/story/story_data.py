@@ -161,7 +161,8 @@ def infos_table() -> Dict[str, Dict[str, Any]]:
                         d = json.loads(line)
                         r = d.get("responses") or [{}]
                         _INFOS[norm_form("FalloutNV.esm:" + d["formid"])] = {"text": r[0].get("text", ""), "type": d.get("type", ""), "topic": d.get("topic", ""),
-                                                                             "speaker": d.get("speaker", ""), "prompt": names.get(norm_form(d.get("topic", "FalloutNV.esm:0")), "")}
+                                                                             "speaker": d.get("speaker", ""), "prompt": names.get(norm_form(d.get("topic", "FalloutNV.esm:0")), ""),
+                                                                             "quest": d.get("quest", "")}
             except (OSError, ValueError, KeyError):
                 _INFOS = {}
     return _INFOS

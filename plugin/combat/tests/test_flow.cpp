@@ -214,6 +214,17 @@ TEST(combat_gate, player_versus_player_damage_is_off_unless_friendly_fire_is_on)
     CHECK(damageOn(on, 0, 0x14) == 10);
 }
 
+TEST(combat_gate, friendly_fire_follows_the_campaigns_choice_while_the_session_runs) {
+    Cluster c(2);
+    EngineHit h; h.attackerRef = kLocalPlayerRef; h.victimRef = 0x2000; h.healthDmg = 10; h.weapon = rifle(); h.weaponRange = 3000;
+    CHECK(c.cs(1).onEngineHit(h).action == GateAction::Neutralize);
+    c.cs(1).setFriendlyFire(true);                     // the host's campaign has it on: told after the session started
+    CHECK(c.cs(1).friendlyFire());
+    CHECK(c.cs(1).onEngineHit(h).action == GateAction::Clamp);
+    c.cs(1).setFriendlyFire(false);
+    CHECK(c.cs(1).onEngineHit(h).action == GateAction::Neutralize);
+}
+
 TEST(combat_gate, vats_shots_travel_the_same_path_and_keep_their_flag) {
     Cluster c(3);
     c.addActor(A100, 1, 3, {800, 0, 0});
@@ -260,10 +271,13 @@ TEST(combat_gate, an_impact_vector_that_is_not_a_world_position_does_not_get_a_g
     CHECK(c.cs(1).stats().hitsRejected == 0);
 }
 
-TEST(combat_gate, a_zero_damage_hit_sends_nothing) {
+TEST(combat_gate, a_hit_with_nothing_to_report_sends_nothing) {
+    // (a light blow, 0.2, is NOT nothing: it is one point, tests/test_melee.cpp; a blow with no health damage is a touch there too)
     Cluster c(2);
     c.addActor(A100, 0, 3, {800, 0, 0});
-    CHECK(c.cs(1).onEngineHit(c.shot(1, refOfActor(A100), 0.2f)).action == GateAction::Neutralize);
+    EngineHit h = c.shot(1, refOfActor(A100), 0.0f);
+    h.attackerRef = 0;                              // no attacker: nobody to report
+    CHECK(c.cs(1).onEngineHit(h).action == GateAction::Neutralize);
     CHECK(c.sentTotal == 0);
 }
 

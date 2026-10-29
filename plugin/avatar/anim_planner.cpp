@@ -115,7 +115,8 @@ PlanOut AnimPlanner::Plan(const PlanInput& inRaw) {
     } else if (jump_ == JumpPhase::Land) {
         out.group = fwdVariant ? kGrpJumpLandForward : kGrpJumpLand;
     } else if (in.anim.reload) {
-        out.group = cfg_.reloadGroup;
+        // the owner's own reload group (it depends on the weapon's animation type) when the stream carries it, else the configured default
+        out.group = (IsReloadActionGroup(in.anim.action) && !F.reloadGroupFixed) ? in.anim.action : cfg_.reloadGroup;
     } else if (transient_ >= 0 && !moving) {
         out.group = transient_;
     } else if (moving) {

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FNV Co-Op</title>
+<style>
+  @font-face { font-family: "VT323"; src: url("/font.ttf") format("truetype"); }
+  :root { --g:#5cff7a; --gd:#2fae48; --gl:#2f8a40; --bg:#071208; --frame:#2a2a24; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; background:#0d0d0b; }
+  body { display:flex; align-items:stretch; justify-content:center; padding:14px; font-family:VT323, "Lucida Console", Consolas, monospace; }
+  .crt { position:relative; width:100%; max-width:1100px; background:var(--bg); color:var(--g); font-size:24px; line-height:1.18;
+    border:16px solid var(--frame); border-radius:26px; padding:24px 30px; overflow:hidden;
+    box-shadow:inset 0 0 90px rgba(0,0,0,.9), 0 0 0 2px #111, 0 0 40px rgba(92,255,122,.08); text-shadow:0 0 6px rgba(92,255,122,.55); }
+  .crt::after { content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.26) 0 2px, transparent 2px 4px); }
+  .crt::before { content:""; position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at center, rgba(92,255,122,.05), transparent 70%);
+    animation:flick 7s infinite; }
+  @keyframes flick { 0%,96%,100% { opacity:1 } 97% { opacity:.4 } }
+  #screen { position:relative; z-index:1; height:100%; display:flex; flex-direction:column; }
+  .hdr { text-align:center; }
+  .dim { color:var(--gd); }
+  .rule { border-top:2px dashed var(--gl); margin:10px 0; }
+  .opt { display:block; width:100%; text-align:left; background:none; border:0; color:inherit; font:inherit; padding:1px 8px; cursor:pointer;
+    text-shadow:inherit; outline:none; }
+  .opt.sel { background:var(--g); color:var(--bg); text-shadow:none; }
+  .opt[disabled] { color:var(--gl); cursor:default; }
+  .opt[disabled].sel { background:var(--gl); color:var(--bg); }
+  .row { display:grid; grid-template-columns:70px 1fr 110px 140px; gap:10px; padding:0 8px; }
+  input.t { background:transparent; border:0; border-bottom:2px solid var(--gl); color:var(--g); font:inherit; width:340px; outline:none;
+    text-shadow:inherit; caret-color:var(--g); }
+  input.t:focus { border-bottom-color:var(--g); }
+  .grow { flex:1; }
+  #log { min-height:90px; max-height:170px; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; }
+  .blink { animation:bl 1s steps(1) infinite; } @keyframes bl { 50% { opacity:0 } }
+  .warn { color:#ffd65c; text-shadow:0 0 6px rgba(255,214,92,.5); }
+  .hint { position:absolute; right:30px; bottom:18px; z-index:2; font-size:18px; color:var(--gl); }
+</style>
+</head>
+<body>
+<div class="crt"><div id="screen"></div><div class="hint">ARROWS + ENTER &nbsp;·&nbsp; ESC = BACK</div></div>
+<script>
+"use strict";
+const KEY = new URLSearchParams(location.search).get("k") || "";
+let S = null;                 // last /api/state
+let screen = "boot";
+let sel = 0;
+let note = "";                // one-line answer to the last action
+let joinAddr = "";
+let busy = false;
+let lastHtml = "";
+let lastFriends = 0;          // when the Steam friends list was last asked for
+let pressed = -1;             // index of the line the mouse button went down on
+
+// ---- sound: short terminal ticks (WebAudio, no files) -------------------------------------------------------------------
+let ac = null;
+function tick(f = 1400, d = 0.025, v = 0.04) {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "square"; o.frequency.value = f; g.gain.value = v;
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch (e) {}
+}
+
+// ---- api ------------------------------------------------------------------------------------------------------------------
+async function api(path, body) {
+  const r = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: { "X-Key": KEY, "Content-Type": "application/json" },
+                                body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) throw new Error("launcher not answering (" + r.status + ")");
+  return r.json();
+}
+async function act(path, body, okNote) {
+  if (busy) return;
+  busy = true; tick(900, .05);
+  try {
+    const r = await api(path, body || {});
+    note = r.ok ? (okNote || "") : ("ERROR: " + (r.why || "FAILED"));
+  } catch (e) { note = "ERROR: " + e.message; }
+  busy = false;
+  await poll(); render();
+}
+async function poll() {
+  try { S = await api("/api/state"); } catch (e) { S = S || null; note = "LAUNCHER STOPPED. CLOSE THIS WINDOW."; }
+  if (!S) return;
+  const L = S.lobby;
+  if (S.steam && S.steam.join_request && !L && !S.launched && screen === "main") { screen = "join"; sel = 0; }
+  if (S.launched && screen !== "launched") { screen = "launched"; sel = 0; }
+  else if (L && !S.launched && screen !== "lobby") { screen = "lobby"; sel = 0; }
+  else if (!L && !S.launched && (screen === "lobby" || screen === "launched")) { screen = "main"; sel = 0; }
+}
+
+// ---- rendering --------------------------------------------------------------------------------------------------------------
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const up = s => esc(String(s ?? "").toUpperCase());
+function header() {
+  return `<div class="hdr">FNV CO-OP LINK TERMINAL ${S ? "V" + up(S.version) : ""}</div>
+          <div class="hdr dim">MOJAVE WASTELAND NETWORK</div><div class="rule"></div>`;
+}
+function footer() {
+  const lines = (S ? S.log.slice(-6) : []).map(l => `<div class="dim">&gt; ${up(l)}</div>`).join("");
+  const n = note ? `<div class="${note.startsWith("ERROR") ? "warn" : ""}">&gt; ${up(note)}</div>` : "";
+  return `<div class="grow"></div><div class="rule"></div><div id="log">${lines}${n}<div>&gt; <span class="blink">█</span></div></div>`;
+}
+const opt = (label, fn, dis) => ({ label, fn, dis });
+let opts = [];
+
+function screens() {
+  const st = S ? S.settings : {};
+  const g = S ? S.game : { line: "", ok: false };
+  const L = S ? S.lobby : null;
+  switch (screen) {
+    case "boot": return { body: "", opts: [] };
+    case "main": return {
+      body: `<div>&gt; COURIER NAME: <input class="t" id="name" maxlength="24" value="${esc(st.name)}" spellcheck="false"></div><div class="rule"></div>`,
+      opts: [opt("[ HOST A GAME ]", () => act("/api/host", {}, "")),
+             opt("[ CONTINUE A GAME ]", () => go("continue")),
+             opt("[ JOIN A FRIEND ]", () => go("join")),
+             opt(st.connection === "steam" ? "[ CONNECTION: STEAM FRIENDS (NO ADDRESS, NO PORT) ]" : "[ CONNECTION: IP ADDRESS ]",
+                 () => act("/api/settings", { connection: st.connection === "steam" ? "ip" : "steam" },
+                           st.connection === "steam" ? "" : (S.steam && S.steam.available ? "" : "STEAM LINK MISSING: THIS COPY HAS NO fnvsteam.exe."))),
+             opt("[ SETTINGS ]", () => go("settings")),
+             opt("[ TURN CO-OP OFF ]", () => act("/api/coop_off")),
+             opt("[ EXIT ]", () => { api("/api/quit", {}).catch(() => {}); setTimeout(() => window.close(), 200); })],
+      after: `<div class="rule"></div><div class="${g.ok ? "dim" : "warn"}">&gt; ${up(g.line)}</div>`
+    };
+    case "continue": {
+      const saves = S ? S.saves : [];
+      const rows = saves.map(h => opt(`${h.name.toUpperCase()}  ${h.when}  [${h.campaign.toUpperCase()}]`, () => act("/api/host", { continue: true, save: h.name }, "")));
+      return {
+        body: `<div class="hdr">CONTINUE A CAMPAIGN</div><div class="rule"></div>` + (saves.length
+          ? `<div class="dim">&gt; PICK THE SAVE YOUR PARTY LOADS. EVERY FRIEND WHO HAS A SAVE OF THIS CAMPAIGN LOADS THEIR OWN.</div>
+             <div class="dim">&gt; THE FIRST ONE IS THE NEWEST.</div><div class="rule"></div>`
+          : `<div class="warn">&gt; NO CO-OP SAVE YET.</div>
+             <div class="dim">&gt; EVERY SAVE YOU MAKE WHILE HOSTING IS A PARTY SAVE FOR EVERYONE. HOST A NEW GAME FIRST, THEN SAVE.</div><div class="rule"></div>`),
+        opts: rows.concat([opt("[ BACK ]", () => go("main"))])
+      };
+    }
+    case "join": if (st.connection === "steam") {
+      const T = S ? S.steam : null;
+      const friends = T ? T.friends : [];
+      const req = T && T.join_request;
+      const rows = friends.map(f => opt(`${f.name.toUpperCase()}  ${f.mode === "lobby" ? "[IN LOBBY]" : "[IN GAME]"}${f.joinable ? "" : "  [OTHER RELEASE]"}`,
+                                        () => act("/api/join_steam", { id: f.id, in_game: f.mode !== "lobby" }, ""), !f.joinable));
+      const top = req ? [opt(`[ JOIN ${up(req.name)} (YOU CLICKED JOIN GAME) ]`, () => act("/api/join_steam", { id: req.id, in_game: req.mode !== "lobby" }, ""))] : [];
+      return {
+        body: `<div class="hdr">STEAM FRIENDS WHO ARE HOSTING</div><div class="rule"></div>` + (T && !T.available
+          ? `<div class="warn">&gt; THIS COPY HAS NO fnvsteam.exe, SO IT CANNOT TALK TO STEAM. SWITCH THE CONNECTION BACK TO IP ADDRESS.</div>`
+          : T && T.error ? `<div class="warn">&gt; ${up(T.error)}</div>`
+          : friends.length ? `<div class="dim">&gt; PICK YOUR HOST. A HOST IN THE LOBBY TAKES YOU INTO IT, A HOST ALREADY IN THE WORLD STARTS YOUR GAME.</div>`
+          : `<div class="dim">&gt; NOBODY IS HOSTING YET. YOU AND YOUR HOST MUST BE STEAM FRIENDS. THE HOST PICKS HOST A GAME WITH THE CONNECTION SET TO STEAM; THIS LIST UPDATES ITSELF.</div>`)
+          + `<div class="rule"></div>`,
+        opts: top.concat(rows, [opt("[ REFRESH ]", () => act("/api/steam_refresh", {}, "")), opt("[ BACK ]", () => go("main"))])
+      };
+    } else return {
+      body: `<div>&gt; HOST ADDRESS: <input class="t" id="addr" value="${esc(joinAddr || st.address)}" placeholder="1.2.3.4 or 1.2.3.4:27960" spellcheck="false"></div>
+             <div class="dim">&gt; YOUR HOST TELLS YOU THE ADDRESS. NO PORT GIVEN = 27960.</div><div class="rule"></div>`,
+      opts: [opt("[ CONNECT TO LOBBY ]", () => act("/api/join", { address: addrVal() })),
+             opt("[ JOIN GAME IN PROGRESS ]", () => act("/api/join_direct", { address: addrVal() }, "STARTING YOUR GAME.")),
+             opt("[ BACK ]", () => go("main"))]
+    };
+    case "settings": {
+      const yn = b => b ? "[X]" : "[ ]";
+      const flip = k => () => act("/api/settings", { [k]: !st[k] });
+      return {
+        body: `<div class="${g.ok ? "dim" : "warn"}">&gt; ${up(g.line)}</div>
+               <div>&gt; GAME FOLDER: <input class="t" id="gdir" style="width:620px" value="${esc(st.game_dir)}" spellcheck="false"></div>
+               <div>&gt; PORT (UDP): <input class="t" id="port" style="width:120px" value="${esc(st.port)}"> &nbsp; MAX PLAYERS: <input class="t" id="maxp" style="width:60px" value="${esc(st.max_players)}"> &nbsp; CHAT KEY: <input class="t" id="chatkey" style="width:60px" value="${esc(st.chat_key)}"></div>
+               <div class="rule"></div>`,
+        opts: [opt("[ SAVE FOLDER, PORT, PLAYERS, CHAT KEY ]", () => act("/api/settings", { game_dir: val("gdir"), port: val("port"), max_players: val("maxp"), chat_key: val("chatkey") }, "SAVED.")),
+               opt("[ FIND GAME ]", () => act("/api/find", {}, "SEARCHED.")),
+               opt("[ BROWSE FOR GAME FOLDER ]", () => act("/api/browse", {}, "FOLDER SET.")),
+               opt(`${yn(st.xp_share)} SHARE KILL XP WITH THE PARTY`, flip("xp_share")),
+               opt(`${yn(st.tether)} TETHER: STORY MOMENTS WAIT FOR EVERYONE`, flip("tether")),
+               opt(`${yn(st.slowmo)} PARTY SLOW-MO DURING VATS`, flip("slowmo")),
+               opt(`${yn(st.balanced)} NEW CAMPAIGN: CO-OP BALANCED (TOUGHER, MORE ENEMIES)`, flip("balanced")),
+               opt(`${yn(st.friendly_fire)} NEW CAMPAIGN: FRIENDLY FIRE`, flip("friendly_fire")),
+               opt(`${yn(st.chat)} TEXT CHAT (KEY ${esc(st.chat_key)})`, flip("chat")),
+               opt(`${yn(st.second_copy)} SECOND COPY ON THIS PC (SPLIT SCREEN / TESTING)`, flip("second_copy")),
+               opt(`${yn(st.live_actors)} SYNC ENEMIES AND NPCS`, flip("live_actors")),
+               opt(`${yn(st.live_avatars)} SEE OTHER PLAYERS`, flip("live_avatars")),
+               opt(`${yn(st.live_combat)} SYNC HITS, DEATHS, PROJECTILES`, flip("live_combat")),
+               opt(`${yn(st.live_spawns)} SPAWN ARBITRATION`, flip("live_spawns")),
+               opt("[ BACK ]", () => go("main"))]
+      };
+    }
+    case "lobby": {
+      const host = L && L.role === "host";
+      const rows = (L ? L.players : []).map(p => `<div class="row"><span>0${p.slot + 1}</span><span>${up(p.name)}${p.host ? " *" : ""}${p.slot === L.you ? " (YOU)" : ""}</span>
+                   <span>${p.host ? "HOST" : p.ping + "MS"}</span><span>${p.ready ? "[READY]" : "[ ... ]"}</span></div>`);
+      for (let i = rows.length; i < (host ? st.max_players : 4); i++) rows.push(`<div class="row dim"><span>0${i + 1}</span><span>-- OPEN --</span><span></span><span></span></div>`);
+      const me = L && L.players.find(p => p.slot === L.you);
+      const viaSteam = L && L.via === "steam";
+      const addrs = host && viaSteam ? `<div class="dim">&gt; STEAM: YOUR FRIENDS PICK YOU IN JOIN A FRIEND, OR CLICK JOIN GAME NEXT TO YOUR NAME IN STEAM.</div>`
+                     : host && S.local_ips.length ? `<div class="dim">&gt; HOME NETWORK: ${S.local_ips.map(ip => ip + ":" + st.port).join(", ")}</div>
+                     <div class="dim">&gt; INTERNET: YOUR PUBLIC ADDRESS, UDP ${st.port} FORWARDED ON THE ROUTER</div>` : "";
+      const closed = L && L.state === "closed";
+      const o = closed ? [opt("[ BACK ]", () => act("/api/leave"))]
+        : host ? [opt(L.can_start ? "[ BEGIN TRANSMISSION ]" : "[ BEGIN TRANSMISSION ] (WAITING)", () => act("/api/start"), !L.can_start || L.state !== "hosting"),
+                  opt("[ CLOSE LOBBY ]", () => act("/api/leave"))]
+        : [opt(me && me.ready ? "[ NOT READY ]" : "[ READY ]", () => act("/api/ready", { ready: !(me && me.ready) }), !me),
+           opt("[ LEAVE ]", () => act("/api/leave"))];
+      return {
+        body: `<div class="hdr">PARTY MANIFEST</div><div class="rule"></div>
+               <div class="row dim"><span>SLOT</span><span>COURIER</span><span>PING</span><span>STATUS</span></div>${rows.join("")}
+               <div class="rule"></div>
+               <div class="dim">&gt; ${L && L.resume ? "CONTINUING FROM SAVE: " + up(L.resume) : "NEW GAME: EVERYONE STARTS TOGETHER IN DOC MITCHELL'S HOUSE"}</div>${addrs}
+               <div class="${closed ? "warn" : ""}">&gt; ${up(L ? L.message : "")}</div><div class="rule"></div>`,
+        opts: o
+      };
+    }
+    case "launched": return {
+      body: `<div class="hdr">TRANSMISSION SENT</div><div class="rule"></div>
+             <div>&gt; YOUR GAME IS STARTING${S.launched === "host" ? " AS HOST" : " AND JOINING THE HOST"}.</div>
+             <div class="dim">&gt; THE GAME TAKES A MOMENT TO APPEAR. YOU CAN CLOSE THIS WINDOW.</div><div class="rule"></div>`,
+      opts: [opt("[ BACK TO MENU ]", () => act("/api/leave")),
+             opt("[ EXIT ]", () => { api("/api/quit", {}).catch(() => {}); setTimeout(() => window.close(), 200); })]
+    };
+  }
+}
+const val = id => (document.getElementById(id) || {}).value || "";
+function addrVal() { joinAddr = val("addr"); return joinAddr; }
+function go(s) {
+  screen = s; sel = 0; note = ""; tick(1200); render();
+  if (s === "join" && S && S.settings.connection === "steam") api("/api/steam_refresh", {}).then(poll).then(render).catch(() => {});
+}
+
+function render() {
+  const el = document.getElementById("screen");
+  if (screen === "boot") return;
+  const focused = document.activeElement && document.activeElement.id;
+  const caret = focused && document.activeElement.selectionStart;
+  const keep = {};
+  ["name", "addr", "gdir", "port", "maxp"].forEach(id => { const e = document.getElementById(id); if (e && e === document.activeElement) keep[id] = e.value; });
+  const sc = screens();
+  opts = sc.opts;
+  if (sel >= opts.length) sel = Math.max(0, opts.length - 1);
+  // Redraw only when the text changed: replacing the buttons between a mouse press and its release loses the click.
+  // The highlighted line is painted after (paintSel), so moving the mouse does not count as a change.
+  const html = header() + sc.body + opts.map((o, i) => `<button class="opt" data-i="${i}"${o.dis ? " disabled" : ""}>${esc(o.label)}</button>`).join("")
+               + (sc.after || "") + footer();
+  if (html === lastHtml) { paintSel(); return; }
+  lastHtml = html;
+  el.innerHTML = html;
+  paintSel();
+  for (const id in keep) { const e = document.getElementById(id); if (e) e.value = keep[id]; }
+  if (focused) { const e = document.getElementById(focused); if (e) { e.focus(); try { e.setSelectionRange(caret, caret); } catch (x) {} } }
+  el.querySelectorAll(".opt").forEach(b => {
+    b.addEventListener("mouseenter", () => { const i = +b.dataset.i; if (i !== sel) { sel = i; tick(1600, .015, .02); paintSel(); } });
+  });
+  const name = document.getElementById("name");
+  if (name) {
+    name.addEventListener("input", () => tick(2200, .01, .02));
+    name.addEventListener("change", () => act("/api/settings", { name: name.value }, "NAME SAVED."));
+  }
+}
+function paintSel() { document.querySelectorAll(".opt").forEach((b, i) => b.classList.toggle("sel", i === sel)); }
+async function choose(i) {
+  const o = opts[i]; if (!o || o.dis) { tick(300, .08); return; }
+  const name = document.getElementById("name");
+  if (name && S && name.value !== S.settings.name) await api("/api/settings", { name: name.value }).catch(() => {});
+  o.fn();
+}
+
+// Mouse: a line is chosen when the button goes up over the same line it went down on, looked up by position, so a redraw
+// in between cannot swallow it.
+const optAt = (x, y) => { const b = document.elementFromPoint(x, y); const o = b && b.closest && b.closest(".opt"); return o ? +o.dataset.i : -1; };
+document.addEventListener("pointerdown", e => { if (e.button === 0) pressed = optAt(e.clientX, e.clientY); });
+document.addEventListener("pointerup", e => {
+  if (e.button !== 0) return;
+  const i = optAt(e.clientX, e.clientY);
+  if (i >= 0 && i === pressed) choose(i);
+  pressed = -1;
+});
+
+document.addEventListener("keydown", e => {
+  const inInput = document.activeElement && document.activeElement.tagName === "INPUT";
+  if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+    e.preventDefault(); if (inInput) document.activeElement.blur(); sel = (sel + 1) % Math.max(1, opts.length); tick(1600, .015, .02); paintSel();
+  } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+    e.preventDefault(); if (inInput) document.activeElement.blur(); sel = (sel - 1 + opts.length) % Math.max(1, opts.length); tick(1600, .015, .02); paintSel();
+  } else if (e.key === "Enter") {
+    e.preventDefault(); if (inInput) document.activeElement.blur(); choose(sel);
+  } else if (e.key === "Escape") {
+    if (screen === "join" || screen === "settings" || screen === "continue") go("main");
+  } else if (!inInput && screen === "main" && e.key.length === 1) {
+    const n = document.getElementById("name"); if (n) n.focus();    // just start typing: it goes into the name
+  }
+});
+
+// ---- boot: type the banner, then the menu -----------------------------------------------------------------------------------
+async function boot() {
+  const el = document.getElementById("screen");
+  await poll();
+  const lines = ["ROBUST INDUSTRIAL-GRADE CO-OP LINK", "COPYRIGHT 2075-2077 MOJAVE EXPRESS SYSTEMS", "", "> INITIALIZING UPLINK...",
+                 "> CHECKING GAME FILES...", "> " + (S ? S.game.line.toUpperCase() : "LAUNCHER NOT ANSWERING"), "> READY."];
+  let out = "";
+  for (const ln of lines) {
+    for (let i = 0; i <= ln.length; i++) {
+      el.innerHTML = `<div>${esc(out + ln.slice(0, i))}<span class="blink">█</span></div>`.replace(/\n/g, "<br>");
+      if (ln[i] && ln[i] !== " ") tick(1800 + Math.random() * 600, .008, .015);
+      await new Promise(r => setTimeout(r, 9));
+    }
+    out += ln + "\n";
+    await new Promise(r => setTimeout(r, 90));
+  }
+  await new Promise(r => setTimeout(r, 300));
+  screen = S && S.lobby ? "lobby" : "main";
+  render();
+  const n = document.getElementById("name"); if (n && !n.value) n.focus();
+  setInterval(async () => {
+    if (screen === "join" && S && S.settings.connection === "steam" && Date.now() - lastFriends > 5000) { lastFriends = Date.now(); api("/api/steam_refresh", {}).catch(() => {}); }
+  }, 1000);
+  setInterval(async () => { if (busy) return; await poll(); if (!document.activeElement || document.activeElement.tagName !== "INPUT" || screen === "lobby") render(); }, 500);
+}
+boot();
+</script>
+</body>
+</html>

@@ -59,4 +59,10 @@ void PostSave();
 RefId PuppetRef(Slot slot);                  // 0 = no usable puppet right now
 std::optional<Slot> PuppetSlot(RefId ref);
 
+// The downed pose of a friend's puppet (docs/revive.md "Downed pose"; plugin/markers sets it from its downed hook). While it holds, the puppet of that
+// slot plays the lying group instead of its planned one, is not replaced when the engine calls it dead, and stands again at once when it is cleared.
+// Remembered for a runtime or a puppet that does not exist yet; RemoveRemote forgets it.
+void SetDownedPose(Slot slot, bool downed);
+void SetPoseOverride(Slot slot, int baseGroup);   // any base group; kNoGroup clears
+
 }  // namespace nvcoop::avatar::glue

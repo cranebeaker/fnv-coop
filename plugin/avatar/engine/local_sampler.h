@@ -26,6 +26,10 @@ struct LocalSamplerConfig {
     uint32_t maxGapMs = 500;         // a longer pause restarts the velocity estimate
     bool speedTeleport = true;       // false: the old rule, a jump of more than 350 units in one period (ini [avatar] legacyRules=1)
     float maxSpeed = 2200.0f;        // clamp (units/s)
+    // The player's one-shots (attack swing / shot / throw, power attack, block, stagger ...). Same contract as the NPC layer's sampler (plugin/actors/anim).
+    uint32_t actionHoldMs = 600;     // a one-shot stays in the stream at least this long: the far rate is 5 Hz and a datagram can be lost, a 260 ms hold could be skipped
+    uint32_t heldActionHoldMs = 150; // a held action (block, automatic fire) lingers this long after the engine stops playing it: releasing the block shows quickly
+    int restartBackstepMs = 60;      // the same group's play time going back by more than this = the owner started it again (two punches in a row)
 };
 
 // One engine read of the player, already reduced to what the snapshot needs.
@@ -38,6 +42,8 @@ struct LocalFrame {
     bool haveMoveFlags = false, moverRun = false, moverWalk = false, moverSneak = false;
     bool swimming = false, dead = false, firstPerson = false;
     bool animReadable = false;
+    int actionGroup = -1;            // base group id of the action group playing now (attack, block, stagger, reload ...), -1 none
+    int actionPlayMs = -1;           // how long it has been playing, -1 unknown
     bool havePos3D = false;          // the player's 3D node was readable: pos3D is where the renderer has him (the reference position `pos` can lag it)
     Vec3 pos3D;
 };
@@ -47,12 +53,36 @@ bool IsReloadGroupId(int g);
 bool IsJumpGroupId(int g);
 bool IsAttackGroupId(int g);
 
+// The player's one-shot as the snapshot carries it: the group playing now (held for a while after it ends), a counter that bumps when one STARTS (a new group, or
+// the same group restarted: its play time going backwards) and the block bit. The counter is never reset (a copy compares it with the last value it saw).
+class ActionTracker {
+public:
+    struct Out {
+        uint8_t action = 0, actionSeq = 0;
+        bool block = false;
+    };
+    explicit ActionTracker(const LocalSamplerConfig& cfg = {}) : cfg_(cfg) {}
+    // `rawGroup`: the action group playing now (-1 none), `rawPlayMs` how long it has been playing (-1 unknown).
+    Out Step(uint32_t nowMs, int rawGroup, int rawPlayMs);
+    // Nothing is playing (dead, not readable, a load): no action, the counter is kept.
+    void Clear();
+    uint8_t seq() const { return seq_; }
+
+private:
+    LocalSamplerConfig cfg_;
+    uint8_t seq_ = 0;
+    int rawPrev_ = -1, playPrev_ = -1;
+    int cur_ = 0;
+    uint32_t heldUntil_ = 0;
+    bool holding_ = false;
+};
+
 // Reads the player into a frame. Cheap: one reference read, one animation read, two evaluators.
 LocalFrame ReadLocalFrame(IGameBackend& be);
 
 class LocalSampler {
 public:
-    explicit LocalSampler(LocalSamplerConfig cfg = {}) : cfg_(cfg) {}
+    explicit LocalSampler(LocalSamplerConfig cfg = {}) : cfg_(cfg), action_(cfg) {}
 
     // Identity comes from the co-op layer (net id of the local player's avatar and the ownership epoch). The sequence restarts at 1
     // when either changes.
@@ -74,6 +104,7 @@ public:
 
 private:
     LocalSamplerConfig cfg_;
+    ActionTracker action_;
     live::NetId netId_ = 0;
     live::OwnerEpoch epoch_ = 0;
     uint32_t seq_ = 0;

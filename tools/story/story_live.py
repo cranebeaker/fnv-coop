@@ -168,7 +168,7 @@ class StoryLiveMachine(LL.LiveMachine, StoryMachine):
         try:
             if not self.bot.dialogue_open():
                 return []
-            return [{"idx": c.get("idx"), "info": c.get("info") or ""} for c in self.bot.dialog_choices()]
+            return [{"idx": c.get("idx"), "info": c.get("info") or "", "topic": "%06X" % (int(c.get("topicId") or 0) & 0xFFFFFF)} for c in self.bot.dialog_choices()]
         except Exception as e:   # noqa: BLE001 - "no dialogue open" while the menu closes
             if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
                 raise

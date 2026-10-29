@@ -87,6 +87,7 @@ public:
     std::vector<std::string> violations;
     std::vector<std::string> trace;
     std::vector<std::pair<RefId, int>> groupLog;   // every successful PlayGroup
+    std::vector<int> groupFlags;                   // the flags of each entry of groupLog (bit 0 = hold)
     std::vector<float> yawLog;
     std::vector<RefId> deletedRefs;
 
@@ -186,6 +187,7 @@ public:
     void ClearTrace() {
         trace.clear();
         groupLog.clear();
+        groupFlags.clear();
         yawLog.clear();
     }
 
@@ -327,7 +329,7 @@ public:
         pos = f->pos;
         return true;
     }
-    bool PlayGroup(RefId ref, int baseGroup, int) override {
+    bool PlayGroup(RefId ref, int baseGroup, int flags) override {
         FakeRef* f = Guard(ref, "PlayGroup");
         if (!f) return false;
         if (!GroupName(baseGroup)) return false;
@@ -338,6 +340,7 @@ public:
         ++playGroupCalls;
         f->group = baseGroup;
         groupLog.push_back({ref, baseGroup});
+        groupFlags.push_back(flags);
         trace.push_back("PlayGroup:" + std::to_string(baseGroup));
         return true;
     }

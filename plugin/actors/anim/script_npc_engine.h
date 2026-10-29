@@ -9,6 +9,11 @@
 //   SetAlert <0|1>             fallback when the direct weapon-out call is not available
 //   KillActor                  a death the engine did not take (the command table name; "Kill" is not in it)
 //   SetPos X|Y|Z <v>, SetAngle Z <deg>   a body moved to the owner's resting place
+//   <furniture>.Activate <actor> 1        an actor uses a piece of furniture (the same line the guest-action executor already runs; the calling
+//                                         reference is the FURNITURE, the argument the actor). UNMEASURED for an NPC activator on a restrained actor.
+//   stand up, gentle: <furniture>.Activate <actor> 1 again; escalation: SetRestrained 0 + EvaluatePackage on the actor (its own AI then leaves
+//                                         the furniture, if its package says so), and Restrain puts SetRestrained 1 back. UNMEASURED: the driver
+//                                         reads the sit state back and climbs the ladder only while the copy is still in the furniture.
 // Not available as a line (the backend answers Unsupported unless INpcGameAccess has the direct call): playback rate, aiming flag, knockdown,
 // get up.
 #pragma once
@@ -23,6 +28,7 @@ class INpcScript {
 public:
     virtual ~INpcScript() = default;
     virtual bool Exec(NetId id, const std::string& line) = 0;   // false: the line did not run (no ref, no 3D, console error)
+    virtual bool ExecOnRef(uint32_t ref, const std::string& line) = 0;   // the same on an explicit reference (a piece of furniture)
 };
 
 // Guarded memory reads and the few direct engine calls whose vtable slots were checked statically (verify_slots.py). Each direct call returns
@@ -41,6 +47,7 @@ public:
     virtual Result SetGroupRate(NetId id, float rate) = 0;        // NiControllerSequence frequency of the movement sequence (unverified, off by default)
     virtual Result KnockDown(NetId id, float yawRad, float force) = 0;   // BaseProcess::PushActorAway (slot 0x106; semantics unverified, off by default)
     virtual Result GetUp(NetId id) = 0;
+    virtual uint32_t RefIdOf(NetId id) = 0;   // the live reference of the actor (0 = none): the argument of the furniture lines
 };
 
 std::string formatNumber(double v);        // "%.3f", never a decimal comma
@@ -67,8 +74,12 @@ public:
     Result GetUp(NetId id) override { return game_.GetUp(id); }
     Result Kill(NetId id) override;
     Result PlaceCorpse(NetId id, const Vec3& pos, float yawRad) override;
+    Result SitIn(NetId id, uint32_t furniture) override;
+    Result StandUp(NetId id, uint32_t furniture, uint32_t attempt) override;
+    Result Restrain(NetId id) override;
 
 private:
+    Result useFurniture(NetId id, uint32_t furniture);
     Result line(NetId id, const std::string& l) { return run_.Exec(id, l) ? Result::Ok : Result::Refused; }
     INpcScript& run_;
     INpcGameAccess& game_;

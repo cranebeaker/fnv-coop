@@ -123,11 +123,13 @@ void ActorSync::sendJoinState(PlayerId slot) {
     for (auto& kv : recs_) {
         sendBody(MTrack{kv.second.meta}, slot);
         if (kv.second.havePick) sendBody(MPick{kv.first, kv.second.pick}, slot);
-        if (kv.second.invPublishedAny && !kv.second.dead && !MUT(37)) {   // MUT 37 BAD: a joining client never hears about earlier item use
-            MInventory iv;
-            iv.id = kv.first; iv.epoch = view_.epochOf(kv.first); iv.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++invEventCounter_;
-            iv.items = kv.second.invShared;
-            sendBody(iv, slot);
+        for (size_t k = 0; k < kPartCount; ++k) {
+            const Rec::Part& p = kv.second.parts[k];
+            if (!p.publishedAny || kv.second.dead || MUT(37)) continue;   // MUT 37 BAD: a joining client never hears about earlier item use / weapon draws
+            MPart m;
+            m.id = kv.first; m.epoch = view_.epochOf(kv.first); m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++partEventCounter_;
+            m.kind = static_cast<PartKind>(k); m.value = p.shared;
+            sendBody(m, slot);
         }
     }
     std::vector<OwnMsg> out;
@@ -224,7 +226,7 @@ void ActorSync::onOwnApplied(const OwnMsg& m, ApplyResult res) {
             ++stats_.handoffsOut;
             r->handingOff = true;
             if (!MUT(5)) { r->active = false; refreshAi(*r); }
-            flushInventory(*r);   // before the final state: the new owner starts from what we last used
+            flushParts(*r);   // before the final state: the new owner starts from what we last used and held
             const bool sentFinal = sendFull(*r, true, false);
             // Nothing to hand over (an actor this host never sampled): the new owner would wait for a final state that does not exist and the commit came
             // only after handoffTimeoutMs (lab run 20261028-032920: one actor at 1013 ms after every host move, on every profile). A host that sent
@@ -279,7 +281,7 @@ void ActorSync::takeOver(Rec& r, OwnerEpoch epoch) {
     r.active = true; r.activeEpoch = epoch; r.engineAuthoritative = true;
     r.interp.reset();
     r.published = false; r.settled = false; r.lastChangeMs = now_;
-    r.invBase = false; r.invPendingValid = false; r.invNextMs = 0;   // our copy is the truth from here: read it afresh
+    for (Rec::Part& p : r.parts) { p.base = false; p.pendingValid = false; p.nextMs = 0; }   // our copy is the truth from here: read it afresh
     ++stats_.takeovers;
     refreshAi(r);
     considerPick(r);
@@ -438,6 +440,7 @@ void ActorSync::onActorLoaded(NetId id) {
     if (!r) return;
     dropStandIn(*r);   // the real ref replaces the clone
     r->local = true;
+    rewantParts(*r);
     if (!cfg_.isHost && hostUp_ && !r->reported) { r->reported = true; sendBody(MTrack{r->meta}, kHostPlayer); }
     syncToView(*r);
 }
@@ -487,6 +490,7 @@ void ActorSync::ensureStandIn(Rec& r) {
         r.aiKnown = false;
         ++stats_.standInsMade;
         refreshAi(r);
+        rewantParts(r);
     }
 }
 
@@ -779,8 +783,8 @@ void ActorSync::dispatch(PlayerId from, const Envelope& e, uint32_t now) {
         if (cfg_.isHost) onResync(e, *m7);
     } else if (auto* m8 = std::get_if<MAnimEvent>(&e.body)) {
         onAnimEvent(e, *m8);
-    } else if (auto* m9 = std::get_if<MInventory>(&e.body)) {
-        onInventory(e, *m9);
+    } else if (auto* m9 = std::get_if<MPart>(&e.body)) {
+        onPart(e, *m9);
     }
 }
 
@@ -817,82 +821,107 @@ void ActorSync::onAnimEvent(const Envelope& e, const MAnimEvent& m) {
 }
 
 // ---- inventory (owner to everyone, reliable) --------------------------------------------------------------------------------------
-// The AI of an owned actor uses its items (a ganger drinks a Stimpak mid-fight). A replicated AddItem / RemoveItem effect lands on every machine
-// by itself, but the AI's own use happens on the owner only, so the copies kept the item (corpse_loot_race, game 2026-10-22: host 2 Stimpaks,
-// client 3, before anyone looted). The owner reads the totals of its actors, and a list that changed and then stayed the same for invSettleMs
-// (long enough for a replicated effect to have landed everywhere, so it is not applied twice) is sent as the new truth. The first read of an
-// actor is a silent baseline: both worlds start from the same save.
+// ---- state parts (state_parts.h): one replicator for everything the owner's engine changes by itself ---------------------------------
+// The AI of an owned actor uses its items (a ganger drinks a Stimpak mid-fight) and draws the weapon it carries. A replicated AddItem /
+// RemoveItem effect lands on every machine by itself, but the AI's own use happens on the owner only, so the copies kept the item
+// (corpse_loot_race, game 2026-10-22: host 2 Stimpaks, client 3, before anyone looted), and a copy that was told "weapon drawn" without the
+// weapon drew nothing and cowered (Goodsprings settler, game 2026-10-29). The owner reads each part of its actors, and a value that changed and
+// then stayed the same for the part's settle time (for inventory long enough for a replicated effect to have landed everywhere, so it is not
+// applied twice) is sent as the new truth. The first read of an actor is a silent baseline: both worlds start from the same save.
 
-static void sortInv(InvList& v) {
-    std::sort(v.begin(), v.end(), [](const InvItem& a, const InvItem& b) { return a.form < b.form; });
+bool ActorSync::readPart(Rec& r, PartKind k, Bytes& out) {
+    return port_.readPart(r.meta.netId, k, out) && out.size() <= cfg_.parts[partIndex(k)].maxBytes;
 }
 
-bool ActorSync::publishInventory(Rec& r, const InvList& cur) {
+bool ActorSync::publishPart(Rec& r, PartKind k, const Bytes& cur) {
     const NetId id = r.meta.netId;
     OwnerEpoch ep = 0;
     if (!view_.mayPublish(id, ep)) return false;
-    MInventory m;
-    m.id = id; m.epoch = ep; m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++invEventCounter_;
-    m.items = cur;
-    invEvents_.insert(m.eventId);
-    r.invShared = cur; r.invPublishedAny = true; r.invPendingValid = false;
-    ++stats_.invPublished;
+    MPart m;
+    m.id = id; m.epoch = ep; m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++partEventCounter_;
+    m.kind = k; m.value = cur;
+    partEvents_.insert(m.eventId);
+    Rec::Part& p = r.parts[partIndex(k)];
+    p.shared = cur; p.publishedAny = true; p.pendingValid = false;
+    ++stats_.parts[partIndex(k)].published;
     if (!MUT(33)) sendBody(m, kNoPlayer);   // MUT 33 BAD: the owner keeps its changes to itself
     return true;
 }
 
-void ActorSync::pollInventory(Rec& r) {
+void ActorSync::pollParts(Rec& r) {
     const NetId id = r.meta.netId;
     if (r.dead || !r.active || r.handingOff || !port_.loaded(id)) return;
-    if (now_ < r.invNextMs || invBudget_ == 0) return;
-    --invBudget_;
-    r.invNextMs = now_ + cfg_.invPollMs;
-    InvList cur;
-    if (!port_.sampleInventory(id, cur) || cur.size() > 128) return;
-    sortInv(cur);
-    if (!r.invBase) { r.invShared = cur; r.invBase = true; r.invPendingValid = false; return; }
-    if (cur == r.invShared) { r.invPendingValid = false; return; }
-    if (!r.invPendingValid || cur != r.invPending) {
-        r.invPending = cur; r.invPendingValid = true; r.invPendingAt = now_;
-        if (!MUT(35)) return;   // MUT 35 BAD: no settle time, the first sight of a change is published
+    for (size_t k = 0; k < kPartCount; ++k) {
+        Rec::Part& p = r.parts[k];
+        const PartSpec& spec = cfg_.parts[k];
+        if (now_ < p.nextMs || partBudget_ == 0) continue;
+        --partBudget_;
+        p.nextMs = now_ + spec.pollMs;
+        Bytes cur;
+        if (!readPart(r, static_cast<PartKind>(k), cur)) continue;
+        if (!p.base) { p.shared = cur; p.base = true; p.pendingValid = false; continue; }
+        if (cur == p.shared) { p.pendingValid = false; continue; }
+        if (!p.pendingValid || cur != p.pending) {
+            p.pending = cur; p.pendingValid = true; p.pendingAt = now_;
+            if (!MUT(35)) continue;   // MUT 35 BAD: no settle time, the first sight of a change is published
+        }
+        if (MUT(35) || now_ >= p.pendingAt + spec.settleMs) publishPart(r, static_cast<PartKind>(k), cur);
     }
-    if (MUT(35) || now_ >= r.invPendingAt + cfg_.invSettleMs) publishInventory(r, cur);
 }
 
-void ActorSync::flushInventory(Rec& r) {
+void ActorSync::flushParts(Rec& r) {
     const NetId id = r.meta.netId;
-    if (!r.invBase || !port_.loaded(id)) return;
-    InvList cur;
-    if (!port_.sampleInventory(id, cur) || cur.size() > 128) return;
-    sortInv(cur);
-    if (cur != r.invShared) publishInventory(r, cur);
+    if (!port_.loaded(id) || MUT(38)) return;   // MUT 38 BAD: a value still inside its settle time is lost at a handoff or a death
+    for (size_t k = 0; k < kPartCount; ++k) {
+        Rec::Part& p = r.parts[k];
+        if (!p.base) continue;
+        Bytes cur;
+        if (!readPart(r, static_cast<PartKind>(k), cur)) continue;
+        if (cur != p.shared) publishPart(r, static_cast<PartKind>(k), cur);
+    }
 }
 
-void ActorSync::applyWantedInventory(Rec& r) {
+// A clone is a fresh engine object, and a real ref that comes back after its cell unloaded was rebuilt from its base form: either is dressed as the base
+// form says, not as the owner's AI left it. The parts that say so (PartSpec::reapplyOnLoad) are written again from the last value known.
+void ActorSync::rewantParts(Rec& r) {
+    if (MUT(39)) return;   // MUT 39 BAD: a clone or a rebuilt NPC keeps the engine's base outfit (it draws nothing)
+    for (size_t k = 0; k < kPartCount; ++k) {
+        Rec::Part& p = r.parts[k];
+        if (cfg_.parts[k].reapplyOnLoad && p.publishedAny && !p.wantValid) { p.want = p.shared; p.wantValid = true; p.tries = 0; p.nextMs = 0; }
+    }
+}
+
+void ActorSync::applyWantedParts(Rec& r) {
     const NetId id = r.meta.netId;
-    if (!r.invWantValid || r.dead || !port_.loaded(id) || now_ < r.invNextMs) return;
-    r.invNextMs = now_ + cfg_.invPollMs;
-    if (port_.applyInventory(id, r.invWant)) { r.invWantValid = false; r.invTries = 0; ++stats_.invApplied; return; }
-    ++stats_.invApplyFailed;
-    if (++r.invTries >= 5) { r.invWantValid = false; r.invTries = 0; }   // never hammer an actor the engine refuses
+    if (r.dead || !port_.loaded(id)) return;
+    for (size_t k = 0; k < kPartCount; ++k) {
+        Rec::Part& p = r.parts[k];
+        if (!p.wantValid || now_ < p.nextMs) continue;
+        p.nextMs = now_ + cfg_.parts[k].pollMs;
+        if (port_.writePart(id, static_cast<PartKind>(k), p.want)) { p.wantValid = false; p.tries = 0; ++stats_.parts[k].applied; continue; }
+        ++stats_.parts[k].applyFailed;
+        if (++p.tries >= 5) { p.wantValid = false; p.tries = 0; }   // never hammer an actor the engine refuses
+    }
 }
 
-void ActorSync::onInventory(const Envelope& e, const MInventory& m) {
+void ActorSync::onPart(const Envelope& e, const MPart& m) {
+    const size_t k = partIndex(m.kind);
     Rec* r = find(m.id);
-    if (!r) { ++stats_.invRejected; return; }
+    if (!r) { ++stats_.parts[k].rejected; return; }
     if (cfg_.isHost) {
         const UpdateVerdict v = view_.check(m.id, e.src, m.epoch);
-        if (v != UpdateVerdict::Accept && !MUT(36)) { ++stats_.invRejected; return; }   // MUT 36 BAD: a non-owner's list is believed and relayed
+        if (v != UpdateVerdict::Accept && !MUT(36)) { ++stats_.parts[k].rejected; return; }   // MUT 36 BAD: a non-owner's value is believed and relayed
         relay(e, e.src);
     }
-    if (!invEvents_.insert(m.eventId).second) { ++stats_.invDuplicate; return; }
-    while (invEvents_.size() > 4096) invEvents_.erase(invEvents_.begin());
-    if (ownedByMe(*r) && !MUT(36)) { ++stats_.invRejected; return; }   // we are the truth for this actor
-    r->invShared = m.items; r->invPublishedAny = true; r->invBase = false;
+    if (!partEvents_.insert(m.eventId).second) { ++stats_.parts[k].duplicate; return; }
+    while (partEvents_.size() > 4096) partEvents_.erase(partEvents_.begin());
+    if (ownedByMe(*r) && !MUT(36)) { ++stats_.parts[k].rejected; return; }   // we are the truth for this actor
+    Rec::Part& p = r->parts[k];
+    p.shared = m.value; p.publishedAny = true; p.base = false;
     if (r->dead) return;   // a corpse's contents belong to the loot service
-    if (MUT(34)) return;   // MUT 34 BAD: the list is received and never written
-    r->invWant = m.items; r->invWantValid = true; r->invTries = 0; r->invNextMs = 0;
-    applyWantedInventory(*r);
+    if (MUT(34)) return;   // MUT 34 BAD: the value is received and never written
+    p.want = m.value; p.wantValid = true; p.tries = 0; p.nextMs = 0;
+    applyWantedParts(*r);
 }
 
 void ActorSync::onTrack(PlayerId from, const MTrack& m) {
@@ -956,7 +985,7 @@ bool ActorSync::onLocalDeath(NetId id) {
     m.id = id; m.epoch = view_.epochOf(id); m.eventId = (static_cast<uint64_t>(cfg_.self) << 48) | ++eventCounter_;
     m.cell = r->haveLatest ? r->latest.cell : r->meta.cell; m.pos = r->haveLatest ? r->latest.pos : r->meta.pos;
     deathEvents_.insert(m.eventId);
-    if (ownedByMe(*r)) flushInventory(*r);   // what it used up to its last breath; after this the corpse is the loot service's
+    if (ownedByMe(*r)) flushParts(*r);   // what it used up to its last breath; after this the corpse is the loot service's
     sendBody(m, kNoPlayer);
     applyDeath(*r, false);   // the engine is already killing it
     return true;
@@ -1064,7 +1093,7 @@ void ActorSync::tick(uint64_t nowMs) {
         emitOwn(out);
         if (now_ >= nextEvalMs_) { nextEvalMs_ = now_ + cfg_.ownEvalMs; evalOwnership(); }
     }
-    invBudget_ = 4;
+    partBudget_ = 4 * static_cast<uint32_t>(kPartCount);
     avAuditBudget_ = 4;
     for (auto& kv : recs_) {
         Rec& r = kv.second;
@@ -1075,8 +1104,8 @@ void ActorSync::tick(uint64_t nowMs) {
         if (owner && !r.active && !r.handingOff && port_.loaded(id)) takeOver(r, view_.epochOf(id));   // the engine got the actor after the Grant
         if (MUT(2) ? (r.local && port_.loaded(id)) : (owner && r.active)) publishOwned(r, now);
         else if (!owner) { driveNonOwner(r, now); auditAvs(r); }
-        if (owner) pollInventory(r);
-        else applyWantedInventory(r);
+        if (owner) pollParts(r);
+        else applyWantedParts(r);
     }
     relayToClients(now);
     flushPeers(now);

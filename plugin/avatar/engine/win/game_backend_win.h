@@ -33,6 +33,8 @@ public:
     bool ReadAnim(RefId ref, AnimRead& out) override;
     bool ReadEquipped(RefId ref, std::vector<EquippedItem>& out) override;
     bool ReadAppearance(RefId ref, Appearance& out) override;
+    FormId CloneNpcBase(FormId base) override;
+    bool WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, bool* faceWritten) override;
     int RunLine(RefId ctx, const std::string& line) override;
     bool Eval(Cond fn, RefId ref, FormId param, double& out) override;
     bool ReadPlayerRegions(std::vector<FormId>& out, size_t max) override;

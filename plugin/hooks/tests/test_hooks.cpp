@@ -909,6 +909,112 @@ TEST(guest_console_line_on_own_player_is_local) {
     CHECK(!SuppressPolicy::isLocalPlayerConsoleLine(nullptr));
 }
 
+// ---- explicit local-player scope (SuppressPolicy::enterLocalPlayerScope, nvhooks::LocalPlayerScope) ----
+// What h_ScriptExec does for one script run, game-free: the per-machine decision, then the bracket it opens, then what a mutator called inside sees.
+namespace {
+constexpr uint32_t kConsoleTemp = 0xFF000123u;   // a console / bridge line is a temporary script: refID 0 or 0xFF......
+constexpr uint32_t kEsmScript = 0x00123456u;
+bool mutationBlockedInRun(SuppressPolicy& p, uint32_t scriptRefID, const char* text) {
+    const bool local = p.runsLocal(scriptRefID, [&] { return text; });
+    if (local) p.enterLocalScript(scriptRefID); else p.enterScript();
+    const bool blocked = p.blockMutation();
+    if (local) p.leaveLocalScript(scriptRefID); else p.leaveScript();
+    return blocked;
+}
+}  // namespace
+
+TEST(local_scope_guest_character_line_passes_inside_and_is_dropped_outside) {
+    SuppressPolicy p;
+    p.setGuest(true);
+    // outside the scope the old rules hold: a bare line (SetAV, SetSPECIALPoints, SetTagSkills) is a shared-state mutation and is dropped
+    CHECK(mutationBlockedInRun(p, kConsoleTemp, "SetSPECIALPoints 40"));
+    CHECK(mutationBlockedInRun(p, 0, "SetAV Strength 5"));
+    CHECK(!p.inLocalPlayerScope());
+    p.enterLocalPlayerScope();
+    CHECK(p.inLocalPlayerScope());
+    CHECK(!mutationBlockedInRun(p, kConsoleTemp, "SetSPECIALPoints 40"));
+    CHECK(!mutationBlockedInRun(p, 0, "SetTagSkills 3 1"));
+    CHECK(!mutationBlockedInRun(p, kConsoleTemp, "SetAV Strength 5"));
+    p.leaveLocalPlayerScope();
+    CHECK(!p.inLocalPlayerScope());
+    CHECK(mutationBlockedInRun(p, kConsoleTemp, "SetAV Strength 5"));   // and the old rules are back
+}
+
+TEST(local_scope_run_is_per_machine_so_the_host_never_captures_it) {
+    // The hook mutes the capture hub for every run this answers true for (engine_hooks.cpp: `local` -> pushMute), on a host as on a guest.
+    SuppressPolicy host;   // guest = false
+    CHECK(!host.runsLocal(kConsoleTemp, [] { return "SetAV Strength 5"; }));   // no scope: an ordinary run, captured as before
+    host.enterLocalPlayerScope();
+    CHECK(host.runsLocal(kConsoleTemp, [] { return "SetAV Strength 5"; }));
+    CHECK(host.runsLocal(0, [] { return "ShowRaceMenu"; }));
+    host.leaveLocalPlayerScope();
+    CHECK(!host.runsLocal(kConsoleTemp, [] { return "SetAV Strength 5"; }));
+    // the hook's side of it on a host: the run is muted, so what the line mutates is not captured (and so not sent); outside the scope it is captured
+    CaptureHub h;
+    h.setEnabled(true);
+    std::vector<EffectTxn> out;
+    h.setSink([&](EffectTxn&& t) { out.push_back(std::move(t)); });
+    FormRef q("falloutnv.esm", 0x104EAE);
+    auto runLine = [&](SuppressPolicy& p) {
+        const bool local = p.runsLocal(kConsoleTemp, [] { return "SetObjective"; });
+        if (local) h.pushMute();
+        h.begin(qcause(1, 1));
+        h.record(SetObjective{q, 70, 2});
+        h.end();
+        if (local) h.popMute();
+    };
+    runLine(host);
+    CHECK(out.size() == 1);   // no scope
+    host.enterLocalPlayerScope();
+    runLine(host);
+    CHECK(out.size() == 1);   // in the scope: nothing new captured
+    host.leaveLocalPlayerScope();
+    runLine(host);
+    CHECK(out.size() == 2);
+}
+
+TEST(local_scope_exempts_console_lines_only_not_esm_scripts) {
+    SuppressPolicy p;
+    p.setGuest(true);
+    p.enterLocalPlayerScope();
+    // an object script an event raised inside the scope is not the guest's own character work: it keeps the rules of any other script
+    CHECK(mutationBlockedInRun(p, kEsmScript, nullptr));
+    CHECK(!p.runsLocal(kEsmScript, [] { return "player.SetAV Strength 5"; }));
+    p.leaveLocalPlayerScope();
+}
+
+TEST(local_scope_nests_and_unbalanced_leave_is_harmless) {
+    SuppressPolicy p;
+    p.setGuest(true);
+    p.enterLocalPlayerScope();
+    p.enterLocalPlayerScope();
+    p.leaveLocalPlayerScope();
+    CHECK(p.inLocalPlayerScope());   // the outer scope is still open
+    CHECK(!mutationBlockedInRun(p, kConsoleTemp, "SetAV Luck 5"));
+    p.leaveLocalPlayerScope();
+    CHECK(!p.inLocalPlayerScope());
+    CHECK(mutationBlockedInRun(p, kConsoleTemp, "SetAV Luck 5"));
+    p.leaveLocalPlayerScope();   // unbalanced
+    CHECK(!p.inLocalPlayerScope());
+    p.enterLocalPlayerScope();
+    CHECK(p.inLocalPlayerScope());   // the counter did not go negative
+    p.leaveLocalPlayerScope();
+}
+
+TEST(local_scope_leaves_the_player_prefix_rule_and_the_other_exemptions_alone) {
+    SuppressPolicy p;
+    p.setGuest(true);
+    p.setGuestLocalRun({kEsmScript});
+    // a typed "player." line still passes, scope or not; anything else typed on a guest console stays blocked
+    CHECK(!mutationBlockedInRun(p, kConsoleTemp, "player.SetAV Health 5000"));
+    CHECK(mutationBlockedInRun(p, kConsoleTemp, "SetStage VMS01 10"));
+    p.enterLocalPlayerScope();
+    CHECK(!mutationBlockedInRun(p, kConsoleTemp, "player.SetAV Health 5000"));
+    CHECK(!mutationBlockedInRun(p, kEsmScript, nullptr));   // a GuestLocalRun script is still per-machine
+    p.leaveLocalPlayerScope();
+    CHECK(!mutationBlockedInRun(p, kEsmScript, nullptr));
+}
+
 TEST(suppress_lifted_while_applying_host_txn) {
     SuppressPolicy p;
     p.setGuest(true);
@@ -2422,6 +2528,11 @@ int main() {
     run("suppress_guest_skips_quest_scripts_but_not_object_scripts", suppress_guest_skips_quest_scripts_but_not_object_scripts);
     run("suppress_guest_result_scripts_never_run_locally", suppress_guest_result_scripts_never_run_locally);
     run("guest_console_line_on_own_player_is_local", guest_console_line_on_own_player_is_local);
+    run("local_scope_guest_character_line_passes_inside_and_is_dropped_outside", local_scope_guest_character_line_passes_inside_and_is_dropped_outside);
+    run("local_scope_run_is_per_machine_so_the_host_never_captures_it", local_scope_run_is_per_machine_so_the_host_never_captures_it);
+    run("local_scope_exempts_console_lines_only_not_esm_scripts", local_scope_exempts_console_lines_only_not_esm_scripts);
+    run("local_scope_nests_and_unbalanced_leave_is_harmless", local_scope_nests_and_unbalanced_leave_is_harmless);
+    run("local_scope_leaves_the_player_prefix_rule_and_the_other_exemptions_alone", local_scope_leaves_the_player_prefix_rule_and_the_other_exemptions_alone);
     run("suppress_lifted_while_applying_host_txn", suppress_lifted_while_applying_host_txn);
     run("effect_json_roundtrip_every_type", effect_json_roundtrip_every_type);
     run("script_vars_become_setscriptvar_effects", script_vars_become_setscriptvar_effects);

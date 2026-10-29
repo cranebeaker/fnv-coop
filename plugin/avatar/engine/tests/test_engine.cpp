@@ -1197,6 +1197,166 @@ void sampler_not_ready_publishes_nothing() {
     for (const auto& s2 : r.out) CHECK(std::isfinite(s2.pos.x) && std::isfinite(s2.vel.y));
 }
 
+// ---- the player's one-shots (attacks, block, stagger) in the snapshot ------------------------------------------------------------
+// The sampler reads the action group that plays on the player's animation slots and publishes it the way the NPC layer's sampler does: the group, held for
+// a while, and a counter that bumps when one STARTS. Twins 87 to 95 (local_sampler.cpp).
+
+// The player plays `group` for `ms` (the sequence's play time advances with the frames), then it ends. `slot` is the AnimData slot it sits in.
+static void PlayerPlays(LRig& r, int group, uint32_t ms, int slot = 1) {
+    auto& p = r.be.Player();
+    p.group = group;
+    p.groupSlot = slot;
+    p.groupState = 1;
+    p.groupPlayMs = 0;
+    r.Run(ms, [&](float) { p.groupPlayMs += 16; });
+    p.group = -1;
+    p.groupPlayMs = -1;
+}
+
+static size_t SnapsWithAction(const LRig& r, int group) {
+    size_t n = 0;
+    for (const auto& s : r.out)
+        if (s.anim.action == group) ++n;
+    return n;
+}
+
+void sampler_attack_reaches_the_snapshot() {
+    LRig r;
+    r.Run(500);
+    CHECK(r.out.back().anim.action == 0 && r.out.back().anim.actionSeq == 0 && !r.out.back().anim.block);
+    PlayerPlays(r, 32, 400);                    // a swing
+    r.Run(1200);
+    CHECK(SnapsWithAction(r, 32) >= 8);         // in the stream for as long as it played plus the hold (600 ms)
+    CHECK(r.out.back().anim.action == 0 && r.out.back().anim.actionSeq == 1);   // gone afterwards, the counter stays
+    for (const auto& s : r.out) CHECK(s.anim.actionSeq <= 1);                   // one event, however many samples saw the same sequence
+    // a swing that the engine shows for 60 ms only still reaches the stream, several snapshots long (a lost datagram or a slow frame cannot skip it)
+    LRig q;
+    q.Run(500);
+    PlayerPlays(q, 92, 60);
+    q.Run(1000);
+    CHECK(SnapsWithAction(q, 92) >= 6);
+    CHECK(q.out.back().anim.actionSeq == 1);
+}
+
+void sampler_every_start_is_an_event() {
+    LRig r;
+    r.Run(300);
+    PlayerPlays(r, 26, 400);                    // a punch ...
+    PlayerPlays(r, 32, 400);                    // ... another group at once ...
+    r.Run(1000);
+    CHECK(r.out.back().anim.actionSeq == 2);
+    // ... and the SAME group restarted without a gap in between: its play time runs backwards. Two punches in a row are two events.
+    LRig q;
+    q.Run(300);
+    auto& p = q.be.Player();
+    p.group = 26;
+    p.groupState = 1;
+    p.groupPlayMs = 0;
+    q.Run(400, [&](float) { p.groupPlayMs += 16; });
+    p.groupPlayMs = 0;
+    q.Run(400, [&](float) { p.groupPlayMs += 16; });
+    CHECK(q.out.back().anim.actionSeq == 2);
+    // a sequence the backend cannot time (-1) cannot be seen restarting: one event, and not a new one on every sample
+    LRig w;
+    w.Run(300);
+    auto& pw = w.be.Player();
+    pw.group = 26;
+    pw.groupState = 1;
+    pw.groupPlayMs = -1;
+    w.Run(1000);
+    CHECK(w.out.back().anim.actionSeq == 1);
+    // one long sequence is one event
+    LRig e;
+    e.Run(300);
+    PlayerPlays(e, 38, 1500);
+    CHECK(e.out.back().anim.actionSeq == 1);
+}
+
+void sampler_block_is_held_and_released() {
+    LRig r;
+    r.Run(300);
+    auto& p = r.be.Player();
+    p.group = 170;                              // BlockIdle
+    p.groupState = 1;
+    p.groupPlayMs = 0;
+    r.Run(1500, [&](float) { p.groupPlayMs += 16; });
+    CHECK(r.out.back().anim.action == 170 && r.out.back().anim.block && r.out.back().anim.actionSeq == 1);
+    p.group = -1;
+    r.Run(300);                                 // released: the stream says so within about 150 ms, not after a swing's 600 ms
+    CHECK(r.out.back().anim.action == 0 && !r.out.back().anim.block);
+    CHECK(r.out.back().anim.actionSeq == 1);
+    // a hit taken while blocking is a reaction, not a block
+    PlayerPlays(r, 171, 300);
+    CHECK(r.out.back().anim.action == 171 && !r.out.back().anim.block);
+}
+
+void sampler_ignores_dead_players_and_leftover_sequences() {
+    LRig r;
+    r.Run(300);
+    PlayerPlays(r, 32, 300);
+    CHECK(r.out.back().anim.actionSeq == 1);
+    auto& p = r.be.Player();
+    p.dead = true;
+    p.group = 32;                               // a sequence still sitting in a slot of a dead body
+    p.groupPlayMs = 0;
+    r.Run(500);
+    CHECK(r.out.back().anim.action == 0 && r.out.back().anim.actionSeq == 1);   // no action, the counter goes on
+    p.dead = false;
+    p.group = -1;
+    // a finished sequence the engine left in its slot (state not animated) is no action
+    LRig q;
+    q.Run(300);
+    auto& pq = q.be.Player();
+    pq.group = 32;
+    pq.groupState = 0;
+    pq.groupPlayMs = 400;
+    q.Run(500);
+    CHECK(q.out.back().anim.action == 0 && q.out.back().anim.actionSeq == 0);
+    pq.groupState = 2;                          // easing in: it has started
+    q.Run(200);
+    CHECK(q.out.back().anim.action == 32 && q.out.back().anim.actionSeq == 1);
+    // a backend that cannot read the state (-1) is trusted
+    LRig w;
+    w.Run(300);
+    auto& pw = w.be.Player();
+    pw.group = 32;
+    pw.groupState = -1;
+    pw.groupPlayMs = -1;
+    w.Run(200);
+    CHECK(w.out.back().anim.action == 32);
+    // the groups that are state, not actions, are never one
+    for (int g : {7, 17, 24, 224, 225, 227, 228}) {
+        LRig v;
+        v.Run(300);
+        auto& pv = v.be.Player();
+        pv.group = g;
+        pv.groupState = 1;
+        pv.groupPlayMs = 100;
+        v.Run(300);
+        CHECK(v.out.back().anim.action == 0 && v.out.back().anim.actionSeq == 0);
+    }
+}
+
+void sampler_action_counter_survives_loading_screens() {
+    LRig r;
+    r.Run(300);
+    PlayerPlays(r, 32, 300);
+    r.Run(800);
+    CHECK(r.out.back().anim.actionSeq == 1);
+    r.be.Player().cell = 0;                     // a loading screen
+    r.Run(500);
+    r.be.Player().cell = kExtA;
+    r.Run(300);
+    PlayerPlays(r, 92, 300);
+    r.Run(300);
+    CHECK(r.out.back().anim.actionSeq == 2);    // a copy that remembers 1 reads 2 as the next event; a counter that restarted would read 1 as a repeat
+    r.s.Reset();                                // a teleport / load reset
+    r.Run(200);
+    PlayerPlays(r, 38, 300);
+    r.Run(300);
+    CHECK(r.out.back().anim.actionSeq == 3);
+}
+
 void equip_watcher_publishes_stable_changes_only() {
     FakeGameBackend be;
     SetupBackend(be);
@@ -1543,6 +1703,52 @@ void runtime_loopback_follows_the_player() {
     CHECK(q.rt->engine().stats().lines < 5000 / 16 * 2);
 }
 
+// The whole chain on one machine: the local player swings, shoots, throws, blocks and gets hit; the loopback puppet (the same path a remote player's puppet takes:
+// snapshot -> interpolation buffer -> driver -> console) plays each one exactly once, with a group name the console accepts.
+void runtime_loopback_shows_the_players_attacks() {
+    RRig q;
+    CHECK(q.rt->SetLoopback(true));
+    q.Run(2500);
+    const RefId ref = q.rt->RefOf(1);
+    CHECK(ref != 0 && q.rt->manager().PhaseOf(1) == Phase::Driving);
+    auto& pl = q.be.Player();
+    auto play = [&](int group, uint32_t ms) {
+        pl.group = group;
+        pl.groupSlot = 1;
+        pl.groupState = 1;
+        pl.groupPlayMs = 0;
+        q.Run(ms, [&](float) { pl.groupPlayMs += 16; });
+        pl.group = -1;
+        pl.groupPlayMs = -1;
+        q.Run(1500);
+    };
+    for (int i = 0; i < 3; ++i) play(26, 350);   // three punches
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 0") == 3);
+    play(32, 350);                               // a swing
+    play(92, 600);                               // a power attack
+    play(114, 400);                              // a throw
+    play(38, 200);                               // a shot
+    play(223, 500);                              // a stagger
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackRight 0") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackPower 0") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackThrow 0") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup Attack3 0") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup Stagger 0") == 1);
+    // block is held with the hold flag, released again, and the movement group comes back
+    pl.group = 170;
+    pl.groupState = 1;
+    pl.groupPlayMs = 0;
+    q.Run(1500, [&](float) { pl.groupPlayMs += 16; });
+    CHECK(CountLines(q.be, ref, "PlayGroup BlockIdle 1") == 1);
+    pl.group = -1;
+    q.Run(1500);
+    CHECK(q.be.Get(ref)->group == kGrpIdle);
+    // nothing else was said about a group the console does not know, and the sampler's counter is the number of events
+    CHECK(q.be.badLines.empty());
+    CHECK(q.rt->manager().stats().oneShots == 3 + 5 + 1);
+    CHECK(q.rt->manager().stats().oneShotsFailed == 0);
+}
+
 void runtime_loopback_off_removes_the_puppet() {
     RRig r;
     r.rt->SetLoopback(true);
@@ -1812,8 +2018,10 @@ const TestCase kTests[] = {
     T(stack_cell_change), T(stack_rebuilt_3d_is_reasserted), T(stack_menu_pauses_and_replays), T(stack_survives_all_evaluators_missing),
     T(stack_reused_ref_ids), T(stack_makes_room_for_the_local_player), T(sampler_period_identity_and_sequence), T(sampler_velocity_and_locomotion),
     T(sampler_teleport_and_cell_change_restart_the_speed), T(sampler_speed_is_clamped), T(sampler_small_jump_is_a_teleport_not_a_speed), T(sampler_flags_from_the_engine), T(sampler_mover_flags_only_when_informative),
+    T(sampler_attack_reaches_the_snapshot), T(sampler_every_start_is_an_event), T(sampler_block_is_held_and_released),
+    T(sampler_ignores_dead_players_and_leftover_sequences), T(sampler_action_counter_survives_loading_screens),
     T(sampler_not_ready_publishes_nothing), T(equip_watcher_publishes_stable_changes_only), T(local_appearance_is_read_from_the_base),
-    T(runtime_loopback_follows_the_player), T(runtime_loopback_off_removes_the_puppet), T(runtime_loopback_refuses_the_local_slot),
+    T(runtime_loopback_follows_the_player), T(runtime_loopback_shows_the_players_attacks), T(runtime_loopback_off_removes_the_puppet), T(runtime_loopback_refuses_the_local_slot),
     T(runtime_loopback_carries_equipment), T(runtime_remote_players_follow_their_own_streams), T(runtime_no_puppet_before_the_first_snapshot),
     T(runtime_game_events), T(runtime_status_json_contract),
     T(appearance_height_is_matched_with_setscale), T(weapon_mod_lines_and_readback), T(hit_target_health_lines),

@@ -2,7 +2,7 @@
 #include <cstring>
 #include "../../tools/mut/fnvcoop_mut.h"
 
-// Mutation twins 771..779 (runtime style); tests/test_hit_edit.cpp must catch each.
+// Mutation twins 771..779 and 808 (runtime style); tests/test_hit_edit.cpp must catch each.
 
 namespace nvcoop::combat {
 
@@ -61,7 +61,7 @@ void fillNativeHit(uint8_t* hit, const NativeHitSpec& s) {
     wr<uint32_t>(hit, addr::hit::kTarget, s.target);
     wr<int32_t>(hit, addr::hit::kHitLocation, s.location);
     wr<float>(hit, addr::hit::kHealthDmg, s.health);
-    wr<float>(hit, addr::hit::kWpnBaseDmg, FNV_MUT(777) ? 0.0f : s.health);   // 777: the base weapon damage stays 0 (the engine scales the reaction from it)
+    wr<float>(hit, addr::hit::kWpnBaseDmg, FNV_MUT(777) ? 0.0f : (s.baseDamage >= 0.0f && !FNV_MUT(808) ? s.baseDamage : s.health));   // 808: a touch's base damage follows its token health   // 777: the base weapon damage stays 0 (the engine scales the reaction from it)
     wr<uint32_t>(hit, addr::hit::kWeapon, s.weapon);
     if (s.haveImpact) {
         wr<float>(hit, addr::hit::kImpactPos, s.impact.x);

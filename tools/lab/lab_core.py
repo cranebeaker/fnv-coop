@@ -157,6 +157,21 @@ class Machine:
     def set_var(self, quest: str, name: str, value: float) -> Tuple[bool, str]: raise NotImplementedError
     def owner(self, ref: str) -> Dict[str, Any]: raise NotImplementedError                                  # coop.owner: owner, epoch, known, mine
 
+    # ---- the parity room (lab_parity.py): what this copy shows, and the scripted situations that change it
+    def parity_view(self) -> Dict[str, Any]:
+        """What this copy SHOWS now (lab_parity.assemble): {"player": view, "puppets": {slot: view}, "actors": {runtime ref: view}, "time": {...}, "missing": [...]}."""
+        raise NotImplementedError
+
+    def npc_equip(self, ref: str, item: str) -> Tuple[bool, str]: raise NotImplementedError                 # give the NPC an item and equip it (only its owner can make that stick)
+    def npc_draw(self, ref: str, on: bool = True) -> Tuple[bool, str]: raise NotImplementedError            # weapon out / away
+    def npc_sit(self, ref: str, furniture: str) -> Tuple[bool, str]: raise NotImplementedError              # the NPC uses a furniture
+    def npc_stand(self, ref: str) -> Tuple[bool, str]: raise NotImplementedError
+    def npc_reset(self, ref: str, item: str) -> Tuple[bool, str]: raise NotImplementedError                 # holster, unequip and remove the item again (cleanup of the room)
+    def draw_weapon(self) -> bool: raise NotImplementedError                                               # this copy's player takes the equipped weapon out
+    def unarm(self) -> Tuple[bool, str]: raise NotImplementedError                                         # this copy's player puts every weapon away (fists)
+    def punch(self, n: int = 3, gap_s: float = 0.8) -> Tuple[bool, str]: raise NotImplementedError         # this copy's player attacks n times with his fists
+    def anim_category(self, who: Optional[str] = None) -> Optional[str]: raise NotImplementedError         # category of the playing animation: own player (None), "puppet", or a ref
+
 
 def dist2(a, b) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])

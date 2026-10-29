@@ -30,6 +30,8 @@ struct FakeActor {
     live::ActorSnapshot lastPlaced;
     std::map<FormRef, int32_t> inv;   // inventory totals
     int invWrites = 0;
+    std::set<FormRef> equip;          // what it holds and wears
+    int equipWrites = 0;
 };
 
 class FakeEngine : public IActorPort {
@@ -139,6 +141,20 @@ public:
         it->second.inv.clear();
         for (const auto& w : want) it->second.inv[w.form] = w.count;
         ++it->second.invWrites;
+        return true;
+    }
+    bool refuseEquipment = false;
+    bool sampleEquipment(NetId id, EquipList& out) override {
+        auto it = a.find(id);
+        if (it == a.end() || !(it->second.real || it->second.standIn)) return false;
+        out.assign(it->second.equip.begin(), it->second.equip.end());
+        return true;
+    }
+    bool applyEquipment(NetId id, const EquipList& want) override {
+        auto it = a.find(id);
+        if (it == a.end() || !(it->second.real || it->second.standIn) || refuseEquipment) return false;
+        it->second.equip = std::set<FormRef>(want.begin(), want.end());
+        ++it->second.equipWrites;
         return true;
     }
 };

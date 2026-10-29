@@ -8,6 +8,7 @@
 //   sender machine (the local player), at 20 Hz:
 //     ActorSnapshot s = avatar::MakeLocalSnapshot(netId, epoch, seq, tick, cell, pos, rot, vel, anim);
 #pragma once
+#include "avatar_faults.h"
 #include "avatar_types.h"
 #include "loco.h"
 #include "live/live.h"
@@ -24,6 +25,11 @@ inline Anim FromLive(const live::AnimState& a) {
     o.jump = a.jump;
     o.reload = a.reload;
     o.aim = a.aim;
+    if (!avatarFaults().bridgeDropsAction) {
+        o.action = a.action;
+        o.actionSeq = a.actionSeq;
+        o.block = a.block;
+    }
     return o;
 }
 
@@ -35,6 +41,11 @@ inline live::AnimState ToLive(const Anim& a) {
     o.jump = a.jump;
     o.reload = a.reload;
     o.aim = a.aim;
+    if (!avatarFaults().bridgeDropsAction) {
+        o.action = a.action;
+        o.actionSeq = a.actionSeq;
+        o.block = a.block;
+    }
     return o;
 }
 

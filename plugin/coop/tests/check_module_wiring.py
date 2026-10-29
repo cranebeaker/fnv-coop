@@ -67,6 +67,8 @@ REQUIRED = {
         ('op == "respawn"', "G41: the respawn at the checkpoint"),
         ("MReady", "G27: the ready-check confirmation"),
         ("clearPlayerSlots(", "P4 request 2: the slot table is cleared on a load"),
+        ("nvhooks::LocalPlayerScope own;", "local-player scope: the guest's chargen and wake-up lines are this machine's own character work, not dropped by the guest suppression"),
+        ("execConsoleLineOn(line, kOwnPlayerRef)", "local-player scope: SetAV / SetSPECIALPoints / SetTagSkills need the player as calling reference once the player. prefix is gone"),
         # P5 handover (G15, G20, G39)
         ("setScriptRunObserver(", "G15: same-frame ref var flips (noteRefScriptRan)"),
         ("nvworld::worldEffectKey(", "P5 handover 1: the coalescing key of every world effect"),
@@ -127,10 +129,53 @@ REQUIRED = {
     ],
 }
 
+# Party saves (docs/party-save.md): the engine half and the call sites that make every host save a save of every guest.
+PARTY_GLUE = "plugin/coop/party_save_glue.cpp"
+REQUIRED[MODULE] += [
+    ("partyglue::frame(g_rt.get())", "party saves: the host's and the guest's machine tick every frame"),
+    ("partyglue::onSaved(g_rt.get()", "party saves: the NVSE SaveGame message orders the guests to save (host) or asks the host for a party save (a guest's hand save)"),
+    ("partyglue::onLoaded(g_rt.get()", "party saves: the loaded save's campaign comes back from its sidecar"),
+    ("partyglue::startCampaign(g_rt.get())", "party saves: a party that starts from the start save is a new campaign"),
+    ("partyglue::applyOrder(g_rt.get()", "party saves: the guest applies campaign / partySave / partySaveWait"),
+    ("partyglue::handleOrder(g_rt.get()", "party saves: the host takes partySaveRequest / partySaved"),
+    ('op == "noIntro"', "party saves: a guest joining a campaign under way skips the opening movie"),
+    ('{\\"op\\":\\"noIntro\\"}', "party saves: the host answers introReady at once with no intro when the campaign is under way"),
+    ("JoinHostWarp(now)", "party saves: that guest is moved to the host after its character is made"),
+]
+REQUIRED[MAIN] += [
+    ('autostart.compare(0, 5, "load:")', "party saves: [coop] autostart=load:<save> (the launcher's CONTINUE) loads the named save"),
+    ("LoadableSaveName(name, err)", "party saves: ... only a plain save name that exists in the save folder"),
+]
+REQUIRED[PARTY_GLUE] = [
+    ("kSaveGameFn = 0x8503B0", "party saves: the engine's direct save (the address plugin/main.cpp DirectSaveSEH uses)"),
+    ("kCanSaveNowFn = 0x850FE0", "party saves: CanSaveNow, called through the SaveGate detour so a scene's SaveSuppress answers"),
+    ("glueBeforeSave()", "party saves: clones made by the actor port are kept out of the save"),
+    ("glueAfterSave()", "party saves: ... and put back"),
+    ("pt::kSidecarExt", "party saves: <save>.fos.fnvparty is written next to every save of a session"),
+    ("pt::kIndexFile", "party saves: a guest's index of party saves"),
+]
+
+# Friend markers and revive (docs/markers.md, docs/revive.md): the order hooks in coop_module.cpp and the module itself.
+MARKERS_GLUE = "plugin/markers/mk_glue.cpp"
+REQUIRED[MODULE] += [
+    ("nvcoop::markers::onLocalDowned(", "revive: the downed order starts the revive timer on the downed player's machine"),
+    ("nvmk::readInPlaceRespawn(", "revive: a respawn order from a revive gets him up where he lies, not at the checkpoint"),
+    ("nvcoop::markers::onLocalUp(", "revive: the respawn order ends the downed state of the markers/revive service"),
+    ("nvcoop::markers::applyGuestOrder(", "friend markers: the host's party table reaches the guest's board"),
+    ("nvcoop::markers::handleHostOrder(", "revive: a guest's revive request (and the markers' beacon) reaches the host"),
+]
+REQUIRED[MARKERS_GLUE] = [
+    ("NVCOOP_MODULE(markers,", "the module registers itself"),
+    ("rules()->onPlayerRevived(s)", "revive: the rules engine forgets the death, so the timed respawn at the checkpoint never fires"),
+    ("encodeInPlaceRespawn(", "revive: the host orders the respawn in place"),
+    ("rules()->downedUntilCheckpoint(s)", "revive: a collar death (down until a checkpoint) is not revivable"),
+]
+
 # Leftovers that must not come back: (pattern, a line that matches it, why)
 FORBIDDEN = {
     MODULE: [
         (r"g_scriptedLock\b", "bool locked = g_scriptedLock;", "G18: the coarse one-flag control lock is gone; the committed effects carry recipient and mask"),
+        (r'"player\.(SetAV|SetSPECIALPoints|SetTagSkills|SetScale)\b', 'nvhooks::execConsoleLine("player.SetAV Luck 5");', "the guest character lines run in a nvhooks::LocalPlayerScope on the calling reference 0x14, not through the player. text prefix"),
         (r"\bWorldEffectKey\(", "auto k = WorldEffectKey(we);", "the local key switch was replaced by nvworld::worldEffectKey (P5 handover 1)"),
         (r"fndlg::makeInfoReader\(", "w.infoReader = fndlg::makeInfoReader(mem, &layout);", "the P3 glue owns the INFO reader (its layout is probed at run time)"),
     ],

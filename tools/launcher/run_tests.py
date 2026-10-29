@@ -13,6 +13,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import traceback
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,7 +29,13 @@ import fnv_ini  # noqa: E402
 import fnv_install as inst  # noqa: E402
 import fnv_launcher_core as core  # noqa: E402
 import fnv_mut  # noqa: E402
+import fnv_lobby  # noqa: E402
+import fnv_party_saves as ps  # noqa: E402
+import fnv_terminal as term  # noqa: E402
 import fnv_portcheck as pc  # noqa: E402
+import fnv_steam  # noqa: E402
+import fnv_steam_fake as steamfake  # noqa: E402
+fnv_portcheck = pc
 
 SCRATCH = REPO / "out" / "release" / "tmp"
 
@@ -127,7 +134,15 @@ def check_build_plan():
         h = core.build_plan(core.Settings(name="Ann", mode="host", port=30000, max_players=3, xp_share=True, slowmo=True, tether=False))
         assert h.ok and h.port == 30000
         assert h.values["coop"] == {"enable": "1", "name": "Ann", "handshake": "1", "baseline": "1", "dialogue": "1", "role": "host",
-                                    "listen": "0.0.0.0", "port": "30000", "maxplayers": "3"}, h.values["coop"]
+                                    "transport": "enet", "listen": "0.0.0.0", "port": "30000", "maxplayers": "3", "autostart": "", "party": ""}, h.values["coop"]
+        assert h.values["bridge"] == {"multiInstance": "0", "instance": "0", "focusGuard": "0", "windowSide": ""}, "one copy per PC unless asked"
+        sc = core.build_plan(core.Settings(name="Ann", mode="join", address="127.0.0.1", second_copy=True, autostart="start", party=2))
+        assert sc.values["bridge"] == {"multiInstance": "1", "instance": "1", "focusGuard": "1", "windowSide": "right"} and sc.values["coop"]["autostart"] == "start", sc.values
+        hc = core.build_plan(core.Settings(name="Ann", mode="host", second_copy=True))
+        assert hc.values["bridge"]["windowSide"] == "left" and hc.values["bridge"]["focusGuard"] == "1", "two copies on one PC: host left, no pause on focus loss"
+        assert sc.values["coop"]["party"] == "2", "the lobby's size goes with the start save"
+        assert core.build_plan(core.Settings(name="Ann", autostart="new")).values["coop"]["autostart"] == "", "the old New-button value is gone"
+        assert core.build_plan(core.Settings(name="Ann", autostart="rm -rf")).values["coop"]["autostart"] == "", "only known autostart values"
         assert h.values["combat"] == {"xpmode": "1"} and h.values["party"] == {"slowmo": "1", "tether": "0"}
         assert h.values["live"] == {"actors": "1", "avatars": "1", "combat": "1", "spawns": "1"}, "the sync layers are on by default"
         j = core.build_plan(core.Settings(name="Bob", mode="join", address="203.0.113.5:31000", token=777))
@@ -301,6 +316,11 @@ def check_start_session():
         assert r.ok and len(pop.calls) == 2
         text = fnv_ini.read_text(path)
         assert fnv_ini.get(text, "coop", "role") == "client" and fnv_ini.get(text, "coop", "host") == "203.0.113.9" and fnv_ini.get(text, "coop", "token") == "99"
+        # a second copy on this PC starts although the game already runs, and asks the plugin to allow it
+        r = core.start_session(core.Settings(name="Cy", mode="join", address="127.0.0.1", game_dir=str(g), second_copy=True),
+                               resolver=lambda h: h, running=lambda: True, popen=pop, port_free=free)
+        assert r.ok and len(pop.calls) == 3, r.messages
+        assert fnv_ini.get(fnv_ini.read_text(path), "bridge", "multiInstance") == "1"
         # every refusal leaves nvcoop.ini and the process list alone
         snap = rd(path)
         calls = len(pop.calls)
@@ -360,10 +380,658 @@ def check_gui_builds():
         root.destroy()
 
 
+# ---- lobby -------------------------------------------------------------------------------------------------------------------
+
+def wait_for(cond, seconds=8.0):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def check_lobby_party_starts_together():
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", address="127.0.0.1")
+    ok, why = host.open()
+    assert ok, why
+    started = []
+    host.on_start = lambda: started.append("host")
+    a = fnv_lobby.GuestLobby("Ann", 11, "127.0.0.1", host.port, "0.1.1-alpha")
+    b = fnv_lobby.GuestLobby("Bob", 22, "127.0.0.1", host.port, "0.1.1-alpha")
+    for gl in (a, b):
+        gl.on_start = (lambda n: (lambda: started.append(n)))(gl.name)
+        gl.open()
+    try:
+        assert wait_for(lambda: len(host.view().players) == 3), host.view()
+        assert wait_for(lambda: a.view().state == "lobby" and len(a.view().players) == 3), a.view()
+        assert {p["name"] for p in a.view().players} == {"Six", "Ann", "Bob"} and a.view().you in (1, 2)
+        assert not host.view().can_start and not host.start()[0], "nobody starts while a guest is not ready"
+        a.set_ready(True)
+        b.set_ready(True)
+        assert wait_for(lambda: host.view().can_start), host.view()
+        assert host.start()[0]
+        assert wait_for(lambda: sorted(started) == ["Ann", "Bob", "host"]), started
+        assert fnv_portcheck.bind_check(host.port, "127.0.0.1")[0], "the host gives the port back to its game"
+        assert a.view().state == "started" and b.view().state == "started"
+    finally:
+        for x in (a, b, host):
+            x.close()
+
+
+def check_lobby_refusals():
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", max_players=2, address="127.0.0.1")
+    assert host.open()[0]
+    old = fnv_lobby.GuestLobby("Old", 1, "127.0.0.1", host.port, "0.1.0-alpha")
+    a = fnv_lobby.GuestLobby("Ann", 2, "127.0.0.1", host.port, "0.1.1-alpha")
+    c = fnv_lobby.GuestLobby("Cy", 3, "127.0.0.1", host.port, "0.1.1-alpha")
+    try:
+        old.open()
+        assert wait_for(lambda: old.view().state == "closed"), old.view()
+        assert "0.1.0-alpha" in old.view().message and len(host.view().players) == 1, "a different release is refused"
+        a.open()
+        assert wait_for(lambda: a.view().state == "lobby")
+        c.open()
+        assert wait_for(lambda: c.view().state == "closed") and "full" in c.view().message, c.view()
+        a.close()
+        assert wait_for(lambda: len(host.view().players) == 1), "a guest that leaves is dropped at once"
+    finally:
+        for x in (old, a, c, host):
+            x.close()
+    lone = fnv_lobby.GuestLobby("Ann", 4, "127.0.0.1", free_udp_port(), "0.1.1-alpha")
+    lone.open()
+    try:
+        assert wait_for(lambda: lone.view().state == "closed", fnv_lobby.GIVE_UP_AFTER + 4), lone.view()
+        assert "IN PROGRESS" in lone.view().message
+    finally:
+        lone.close()
+    assert fnv_lobby.unpack(b"junk") is None and fnv_lobby.unpack(fnv_lobby.MAGIC + b"[1]") is None
+
+
+
+# ---- co-op over Steam (docs/steam.md) ------------------------------------------------------------------------------------------------
+
+HOST_ID = "76561198000000001"
+ANN_ID = "76561198000000002"
+BOB_ID = "76561198000000003"
+EVE_ID = "76561198000000009"       # not anybody's Steam friend
+
+
+def check_steam_plan():
+    with tmp() as td, ansi():
+        h = core.build_plan(core.Settings(name="Ann", mode="host", connection="steam", port=0, max_players=3))
+        assert h.ok, h.errors            # no port is needed over Steam
+        c = h.values["coop"]
+        assert c["transport"] == "steam" and c["role"] == "host" and c["maxplayers"] == "3" and "port" not in c and "listen" not in c, c
+        j = core.build_plan(core.Settings(name="Bob", mode="join", connection="steam", address=HOST_ID, token=9))
+        c = j.values["coop"]
+        assert j.ok and j.host == HOST_ID and c["host"] == HOST_ID and c["transport"] == "steam" and c["role"] == "client" and c["token"] == "9", c
+        assert "port" not in c and "maxplayers" not in c
+        for bad in ("", "127.0.0.1", "7656119", HOST_ID + "1", "abc", " 12345678901234567 "):
+            p = core.build_plan(core.Settings(name="Bob", mode="join", connection="steam", address=bad))
+            assert not p.ok and "Steam ID" in " ".join(p.errors), bad
+        ip = core.build_plan(core.Settings(name="Ann", mode="host", connection="ip"))
+        assert ip.values["coop"].get("transport") == "enet", "an IP run says so: a Steam run before it must not stick"
+        assert not core.build_plan(core.Settings(name="A", connection="carrier pigeon")).ok
+        # the ini round trip: a Steam run is shown as Steam in the launcher next time, an IP run overwrites it
+        g = installed_game(td)
+        core.write_ini(g, j)
+        s = core.read_settings_from_ini(g)
+        assert s.connection == "steam" and s.mode == "join" and s.address == HOST_ID, s
+        core.write_ini(g, core.build_plan(core.Settings(name="Bob", mode="join", address="203.0.113.5", token=9)))
+        t = fnv_ini.read_text(core.ini_path(g))
+        assert fnv_ini.get(t, "coop", "transport") == "enet" and core.read_settings_from_ini(g).connection == "ip"
+        # a Steam host needs no free UDP port: a busy port must not stop it
+        pop = FakePopen()
+        r = core.start_session(core.Settings(name="Ann", mode="host", connection="steam", game_dir=str(g)), running=not_running, popen=pop,
+                               port_free=lambda port: (False, "in use"))
+        assert r.ok and any("Steam" in m for m in r.messages), r.messages
+        r = core.start_session(core.Settings(name="Ann", mode="host", connection="ip", game_dir=str(g)), running=not_running, popen=pop,
+                               port_free=lambda port: (False, "in use"))
+        assert not r.ok, "an IP host still needs its port"
+
+
+def make_world():
+    w = steamfake.FakeSteam()
+    w.befriend(HOST_ID, ANN_ID)
+    w.befriend(HOST_ID, BOB_ID)
+    return w
+
+
+def check_steam_link():
+    w = make_world()
+    host = fnv_steam.SteamLink(lambda: w.player(HOST_ID, "Host"))
+    assert host.start() == (True, "") and host.me == HOST_ID and host.name == "Host" and host.state == "ready"
+    ann = fnv_steam.SteamLink(lambda: w.player(ANN_ID, "Ann"))
+    assert ann.start()[0]
+    assert ann.friends("6") == [], "nobody is hosting yet"
+    host.host("6", "lobby")
+    rows = ann.friends("6")
+    assert rows == [{"id": HOST_ID, "name": "Host", "mode": "lobby", "same": True}], rows
+    assert ann.friends("7")[0]["same"] is False, "a host on another release is listed but marked"
+    bob = fnv_steam.SteamLink(lambda: w.player(BOB_ID, "Bob"))
+    eve = fnv_steam.SteamLink(lambda: w.player(EVE_ID, "Eve"))
+    assert bob.start()[0] and eve.start()[0]
+    assert [r["id"] for r in bob.friends("6")] == [HOST_ID]
+    assert eve.friends("6") == [], "only the Steam friends of a host see it"
+    # datagrams: a guest is peer 0 for its host, a host numbers its guests from 1
+    ann.join(HOST_ID)
+    sa, sh = ann.socket(), host.socket()
+    sa.settimeout(1.0)
+    sh.settimeout(1.0)
+    sa.sendto(b"hello", (fnv_steam.PEER, 0))
+    data, addr = sh.recvfrom(100)
+    assert data == b"hello" and addr == (fnv_steam.PEER, 1), (data, addr)
+    sh.sendto(b"roster", addr)
+    assert sa.recvfrom(100) == (b"roster", (fnv_steam.PEER, 0))
+    sh.settimeout(0.05)
+    try:
+        sh.recvfrom(10)
+        assert False, "nothing more to read"
+    except socket.timeout:
+        pass
+    # a stranger who says "join" gets nowhere: no peer on either side
+    eve.join(HOST_ID)
+    time.sleep(0.2)
+    assert eve.peers == {} and sorted(host.peers) == [1], (eve.peers, host.peers)
+    sa.close()
+    assert wait_for(lambda: host.peers == {}, 2.0), "a guest that leaves is gone for the host"
+    # a Steam that is not there says why instead of hanging
+    w2 = steamfake.FakeSteam()
+    bad = fnv_steam.SteamLink(lambda: w2.player(HOST_ID, "Host", error="Steam is not running or you are not logged in. Start Steam, then try again."))
+    ok, why = bad.start()
+    assert not ok and "Steam is not running" in why and bad.state == "error"
+    assert not fnv_steam.SteamLink(lambda: (_ for _ in ()).throw(FileNotFoundError("fnvsteam.exe is not in the launcher folder"))).start()[0]
+    for x in (host, ann, bob, eve):
+        x.close()
+    assert fnv_steam.valid_steam_id(HOST_ID) and not fnv_steam.valid_steam_id("1234") and not fnv_steam.valid_steam_id("7656119800000000x")
+
+
+def steam_lobbies(w, names=("Ann", "Bob")):
+    """A host lobby and two guest lobbies, all over the pretend Steam, with the links they use."""
+    hl = fnv_steam.SteamLink(lambda: w.player(HOST_ID, "Six"))
+    assert hl.start()[0]
+    hl.host("6", "lobby")
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", sock_factory=hl.socket)
+    assert host.open()[0]
+    guests = []
+    for name, sid, token in (("Ann", ANN_ID, 11), ("Bob", BOB_ID, 22))[:len(names)]:
+        gl = fnv_steam.SteamLink((lambda i, n: lambda: w.player(i, n))(sid, name))
+        assert gl.start()[0]
+        gl.join(HOST_ID)
+        lob = fnv_lobby.GuestLobby(name, token, fnv_steam.PEER, 0, "0.1.1-alpha", sock_factory=gl.socket)
+        guests.append((gl, lob))
+    return hl, host, guests
+
+
+def check_steam_lobby_party_starts_together():
+    w = make_world()
+    hl, host, guests = steam_lobbies(w)
+    started = []
+    assert "Join Game" in host.view().message and "Steam" in host.view().message, host.view().message
+    host.on_start = lambda: started.append("host")
+    for gl, lob in guests:
+        lob.on_start = (lambda n: (lambda: started.append(n)))(lob.name)
+        lob.open()
+    a, b = guests[0][1], guests[1][1]
+    try:
+        assert wait_for(lambda: len(host.view().players) == 3), host.view()
+        assert host.view().via == "steam" and a.view().via == "steam"
+        assert wait_for(lambda: a.view().state == "lobby" and len(a.view().players) == 3), a.view()
+        assert {p["name"] for p in a.view().players} == {"Six", "Ann", "Bob"}
+        assert not host.view().can_start and not host.start()[0], "nobody starts while a guest is not ready"
+        a.set_ready(True)
+        b.set_ready(True)
+        assert wait_for(lambda: host.view().can_start), host.view()
+        assert host.start()[0]
+        assert wait_for(lambda: sorted(started) == ["Ann", "Bob", "host"]), started
+        assert a.view().state == "started" and b.view().state == "started"
+    finally:
+        for x in (a, b, host):
+            x.close()
+        for l in [hl] + [g[0] for g in guests]:
+            l.close()
+
+
+def check_steam_lobby_refusals():
+    w = make_world()
+    hl, host, guests = steam_lobbies(w, names=("Ann",))
+    ann_link, ann = guests[0]
+    eve_link = fnv_steam.SteamLink(lambda: w.player(EVE_ID, "Eve"))
+    assert eve_link.start()[0]
+    eve_link.join(HOST_ID)
+    eve = fnv_lobby.GuestLobby("Eve", 5, fnv_steam.PEER, 0, "0.1.1-alpha", sock_factory=eve_link.socket)
+    try:
+        ann.open()
+        assert wait_for(lambda: ann.view().state == "lobby"), ann.view()
+        eve.open()
+        assert wait_for(lambda: eve.view().state == "closed", fnv_lobby.GIVE_UP_AFTER + 4), eve.view()
+        assert "did not answer" in eve.view().message and "Steam" in eve.view().message, eve.view().message
+        assert [p["name"] for p in host.view().players] == ["Six", "Ann"], "a stranger never reaches the roster"
+        # a different release is refused, over Steam like over UDP
+        bob_link = fnv_steam.SteamLink(lambda: w.player(BOB_ID, "Bob"))
+        assert bob_link.start()[0]
+        bob_link.join(HOST_ID)
+        bob = fnv_lobby.GuestLobby("Bob", 7, fnv_steam.PEER, 0, "0.1.0-alpha", sock_factory=bob_link.socket)
+        bob.open()
+        assert wait_for(lambda: bob.view().state == "closed"), bob.view()
+        assert "0.1.0-alpha" in bob.view().message
+        bob.close()
+        bob_link.close()
+        ann.close()
+        assert wait_for(lambda: len(host.view().players) == 1), "a guest that leaves is dropped at once"
+    finally:
+        for x in (ann, eve, host):
+            x.close()
+        for l in (hl, ann_link, eve_link):
+            l.close()
+
+
+def make_steam_app(td, world, who, name, docs_sub):
+    g = installed_game(td / docs_sub)
+    cfg = td / (docs_sub + ".json")
+    core.save_settings(core.Settings(name=name, game_dir=str(g), token=int(who[-3:]), connection="steam", second_copy=True), cfg)
+    app = term.App(settings_path=cfg, version="0.1.1-alpha")
+    app.steam_spawn = lambda: world.player(who, name)
+    app.documents = str(td / (docs_sub + "-docs"))
+    return app, g
+
+
+def check_steam_in_the_launcher():
+    with tmp() as td, ansi():
+        w = make_world()
+        host, hg = make_steam_app(td, w, HOST_ID, "Six", "h")
+        ann, ag = make_steam_app(td, w, ANN_ID, "Ann", "a")
+        launched = {}
+
+        def fake_launch(game, popen=None):
+            key = "host" if str(game) == str(hg) else "ann"
+            launched[key] = (host if key == "host" else ann).steam is None      # was the helper gone when the game was started?
+            return 4242
+        orig_launch = core.launch_game
+        core.launch_game = fake_launch
+        try:
+            assert host.state()["steam"]["available"] and host.state()["steam"]["state"] == "off"
+            r = host.host()
+            assert r["ok"], r
+            assert host.state()["steam"]["state"] == "ready" and host.lobby.view().via == "steam"
+            assert w.players[HOST_ID].hosting == {"tag": host.steam_tag, "mode": "lobby"}, "friends see the host as joinable, with the lobby's tag"
+            assert any("STEAM" in l for l in host.state()["log"]), host.state()["log"]
+            # Ann's launcher lists the host, joins the lobby, readies
+            assert ann.steam_refresh()["ok"]
+            st = ann.state()["steam"]
+            assert [(f["id"], f["name"], f["mode"], f["joinable"]) for f in st["friends"]] == [(HOST_ID, "Six", "lobby", True)], st
+            r = ann.join_steam(HOST_ID)
+            assert r["ok"], r
+            assert wait_for(lambda: ann.lobby.view().state == "lobby"), ann.lobby.view()
+            assert ann.ready(True)["ok"]
+            assert wait_for(lambda: host.lobby.view().can_start), host.lobby.view()
+            assert host.start()["ok"]
+            assert wait_for(lambda: len(launched) == 2), "both games start"
+            # the games are told to use Steam: the host without a port, the guest with the host's Steam ID
+            ht = fnv_ini.read_text(core.ini_path(hg))
+            at = fnv_ini.read_text(core.ini_path(ag))
+            assert fnv_ini.get(ht, "coop", "transport") == "steam" and fnv_ini.get(ht, "coop", "role") == "host", ht
+            assert fnv_ini.get(at, "coop", "transport") == "steam" and fnv_ini.get(at, "coop", "role") == "client" and fnv_ini.get(at, "coop", "host") == HOST_ID, at
+            assert fnv_ini.get(ht, "coop", "autostart") == "start" and fnv_ini.get(at, "coop", "autostart") == "start"
+            # the helper is gone before the game starts: the game talks to Steam itself
+            assert launched == {"host": True, "ann": True}, launched
+            assert w.players[HOST_ID].closed and w.players[ANN_ID].closed
+        finally:
+            core.launch_game = orig_launch
+            for app in (host, ann):
+                app.leave()
+
+
+def check_steam_join_rules():
+    with tmp() as td, ansi():
+        w = make_world()
+        ann, ag = make_steam_app(td, w, ANN_ID, "Ann", "a")
+        ann.steam_tag = "6"
+        hl = fnv_steam.SteamLink(lambda: w.player(HOST_ID, "Six"))
+        assert hl.start()[0]
+        hl.host("5", "")                      # another release, already in the world
+        try:
+            assert ann.steam_refresh()["ok"]
+            f = ann.state()["steam"]["friends"]
+            assert len(f) == 1 and f[0]["joinable"] is False, f
+            r = ann.join_steam(HOST_ID)
+            assert not r["ok"] and "different release" in r["why"] and ann.lobby is None, r
+            for bad in ("", "10.0.0.5", "nope"):
+                assert not ann.join_steam(bad)["ok"], bad
+            # the host is in the world already (no lobby): the game starts and joins by Steam ID
+            hl.host("6", "")
+            assert ann.steam_refresh()["ok"]
+            pop = FakePopen()
+            orig = core.launch_game
+            core.launch_game = lambda game, popen=None: orig(game, pop)
+            try:
+                r = ann.join_steam(HOST_ID, in_game=True)
+            finally:
+                core.launch_game = orig
+            assert r["ok"] and len(pop.calls) == 1 and ann.steam is None, r
+            at = fnv_ini.read_text(core.ini_path(ag))
+            assert fnv_ini.get(at, "coop", "host") == HOST_ID and fnv_ini.get(at, "coop", "transport") == "steam"
+            # a click on Join Game next to a hosting friend shows up as a request the page offers
+            ann2, _ = make_steam_app(td, w, ANN_ID, "Ann", "a2")
+            ann2.steam_tag = "6"
+            assert ann2.steam_refresh()["ok"]
+            assert ann2.state()["steam"]["join_request"] is None
+            ann2.steam.chan.click_join_game(HOST_ID)
+            assert wait_for(lambda: ann2.state()["steam"]["join_request"] is not None)
+            req = ann2.state()["steam"]["join_request"]
+            assert req["id"] == HOST_ID and req["name"] == "Six"
+            ann2.steam_close()
+        finally:
+            hl.close()
+            ann.leave()
+
+
+def check_steam_unavailable():
+    with tmp() as td, ansi():
+        w = steamfake.FakeSteam()
+        app, g = make_steam_app(td, w, HOST_ID, "Six", "h")
+        app.steam_spawn = lambda: w.player(HOST_ID, "Six", error="Steam is not running or you are not logged in. Start Steam, then try again.")
+        r = app.host()
+        assert not r["ok"] and "Steam is not running" in r["why"] and app.lobby is None, r
+        assert "Steam is not running" in app.state()["steam"]["error"]
+        r = app.join_steam(ANN_ID)
+        assert not r["ok"] and "Steam is not running" in r["why"] and app.lobby is None
+        # no helper in this copy of the launcher: a clear message, and IP still works
+        app.steam_spawn = None
+        orig = fnv_steam.helper_path
+        fnv_steam.helper_path = lambda *a, **k: None
+        try:
+            assert not app.state()["steam"]["available"]
+            r = app.host()
+            assert not r["ok"] and "fnvsteam.exe" in r["why"], r
+            app.apply_settings({"connection": "ip", "port": free_udp_port()})
+            r = app.host()
+            try:
+                assert r["ok"] and app.lobby.view().via == "ip"
+            finally:
+                app.leave()
+        finally:
+            fnv_steam.helper_path = orig
+        assert app.apply_settings({"connection": "carrier pigeon"}) and app.s.connection == "ip", "only ip or steam"
+
+
+def check_steam_real_helper():
+    """fnvsteam.exe in its mock mode (players on one PC over localhost UDP) carries the real lobby code: the same code that runs over real Steam."""
+    exe = fnv_steam.helper_path()
+    if exe is None:
+        print("      (fnvsteam.exe is not built in out/steamlink: the full run builds it, see the Steam helper suite in tools/test_all.py)")
+        return
+    base = 41000 + (os.getpid() % 500) * 20
+    hosts = HOST_ID + ":Six"
+
+    def mock(sid, strangers=""):
+        argv = [str(exe), "--mock-id", sid, "--mock-base", str(base)] + (["--mock-hosts", hosts] if sid != HOST_ID else []) + (
+            ["--mock-strangers", strangers] if strangers else [])
+        return fnv_steam.ProcessChannel(argv)
+    hl = fnv_steam.SteamLink(lambda: mock(HOST_ID, EVE_ID))
+    al = fnv_steam.SteamLink(lambda: mock(ANN_ID))
+    el = fnv_steam.SteamLink(lambda: mock(EVE_ID))
+    ok = [hl.start(), al.start(), el.start()]
+    assert all(o[0] for o in ok), ok
+    assert al.me == ANN_ID
+    host = ann = eve = None
+    try:
+        assert [(f["id"], f["name"]) for f in al.friends("6")] == [(HOST_ID, "Six")]
+        hl.host("6", "lobby")
+        al.join(HOST_ID)
+        el.join(HOST_ID)
+        host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", sock_factory=hl.socket)
+        host.open()
+        ann = fnv_lobby.GuestLobby("Ann", 11, fnv_steam.PEER, 0, "0.1.1-alpha", sock_factory=al.socket)
+        ann.open()
+        started = []
+        host.on_start = lambda: started.append("host")
+        ann.on_start = lambda: started.append("ann")
+        assert wait_for(lambda: ann.view().state == "lobby" and len(host.view().players) == 2), (ann.view(), host.view())
+        eve = fnv_lobby.GuestLobby("Eve", 12, fnv_steam.PEER, 0, "0.1.1-alpha", sock_factory=el.socket)
+        eve.open()
+        ann.set_ready(True)
+        assert wait_for(lambda: host.view().can_start)
+        assert host.start()[0]
+        assert wait_for(lambda: sorted(started) == ["ann", "host"]), started
+        assert [p["name"] for p in host.view().players] == ["Six", "Ann"], "the host's Steam turned the stranger away"
+        assert eve.view().state != "lobby"
+    finally:
+        for x in (ann, eve, host):
+            if x:
+                x.close()
+        for l in (hl, al, el):
+            l.close()
+
+
+# ---- party saves (docs/party-save.md) ---------------------------------------------------------------------------------------------
+
+CAMP = "00ab12cd34ef5678"
+OTHER = "ffee00112233aabb"
+
+
+def write_party_save(saves, name, campaign, role="host", host_save=None, age=0):
+    """A save file plus the sidecar the plugin writes next to it; `age` seconds old."""
+    saves.mkdir(parents=True, exist_ok=True)
+    fos = saves / (name + ".fos")
+    fos.write_bytes(b"FO3SAVEGAME")
+    side = saves / (name + ".fos" + ps.SIDECAR_EXT)
+    side.write_text(f"{ps.SIDECAR_HEADER}\ncampaign={campaign}\nrole={role}\nhostSave={host_save or name}\n", encoding="utf-8")
+    t = time.time() - age
+    os.utime(fos, (t, t))
+    return fos
+
+
+def write_index(game, rows):
+    p = Path(game).joinpath(*ps.INDEX_REL)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(ps.INDEX_HEADER + "\n" + "".join("\t".join(str(c) for c in r) + "\n" for r in rows), encoding="utf-8")
+
+
+def check_party_names_and_folder():
+    assert ps.norm_campaign(CAMP.upper()) == CAMP and ps.norm_campaign("0" * 16) == "" and ps.norm_campaign("xyz") == "" and ps.norm_campaign(None) == ""
+    for good in ("Save 12 - Courier Goodsprings 00 04 11", "Co-op 00ab12 Quicksave", "Autosave"):
+        assert ps.valid_save_name(good), good
+    for bad in ("", " x", "x ", 'a"b', "a\\b", "a/b", "a:b", "a\tb", "x" * 151, "name.fos", None, "中文"):
+        assert not ps.valid_save_name(bad), repr(bad)
+    with tmp() as td:
+        game = td / "game"
+        game.mkdir()
+        docs = td / "docs"
+        # no Fallout.ini anywhere: the defaults, My Games\FalloutNV\Saves
+        assert ps.game_save_dir(game, str(docs)) == docs / "My Games" / "FalloutNV" / "Saves"
+        mg = fg.make_mygames(docs)
+        assert ps.game_save_dir(game, str(docs)) == mg / "Saves"
+        (mg / "Fallout.ini").write_text("[General]\nbUseMyGamesDirectory=0\nSLocalSavePath=Slots\\\n", encoding="latin-1")
+        assert ps.game_save_dir(game, str(docs)) == game / "Slots", "bUseMyGamesDirectory=0 saves next to the exe, in SLocalSavePath"
+
+
+def check_party_host_saves():
+    with tmp() as td:
+        saves = td / "Saves"
+        write_party_save(saves, "Save 3 - Ann Goodsprings", CAMP, age=300)
+        write_party_save(saves, "Save 4 - Ann Primm", CAMP, age=100)
+        write_party_save(saves, "Save 1 - Old campaign", OTHER, age=900)
+        write_party_save(saves, "Co-op 00ab12 Save 4 - Ann Primm", CAMP, role="guest", host_save="Save 4 - Ann Primm", age=50)   # a guest save is never offered
+        (saves / "Plain single player save.fos").write_bytes(b"x")                                   # no sidecar: not a co-op save
+        (saves / "Gone.fos.fnvparty").write_text(f"{ps.SIDECAR_HEADER}\ncampaign={CAMP}\nrole=host\n", encoding="utf-8")   # sidecar without its save
+        (saves / "Broken.fos").write_bytes(b"x")
+        (saves / "Broken.fos.fnvparty").write_text("garbage", encoding="utf-8")
+        got = [(h.name, h.campaign) for h in ps.list_host_saves(saves)]
+        assert got == [("Save 4 - Ann Primm", CAMP), ("Save 3 - Ann Goodsprings", CAMP), ("Save 1 - Old campaign", OTHER)], got
+        assert ps.latest_host_save(saves).name == "Save 4 - Ann Primm"
+        assert ps.latest_host_save(saves, OTHER).name == "Save 1 - Old campaign"
+        assert ps.latest_host_save(saves, "1" * 16) is None and ps.latest_host_save(td / "nothing") is None
+
+
+def check_party_guest_pick():
+    entries = ps.parse_index(ps.INDEX_HEADER + "\n" + "\n".join([
+        f"{CAMP}\tSave 3\tCo-op 00ab12 Save 3\t1000",
+        f"{CAMP}\tSave 4\tCo-op 00ab12 Save 4\t2000",
+        f"{CAMP}\tSave 5\tCo-op 00ab12 Save 5\t3000",
+        f"{OTHER}\tSave 3\tCo-op ffee00 Save 3\t9000",
+        "not an entry", f"{CAMP}\tx\ty\tnotanumber", ""]))
+    assert len(entries) == 4 and ps.parse_index("junk") == [] and ps.parse_index("") == []
+
+    def pick(camp, host, exists=lambda n: True):
+        e = ps.pick_guest_save(entries, camp, host, exists)
+        return e.guest_save if e else None
+    assert pick(CAMP, "Save 4") == "Co-op 00ab12 Save 4", "the save made for exactly that host save"
+    assert pick(CAMP, "save 3") == "Co-op 00ab12 Save 3", "names compare without case, the way Windows does"
+    assert pick(CAMP, "Save 9") == "Co-op 00ab12 Save 5", "no save for that host save: the newest of the campaign"
+    assert pick(OTHER, "Save 9") == "Co-op ffee00 Save 3" and pick(OTHER, "Save 3") == "Co-op ffee00 Save 3", "another campaign has its own saves"
+    assert pick("1" * 16, "Save 4") is None, "no save of that campaign: none (the guest joins with the start save)"
+    assert pick("", "Save 4") is None
+    assert pick(CAMP, "Save 5", lambda n: n != "Co-op 00ab12 Save 5") == "Co-op 00ab12 Save 4", "a save file that is gone is skipped"
+    assert pick(CAMP, "Save 4", lambda n: False) is None
+    # the same through a real folder: index file in the game folder, saves in the (fake) My Games folder
+    with tmp() as td:
+        game, docs = td / "game", td / "docs"
+        game.mkdir()
+        saves = fg.make_mygames(docs) / "Saves"
+        write_index(game, [(CAMP, "Save 4", "Co-op 00ab12 Save 4", 2000), (CAMP, "Save 5", "Co-op 00ab12 Save 5", 3000)])
+        assert ps.guest_pick(game, CAMP, "Save 4", str(docs)) is None, "the index names saves that are not on disk"
+        write_party_save(saves, "Co-op 00ab12 Save 4", CAMP, role="guest", host_save="Save 4")
+        assert ps.guest_pick(game, CAMP, "Save 4", str(docs)) == "Co-op 00ab12 Save 4"
+        assert ps.guest_pick(game, CAMP, "Save 5", str(docs)) == "Co-op 00ab12 Save 4", "Save 5 is gone: the newest that exists"
+        assert ps.guest_pick(game, OTHER, "Save 4", str(docs)) is None
+
+
+def check_lobby_continue_message():
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", address="127.0.0.1")
+    host.campaign, host.host_save = CAMP, "Save 4 - Ann Primm"
+    assert host.open()[0]
+    a = fnv_lobby.GuestLobby("Ann", 11, "127.0.0.1", host.port, "0.1.1-alpha")
+    started = []
+    a.on_start = lambda: started.append(a.start_info)
+    a.open()
+    try:
+        assert wait_for(lambda: a.view().state == "lobby"), a.view()
+        assert a.view().resume == "Save 4 - Ann Primm" and host.view().resume == "Save 4 - Ann Primm", "the lobby shows what is continued"
+        a.set_ready(True)
+        assert wait_for(lambda: host.view().can_start) and host.start()[0]
+        assert wait_for(lambda: started), started
+        assert started == [(CAMP, "Save 4 - Ann Primm")], "the start message carries the campaign id and the host save"
+    finally:
+        a.close()
+        host.close()
+    # a new game carries neither, and a guest ignores a campaign it cannot use
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", address="127.0.0.1")
+    assert host.open()[0]
+    b = fnv_lobby.GuestLobby("Bob", 22, "127.0.0.1", host.port, "0.1.1-alpha")
+    got = []
+    b.on_start = lambda: got.append(b.start_info)
+    b.open()
+    try:
+        b.set_ready(True)
+        assert wait_for(lambda: host.view().can_start and len(host.view().players) == 2) and host.start()[0]
+        assert wait_for(lambda: got) and got == [("", "")], got
+    finally:
+        b.close()
+        host.close()
+    g = fnv_lobby.GuestLobby("Cy", 3, "127.0.0.1", 1, "0.1.1-alpha")
+    g.handle({"t": "start", "players": [], "you": 1, "campaign": "nope", "hostSave": "Save 4"})
+    assert g.start_info == ("", ""), "a bad campaign id is ignored"
+    g2 = fnv_lobby.GuestLobby("Cy", 3, "127.0.0.1", 1, "0.1.1-alpha")
+    g2.handle({"t": "start", "players": [], "you": 1, "campaign": CAMP, "hostSave": "..\\evil/save"})
+    assert g2.start_info == ("", ""), "a host save name with a path in it is ignored"
+
+
+def check_continue_in_the_launcher():
+    with tmp() as td, ansi():
+        g = installed_game(td)
+        docs = td / "docs2"
+        saves = fg.make_mygames(docs) / "Saves"
+        write_party_save(saves, "Save 3 - Ann Goodsprings", CAMP, age=300)
+        write_party_save(saves, "Save 4 - Ann Primm", CAMP, age=100)
+        write_party_save(saves, "Save 1 - Other", OTHER, age=900)
+        cfg = td / "launcher.json"
+        core.save_settings(core.Settings(name="Ann", game_dir=str(g), port=free_udp_port(), token=5), cfg)
+        app = term.App(settings_path=cfg, version="0.1.1-alpha")
+        app.documents = str(docs)
+        assert [h["name"] for h in app.state()["saves"]] == ["Save 4 - Ann Primm", "Save 3 - Ann Goodsprings", "Save 1 - Other"]
+        r = app.host(cont=True, save="No such save")
+        assert not r["ok"] and app.lobby is None, "a save that is not on the list is refused and no lobby opens"
+        r = app.host(cont=True)
+        try:
+            assert r["ok"], r
+            assert (app.lobby.campaign, app.lobby.host_save) == (CAMP, "Save 4 - Ann Primm"), "Continue picks the newest co-op save"
+            assert app.autostart_for("host", app.lobby) == "load:Save 4 - Ann Primm"
+            assert app.lobby.view().resume == "Save 4 - Ann Primm"
+        finally:
+            app.leave()
+        r = app.host(cont=True, save="Save 3 - Ann Goodsprings")
+        try:
+            assert r["ok"] and app.lobby.host_save == "Save 3 - Ann Goodsprings", "the host can choose from the list"
+        finally:
+            app.leave()
+        r = app.host()
+        try:
+            assert r["ok"] and app.autostart_for("host", app.lobby) == "start", "HOST is still a new game from the start save"
+        finally:
+            app.leave()
+        # the guest's side: its index decides
+        guest_lobby = fnv_lobby.GuestLobby("Bob", 7, "127.0.0.1", 1, "0.1.1-alpha")
+        guest_lobby.campaign, guest_lobby.host_save = CAMP, "Save 4 - Ann Primm"
+        assert app.autostart_for("join", guest_lobby) == "start", "no index: the guest joins with the start save"
+        write_index(g, [(CAMP, "Save 4 - Ann Primm", "Co-op 00ab12 Save 4 - Ann Primm", 2000)])
+        write_party_save(saves, "Co-op 00ab12 Save 4 - Ann Primm", CAMP, role="guest", host_save="Save 4 - Ann Primm")
+        assert app.autostart_for("join", guest_lobby) == "load:Co-op 00ab12 Save 4 - Ann Primm"
+        guest_lobby.campaign, guest_lobby.host_save = OTHER, "Save 1 - Other"
+        assert app.autostart_for("join", guest_lobby) == "start", "no save of that campaign: the start save"
+        assert app.autostart_for("join", fnv_lobby.GuestLobby("Bob", 7, "127.0.0.1", 1, "x")) == "start", "a new game"
+        assert app.autostart_for("join", None) == "", "joining a game in progress loads nothing"
+        # the plan writes it, one-shot like "start", and refuses a name the plugin could not load
+        pop = FakePopen()
+        s = core.Settings(name="Ann", mode="host", port=28123, game_dir=str(g), autostart="load:Save 4 - Ann Primm", party=3)
+        r = core.start_session(s, running=not_running, popen=pop, port_free=lambda p: (True, ""))
+        assert r.ok, r.messages
+        t = fnv_ini.read_text(core.ini_path(g))
+        assert fnv_ini.get(t, "coop", "autostart") == "load:Save 4 - Ann Primm" and not fnv_ini.get(t, "coop", "party"), "no party count for a load: nobody waits for a movie"
+        s.autostart = "load:evil\\..\\path"
+        assert core.build_plan(s).values["coop"]["autostart"] == ""
+        s.autostart = "start"
+        p = core.build_plan(s)
+        assert p.values["coop"]["autostart"] == "start" and p.values["coop"]["party"] == "3"
+
+
+def check_campaign_and_chat_options():
+    """The host's pick for a new campaign ([rebalance], docs/rebalance.md) and the text chat keys ([chat], docs/chat.md)."""
+    with tmp() as td, ansi():
+        d = core.build_plan(core.Settings(name="Ann", mode="host"))
+        assert d.values["rebalance"] == {"mode": "normal", "friendlyfire": "0"}, d.values["rebalance"]
+        assert d.values["chat"] == {"enabled": "1", "name": "Ann", "key": "Y"}, d.values["chat"]
+        h = core.build_plan(core.Settings(name="Ann", mode="host", balanced=True, friendly_fire=True, chat=False, chat_key="f2"))
+        assert h.ok and h.values["rebalance"] == {"mode": "balanced", "friendlyfire": "1"}, h.values["rebalance"]
+        assert h.values["chat"] == {"enabled": "0", "name": "Ann", "key": "F2"}, h.values["chat"]
+        for bad in ("", "YY", "F0", "F25", "Esc!", "\u00e9"):
+            p = core.build_plan(core.Settings(name="Ann", chat_key=bad))
+            assert not p.ok and any("Chat key" in e for e in p.errors), bad
+        for good, want in (("t", "T"), ("7", "7"), (" F12 ", "F12"), ("f24", "F24")):
+            assert core.parse_chat_key(good) == (want, ""), good
+        g = installed_game(td)
+        core.write_ini(g, h)
+        text = fnv_ini.read_text(core.ini_path(g))
+        assert fnv_ini.get(text, "rebalance", "mode") == "balanced" and fnv_ini.get(text, "chat", "key") == "F2" and fnv_ini.get(text, "chat", "name") == "Ann"
+        back = core.read_settings_from_ini(g, core.Settings())
+        assert (back.balanced, back.friendly_fire, back.chat, back.chat_key) == (True, True, False, "F2"), back
+        core.write_ini(g, d)
+        back = core.read_settings_from_ini(g, core.Settings(balanced=True, chat_key="Q"))
+        assert (back.balanced, back.friendly_fire, back.chat, back.chat_key) == (False, False, True, "Y"), "the file wins over the remembered settings"
+
+
 REAL = [check_parse_address, check_validate_name, check_build_plan, check_write_ini, check_settings_file, check_port_checks,
-        check_probe_round_trip, check_probe_rejects_wrong_reply, check_start_session, check_gui_builds]
+        check_probe_round_trip, check_probe_rejects_wrong_reply, check_start_session, check_gui_builds,
+        check_lobby_party_starts_together, check_lobby_refusals,
+        check_steam_plan, check_steam_link, check_steam_lobby_party_starts_together, check_steam_lobby_refusals, check_steam_in_the_launcher,
+        check_steam_join_rules, check_steam_unavailable, check_steam_real_helper,
+        check_party_names_and_folder, check_party_host_saves, check_party_guest_pick, check_lobby_continue_message, check_continue_in_the_launcher,
+        check_campaign_and_chat_options]
 
 TWINS = [
+    (check_lobby_party_starts_together, "lobby_start_unready"),
+    (check_lobby_refusals, "lobby_ignore_version"),
     (check_parse_address, "ip_no_range"),
     (check_validate_name, "name_no_limit"),
     (check_build_plan, "no_live_dependency"),
@@ -371,7 +1039,13 @@ TWINS = [
     (check_port_checks, "port_always_ok"),
     (check_probe_round_trip, "answer_anything"),
     (check_probe_rejects_wrong_reply, "accept_any_reply"),
+    (check_party_guest_pick, "party_pick_newest_only"), (check_party_guest_pick, "party_pick_any_campaign"),
+    (check_lobby_continue_message, "lobby_drop_campaign"),
     (check_start_session, "skip_plugin_check"), (check_start_session, "skip_port_check"),
+    (check_steam_plan, "steam_id_any"), (check_steam_plan, "steam_transport_sticky"), (check_steam_plan, "steam_host_port_check"),
+    (check_steam_in_the_launcher, "steam_keep_helper"), (check_steam_join_rules, "steam_ignore_release"),
+    (check_campaign_and_chat_options, "balanced_ignored"), (check_campaign_and_chat_options, "chat_no_name"),
+    (check_campaign_and_chat_options, "chat_key_any"),
 ]
 
 

@@ -33,6 +33,7 @@ public:
     CombatSync* sync() { return sync_.get(); }
     const CombatSync* sync() const { return sync_.get(); }
     Config& config() { return cfg_; }       // set before the session starts (rules, friendly fire, xp mode, crime sync)
+    void setFriendlyFire(bool on) { cfg_.friendlyFire = on; if (sync_) sync_->setFriendlyFire(on); }   // the campaign's choice, any time (plugin/rebalance)
     uint64_t rebuilds() const { return rebuilds_; }
     uint64_t droppedUnknownPeer() const { return droppedUnknownPeer_; }
 

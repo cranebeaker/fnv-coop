@@ -156,6 +156,22 @@ public:
     ApplierExecScope& operator=(const ApplierExecScope&) = delete;
 };
 
+// The console lines run while this is alive act on THIS machine's own player and world view only (suppress_policy.h, "Explicit local-player scope"):
+// on a guest their mutations are not blocked, on a host they are muted from the capture hub (never captured, never sent). Use it for the machine's
+// own character work (character creation, the wake-up fade, resets); a line that needs a calling reference runs with execConsoleLineOn(line, 0x14)
+// inside it. Covers console / bridge lines only, not ESM scripts. Nests. Main thread only: a scope opened on any other thread is ignored.
+class LocalPlayerScope {
+public:
+    LocalPlayerScope();
+    ~LocalPlayerScope();
+    LocalPlayerScope(const LocalPlayerScope&) = delete;
+    LocalPlayerScope& operator=(const LocalPlayerScope&) = delete;
+    bool active() const { return active_; }   // false when it was opened off the main thread (it exempts nothing)
+private:
+    bool active_;
+};
+bool inLocalPlayerScope();
+
 // Host-authoritative quest vars / globals (L4 StateReplicator). Quest scripts only run on the host and write vars every
 // frame, so these are NOT put into capture txns: the host polls each tick and feeds the replicator.
 //   nvhooks::enableStatePolling(true);            // turns the per-scope var/global diff off (no duplicates in txns)

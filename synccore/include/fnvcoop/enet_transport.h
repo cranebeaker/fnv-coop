@@ -11,9 +11,9 @@ struct _ENetPeer;
 
 namespace fnvcoop {
 
-class EnetTransport : public ITransport {
+class EnetTransport : public ILinkTransport {
 public:
-    struct Event { enum Type { Connected, Disconnected } type; PeerId peer; };
+    using Event = ILinkTransport::Event;
 
     EnetTransport() = default;
     ~EnetTransport() override;
@@ -25,8 +25,8 @@ public:
     // Client: begin connecting to host:port (asynchronous; watch for the Connected event).
     bool connect(const std::string& host, uint16_t port);
     // Client: drop the dead link and start a fresh connection to the same host:port (after a Disconnected event).
-    bool reconnect();
-    void disconnect();  // graceful for all peers
+    bool reconnect() override;
+    void disconnect() override;  // graceful for all peers
     // A peer is dropped only after this long without an acknowledgement. ENet's default (5-30 s) is shorter than a long loading
     // screen, and the socket is serviced from the game's main loop, so a load would otherwise end the session.
     static constexpr unsigned kPeerTimeoutMinMs = 60000, kPeerTimeoutMaxMs = 120000, kPeerTimeoutLimit = 64;
@@ -34,12 +34,12 @@ public:
     void send(PeerId to, Bytes data) override { sendEx(to, std::move(data), Channel::Reliable); }
     void sendEx(PeerId to, Bytes data, Channel ch) override;
     bool poll(PeerId& from, Bytes& data) override;  // services the socket
-    bool nextEvent(Event& e);
+    bool nextEvent(Event& e) override;
     size_t backlogBytes(PeerId to) const override;
 
     uint16_t port() const { return port_; }
     bool isServer() const { return server_; }
-    bool connected() const { return connectedPeers_ > 0; }
+    bool connected() const override { return connectedPeers_ > 0; }
     struct Stats { uint64_t datagramsIn = 0, datagramsOut = 0, bytesIn = 0, bytesOut = 0; };
     const Stats& stats() const { return stats_; }
 

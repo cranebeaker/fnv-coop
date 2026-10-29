@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <tuple>
 #include "combat/combat_sync.h"
 #include "minitest.h"
 
@@ -88,6 +89,9 @@ struct FakeEngine : ICombatEngine {
     std::vector<std::pair<cc::Entity, cc::Limb>> cripples;
     std::vector<std::pair<uint32_t, int32_t>> mirrors;
     std::vector<std::pair<uint32_t, uint32_t>> provokes;
+    struct Touch { uint32_t victim = 0, attacker = 0; uint64_t hitId = 0; float amount = 0; };
+    std::vector<Touch> touches;   // a blow of under one point (or none) replayed for its reaction, with the exact amount
+    std::vector<float> exactDamage;   // the exact amount of every damageHealthExact call
     std::vector<std::pair<uint32_t, uint8_t>> corpses;
     std::vector<int32_t> xp;
     std::vector<cc::ProjectileSpawn> projectiles;
@@ -150,6 +154,20 @@ struct FakeEngine : ICombatEngine {
         r->health = health;
         mirrors.push_back({ref, health});
         return true;
+    }
+    bool touchVictim(uint32_t victimRef, uint32_t attackerRef, const cc::HitEvent& h, float amount) override {
+        touches.push_back({victimRef, attackerRef, h.hitId, amount});
+        Rec* r = find(victimRef);
+        if (r && r->alive && amount > 0) {   // the engine's float health loses exactly that, the integer view follows
+            const float real = static_cast<float>(r->health) + r->sliver - amount;
+            r->health = static_cast<int32_t>(real);
+            r->sliver = real - static_cast<float>(r->health);
+        }
+        return true;
+    }
+    bool damageHealthExact(const cc::Entity& victim, uint32_t ref, float amount, uint32_t attackerRef, const cc::HitEvent& h) override {
+        exactDamage.push_back(amount);
+        return damageHealth(victim, ref, static_cast<int32_t>(amount + 0.5f), attackerRef, h);
     }
     bool provoke(uint32_t v, uint32_t a) override { provokes.push_back({v, a}); return true; }
     bool decorateCorpse(uint32_t ref, uint8_t mask) override { corpses.push_back({ref, mask}); return true; }

@@ -372,16 +372,17 @@ std::string AvatarRuntime::LocalJson() {
     const LocalFrame& f = sampler_.lastFrame();
     const Vec3 v = sampler_.lastVelocity();
     const auto& c = sampler_.counters();
-    char buf[700];
+    char buf[800];
     std::snprintf(buf, sizeof buf,
                   "{\"have\":%s,\"cell\":\"%s\",\"pos\":[%.1f,%.1f,%.1f],\"rot\":[%.3f,%.3f,%.3f],\"vel\":[%.1f,%.1f,%.1f],\"loco\":%d,"
                   "\"weaponDrawn\":%s,\"sneak\":%s,\"jump\":%s,\"reload\":%s,\"aim\":%s,\"animReadable\":%s,\"published\":%llu,\"notReady\":%llu,"
-                  "\"teleports\":%llu,\"cellChanges\":%llu,\"seq\":%u}",
+                  "\"teleports\":%llu,\"cellChanges\":%llu,\"seq\":%u,\"rawAction\":%d,\"action\":%d,\"actionSeq\":%d}",
                   f.valid ? "true" : "false", Hex8(f.cell).c_str(), f.pos.x, f.pos.y, f.pos.z, f.rot.x, f.rot.y, f.rot.z, v.x, v.y, v.z,
                   (int)sampler_.lastLoco(), f.anim.weaponDrawn ? "true" : "false", f.anim.sneak ? "true" : "false",
                   f.anim.jump ? "true" : "false", f.anim.reload ? "true" : "false", f.anim.aim ? "true" : "false",
                   f.animReadable ? "true" : "false", (unsigned long long)c.published, (unsigned long long)c.notReady,
-                  (unsigned long long)c.teleports, (unsigned long long)c.cellChanges, haveSnap_ ? (unsigned)lastSnap_.seq : 0u);
+                  (unsigned long long)c.teleports, (unsigned long long)c.cellChanges, haveSnap_ ? (unsigned)lastSnap_.seq : 0u, f.actionGroup,
+                  haveSnap_ ? (int)lastSnap_.anim.action : 0, haveSnap_ ? (int)lastSnap_.anim.actionSeq : 0);
     return buf;
 }
 

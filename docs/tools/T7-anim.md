@@ -35,8 +35,9 @@ Engine reads are unknown until measured: `anim.stats` reports them; `tools/animc
 0x52, 0x6E, 0x9F, 0xF9, 0xFA, 0x101, 0x103, 0x115 and the fields they read; Actor `baseProcess` +0x68, life state +0x108; Actor slot 0x10B = GetCombatTarget;
 refID +0xC; NiNode children data/count +0xA0/+0xA6; NiAVObject world translate at **+0x8C** (xNVSE's `NiAVObject` struct puts it at 0x88: wrong, we use raw offsets);
 BSAnimGroupSequence `last` +0x34, size 0x78; PlayerMover/ActorMover slot 8.
+MEASURED 2026-10-29 (live memory reads of 1.4.0.525): BSAnimGroupSequence animGroup pointer at +0x74 (the dword at +0x68 is 0x0000FFFF), group id byte at +0x10 of the TESAnimGroup (+0x08 is not it).
 NOT proven (runtime-guarded: sequences must have a known vtable, mover must have a known vtable): AnimData `animSequence[]` at 0xE0, sequence state/begin/end/freq/weight,
-animGroup at +0x68 then id at +8, EntryData layout, Actor +0x14D swimming, +0xAC ragdoll, +0x190 mover, PlayerCharacter +0x64A meaning. `scan_animdata:true` reports which AnimData dwords point at sequences.
+EntryData layout, Actor +0x14D swimming, +0xAC ragdoll, +0x190 mover, PlayerCharacter +0x64A meaning. `scan_animdata:true` reports which AnimData dwords point at sequences.
 
 ## animcheck (tools/animcheck)
 

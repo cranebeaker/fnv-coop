@@ -134,6 +134,8 @@ bool IsDisabledSEH(TESObjectREFR* r, bool& out) {
 struct RawAnim {
     bool ok = false, haveProc = false, haveMover = false, aiming = false, weaponOut = false, swimming = false, dead = false, knocked = false;
     int groups[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int state[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int playMs[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     int nGroups = 0;
     int action = -1;
     uint32_t moverFlags = 0;
@@ -170,6 +172,13 @@ void ReadAnimRaw(Actor* a, bool isPlayer, RawAnim& o) {
                     if (SafeRead(seq + P::kSeqAnimGroup, &grp, sizeof grp) && grp && SafeRead(grp + P::kAnimGroupId, &id, 1)) {
                         o.groups[i] = id;
                         ++o.nGroups;
+                        // play state and play time (the same reads the NPC animation layer makes, plugin/actors/anim/anim_game.cpp)
+                        uint32_t st = 0;
+                        float tBegin = 0, tLast = 0;
+                        if (SafeRead(seq + P::kSeqState, &st, sizeof st)) o.state[i] = static_cast<int>(st);
+                        if (SafeRead(seq + P::kSeqBegin, &tBegin, sizeof tBegin) && SafeRead(seq + P::kSeqLast, &tLast, sizeof tLast) &&
+                            std::isfinite(tBegin) && std::isfinite(tLast) && tLast >= tBegin && tLast - tBegin < 3600.0f)
+                            o.playMs[i] = static_cast<int>((tLast - tBegin) * 1000.0f);
                     }
                 }
             }
@@ -445,6 +454,94 @@ int ReadFaceCoeffsSEH(TESForm* base, int8_t* out, int max) {
     }
 }
 
+// ---- a puppet's own look (2026-10-29) -------------------------------------------------------------------------------------------------------
+// A remote player's puppet gets a private copy of the template NPC (with `template=player` that is the PLAYER's own base: writing a look into the
+// template itself would change the local player). The copy is made the way xNVSE's TempCloneForm does it (third_party/NVSE GameForms.cpp,
+// TESForm::CloneForm): CreateFormInstance(type) 0x465110 (GameAPI.cpp), the new form's own CopyFrom(template) (TESForm vtable), and
+// DataHandler::DoAddForm 0x4603B0 (GameData.h; the DataHandler singleton is at 0x11C3F2C), which gives it a runtime id 0xFF....... Never saved:
+// the puppets are despawned before every save and nothing else points at it.
+constexpr uint32_t kCreateFormInstance = 0x00465110;
+constexpr uint8_t kCreateFormInstancePro[10] = {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x6F, 0xE4, 0xEE, 0x00};
+constexpr uint32_t kDataHandlerAddForm = 0x004603B0;
+constexpr uint8_t kDataHandlerAddFormPro[10] = {0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00, 0x89};
+constexpr uint32_t kDataHandlerPtr = 0x011C3F2C;
+
+uint32_t CloneNpcRaw(TESForm* src) {
+    __try {
+        if (!src || src->typeID != kFormType_TESNPC) return 0;
+        void* dh = *reinterpret_cast<void**>(uintptr_t(kDataHandlerPtr));
+        if (!dh) return 0;
+        TESForm* f = reinterpret_cast<TESForm*(__cdecl*)(UInt8)>(uintptr_t(kCreateFormInstance))(kFormType_TESNPC);
+        if (!f) return 0;
+        f->CopyFrom(src);
+        reinterpret_cast<UInt32(__thiscall*)(void*, TESForm*)>(uintptr_t(kDataHandlerAddForm))(dh, f);
+        return f->refID;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+// The float array of one FaceGenData block the way ReadFaceCoeffsRaw finds it (same two readings, same plausibility test). 0 = none.
+uintptr_t FaceBlockFloats(TESNPC* npc, int blk, uint32_t* countOut) {
+    uintptr_t fg = reinterpret_cast<uintptr_t>(&npc->faceGenData[blk]);
+    uint32_t values = 0, useOffset = 0, count = 0, size = 0;
+    if (!Rd(fg + 0x0C, values) || !Rd(fg + 0x10, useOffset) || !Rd(fg + 0x18, count) || !Rd(fg + 0x1C, size)) return 0;
+    if (!values || count == 0 || count > 64 || size != 1) return 0;
+    uint32_t candidates[2] = {0, values + (useOffset <= 0x400 ? useOffset : 0)};
+    Rd(values, candidates[0]);
+    for (uint32_t c : candidates) {
+        if (!c) continue;
+        bool ok = true, any = false;
+        for (uint32_t i = 0; i < count && ok; ++i) {
+            float f = 0;
+            ok = Rd(c + 4u * i, f) && std::isfinite(f) && std::fabs(f) <= 16.0f;
+            any = any || (ok && f != 0);
+        }
+        if (ok && any) {
+            *countOut = count;
+            return c;
+        }
+    }
+    return 0;
+}
+
+struct LookWrite {
+    bool female = false;
+    TESForm *race = nullptr, *hair = nullptr, *eyes = nullptr;
+    uint32_t hairColor = 0;
+    float height = 0, weight = 0;   // 0 = keep
+    const int8_t* coeffs = nullptr;
+    int coeffCount = 0;
+    bool faceWritten = false;
+};
+// Writes the look into `npc` (a copy made by CloneNpcRaw). The face morphs only go into arrays the copy owns: when CopyFrom shared the
+// template's array, writing it would change the template (the local player) too, and the face stays the template's.
+bool WriteLookRaw(TESNPC* npc, TESNPC* tmpl, LookWrite& w) {
+    __try {
+        if (w.female) npc->baseData.flags |= TESActorBaseData::kFlags_Female;
+        else npc->baseData.flags &= ~TESActorBaseData::kFlags_Female;
+        if (w.race && w.race->typeID == kFormType_TESRace) npc->race.race = static_cast<TESRace*>(w.race);
+        if (w.hair && w.hair->typeID == kFormType_TESHair) npc->hair = static_cast<TESHair*>(w.hair);
+        if (w.eyes && w.eyes->typeID == kFormType_TESEyes) npc->eyes = static_cast<TESEyes*>(w.eyes);
+        if (w.hairColor) npc->hairColor = w.hairColor;
+        if (w.height > 0) npc->height = w.height;
+        if (w.weight > 0) npc->weight = w.weight;
+        int k = 0;
+        for (int blk = 0; blk < 3 && k < w.coeffCount; ++blk) {
+            uint32_t n = 0, nt = 0;
+            const uintptr_t mine = FaceBlockFloats(npc, blk, &n);
+            const uintptr_t theirs = tmpl ? FaceBlockFloats(tmpl, blk, &nt) : 0;
+            if (!mine) continue;
+            if (mine == theirs) { k += static_cast<int>(n); continue; }   // shared with the template: never written
+            for (uint32_t i = 0; i < n && k < w.coeffCount; ++i, ++k) reinterpret_cast<float*>(mine)[i] = w.coeffs[k] / 16.0f;
+            w.faceWritten = true;
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // cdecl bool eval(thisObj, p1, p2, double* result)
 bool EvalSEH(uint32_t addr, void* ref, void* p1, double* out) {
     __try {
@@ -626,7 +723,11 @@ bool WinBackend::ReadAnim(RefId ref, AnimRead& out) {
     ReadAnimRaw(static_cast<Actor*>(f), reinterpret_cast<uintptr_t>(f) == PlayerPtr(), ra);
     if (!ra.ok) return false;
     out.valid = true;
-    for (int i = 0; i < 9; ++i) out.groups[i] = ra.groups[i];
+    for (int i = 0; i < 9; ++i) {
+        out.groups[i] = ra.groups[i];
+        out.state[i] = ra.state[i];
+        out.playMs[i] = ra.playMs[i];
+    }
     out.nGroups = ra.nGroups;
     out.action = ra.action;
     out.aiming = ra.aiming;
@@ -681,6 +782,34 @@ bool WinBackend::ReadAppearance(RefId ref, Appearance& out) {
     out.weight = static_cast<uint16_t>(ra.weight > 0 && ra.weight < 65.0f ? std::lround(ra.weight * 1000.0f) : 0);
     out.name = ra.name;
     return true;
+}
+
+FormId WinBackend::CloneNpcBase(FormId base) {
+    static const bool pinsOk = std::memcmp(reinterpret_cast<const void*>(uintptr_t(kCreateFormInstance)), kCreateFormInstancePro, sizeof kCreateFormInstancePro) == 0 &&
+                               std::memcmp(reinterpret_cast<const void*>(uintptr_t(kDataHandlerAddForm)), kDataHandlerAddFormPro, sizeof kDataHandlerAddFormPro) == 0;
+    if (!lookupOk_ || !pinsOk) return 0;
+    return CloneNpcRaw(LookupSEH(base));
+}
+
+bool WinBackend::WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, bool* faceWritten) {
+    if (faceWritten) *faceWritten = false;
+    if (!lookupOk_) return false;
+    TESForm* f = LookupSEH(base);
+    TESForm* t = LookupSEH(tmpl);
+    if (!f || f->typeID != kFormType_TESNPC || f == t) return false;   // never the template itself
+    LookWrite w;
+    w.female = a.female;
+    w.race = a.race ? LookupSEH(a.race) : nullptr;
+    w.hair = a.hair ? LookupSEH(a.hair) : nullptr;
+    w.eyes = a.eyes ? LookupSEH(a.eyes) : nullptr;
+    w.hairColor = a.hairColor;
+    w.height = a.height / 1000.0f;
+    w.weight = a.weight / 1000.0f;
+    w.coeffs = a.faceCoeffs.data();
+    w.coeffCount = static_cast<int>(a.faceCoeffs.size());
+    const bool ok = WriteLookRaw(static_cast<TESNPC*>(f), t && t->typeID == kFormType_TESNPC ? static_cast<TESNPC*>(t) : nullptr, w);
+    if (faceWritten) *faceWritten = w.faceWritten;
+    return ok;
 }
 
 int WinBackend::RunLine(RefId ctx, const std::string& line) {

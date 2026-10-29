@@ -35,6 +35,7 @@
 
 #include "avatar_api.h"
 #include "avatar_glue.h"
+#include "avatar_groups.h"   // kGrpDeath: the lying group of a downed puppet
 #include "avatar_runtime.h"
 #include "run_state.h"
 #include "common/minijson.h"
@@ -103,6 +104,7 @@ struct State {
     live::OwnerEpoch epoch = 0;
     std::map<Slot, Appearance> pendingRemotes;
     std::map<Slot, std::vector<EquipEntry>> pendingEquip;   // equipment that arrived before the runtime existed
+    std::map<Slot, int> pendingPose;                        // downed poses set before the runtime existed (replayed when it is created)
     std::unique_ptr<ManagerDirectory> dir;                  // the ghost-ref map (avatar_api.h), registered while the runtime lives
     uint32_t frames = 0;
     bool presaved = false;
@@ -205,6 +207,7 @@ void CreateRuntime() {
     for (auto& kv : g.pendingRemotes) g.rt->AddRemote(kv.first, kv.second);
     for (auto& kv : g.pendingEquip)
         if (g.pendingRemotes.count(kv.first)) g.rt->OnRemoteEquipment(kv.first, kv.second);
+    for (auto& kv : g.pendingPose) g.rt->SetPoseOverride(kv.first, kv.second);
     g.dir = std::make_unique<ManagerDirectory>(g.rt->manager(), c.puppet.localSlot);
     setPuppetDirectory(g.dir.get());
     if (g.loopbackAtStart) g.rt->SetLoopback(true);
@@ -542,6 +545,7 @@ bool AddRemote(Slot slot, const Appearance& a) {
 void RemoveRemote(Slot slot) {
     g.pendingRemotes.erase(slot);
     g.pendingEquip.erase(slot);
+    g.pendingPose.erase(slot);
     if (g.rt) g.rt->RemoveRemote(slot);
 }
 bool SetRemoteAppearance(Slot slot, const Appearance& a) {
@@ -570,6 +574,13 @@ void PostSave() {
     if (g.rt) g.rt->OnEvent(GameEvent::SaveEnd);
     g.presaved = false;
 }
+void SetPoseOverride(Slot slot, int baseGroup) {
+    if (!g.enabled) return;
+    if (baseGroup == kNoGroup) g.pendingPose.erase(slot);
+    else g.pendingPose[slot] = baseGroup;
+    if (g.rt) g.rt->SetPoseOverride(slot, baseGroup);
+}
+void SetDownedPose(Slot slot, bool downed) { SetPoseOverride(slot, downed ? static_cast<int>(kGrpDeath) : kNoGroup); }
 RefId PuppetRef(Slot slot) { return g.rt ? g.rt->RefOf(slot) : 0; }
 std::optional<Slot> PuppetSlot(RefId ref) { return g.rt ? g.rt->SlotOf(ref) : std::nullopt; }
 

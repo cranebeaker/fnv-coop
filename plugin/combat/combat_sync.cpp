@@ -4,7 +4,7 @@
 #include <cstdio>
 #include "../../tools/mut/fnvcoop_mut.h"
 
-// Mutation twins of this file are 701..760 (runtime style: FNVCOOP_MUT=<n>, tools/mut/run_twins.py). Each FNV_MUT(n) is a deliberately broken
+// Mutation twins of this file are 701..760 and 801..812 (runtime style: FNVCOOP_MUT=<n>, tools/mut/run_twins.py). Each FNV_MUT(n) is a deliberately broken
 // variant that tests/test_combat.cpp must catch. synccore/combat owns 301..362; plugin/actors owns its compile-time twins.
 
 namespace nvcoop::combat {
@@ -56,6 +56,11 @@ private:
     IWorldView& w_;
     const cc::ProjectileRegistry& proj_;
 };
+
+void CombatSync::setFriendlyFire(bool on) {
+    if (FNV_MUT(813)) return;   // MUTANT 813: the campaign's friendly fire choice never reaches a running session
+    cfg_.friendlyFire = on;
+}
 
 CombatSync::CombatSync(const Config& cfg, IWorldView& world, ICombatEngine& engine, ICombatNet& net)
     : cfg_(cfg), world_(world), eng_(engine), net_(net), validator_(cfg.rules), projectiles_(cfg.rules), explosions_(cfg.rules) {
@@ -137,9 +142,27 @@ void CombatSync::hostLost() {
 }
 
 // ------------------------------------------------------------------------------------------------ the hit gate (attacker's / any machine)
-bool CombatSync::buildHit(const EngineHit& e, const cc::Entity& atk, const EntityView& av, const cc::Entity& vic, const EntityView& vv, cc::HitEvent& h) {
-    const int32_t dmg = static_cast<int32_t>(std::lround(e.healthDmg));
-    if (dmg <= 0) return false;
+bool CombatSync::buildHit(const EngineHit& e, const cc::Entity& atk, const EntityView& av, const cc::Entity& vic, const EntityView& vv, cc::HitEvent& h, bool& touch, uint32_t& centi) {
+    touch = false;
+    centi = 0;
+    // The engine's blows are fractions (a first-level fist is a few tenths of a point) and the owner must apply exactly what the attacker's engine computed: the exact
+    // amount travels in hundredths. The rules' health is whole points and they refuse a hit of 0, so their own damage is the nearest point, at least 1 for a blow that
+    // hurt at all; it only gets the hit judged. Rounding a light blow to nothing made it vanish at the gate (a guest's punch on a host-owned settler was neutralised here
+    // and nobody ever heard of it).
+    if (e.healthDmg > 0) centi = static_cast<uint32_t>(std::min<long long>(std::llround(static_cast<double>(e.healthDmg) * 100.0), kMaxCenti));
+    if (FNV_MUT(809) && centi > 0) centi = static_cast<uint32_t>(std::lround(e.healthDmg)) * 100u;   // 809: the exact amount is rounded to whole points before it is sent
+    int32_t dmg = static_cast<int32_t>(std::lround(e.healthDmg));
+    if (centi > 0 && centi < 100) ++stats_.lightHitsSent;
+    if (dmg <= 0 && centi > 0 && !FNV_MUT(801)) dmg = 1;   // 801: a light blow stays at 0 for the rules and is dropped as a touch with no amount
+    if (dmg <= 0) {
+        // No health damage at all (armour, a glancing hit; a hundredth of a point counts as none): on an actor it is still a blow. The victim reels and turns on its
+        // attacker, so the owner must hear of it. Reported as damage 1 (the rules accept nothing less) and flagged, so the owner takes no health off. Explosions and
+        // negative "damage" stay out of it.
+        if (!vic.isActor() || e.explosionKey != 0 || e.healthDmg < 0 || FNV_MUT(802)) return false;   // 802: a blow with no health damage is dropped
+        dmg = 1;
+        touch = true;
+        centi = 0;
+    }
     h = cc::HitEvent{};
     h.hitId = nextId();
     h.attacker = atk;
@@ -259,6 +282,7 @@ GateDecision CombatSync::onEngineHit(const EngineHit& e) {
     if (vv.simulatedHere) {
         ++stats_.naturalHits;
         if (haveAtk) recordHit(vic, atk, e.weapon, limbOfLocation(e.hitLocation), true);
+        if (haveAtk && e.healthDmg > 0 && cfg_.onHitLanded && !FNV_MUT(820)) cfg_.onHitLanded(e.victimRef, e.attackerRef, e.healthDmg);   // 820: threat never hears of a natural hit
         // the local engine handles an attack by the local player on its own (reputation, the victim's reaction): the other machines still need to learn of it
         if (haveAtk && vic.isActor() && e.healthDmg > 0) socialCrime(atk, av, vic, vv, false, atk == cc::Entity::player(cfg_.self) ? static_cast<uint8_t>(1u << cfg_.self) : uint8_t(0));
         if (vic.isActor() && e.healthDmg > 0) {
@@ -279,19 +303,22 @@ GateDecision CombatSync::onEngineHit(const EngineHit& e) {
         return decide(GateAction::Neutralize, "player-vs-player damage is off");
     }
     cc::HitEvent h;
-    if (!buildHit(e, atk, av, vic, vv, h)) return decide(GateAction::Neutralize, "no health damage to report");
+    bool touch = false;
+    uint32_t centi = 0;
+    if (vic.isActor()) ++stats_.hitsOnCopies;
+    if (!buildHit(e, atk, av, vic, vv, h, touch, centi)) return decide(GateAction::Neutralize, "no health damage to report");
     if (xid != 0 && e.blastRadius > 0) {   // a real radius: the hit takes the id every planning pass would give it, so it can never land twice
         h.explosionId = xid;
         h.hitId = cc::explosionHitId(xid, vic);
         h.impactPoint = e.blastCenter;
         h.claimedRange = e.blastRadius;
     }
-    forwardHit(h, vv.owner);
+    forwardHit(h, vv.owner, touch, centi);
     if (vic.isActor()) socialCrime(atk, av, vic, vv, false, 0);   // the victim's owner resolves the hit; the attacker's machine is the one that can vouch for who attacked
     // keep the copy alive: it may take what leaves it at least 1 health; the owner decides the real outcome
     int32_t room = vv.health > 1 ? vv.health - 1 : 0;
     if (FNV_MUT(704)) room = vv.health + 1000000;   // 704: the copy takes the full local damage (and can die from a prediction)
-    return decide(GateAction::Clamp, "forwarded to the victim's owner", room);
+    return decide(GateAction::Clamp, touch ? "forwarded to the victim's owner (no health damage: a touch)" : "forwarded to the victim's owner", room);
 }
 
 void CombatSync::noteNaturalLethal(const cc::Entity& who) {
@@ -307,11 +334,12 @@ void CombatSync::noteNaturalLethal(const cc::Entity& who) {
     pendingKills_.push_back({who, now_ + cfg_.lethalSettleMs, true});
 }
 
-void CombatSync::forwardHit(const cc::HitEvent& h, PlayerId owner) {
-    Inflight f; f.hit = h; f.sentAt = now_;
+void CombatSync::forwardHit(const cc::HitEvent& h, PlayerId owner, bool touch, uint32_t centi) {
+    Inflight f; f.hit = h; f.sentAt = now_; f.touch = touch; f.centi = centi;
     inflight_[h.hitId] = f;
     ++stats_.hitsSent;
-    Envelope env; env.src = cfg_.self; env.dest = owner; env.body = MHit{h};
+    if (touch) ++stats_.touchesSent;
+    Envelope env; env.src = cfg_.self; env.dest = owner; env.body = MHit{h, touch, centi};
     send(env);
 }
 
@@ -364,7 +392,7 @@ void CombatSync::onHit(PlayerId from, const Envelope& env, const MHit& m) {
     }
     cc::HitVerdict v = validator_.judge(h, env.src, cfg_.self, now_, *adapter_);
     if (FNV_MUT(720)) { v.apply = true; v.reason = cc::HitReason::Ok; }   // 720: every received hit is applied (double damage, non-owner, stale epoch)
-    if (v.apply) { applyAccepted(h, env.src); return; }
+    if (v.apply) { applyAccepted(h, env.src, m.touch, m.centi); return; }
     ++stats_.rejectedByReason[static_cast<size_t>(v.reason)];
     switch (v.reason) {
         case cc::HitReason::Duplicate:
@@ -411,7 +439,25 @@ cc::VictimVitals CombatSync::vitalsOf(const cc::Entity& e, const EntityView& v) 
     return vit;
 }
 
-void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender) {
+// A blow of under one point of health, or none, reached the owner: the engine's reaction and the victim's notice of the attacker, with exactly `amount` points off
+// its float health (nothing for a touch). The whole-point model of the rules is left alone; the coalesced vitals follow what the engine really shows.
+void CombatSync::applyLight(const cc::HitEvent& h, const EntityView& vv, const EntityView& av, bool haveAtk, float amount) {
+    if (!vv.alive || !vv.ref) return;
+    if (amount > 0) ++stats_.lightHitsApplied; else ++stats_.touchesApplied;
+    const uint32_t attackerRef = haveAtk ? av.ref : 0;
+    if (!FNV_MUT(804) && eng_.touchVictim(vv.ref, attackerRef, h, amount)) ++stats_.touchesEngine;   // 804: the owner's engine never sees the blow
+    if (h.victim.isActor() && haveAtk && av.ref && !FNV_MUT(805)) {                                   // 805: the victim does not turn on its attacker
+        if (eng_.provoke(vv.ref, av.ref)) ++stats_.provoked;
+    }
+    if (amount > 0 && h.victim.isActor() && !FNV_MUT(812)) {   // 812: the light blow's result is never published (the copies keep the old health)
+        VitalsDirty& d = vitalsDirty_[h.victim];
+        if (d.dueAt == 0) d.dueAt = now_ + cfg_.vitalsMinMs;
+    }
+    if (amount > 0 && haveAtk && av.ref && cfg_.onHitLanded && !FNV_MUT(821)) cfg_.onHitLanded(vv.ref, av.ref, amount);   // 821: threat never hears of a light blow
+    recordHit(h.victim, h.attacker, h.weapon, h.limb, false);
+}
+
+void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender, bool touch, uint32_t centi) {
     (void)sender;
     EntityView vv, av;
     if (!world_.entity(h.victim, vv) || !vv.known) return;
@@ -420,6 +466,10 @@ void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender) {
     // a REMOTE player's hit that reached the victim's owner: the same story-actor protection as at the attacker's own gate (this machine holds the rules)
     if (h.attacker.isPlayer() && h.attacker.id != cfg_.self && h.attacker.id < kMaxSlots && h.victim.isActor() && vv.ref &&
         protectedBlocks(vv.ref, static_cast<PlayerId>(h.attacker.id), h.explosionId != 0)) return;
+    // exact: the attacker's engine damage; a hit from a build that did not send it (centi 0, not a touch) falls back to the rules' whole points
+    const float exact = centi > 0 ? static_cast<float>(centi) / 100.0f : static_cast<float>(h.damage);
+    if (touch && !FNV_MUT(803)) { applyLight(h, vv, av, haveAtk, 0.0f); return; }       // 803: a touch is applied as a point of damage
+    if (!touch && centi > 0 && centi < 100 && !FNV_MUT(810)) { applyLight(h, vv, av, haveAtk, exact); return; }   // 810: a light blow is applied as the point the rules carry
     cc::VictimVitals vit = vitalsOf(h.victim, vv);
     const cc::DamageOutcome o = cc::applyHit(vit, h, validator_.rules());
     limbs_[h.victim] = vit.limbs;
@@ -439,9 +489,13 @@ void CombatSync::applyAccepted(const cc::HitEvent& h, PlayerId sender) {
         }
     }
     if (!attributed && amount > 0 && vv.ref && !FNV_MUT(707)) {
-        if (eng_.damageHealth(h.victim, vv.ref, amount, haveAtk ? av.ref : 0, h)) stats_.damageApplied += static_cast<uint64_t>(amount);
+        // the whole blow as the attacker's engine computed it, unless the rules changed the amount (a protected floor, a lethal replay): then their points
+        const bool asComputed = centi > 0 && !o.died && amount == static_cast<int32_t>(std::lround(exact)) && !FNV_MUT(811);   // 811: fractions are rounded away on the owner
+        const bool ok = asComputed ? eng_.damageHealthExact(h.victim, vv.ref, exact, haveAtk ? av.ref : 0, h) : eng_.damageHealth(h.victim, vv.ref, amount, haveAtk ? av.ref : 0, h);
+        if (ok) stats_.damageApplied += static_cast<uint64_t>(amount);
         else { ++stats_.engineRefused; ++stats_.damageRefused; }
     }
+    if (haveAtk && av.ref && vv.ref && cfg_.onHitLanded && !FNV_MUT(822)) cfg_.onHitLanded(vv.ref, av.ref, exact);   // 822: threat never hears of a forwarded hit
     for (unsigned i = 0; i < cc::kLimbCount; ++i) {
         if (!((o.newlyCrippled >> i) & 1u)) continue;
         if (vv.ref && eng_.setLimbCrippled(h.victim, vv.ref, static_cast<cc::Limb>(i))) ++stats_.limbsCrippled;
@@ -889,17 +943,17 @@ void CombatSync::tick(uint64_t nowMs) {
             // here, as the owner does for a hit it receives (the copy was clamped when the hit was fired, so the damage is still owed).
             const cc::HitEvent& h = f.hit;
             const cc::HitVerdict v = validator_.judge(h, cfg_.self, cfg_.self, now_, *adapter_);
-            if (v.apply) { ++stats_.hitsResolvedLate; applyAccepted(h, cfg_.self); }
+            if (v.apply) { ++stats_.hitsResolvedLate; applyAccepted(h, cfg_.self, f.touch, f.centi); }
             else { ++stats_.hitsAbandoned; remember(cc::toString(v.reason), v.detail); }
             continue;
         }
         if (owner == kNoPlayer || owner == cfg_.self) { ++stats_.hitsAbandoned; continue; }
         cc::HitEvent h = f.hit;
         if (!f.keepId && !FNV_MUT(717)) h.hitId = (h.explosionId ? h.hitId ^ (static_cast<uint64_t>(f.attempts + 1) << 40) : nextId());
-        Inflight n; n.hit = h; n.sentAt = f.sentAt; n.attempts = static_cast<uint8_t>(f.attempts + 1);
+        Inflight n; n.hit = h; n.sentAt = f.sentAt; n.attempts = static_cast<uint8_t>(f.attempts + 1); n.touch = f.touch; n.centi = f.centi;
         inflight_[h.hitId] = n;
         ++stats_.hitRetries;
-        Envelope env; env.src = cfg_.self; env.dest = owner; env.body = MHit{h};
+        Envelope env; env.src = cfg_.self; env.dest = owner; env.body = MHit{h, f.touch, f.centi};
         send(env);
     }
     // owner: a hit that the rules called lethal must have left the victim dead; if the engine still shows it standing, the owner kills it

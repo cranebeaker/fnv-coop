@@ -21,6 +21,7 @@ set(NVAE_CORE_SRC
   ${NVAE_DIR}/actor_engine_api.cpp
   ${NVAE_DIR}/actor_feed.cpp
   ${NVAE_DIR}/engine_port.cpp
+  ${NVAE_DIR}/equipment.cpp
   ${NVAE_DIR}/ledger.cpp
   ${NVAE_DIR}/script_engine.cpp)
 
@@ -49,7 +50,7 @@ endforeach()
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND TARGET nvcoop AND TARGET nvcoop_hooks_game AND TARGET nvcoop_world_game AND TARGET nvcoop_coop_core
    AND EXISTS "${NVAE_DIR}/engine_real.cpp" AND EXISTS "${NVAE_DIR}/engine_module.cpp")
   set(NVAE_NVSE "${NVAE_REPO}/third_party/NVSE" CACHE PATH "xNVSE checkout")
-  add_library(nvcoop_actor_engine_game STATIC ${NVAE_DIR}/engine_real.cpp)
+  add_library(nvcoop_actor_engine_game STATIC ${NVAE_DIR}/engine_real.cpp ${NVAE_DIR}/equipment_real.cpp)
   target_link_libraries(nvcoop_actor_engine_game PUBLIC nvcoop_actor_engine_core nvcoop_hooks_game nvcoop_world_game)
   target_include_directories(nvcoop_actor_engine_game PUBLIC ${NVAE_REPO}/plugin/hooks_world ${NVAE_REPO}/plugin/hooks
     "${NVAE_NVSE}" "${NVAE_NVSE}/nvse" "${NVAE_NVSE}/nvse/nvse")

@@ -64,6 +64,7 @@ void NpcAnimDriver::resetApplied(Puppet& p) {
     p.loop = -1; p.loopHold = true; p.rate = 1.0f; p.sneakKnown = false; p.weaponKnown = false; p.aimApplied = false; p.dirty = false;
     p.transient = -1; p.jump = JumpPhase::None; p.prevJump = false; p.turning = false; p.loopBo.clear(); p.sneakBo.clear(); p.rateBo.clear(); p.aimBo.clear();
     p.heldAction = 0; p.afterActionReassert = false; p.actionUntil = 0; p.getUpUntil = 0;
+    p.seat = Puppet::Seat::Unknown; p.standPending = false; p.standTries = 0; p.standRetryAt = 0; p.sitBo.clear(); p.standBo.clear(); p.poseHeld = false; p.obsFresh = false;   // (p.unrestrained stays: the hold is still owed)
 }
 
 bool NpcAnimDriver::blocked(uint32_t now) {
@@ -254,9 +255,9 @@ void NpcAnimDriver::applyWeapon(NetId id, Puppet& p, const live::AnimState& a, u
 void NpcAnimDriver::applyOneShot(NetId id, Puppet& p, const live::AnimState& a, uint32_t now) {
     // A held action (block, automatic fire) ends when the owner stops reporting it: the movement group takes over again.
     if (p.heldAction && a.action != p.heldAction) { p.heldAction = 0; p.afterActionReassert = true; }
-    if (cfg_.playTalking && !p.creature && !FNV_MUT(55) && a.talk != p.prevTalk) {   // twin 55: the owner's talking is never shown
+    if (cfg_.playTalking && !p.creature && !FNV_MUT(55) && a.talk != p.prevTalk) {   // twin 55: the owner's talking is never shown (twin 87: it is played over the furniture pose)
         p.prevTalk = a.talk;
-        if (a.talk && !p.moving && spend(1, false) && play(id, kGroupTalking, false, false) == Cmd::Ok) p.actionGroup = kGroupTalking;
+        if (a.talk && !p.moving && (!p.poseHeld || FNV_MUT(87)) && spend(1, false) && play(id, kGroupTalking, false, false) == Cmd::Ok) p.actionGroup = kGroupTalking;
     }
     if (!p.haveSeq) {
         // First look: adopt the counter without playing. An old event (before this copy existed, or before a load) must not be replayed.
@@ -304,12 +305,141 @@ void NpcAnimDriver::applyKnock(NetId id, Puppet& p, const live::InterpOut& out, 
     p.prevKnocked = k;
 }
 
+// ---- furniture -------------------------------------------------------------------------------------------------------------------------
+// The copy sits in the same furniture as the owner's actor, or stands up. The order that matters: a copy told "standing" leaves the furniture
+// BEFORE any movement group is played over it (drive() plays none while this returns true), and a copy told "seated" gets no movement group at
+// all. Commands only go out on a CHANGE of what the stream wants (or when a read-back finds the engine did not do it), never per frame.
+
+void NpcAnimDriver::observeSeat(Puppet& p, const NpcReads& r) {
+    p.sitReadable = r.sitKnown;
+    if (!r.sitKnown) { p.obsFresh = false; return; }
+    p.obs = sitFromEngine(r.sitSleep);
+    p.obsFurniture = r.furniture;
+    p.obsFresh = true;
+}
+
+bool NpcAnimDriver::applySeat(NetId id, Puppet& p, const live::AnimState& a, uint32_t now) {
+    if (!cfg_.playSit || noSeat_) { p.poseHeld = false; return false; }
+    // twin 81: "leaving" is still treated as seated (the copy stands up only when the owner's state is None, a beat late)
+    const bool wantSeat = a.sit == live::SitState::Entering || a.sit == live::SitState::Using || (FNV_MUT(81) && a.sit == live::SitState::Leaving);
+
+    // 1. first look at this copy (or after a reset): is it already in some furniture? (a copy that was loaded sitting stays that way until told)
+    if (p.seat == Puppet::Seat::Unknown) {
+        p.seat = Puppet::Seat::Standing;
+        NpcReads r;
+        if (!FNV_MUT(79) && eng_.Read(id, r) && r.valid && r.sitKnown) {   // twin 79: no first look, a copy that loads sitting is assumed standing
+            p.sitReadable = true;
+            if (sitFromEngine(r.sitSleep).seated()) { p.seat = Puppet::Seat::Seated; p.seatFurniture = r.furniture; p.sitCmdAt = 0; }
+        }
+    }
+
+    // 2. what the last read-back said (verifyPuppet reads the copy every reassertMs anyway; while a stand-up is under way it is looked at faster,
+    //    the movement group waits for it)
+    if (p.standPending && !p.obsFresh && reached(now, p.pendingReadAt)) {
+        p.pendingReadAt = stamp(now + cfg_.standPollMs);
+        NpcReads r;
+        if (eng_.Read(id, r) && r.valid) observeSeat(p, r);
+    }
+    if (p.obsFresh) {
+        p.obsFresh = false;
+        const bool judged = p.sitCmdAt == 0 || elapsed(now, p.sitCmdAt) >= cfg_.verifyGraceMs;
+        if (p.standPending) {
+            if (p.obs.state == live::SitState::None && judged) {   // out of the furniture: the movement group may take over
+                p.standPending = false; p.standTries = 0; p.loop = -1; ++stats_.standsConfirmed;
+            }
+        } else if (judged && !FNV_MUT(82)) {   // twin 82: the read-back is never used, a sit the engine dropped (or a copy that sits on its own) is not noticed
+            if (p.seat == Puppet::Seat::Seated && p.obs.state == live::SitState::None) {
+                p.seat = Puppet::Seat::Standing; ++stats_.sitDrops;   // the engine dropped the pose: the sit below is issued again (with backoff)
+                p.sitBo.fail(now, cfg_.retryBackoffMs);
+            } else if (p.seat == Puppet::Seat::Standing && p.obs.seated()) {
+                p.seat = Puppet::Seat::Seated; p.seatFurniture = p.obsFurniture; ++stats_.sitDrifts;   // in furniture the stream does not (or no longer) want
+            }
+        }
+    }
+    if (p.standPending) {
+        const uint32_t waited = elapsed(now, p.standSince);
+        if (!p.sitReadable && waited >= cfg_.standSettleMs) {   // nothing to read it back with: assume it is out after the settle time
+            p.standPending = false; p.standTries = 0; p.loop = -1; ++stats_.standsConfirmed;
+        } else if (waited >= cfg_.standWaitMs && !FNV_MUT(80)) {   // twin 80: a stand-up that never reads back as finished blocks the movement group for ever
+            p.standPending = false;
+            if (p.standTries < cfg_.standMaxTries) {
+                p.seat = Puppet::Seat::Seated;   // still in the furniture: the next escalation goes out below
+            } else {
+                p.standTries = 0; p.standRetryAt = stamp(now + cfg_.sitRetryMs); ++stats_.standGiveUps;
+                p.loop = -1;
+            }
+        }
+    }
+    // the hold goes back once the actor is out (or we gave up): an escalated stand-up let its AI run
+    if (!p.standPending && p.unrestrained && !FNV_MUT(83) && spend(1, true)) {   // twin 83: the hold is never put back, the actor's AI keeps running on a remote-driven copy
+        const Cmd c = note(eng_.Restrain(id));
+        if (c == Cmd::Ok) { p.unrestrained = false; ++stats_.restrains; }
+    }
+
+    // 3. decide
+    if (wantSeat) {
+        if (p.seat == Puppet::Seat::Seated) {
+            if (a.furniture && p.seatFurniture && a.furniture != p.seatFurniture) p.seat = Puppet::Seat::Standing;   // another piece of furniture: use that one
+            else {
+                if (!p.seatFurniture) p.seatFurniture = a.furniture;
+                p.poseHeld = true;
+                if (!FNV_MUT(78)) return true;   // twin 78: the belief is ignored, the sit command is repeated every frame
+            }
+        }
+        if (p.standPending) { p.poseHeld = true; return true; }   // still on the way out of the old pose
+        if (!a.furniture) {   // the owner could not say which: nothing to sit in (the stream carries it as soon as it can)
+            if (!p.noFurnitureCounted) { p.noFurnitureCounted = true; ++stats_.sitNoFurniture; }
+            p.poseHeld = p.seat == Puppet::Seat::Seated;
+            return p.poseHeld;
+        }
+        p.noFurnitureCounted = false;
+        if (!p.sitBo.ready(now) || FNV_MUT(75)) { p.poseHeld = p.seat == Puppet::Seat::Seated; return p.poseHeld; }   // twin 75: the sit command is never issued
+        if (!spend(1, true)) { p.poseHeld = p.seat == Puppet::Seat::Seated; return p.poseHeld; }
+        const Cmd c = note(eng_.SitIn(id, a.furniture));
+        if (c == Cmd::Ok) {
+            p.seat = Puppet::Seat::Seated; p.seatFurniture = a.furniture; p.sitCmdAt = stamp(now); p.sitBo.clear(); p.loop = -1; ++stats_.sitsIssued;
+        } else if (c == Cmd::Unsupported) {
+            noSeat_ = true;
+        } else if (c == Cmd::Refused) {
+            p.sitBo.fail(now, cfg_.retryBackoffMs);
+        }
+        p.poseHeld = p.seat == Puppet::Seat::Seated;
+        return p.poseHeld;
+    }
+
+    // the stream says standing (or leaving)
+    p.noFurnitureCounted = false;
+    if (p.seat == Puppet::Seat::Seated && !p.standPending) {
+        if (FNV_MUT(76)) { p.seat = Puppet::Seat::Standing; p.poseHeld = false; return false; }   // twin 76: the copy is never stood up, it slides across the room sitting
+        const bool coolingDown = p.standRetryAt != 0 && !reached(now, p.standRetryAt);
+        if (!coolingDown && p.standBo.ready(now) && spend(1, true)) {
+            p.standRetryAt = 0;
+            const uint32_t furn = p.seatFurniture ? p.seatFurniture : p.obsFurniture;
+            const uint32_t attempt = (furn || p.standTries) ? p.standTries : 1u;   // without a furniture reference there is no gentle way
+            const Cmd c = note(eng_.StandUp(id, furn, attempt));
+            if (c == Cmd::Ok) {
+                ++p.standTries;
+                p.seat = Puppet::Seat::Standing; p.standPending = true; p.standSince = now; p.sitCmdAt = stamp(now); p.standBo.clear();
+                p.pendingReadAt = stamp(now + cfg_.verifyGraceMs);
+                if (attempt >= 1) p.unrestrained = true;
+                p.loop = -1; ++stats_.standsIssued;
+            } else if (c == Cmd::Unsupported) {
+                noSeat_ = true; p.seat = Puppet::Seat::Standing;
+            } else if (c == Cmd::Refused) {
+                p.standBo.fail(now, cfg_.retryBackoffMs);
+            }
+        }
+    }
+    p.poseHeld = p.standPending || p.seat == Puppet::Seat::Seated;
+    return p.poseHeld;
+}
+
 // ---- driving a live copy ---------------------------------------------------------------------------------------------------------------
 
 void NpcAnimDriver::drive(NetId id, const live::InterpOut& out, uint32_t now) {
     ++stats_.drives;
     if (dead_.count(id) && !FNV_MUT(46)) return;   // twin 46: a dead actor is still driven (its body keeps getting animation commands)
-    if (blocked(now)) return;   // a menu is up (it may have opened since the last tick) or no game is loaded
+    if (blocked(now) && !FNV_MUT(84)) return;   // a menu is up (it may have opened since the last tick) or no game is loaded (twin 84: commands go out anyway)
     auto pit = puppets_.find(id);
     if (pit == puppets_.end()) pit = puppets_.emplace(id, Puppet{}).first;
     Puppet& p = pit->second;
@@ -336,13 +466,14 @@ void NpcAnimDriver::drive(NetId id, const live::InterpOut& out, uint32_t now) {
 
     applyKnock(id, p, out, now);
     applyWeapon(id, p, a, now);      // (before the pick: a draw / holster transition is shown in this very frame)
+    const bool furnitureOwnsPose = applySeat(id, p, a, now);   // (before any movement group: a copy told standing leaves the furniture first)
     bool hold = true;
     const int want = pickLoopGroup(p, out, now, hold);
     applyOneShot(id, p, a, now);
 
     if (a.knocked || a.ragdoll) return;                    // the physics own the pose; no movement group over a body on the floor
-    if (pending(now, p.getUpUntil) || (isReactionGroup(p.actionGroup) && pending(now, p.actionUntil))) {
-        // getting up / a reaction is playing: do not stomp it with the movement group
+    if ((furnitureOwnsPose && !FNV_MUT(77)) || pending(now, p.getUpUntil) || (isReactionGroup(p.actionGroup) && pending(now, p.actionUntil))) {   // twin 77: a movement group is played over the furniture pose
+        // in the furniture / getting out of it / getting up / a reaction is playing: do not stomp it with the movement group
     } else {
         if (p.afterActionReassert) { p.loop = -1; p.afterActionReassert = false; }
         if ((want != p.loop || p.loopHold != hold) && p.loopBo.ready(now)) {
@@ -389,6 +520,7 @@ void NpcAnimDriver::verifyPuppet(NetId id, Puppet& p, uint32_t now) {
     p.nextVerifyMs = now + cfg_.reassertMs;
     NpcReads r;
     if (!eng_.Read(id, r) || !r.valid) return;
+    observeSeat(p, r);
     if (!r.has3D) return;
     const bool settled = !pending(now, p.getUpUntil) && !(isReactionGroup(p.actionGroup) && pending(now, p.actionUntil));
 
@@ -537,7 +669,13 @@ PuppetInfo NpcAnimDriver::info(NetId id) const {
     const Puppet& p = it->second;
     i.known = true; i.loopGroup = p.loop; i.loopHold = p.loopHold; i.weaponDrawn = p.weaponWant; i.weaponConfirmed = p.weaponConfirmed;
     i.sneak = p.sneak; i.speed = p.speed; i.rate = p.rate; i.lastActionGroup = p.actionGroup; i.lastActionSeq = p.lastSeq; i.turning = p.turning;
+    i.seated = p.seat == Puppet::Seat::Seated; i.standPending = p.standPending; i.furniture = p.seatFurniture;
     return i;
+}
+
+bool NpcAnimDriver::poseLocked(NetId id) const {
+    auto it = puppets_.find(id);
+    return it != puppets_.end() && it->second.standPending;
 }
 
 DeadInfo NpcAnimDriver::deadInfo(NetId id) const {

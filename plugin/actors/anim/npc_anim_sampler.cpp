@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "anim_groups.h"
+#include "anim_sit.h"
 #include "avatar/loco.h"      // locomotion codes + direction convention: the single definition shared with the player puppets
 #include "fnvcoop_mut.h"
 
@@ -19,6 +20,15 @@ bool NpcAnimSampler::debounce(Flag& f, bool raw) {
     if (raw == f.pending) ++f.same; else { f.pending = raw; f.same = 1; }
     if (f.same >= need) { f.value = raw; f.same = 0; }
     return f.value;
+}
+
+uint8_t NpcAnimSampler::debounceLevel(Level& l, uint8_t raw) {
+    uint32_t need = FNV_MUT(71) ? 1u : (cfg_.flickerSamples ? cfg_.flickerSamples : 1u);   // twin 71: the sit state is not debounced, every flicker is published
+    if (!l.init) { l.init = true; l.value = raw; l.pending = raw; l.same = 0; return l.value; }
+    if (raw == l.value) { if (l.pending != l.value) ++stats_.flickersAbsorbed; l.pending = l.value; l.same = 0; return l.value; }
+    if (raw == l.pending) ++l.same; else { l.pending = raw; l.same = 1; }
+    if (l.same >= need) { l.value = raw; l.same = 0; }
+    return l.value;
 }
 
 bool NpcAnimSampler::last(NetId id, live::AnimState& out) const {
@@ -46,6 +56,8 @@ bool NpcAnimSampler::sample(NetId id, live::ActorSnapshot& snap, uint32_t nowMs)
             a.actionSeq = s.actionSeq;   // the counter is kept so a resurrect continues it
         }
         a.ragdoll = r.ragdoll;
+        if (FNV_MUT(74) && s.haveLast) { a.sit = s.last.sit; a.sleep = s.last.sleep; a.furniture = s.last.furniture; }   // twin 74: a dead actor keeps publishing the furniture it sat in
+        s.sit = Level{}; s.furniture = 0;   // (the pose is over: a resurrected actor is read afresh)
         s.last = a; s.haveLast = true; s.curAction = 0; s.holding = false;
         snap.anim = a;
         return true;
@@ -60,6 +72,23 @@ bool NpcAnimSampler::sample(NetId id, live::ActorSnapshot& snap, uint32_t nowMs)
     a.sneak = !r.creature && (r.sneaking || (r.moveFlagsKnown && (r.moveFlags & (1u << 9)) != 0));
     a.ragdoll = r.ragdoll;
     a.jump = (r.inAir || std::fabs(snap.vel.z) > cfg_.fallVz) && !a.swim && !a.knocked && !r.ragdoll;
+
+    // ---- furniture: the engine's sit / sleep state (debounced) and the furniture it is in ----
+    {
+        uint8_t raw = 0;
+        if (r.sitKnown && !FNV_MUT(72)) {   // twin 72: the sit state is never read, a seated actor is published standing
+            const SitView v = sitFromEngine(r.sitSleep);
+            raw = static_cast<uint8_t>(static_cast<uint8_t>(v.state) | (v.bed ? 4 : 0));
+        }
+        const uint8_t code = debounceLevel(s.sit, raw);
+        a.sit = static_cast<live::SitState>(code & 3);
+        a.sleep = a.sit != live::SitState::None && !FNV_MUT(85) && (code & 4) != 0;   // twin 85: a bed is published as a chair
+        if (a.sit == live::SitState::None || r.ragdoll || a.knocked) { a.sit = live::SitState::None; a.sleep = false; s.furniture = 0; }   // (a body on the floor is not in the furniture)
+        else {
+            if (r.furniture) s.furniture = r.furniture;
+            a.furniture = FNV_MUT(73) ? r.furniture : s.furniture;   // twin 73: the reference is not kept, one empty read publishes "unknown" (the copy cannot sit)
+        }
+    }
 
     // ---- locomotion code from velocity + facing (+ the mover's walk / run bits when the backend can read them) ----
     {

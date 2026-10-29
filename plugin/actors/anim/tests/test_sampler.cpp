@@ -345,6 +345,8 @@ struct FakeScript : INpcScript {
     std::vector<std::string> lines;
     bool ok = true;
     bool Exec(NetId, const std::string& l) override { lines.push_back(l); return ok; }
+    std::vector<std::pair<uint32_t, std::string>> refLines;
+    bool ExecOnRef(uint32_t ref, const std::string& l) override { refLines.push_back({ref, l}); return ok; }
 };
 struct FakeAccess : INpcGameAccess {
     Result weapon = Result::Unsupported;
@@ -360,6 +362,8 @@ struct FakeAccess : INpcGameAccess {
     Result SetGroupRate(NetId, float) override { return Result::Unsupported; }
     Result KnockDown(NetId, float, float) override { return Result::Unsupported; }
     Result GetUp(NetId) override { return Result::Unsupported; }
+    uint32_t actorRef = 0x00ABCDEF;
+    uint32_t RefIdOf(NetId) override { return actorRef; }
 };
 }  // namespace
 

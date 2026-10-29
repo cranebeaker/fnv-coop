@@ -26,6 +26,7 @@ add_test(NAME live_anim COMMAND live_tests --group anim)
 foreach(twin delta_from_latest accept_stale_seq accept_stale_epoch accept_non_owner accept_forged_future_epoch no_extrapolation_cap extrapolate_only
              no_snap no_smooth snap_ignores_cell near_rate_as_far no_far_tier ack_ignored drop_av_changes no_resync_request
              drop_anim_ext drop_anim_ext_one_shot anim_ext_no_delta accept_bad_anim_ext
+             drop_sit drop_sit_loss sit_no_delta accept_bad_sit
              lossy_stale_seq lossy_stale_epoch lossy_non_owner lossy_delta_from_latest lossy_drop_av lossy_no_extrap_cap
              ll_fixed_delay ll_no_damping ll_no_blend ll_no_slew ll_old_interval no_teleport_snap)
   add_test(NAME twin_live_${twin} COMMAND live_tests --group twin --name ${twin})

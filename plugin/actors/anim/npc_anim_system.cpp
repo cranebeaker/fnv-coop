@@ -109,7 +109,7 @@ void NpcAnimSystem::tick(uint32_t now, const std::function<bool(NetId)>& isMine)
 std::string NpcAnimSystem::statsJson() const {
     const SamplerStats& s = sampler_.stats();
     const DriverStats& d = driver_.stats();
-    char buf[2600];
+    char buf[3200];
     std::snprintf(buf, sizeof buf,
         "{\"sampler\":{\"samples\":%llu,\"unreadable\":%llu,\"actions_started\":%llu,\"actions_restarted\":%llu,\"flickers_absorbed\":%llu},"
         "\"driver\":{\"drives\":%llu,\"commands\":%llu,\"refused\":%llu,\"unsupported\":%llu,\"deferred_budget\":%llu,\"waiting_3d\":%llu,"
@@ -118,7 +118,8 @@ std::string NpcAnimSystem::statsJson() const {
         "\"weapon_changes\":%llu,\"weapon_confirmed\":%llu,\"weapon_verify_failures\":%llu,\"weapon_ladder_giveups\":%llu,\"weapon_drifts\":%llu,"
         "\"turns\":%llu,\"jumps\":%llu,\"rate_changes\":%llu,\"knockdowns\":%llu,\"knockdown_fallbacks\":%llu,\"get_ups\":%llu,"
         "\"deaths\":%llu,\"kill_retries\":%llu,\"kill_gave_up\":%llu,\"corpse_poses\":%llu,\"corpse_corrections\":%llu,"
-        "\"corpse_within_tolerance\":%llu,\"corpse_gave_up\":%llu,\"corpse_missing\":%llu,\"corpse_late\":%llu,\"releases\":%llu},"
+        "\"corpse_within_tolerance\":%llu,\"corpse_gave_up\":%llu,\"corpse_missing\":%llu,\"corpse_late\":%llu,\"releases\":%llu,"
+        "\"sits\":%llu,\"stands\":%llu,\"stands_confirmed\":%llu,\"stand_give_ups\":%llu,\"sit_drops\":%llu,\"sit_drifts\":%llu,\"sit_no_furniture\":%llu,\"restrains\":%llu},"
         "\"system\":{\"sampled_owned\":%llu,\"drives\":%llu,\"died\":%llu,\"died_mine\":%llu,\"corpse_sent\":%llu,\"corpse_send_refused\":%llu,"
         "\"corpse_unreadable\":%llu,\"corpse_dropped\":%llu,\"net_events\":%llu,\"net_events_bad\":%llu,\"driven\":%zu,\"watching\":%zu}}",
         (unsigned long long)s.samples, (unsigned long long)s.unreadable, (unsigned long long)s.actionsStarted, (unsigned long long)s.actionsRestarted, (unsigned long long)s.flickersAbsorbed,
@@ -129,6 +130,8 @@ std::string NpcAnimSystem::statsJson() const {
         (unsigned long long)d.turnsPlayed, (unsigned long long)d.jumpsPlayed, (unsigned long long)d.rateChanges, (unsigned long long)d.knockdowns, (unsigned long long)d.knockdownFallbacks, (unsigned long long)d.getUps,
         (unsigned long long)d.deaths, (unsigned long long)d.killRetries, (unsigned long long)d.killGaveUp, (unsigned long long)d.corpsePoses, (unsigned long long)d.corpseCorrections,
         (unsigned long long)d.corpseWithinTolerance, (unsigned long long)d.corpseGaveUp, (unsigned long long)d.corpseMissing, (unsigned long long)d.corpseLate, (unsigned long long)d.releases,
+        (unsigned long long)d.sitsIssued, (unsigned long long)d.standsIssued, (unsigned long long)d.standsConfirmed, (unsigned long long)d.standGiveUps,
+        (unsigned long long)d.sitDrops, (unsigned long long)d.sitDrifts, (unsigned long long)d.sitNoFurniture, (unsigned long long)d.restrains,
         (unsigned long long)stats_.sampledOwned, (unsigned long long)stats_.drives, (unsigned long long)stats_.died, (unsigned long long)stats_.diedMine, (unsigned long long)stats_.corpseSent, (unsigned long long)stats_.corpseSendRefused,
         (unsigned long long)stats_.corpseUnreadable, (unsigned long long)stats_.corpseDropped, (unsigned long long)stats_.netEvents, (unsigned long long)stats_.netEventsBad,
         driver_.driven().size(), watcher_.count());

@@ -1,5 +1,6 @@
 #include "combat/combat_wire.h"
 #include "fnvcoop/wire.h"
+#include "../../tools/mut/fnvcoop_mut.h"
 
 namespace nvcoop::combat {
 
@@ -16,7 +17,12 @@ void ioEntity(fnvcoop::Archive& a, cc::Entity& e) {
     a.varu32(e.id);
 }
 
-void io(fnvcoop::Archive& a, MHit& m) { cc::io(a, m.h); }
+void io(fnvcoop::Archive& a, MHit& m) {
+    cc::io(a, m.h);
+    if (!FNV_MUT(806)) a.boolean(m.touch);   // 806: the touch flag never travels (the owner takes a point of health off for a blow that did none)
+    if (!FNV_MUT(807)) a.varu32(m.centi);    // 807: the exact damage never travels (the owner falls back to the rules' whole points: a 0.5 fist lands as 1)
+    if (a.reading() && m.centi > kMaxCenti) a.fail();
+}
 void io(fnvcoop::Archive& a, MHitNack& m) {
     a.u64(m.hitId);
     uint8_t r = static_cast<uint8_t>(m.reason);

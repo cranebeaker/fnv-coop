@@ -1,5 +1,5 @@
 @echo off
-rem One-command puppet driver tests (plugin/avatar). Standalone build in %TEMP%\nvav_build (Ninja, Release, 2 jobs), then
+rem One-command puppet driver tests (plugin/avatar). Standalone build in build\nvav of this checkout (Ninja, Release, 2 jobs), then
 rem   1. group table check (python) : plugin\avatar\avatar_groups.h equals tools/animcheck/animgroups_table.py
 rem   2. avatar_tests               : the suite, then the whole suite once per mutation twin (each twin MUST fail)
 rem   3. avatar_live_tests          : the driver on top of the real synccore/live InterpBuffer (when live.cpp exists)
@@ -9,7 +9,8 @@ rem Prints "avatar: ALL OK" when everything passes.
 setlocal enabledelayedexpansion
 set "HERE=%~dp0"
 set "ROOT=%HERE%..\.."
-set "BLD=%TEMP%\nvav_build"
+rem per checkout: one %TEMP% tree shared by two worktrees fails CMake's source check
+set "BLD=%ROOT%\build\nvav"
 set "LOCKS=%ROOT%\out\locks"
 set "LOCK=%LOCKS%\build.lock"
 set "CXX="

@@ -27,6 +27,7 @@ bool applyDecisionToHit(uint8_t* hit, const HitBuf& before, GateAction action, i
 struct NativeHitSpec {
     uint32_t source = 0, target = 0, weapon = 0;   // 32-bit pointers
     float health = 0;
+    float baseDamage = -1;   // the weapon base damage the engine scales its reaction from; negative = same as `health` (a touch passes a token health and a real base)
     int32_t location = 0;
     bool haveImpact = false;
     cc::Vec3 impact;

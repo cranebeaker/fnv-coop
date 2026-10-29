@@ -19,6 +19,7 @@ PY = [sys.executable, "-I", "-X", "utf8"]
 TEST = "tools/lab/tests/test_lab.py"
 TEST_NET = "tools/lab/tests/test_net.py"         # the network pass (lab.py run --net ...)
 TEST_SPLIT = "tools/lab/tests/test_split.py"     # the two-PC smoke (lab.py run --split)
+TEST_PARITY = "tools/lab/tests/test_parity.py"   # the parity room: lab_parity.py, the room on the fake world, the live reads, the probe source
 
 # name -> (what the bug does, the tests that must notice it)
 TWINS = {
@@ -60,6 +61,19 @@ NET_TWINS = {
     "crash_blocks_profiles": ("a game copy that exited in the clean pass blocks every profile pass of its pair again", ["FakeNet.test_a_crash_in_the_clean_pass_does_not_blank_the_profile_passes_of_its_pair"]),
     "net_bypass_unchecked": ("a client that never crossed the relay is accepted as joined through it", ["LiveNet.test_a_client_that_never_crossed_the_relay_blocks_the_pass"]),
 }
+# the twins of the parity room, in TEST_PARITY
+PARITY_TWINS = {
+    "parity_skips_equipment": ("equipment (worn items, the weapon in hand) is never compared", ["Compare.test_a_settler_holding_nothing_while_the_owner_holds_a_rifle",
+                                                                                              "Room.test_each_parity_bug_names_the_entity_the_field_both_values_and_the_source"]),
+    "parity_anim_unchecked": ("the animation categories of the two copies are never compared", ["Compare.test_animation_categories_are_compared_as_sets_over_the_rounds",
+                                                                                                "Room.test_each_parity_bug_names_the_entity_the_field_both_values_and_the_source"]),
+    "parity_time_unchecked": ("the global time multiplier of a copy is never checked (the guest at 30x game speed)", ["Compare.test_the_time_multiplier_must_be_one_on_every_copy_outside_vats",
+                                                                                                                       "Room.test_each_parity_bug_names_the_entity_the_field_both_values_and_the_source"]),
+    "parity_attack_unchecked": ("a puppet that does not punch is accepted", ["Compare.test_the_punch_that_did_not_play_on_the_puppet",
+                                                                              "Room.test_each_parity_bug_names_the_entity_the_field_both_values_and_the_source"]),
+    "parity_no_settle": ("the room looks once and does not give a change time to cross the link", ["Room.test_the_fake_world_passes_and_every_step_ran"]),
+    "parity_owner_ignored": ("the scripted lines go to the host although the client owns the NPC", ["Room.test_when_the_client_owns_the_npc_the_scripted_lines_go_to_the_client"]),
+}
 # the twins of the two-PC smoke, in TEST_SPLIT
 SPLIT_TWINS = {
     "split_ram_unchecked": ("the free RAM of this PC is not checked before the local copy starts", ["Guards.test_under_three_gb_free_is_refused_with_a_clear_message",
@@ -77,7 +91,7 @@ def run(args, env_extra=None, timeout=900):
 
 def main() -> int:
     bad = 0
-    for f in (TEST, TEST_NET, TEST_SPLIT):
+    for f in (TEST, TEST_NET, TEST_SPLIT, TEST_PARITY):
         cp = run([f])
         tail = (cp.stdout + cp.stderr).strip().splitlines()[-3:]
         print(f"unit tests {Path(f).name}:", " | ".join(tail))
@@ -92,6 +106,12 @@ def main() -> int:
             bad += 1
     for name, (what, tests) in NET_TWINS.items():
         t = run([TEST_NET] + tests, {"LAB_MUTANT": name})
+        caught = t.returncode != 0
+        print(f"twin {name:18s} {'caught' if caught else 'NOT CAUGHT'}   ({what})")
+        if not caught:
+            bad += 1
+    for name, (what, tests) in PARITY_TWINS.items():
+        t = run([TEST_PARITY] + tests, {"LAB_MUTANT": name})
         caught = t.returncode != 0
         print(f"twin {name:18s} {'caught' if caught else 'NOT CAUGHT'}   ({what})")
         if not caught:

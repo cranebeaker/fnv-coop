@@ -93,8 +93,14 @@ inline constexpr uint32_t kVtblActorMover = 0x0109223Cu, kVtblPlayerMover = 0x01
 // BaseProcess vtable slots (tools/animcheck/verify_engine.py)
 inline constexpr uint32_t kProcGetAnimData = 0x6E, kProcGetAnimAction = 0xF9, kProcIsAiming = 0x101, kProcGetKnocked = 0x103,
                           kProcIsWeaponOut = 0x115;
-// AnimData: animSequence[8] at +0xE0, animSeq100 at +0x100; BSAnimGroupSequence animGroup at +0x68, TESAnimGroup id (u8) at +0x08
-inline constexpr uint32_t kAnimDataSeqBase = 0xE0, kAnimDataSeq9 = 0x100, kSeqAnimGroup = 0x68, kAnimGroupId = 0x08, kSeqState = 0x44;
+// AnimData: animSequence[8] at +0xE0, animSeq100 at +0x100; BSAnimGroupSequence animGroup at +0x74, TESAnimGroup id (u8) at +0x10.
+// animGroup MEASURED 2026-10-29 in two running copies: +0x68 holds 0x0000FFFF (not a pointer), +0x74 points at the TESAnimGroup (vtable 0x010484E8);
+// the xNVSE header's "068" is wrong (the sequence is 0x78 bytes, tools/animcheck/verify_engine.py). With +0x68 every group read found nothing.
+// The id byte MEASURED the same day: for "mtidle.kf" (group Idle = 0) the byte at +0x10 is 0 and the one at +0x08 is 0x0A (plugin/animprobe reads +0x10).
+inline constexpr uint32_t kAnimDataSeqBase = 0xE0, kAnimDataSeq9 = 0x100, kSeqAnimGroup = 0x74, kAnimGroupId = 0x10, kSeqState = 0x44;
+// NiControllerSequence: begin time @ 0x2C, last time @ 0x34 (floats, seconds); (last - begin) is how long the sequence has been playing. Same offsets as
+// plugin/actors/anim/anim_pins.h (kSeqBegin / kSeqLast) and plugin/animprobe. Not proven against a running game.
+inline constexpr uint32_t kSeqBegin = 0x2C, kSeqLast = 0x34;
 inline constexpr uint32_t kVtblBSAnimGroupSequence = 0x0101DE3Cu, kVtblNiControllerSequence = 0x01096584u;
 // ExtraContainerChanges: TESObjectREFR::extraDataList (+0x44) holds kExtraData_ContainerChanges (0x15); Data { objList @0 }, EntryData
 // { extendData @0, countDelta @4, type @8 }; an entry whose ExtraDataList chain holds kExtraData_Worn (0x16) is worn.

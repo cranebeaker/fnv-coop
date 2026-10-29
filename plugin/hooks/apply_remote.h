@@ -36,6 +36,7 @@
 #include "capture_hub.h"
 #include "engine_hooks.h"
 #include "fnvcoop/effect.h"
+#include "identity.h"
 #include "move_queue.h"
 
 namespace nvhooks {
@@ -49,12 +50,18 @@ public:
     ~RemoteApplier();
     RemoteApplier(const RemoteApplier&) = delete;
     RemoteApplier& operator=(const RemoteApplier&) = delete;
-    // Applies one effect (caller decides recipient filtering via applyTxn or by itself).
+    // Applies one effect that ARRIVED from the host (caller decides recipient filtering via applyTxn or by itself). On a guest (identity.h configured) a
+    // reference to the sender's player is first mapped to its puppet here or the effect is dropped (reported Ok, counted in identityStats()); on the host
+    // the layer is off and this is applyNow.
     ApplyStatus apply(const fnvcoop::Effect& e);
+    // The same for an effect produced by another player's machine (EffectTxn::origin): "the player" in it is THAT player.
+    ApplyStatus applyFrom(fnvcoop::PlayerId sender, const fnvcoop::Effect& e);
+    // An effect this machine made up about its OWN player (a respawn move, a rule applied for the host's own player): no translation, 0x14 is the local player.
+    ApplyStatus applyLocal(const fnvcoop::Effect& e) { return applyNow(e); }
     // Applies all effects in order. localSlot filters player-targeted effects by Recipient. Returns count applied.
     size_t applyTxn(const fnvcoop::EffectTxn& t, fnvcoop::PlayerId localSlot);
     std::string lastError() const { return err_; }
-    // This machine's party slot (applyTxn sets it from its argument); decides who applies CompanionOwner.
+    // This machine's party slot (applyTxn sets it from its argument); decides who applies CompanionOwner. A guest with the identity layer configured uses its own slot from there.
     void setLocalSlot(fnvcoop::PlayerId s) { localSlot_ = s; }
     // Runs a console command with a calling reference (kill / resurrect / MoveTo). Injected by the plugin (NVSE console interface);
     // returns false on failure. Without it those effects stay Unsupported.
@@ -81,10 +88,12 @@ public:
     static size_t tickAll();
 
 private:
+    ApplyStatus applyNow(const fnvcoop::Effect& e);
     bool forMe(const fnvcoop::Recipient& r, fnvcoop::PlayerId origin, fnvcoop::PlayerId me) const;
     ApplyStatus applyMove(const fnvcoop::MoveRef& x, const ExecFn& exec, bool park, std::unique_ptr<ScriptGate>* gate);
     ApplyStatus applyRefCommand(const fnvcoop::RefCommand& x, const ExecFn& exec, std::unique_ptr<ScriptGate>* gate);
     CaptureHub& hub_;
+    IdentityResolver idres_;   // res_ with the identity placeholders (identity.h) resolved
     FormResolver& res_;
     std::string err_;
     bool useGate_ = true;
@@ -100,5 +109,10 @@ void traceLine(const std::string& line);
 bool traceEnabled();
 // The player's count of one item as the engine stores it (ExtraContainerChanges); -1 when unreadable. Diagnostics only.
 int playerItemCountForTrace(uint32_t itemRefId);
+// Guest: while `veto` answers true, a SetPlayerControls effect that disables controls is not applied (the host's scene locks its own player; a
+// guest that has made its character walks around meanwhile). Empty = always applied.
+void setControlsLockVeto(std::function<bool()> veto);
+// Every player control on again (the engine's own SetControlsDisabled, all bits). False when there is no player.
+bool enableAllPlayerControls();
 
 }  // namespace nvhooks

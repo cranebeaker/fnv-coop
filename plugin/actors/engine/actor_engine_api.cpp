@@ -124,6 +124,9 @@ void setRefExclusion(RefFilter f) { registry().exclude = std::move(f); }
 void setCreatedIdResolver(CreatedIdResolver f) { registry().createdId = std::move(f); }
 void setInventoryAccess(InventoryReader read, InventoryWriter write) { registry().invRead = std::move(read); registry().invWrite = std::move(write); }
 
+void setEquipmentAccess(EquipmentReader read, EquipmentWriter write) { registry().equipRead = std::move(read); registry().equipWrite = std::move(write); }
+void setPoseLock(std::function<bool(NetId)> locked) { registry().poseLocked = std::move(locked); }
+
 void onEffect(const fnvcoop::Effect& e) {
     Registry& reg = registry();
     ActorSync* s = reg.sync ? reg.sync() : nullptr;

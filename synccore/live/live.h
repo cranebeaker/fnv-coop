@@ -60,9 +60,16 @@ const char* toString(MsgKind k);
 // (one-shot action group + a counter that bumps per one-shot + dead / knocked / swim / talk / block / ragdoll bits), carried only
 // when something in it is non-zero. A v2 sender whose extension is all zero emits byte-identical v1 datagrams; a v1 receiver
 // rejects any datagram that has the extension bit set (as Malformed), so both ends of a session must run the same schema.
+// v3 (sit round): the furniture block (sit state, bed flag, furniture reference) behind the previously reserved extension bit 6
+// (kAnimExtSit), appended after the three extension bytes and present only while the actor uses furniture. A v3 sender whose actor
+// does not use furniture emits byte-identical v2 datagrams; a v2 receiver rejects the bit (reserved), so both ends must run v3.
 // Wire compatibility rules for future changes: new fields go AFTER the existing ones behind a flag bit that old receivers reject,
 // the version below is bumped, and the actor module's kActorWireVersion (MSnapFull) is bumped with it.
-constexpr uint8_t kLiveSchemaVersion = 2;
+constexpr uint8_t kLiveSchemaVersion = 3;
+
+// Where an actor is in using a piece of furniture (a chair, a bench, a bed). Entering covers the walk-in and the sit-down animation, Using
+// the held pose, Leaving the stand-up. Owners fill it from the engine's sit / sleep state; copies sit or stand like the owner's actor.
+enum class SitState : uint8_t { None = 0, Entering = 1, Using = 2, Leaving = 3 };
 
 // Locomotion codes are free-form (the animation agents own the meaning); 0 is idle.
 // The extension fields below are written by plugin/actors/anim (NPCs) and may be used by the avatar layer too.
@@ -82,19 +89,31 @@ struct AnimState {
     bool talk = false;
     bool block = false;
     bool ragdoll = false;   // the physics ragdoll controller is active (visual only)
+    // ---- schema v3 furniture block ------------------------------------------------------------------------------------------
+    SitState sit = SitState::None;   // None = standing (or moving); anything else = in / at furniture
+    bool sleep = false;              // the furniture is a bed (only meaningful while sit != None)
+    // Reference id of the furniture, as the owner's engine names it (the same load order on both machines is required, like every form id on
+    // the wire; the animation layer maps it); 0 = the owner could not tell which. Always 0 while sit == None.
+    uint32_t furniture = 0;
     friend bool operator==(const AnimState& a, const AnimState& b) {
         return a.locomotion == b.locomotion && a.weaponDrawn == b.weaponDrawn && a.sneak == b.sneak &&
                a.jump == b.jump && a.reload == b.reload && a.aim == b.aim && a.action == b.action && a.actionSeq == b.actionSeq &&
                a.dead == b.dead && a.knocked == b.knocked && a.swim == b.swim && a.talk == b.talk && a.block == b.block &&
-               a.ragdoll == b.ragdoll;
+               a.ragdoll == b.ragdoll && a.sit == b.sit && a.sleep == b.sleep && a.furniture == b.furniture;
     }
 };
 // Wire packing, shared by the datagram codec and the actor module's reliable full-state message.
 constexpr uint8_t kAnimFlagExt = 0x80;        // flags byte: the extension (action, actionSeq, extBits) follows
 constexpr uint8_t kAnimFlagsReserved = 0x60;  // must be zero
+constexpr uint8_t kAnimExtSit = 0x40;         // extension bits byte: the furniture block (sit byte + varint furniture) follows (schema v3)
+constexpr uint8_t kAnimExtReserved = 0x80;    // must be zero
 uint8_t packAnimFlags(const AnimState& a);    // the five v1 bits (never sets kAnimFlagExt)
 uint8_t packAnimExt(const AnimState& a);      // dead/knocked/swim/talk/block/ragdoll bits
-bool animHasExt(const AnimState& a);          // anything in the extension is non-zero
+bool animHasExt(const AnimState& a);          // anything in the v2 extension (action, counter, bits) is non-zero; the furniture block is NOT part of it
+// Furniture block (schema v3). The sit byte is the SitState in bits 0-1 and the bed flag in bit 2 (0 = no block); the other bits are reserved.
+// Anything that carries an AnimState by hand (the actor module's reliable MSnapFull) writes: sit byte and, when it is non-zero, a varint furniture.
+uint8_t packAnimSit(const AnimState& a);
+bool unpackAnimSit(AnimState& a, uint8_t sitByte, uint32_t furniture);   // false = not a canonical form (state 0 or reserved bits)
 AnimState unpackAnim(uint8_t loco, uint8_t flags, uint8_t action, uint8_t actionSeq, uint8_t extBits);
 // Serial compare for the 8 bit counter: true when `b` is newer than `a` (wrap safe, half range).
 inline bool actionSeqNewer(uint8_t a, uint8_t b) { return a != b && static_cast<uint8_t>(b - a) < 128; }
@@ -134,6 +153,8 @@ struct QState {
     int32_t vel[3] = {0, 0, 0};
     uint8_t loco = 0, animFlags = 0;
     uint8_t action = 0, actionSeq = 0, animExt = 0;   // schema v2 extension (all zero = absent on the wire)
+    uint8_t sit = 0;                                  // schema v3 furniture block: packAnimSit (0 = absent)
+    uint32_t furniture = 0;                           // (0 while sit == 0)
     NetId target = 0;
     uint32_t package = 0;
     uint8_t alert = 0;
@@ -178,6 +199,9 @@ struct LiveFaults {
     bool dropAnimExt = false;         // encoder forgets the animation extension (one-shots, dead, knocked ...)
     bool animExtNoDelta = false;      // delta encoder does not notice an extension-only change (a lone actionSeq bump is lost)
     bool acceptBadAnimExt = false;    // decoder accepts reserved bits / an all-zero extension (non-canonical forms)
+    bool dropSit = false;             // encoder forgets the furniture block (sit state, bed flag, furniture reference)
+    bool sitNoDelta = false;          // delta encoder does not notice a furniture-only change (stand up while nothing else moves is lost)
+    bool acceptBadSit = false;        // decoder accepts a furniture block with state 0 / reserved bits
     // InterpBuffer low-latency mode (the player avatar stream, InterpConfig::lowLatency)
     bool llFixedDelay = false;        // the render delay ignores the measured jitter (stays at the ceiling): the old, laggy buffer
     bool llNoDamping = false;         // dead reckoning is undamped (v * t): a stop overshoots by the whole extrapolated stretch

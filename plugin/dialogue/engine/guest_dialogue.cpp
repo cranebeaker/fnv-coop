@@ -198,7 +198,7 @@ std::string GuestDialogue::statusJson() const {
             o << ",\"host\":{\"scriptRuns\":" << h->scriptRuns() << ",\"repeatPicks\":" << h->repeatPicks() << ",\"rejected\":" << h->rejected() << ",\"open\":" << h->open() << "}";
         }
         // the "said once" byte of the INFOs a story run depends on, on THIS machine (story run S03: "Doc Mitchell said you could teach me" never listed)
-        static const uint32_t kProbe[] = {0x10A1E4, 0x10A1E5, 0x10A1EB, 0x10B754, 0x15F531, 0x10721E, 0x10721F, 0x1057E7};
+        static const uint32_t kProbe[] = {0x10A1E4, 0x10A1E5, 0x10A1EB, 0x10B754, 0x15F531, 0x10721E, 0x10721F, 0x1057E7, 0x104E7E, 0x10B755};
         o << ",\"saidProbe\":{";
         for (size_t i = 0; i < sizeof kProbe / sizeof kProbe[0]; ++i) {
             char k[16];

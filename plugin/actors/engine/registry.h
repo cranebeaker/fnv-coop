@@ -23,6 +23,9 @@ public:
     CreatedIdResolver createdId;                                // spawn-arb: identity of a created ref
     InventoryReader invRead;                                    // plugin/loot: inventory totals of a tracked actor
     InventoryWriter invWrite;
+    EquipmentReader equipRead;                                  // what a tracked actor holds and wears (engine_module.cpp wires equipment.h); null = equipment is not synced
+    EquipmentWriter equipWrite;
+    std::function<bool(NetId)> poseLocked;                     // plugin/actors/anim: the copy is getting out of furniture, do not move it yet; null = never locked
     std::function<void()> beforeSave;                           // the feed's clone clean-up
     std::function<PortStats()> stats;
     PlayerNetIdResolver playerNetByRef;

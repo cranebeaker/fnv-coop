@@ -9,11 +9,13 @@
 // 0x198) is the better target once an add-subtitle routine is verified.
 #include <windows.h>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "nvse/GameAPI.h"
 #include "nvse/GameData.h"
 #include "nvse/GameForms.h"
+#include "nvse/GameObjects.h"
 
 #include "engine_xnvse.h"
 #include "glue.h"
@@ -124,6 +126,51 @@ bool ReadItemCount(uint32_t player, uint32_t item, int* out) {
         return false;
     }
 }
+// The game's own subtitle line at the bottom of the screen (HUDMainMenu's subtitle list, JIP GameUI.h 0x198). The engine adds a line with
+// 0x705210, cdecl (const char* text, BSSoundHandle sound, NiPoint3 pos, TESObjectREFR* speaker, bool top), the call its Say / dialogue code
+// makes (11 call sites); it hands the line to HUDMainMenu (singleton 0x11D96C0) 0x774FD0, which copies 0x104 characters and takes the display
+// time from the sound (none here: from the text length). It adds nothing while the player's General Subtitles option is off unless the speaker
+// has the "always show subtitles" flag (Actor+0x140 bit 30): the option byte (Setting bGeneralSubtitles:GamePlay 0x11D8928, value at +4) is
+// set for the call and put back. Only the add reads it (its other readers are the settings menus), so a line once added stays on screen.
+constexpr uint32_t kQueueSubtitle = 0x00705210;
+constexpr uint8_t kQueueSubtitlePrologue[11] = {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x90, 0x79, 0xF0, 0x00, 0x64};
+constexpr uint32_t kGeneralSubtitlesValue = 0x011D892C;
+struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t b4 = 0, pad[3] = {}; uint32_t state = 0; };   // BSSoundHandle, no sound
+struct Point3 { float x = 0, y = 0, z = 0; };
+using QueueSubtitleFn = void(__cdecl*)(const char*, SoundHandle, Point3, void*, bool);
+bool CallQueueSubtitle(const char* text, uint32_t speaker, Point3 pos) {
+    static const bool pinOk = std::memcmp(reinterpret_cast<const void*>(uintptr_t(kQueueSubtitle)), kQueueSubtitlePrologue, sizeof kQueueSubtitlePrologue) == 0;
+    if (!pinOk) return false;
+    volatile uint8_t* option = reinterpret_cast<volatile uint8_t*>(uintptr_t(kGeneralSubtitlesValue));
+    const uint8_t was = *option;
+    __try {
+        *option = 1;
+        reinterpret_cast<QueueSubtitleFn>(uintptr_t(kQueueSubtitle))(text, SoundHandle{}, pos, reinterpret_cast<void*>(uintptr_t(speaker)), false);
+        *option = was;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *option = was;
+        return false;
+    }
+}
+bool RefPos(uint32_t ref, Point3* out) {   // TESObjectREFR posX/Y/Z
+    __try {
+        const TESObjectREFR* r = reinterpret_cast<const TESObjectREFR*>(uintptr_t(ref));
+        *out = Point3{r->posX, r->posY, r->posZ};
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+// A spectator's line at the bottom like any line the NPC says. False: not shown there (the caller falls back to the HUD message queue).
+bool ShowBottomSubtitle(const FormRef& npc, const std::string& text) {
+    const uint32_t speaker = LookupForm(RuntimeRefId(npc));
+    const uint32_t who = speaker ? speaker : LookupForm(kPlayerRef);
+    Point3 pos;
+    if (!who || !RefPos(who, &pos)) return false;
+    return CallQueueSubtitle(text.substr(0, 0x103).c_str(), speaker, pos);
+}
+
 uint32_t PeekU32(uint32_t a) {
     __try {
         return *reinterpret_cast<volatile uint32_t*>(uintptr_t(a));
@@ -179,10 +226,12 @@ XnvseEngine* g_engine = nullptr;
 void ReportUnsupported(const char* what);
 
 // Spectator output goes through the narration gate: scene lines carry the host's show stamp ("<token>#o<ord>.<after>") and must be
-// played in order with the slides; unstamped lines play at once. Subtitle = HUD message queue, voice = `<npc>.Say <topic>`.
+// played in order with the slides; unstamped lines play at once. Subtitle = the game's own subtitle line at the bottom (the HUD message queue
+// if that is refused), voice = `<npc>.Say <topic>`.
 nvui::NarrationGate& Gate() {
     static nvui::NarrationGate g(nvui::showSequencer(), nvui::NarrationGate::Sink{
-        [](const FormRef&, const std::string& text, float seconds) {
+        [](const FormRef& npc, const std::string& text, float seconds) {
+            if (ShowBottomSubtitle(npc, text)) return;
             const std::string t = text.substr(0, 0x1FF);
             QueueUIMessage(t.c_str(), 2, nullptr, nullptr, seconds, false);
         },

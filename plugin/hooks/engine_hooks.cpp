@@ -108,6 +108,7 @@ struct QuestStateLift {
     QuestStateLift& operator=(const QuestStateLift&) = delete;
 };
 int g_applierExec = 0;
+DWORD g_mainTid = 0;   // the thread Init ran on (the game's main thread, DeferredInit): the only one whose LocalPlayerScope counts
 Unmapped g_unmapped;
 constexpr uint32_t kPlayerRefID = 0x14;
 constexpr uint32_t kKarmaAV = 23;  // eActorVal_Karma (NVSE) -- confirmed: Player::RewardKarma passes 0x17 to the AV owner
@@ -447,16 +448,14 @@ inline uint64_t qpc() {
 }
 
 // A console / bridge line runs as a temporary script (refID 0 or 0xFF......) that keeps its source text (Script::text, runtime
-// offset 0x2C, xNVSE GameScript.h). On a guest, a single line on the local player is per-machine (suppress_policy.h).
-bool guestOwnPlayerConsoleLine(void* script) {
-    if (!g_pol.guest() || !script) return false;
-    const uint32_t id = refIdOf(script);
-    if (id != 0 && (id >> 24) != 0xFF) return false;  // ESM scripts are never console lines
+// offset 0x2C, xNVSE GameScript.h). On a guest, a single line on the local player is per-machine (suppress_policy.h), and so is any
+// console line run inside a LocalPlayerScope (SuppressPolicy::runsLocal).
+const char* consoleLineText(void* script) {
+    if (!script) return nullptr;
     __try {
-        const char* text = *reinterpret_cast<const char* const*>(reinterpret_cast<char*>(script) + 0x2C);
-        return SuppressPolicy::isLocalPlayerConsoleLine(text);
+        return *reinterpret_cast<const char* const*>(reinterpret_cast<char*>(script) + 0x2C);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
+        return nullptr;
     }
 }
 // ---- W3d item 1: scripts that run once per joined slot (per_slot_run.h) ----
@@ -544,7 +543,7 @@ bool __fastcall h_ScriptExec(void* script, void*, void* thisObj, void* ev, void*
     }
     // Host: any script that runs outside an explicit capture scope (quest GameMode/MenuMode blocks, object and effect scripts) gets an
     // implicit weak scope so its mutations are captured (cause = Script / the script form) instead of dropped as ambient.
-    const bool local = g_pol.isGuestLocalRun(refIdOf(script)) || guestOwnPlayerConsoleLine(script);
+    const bool local = g_pol.runsLocal(refIdOf(script), [&] { return consoleLineText(script); });
     if (local && g_hub) g_hub->pushMute();  // per-machine: effects stay local, never captured
     bool weak = g_hub && g_hub->enabled() && g_applierExec == 0 && g_hub->beginWeak(refIdOf(script));
     if (local) {
@@ -1793,6 +1792,7 @@ const Unmapped& unmapped() { return g_unmapped; }
 InitReport Init(CaptureHub& h, Role role, FormResolver* res) {
     InitReport rep;
     g_hub = &h;
+    g_mainTid = GetCurrentThreadId();
     g_res = res ? res : &g_defaultResolver;
     g_pol.setGuest(role == Role::Guest);
     h.setEnabled(role == Role::Host);
@@ -2159,6 +2159,14 @@ uint32_t actingPlayer() { return g_acting.current(); }
 void registerPlayerSlot(uint32_t ghostRefID, uint8_t slot) { g_acting.registerSlot(ghostRefID, slot); }
 void clearPlayerSlots() { g_acting.clearSlots(); }
 uint8_t actingSlot() { return g_acting.slot(); }
+
+LocalPlayerScope::LocalPlayerScope() : active_(g_mainTid == 0 || GetCurrentThreadId() == g_mainTid) {
+    if (active_) g_pol.enterLocalPlayerScope();
+}
+LocalPlayerScope::~LocalPlayerScope() {
+    if (active_) g_pol.leaveLocalPlayerScope();
+}
+bool inLocalPlayerScope() { return g_pol.inLocalPlayerScope(); }
 
 ApplierExecScope::ApplierExecScope() { ++g_applierExec; }
 ApplierExecScope::~ApplierExecScope() { --g_applierExec; }

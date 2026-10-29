@@ -50,6 +50,62 @@ def msvc_env(arch: str) -> dict:
     return out
 
 
+def pid_alive(pid: int) -> bool:
+    """True when a process with this id runs (a reused id only makes us wait, never steal a live lock)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return k32.GetLastError() == 5        # access denied: it exists
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259     # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lock_owner_pid():
+    """The pid written into owner.txt, or None when there is no readable owner."""
+    try:
+        text = (LOCK / "owner.txt").read_text()
+    except OSError:
+        return None
+    for word in text.split():
+        if word.startswith("pid="):
+            try:
+                return int(word[4:])
+            except ValueError:
+                return None
+    return None
+
+
+def break_dead_lock(quiet: bool) -> bool:
+    """Removes the lock when its owner (a build.py that crashed or was killed) is no longer running. A lock with no owner.txt is
+    left alone for its first minute (the owner may be between mkdir and writing the file)."""
+    pid = lock_owner_pid()
+    if pid is None:
+        try:
+            if time.time() - LOCK.stat().st_mtime < 60:
+                return False
+        except OSError:
+            return False
+    elif pid_alive(pid):
+        return False
+    if not quiet:
+        print(f"[build] lock {LOCK} belongs to a build that is gone (pid {pid}); clearing it", flush=True)
+    release_lock()
+    return True
+
+
 def acquire_lock(quiet: bool, label: str = ""):
     LOCK.parent.mkdir(parents=True, exist_ok=True)
     waited = 0
@@ -62,6 +118,8 @@ def acquire_lock(quiet: bool, label: str = ""):
                 pass
             return
         except FileExistsError:
+            if break_dead_lock(quiet):
+                continue
             if waited % 60 == 0 and not quiet:
                 print(f"[build] lock {LOCK} is held, retrying every 15 s (waited {waited}s)", flush=True)
             time.sleep(15)

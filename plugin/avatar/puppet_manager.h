@@ -46,6 +46,12 @@ public:
     // puppet (AddPlayer, equipment kept). False when the slot has no puppet.
     bool SetAppearance(Slot slot, const Appearance& a);
     void SetPose(Slot slot, const PuppetPose& pose);
+    // A pose held over the planner's: while it is set the puppet plays `baseGroup` (it is played once, then held, not replayed on the heartbeat),
+    // the owner's one-shots are not played, and a puppet the engine calls dead is not respawned (a downed friend lies there; docs/revive.md
+    // "Downed pose"). kNoGroup clears it at once: the planned group plays on the next Tick. It belongs to the slot, not to the puppet, so a
+    // respawn, a new look or a reconnect keeps it; RemovePlayer drops it. Known before the puppet exists too.
+    void SetPoseOverride(Slot slot, int baseGroup);
+    int PoseOverride(Slot slot) const;   // kNoGroup when none
     void Tick(uint32_t nowMs);
 
     // ---- game events ---------------------------------------------------------------------------------------------
@@ -101,6 +107,16 @@ private:
         int lastGroup = -1;
         uint32_t lastGroupAt = 0, mismatchSince = 0;
         bool forceAnim = false;
+        // the owner's one-shots (attack, block, stagger ...): the counter last seen, whether it was read since the puppet last started driving,
+        // the one-shot playing now (until when; a held one until the owner stops reporting it), and the engine refusals of the current one
+        bool actKnown = false;
+        uint8_t actSeq = 0;
+        uint8_t actStaleSeq = 0;           // an older counter value that keeps being seen (a restarted owner), since when (0 = none)
+        uint32_t actStaleSince = 0;
+        bool actPlaying = false;
+        int actHeld = 0;
+        uint32_t actUntil = 0;
+        unsigned actTries = 0;
         bool sneak = false, haveSneak = false;
         bool drawn = false, haveDrawn = false;
         uint32_t gen3d = 0;
@@ -121,6 +137,8 @@ private:
     void TrySpawn(Puppet& p, uint32_t now);
     bool Configure(Puppet& p, uint32_t now);
     void Drive(Puppet& p, uint32_t now, bool menuClosedNow);
+    void EndOneShot(Puppet& p, uint32_t now, bool frozen);
+    void PlayOneShot(Puppet& p, uint32_t now, bool frozen);
     void DespawnAll(bool callEngine);
     void Purge();
     FormId ChooseTemplate(const Appearance& a) const;
@@ -132,6 +150,7 @@ private:
     Config cfg_;
     AnimConfig animCfg_;
     std::map<Slot, Puppet> puppets_;
+    std::map<Slot, int> poseOverride_;   // slot -> held base group; absent = none
     mutable Stats stats_;   // mutable: ActualPose (const) counts the pushes it hides
     std::function<void(const std::string&)> log_;
     uint64_t nextGen_ = 1;

@@ -14,6 +14,7 @@ import math
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import lab_net
+import lab_parity
 from lab_core import CLIENT, HOST, Machine, dist2
 from lab_layout import Layout
 
@@ -71,6 +72,16 @@ BUGS = {
     "var_unsynced": "the client never sees a quest variable",
     "stage_rollback": "the client's stage drops back 3 s after the host set a later one",
     "var_unreadable": "this build cannot read quest variables",
+    # parity (what each copy shows, the 2026-10-29 playtest)
+    "npc_equip_unsynced": "the NPC copy never gets what the owner's NPC wears or holds (the settler that held nothing while the owner's held a rifle)",
+    "npc_draw_unsynced": "the NPC copy never shows the weapon out that the owner's NPC has",
+    "npc_sit_unsynced": "the NPC copy keeps standing when the owner's NPC sits down",
+    "npc_stand_unsynced": "the NPC copy keeps sitting when the owner's NPC stands up (Doc sliding across the room seated)",
+    "npc_anim_stuck": "the NPC copy plays an idle all the time while the owner's NPC walks",
+    "puppet_equip_unsynced": "a puppet never gets what its player wears or holds",
+    "puppet_default_look": "puppets keep the template's default look (race, sex), not the player's",
+    "puppet_no_punch": "a player's punch never plays on the other copy's puppet",
+    "guest_time_30x": "the client's global time multiplier is 30 (one effect type with two meanings), outside VATS",
     # not a bug of the product: how the real game reports a kill
     "kill_health_split": "a VATS kill reads health -14 on the host (the owner publishes below 0) and 1 on the client (the actor port never writes under 1), dead on both",
     # network pass only (the clean pass is untouched)
@@ -115,6 +126,12 @@ class Side:
         self.picked: Set[str] = set()
         self.vats_shots = 0
         self.menu = ""                                      # a menu this copy has open and has not closed
+        self.worn: List[str] = []                           # forms this copy's player wears (parity room)
+        self.weapon_out = False
+        self.attack_until = -1.0                            # this copy's player shows an attack animation until then
+        self.timescale = 1.0                                # the global time multiplier of this copy
+        self.look = {"race": "0x00000019", "female": slot == 1, "hair": "0x0000010%d" % slot, "eyes": "0x0000020%d" % slot}   # this copy's player
+        self.puppet: Dict[str, Any] = {}                    # what this copy shows of the OTHER player: worn, weaponOut, attack_until, look
 
 
 class World:
@@ -138,6 +155,7 @@ class World:
         self.last_digest = 0.0
         self.npc_target = 0
         self.npc_pending: Optional[Tuple[float, int]] = None
+        self.n_parts = 0                  # sequence of the parity room's part updates (equipment, weapon out, sit): a newer one wins over an older one that arrives late
         self.npc_tick = 0
         self.truth = {"owner": 0, "epoch": 1}
         self.seq = 0
@@ -191,6 +209,12 @@ class World:
             if q:
                 s.stages[q] = 0
                 s.vars[q + "/" + str(L.extra("quest", "var", "labvar"))] = 0.0
+        for s in self.sides.values():
+            o = self.sides[self.other(s.name)]
+            s.puppet = {"worn": [], "weaponOut": False, "attack_until": -1.0,
+                        "look": dict(o.look) if not self.has("puppet_default_look") else {"race": "0x00000002", "female": False, "hair": "0x00000001", "eyes": "0x00000001"}}
+        if self.has("guest_time_30x"):
+            self.sides[CLIENT].timescale = 30.0
         self.npc = npc
 
     # ---- messages
@@ -427,6 +451,144 @@ class FakeMachine(Machine):
         self._up()
         return {"owner": self.s.owner["owner"], "epoch": self.s.owner["epoch"], "known": True, "mine": self.s.owner["owner"] == self.s.slot}
 
+    # ---- the parity room: what this copy shows, and the situations that change it
+    WEAPON_ID = "0x000e3778"
+    OUTFIT_ID = "0x0010a001"            # the default outfit every NPC wears on both copies
+
+    def _anim(self, ref: str, base: str, dead: bool, out: bool, worn: List[str], sit: int, group: int, player: bool = False) -> Dict[str, Any]:
+        a = {"ref": ref, "base": base, "valid3d": True, "dead": dead, "weapon": {"out": out, "aiming": False, "form": self.WEAPON_ID if self.WEAPON_ID in worn else "0x00000000"},
+             "stance": {"knocked": 0, "sit_sleep": sit, "swimming": False}, "anim": {"action": 0, "seqs": [{"slot": 0, "group": group, "state": 1, "weight": 1.0}]}}
+        if player:
+            a["player"] = True
+        return a
+
+    def _look(self, ref: str, base: str, worn: List[str], look: Dict[str, Any]) -> Dict[str, Any]:
+        return {"ref": ref, "ok": True, "actor": True, "base": base, "race": look["race"], "female": look["female"], "hair": look["hair"], "eyes": look["eyes"],
+                "wornKnown": True, "worn": [{"form": f} for f in worn]}
+
+    def parity_view(self) -> Dict[str, Any]:
+        self._up()
+        w, s = self.w, self.s
+        anim: List[Dict[str, Any]] = []
+        looks: List[Dict[str, Any]] = []
+        npc_look = {"race": "0x00000019", "female": False, "hair": "0x00000300", "eyes": "0x00000300"}
+        for ref, o in s.objs.items():
+            if o["kind"] != "actor" or not o["enabled"]:
+                continue
+            rid = lab_parity.norm_hex(self.ref_id(ref))
+            walking = ref == w.npc and not w.has("npc_static") and not (w.has("npc_anim_stuck") and self.name == CLIENT)
+            worn = [self.OUTFIT_ID] + list(o.get("worn", []))
+            anim.append(self._anim(rid, "0x00100000", not o["alive"], bool(o.get("weaponOut")), worn, int(o.get("sit", 0)), 3 if walking else 0))
+            looks.append(self._look(rid, "0x00100000", worn, npc_look))
+        grp = 26 if w.t < s.attack_until else 0
+        anim.append(self._anim("0x00000014", "0x00000007", False, s.weapon_out, s.worn, 0, grp, player=True))
+        looks.append(self._look("0x00000014", "0x00000007", s.worn, s.look))
+        pups = []
+        if not (self.name == HOST and w.has("no_puppet")):
+            pr = "0xff00080%d" % (s.slot + 1)
+            pg = 26 if w.t < s.puppet["attack_until"] else 0
+            pups.append({"slot": 1, "ref": pr, "phase": "active"})
+            anim.append(self._anim(pr, "0x00020000", False, s.puppet["weaponOut"], s.puppet["worn"], 0, pg))
+            looks.append(self._look(pr, "0x00020000", s.puppet["worn"], s.puppet["look"]))
+        look = {"v": 1, "player": "0x00000014", "time": {"ok": True, "current": s.timescale, "target": s.timescale}, "vatsMode": 0, "actors": looks}
+        return lab_parity.assemble({"actors": anim}, look, {"puppets": pups})
+
+    def _owns(self, ref: str) -> Tuple[bool, str]:
+        self._up()
+        if self.w.truth["owner"] != self.s.slot:
+            return False, "the lines of a copy that does not own the NPC do not stick"
+        return True, ""
+
+    def _push_npc(self, ref: str, key: str, value: Any, bug: str) -> None:
+        """The owner's NPC changed a part: the copy takes it (a newer value wins over an older one that was resent late)."""
+        self.w.n_parts += 1
+        seq = self.w.n_parts
+        self.s.objs[ref][key] = value
+        self.s.objs[ref].setdefault("seq", {})[key] = seq
+        if not self.w.has(bug):
+            def apply(side: Side, ref=ref, key=key, value=value, seq=seq) -> None:
+                if side.objs[ref].setdefault("seq", {}).get(key, 0) < seq:
+                    side.objs[ref][key] = value
+                    side.objs[ref]["seq"][key] = seq
+            self.w.send(self.w.other(self.name), apply)
+
+    def npc_equip(self, ref: str, item: str) -> Tuple[bool, str]:
+        ok, why = self._owns(ref)
+        if not ok:
+            return ok, why
+        worn = sorted(set(self._obj(ref).get("worn", [])) | {lab_parity.norm_hex(item.split(":")[1])})
+        self._push_npc(ref, "worn", worn, "npc_equip_unsynced")
+        return True, ""
+
+    def npc_draw(self, ref: str, on: bool = True) -> Tuple[bool, str]:
+        ok, why = self._owns(ref)
+        if not ok:
+            return ok, why
+        self._push_npc(ref, "weaponOut", bool(on), "npc_draw_unsynced")
+        return True, ""
+
+    def npc_sit(self, ref: str, furniture: str) -> Tuple[bool, str]:
+        ok, why = self._owns(ref)
+        if not ok:
+            return ok, why
+        self._push_npc(ref, "sit", 4, "npc_sit_unsynced")
+        return True, ""
+
+    def npc_stand(self, ref: str) -> Tuple[bool, str]:
+        ok, why = self._owns(ref)
+        if not ok:
+            return ok, why
+        self._push_npc(ref, "sit", 0, "npc_stand_unsynced")
+        return True, ""
+
+    def npc_reset(self, ref: str, item: str) -> Tuple[bool, str]:
+        self._up()
+        for side in self.w.sides.values():
+            if ref in side.objs:
+                side.objs[ref].update(worn=[], weaponOut=False, sit=0)
+        return True, ""
+
+    def _push_player(self, **changes: Any) -> None:
+        """This copy's player changed what he wears / holds: the other copy's puppet follows (unless the bug)."""
+        for k, v in changes.items():
+            setattr(self.s, k, v)
+        if self.w.has("puppet_equip_unsynced"):
+            return
+        worn, out = list(self.s.worn), self.s.weapon_out
+        self.w.n_parts += 1
+        seq = self.w.n_parts
+        self.w.send(self.w.other(self.name), lambda side, worn=worn, out=out, seq=seq: side.puppet.update(worn=worn, weaponOut=out, seq=seq) if side.puppet.get("seq", 0) < seq else None)
+
+    def draw_weapon(self) -> bool:
+        self._up()
+        if not self.s.worn:
+            return False
+        self._push_player(weapon_out=True)
+        return True
+
+    def unarm(self) -> Tuple[bool, str]:
+        self._up()
+        self._push_player(worn=[], weapon_out=False)
+        return True, ""
+
+    def punch(self, n: int = 3, gap_s: float = 0.8) -> Tuple[bool, str]:
+        self._up()
+        w = self.w
+        w.clock.sleep(0.2)
+        self.s.attack_until = w.t + 3.0          # the fake world cannot poll during the action: the attack stays visible for 3 s afterwards
+        if not w.has("puppet_no_punch"):
+            w.send(w.other(self.name), lambda side: side.puppet.__setitem__("attack_until", w.t + 3.0))
+        return True, ""
+
+    def anim_category(self, who: Optional[str] = None) -> Optional[str]:
+        self._up()
+        w = self.w
+        if who is None:
+            return "attack" if w.t < self.s.attack_until else "idle"
+        if who == "puppet":
+            return "attack" if w.t < self.s.puppet["attack_until"] else "idle"
+        return "idle"
+
     # ---- moving
     def goto_ref(self, ref: str, dist: float = 0.0) -> Tuple[bool, str]:
         self._up()
@@ -468,6 +630,7 @@ class FakeMachine(Machine):
     def arm(self) -> Tuple[bool, str]:
         self._up()
         self.s.armed = True
+        self._push_player(worn=[self.WEAPON_ID])
         return True, ""
 
     def _hurt(self, ref: str, hp: float, killer: str) -> None:

@@ -515,10 +515,120 @@ inline bool animExtMalformedRejected() {
     if (decodeAnimDatagram(1, 0x81, {223, 4, 0x01}) != Verdict::Accepted) return false;              // with extension
     if (decodeAnimDatagram(1, 0x21, {}) == Verdict::Accepted) return false;                          // reserved flag bit 5
     if (decodeAnimDatagram(1, 0x41, {}) == Verdict::Accepted) return false;                          // reserved flag bit 6
-    if (decodeAnimDatagram(1, 0x81, {223, 4, 0x40}) == Verdict::Accepted) return false;              // reserved ext bit 6
+    if (decodeAnimDatagram(1, 0x81, {223, 4, 0x40}) == Verdict::Accepted) return false;              // furniture block announced, none follows (the AI section is read as one)
     if (decodeAnimDatagram(1, 0x81, {223, 4, 0x80}) == Verdict::Accepted) return false;              // reserved ext bit 7
     if (decodeAnimDatagram(1, 0x81, {0, 0, 0}) == Verdict::Accepted) return false;                   // all-zero extension is never sent
     if (decodeAnimDatagram(1, 0x81, {223}) == Verdict::Accepted) return false;                       // truncated extension
+    return true;
+}
+
+// ---- schema v3 furniture block (sit round, 2026-10-29) -------------------------------------------------------------------
+inline AnimState sittingAnim(SitState st, uint32_t furniture, bool bed = false) {
+    AnimState a;
+    a.sit = st; a.sleep = bed; a.furniture = furniture;
+    return a;
+}
+
+// The furniture block survives a full snapshot and the deltas that follow it, field by field, alongside the v2 extension; standing up
+// again puts the stream back on the plain form.
+inline bool sitRoundTrips() {
+    Pair p;
+    ActorSnapshot s1 = mk(50, 1, 1, 1000, 10, 20, 30);
+    s1.anim = sittingAnim(SitState::Using, 0x00123456u);
+    auto r1 = p.send(s1);
+    if (r1.size() != 1 || r1[0].verdict != Verdict::Accepted || !(r1[0].snap.anim == s1.anim)) return false;
+    if (r1[0].snap.anim.sit != SitState::Using || r1[0].snap.anim.furniture != 0x00123456u || r1[0].snap.anim.sleep) return false;
+    ActorSnapshot s2 = s1; s2.seq = 2; s2.tick = 1050;
+    s2.anim = sittingAnim(SitState::Leaving, 0x00123456u);
+    s2.anim.action = 32; s2.anim.actionSeq = 3; s2.anim.talk = true;   // together with the v2 extension
+    auto r2 = p.send(s2);
+    if (r2.size() != 1 || !(r2[0].snap.anim == s2.anim) || r2[0].snap.anim.sit != SitState::Leaving || r2[0].snap.anim.action != 32) return false;
+    ActorSnapshot s3 = s2; s3.seq = 3; s3.tick = 1100;
+    s3.anim = sittingAnim(SitState::Entering, 0xFF000A01u, /*bed=*/true);   // another piece of furniture, a bed, a created reference
+    auto r3 = p.send(s3);
+    if (r3.size() != 1 || !(r3[0].snap.anim == s3.anim) || !r3[0].snap.anim.sleep || r3[0].snap.anim.furniture != 0xFF000A01u) return false;
+    ActorSnapshot s4 = s3; s4.seq = 4; s4.tick = 1150; s4.anim = AnimState{};   // standing
+    auto r4 = p.send(s4);
+    return r4.size() == 1 && r4[0].snap.anim == s4.anim && r4[0].snap.anim.sit == SitState::None && r4[0].snap.anim.furniture == 0 && !r4[0].snap.anim.sleep;
+}
+
+// A change that touches ONLY the furniture block (the actor stays where it is) must reach the receiver: that is exactly what standing up looks like.
+inline bool sitOnlyChangeSent() {
+    Pair p;
+    ActorSnapshot s1 = mk(51, 1, 1, 1000, 10, 20, 30);
+    s1.anim = sittingAnim(SitState::Using, 77);
+    p.send(s1);
+    ActorSnapshot s2 = s1; s2.seq = 2; s2.tick = 1050; s2.anim = sittingAnim(SitState::Leaving, 77);
+    auto r2 = p.send(s2);
+    if (r2.size() != 1 || r2[0].verdict != Verdict::Accepted || r2[0].snap.anim.sit != SitState::Leaving) return false;
+    ActorSnapshot s3 = s2; s3.seq = 3; s3.tick = 1100; s3.anim = AnimState{};   // standing, nothing else changed
+    auto r3 = p.send(s3);
+    if (r3.size() != 1 || r3[0].verdict != Verdict::Accepted || r3[0].snap.anim.sit != SitState::None) return false;
+    ActorSnapshot s4 = s3; s4.seq = 4; s4.tick = 1150; s4.anim = sittingAnim(SitState::Using, 78);   // a chair
+    ActorSnapshot s5 = s4; s5.seq = 5; s5.tick = 1200; s5.anim = sittingAnim(SitState::Using, 79);   // another chair, same state
+    p.send(s4);
+    auto r5 = p.send(s5);
+    return r5.size() == 1 && r5[0].snap.anim.furniture == 79;
+}
+
+// A sit announced in a LOST datagram is still delivered by the next one (deltas are against the last ACKED snapshot).
+inline bool sitSurvivesLoss() {
+    Pair p;
+    ActorSnapshot s1 = mk(52, 1, 1, 1000, 10, 20, 30);
+    p.send(s1);
+    ActorSnapshot s2 = s1; s2.seq = 2; s2.tick = 1050; s2.anim = sittingAnim(SitState::Using, 0x4242);
+    p.send(s2, /*deliver=*/false);
+    ActorSnapshot s3 = s2; s3.seq = 3; s3.tick = 1100;
+    auto r = p.send(s3);
+    return r.size() == 1 && r[0].snap.anim.sit == SitState::Using && r[0].snap.anim.furniture == 0x4242;
+}
+
+// Sizes: no furniture means the v2 wire form byte for byte; a block adds the sit byte and the varint furniture (alone, also the three extension bytes).
+inline bool sitWireSizes() {
+    Pair a, b, c, d;
+    ActorSnapshot plain = mk(53, 1, 1, 1000, 1, 2, 3);
+    ActorSnapshot withExt = plain; withExt.anim.action = 32; withExt.anim.actionSeq = 1;
+    ActorSnapshot sitOnly = plain; sitOnly.anim = sittingAnim(SitState::Using, 0x7F);                              // 1 byte varint
+    ActorSnapshot sitWide = withExt; sitWide.anim.sit = SitState::Using; sitWide.anim.furniture = 0x01234567u;   // on top of the v2 extension, 4 byte varint
+    a.tx.queue(kHost, plain, plain.tick);
+    b.tx.queue(kHost, withExt, withExt.tick);
+    c.tx.queue(kHost, sitOnly, sitOnly.tick);
+    d.tx.queue(kHost, sitWide, sitWide.tick);
+    auto pa = a.tx.flush(kHost, 1000), pb = b.tx.flush(kHost, 1000), pc = c.tx.flush(kHost, 1000), pd = d.tx.flush(kHost, 1000);
+    if (pa.size() != 1 || pb.size() != 1 || pc.size() != 1 || pd.size() != 1) return false;
+    if (pb[0].size() != pa[0].size() + 3) return false;                 // the v2 extension, unchanged by v3
+    if (pc[0].size() != pa[0].size() + 3 + 1 + 1) return false;         // 3 extension bytes + sit byte + 1 byte furniture
+    if (pd[0].size() != pb[0].size() + 1 + 4) return false;             // sit byte + 4 byte furniture
+    return !animHasExt(sitOnly.anim);                                   // the furniture block is not part of the v2 extension helpers
+}
+
+// A sitting actor whose reference could not be read (0) still sits; a standing actor's stray bed flag / reference never reach the wire.
+inline bool sitCanonicalForms() {
+    Pair p;
+    ActorSnapshot s1 = mk(54, 1, 1, 1000, 10, 20, 30);
+    s1.anim = sittingAnim(SitState::Using, 0);
+    auto r1 = p.send(s1);
+    if (r1.size() != 1 || r1[0].snap.anim.sit != SitState::Using || r1[0].snap.anim.furniture != 0) return false;
+    ActorSnapshot s2 = s1; s2.seq = 2; s2.tick = 1050;
+    s2.anim.sit = SitState::None; s2.anim.sleep = true; s2.anim.furniture = 99;   // inconsistent input from a careless sampler
+    const ActorSnapshot n = normalized(s2);
+    if (n.anim.sit != SitState::None || n.anim.sleep || n.anim.furniture != 0) return false;
+    auto r2 = p.send(s2);
+    return r2.size() == 1 && r2[0].snap.anim.sit == SitState::None && r2[0].snap.anim.furniture == 0 && !r2[0].snap.anim.sleep;
+}
+
+// The decoder accepts exactly the canonical furniture blocks: state 0, reserved sit bits, a missing block and an oversized reference are Malformed.
+inline bool sitMalformedRejected() {
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x02, 0x05}) != Verdict::Accepted) return false;            // using, furniture 5
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x07, 0x00}) != Verdict::Accepted) return false;            // a bed, leaving, reference unknown
+    if (decodeAnimDatagram(1, 0x81, {32, 4, 0x41, 0x01, 0x80, 0x01}) != Verdict::Accepted) return false;    // together with the v2 extension, 2 byte reference
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x00, 0x00}) == Verdict::Accepted) return false;           // state 0 is never sent
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x04, 0x00}) == Verdict::Accepted) return false;           // a bed flag without a state
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x0A, 0x00}) == Verdict::Accepted) return false;           // reserved sit bit 3
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x82, 0x00}) == Verdict::Accepted) return false;           // reserved sit bit 7
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0x40, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F}) == Verdict::Accepted) return false;   // reference wider than 32 bits
+    if (decodeAnimDatagram(1, 0x81, {0, 0, 0xC0, 0x02, 0x05}) == Verdict::Accepted) return false;           // reserved extension bit 7 next to the furniture bit
+    if (decodeAnimDatagram(1, 0x01, {}) != Verdict::Accepted) return false;                                  // the plain form is untouched
     return true;
 }
 

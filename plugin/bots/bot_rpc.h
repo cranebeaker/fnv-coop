@@ -255,7 +255,7 @@ public:
             Value arr = Value::array();
             for (const Choice& c : cs) {
                 Value v = Value::object();
-                v.set("idx", (int64_t)c.idx).set("formId", (int64_t)c.formId).set("info", g->nameOfForm(c.info));
+                v.set("idx", (int64_t)c.idx).set("formId", (int64_t)c.formId).set("info", g->nameOfForm(c.info)).set("topicId", (int64_t)c.topicId);
                 arr.push(v);
             }
             o.set("choices", arr);

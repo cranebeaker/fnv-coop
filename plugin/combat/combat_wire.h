@@ -11,7 +11,11 @@ namespace nvcoop::combat {
 
 enum class Kind : uint8_t { Hit = 1, HitNack, Vitals, Death, Projectile, Explosion, Crime, Hostility, Count_ };
 
-struct MHit { cc::HitEvent h; };                        // attacker's machine -> victim's owner (via the host)
+// attacker's machine -> victim's owner (via the host). The rules' `h.damage` is whole points (at least 1, so they accept it); `centi` is the engine's health damage
+// EXACTLY, in hundredths (a fist's 0.5 is 50), and is what the owner applies natively. `touch`: the blow did no health damage at all (armour took it all, a glancing
+// fist; centi is 0): the owner replays it as a reaction only (no health off, the victim turns on the attacker).
+struct MHit { cc::HitEvent h; bool touch = false; uint32_t centi = 0; };
+constexpr uint32_t kMaxCenti = 100000000;   // 1,000,000 points: far beyond any real blow, keeps a hostile varint from becoming a float nobody meant
 // victim's owner -> attacker: "not applied here, ask again" (handoff in flight, the ownership table was behind, victim not known yet)
 struct MHitNack { uint64_t hitId = 0; cc::HitReason reason = cc::HitReason::Ok; bool resync = false; };
 // victim's owner -> everyone: the result of an applied hit (health + crippled limbs). `seq` rises per (victim, epoch); stale ones are ignored.

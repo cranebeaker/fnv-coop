@@ -62,6 +62,11 @@ def run(exe: Path = DEFAULT_EXE, mutant: bool = False) -> List[Result]:
     g = fn(0x115, 0x20)
     ok("HighProcess slot 0x115 IsWeaponOut reads byte +0x135 (the flag SetWeaponOut writes)", g.startswith(PRO + bytes.fromhex("8a80") + flag), g[:0x14].hex())
 
+    # GetSitSleepState() = slot 0x12F: returns the byte at +0x13D of the process (xNVSE BaseProcess::kSitSleepState_*: 4 = sitting, 9 = sleeping); when a
+    # virtual of the process (vtable +0x618) reports bit 3 the values 4 and 9 come back as 5 and 10 (want to stand / wake). Read only, no side effect.
+    b = fn(0x12F, 0x50)
+    ok("HighProcess slot 0x12F GetSitSleepState reads byte +0x13D and special-cases 4 and 9", b.startswith(PRO[:3]) and bytes.fromhex("0fb6913d010000") in b and bytes.fromhex("83fa04") in b and bytes.fromhex("83f909") in b, b[:0x40].hex())
+
     # PushActorAway(Actor* pushed, float x, y, z, float force) = slot 0x106: exists, has a real frame, takes the actor first (never called
     # unless nvcoop.ini [anim] knockdown=1; its force units and effect are an in-game proof)
     b = fn(0x106, 0x40)
@@ -75,7 +80,8 @@ def run(exe: Path = DEFAULT_EXE, mutant: bool = False) -> List[Result]:
 
     ok("anim_pins.h kHighProcessVtable is the HighProcess vtable", const("kHighProcessVtable") == HIGH_PROCESS_VTABLE, hex(const("kHighProcessVtable")))
     for slot_name, fn_name in (("kSlotSetIsAiming", "kFnSetIsAiming"), ("kSlotSetKnockedState", "kFnSetKnockedState"), ("kSlotPushActorAway", "kFnPushActorAway"),
-                               ("kSlotIsWeaponOut", "kFnIsWeaponOut"), ("kSlotSetWeaponOut", "kFnSetWeaponOut")):
+                               ("kSlotIsWeaponOut", "kFnIsWeaponOut"), ("kSlotSetWeaponOut", "kFnSetWeaponOut"),
+                               ("kSlotGetSitSleepState", "kFnGetSitSleepState")):
         slot, want = const(slot_name), const(fn_name) + (4 if mutant and fn_name == "kFnSetWeaponOut" else 0)
         got = img.vslot(HIGH_PROCESS_VTABLE, slot) if slot >= 0 else None
         ok(f"anim_pins.h {slot_name}={slot:#x} holds {fn_name}={want:#x} in the exe", got == want, f"exe has {got and hex(got)}")

@@ -5,7 +5,7 @@ namespace nvcoop::actors {
 
 namespace {
 constexpr size_t kMaxAv = 64;
-constexpr size_t kMaxInvItems = 128;
+constexpr size_t kMaxPartBytes = 8192;   // one part's value (state_parts.h)
 
 void ioVec(fnvcoop::Archive& a, live::Vec3& v) { a.f32(v.x); a.f32(v.y); a.f32(v.z); }
 
@@ -28,6 +28,16 @@ void io(fnvcoop::Archive& a, live::ActorSnapshot& s) {
         const uint8_t loco = s.anim.locomotion;
         s.anim = live::unpackAnim(loco, static_cast<uint8_t>(f & ~live::kAnimFlagExt), action, actionSeq, ext);
     }
+    // The furniture block (live schema v3): a handoff or a resync must not stand a seated actor up until the next stream snapshot. Always one
+    // sit byte (0 = not in furniture), then the furniture reference only when it is non-zero.
+    uint8_t sit = live::packAnimSit(s.anim);
+    uint32_t furniture = sit ? s.anim.furniture : 0;
+    a.u8(sit);
+    if (sit) a.varu32(furniture);
+    if (a.reading()) {
+        const uint32_t sitFurniture = sit ? furniture : 0;
+        if (!live::unpackAnimSit(s.anim, sit, sitFurniture)) a.fail();
+    }
     a.varu32(s.ai.combatTarget); a.varu32(s.ai.package); a.u8(s.ai.alert);
     size_t n = s.avDeltas.size();
     if (!a.count(n, kMaxAv)) return;
@@ -48,12 +58,15 @@ void io(fnvcoop::Archive& a, MDeath& m) { a.varu32(m.id); a.varu32(m.epoch); a.v
 void io(fnvcoop::Archive& a, MPick& m) { a.varu32(m.id); fnvcoop::io(a, m.pick); }
 void io(fnvcoop::Archive& a, MPickReport& m) { a.varu32(m.id); fnvcoop::io(a, m.base); }
 void io(fnvcoop::Archive& a, MResync& m) { a.varu32(m.id); }
-void io(fnvcoop::Archive& a, MInventory& m) {
+void io(fnvcoop::Archive& a, MPart& m) {
     a.varu32(m.id); a.varu32(m.epoch); a.varu(m.eventId);
-    size_t n = m.items.size();
-    if (!a.count(n, kMaxInvItems)) return;
-    if (a.reading()) m.items.assign(n, {});
-    for (auto& it : m.items) { fnvcoop::io(a, it.form); a.vari32(it.count); }
+    uint8_t k = static_cast<uint8_t>(m.kind);
+    a.u8(k);
+    if (a.reading()) {
+        if (k >= kPartCount) { a.fail(); return; }
+        m.kind = static_cast<PartKind>(k);
+    }
+    a.bytes(m.value, kMaxPartBytes);
 }
 void io(fnvcoop::Archive& a, MAnimEvent& m) { a.varu32(m.id); a.varu32(m.epoch); a.varu(m.eventId); a.bytes(m.payload, 256); }
 
@@ -76,7 +89,7 @@ bool readBody(fnvcoop::Archive& a, size_t idx, Body& out) {
 }  // namespace
 
 const char* bodyName(const Body& b) {
-    static const char* names[] = {"Own", "Track", "SnapFull", "Death", "Pick", "PickReport", "Resync", "AnimEvent", "Inventory"};
+    static const char* names[] = {"Own", "Track", "SnapFull", "Death", "Pick", "PickReport", "Resync", "AnimEvent", "Part"};
     return names[b.index()];
 }
 

@@ -76,6 +76,14 @@ public:
     // `attackerRef` is the attacker's ref on THIS machine (the puppet of a remote player, a local actor), 0 = none. Production:
     // DamageActorValue Health on the victim (or the engine's own hit path when the native replay is enabled).
     virtual bool damageHealth(const cc::Entity& victim, uint32_t victimRef, int32_t amount, uint32_t attackerRef, const cc::HitEvent& hit) = 0;
+    // damageHealth with the exact (fractional) amount the attacker's engine computed. Default: the nearest whole point (an engine without float health).
+    virtual bool damageHealthExact(const cc::Entity& victim, uint32_t victimRef, float amount, uint32_t attackerRef, const cc::HitEvent& hit) {
+        return damageHealth(victim, victimRef, amount > 0 && amount < 1 ? 1 : static_cast<int32_t>(amount + 0.5f), attackerRef, hit);
+    }
+    // The owner replays an ACCEPTED blow that took under one point of health, or none (armour took it all, a glancing fist): the victim's hit reaction and its notice of
+    // the attacker, with exactly `amount` points off its float health (0 = nothing; production: the native replay, a token amount for 0). The rules' whole-point health
+    // is not touched by it. `attackerRef` as for damageHealth. Default false: only provoke() then runs.
+    virtual bool touchVictim(uint32_t /*victimRef*/, uint32_t /*attackerRef*/, const cc::HitEvent& /*hit*/, float /*amount*/) { return false; }
     virtual bool setLimbCrippled(const cc::Entity& victim, uint32_t victimRef, cc::Limb limb) = 0;
     // A copy mirrors the owner's published health (never raises a dead actor, never kills: the death arrives as a declaration).
     virtual bool mirrorHealth(uint32_t ref, int32_t health) = 0;

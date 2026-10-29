@@ -4,7 +4,7 @@ rem integration, mutation twins. Twins are RUNTIME-switchable (FNVCOOP_MUT=<n>, 
 setlocal enabledelayedexpansion
 for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
 if not defined PYTHON set "PYTHON=python"
-"%PYTHON%" -I "%REPO%\tools\build\build.py" --target coop_tests coop_peer --label "L10 coop" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\build\build.py" --target coop_tests coop_peer party_save_tests --label "L10 coop" || exit /b 1
 set "FNVCOOP_MUT="
 echo === coop_tests (config, UDP transport, loopback convergence, lossy host) ===
 "%REPO%\out\L10\coop_tests.exe" || exit /b 1
@@ -38,11 +38,21 @@ echo   twin 8 killed
 set "FNVCOOP_MUT="
 echo === wave 2 session wiring (--wiring; each twin must break one test) ===
 "%REPO%\out\L10\coop_tests.exe" --wiring || exit /b 1
-for %%N in (9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 97 98 99 100 140 960 961 962 963 964) do (
+for %%N in (9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 97 98 99 100 140 960 961 962 963 964 1270 1271) do (
   set "FNVCOOP_MUT=%%N"
   "%REPO%\out\L10\coop_tests.exe" --wiring >nul 2>&1
   if !errorlevel! EQU 0 ( echo TWIN SURVIVED: FNVCOOP_MUT=%%N & exit /b 1 )
   echo   wiring twin %%N killed
+)
+set "FNVCOOP_MUT="
+echo === party saves (names, orders, host sequence, guest state machine, hand saves, the real order channel) + twins ===
+set "FNVCOOP_MUT="
+"%REPO%\out\L10\party_save_tests.exe" || exit /b 1
+for %%N in (1100 1101 1102 1103 1104 1105 1106 1107 1108 1109 1110 1200 1201 1260 1262) do (
+  set "FNVCOOP_MUT=%%N"
+  "%REPO%\out\L10\party_save_tests.exe" >nul 2>&1
+  if !errorlevel! EQU 0 ( echo TWIN SURVIVED: party save FNVCOOP_MUT=%%N & exit /b 1 )
+  echo   party save twin %%N killed
 )
 set "FNVCOOP_MUT="
 echo === gen_coop_data (cause map, unresolved names) + twin ===

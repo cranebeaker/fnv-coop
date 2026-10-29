@@ -26,6 +26,7 @@ for _p in (ROOT / "tools", ROOT / "tools" / "runner", ROOT / "tools" / "proof", 
 
 import lab_core as K   # noqa: E402
 import lab_net   # noqa: E402
+import lab_parity   # noqa: E402
 from lab_core import CLIENT, HOST, Blocked, Machine   # noqa: E402
 
 VATS_COOLDOWN_S = 3.0     # seconds between the end of one VATS shot and the start of the next one on a copy
@@ -40,7 +41,7 @@ AMMO = "FalloutNV.esm:08ED03"         # 9mm ammo
 # the switches the lab needs in nvcoop.ini: the union of what the proof manifest's two-copy tests switch on (loot, vats, digests, dialogue included)
 LAB_INI = ["coop.enable=1", "dev.bots=1", "dev.animprobe=1", "live.actors=1", "live.avatars=1", "live.combat=1", "live.spawns=1", "avatar.enabled=1",
            "combat.enabled=1", "combat.gate=1", "combat.native=1", "anim.enabled=1", "vats.enabled=1", "areadigest.enabled=1", "loot.enabled=1",
-           "coop.baseline=1", "coop.dialogue=1", "intents.enable=1", "intents.pickup=0", "intents.container=0", "worldtime.enabled=1", "dev.actorport=1"]
+           "coop.baseline=1", "coop.dialogue=1", "intents.enable=1", "intents.pickup=0", "intents.container=0", "worldtime.enabled=1", "dev.actorport=1", "dev.parityprobe=1"]
 # extra nvcoop.ini keys for one run, "section.key=value,section.key=value" (a "+" does the same as the comma: schtasks hands a comma list to PowerShell as separate arguments) (an A/B run of a fix switch: `LAB_INI_EXTRA=actors.norepeatfinal=1+actors.noavaudit=1`)
 LAB_INI = LAB_INI + [x.strip() for v in ("LAB_INI_EXTRA", "LAB_EXTRA_INI") for x in os.environ.get(v, "").replace("+", ",").split(",") if "=" in x]   # LAB_EXTRA_INI: the same, under the avatar docs' name
 
@@ -225,6 +226,103 @@ class LiveMachine(Machine):
             if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
                 raise
             return None
+
+    # ---- the parity room (lab_parity.py). Reads only existing bridge methods (avatar.status, anim.probe, world.peek, vats.state) and parity.look
+    # (plugin/probe/parity_probe.cpp); the situations are console lines and dev methods the lab already uses elsewhere. UNVERIFIED in a game: the NPC lines.
+    PARITY_RADIUS = 20000.0        # every actor of the lab cell
+    PARITY_MAX = 64                # anim.probe's limit per call
+    _puppet_cache: Tuple[float, Optional[str]] = (0.0, None)
+
+    def _probe(self, method: str, params: Dict[str, Any], timeout_s: float = 10.0) -> Tuple[Optional[Dict[str, Any]], str]:
+        """(answer, "") or (None, why): a build without the method (-32601) or a method that refuses is a missing read, not a crash. A lost game still raises."""
+        try:
+            r = self.nv.call(method, params, timeout_s=timeout_s)
+            return (r if isinstance(r, dict) else {}), ""
+        except Exception as e:   # noqa: BLE001
+            if type(e).__name__ in ("ConnectionLost", "GameCrashed"):
+                raise
+            return None, ("no such method" if getattr(e, "code", None) == -32601 else str(e)[:WHY])
+
+    def parity_view(self) -> Dict[str, Any]:
+        av, _ = self._probe("avatar.status", {}, 5)
+        pu = lab_parity.puppet_refs(av)
+        anim, why = self._probe("anim.probe", {"refs": ["player"] + pu, "near": {"radius": self.PARITY_RADIUS}, "bones": False, "max": self.PARITY_MAX}, 15)
+        if anim is None:
+            raise Blocked(f"anim.probe is not available on the {self.name} copy ({why}); the lab starts it with dev.animprobe=1", "BUILD")
+        refs = ["player"] + [str(a.get("ref")) for a in anim.get("actors") or [] if not a.get("player")]
+        look, lwhy = self._probe("parity.look", {"refs": refs}, 15)
+        peek, vats = "", None
+        if look is None:      # a build without the probe: the multiplier through world.peek, the VATS mode through vats.state
+            pk, _ = self._probe("world.peek", {"addr": "0x%X" % lab_parity.TIME_ADDR_CURRENT, "len": 8}, 5)
+            peek = str((pk or {}).get("hex") or "")
+            vs, _ = self._probe("vats.state", {}, 5)
+            vats = (vs or {}).get("mode")
+        snap = lab_parity.assemble(anim, look, av, peek, vats)
+        if look is None:
+            snap["missing"][0] = f"parity.look ({lwhy}): equipment and look of actors"
+        return snap
+
+    def _puppet_ref(self) -> Optional[str]:
+        t, ref = self._puppet_cache
+        if time.monotonic() - t > 2.0:
+            av, _ = self._probe("avatar.status", {}, 5)
+            refs = lab_parity.puppet_refs(av)
+            ref = refs[0] if refs else None
+            self._puppet_cache = (time.monotonic(), ref)
+        return ref
+
+    def anim_category(self, who: Optional[str] = None) -> Optional[str]:
+        ref = "player" if who is None else (self._puppet_ref() if who == "puppet" else self.bot._norm(who)[2])   # noqa: SLF001
+        if not ref:
+            return None
+        anim, _ = self._probe("anim.probe", {"refs": [ref], "bones": False}, 5)
+        acts = (anim or {}).get("actors") or []
+        return lab_parity.primary_category(acts[0]) if acts else None
+
+    def _line(self, cmd: str, ref: str) -> Tuple[bool, str]:
+        r = self.nv.exec(cmd, ref=self.bot._ref_of(ref))   # noqa: SLF001
+        return bool(r.get("ok", True)), "" if r.get("ok", True) else str(r.get("output", ""))[:WHY]
+
+    def npc_equip(self, ref: str, item: str) -> Tuple[bool, str]:
+        """`AddItem` then `EquipItem` on the NPC (console lines run with the NPC as the calling reference; only its owner's lines stick). UNVERIFIED."""
+        h = self.bot._item(item)   # noqa: SLF001
+        ok, why = self._line(f"AddItem {h} 1", ref)
+        return self._line(f"EquipItem {h}", ref) if ok else (False, "AddItem: " + why)
+
+    def npc_draw(self, ref: str, on: bool = True) -> Tuple[bool, str]:
+        """The dev method anim.npc.do op=weapon (plugin/actors/anim: BaseProcess::SetWeaponOut through a pinned slot)."""
+        r, why = self._probe("anim.npc.do", {"ref": self.bot._norm(ref)[2], "op": "weapon", "on": bool(on)}, 10)   # noqa: SLF001
+        if r is None:
+            return False, f"anim.npc.do: {why} (needs [dev] animprobe=1)"
+        return r.get("result") == "ok", "" if r.get("result") == "ok" else f"anim.npc.do weapon: {r.get('result')}"
+
+    def npc_sit(self, ref: str, furniture: str) -> Tuple[bool, str]:
+        """`<furniture>.Activate <npc>`: the furniture is the calling reference, the NPC the activator. UNVERIFIED (the engine may want the NPC's AI package to agree)."""
+        return self._line(f"Activate {self.bot._norm(ref)[2]}", furniture)   # noqa: SLF001
+
+    def npc_stand(self, ref: str) -> Tuple[bool, str]:
+        """`EvaluatePackage` on the NPC: it drops what it is doing and picks its package again (the patrol), which makes it leave the seat. UNVERIFIED."""
+        return self._line("EvaluatePackage", ref)
+
+    def npc_reset(self, ref: str, item: str) -> Tuple[bool, str]:
+        h = self.bot._item(item)   # noqa: SLF001
+        self.npc_draw(ref, False)
+        self._line(f"UnequipItem {h}", ref)
+        return self._line(f"RemoveItem {h} 1", ref)
+
+    def unarm(self) -> Tuple[bool, str]:
+        """Holster and unequip the lab's pistol: the next Attack is a punch."""
+        r = self.bot.unequip(self.weapon)
+        return bool(r.ok), "" if r.ok else str(r)[:WHY]
+
+    def punch(self, n: int = 3, gap_s: float = 0.8) -> Tuple[bool, str]:
+        """n Attack pulses through the bridge's input driver (bot.fire) with no weapon equipped. UNVERIFIED: the driver was built for guns."""
+        for i in range(max(1, int(n))):
+            r, why = self._probe("bot.fire", {"shots": 1}, 10)
+            if r is None:
+                return False, f"bot.fire: {why}"
+            time.sleep(gap_s)
+        return True, ""
 
     # ---- moving
     def goto_ref(self, ref: str, dist: float = 0.0) -> Tuple[bool, str]:

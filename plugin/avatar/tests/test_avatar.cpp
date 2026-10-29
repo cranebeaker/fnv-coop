@@ -1250,6 +1250,298 @@ static void t_live_bridge() {
     b.loco = 3; b.sneak = true; b.reload = true;
     Anim c = FromLive(ToLive(b));
     CHECK(c.loco == 3 && c.sneak && c.reload && !c.jump && !c.aim && !c.weaponDrawn);
+    // the one-shot: group, counter and block bit survive both ways, and reach the puppet through the interpolation output
+    b.action = 92;
+    b.actionSeq = 200;
+    b.block = true;
+    Anim d = FromLive(ToLive(b));
+    CHECK(d.action == 92 && d.actionSeq == 200 && d.block);
+    live::ActorSnapshot es = MakeLocalSnapshot(7, 3, 11, 5000, 0x55, Vec3{}, Vec3{}, Vec3{}, b);
+    CHECK(es.anim.action == 92 && es.anim.actionSeq == 200 && es.anim.block);
+    live::InterpOut eo;
+    eo.state = live::InterpState::Interpolating;
+    eo.anim = es.anim;
+    CHECK(FromInterp(eo).anim.action == 92 && FromInterp(eo).anim.actionSeq == 200 && FromInterp(eo).anim.block);
+}
+
+// ---- the owner's one-shots: attacks, throws, block, stagger on the puppet --------------------------------------------------
+// The sync model (docs/sync-model.md section 2): a player's attacks are owner events played on the copy. The stream carries the group in
+// AnimState::action (held for a while) and a counter in actionSeq that bumps when a one-shot starts; the puppet plays one bump once.
+
+static int CountGroup(const Rig& r, int g) {
+    int n = 0;
+    for (auto& e : r.eng.groupLog)
+        if (e.second == g) ++n;
+    return n;
+}
+
+// The owner's pose with a one-shot in the stream (`group` 0 = none): the group and the counter.
+static PuppetPose Act(PuppetPose p, int group, uint8_t seq, bool block = false) {
+    p.anim.action = static_cast<uint8_t>(group);
+    p.anim.actionSeq = seq;
+    p.anim.block = block;
+    return p;
+}
+
+// A rig whose puppet is driving and has read the owner's counter (`baseline`).
+static void StartDriving(Rig& r, uint8_t baseline = 4) {
+    r.Add(1, Act(MkPose(kCellA, 100, 200), 0, baseline));
+    CHECK(r.UntilDriving(1));
+    r.Run(300);
+}
+
+// Melee swing, unarmed punch, power attack, shot, throw, hit reactions: each shows once on the puppet, the group is named from the NPC layer's table,
+// and the movement group comes back afterwards.
+static void t_oneshot_plays_once() {
+    g_test = "oneshot_plays_once";
+    const int groups[] = {26 /*AttackLeft: the unarmed punch*/, 32 /*AttackRight: a swing*/, 38 /*Attack3*/, 92 /*AttackPower*/, 114 /*AttackThrow*/,
+                          172 /*Recoil*/, 171 /*BlockHit*/, 223 /*Stagger*/};
+    for (int g : groups) {
+        Rig r;
+        StartDriving(r);
+        CHECK(CountGroup(r, g) == 0);
+        r.Pose(1, Act(MkPose(kCellA, 100, 200), g, 5));
+        r.Run(300);
+        CHECK(r.Group(1) == g);                // the engine is playing it
+        r.Run(500);                            // the owner keeps it in the stream for 600 ms: many Ticks see the same group
+        CHECK(CountGroup(r, g) == 1);
+        r.Pose(1, Act(MkPose(kCellA, 100, 200), 0, 5));
+        r.Run(1500);
+        CHECK(CountGroup(r, g) == 1);
+        CHECK(r.Group(1) == kGrpIdle && r.eng.groupLog.back().second == kGrpIdle);   // asserted again once it ran its time
+        CHECK(r.pm.stats().oneShots == 1);
+    }
+    // the same group twice in a row is two events
+    Rig r;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    r.Run(900);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 6));
+    r.Run(900);
+    CHECK(CountGroup(r, 32) == 2);
+    // a one-shot plays without the hold flag
+    bool noHold = false;
+    for (size_t i = 0; i < r.eng.groupLog.size(); ++i)
+        if (r.eng.groupLog[i].second == 32 && (r.eng.groupFlags[i] & 1) == 0) noHold = true;
+    CHECK(noHold);
+}
+
+// A duplicate of the snapshot, or an older one that arrives late, plays nothing.
+static void t_oneshot_duplicates_and_reordering() {
+    g_test = "oneshot_duplicates_and_reordering";
+    Rig r;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    r.Run(300);
+    CHECK(CountGroup(r, 32) == 1);
+    r.Run(600);                                                          // the same snapshot on every Tick
+    CHECK(CountGroup(r, 32) == 1);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 0, 4));                      // an older snapshot overtaken on the wire ...
+    r.Step();
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));                     // ... and the newest again
+    r.Run(500);
+    CHECK(CountGroup(r, 32) == 1);
+    CHECK(r.pm.stats().oneShotsStale >= 1);
+    // after the stale blip a real next attack still plays
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 38, 6));
+    r.Run(300);
+    CHECK(CountGroup(r, 38) == 1);
+    // an owner whose counter restarted below ours (the game was restarted): ignored for a second, then taken as the new baseline
+    Rig q;
+    StartDriving(q, 100);
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 0, 1));
+    q.Run(1500);
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 2));
+    q.Run(300);
+    CHECK(CountGroup(q, 32) == 1);
+}
+
+// A lost datagram: the counter jumps by more than one. The group the stream holds now plays, once; the one in between is gone with its datagram.
+static void t_oneshot_lost_packet() {
+    g_test = "oneshot_lost_packet";
+    Rig r;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 38, 7));   // seq 5 and 6 never arrived
+    r.Run(900);
+    CHECK(CountGroup(r, 38) == 1);
+    CHECK(CountGroup(r, 32) == 0);
+    // the counter wraps at 256: 255 -> 0 is newer
+    Rig w;
+    StartDriving(w, 254);
+    int plays = 0;
+    for (uint8_t seq : {uint8_t(255), uint8_t(0), uint8_t(1)}) {
+        w.Pose(1, Act(MkPose(kCellA, 100, 200), 32, seq));
+        w.Run(700);
+        plays = CountGroup(w, 32);
+    }
+    CHECK(plays == 3);
+}
+
+// Nothing plays while the puppet is not driving, and an event from before it was driving again is never replayed late.
+static void t_oneshot_only_while_driving() {
+    g_test = "oneshot_only_while_driving";
+    // a counter and an action already in the first snapshot: an old event, only read
+    {
+        Rig r;
+        r.Add(1, Act(MkPose(kCellA, 100, 200), 32, 7));
+        CHECK(r.UntilDriving(1));
+        r.Run(800);
+        CHECK(CountGroup(r, 32) == 0);
+        r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 8));
+        r.Run(300);
+        CHECK(CountGroup(r, 32) == 1);
+    }
+    // the puppet is waiting for its 3D after a cell move: the attack that happens meanwhile is over for it
+    {
+        Rig r;
+        r.eng.exterior.clear();
+        StartDriving(r, 3);
+        r.eng.load3DFrames = 12;
+        r.Pose(1, Act(MkPose(kCellB, 100, 200), 32, 4));      // another interior: MoveToCell, 3D rebuilt
+        r.Step();
+        CHECK(r.pm.PhaseOf(1) != Phase::Driving);
+        CHECK(r.UntilDriving(1, 200));
+        r.Run(300);                                           // the action is still in the stream, the counter is not new to it
+        CHECK(CountGroup(r, 32) == 0);
+        r.Pose(1, Act(MkPose(kCellB, 100, 200), 32, 5));
+        r.Run(300);
+        CHECK(CountGroup(r, 32) == 1);
+    }
+    // parked: the remote's cell is not loaded here, the puppet is deleted; the attack meanwhile is not played when it comes back
+    {
+        Rig r;
+        StartDriving(r, 3);
+        r.eng.loadedCells.erase(kCellA);
+        r.Run(1500);
+        CHECK(r.pm.RefOf(1) == 0);
+        r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 4));
+        r.Run(300);
+        r.eng.loadedCells.insert(kCellA);
+        CHECK(r.UntilDriving(1, 200));
+        r.Run(300);
+        CHECK(CountGroup(r, 32) == 0);
+    }
+    // the stream ran dry (frozen): the last thing the owner said is not what he is doing now
+    {
+        Rig r;
+        StartDriving(r);
+        PuppetPose f = Act(MkPose(kCellA, 100, 200), 32, 5);
+        f.frozen = true;
+        r.Pose(1, f);
+        r.Run(600);
+        CHECK(CountGroup(r, 32) == 0);
+        f.frozen = false;
+        r.Pose(1, f);
+        r.Run(600);
+        CHECK(CountGroup(r, 32) == 0);                        // consumed, not deferred
+        CHECK(r.pm.stats().oneShotsFrozen == 1);
+    }
+}
+
+// Block is held: played with the hold flag once, kept until the owner stops reporting it, then the movement group again.
+static void t_oneshot_held_block() {
+    g_test = "oneshot_held_block";
+    Rig r;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 170, 5, true));
+    r.Run(2500);                                           // held far longer than any swing
+    CHECK(CountGroup(r, 170) == 1);
+    CHECK(r.Group(1) == 170 && r.eng.groupLog.back().second == 170);   // nothing cut it off
+    bool held = false;
+    for (size_t i = 0; i < r.eng.groupLog.size(); ++i)
+        if (r.eng.groupLog[i].second == 170 && (r.eng.groupFlags[i] & 1)) held = true;
+    CHECK(held);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 0, 5, false));
+    r.Run(300);
+    CHECK(r.Group(1) == kGrpIdle);
+    // a dry stream ends the block as well
+    Rig q;
+    StartDriving(q);
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 170, 5, true));
+    q.Run(600);
+    PuppetPose f = Act(MkPose(kCellA, 100, 200), 170, 5, true);
+    f.frozen = true;
+    q.Pose(1, f);
+    q.Run(300);
+    CHECK(q.Group(1) == kGrpIdle);
+}
+
+// The readback re-assert (the engine reports another group than the one we last issued for 300 ms) must not cut a swing off.
+static void t_oneshot_not_cut_by_readback() {
+    g_test = "oneshot_not_cut_by_readback";
+    Rig r;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 92, 5));
+    r.Run(500);                                            // a power attack takes 600 ms
+    CHECK(r.Group(1) == 92);
+    CHECK(CountGroup(r, kGrpIdle) == 1);                   // only the one from before it started
+    r.Run(500);
+    CHECK(r.Group(1) == kGrpIdle);
+}
+
+// Reload plays the owner's own reload group (it depends on the weapon), once; without one the default.
+static void t_reload_group_from_owner() {
+    g_test = "reload_group_from_owner";
+    Rig r;
+    StartDriving(r);
+    PuppetPose p = Act(MkPose(kCellA, 100, 200), 178, 5);   // ReloadB
+    p.anim.reload = true;
+    r.Pose(1, p);
+    r.Run(1000);
+    CHECK(CountGroup(r, 178) == 1);
+    CHECK(CountGroup(r, kGrpReloadA) == 0);
+    // a reload flag without a reload group in the stream: the default
+    Rig q;
+    StartDriving(q);
+    PuppetPose d = MkPose(kCellA, 100, 200);
+    d.anim.reload = true;
+    q.Pose(1, d);
+    q.Run(600);
+    CHECK(CountGroup(q, kGrpReloadA) == 1);
+    // the attack that was last in the stream is no reload group
+    Rig w;
+    StartDriving(w);
+    PuppetPose a = Act(MkPose(kCellA, 100, 200), 32, 5);
+    a.anim.reload = true;
+    w.Pose(1, a);
+    w.Run(600);
+    CHECK(CountGroup(w, kGrpReloadA) == 1 && CountGroup(w, 32) == 1);
+}
+
+// An engine that refuses the group: a few tries while the event is in the stream, then given up (not every Tick for ever); one refusal is retried.
+static void t_oneshot_refusals() {
+    g_test = "oneshot_refusals";
+    Rig r;
+    StartDriving(r);
+    r.eng.playGroupRefusalsLeft = 1;
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    r.Run(600);
+    CHECK(CountGroup(r, 32) == 1);
+    Rig q;
+    StartDriving(q);
+    q.eng.playGroupRefusalsLeft = 100;
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    q.Run(900);
+    CHECK(q.pm.stats().oneShotsFailed == 1);
+    CHECK(100 - q.eng.playGroupRefusalsLeft == 3);
+    q.eng.playGroupRefusalsLeft = 0;
+    q.Run(600);
+    CHECK(CountGroup(q, 32) == 0);                         // given up for good
+}
+
+// The one-shot groups are the NPC layer's: every attack, reaction and block group has a name the puppet can play, a locomotion group is not one.
+static void t_action_group_names() {
+    g_test = "action_group_names";
+    for (int g : {26, 32, 38, 92, 96, 114, 126, 144, 150, 162, 168, 169, 170, 171, 172, 177, 200, 223}) CHECK(IsActionGroup(g) && GroupName(g) != nullptr);
+    CHECK(std::string(GroupName(32)) == "AttackRight" && std::string(GroupName(92)) == "AttackPower" && std::string(GroupName(114)) == "AttackThrow");
+    CHECK(std::string(GroupName(223)) == "Stagger" && std::string(GroupName(170)) == "BlockIdle" && std::string(GroupName(172)) == "Recoil");
+    CHECK(!IsActionGroup(kGrpForward) && !IsActionGroup(kGrpAim) && !IsActionGroup(kGrpJumpStart) && !IsActionGroup(224 /*Death*/) && !IsActionGroup(0));
+    CHECK(GroupName(9999) == nullptr && GroupName(-1) == nullptr && GroupName(225) == nullptr);
+    CHECK(GroupName(kGrpDeath) != nullptr && std::string(GroupName(kGrpDeath)) == "Death");   // not an action: the held pose of a downed player
+    CHECK(IsHeldActionGroup(170) && IsHeldActionGroup(74) && !IsHeldActionGroup(32) && !IsHeldActionGroup(223));
+    CHECK(IsReloadActionGroup(177) && IsReloadActionGroup(178) && !IsReloadActionGroup(32));
+    // the table the planner uses is unchanged
+    CHECK(std::string(GroupName(kGrpIdle)) == "Idle" && std::string(GroupName(kGrpJumpLoop)) == "JumpLoop");
 }
 
 // ---- weapon modifications, look updates, hit-target health, the ghost-ref API, the hit router ---------------------------------
@@ -1354,6 +1646,177 @@ static void t_puppet_hit_target_health() {
     bool deleted = false;
     for (RefId d : r.eng.deletedRefs) deleted = deleted || d == ref;
     CHECK(deleted);
+}
+
+// ---- the pose override: a downed friend's puppet lies there (docs/revive.md "Downed pose") ---------------------------------------
+
+// The override holds against the planned group (the owner keeps walking in the stream) and against the periodic replay: the group is played once,
+// with the hold flag, and neither the heartbeat (no readback) nor a pose change plays anything else.
+static void t_pose_override_holds() {
+    g_test = "pose_override_holds";
+    Rig r;
+    r.eng.reportsCurrentGroup = false;
+    r.Add(1, MkPose(kCellA, 100, 200, 0, 0, kLocoWalkFwd, Vec3{0, 120, 0}));
+    r.Run(1500);
+    CHECK(r.Group(1) == kGrpForward && r.pm.PoseOverride(1) == kNoGroup);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    CHECK(r.pm.PoseOverride(1) == kGrpDeath);
+    r.Run(200);
+    CHECK(r.Group(1) == kGrpDeath && r.eng.groupLog.back().second == kGrpDeath && (r.eng.groupFlags.back() & 1) == 1);
+    const unsigned played = r.eng.playGroupCalls;
+    r.Run(r.cfg.animHeartbeatMs * 3);                              // three heartbeats go by
+    CHECK(r.eng.playGroupCalls == played && r.Group(1) == kGrpDeath);
+    r.Pose(1, MkPose(kCellA, 100, 400, 0, 0, kLocoRunFwd, Vec3{0, 300, 0}));   // the owner runs on in the stream: still lying
+    r.Run(600);
+    CHECK(r.Group(1) == kGrpDeath && r.eng.playGroupCalls == played);
+    CHECK(r.pm.PhaseOf(1) == Phase::Driving && r.pm.LastGroup(1) == kGrpDeath);
+    // with readback: the engine standing him up (a reset) is corrected with the held pose, never with the planned group
+    Rig q;
+    q.Add(1, MkPose(kCellA, 100, 200, 0, 0, kLocoWalkFwd, Vec3{0, 120, 0}));
+    q.Run(1500);
+    q.pm.SetPoseOverride(1, kGrpDeath);
+    q.Run(200);
+    const size_t before = q.eng.groupLog.size();
+    q.eng.SilentGroupReset(q.pm.RefOf(1));
+    q.Run(q.cfg.animMismatchMs + 200);
+    CHECK(q.Group(1) == kGrpDeath);
+    CHECK(q.eng.groupLog.size() > before);                         // it was corrected ...
+    for (size_t i = before; i < q.eng.groupLog.size(); ++i) CHECK(q.eng.groupLog[i].second == kGrpDeath);   // ... with the held pose
+    // a menu closing replays the held pose too
+    q.eng.SetMenu(true);
+    q.Run(200);
+    q.eng.SetMenu(false);
+    q.Run(300);
+    CHECK(q.Group(1) == kGrpDeath);
+}
+
+// A puppet the engine calls dead is replaced while it is a hit target; a downed one is not: it lies where it is.
+static void t_pose_override_no_dead_respawn() {
+    g_test = "pose_override_no_dead_respawn";
+    Rig r;
+    r.Add(1, MkPose(kCellA, 100, 200));
+    r.Run(1500);
+    const RefId ref = r.pm.RefOf(1);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(300);
+    r.F(1)->dead = true;
+    r.Run(3000);
+    CHECK(r.pm.stats().puppetDeaths == 0);
+    CHECK(r.pm.RefOf(1) == ref && r.F(1)->dead && r.Group(1) == kGrpDeath);
+    for (RefId d : r.eng.deletedRefs) CHECK(d != ref);
+    // once he is up again the normal rule applies: the dead puppet is replaced
+    r.pm.SetPoseOverride(1, kNoGroup);
+    r.Run(3000);
+    CHECK(r.pm.stats().puppetDeaths == 1);
+    CHECK(r.pm.RefOf(1) != 0 && r.pm.RefOf(1) != ref && !r.F(1)->dead);
+}
+
+// Clearing returns to normal driving at once, not at the next heartbeat; clearing what was never set, or for an unknown slot, is harmless.
+static void t_pose_override_clear() {
+    g_test = "pose_override_clear";
+    Rig r;
+    r.eng.reportsCurrentGroup = false;
+    r.Add(1, MkPose(kCellA, 100, 200, 0, 0, kLocoWalkFwd, Vec3{0, 120, 0}));
+    r.Run(1500);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(1000);
+    CHECK(r.Group(1) == kGrpDeath);
+    r.pm.SetPoseOverride(1, kNoGroup);
+    CHECK(r.pm.PoseOverride(1) == kNoGroup);
+    r.Step();                                                      // one Tick, not a heartbeat
+    CHECK(r.Group(1) == kGrpForward && r.eng.groupLog.back().second == kGrpForward);
+    // and the replay of the planned group is back
+    r.eng.SilentGroupReset(r.pm.RefOf(1));
+    r.Run(r.cfg.animHeartbeatMs + 300);
+    CHECK(r.Group(1) == kGrpForward);
+    r.pm.SetPoseOverride(1, kNoGroup);
+    r.pm.SetPoseOverride(7, kNoGroup);
+    r.pm.SetPoseOverride(7, kGrpDeath);                            // a slot without a puppet: remembered, nothing to play
+    CHECK(r.pm.PoseOverride(7) == kGrpDeath && r.pm.PoseOverride(1) == kNoGroup);
+    r.pm.SetPoseOverride(7, kNoGroup);
+    CHECK(r.pm.PoseOverride(7) == kNoGroup);
+    // lying, then up, then lying again
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(200);
+    CHECK(r.Group(1) == kGrpDeath);
+    r.pm.SetPoseOverride(1, kNoGroup);
+    r.Run(200);
+    CHECK(r.Group(1) == kGrpForward);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(200);
+    CHECK(r.Group(1) == kGrpDeath);
+}
+
+// The override belongs to the slot: a new look (another template = a new puppet), a lost ref, a rebuilt 3D, a reconnect, a save and a puppet that
+// did not exist yet all keep it. A player who left does not keep it.
+static void t_pose_override_survives_respawn() {
+    g_test = "pose_override_survives_respawn";
+    Rig r;
+    r.Add(1, MkPose(kCellA, 100, 200));
+    r.Run(1500);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(200);
+    const RefId first = r.pm.RefOf(1);
+    Appearance f = App(true);                                      // another sex: a new puppet
+    CHECK(r.pm.SetAppearance(1, f));
+    r.Run(4000);
+    CHECK(r.pm.RefOf(1) != 0 && r.pm.RefOf(1) != first);
+    CHECK(r.pm.PoseOverride(1) == kGrpDeath && r.Group(1) == kGrpDeath);
+    Appearance same = f;                                           // the same template: updated in place
+    same.hair = 0x77;
+    CHECK(r.pm.SetAppearance(1, same));
+    r.Run(600);
+    CHECK(r.Group(1) == kGrpDeath && r.pm.PoseOverride(1) == kGrpDeath);
+    const RefId second = r.pm.RefOf(1);
+    r.eng.KillRef(second);                                         // the cell dropped it: a fresh puppet
+    r.Run(4000);
+    CHECK(r.pm.RefOf(1) != 0 && r.pm.RefOf(1) != second && r.Group(1) == kGrpDeath);
+    const RefId third = r.pm.RefOf(1);
+    r.eng.Rebuild3DInstant(third);                                 // the 3D was rebuilt: the animation is gone, the pose comes back
+    r.Run(600);
+    CHECK(r.Group(1) == kGrpDeath);
+    r.pm.AddPlayer(1, f);                                          // a reconnect replaces the puppet
+    r.Run(4000);
+    CHECK(r.pm.RefOf(1) != 0 && r.pm.RefOf(1) != third && r.Group(1) == kGrpDeath);
+    r.pm.OnSaveBegin();                                            // a save despawns the puppet, it comes back lying
+    r.pm.OnSaveEnd();
+    r.Run(4000);
+    CHECK(r.pm.RefOf(1) != 0 && r.Group(1) == kGrpDeath);
+    // the player leaves and joins again: standing
+    r.pm.RemovePlayer(1);
+    CHECK(r.pm.PoseOverride(1) == kNoGroup);
+    r.Add(1, MkPose(kCellA, 100, 200));
+    r.Run(2000);
+    CHECK(r.pm.RefOf(1) != 0 && r.Group(1) == kGrpIdle);
+    // set before the puppet exists
+    Rig q;
+    q.pm.SetPoseOverride(2, kGrpDeath);
+    q.Add(2, MkPose(kCellA, 100, 200));
+    q.Run(2000);
+    CHECK(q.pm.RefOf(2) != 0 && q.Group(2) == kGrpDeath);
+}
+
+// The owner's attacks and reactions do not pop a lying puppet up, and none of them plays late once he is up.
+static void t_pose_override_no_one_shots() {
+    g_test = "pose_override_no_one_shots";
+    Rig r;
+    StartDriving(r);
+    r.pm.SetPoseOverride(1, kGrpDeath);
+    r.Run(200);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));               // a swing in the stream
+    r.Run(900);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 223, 6));              // and a stagger
+    r.Run(900);
+    CHECK(CountGroup(r, 32) == 0 && CountGroup(r, 223) == 0 && r.pm.stats().oneShots == 0);
+    CHECK(r.Group(1) == kGrpDeath);
+    r.pm.SetPoseOverride(1, kNoGroup);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 223, 6));              // still in the stream when he gets up: not played now either
+    r.Run(1500);
+    CHECK(CountGroup(r, 32) == 0 && CountGroup(r, 223) == 0 && r.pm.stats().oneShots == 0);
+    CHECK(r.Group(1) == kGrpIdle);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 7));               // a new swing after he got up plays as usual
+    r.Run(600);
+    CHECK(CountGroup(r, 32) == 1 && r.pm.stats().oneShots == 1);
 }
 
 // A directory that lies: it lists the local slot and the player's own reference as puppets. The API must not repeat the lie.
@@ -1522,11 +1985,25 @@ static void RunSuite() {
     RUN(t_script_backend);
     RUN(t_manager_on_script_backend);
     RUN(t_live_bridge);
+    RUN(t_oneshot_plays_once);
+    RUN(t_oneshot_duplicates_and_reordering);
+    RUN(t_oneshot_lost_packet);
+    RUN(t_oneshot_only_while_driving);
+    RUN(t_oneshot_held_block);
+    RUN(t_oneshot_not_cut_by_readback);
+    RUN(t_reload_group_from_owner);
+    RUN(t_oneshot_refusals);
+    RUN(t_action_group_names);
     RUN(t_weapon_mods_applied);
     RUN(t_weapon_mods_refused_gives_up);
     RUN(t_weapon_mods_unverifiable_asked_once);
     RUN(t_appearance_update);
     RUN(t_puppet_hit_target_health);
+    RUN(t_pose_override_holds);
+    RUN(t_pose_override_no_dead_respawn);
+    RUN(t_pose_override_clear);
+    RUN(t_pose_override_survives_respawn);
+    RUN(t_pose_override_no_one_shots);
     RUN(t_api_map);
     RUN(t_hit_router);
 }
@@ -1545,6 +2022,11 @@ static const Twin kTwins[] = {
     TWIN(noWeaponMods), TWIN(modsIgnoredInSet), TWIN(modsRetryForever), TWIN(appearanceUpdateRespawns), TWIN(noPuppetHeal),
     TWIN(noPuppetDeathRespawn), TWIN(apiLocalGetsPuppet), TWIN(apiPlayerIsPuppet), TWIN(apiActingNeedsPuppet), TWIN(hitsForwardEmpty),
     TWIN(puppetHitProceeds), TWIN(adoptPhysicsPush), TWIN(noBodyRoom),
+    TWIN(noOneShots), TWIN(oneShotReplays), TWIN(oneShotNoBaseline), TWIN(oneShotKeepsBaseline), TWIN(oneShotNoWrap), TWIN(oneShotNextOnly),
+    TWIN(oneShotWhileFrozen), TWIN(noOneShotReassert), TWIN(noOneShotMismatchGuard), TWIN(reloadGroupFixed), TWIN(heldNeverEnds),
+    TWIN(bridgeDropsAction), TWIN(oneShotAdoptsStale), TWIN(oneShotNoResync),
+    TWIN(poseOverrideIgnored), TWIN(poseReplaysPlanned), TWIN(poseHeartbeats), TWIN(poseNoDeathGuard), TWIN(poseOneShotsPlay),
+    TWIN(poseClearIgnored), TWIN(poseLostOnRespawn), TWIN(poseSurvivesRemove),
 };
 
 int main(int argc, char** argv) {

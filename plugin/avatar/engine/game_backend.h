@@ -53,6 +53,10 @@ struct AnimRead {
     bool valid = false;               // the actor has a process with animation data
     int groups[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};   // group id (low byte) of the sequence in each AnimData slot, -1 = none
     int nGroups = 0;                  // how many slots hold a sequence
+    // Per slot: the sequence's play state (NiControllerSequence: 0 inactive, 1 animated, 2 ease in, 3 ease out ...) and how long it has been playing in ms.
+    // -1 = this backend cannot tell (then a held group counts as playing and a restart of the same group cannot be seen).
+    int state[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int playMs[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     int action = -1;                  // BaseProcess animation action, -1 unknown
     bool aiming = false;              // process IsAiming
     bool weaponOut = false;           // process IsWeaponOut
@@ -90,6 +94,11 @@ public:
     virtual bool ReadAnim(RefId ref, AnimRead& out) = 0;
     virtual bool ReadEquipped(RefId ref, std::vector<EquippedItem>& out) = 0;   // false = unknown
     virtual bool ReadAppearance(RefId ref, Appearance& out) = 0;                // race / sex / hair / eyes / body / face data of the actor's base
+    // A private copy of an NPC base (a puppet's own look; the template stays untouched). 0 = not possible.
+    virtual FormId CloneNpcBase(FormId /*base*/) { return 0; }
+    // The look written into a copy made by CloneNpcBase (never into `tmpl`, the base it was copied from): sex, race, hair, eyes, hair colour,
+    // height, weight, and the face morphs when the copy owns its FaceGen arrays (*faceWritten). False = nothing written.
+    virtual bool WriteNpcLook(FormId /*base*/, FormId /*tmpl*/, const Appearance& /*a*/, bool* faceWritten) { if (faceWritten) *faceWritten = false; return false; }
 
     // ---- script -------------------------------------------------------------------------------------------------------
     // Runs one console line with `ctx` as the calling reference. 1 = ran, 0 = the engine refused or could not compile it,

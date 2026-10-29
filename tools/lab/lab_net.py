@@ -42,7 +42,8 @@ NPC_SPEED_RATIO = 1.0 / 3.0
 
 # the keys a network pass loosens: seconds (time limits) and units (position limits, with the share of the unit allowance each takes)
 TIME_KEYS = ("spawn.connect_s", "spawn.puppet_wait_s", "spawn.digest_wait_s", "walk.lag_s", "fight.latency_s", "fight.weak_s", "loot.settle_s", "door.settle_s",
-             "npc.handoff_s", "vats.settle_s", "vats.weak_s", "quest.settle_s")
+             "npc.handoff_s", "vats.settle_s", "vats.weak_s", "quest.settle_s",
+             "parity.settle_s", "parity.punch_window_s")
 UNIT_KEYS = {"spawn.puppet_err": 1.0, "walk.err_p95": 1.0, "walk.err_max": 1.0, "walk.jump": 1.0, "walk.near": 0.5, "npc.err_max": NPC_SPEED_RATIO, "npc.jump": NPC_SPEED_RATIO}
 # keys that are not limits but how long a step takes: shorter in a network pass, to keep the whole run (clean + 2 profiles, 3 pairs) near 15 minutes
 NET_IDLE_S = 10.0       # spawn.idle_s: the clean pass already watched 20 s of idle digest; a network pass keeps the part that shows the session survives the profile

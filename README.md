@@ -14,6 +14,7 @@
 > | Goodsprings stage sweep | 65 of 104 stages pass |
 > | Goodsprings story run (two copies play the opening quests start to finish) | 7 of 18 steps pass, including Doc Mitchell's farewell and the gecko fight |
 > | Runs on its own, without NV:MP | yes: own networking, player avatars, NPC and combat sync |
+> | Steam join, voice and text chat, Co-op balanced mode, friend markers and revive, enemies that split their attention | built, game-free tests pass, in-game test next |
 >
 > Alpha 0.1.0 is out as a pre-release ([Releases](../../releases)) and is being playtested through the rest of the campaign. Progress updates land here.
 
@@ -51,7 +52,7 @@ A step marked **Claimed** is being worked on right now. Want to take one? Open a
 | 7 | Desync check and repair | Every area checks itself every few seconds and fixes any difference it finds. | Code written for enemies, loot and the world, in-game test next |
 | 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | **Claimed**: alpha playtest of the campaign. Script calls synced: 99.98%. Goodsprings: 65 of 104 stages pass in game, and the scripted story run passes 7 of 18 steps |
 | 9 | Every side quest and DLC | All side quests, companions and the four DLCs, played through by two-copy test bots. | Playthrough plans and test bots written, in-game runs next |
-| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default); playtesting now |
+| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default); playtesting now. Join through Steam friends, voice and text chat, and a Co-op balanced mode are built, in-game test next |
 
 ## Play in three steps
 
@@ -141,11 +142,16 @@ playbook explains how to send it back.
 - **NV:MP** by the NV:MP team (nv-mp.com): studied early on to learn how a multiplayer mod hooks the game. Not included
   and not required.
 - **ENet** by Lee Salzman: https://github.com/lsalzman/enet (bundled in `third_party/enet`, MIT licensed).
+- **Opus** by the Xiph.Org Foundation and contributors: https://opus-codec.org (bundled in `third_party/opus`, BSD licensed),
+  the codec of the voice chat.
+- **Zyrcxies** ([NewVegasCoop](https://github.com/Zyrcxies/NewVegasCoop)): some features here were inspired by their co-op
+  mod: joining through Steam, positional voice chat and text chat, the Co-op balanced mode, enemies splitting their
+  attention between the players, friend name tags and reviving a downed friend. Thanks!
 - **Nucleus Co-op** (SplitScreen.Me): the techniques for running several copies of a single-instance game on one
   PC: https://github.com/SplitScreen-Me/splitscreenme-nucleus
 - Fallout: New Vegas by Obsidian Entertainment and Bethesda Softworks. You need your own copy.
 
 ## License
 
-The code and docs in this repository are MIT licensed, see [LICENSE](LICENSE). ENet keeps its own license.
+The code and docs in this repository are MIT licensed, see [LICENSE](LICENSE). ENet and Opus keep their own licenses.
 Fallout: New Vegas, xNVSE and NV:MP are the property of their owners and are not included.

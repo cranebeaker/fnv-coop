@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../avatar_groups.h"
 #include "../loco.h"
 #include "fnvcoop_mut.h"
 
@@ -13,6 +14,11 @@
 // 49 publishes when the world is not ready                     50 equipment change published at once  51 weapon flag never set
 // 52 equipment order not normalised                            53 tick does not advance               54 speed not clamped
 // 55 snapshot ignores the aim flag                             56 cell not part of the snapshot
+// 87 the player's action is never published                    88 a restart of the same group is not an event (two punches look like one)
+// 89 every sample while it plays is a new event                90 a one-shot is not held in the stream
+// 91 a dead player keeps publishing his last action            92 block is never published
+// 93 a finished sequence still counts as playing               94 a held action (block) is held as long as a one-shot
+// 95 the counter is reset by a world gap
 
 namespace nvcoop::avatar::engine {
 
@@ -53,6 +59,17 @@ LocalFrame ReadLocalFrame(IGameBackend& be) {
             if (IsJumpGroupId(ar.groups[i])) jump = true;
             if (IsReloadGroupId(ar.groups[i])) reload = true;
         }
+        // The action: the last slot first (the NPC layer reads the nine slots the same way, plugin/actors/anim/anim_game.cpp). A sequence the engine
+        // reports as not playing (state other than animated / easing in / easing out) is a leftover in its slot, not an action.
+        for (int i = 8; i >= 0; --i) {
+            const int g = ar.groups[i];
+            if (g < 0 || !IsActionGroup(g)) continue;
+            const int st = ar.state[i];
+            if (!FNV_MUT(93) && st >= 0 && (st < 1 || st > 3)) continue;
+            f.actionGroup = g;
+            f.actionPlayMs = ar.playMs[i];
+            break;
+        }
         f.anim.jump = FNV_MUT(43) ? false : jump;
         f.anim.reload = FNV_MUT(44) ? false : reload;
         if (ar.haveMover) {
@@ -66,6 +83,43 @@ LocalFrame ReadLocalFrame(IGameBackend& be) {
     if (FNV_MUT(45)) f.anim.sneak = f.moverSneak;
     else f.anim.sneak = sneakEval ? v != 0 : f.moverSneak;
     return f;
+}
+
+// ---- the player's one-shot -------------------------------------------------------------------------------------------------
+
+void ActionTracker::Clear() {
+    rawPrev_ = playPrev_ = -1;
+    cur_ = 0;
+    holding_ = false;
+    if (FNV_MUT(95)) seq_ = 0;   // twin 95: the counter restarts after a loading screen / death (a copy that remembers 9 reads the next attack as older)
+}
+
+ActionTracker::Out ActionTracker::Step(uint32_t nowMs, int rawGroup, int rawPlayMs) {
+    const bool raw = rawGroup > 0 && IsActionGroup(rawGroup);
+    if (raw) {
+        const bool newGroup = rawGroup != rawPrev_;
+        const bool restarted = !newGroup && rawPlayMs >= 0 && playPrev_ >= 0 && rawPlayMs + cfg_.restartBackstepMs < playPrev_;
+        bool started = newGroup || (restarted && !FNV_MUT(88));   // twin 88: a restart of the same group is no event (two punches in a row look like one)
+        if (FNV_MUT(89)) started = true;                          // twin 89: every sample while it plays is a new event (the attack is replayed over and over)
+        if (started) {
+            ++seq_;
+            cur_ = rawGroup;
+            holding_ = true;
+        }
+        const bool held = IsHeldActionGroup(rawGroup) && !FNV_MUT(94);   // twin 94: block lingers as long as a swing does
+        heldUntil_ = nowMs + (FNV_MUT(90) ? 0u : (held ? cfg_.heldActionHoldMs : cfg_.actionHoldMs));   // twin 90: no hold, the event lives only as long as the engine's sequence
+    }
+    rawPrev_ = raw ? rawGroup : -1;
+    playPrev_ = raw ? rawPlayMs : -1;
+    if (holding_ && !raw && static_cast<int32_t>(heldUntil_ - nowMs) <= 0) {
+        holding_ = false;
+        cur_ = 0;
+    }
+    Out o;
+    o.action = static_cast<uint8_t>(holding_ ? cur_ : 0);
+    o.actionSeq = seq_;
+    o.block = !FNV_MUT(92) && holding_ && cur_ == actors::anim::kGroupBlockIdle;   // twin 92: blocking is never published
+    return o;
 }
 
 // ---- sampler ---------------------------------------------------------------------------------------------------------
@@ -85,6 +139,7 @@ void LocalSampler::Reset() {
     havePrev_ = false;
     vel_ = Vec3{};
     loco_ = 0;
+    action_.Clear();
 }
 
 bool LocalSampler::Sample(IGameBackend& be, uint32_t nowMs, live::ActorSnapshot& out) {
@@ -102,6 +157,7 @@ bool LocalSampler::Update(uint32_t nowMs, const LocalFrame& f, live::ActorSnapsh
     if (!f.valid && !FNV_MUT(49)) {
         ++c_.notReady;
         havePrev_ = false;   // a loading screen / menu gap: the next position is not comparable
+        action_.Clear();
         return false;
     }
     last_ = f;
@@ -148,6 +204,17 @@ bool LocalSampler::Update(uint32_t nowMs, const LocalFrame& f, live::ActorSnapsh
     lr.moverSneak = f.moverSneak;
     Anim anim = f.anim;
     if (FNV_MUT(55)) anim.aim = false;
+    if (f.dead && !FNV_MUT(91)) {   // twin 91: a dead player keeps publishing his last action
+        action_.Clear();
+        anim.actionSeq = action_.seq();   // nothing plays on a dead player, but the counter goes on
+    } else {
+        const ActionTracker::Out ao = action_.Step(nowMs, f.actionGroup, f.actionPlayMs);
+        if (!FNV_MUT(87)) {   // twin 87: the player's attacks and reactions never reach the snapshot
+            anim.action = ao.action;
+            anim.actionSeq = ao.actionSeq;
+            anim.block = ao.block;
+        }
+    }
     if (!FNV_MUT(46)) ++seq_;
     else seq_ = 1;
     out = MakeLocalSnapshot(netId_, epoch_, seq_, FNV_MUT(53) ? 0u : nowMs, FNV_MUT(56) ? 0u : f.cell, f.pos, f.rot, vel_, anim, &lr);

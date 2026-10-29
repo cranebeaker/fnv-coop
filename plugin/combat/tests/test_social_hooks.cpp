@@ -307,3 +307,39 @@ TEST(combat_social_hit, a_remote_players_accepted_hit_on_a_protected_actor_is_no
     CHECK(c.cs(1).stats().protectedHitsBlocked == 1);
     CHECK(callsOn(c, 1) == 1);                                 // only the ordinary actor took damage
 }
+
+// ---------------------------------------------------------------------------------------------------- plugin/threat's damage feed (Config::onHitLanded)
+// Twins 820 (natural hit), 821 (light blow), 822 (forwarded hit): each one leaves a hit the owner applied unheard.
+namespace {
+bool nearF(float a, float b) { return a > b - 0.01f && a < b + 0.01f; }
+}  // namespace
+
+TEST(combat_threat_feed, every_hit_the_owner_applies_is_told_to_the_threat_ledger_once_with_the_owners_refs) {
+    struct Heard { uint32_t victim, attacker; float damage; };
+    std::vector<Heard> heard[3];
+    Cluster c(3, [&heard](Config& cfg) {
+        std::vector<Heard>& h = heard[cfg.self];
+        cfg.onHitLanded = [&h](uint32_t v, uint32_t a, float d) { h.push_back({v, a, d}); };
+    });
+    c.addActor(A100, 1, 3, {800, 0, 0}, 500);
+    const uint32_t ref = refOfActor(A100);
+    c.cs(1).onEngineHit(c.shot(1, ref, 20));                 // the owner's own shot: the engine applies it natively
+    c.run(60);
+    REQUIRE(heard[1].size() == 1);
+    CHECK(heard[1][0].victim == ref);
+    CHECK(heard[1][0].attacker == kLocalPlayerRef);
+    CHECK(nearF(heard[1][0].damage, 20.0f));
+    c.cs(2).onEngineHit(c.shot(2, ref, 30));                 // a guest's shot on the copy: forwarded, applied by the owner
+    c.run(300);
+    REQUIRE(heard[1].size() == 2);
+    CHECK(heard[1][1].victim == ref);
+    CHECK(heard[1][1].attacker == refOfPlayer(1, 2));        // that guest's puppet on the owner
+    CHECK(nearF(heard[1][1].damage, 30.0f));
+    c.cs(2).onEngineHit(c.shot(2, ref, 0.5f));               // a light blow
+    c.run(300);
+    CHECK(c.cs(1).stats().lightHitsApplied == 1);
+    REQUIRE(heard[1].size() == 3);
+    CHECK(nearF(heard[1][2].damage, 0.5f));
+    CHECK(heard[0].empty());                                 // only the owner keeps the ledger
+    CHECK(heard[2].empty());
+}

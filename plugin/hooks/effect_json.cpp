@@ -61,6 +61,8 @@ static const char* effectNameLocal(const Effect& e) {
     return e.index() < sizeof n / sizeof *n ? n[e.index()] : "?";
 }
 
+const char* effectTypeName(const Effect& e) { return effectNameLocal(e); }
+
 Value effectToJson(const Effect& e) {
     Value o = Value::object();
     auto T = [&](const char* t) { o.set("type", t); };

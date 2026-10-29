@@ -47,6 +47,13 @@ struct NpcReads {
     // or unknown, and how long it has been playing in ms (-1 unknown). A restart of the same group shows as playMs going backwards.
     int actionGroup = -1;
     int actionPlayMs = -1;
+    // Furniture: BaseProcess::GetSitSleepState (anim_sit.h maps the raw value). sitKnown false = this backend cannot read it, and the layer then
+    // neither publishes a sit nor verifies a copy's.
+    bool sitKnown = false;
+    int sitSleep = 0;
+    // Reference id of the furniture the actor sits in or sleeps on; 0 = not readable (the engine has no cheap read for it, the game backend
+    // looks for the furniture next to the actor).
+    uint32_t furniture = 0;
 };
 
 class INpcAnimEngine {
@@ -74,6 +81,10 @@ public:
     virtual Result GetUp(NetId id) = 0;
     virtual Result Kill(NetId id) = 0;                                    // death for an actor the layer was told is dead and that is not
     virtual Result PlaceCorpse(NetId id, const Vec3& pos, float yawRad) = 0;   // move a dead body (SetPos + SetAngle), nothing else
+    // Furniture. Both only start the engine's own animation; the driver reads the sit state back before it believes either.
+    virtual Result SitIn(NetId id, uint32_t furniture) = 0;                    // the actor uses that furniture reference (walks in / sits down by the engine's own logic)
+    virtual Result StandUp(NetId id, uint32_t furniture, uint32_t attempt) = 0;   // leave the furniture; attempt 0 is the gentle way, higher ones are escalations
+    virtual Result Restrain(NetId id) = 0;                                     // put the remote-driven hold back after an escalated StandUp let the actor's AI run
 };
 
 }  // namespace nvcoop::actors::anim

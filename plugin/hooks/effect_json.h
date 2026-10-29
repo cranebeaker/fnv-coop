@@ -14,6 +14,9 @@ fnvcoop::FormRef makeRef(std::string plugin, uint32_t id);
 std::string refToStr(const fnvcoop::FormRef& r);
 bool strToRef(const std::string& s, fnvcoop::FormRef* out);
 
+// The type name of an Effect as it appears in the JSON "type" field and in the identity table (identity.h); "?" for a bad index.
+const char* effectTypeName(const fnvcoop::Effect& e);
+
 nvcoop::json::Value effectToJson(const fnvcoop::Effect& e);
 bool effectFromJson(const nvcoop::json::Value& v, fnvcoop::Effect* out, std::string* err);
 

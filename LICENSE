@@ -22,4 +22,4 @@ SOFTWARE.
 
 This license covers the code and documentation written for this project.
 Fallout: New Vegas, its data files and NV:MP are the property of their owners and
-are not included. third_party/enet keeps its own license (third_party/enet/LICENSE).
+are not included. third_party/enet and third_party/opus keep their own licenses (third_party/enet/LICENSE, third_party/opus/COPYING).

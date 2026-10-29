@@ -81,6 +81,9 @@ LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fr
 // Who performs the command: false = leave it to the machine that runs the actor's AI. `remoteDriven` answers "this machine does NOT run the AI
 // of that reference" (actor ownership); unset or an untracked actor means perform it.
 bool opPerformedHere(const RefOpSpec& s, uint32_t callingRef, const std::function<bool(uint32_t refID)>& remoteDriven);
+// True for an op that runs on the player (0x14) when the script names no calling reference (kRoPlayerRef). The identity layer (identity.h) reads it so an
+// implicit "player.X" is translated like an explicit one.
+bool refOpDefaultsToPlayer(uint16_t op);
 // Activate is performed only on object types where it cannot open a menu or start a conversation on a machine that did not ask for it.
 bool activateTypeSafe(unsigned formTypeId);
 

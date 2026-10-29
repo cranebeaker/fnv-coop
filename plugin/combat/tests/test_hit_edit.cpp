@@ -116,6 +116,21 @@ TEST(combat_hit_edit, the_native_hit_gets_the_fields_the_engine_reads) {
     CHECK(g.get<uint32_t>(addr::hit::kFlags) == 0);
 }
 
+TEST(combat_hit_edit, a_touch_replays_a_token_health_over_a_real_base_damage) {
+    // a blow that did no health damage is replayed for its reaction: the health is a token (the engine's damage path only runs for a positive amount), the base damage
+    // the engine scales the reaction from is the real weapon base
+    Buf h;
+    NativeHitSpec s;
+    s.source = 0xA0; s.target = 0xB0; s.health = 0.01f; s.baseDamage = 2.0f; s.location = 0;
+    fillNativeHit(h.b, s);
+    CHECK(h.get<float>(addr::hit::kHealthDmg) == 0.01f);
+    CHECK(h.get<float>(addr::hit::kWpnBaseDmg) == 2.0f);
+    Buf g;
+    s.baseDamage = -1;   // none given: follows the health, as every real hit does
+    fillNativeHit(g.b, s);
+    CHECK(g.get<float>(addr::hit::kWpnBaseDmg) == 0.01f);
+}
+
 TEST(combat_hit_edit, limbs_map_to_distinct_body_parts_and_back) {
     const cc::Limb all[] = {cc::Limb::Torso, cc::Limb::Head, cc::Limb::LeftArm, cc::Limb::RightArm, cc::Limb::LeftLeg, cc::Limb::RightLeg};
     for (cc::Limb l : all) CHECK_MSG(limbOfLocation(hitLocationOfLimb(l)) == l, cc::toString(l));

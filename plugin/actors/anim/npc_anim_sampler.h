@@ -8,7 +8,10 @@
 //   * a one-shot (attack swing / shot, reload, stagger, recoil, block hit, dodge ...) is reported as `action` = its base group id and
 //     `actionSeq` is bumped when it STARTS (a new group, or the same group restarted: play time going backwards), exactly once;
 //   * the action is held in the stream for at least `actionHoldMs` so a lost datagram or a slow frame cannot skip a short one;
-//   * a dead actor reports dead and nothing else (no locomotion, no action): death is a pose, not a movement.
+//   * a dead actor reports dead and nothing else (no locomotion, no action): death is a pose, not a movement;
+//   * furniture: the sit state (entering / using / leaving, bed or chair) is read from the process, debounced like the flags above, and
+//     travels with the furniture reference. The reference is remembered while the actor stays in the furniture (the engine read can come
+//     back empty for a moment), and forgotten with the pose.
 #pragma once
 #include <map>
 
@@ -42,8 +45,16 @@ private:
         bool pending = false;
         uint32_t same = 0;
     };
+    // A small enumerated reading (the sit state) with the same debounce as the boolean flags.
+    struct Level {
+        uint8_t value = 0, pending = 0;
+        bool init = false;
+        uint32_t same = 0;
+    };
     struct State {
         Flag weaponOut, aiming, knocked, swimming, talking;
+        Level sit;                    // anim_sit.h state | bed << 2
+        uint32_t furniture = 0;       // the furniture the actor is in, kept while it stays in it
         bool haveLoco = false, runNow = false;
         int dirPrev = -1;
         uint8_t actionSeq = 0;
@@ -56,6 +67,7 @@ private:
         bool haveLast = false;
     };
     bool debounce(Flag& f, bool raw);
+    uint8_t debounceLevel(Level& l, uint8_t raw);
     INpcAnimEngine& eng_;
     SamplerConfig cfg_;
     std::map<NetId, State> st_;

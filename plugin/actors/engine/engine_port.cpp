@@ -335,6 +335,10 @@ bool EnginePort::applyPose(Entry& e, const live::InterpOut& w, bool force) {
     if (!r) return true;
     const bool snapped = force || w.snapped || w.state == live::InterpState::Snapped;
     const float yaw = w.rot.y;
+    if (!snapped && !FNV_MUT(87)) {   // MUT 87 BAD: a copy that is still getting out of its chair is moved (slides across the room seated)
+        const Registry& reg = registry();
+        if (reg.poseLocked && reg.poseLocked(e.id)) { ++st_.drivesHeldSeated; return false; }
+    }
     if (!snapped && !FNV_MUT(15) && e.haveApplied && now_ < e.appliedMs + cfg_.driveMinMs) { ++st_.drivesSkippedRate; return false; }
     if (!snapped && !FNV_MUT(14) && e.haveApplied && w.cell == e.appliedCell) {
         const bool small = std::fabs(w.pos.x - e.appliedPos.x) <= cfg_.posEpsilonXY && std::fabs(w.pos.y - e.appliedPos.y) <= cfg_.posEpsilonXY &&
@@ -719,6 +723,24 @@ bool EnginePort::applyInventory(NetId id, const InvList& want) {
     if (!e || !activeOf(*e) || e->killWanted) return false;
     Registry& reg = registry();
     return reg.invWrite && reg.invWrite(id, want);
+}
+
+// ---- IActorPort: equipment ---------------------------------------------------------------------------------------------------------------
+
+bool EnginePort::sampleEquipment(NetId id, EquipList& out) {
+    out.clear();
+    Entry* e = find(id);
+    if (!e || !activeOf(*e)) return false;
+    Registry& reg = registry();
+    return reg.equipRead && reg.equipRead(id, out);
+}
+
+bool EnginePort::applyEquipment(NetId id, const EquipList& want) {
+    Entry* e = find(id);
+    if (!e || !activeOf(*e) || (e->killWanted && !FNV_MUT(85))) return false;   // twin 85: a dying actor is dressed
+    Registry& reg = registry();
+    if (FNV_MUT(86)) return true;   // twin 86: reported as written without asking the engine
+    return reg.equipWrite && reg.equipWrite(id, want);
 }
 
 void EnginePort::revive(NetId id) {

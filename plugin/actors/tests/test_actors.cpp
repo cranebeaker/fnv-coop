@@ -8,6 +8,8 @@
 #include "minitest.h"
 #include "rig.h"
 #include "actors/owner_rpc.h"
+#include "actors/state_parts.h"
+#include "actors/state_parts.h"
 #include "common/minijson.h"
 #include "fnvcoop/wire.h"
 
@@ -790,10 +792,18 @@ std::vector<Body> sampleBodies() {
     MSnapFull sf2; sf2.s = craftSnap(8, 3, 6, 5, V(1, 2, 3));
     sf2.s.anim.locomotion = 5; sf2.s.anim.weaponDrawn = true; sf2.s.anim.action = 223; sf2.s.anim.actionSeq = 200; sf2.s.anim.knocked = true; sf2.s.anim.ragdoll = true;
     v.push_back(sf2);
+    // live schema v3: a seated actor's full state keeps its furniture block (a handoff / resync must not stand it up)
+    MSnapFull sf3; sf3.s = craftSnap(9, 3, 7, 6, V(4, 5, 6));
+    sf3.s.anim.sit = live::SitState::Using; sf3.s.anim.sleep = true; sf3.s.anim.furniture = 0x00104C2Au;
+    v.push_back(sf3);
     MAnimEvent ae; ae.id = 7; ae.epoch = 3; ae.eventId = 0x0100000000000011ull; ae.payload = Bytes{1, 2, 3, 4, 5};
     v.push_back(ae);
-    MInventory iv; iv.id = 7; iv.epoch = 3; iv.eventId = 0x0100000000000012ull; iv.items = {{refOf(0x15169), 2}, {refOf(0x8ED03), 300}};
+    MPart iv; iv.id = 7; iv.epoch = 3; iv.eventId = 0x0100000000000012ull; iv.kind = PartKind::Inventory;
+    iv.value = encodeInventory({{refOf(0x15169), 2}, {refOf(0x8ED03), 300}});
     v.push_back(iv);
+    MPart eq; eq.id = 7; eq.epoch = 3; eq.eventId = 0x0100000000000013ull; eq.kind = PartKind::Equipment;
+    eq.value = encodeEquipment({refOf(0x8ED04), refOf(0x1234)});
+    v.push_back(eq);
     return v;
 }
 
@@ -843,6 +853,8 @@ std::string scnAnimEvents() {
     return r.errors.empty() ? "" : r.errors[0];
 }
 
+const PartStats& pst(const Machine& m, PartKind k) { return m.sync->stats().parts[partIndex(k)]; }
+
 // ---- inventory: the owner's AI uses an item, every other copy loses it too ---------------------------------------------------------------
 // corpse_loot_race, game 2026-10-22: the ganger drank a Stimpak on the owner's machine; host 2 Stimpaks, client 3, before anyone looted.
 std::string scnInventory() {
@@ -853,7 +865,7 @@ std::string scnInventory() {
     for (auto& mc : r.m) { mc->eng.a[101].inv[stim] = 3; mc->eng.a[101].inv[ammo] = 40; }
     r.run(1500);
     if (r.host().sync->ownerOf(101).owner != 1) return fail("setup: client 1 should own", r);
-    for (auto& mc : r.m) if (mc->sync->stats().invPublished != 0 || mc->eng.a[101].invWrites != 0) return fail("equal worlds sent or wrote an inventory on machine " + std::to_string(mc->slot), r);
+    for (auto& mc : r.m) if (mc->sync->stats().parts[partIndex(PartKind::Inventory)].published != 0 || mc->eng.a[101].invWrites != 0) return fail("equal worlds sent or wrote an inventory on machine " + std::to_string(mc->slot), r);
     // 1. the owner's AI drinks a Stimpak: not at once (it must stay the same for a moment), then on every other machine
     r.at(1).eng.a[101].inv[stim] = 2;
     r.run(400);
@@ -865,7 +877,7 @@ std::string scnInventory() {
         if (r.at(i).eng.a[101].invWrites != 1) return fail("machine " + std::to_string(i) + " wrote the inventory " + std::to_string(r.at(i).eng.a[101].invWrites) + " times (once)", r);
     }
     if (r.at(1).eng.a[101].invWrites != 0 || r.at(1).eng.a[101].inv[stim] != 2) return fail("the owner's own inventory was written", r);
-    if (r.at(1).sync->stats().invPublished != 1) return fail("the owner published " + std::to_string(r.at(1).sync->stats().invPublished) + " lists (one)", r);
+    if (r.at(1).sync->stats().parts[partIndex(PartKind::Inventory)].published != 1) return fail("the owner published " + std::to_string(r.at(1).sync->stats().parts[partIndex(PartKind::Inventory)].published) + " lists (one)", r);
     // 2. a replicated AddItem effect lands on the owner now and on the others 600 ms later: the list that follows must not add it a second time
     r.at(1).eng.a[101].inv[stim] += 2;
     r.run(600);
@@ -873,18 +885,19 @@ std::string scnInventory() {
     r.run(3000);
     for (auto& mc : r.m) if (mc->eng.a[101].inv[stim] != 4) return fail("machine " + std::to_string(mc->slot) + " has " + std::to_string(mc->eng.a[101].inv[stim]) + " Stimpaks after a replicated AddItem 2 (4)", r);
     // 3. a list from a bystander (it does not own the actor) is dropped by the host and reaches nobody
-    MInventory forged; forged.id = 101; forged.epoch = r.host().sync->ownerOf(101).epoch; forged.eventId = (2ull << 48) | 77; forged.items = {{stim, 99}};
+    MPart forged; forged.id = 101; forged.epoch = r.host().sync->ownerOf(101).epoch; forged.eventId = (2ull << 48) | 77; forged.kind = PartKind::Inventory;
+    forged.value = encodeInventory({{stim, 99}});
     Envelope fe; fe.src = 2; fe.dest = kNoPlayer; fe.body = forged;
     r.net.send(2, 0, true, encodeEnvelope(fe));
     r.run(300);
     for (auto& mc : r.m) if (mc->eng.a[101].inv[stim] == 99) return fail("a forged inventory from a non-owner was applied on machine " + std::to_string(mc->slot), r);
-    if (r.host().sync->stats().invRejected == 0) return fail("the forged inventory was not counted as rejected", r);
+    if (r.host().sync->stats().parts[partIndex(PartKind::Inventory)].rejected == 0) return fail("the forged inventory was not counted as rejected", r);
     // 4. a duplicate delivery is applied once
     const int writes = r.at(0).eng.a[101].invWrites;
     for (size_t k = 0, n = r.net.captured.size(); k < n; ++k) {
         const NetMsg& m = r.net.captured[k];
         Envelope env;
-        if (m.to == 0 && m.data.size() > 2 && m.data[1] == SubEnvelope && decodeEnvelope(m.data.data() + 2, m.data.size() - 2, env) && std::holds_alternative<MInventory>(env.body))
+        if (m.to == 0 && m.data.size() > 2 && m.data[1] == SubEnvelope && decodeEnvelope(m.data.data() + 2, m.data.size() - 2, env) && std::holds_alternative<MPart>(env.body))
             r.at(0).sync->receive(static_cast<PlayerId>(m.from), m.data.data(), m.data.size());
     }
     r.run(100);
@@ -920,10 +933,161 @@ std::string scnInventoryLate() {
     if (r.host().eng.a[101].inv[stim] != 1) return fail("a refused write was not retried", r);
     return r.errors.empty() ? "" : r.errors[0];
 }
+// ---- equipment: the owner's AI draws a rifle, every copy holds the same one ------------------------------------------------------------
+// Goodsprings settler, game 2026-10-29: he drew his rifle and shot at the host; on the guest's copy he cowered empty-handed.
+std::string scnEquipment() {
+    Rig r(3);
+    const FormRef rifle = refOf(0x8ED04), pistol = refOf(0x1234), armor = refOf(0x500A);
+    r.addActor(101, 3, V(1000), false, ~0u, 30, 0);
+    r.setPose(0, 8, V(0)); r.setPose(1, 3, V(1200)); r.setPose(2, 3, V(2500));
+    for (auto& mc : r.m) mc->eng.a[101].equip = {armor};
+    r.run(1500);
+    if (r.host().sync->ownerOf(101).owner != 1) return fail("setup: client 1 should own", r);
+    for (auto& mc : r.m) if (pst(*mc, PartKind::Equipment).published != 0 || mc->eng.a[101].equipWrites != 0) return fail("equal worlds sent or wrote equipment on machine " + std::to_string(mc->slot), r);
+    // 1. the owner's AI draws the rifle: not at once (it must stay the same for a moment), then on every other machine
+    r.at(1).eng.a[101].equip.insert(rifle);
+    r.run(200);
+    for (int i : {0, 2}) if (r.at(i).eng.a[101].equip.count(rifle)) return fail("the equipment was published before it settled (machine " + std::to_string(i) + ")", r);
+    r.run(1500);
+    for (int i : {0, 2}) {
+        const FakeActor& f = r.at(i).eng.a[101];
+        if (!f.equip.count(rifle)) return fail("machine " + std::to_string(i) + " does not hold the rifle the owner drew", r);
+        if (!f.equip.count(armor) || f.equip.size() != 2) return fail("machine " + std::to_string(i) + " wears " + std::to_string(f.equip.size()) + " items (the armour and the rifle)", r);
+        if (f.equipWrites != 1) return fail("machine " + std::to_string(i) + " wrote the equipment " + std::to_string(f.equipWrites) + " times (once)", r);
+    }
+    if (r.at(1).eng.a[101].equipWrites != 0) return fail("the owner's own equipment was written", r);
+    if (pst(r.at(1), PartKind::Equipment).published != 1) return fail("the owner published " + std::to_string(pst(r.at(1), PartKind::Equipment).published) + " equipment lists (one)", r);
+    for (auto& mc : r.m) if (pst(*mc, PartKind::Inventory).published != 0 || mc->eng.a[101].invWrites != 0) return fail("a weapon draw moved the inventory part on machine " + std::to_string(mc->slot), r);
+    {   // the counters are reported as JSON (coop.owner stats)
+        std::string out; nvcoop::json::Value v; std::string err;
+        if (!nvcoop::actors::ownerRpc(r.at(0).sync.get(), "{\"stats\":true}", out) || !nvcoop::json::parse(out, v, err)) return fail("stats json: " + out, r);
+        if (v.get("parts").get("equipment").get("applied").asInt(-1) != 1 || v.get("parts").get("inventory").get("applied").asInt(-1) != 0) return fail("stats json has the wrong part counters: " + out, r);
+    }
+    // 2. an equipment list from a bystander (it does not own the actor) is dropped by the host and reaches nobody
+    MPart forged; forged.id = 101; forged.epoch = r.host().sync->ownerOf(101).epoch; forged.eventId = (2ull << 48) | 77; forged.kind = PartKind::Equipment;
+    forged.value = encodeEquipment({refOf(0xBAD)});
+    Envelope fe; fe.src = 2; fe.dest = kNoPlayer; fe.body = forged;
+    r.net.send(2, 0, true, encodeEnvelope(fe));
+    r.run(400);
+    for (auto& mc : r.m) if (mc->eng.a[101].equip.count(refOf(0xBAD))) return fail("a forged equipment list from a non-owner was applied on machine " + std::to_string(mc->slot), r);
+    if (pst(r.host(), PartKind::Equipment).rejected == 0) return fail("the forged equipment list was not counted as rejected", r);
+    // 3. a duplicate delivery is applied once
+    const int writes = r.at(0).eng.a[101].equipWrites;
+    for (size_t k = 0, n = r.net.captured.size(); k < n; ++k) {
+        const NetMsg& m = r.net.captured[k];
+        Envelope env;
+        if (m.to == 0 && m.data.size() > 2 && m.data[1] == SubEnvelope && decodeEnvelope(m.data.data() + 2, m.data.size() - 2, env) && std::holds_alternative<MPart>(env.body))
+            r.at(0).sync->receive(static_cast<PlayerId>(m.from), m.data.data(), m.data.size());
+    }
+    r.run(100);
+    if (r.at(0).eng.a[101].equipWrites != writes) return fail("a replayed equipment list was written again", r);
+    if (pst(r.at(0), PartKind::Equipment).duplicate == 0) return fail("the replayed equipment list was not counted as a duplicate", r);
+    // 4. a client that joins later gets what the actor holds now
+    r.at(2).eng.a[101].equip = {armor};
+    r.host().sync->playerJoined(2);
+    r.run(500);
+    if (!r.at(2).eng.a[101].equip.count(rifle) || r.at(2).eng.a[101].equip.size() != 2) return fail("a joining client did not get the current equipment", r);
+    // 5. the last thing it drew before it died counts, even inside the settle time
+    r.at(1).eng.a[101].equip = {armor, pistol};
+    if (!r.at(1).sync->onLocalDeath(101)) return fail("the owner may not let an ordinary NPC die", r);
+    r.run(300);
+    for (int i : {0, 2}) if (!r.at(i).eng.a[101].equip.count(pistol) || r.at(i).eng.a[101].equip.count(rifle)) return fail("machine " + std::to_string(i) + " did not get the weapon held just before the death", r);
+    return r.errors.empty() ? "" : r.errors[0];
+}
+
+// What the old owner holds when it hands the actor over reaches the new owner before the final state, even inside the settle time.
+std::string scnEquipmentHandoff() {
+    Rig r(2);
+    const FormRef rifle = refOf(0x8ED04), armor = refOf(0x500A);
+    r.addActor(100, 3, V(1000), false, ~0u, 40, 0);
+    r.setPose(0, 3, V(0)); r.setPose(1, 3, V(3000));
+    for (auto& mc : r.m) mc->eng.a[100].equip = {armor};
+    r.run(1500);
+    if (r.host().sync->ownerOf(100).owner != 0) return fail("setup: host should own", r);
+    r.host().eng.a[100].equip.insert(rifle);
+    const uint64_t drawnAt = r.now;
+    r.setPose(0, 9, V(0));   // host leaves
+    bool pending = false;
+    for (int i = 0; i < 300 && !pending; ++i) { r.step(10); pending = r.host().sync->service()->handoffPending(100); }
+    if (!pending) return fail("no handoff was ever pending", r);
+    r.run(80);
+    if (r.now - drawnAt >= 300) return fail("setup: the handoff came after the equipment settled (" + std::to_string(r.now - drawnAt) + " ms)", r);
+    if (!r.at(1).eng.a[100].equip.count(rifle)) return fail("the new owner did not get the weapon the old owner held at the handoff", r);
+    r.run(600);
+    if (r.at(1).sync->ownerOf(100).owner != 1) return fail("the client did not take over", r);
+    if (!r.at(1).eng.a[100].equip.count(rifle) || pst(r.at(1), PartKind::Equipment).published != 0) return fail("the new owner changed or republished what the old owner held", r);
+    return r.errors.empty() ? "" : r.errors[0];
+}
+
+// A copy that unloads and loads again comes back with the engine's base outfit: the owner's equipment is written again.
+std::string scnEquipmentReload() {
+    Rig r(2);
+    const FormRef rifle = refOf(0x8ED04), armor = refOf(0x500A);
+    r.addActor(101, 3, V(1000), false, ~0u, 30, 0);
+    r.setPose(0, 8, V(0)); r.setPose(1, 3, V(1200));
+    for (auto& mc : r.m) mc->eng.a[101].equip = {armor};
+    r.run(1500);
+    if (r.host().sync->ownerOf(101).owner != 1) return fail("setup: client 1 should own", r);
+    r.at(1).eng.a[101].equip.insert(rifle);
+    r.run(1500);
+    if (!r.host().eng.a[101].equip.count(rifle)) return fail("setup: the copy does not wear the rifle", r);
+    r.host().sync->onActorUnloaded(101);
+    r.host().eng.a[101].real = false;   // the copy's cell unloads
+    r.run(200);
+    r.host().eng.a[101].real = true;    // and loads again: the engine dresses the NPC from its base form
+    r.host().eng.a[101].equip = {armor};
+    r.host().sync->onActorLoaded(101);
+    r.run(1200);
+    if (!r.host().eng.a[101].equip.count(rifle)) return fail("a copy that loaded again was not given the owner's weapon back", r);
+    if (r.host().eng.a[101].inv.size() != 0 || r.host().eng.a[101].invWrites != 0) return fail("the inventory part was written on a reload", r);
+    return r.errors.empty() ? "" : r.errors[0];
+}
+
+// An equipment list that arrives while the engine refuses the write is kept and written when it can be.
+std::string scnEquipmentLate() {
+    Rig r(2);
+    const FormRef rifle = refOf(0x8ED04);
+    r.addActor(101, 3, V(1000), false, ~0u, 30, 0);
+    r.setPose(0, 8, V(0)); r.setPose(1, 3, V(1200));
+    r.run(1500);
+    if (r.host().sync->ownerOf(101).owner != 1) return fail("setup: client 1 should own", r);
+    r.host().eng.refuseEquipment = true;
+    r.at(1).eng.a[101].equip.insert(rifle);
+    r.run(2500);
+    if (r.host().eng.a[101].equip.count(rifle)) return fail("the host wrote while the engine refused", r);
+    if (pst(r.host(), PartKind::Equipment).applyFailed == 0) return fail("a refused write was not counted", r);
+    r.host().eng.refuseEquipment = false;
+    r.run(1500);
+    if (!r.host().eng.a[101].equip.count(rifle)) return fail("a refused write was not retried", r);
+    if (r.host().eng.a[101].equipWrites != 1) return fail("the retried write landed " + std::to_string(r.host().eng.a[101].equipWrites) + " times (once)", r);
+    return r.errors.empty() ? "" : r.errors[0];
+}
+
 }  // namespace
 
 TEST(inventory, an_owners_item_use_reaches_every_copy_once) { checkEmpty(scnInventory()); }
 TEST(inventory, a_refused_write_is_retried) { checkEmpty(scnInventoryLate()); }
+TEST(equipment, an_owners_weapon_draw_reaches_every_copy_once) { checkEmpty(scnEquipment()); }
+TEST(equipment, what_the_old_owner_holds_reaches_the_new_owner) { checkEmpty(scnEquipmentHandoff()); }
+TEST(equipment, a_refused_write_is_retried) { checkEmpty(scnEquipmentLate()); }
+TEST(equipment, a_copy_that_loads_again_is_dressed_again) { checkEmpty(scnEquipmentReload()); }
+
+TEST(parts, codecs_roundtrip_and_reject_garbage) {
+    InvList inv{{refOf(0x20), 5}, {refOf(0x10), 1}}, back;
+    const Bytes ib = encodeInventory(inv);
+    CHECK(decodeInventory(ib, back) && back.size() == 2 && back[0].form == refOf(0x10) && back[1].count == 5);
+    CHECK(encodeInventory({{refOf(0x10), 1}, {refOf(0x20), 5}}) == ib);   // sorted: the same state is the same bytes
+    EquipList eq{refOf(0x20), refOf(0x10), refOf(0x20)}, eback;
+    const Bytes eb = encodeEquipment(eq);
+    CHECK(decodeEquipment(eb, eback) && eback.size() == 2 && eback[0] == refOf(0x10));   // sorted, no duplicates
+    CHECK(encodeEquipment({refOf(0x10), refOf(0x20)}) == eb);
+    CHECK(decodeEquipment(encodeEquipment({}), eback) && eback.empty());
+    Bytes trailing = eb; trailing.push_back(0);
+    CHECK(!decodeEquipment(trailing, eback) && !decodeInventory(trailing, back));
+    CHECK(!decodeEquipment(Bytes(eb.begin(), eb.end() - 1), eback));
+    CHECK(!decodeEquipment(Bytes{}, eback));
+    CHECK(std::string(partName(PartKind::Inventory)) == "inventory" && std::string(partName(PartKind::Equipment)) == "equipment");
+}
 
 TEST(anim, owner_events_reach_everyone_once_and_forgeries_do_not) { checkEmpty(scnAnimEvents()); }
 

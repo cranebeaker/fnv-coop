@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import lab_core as K
 import lab_net
+import lab_parity
 from lab_core import CLIENT, HOST, Blocked, Ctx, connected, dist2, dist3, digest_counts
 
 # the numbers a room compares against; the first in-game run may move them
@@ -49,6 +50,11 @@ PARAMS: Dict[str, float] = {
     "vats.settle_s": 8.0,
     "quest.settle_s": 10.0,
     "quest.hold_s": 4.0,
+    "parity.settle_s": 6.0,          # a change on its owner's copy shows on the other copy within this (the room compares until they agree, or this is used up)
+    "parity.min_rounds": 3.0,        # rounds of both copies' views per step before a step may end (animation categories are compared as sets over the rounds)
+    "parity.sit_s": 6.0,             # the owner's own copy shows the scripted situation (weapon out, seated, standing) within this, or the step is skipped (not driven)
+    "parity.punch_window_s": 3.0,    # after the owner's copy first shows the attack, the other copy's puppet shows one within this
+    "parity.punches": 3.0,           # punches per player (a short animation is easy to miss between two bridge reads)
 }
 
 # A network pass (lab.py run --net good_wifi,bad_wifi) judges a room by `room.key@profile` where it exists: the clean value plus what that profile may add.
@@ -833,6 +839,137 @@ def room_quest(ctx: Ctx) -> Dict[str, Any]:
     return {}
 
 
+# ------------------------------------------------------------------ parity
+def _owner_copy(ctx: Ctx, npc: str):
+    """The copy whose console lines stick on the NPC: the one that says it owns it (the host when both or neither do)."""
+    mine = {m.name: bool(m.owner(npc).get("mine")) for m in ctx.ms}
+    return ctx.client if mine[CLIENT] and not mine[HOST] and K.MUTANT != "parity_owner_ignored" else ctx.host      # twin: the lines always go to the host
+
+
+def _parity_settle(ctx: Ctx, log: lab_parity.ParityLog, step: str) -> Dict[str, Any]:
+    """Compare what both copies show (lab_parity.compare_snapshots) round after round until they agree, or parity.settle_s is used up: a change takes a moment to cross
+    the link, and animation categories are compared as sets over the rounds. What still differs at the end is the step's finding. -> the last snapshots of both copies."""
+    seen: Dict[str, Any] = {}
+    end = ctx.now() + ctx.p("settle_s")
+    need = max(1, int(ctx.p("min_rounds")))
+    rounds = 0
+    while True:
+        snaps = ctx.par(ctx.host.parity_view, ctx.client.parity_view)
+        found, stats = lab_parity.compare_snapshots(snaps[HOST], snaps[CLIENT], seen)
+        rounds += 1
+        if rounds < need:
+            found = [m for m in found if m["field"] != "anim"]       # a set of categories needs a few samples before it says anything
+        if (rounds >= need and not found) or ctx.now() >= end or K.MUTANT == "parity_no_settle":      # twin: one look, no time for the change to cross the link
+            break
+        ctx.sleep(0.4)
+    log.add(step, found, rounds, stats)
+    for k in ("only_host", "only_client"):
+        if stats[k]:
+            ctx.metrics[f"parity_npcs_{k}"] = sorted(set(ctx.metrics.get(f"parity_npcs_{k}", [])) | set(stats[k]))
+    return snaps
+
+
+def _owner_shows(ctx: Ctx, copy, pred: Callable[[Dict[str, Any]], bool], timeout_s: float, who: str) -> bool:
+    """Poll one copy's own view of an actor (`who`: its runtime id) until pred(view) holds, i.e. the scripted situation took effect where it happens, or timeout_s."""
+    end = ctx.now() + timeout_s
+    while True:
+        v = copy.parity_view()["actors"].get(who)
+        if v is not None and pred(v):
+            return True
+        if ctx.now() >= end:
+            return False
+        ctx.sleep(0.4)
+
+
+def room_parity(ctx: Ctx) -> Dict[str, Any]:
+    """What each copy SHOWS (docs/sync-model.md section 4): for every NPC loaded on both copies and for each player against the other copy's puppet of him, the equipped
+    items, weapon out, sitting, the animation, the look (race, sex) and, per copy, the global time multiplier (1.0 outside VATS). A baseline, then scripted situations (an NPC
+    equips and draws a weapon, sits down and stands up, a player draws a weapon and punches), each compared on both copies. Every mismatch is reported with the entity, the field,
+    both values and a likely source module; the room fails at the end if any was found."""
+    log = lab_parity.ParityLog()
+    npc = ctx.ref("npc", n=0)
+    chairs = ctx.layout.refs("parity", "chair", "furniture", "seat")
+    stand = ctx.layout.stand("parity")
+    ctx.stand_all()
+    ctx.refs_exist([npc, stand] + chairs[:1], "the NPC and its stand marker")
+    ctx.agree("the NPC is alive on both copies", lambda m: m.alive(npc), 10.0, True, area="plugin/actors")
+    nid = lab_parity.norm_hex(ctx.host.ref_id(npc))
+    weapon = lab_parity.PARITY_WEAPON
+    wlow = int(weapon.split(":")[1], 16)
+
+    snaps = _parity_settle(ctx, log, "baseline")
+    missing = sorted({x for m in snaps.values() for x in m.get("missing") or []})
+    if missing:
+        ctx.skip("fields this build cannot read", "; ".join(missing)[:300])
+        ctx.metric("parity_missing", missing)
+    listed = {m.name: nid in snaps[m.name]["actors"] for m in ctx.ms}
+    ctx.check("the lab NPC is in the parity view of both copies", all(listed.values()), "listed on both", listed,
+              cls="TEST", area="plugin/animprobe (anim.probe near), tools/lab (parity view)")
+    owner = _owner_copy(ctx, npc)
+    ctx.metric("parity_npc_owner", owner.name)
+    sit_s = ctx.p("sit_s")
+
+    # 1. the NPC equips a weapon and draws it
+    ctx.cleanups.append(lambda: owner.npc_reset(npc, weapon))
+    ok, why = owner.npc_equip(npc, weapon)
+    if ok:
+        ok, why = owner.npc_draw(npc, True)
+    if not ok:
+        ctx.skip("the NPC equips and draws a weapon", f"the {owner.name} copy could not drive it: {why}")
+    elif not _owner_shows(ctx, owner, lambda v: v["weaponOut"] is True and any(int(h, 16) & 0xFFFFFF == wlow for h in v["equipped"] or []), sit_s, nid):
+        ctx.skip("the NPC equips and draws a weapon", f"the {owner.name} copy never showed the NPC with the weapon equipped and drawn, so there is nothing to compare")
+    else:
+        _parity_settle(ctx, log, "the NPC equips and draws a weapon")
+        ok, why = owner.npc_draw(npc, False)
+        if ok and _owner_shows(ctx, owner, lambda v: v["weaponOut"] is False, sit_s, nid):
+            _parity_settle(ctx, log, "the NPC puts the weapon away")
+        else:
+            ctx.skip("the NPC puts the weapon away", why or f"the {owner.name} copy never showed it holstered")
+
+    # 2. the NPC sits down and stands up (needs a placed furniture in the layout)
+    if not chairs:
+        ctx.skip("the NPC sits down and stands up", "the layout has no furniture ref (a `chair` ref in the npc or parity room, tools/lab/esp): only NPCs that sit by themselves are compared")
+    else:
+        ctx.cleanups.append(lambda: owner.npc_stand(npc))
+        ok, why = owner.npc_sit(npc, chairs[0])
+        if not ok or not _owner_shows(ctx, owner, lambda v: v["pose"] == "sit", sit_s, nid):
+            ctx.skip("the NPC sits down and stands up", why or f"the {owner.name} copy never showed the NPC seated")
+        else:
+            _parity_settle(ctx, log, "the NPC sits down")
+            ok, why = owner.npc_stand(npc)
+            if ok and _owner_shows(ctx, owner, lambda v: v["pose"] == "stand", sit_s, nid):
+                _parity_settle(ctx, log, "the NPC stands up")
+            else:
+                ctx.skip("the NPC stands up", why or f"the {owner.name} copy never showed the NPC standing")
+
+    # 3. each player draws a weapon and punches; the other copy's puppet must follow
+    window = ctx.p("punch_window_s")
+    for me, other in ((ctx.host, ctx.client), (ctx.client, ctx.host)):
+        who = me.name
+        ok, why = me.arm()
+        if not ok or not me.draw_weapon():
+            ctx.skip(f"the {who} player equips and draws a weapon", why or "the weapon would not come out")
+        else:
+            _parity_settle(ctx, log, f"the {who} player equips and draws a weapon")
+        ok, why = me.unarm()
+        if not ok:
+            ctx.skip(f"the {who} player punches", f"could not put the weapon away: {why}")
+            continue
+        (hit, hwhy), tm = ctx.timed(lambda me=me: me.punch(int(ctx.p("punches"))), lambda me=me: me.anim_category(None) == "attack",
+                                    lambda other=other: other.anim_category("puppet") == "attack", window)
+        if not hit or tm["src"] is None:
+            ctx.skip(f"the {who} player punches", hwhy or f"the {who} copy never showed an attack animation on its own player (the input driver was made for guns)")
+        else:
+            log.add(f"the {who} player punches", lab_parity.attack_mismatch(lab_parity.puppet_entity(who), who, True, tm["dst"] is not None))
+        _parity_settle(ctx, log, f"the {who} player is unarmed again")
+
+    ctx.metrics.update(parity_steps=log.steps, parity_mismatch_count=len(log.items), parity_fields=log.fields(), parity_mismatches=log.items)
+    ctx.check("what the two copies show agrees: NPCs, puppets, time scale", not log.items, "no mismatch", log.headline(),
+              note=f"{len(log.items)} mismatch(es) in {len(log.steps)} steps, by field {log.fields()}; every one with both values is in the room's metrics (parity_mismatches)",
+              area=log.sources())
+    return {}
+
+
 # spawn also loads the save and enters the lab cell (minutes on a loaded PC: the first in-game run used 70+ s of its 120 s before the first check);
 # every other room starts inside the lab
 SPAWN_BOX_S = 240.0
@@ -853,6 +990,7 @@ ROOMS: Dict[str, RoomSpec] = {s.name: s for s in (
     RoomSpec("npc", room_npc, "plugin/actors, synccore/include/fnvcoop/ownership.h", 100),
     RoomSpec("vats", room_vats, "plugin/vats, plugin/combat", 120),
     RoomSpec("quest", room_quest, "plugin/hooks, plugin/snapshot, synccore", 50),
+    RoomSpec("parity", room_parity, "plugin/actors, plugin/avatar, plugin/world_time", 110, budget_s=180.0),
 )}
 ROOM_ORDER = tuple(ROOMS)
 

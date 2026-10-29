@@ -5,6 +5,7 @@
 #include <string>
 
 #include "minitest.h"
+#include "actors/state_parts.h"
 #include "port_rig.h"
 
 using namespace nvae_test;
@@ -152,6 +153,27 @@ TEST(port, drive_is_rate_limited_per_actor_and_keeps_the_latest_pose) {
     r.step(40);                                   // window over: the held pose goes in
     CHECK(std::fabs(r.eng.a[0x100].pos.x - 1200) < 0.01f);
     CHECK(!r.port.pendingDrive(id));
+}
+
+// A copy getting out of its chair keeps its place until the animation driver says it is out (Doc Mitchell slid across the room seated, 2026-10-29).
+TEST(port, a_copy_still_in_its_furniture_is_not_moved_until_it_stood_up) {
+    PortRig r;
+    const NetId id = r.npc(0x100, {1000, 1000, 0});
+    r.port.setAi(id, false);
+    bool seated = true;
+    nvcoop::actors::engine::setPoseLock([&](NetId n) { return n == id && seated; });
+    r.port.drive(id, interpAt({1200, 1000, 0}));
+    r.step(50);
+    CHECK_MSG(std::fabs(r.eng.a[0x100].pos.x - 1000) < 0.01f, "moved while seated: x=" + std::to_string(r.eng.a[0x100].pos.x));
+    CHECK(r.port.pendingDrive(id) && r.port.stats().drivesHeldSeated >= 1);
+    seated = false;
+    r.step(50);
+    CHECK(std::fabs(r.eng.a[0x100].pos.x - 1200) < 0.01f && !r.port.pendingDrive(id));
+    seated = true;
+    r.port.drive(id, interpAt({1300, 1000, 0}, 0, 1, true));   // a teleport is applied even while seated
+    r.step(50);
+    CHECK(std::fabs(r.eng.a[0x100].pos.x - 1300) < 0.01f);
+    nvcoop::actors::engine::setPoseLock(nullptr);
 }
 
 TEST(port, a_snap_ignores_the_window_and_writes_every_axis) {
@@ -484,6 +506,41 @@ TEST(port, inventory_goes_through_the_providers_for_a_bound_live_actor_only) {
     registry().invRead = nullptr;
     registry().invWrite = nullptr;
     CHECK(!r.port.sampleInventory(id, got));                                                                       // no provider: nothing is synced
+}
+
+TEST(port, equipment_goes_through_the_providers_for_a_bound_live_actor_only) {
+    PortRig r;
+    const NetId id = r.npc(0x100);
+    EquipList worn{fnvcoop::FormRef("falloutnv.esm", 0x8ED04)};
+    int reads = 0, writes = 0;
+    registry().equipRead = [&](NetId n, EquipList& out) { ++reads; out = worn; return n != 0; };
+    registry().equipWrite = [&](NetId, const EquipList& w) { ++writes; worn = w; return true; };
+    EquipList got;
+    CHECK(r.port.sampleEquipment(id, got) && got.size() == 1 && got[0].localId == 0x8ED04 && reads == 1);
+    CHECK(r.port.applyEquipment(id, EquipList{fnvcoop::FormRef("falloutnv.esm", 0x1234)}) && worn[0].localId == 0x1234 && writes == 1);
+    CHECK(!r.port.sampleEquipment(deriveNetId(fnvcoop::FormRef("falloutnv.esm", 0x999)), got) && reads == 1);   // not bound: no engine read
+    CHECK(!r.port.applyEquipment(deriveNetId(fnvcoop::FormRef("falloutnv.esm", 0x999)), worn) && writes == 1);
+    registry().equipWrite = [&](NetId, const EquipList&) { ++writes; return false; };                              // the engine says "not yet": the caller hears it
+    CHECK(!r.port.applyEquipment(id, worn) && writes == 2);
+    r.port.kill(id);
+    CHECK(!r.port.applyEquipment(id, worn) && writes == 2);                                                      // a dying actor is not dressed
+    registry().equipRead = nullptr;
+    registry().equipWrite = nullptr;
+    CHECK(!r.port.sampleEquipment(id, got));                                                                     // no provider: nothing is synced
+}
+
+TEST(port, a_part_written_through_the_generic_bridge_reaches_the_equipment_provider) {
+    PortRig r;
+    const NetId id = r.npc(0x100);
+    EquipList worn;
+    registry().equipRead = [&](NetId, EquipList& out) { out = worn; return true; };
+    registry().equipWrite = [&](NetId, const EquipList& w) { worn = w; return true; };
+    Bytes b;
+    CHECK(r.port.readPart(id, PartKind::Equipment, b) && b == encodeEquipment({}));
+    CHECK(r.port.writePart(id, PartKind::Equipment, encodeEquipment({fnvcoop::FormRef("falloutnv.esm", 0x8ED04)})) && worn.size() == 1);
+    CHECK(r.port.readPart(id, PartKind::Equipment, b) && b == encodeEquipment(worn));
+    CHECK(!r.port.writePart(id, PartKind::Equipment, Bytes{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));                        // garbage is refused, nothing is written
+    CHECK(!r.port.readPart(id, PartKind::Inventory, b));                                                         // no inventory provider in this rig
 }
 
 TEST(port, no_clone_when_the_real_actor_is_here_and_none_beyond_the_cap) {

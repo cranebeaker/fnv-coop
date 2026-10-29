@@ -5,12 +5,15 @@ The window (launcher_gui.py) only shows these functions. Everything here is test
 What the launcher writes into Data\\NVSE\\Plugins\\nvcoop.ini (only these keys, every other line of the file is left alone):
 
   [coop]    enable=1  role=host|client  listen=0.0.0.0 (host)  host=<address> (join)  port=<n>  maxplayers=<2..4>  token=<n> (join)
+            transport=enet|steam                    steam (docs/steam.md): no listen / port, and host=<the host's Steam ID> when joining
             handshake=1 baseline=1 dialogue=1       session defaults, see SESSION_DEFAULTS
             name=<player name>                      the plugin ignores keys it does not know; no screen shows the name yet
   [combat]  xpmode=1|0        1 = kill XP is shared by the party, 0 = the player who lands the killing blow gets it (read by plugin/combat)
   [party]   slowmo=0|1        host option: everyone slows down together while a player is in VATS      (NOT READ BY THE PLUGIN YET)
             tether=1|0        story moments wait for the whole party                                   (NOT READ BY THE PLUGIN YET)
   [live]    actors avatars combat spawns   the sync layers (docs/tools/dll-wiring.md), all on unless unticked
+  [rebalance] mode=normal|balanced  friendlyfire=0|1   the pick for a NEW campaign (docs/rebalance.md); a saved campaign keeps its own
+  [chat]    enabled=1|0  name=<player name>  key=<letter, digit or F1..F24>   text chat (docs/chat.md)
 
 The two [party] keys are the agreed names; the code that reads them lands with the combat and world work (docs/tools/release.md).
 """
@@ -32,7 +35,9 @@ import fnv_find  # noqa: E402
 import fnv_ini  # noqa: E402
 import fnv_install  # noqa: E402
 import fnv_mut  # noqa: E402
+import fnv_party_saves  # noqa: E402
 import fnv_portcheck  # noqa: E402
+import fnv_steam  # noqa: E402
 
 DEFAULT_PORT = fnv_portcheck.DEFAULT_PORT
 MAX_NAME = 24
@@ -45,7 +50,8 @@ SESSION_DEFAULTS = {"coop": {"handshake": "1", "baseline": "1", "dialogue": "1"}
 class Settings:
     name: str = "Courier"
     mode: str = "host"                 # "host" | "join"
-    address: str = ""                  # join: the host's address, "1.2.3.4" or "1.2.3.4:27960" or a name
+    connection: str = "ip"             # "ip" (UDP, the host's address and a forwarded port) | "steam" (Steam friends, nothing to forward)
+    address: str = ""                  # join: the host's address, "1.2.3.4" or "1.2.3.4:27960" or a name; over Steam the host's Steam ID
     port: int = DEFAULT_PORT           # host: the port to listen on
     max_players: int = 4
     xp_share: bool = False
@@ -57,6 +63,13 @@ class Settings:
     live_spawns: bool = True
     game_dir: str = ""
     token: int = 0
+    second_copy: bool = False          # a second game copy on this PC (split screen, or two copies for testing): its own folder
+    autostart: str = ""                # "start" = the plugin loads the party's start save by itself (lobby start); "load:<save>" = it loads that save (Continue)
+    party: int = 0                     # lobby start: how many players the start save waits for before the opening movie
+    balanced: bool = False             # host: a new campaign plays Co-op balanced (tougher enemies, more of them, scaled by party size)
+    friendly_fire: bool = False        # host: a new campaign lets players hurt each other
+    chat: bool = True                  # text chat in the game
+    chat_key: str = "Y"                # the key that opens the chat line
 
     def normalized(self) -> "Settings":
         """Same dependency rule as the plugin (live_switches.cpp resolveSwitches): combat and spawns need actors."""
@@ -64,6 +77,16 @@ class Settings:
         if (s.live_combat or s.live_spawns) and not s.live_actors and not fnv_mut.on("no_live_dependency"):
             s.live_actors = True
         return s
+
+
+def parse_chat_key(key) -> Tuple[Optional[str], str]:
+    """The chat key as plugin/chat reads it (chat_text.cpp parseKeyName): one letter or digit, or F1 to F24."""
+    k = str(key or "").strip().upper()
+    if len(k) == 1 and k.isascii() and k.isalnum():
+        return k, ""
+    if len(k) in (2, 3) and k[0] == "F" and k[1:].isdigit() and 1 <= int(k[1:]) <= 24 and not fnv_mut.on("chat_key_any"):
+        return k, ""
+    return None, "Chat key: one letter or digit, or F1 to F24."
 
 
 def validate_name(name: str) -> Tuple[Optional[str], str]:
@@ -128,6 +151,14 @@ def parse_address(text: str, default_port: int = DEFAULT_PORT,
     return (host, port), ""
 
 
+def parse_steam_host(text: str) -> Tuple[Optional[str], str]:
+    """The host's Steam ID (17 digits) -> (id, "") or (None, a message for the player)."""
+    t = (text or "").strip()
+    if not fnv_steam.valid_steam_id(t) and not fnv_mut.on("steam_id_any"):
+        return None, "That is not a Steam ID. Pick your host from the list of Steam friends who are hosting."
+    return t, ""
+
+
 def new_token() -> int:
     """A random 63-bit identity for this PC; the host uses it to give you the same player slot when you rejoin."""
     return random.SystemRandom().randrange(1, 1 << 63)
@@ -182,6 +213,15 @@ def b(v: bool) -> str:
     return "1" if v else "0"
 
 
+def autostart_value(text: str) -> str:
+    """The [coop] autostart value to write: "start", "load:<save name>" for a save name the plugin can load, else "" (the main menu stays)."""
+    if text == "start":
+        return text
+    if text.startswith("load:") and fnv_party_saves.valid_save_name(text[5:]):
+        return text
+    return ""
+
+
 def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> Plan:
     """Check the settings and work out the nvcoop.ini keys. No file is touched."""
     s = s.normalized()
@@ -195,13 +235,26 @@ def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> 
         plan.errors.append("A session holds 2 to 4 players.")
     coop: Dict[str, str] = {"enable": "1", "name": name or ""}
     coop.update(SESSION_DEFAULTS["coop"])
-    if s.mode == "host":
+    if s.connection not in ("ip", "steam"):
+        plan.errors.append("Pick IP address or Steam.")
+    if s.connection == "steam" or not fnv_mut.on("steam_transport_sticky"):
+        coop["transport"] = "steam" if s.connection == "steam" else "enet"   # always written: a Steam run must not stick to the next IP run
+    if s.mode == "host" and s.connection == "steam":
+        coop.update({"role": "host", "maxplayers": str(s.max_players)})   # no port to open, nothing to forward
+    elif s.mode == "host":
         port, why = parse_port(s.port)
         if port is None:
             plan.errors.append(why)
         else:
             plan.port = port
             coop.update({"role": "host", "listen": "0.0.0.0", "port": str(port), "maxplayers": str(s.max_players)})
+    elif s.connection == "steam":
+        sid, why = parse_steam_host(s.address)
+        if sid is None:
+            plan.errors.append(why)
+        else:
+            plan.host = sid
+            coop.update({"role": "client", "host": sid, "token": str(s.token or new_token())})
     else:
         addr, why = parse_address(s.address, DEFAULT_PORT, resolver)
         if addr is None:
@@ -214,9 +267,25 @@ def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> 
         "combat": {"xpmode": b(s.xp_share)},
         "party": {"slowmo": b(s.slowmo), "tether": b(s.tether)},
         "live": {"actors": b(s.live_actors), "avatars": b(s.live_avatars), "combat": b(s.live_combat), "spawns": b(s.live_spawns)},
+        "rebalance": {"mode": "balanced" if s.balanced and not fnv_mut.on("balanced_ignored") else "normal", "friendlyfire": b(s.friendly_fire)},
+        "chat": {"enabled": b(s.chat), "name": "" if fnv_mut.on("chat_no_name") else (name or "")},
     }
+    key, why = parse_chat_key(s.chat_key)
+    if key is None:
+        plan.errors.append(why)
+    else:
+        plan.values["chat"]["key"] = key
     if s.mode == "join":
         plan.values["coop"].pop("maxplayers", None)
+    plan.values["coop"]["autostart"] = autostart_value(s.autostart)
+    plan.values["coop"]["party"] = str(s.party) if plan.values["coop"]["autostart"] == "start" and 1 <= s.party <= 8 else ""
+    # The game lets one copy run per PC; the plugin hides that check in a second copy ([bridge] multiInstance, the same keys
+    # tools/splitscreen/plan.py writes), and the second copy gets its own bridge pipe number.
+    plan.values["bridge"] = {"multiInstance": b(s.second_copy), "instance": "1" if s.second_copy else "0"}
+    # Two copies on one PC: the one without the focus pauses (the engine opens the escape menu when its window is deactivated; the focus guard,
+    # plugin/splitscreen/focus_guard.h, keeps that from it), and they would open on top of each other (host on the left, the friend on the right).
+    plan.values["bridge"]["focusGuard"] = b(s.second_copy)
+    plan.values["bridge"]["windowSide"] = ("left" if s.mode == "host" else "right") if s.second_copy else ""
     plan.ok = not plan.errors
     return plan
 
@@ -261,9 +330,10 @@ def read_settings_from_ini(game, base: Optional[Settings] = None) -> Settings:
     p, _ = parse_port(g("coop", "port") or "")
     if p:
         s.port = p
+    s.connection = "steam" if (g("coop", "transport") or "").strip().lower() == "steam" else "ip"
     h = g("coop", "host")
     if h and role in ("client", "guest") and h != "127.0.0.1":
-        s.address = h if s.port == DEFAULT_PORT else f"{h}:{s.port}"
+        s.address = h if (s.port == DEFAULT_PORT or s.connection == "steam") else f"{h}:{s.port}"
     s.xp_share = flag(g("combat", "xpmode"), s.xp_share)
     s.slowmo = flag(g("party", "slowmo"), s.slowmo)
     s.tether = flag(g("party", "tether"), s.tether)
@@ -271,6 +341,14 @@ def read_settings_from_ini(game, base: Optional[Settings] = None) -> Settings:
     s.live_avatars = flag(g("live", "avatars"), s.live_avatars)
     s.live_combat = flag(g("live", "combat"), s.live_combat)
     s.live_spawns = flag(g("live", "spawns"), s.live_spawns)
+    m = (g("rebalance", "mode") or "").strip().lower()
+    if m in ("normal", "balanced"):
+        s.balanced = m == "balanced"
+    s.friendly_fire = flag(g("rebalance", "friendlyfire"), s.friendly_fire)
+    s.chat = flag(g("chat", "enabled"), s.chat)
+    k, _ = parse_chat_key(g("chat", "key") or "")
+    if k:
+        s.chat_key = k
     return s
 
 
@@ -329,7 +407,7 @@ def start_session(s: Settings, *, resolver: Optional[Callable[[str], str]] = Non
     if not s.game_dir:
         r.messages.append("Pick your Fallout: New Vegas folder first.")
         return r
-    problems, warnings = preflight(s.game_dir, running)
+    problems, warnings = preflight(s.game_dir, (lambda: False) if s.second_copy else running)
     r.messages += ["warning: " + w for w in warnings]
     if problems:
         r.messages += ["PROBLEM: " + p for p in problems]
@@ -339,7 +417,7 @@ def start_session(s: Settings, *, resolver: Optional[Callable[[str], str]] = Non
     if not plan.ok:
         r.messages += ["PROBLEM: " + e for e in plan.errors]
         return r
-    if s.mode == "host":
+    if s.mode == "host" and (s.connection == "ip" or fnv_mut.on("steam_host_port_check")):
         ok, why = port_free(plan.port)
         if not ok and not fnv_mut.on("skip_port_check"):
             r.messages.append("PROBLEM: " + why)
@@ -352,8 +430,12 @@ def start_session(s: Settings, *, resolver: Optional[Callable[[str], str]] = Non
         r.messages.append(f"PROBLEM: could not start the game: {e}")
         return r
     r.ok = True
-    if s.mode == "host":
+    if s.mode == "host" and s.connection == "steam":
+        r.messages.append("Starting the game as host over Steam. When you are in the world, your Steam friends can join.")
+    elif s.mode == "host":
         r.messages.append(f"Starting the game as host on UDP port {plan.port}. When you are in the world, friends can join.")
+    elif s.connection == "steam":
+        r.messages.append("Starting the game and joining your host over Steam.")
     else:
         r.messages.append(f"Starting the game and joining {plan.host}:{plan.port}.")
     return r

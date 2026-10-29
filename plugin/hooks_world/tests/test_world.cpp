@@ -192,17 +192,18 @@ TEST(weather_time_sync) {
     auto e = s.poll(w1, true, 1.0f);
     CHECK(e.size() == 2);  // first sight of both
     CHECK(std::get<fnvcoop::SetWeather>(e[0]).weather == w1);
-    CHECK(std::get<fnvcoop::SetTimeScale>(e[1]).scale == 1.0f);
+    CHECK(std::get<fnvcoop::SetGlobal>(e[1]).global == esm(0x3A) && std::get<fnvcoop::SetGlobal>(e[1]).value == 1.0f);   // the TimeScale global, never the speed multiplier
     CHECK(s.poll(w1, true, 1.0f).empty());  // unchanged: nothing
     e = s.poll(w2, true, 1.0f);
     CHECK(e.size() == 1 && std::get<fnvcoop::SetWeather>(e[0]).weather == w2);
     CHECK(s.poll(w2, false, 1.0f).empty());  // interior: no weather
     e = s.poll(w2, true, 30.0f);
-    CHECK(e.size() == 1 && std::get<fnvcoop::SetTimeScale>(e[0]).scale == 30.0f);
+    CHECK(e.size() == 1 && std::get<fnvcoop::SetGlobal>(e[0]).value == 30.0f);
+    CHECK(!std::holds_alternative<fnvcoop::SetTimeScale>(e[0]));   // 2026-10-29: sent as SetTimeScale it set a guest's SetGlobalTimeMultiplier to 30
     // a script already sent SetWeather(w1) through the capture hub: the next poll must not repeat it
     s.noteSent(fnvcoop::SetWeather{w1, true});
     CHECK(s.poll(w1, true, 30.0f).empty());
-    s.noteSent(fnvcoop::SetTimeScale{5.0f});
+    s.noteSent(fnvcoop::SetGlobal{esm(0x3A), 5.0f});
     CHECK(s.poll(w1, true, 5.0f).empty());
 }
 
@@ -1253,6 +1254,7 @@ TEST(world_actors_type_filter_reads_creatures_from_the_reference) {
 
 #include "refvars_tests.h"
 #include "presentation_tests.h"
+#include "identity_tests.h"
 
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -1309,6 +1311,7 @@ int main() {
     run("world_actors_type_filter_reads_creatures_from_the_reference", world_actors_type_filter_reads_creatures_from_the_reference);
     runRefVarTests();
     runPresentationTests();
+    runIdentityTests();
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -26,7 +26,7 @@ endfunction()
 # ---- game-free core + tests. Mutation twins are RUNTIME-switchable (tools/mut/fnvcoop_mut.h): the test code is compiled once
 # (nvcoop_world_core_rt / nvcoop_world_tests, FNVCOOP_RUNTIME_MUT) and twin <n> is selected with FNVCOOP_MUT=<n>; each MUST fail.
 # nvcoop_world_core is the production lib (twins compiled out); it is what the game glue links. ----
-set(NVW_MUTANTS 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66)
+set(NVW_MUTANTS 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80)
 set(NVW_MUT_INC "${NVW_DIR}/../../tools/mut")
 foreach(sfx "" "_rt")
   add_library(nvcoop_world_core${sfx} STATIC ${NVW_DIR}/world_core.cpp ${NVW_DIR}/world_plan.cpp ${NVW_DIR}/world_query.cpp ${NVW_DIR}/world_refvars.cpp)
@@ -39,6 +39,9 @@ foreach(sfx "" "_rt")
 endforeach()
 add_executable(nvcoop_world_tests ${NVW_DIR}/tests/test_world.cpp)
 target_link_libraries(nvcoop_world_tests PRIVATE nvcoop_world_core_rt)
+if(TARGET nvcoop_story_core_rt)   # the identity tests read the real RefCommand op table (refOpDefaultsToPlayer)
+  target_link_libraries(nvcoop_world_tests PRIVATE nvcoop_story_core_rt)
+endif()
 nvw_flags(nvcoop_world_tests)
 target_compile_definitions(nvcoop_world_tests PRIVATE NVW_DUMP_PATH="${NVW_DIR}/tests/world_code/prologues.txt")
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)

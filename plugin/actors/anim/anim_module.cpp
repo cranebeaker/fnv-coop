@@ -5,10 +5,11 @@
 //                       directaiming=1       call BaseProcess::SetIsAiming (pinned slot)
 //                       directrate=0         write the movement sequence frequency for speed matching (offset not proven)
 //                       directknock=0        PushActorAway / SetKnockedState for knockdowns (units and effect not measured)
-//                       attacks=1 turns=1 talking=1 rate=1 knockdown=1   feature switches of the driver
+//                       attacks=1 turns=1 talking=1 rate=1 knockdown=1 sit=1   feature switches of the driver
 //   bridge method       anim.npc             counters, the pin status of the direct calls, and the system state
 //   bridge method       anim.npc.do          DEV ONLY ([dev] animprobe=1): run ONE backend operation on a plain reference, for the in-game proof
-//                                            (tools/animcheck/npc_proof.py): {ref, op: play|release|weapon|aim|sneak|rate|knock|getup|kill|place|read, ...}
+//                                            (tools/animcheck/npc_proof.py): {ref, op: play|release|weapon|aim|sneak|rate|knock|getup|kill|place|sit|stand|restrain|read, ...}
+//                                            (sit / stand take "furniture" as a hex reference string; stand also "attempt": 0 gentle, 1 escalated)
 //
 // Wiring (all through plugin/actors/engine/actor_engine_api.h): setAnimSampler (owner side), addDriveListener (non-owner side),
 // addActorDiedListener, addActorLostListener; the corpse event travels as an ActorSync MAnimEvent (ActorSync::setAnimEventHandler /
@@ -108,6 +109,7 @@ bool MAnimDo(const std::string& params, std::string& out) {
         o.set("ok", ok).set("valid", rd.valid).set("has3D", rd.has3D).set("dead", rd.dead).set("creature", rd.creature).set("knocked", rd.knocked).set("ragdoll", rd.ragdoll)
          .set("swimming", rd.swimming).set("sneaking", rd.sneaking).set("weaponOut", rd.weaponOut).set("aiming", rd.aiming).set("moveFlagsKnown", rd.moveFlagsKnown)
          .set("moveFlags", static_cast<int64_t>(rd.moveFlags)).set("moveGroup", rd.moveGroup).set("actionGroup", rd.actionGroup).set("actionPlayMs", rd.actionPlayMs)
+         .set("sitKnown", rd.sitKnown).set("sitSleep", rd.sitSleep).set("furniture", static_cast<int64_t>(rd.furniture))
          .set("generation3D", static_cast<int64_t>(e.Generation3D(id)));
         CellId cell = 0; Vec3 pos; float yaw = 0;
         if (e.GetPose(id, cell, pos, yaw)) o.set("cell", static_cast<int64_t>(cell)).set("x", pos.x).set("y", pos.y).set("z", pos.z).set("yaw", yaw);
@@ -123,6 +125,9 @@ bool MAnimDo(const std::string& params, std::string& out) {
     else if (op == "knock") r = e.KnockDown(id, static_cast<float>(p.get("yaw").asNumber(0)), static_cast<float>(p.get("force").asNumber(1.0)));
     else if (op == "getup") r = e.GetUp(id);
     else if (op == "kill") r = e.Kill(id);
+    else if (op == "sit") r = e.SitIn(id, static_cast<uint32_t>(std::strtoul(p.get("furniture").asString("0").c_str(), nullptr, 16)));
+    else if (op == "stand") r = e.StandUp(id, static_cast<uint32_t>(std::strtoul(p.get("furniture").asString("0").c_str(), nullptr, 16)), static_cast<uint32_t>(p.get("attempt").asInt(0)));
+    else if (op == "restrain") r = e.Restrain(id);
     else if (op == "place") r = e.PlaceCorpse(id, Vec3{static_cast<float>(p.get("x").asNumber()), static_cast<float>(p.get("y").asNumber()), static_cast<float>(p.get("z").asNumber())},
                                               static_cast<float>(p.get("yaw").asNumber(0)));
     else { out = "unknown op '" + op + "'"; return false; }
@@ -149,6 +154,7 @@ void OnLoad(void*) {
     sc.driver.playTalking = IniBool("talking", sc.driver.playTalking);
     sc.driver.useRate = IniBool("rate", sc.driver.useRate);
     sc.driver.knockdown = IniBool("knockdown", sc.driver.knockdown);
+    sc.driver.playSit = IniBool("sit", sc.driver.playSit);
 
     st.script.reset(new game::GameScript([](uint32_t ref, const std::string& line) { return nvhooks::execConsoleLineOn(line, ref); }));
     st.access.reset(new game::GameAccess(gc, [] { return g_epoch; }));
@@ -160,6 +166,7 @@ void OnLoad(void*) {
     st.drive = engine::addDriveListener([sys](const engine::DriveEvent& e) { if (e.out) sys->drive(e.netId, *e.out, NowMs()); });
     st.died = engine::addActorDiedListener([sys](const engine::DiedEvent& e) { sys->onDied(e.netId, e.mine, e.fromNetwork, NowMs()); });
     st.lost = engine::addActorLostListener([sys](const engine::LostEvent& e) { sys->onLost(e.netId); });
+    engine::setPoseLock([sys](NetId id) { return sys->driver().poseLocked(id); });   // a copy getting out of furniture is not moved yet
 
     nvcoop::RegisterMethod("anim.npc", MAnimNpc, true);
     g_devProof = GetPrivateProfileIntA("dev", "animprobe", 0, IniPath().c_str()) != 0;

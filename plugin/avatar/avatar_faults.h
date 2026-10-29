@@ -44,6 +44,30 @@ struct AvatarFaults {
     bool appearanceUpdateRespawns = false;   // a look change that keeps race and sex still deletes and respawns the puppet
     bool adoptPhysicsPush = false;       // ActualPose reports the pushed place, so the buffer eases the puppet back from it (teleport out and back)
     bool noBodyRoom = false;             // a puppet is put inside the local player's body (the engine shoves the real player)
+    // the owner's one-shots (attack, block, stagger ...; AnimState::action / actionSeq)
+    bool noOneShots = false;             // the owner's attacks and reactions are never played on the puppet
+    bool oneShotReplays = false;         // the counter is ignored: a one-shot still in the stream is played again on every Tick
+    bool oneShotNoBaseline = false;      // the first look at the counter is played (an old attack replays when a puppet appears)
+    bool oneShotKeepsBaseline = false;   // the counter is not re-read when the puppet (re)enters Driving (an attack that went by meanwhile is played late)
+    bool oneShotNoWrap = false;          // the counter does not wrap: 255 -> 0 reads as older
+    bool oneShotAdoptsStale = false;     // an older counter (a duplicate, a reordered snapshot) is taken as the new baseline: the newest one then plays again
+    bool oneShotNoResync = false;        // an owner whose counter restarted below ours is ignored for good
+    bool oneShotNextOnly = false;        // only seq + 1 is played: a lost datagram makes the newest attack vanish
+    bool oneShotWhileFrozen = false;     // a dry stream still plays its last one-shot
+    bool noOneShotReassert = false;      // the movement group is not asserted again after a one-shot (the puppet stays in the stagger pose)
+    bool noOneShotMismatchGuard = false; // the readback re-assert runs while a one-shot plays (it cuts the swing off)
+    bool reloadGroupFixed = false;       // reload always plays the default group, not the one the owner's weapon uses
+    bool heldNeverEnds = false;          // a held action (block, automatic fire) is not ended when the owner stops reporting it
+    bool bridgeDropsAction = false;      // the live <-> avatar conversion forgets action / actionSeq / block
+    // the pose override (a downed friend's puppet keeps lying; PuppetManager::SetPoseOverride)
+    bool poseOverrideIgnored = false;    // the override is stored but the planned group still plays
+    bool poseReplaysPlanned = false;     // the periodic replay (heartbeat / readback mismatch) plays the planned group, not the override
+    bool poseHeartbeats = false;         // the held pose is re-issued every heartbeat (a lying puppet gets up and falls again)
+    bool poseNoDeathGuard = false;       // a puppet the engine calls dead is respawned although it is overridden
+    bool poseOneShotsPlay = false;       // the owner's attacks / reactions play on the lying puppet (it pops up)
+    bool poseClearIgnored = false;       // clearing the override does nothing: the puppet stays down
+    bool poseLostOnRespawn = false;      // a new puppet for the slot (look change, reconnect) forgets the override
+    bool poseSurvivesRemove = false;     // a player who left and came back is still down
 };
 
 inline AvatarFaults& avatarFaults() {

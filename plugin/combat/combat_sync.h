@@ -66,6 +66,8 @@ struct Config {
     uint32_t lethalSettleMs = 1500;       // owner: a victim a NATURAL (engine-applied) hit left at health <= 0 gets this long to be dead by the engine's own life state (a VATS kill cam), then the owner kills it
     uint32_t killConfirmMs = 400;         // owner: a hit the rules call lethal must show the victim dead after this long, or the owner kills it
     SocialHooks social;
+    // plugin/threat: every hit that lands on an actor this machine simulates (the engine's own, an accepted forwarded one, a light blow), so an enemy's damage ledger is exact
+    std::function<void(uint32_t victimRef, uint32_t attackerRef, float damage)> onHitLanded;
 };
 
 // One hit as the engine hit gate sees it, BEFORE the damage is applied. All raw; the glue fills what it can read.
@@ -102,6 +104,9 @@ struct Stats {
     uint64_t hitsSent = 0, hitsRelayed = 0, hitsReceived = 0, hitsApplied = 0, hitsRejected = 0, hitDuplicates = 0, hitsForwarded = 0, hopLimit = 0;
     uint64_t nacksSent = 0, nacksReceived = 0, hitRetries = 0, hitsAbandoned = 0, resyncHints = 0, hitsResolvedLate = 0, killsForced = 0, naturalLethal = 0, naturalLethalStuck = 0, killsAttributed = 0;
     uint64_t damageApplied = 0, damageRefused = 0, limbsCrippled = 0, provoked = 0, engineRefused = 0, naturalHits = 0;
+    // A blow by a combatant simulated here on a copy: how many were light (health damage under one point, sent exactly), how many did no health damage at all (a touch:
+    // sent and replayed as a reaction only), and what the owner did with the light blows and touches it received (touchesEngine: the engine took the replay).
+    uint64_t lightHitsSent = 0, lightHitsApplied = 0, touchesSent = 0, touchesApplied = 0, touchesEngine = 0, hitsOnCopies = 0;
     uint64_t vitalsSent = 0, vitalsApplied = 0, vitalsStale = 0;
     uint64_t deathsDeclared = 0, deathsAccepted = 0, deathsRejected = 0, deathsDeferred = 0, deathsRefusedLocal = 0, corpsesDecorated = 0;
     uint64_t xpAwards = 0, xpTotal = 0, xpUnknown = 0, xpEnginePaid = 0;
@@ -120,6 +125,9 @@ public:
 
     PlayerId self() const { return cfg_.self; }
     bool isHost() const { return cfg_.isHost; }
+    // Player-vs-player damage on or off while the session runs (the campaign's choice, plugin/rebalance: the host's word, sent to every guest).
+    void setFriendlyFire(bool on);
+    bool friendlyFire() const { return cfg_.friendlyFire; }
 
     // ---- session ----
     void playerJoined(PlayerId slot);    // host
@@ -160,7 +168,7 @@ public:
 
 private:
     class Adapter;     // ICombatWorld over IWorldView + the projectile registry
-    struct Inflight { cc::HitEvent hit; uint64_t sentAt = 0; uint64_t retryAt = 0; uint8_t attempts = 0; bool nacked = false; bool keepId = false; };
+    struct Inflight { cc::HitEvent hit; uint64_t sentAt = 0; uint64_t retryAt = 0; uint8_t attempts = 0; bool nacked = false; bool keepId = false; bool touch = false; uint32_t centi = 0; };
     struct ExpId { uint64_t id = 0; uint64_t at = 0; };
     struct LastHit { cc::Entity attacker; FormRef weapon; cc::Limb limb = cc::Limb::Torso; uint64_t at = 0; std::set<PlayerId> players; bool natural = false; };   // natural: the local engine applied it (and pays kill XP itself)
     struct Blast { cc::ExplosionEvent ev; uint64_t dueAt = 0; bool plan = true; std::set<cc::Entity> handled; };
@@ -175,8 +183,10 @@ private:
     void fanOut(const Envelope& e, PlayerId except);
     std::vector<PlayerId> peers() const;
     uint64_t nextId() { return (static_cast<uint64_t>(cfg_.self) << 48) | ++counter_; }
-    bool buildHit(const EngineHit& e, const cc::Entity& atk, const EntityView& av, const cc::Entity& vic, const EntityView& vv, cc::HitEvent& out);
-    void forwardHit(const cc::HitEvent& h, PlayerId owner);
+    // centi: the engine's health damage in hundredths, exactly (what the owner applies). The rules' own damage is whole points, at least 1. touch: the blow did no health
+    // damage but is still a blow on an actor (centi 0; the owner replays it as a reaction only).
+    bool buildHit(const EngineHit& e, const cc::Entity& atk, const EntityView& av, const cc::Entity& vic, const EntityView& vv, cc::HitEvent& out, bool& touch, uint32_t& centi);
+    void forwardHit(const cc::HitEvent& h, PlayerId owner, bool touch = false, uint32_t centi = 0);
     void noteNaturalLethal(const cc::Entity& who);   // owner: after a natural hit's vitals went out, a victim at health <= 0 must get a life state death
 
     // inbound
@@ -192,7 +202,8 @@ private:
     void onHostility(PlayerId from, const MHostility& m);
 
     // owner side
-    void applyAccepted(const cc::HitEvent& h, PlayerId sender);
+    void applyAccepted(const cc::HitEvent& h, PlayerId sender, bool touch = false, uint32_t centi = 0);
+    void applyLight(const cc::HitEvent& h, const EntityView& vv, const EntityView& av, bool haveAtk, float amount);   // owner: a blow of under one point of health, or none
     cc::VictimVitals vitalsOf(const cc::Entity& e, const EntityView& v);
     void publishVitals(const cc::Entity& e, uint64_t cause);
     void recordHit(const cc::Entity& victim, const cc::Entity& attacker, const FormRef& weapon, cc::Limb limb, bool natural);

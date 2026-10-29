@@ -637,8 +637,10 @@ class Args:
         self.rules = str(td / "in" / "rules.json")
         self.consent = str(td / "in" / "consent.txt")
         self.volatile = str(td / "in" / "volatile.txt")
+        self.start_save = str(td / "in" / "nvcoop_start.fos")
         self.data_dir = [str(td / "in")]
         self.license = str(td / "in" / "LICENSE")
+        self.steam_helper = str(td / "in" / "fnvsteam.exe")
         self.out = str(td / "out")
         self.forbid = []
         self.source_date_epoch = 1767225600
@@ -654,6 +656,8 @@ def pkg_inputs(td, dll=None):
     (d / "rules.json").write_text('{"rules": []}')
     (d / "consent.txt").write_text("# consent\n")
     (d / "volatile.txt").write_text("key\n")
+    (d / "nvcoop_start.fos").write_bytes(b"FO3SAVEGAME test start save")
+    (d / "fnvsteam.exe").write_bytes(fg.make_pe((1, 0, 0, 0), tail=b"steam helper"))
     (d / "LICENSE").write_text("MIT test licence\n")
     for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json", "nvcoop_intents.json", "nvcoop_cause_quests.json", "nvcoop_pack_watch.json"):
         (d / n).write_text("{}")
@@ -674,10 +678,18 @@ def check_package_builds_a_verified_zip():
                          "PLAYER-GUIDE.md", "LICENSE.txt", "THIRD-PARTY.txt", "payload/nvcoop.dll", "payload/nvcoop.ini",
                          "payload/nvcoop_rules.json", "payload/nvcoop_edids.json", "payload/nvcoop_infoquest.json",
                          "payload/nvcoop_guest_local_run.json", "payload/nvcoop_intents.json", "payload/nvcoop_cause_quests.json", "payload/nvcoop_pack_watch.json", "payload/nvcoop_consent_messages.txt", "payload/nvcoop_volatile_keys.txt",
-                         "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/launcher_gui.py", "launcher/fnv_launcher_core.py",
-                         "launcher/fnv_portcheck.py"):
+                         "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/launcher_gui.py", "launcher/fnv_launcher_core.py", "launcher/fnv_terminal.py", "launcher/fnv_lobby.py",
+                         "launcher/terminal.html", "launcher/VT323-Regular.ttf", "Launcher-Classic.cmd",
+                         "launcher/fnv_portcheck.py", "launcher/fnv_steam.py", "launcher/fnvsteam.exe", "launcher/steam_appid.txt"):
                 assert root + need in names, need
+            assert zf.read(root + "launcher/steam_appid.txt").strip() == b"22380", "the helper runs under the game's own AppID"
+            assert not any(n.lower().endswith("steam_api.dll") or "fnv_steam_fake" in n for n in names), "nothing from Valve and no test double is shipped"
+            assert zf.read(root + "launcher/fnvsteam.exe") == (td / "in" / "fnvsteam.exe").read_bytes()
+            assert b"CONNECTION to STEAM" in zf.read(root + "README-FIRST.txt")
             assert not any("run_tests" in n or "/tests/" in n or "package_release" in n for n in names), "test and packaging code is not shipped"
+            shipped_ini = zf.read(root + "payload/nvcoop.ini").decode("ascii")
+            assert "\r\nminimized=0\r\n" in shipped_ini and "\r\nfocusGuard=0\r\n" in shipped_ini, \
+                "the player's game window must never be minimized by the test-rig switch"
             cmd = zf.read(root + "Install.cmd")
             assert b"\r\n" in cmd and b"\n" not in cmd.replace(b"\r\n", b"") and cmd.isascii() and b"python.org" in cmd
             m = json.loads(zf.read(root + "manifest.json"))
@@ -737,6 +749,20 @@ def check_package_checks_the_dll():
         assert quiet(pkg.build, Args(td)) == 1
         pkg_inputs(td)
         assert quiet(pkg.build, Args(td)) == 0
+
+
+def check_package_ships_the_steam_helper():
+    with tmp() as td:
+        pkg_inputs(td)
+        assert quiet(pkg.build, Args(td)) == 0
+        (td / "in" / "fnvsteam.exe").unlink()                      # no helper: the release cannot join over Steam, so it is not built
+        assert quiet(pkg.build, Args(td, out=str(td / "o2"))) == 1 and not (td / "o2").exists()
+        assert quiet(pkg.build, Args(td, allow_missing=True, dry_run=True)) == 0
+        pkg_inputs(td)
+        (td / "in" / "fnvsteam.exe").write_bytes(fg.make_pe((1, 0, 0, 0), machine=0x8664))     # 64-bit cannot load the game's 32-bit steam_api.dll
+        assert quiet(pkg.build, Args(td, out=str(td / "o3"))) == 1
+        (td / "in" / "fnvsteam.exe").write_bytes(fg.make_pe((1, 0, 0, 0), tail=b"built in C:\\Users\\someone\\src\\main.cpp today\0"))
+        assert quiet(pkg.build, Args(td, out=str(td / "o4"))) == 1, "a personal path inside the helper stops the build"
 
 
 def check_package_privacy_scan():
@@ -819,7 +845,7 @@ REAL = [check_pe_version, check_find_steam, check_find_steam_ansi_library_path, 
         check_uninstall_keeps_user_changed_file, check_install_rolls_back_on_failure, check_install_detects_bad_copy,
         check_install_upgrade_keeps_originals, check_restore_inis, check_pick_game, check_check_report, check_cli,
         check_package_builds_a_verified_zip, check_package_is_reproducible, check_package_stops_on_missing_required,
-        check_package_checks_the_dll, check_package_privacy_scan, check_package_blanks_baked_build_paths,
+        check_package_checks_the_dll, check_package_ships_the_steam_helper, check_package_privacy_scan, check_package_blanks_baked_build_paths,
         check_verify_zip_detects_tampering]
 
 TWINS = [
@@ -856,6 +882,8 @@ TWINS = [
     (check_package_blanks_baked_build_paths, "no_scrub"),
     (check_verify_zip_detects_tampering, "verify_skip_sums"),
     (check_package_checks_the_dll, "skip_dll_check"),
+    (check_package_ships_the_steam_helper, "skip_helper_check"),
+    (check_package_ships_the_steam_helper, "skip_privacy_scan"),
 ]
 
 

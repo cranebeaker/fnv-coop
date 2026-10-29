@@ -368,6 +368,7 @@ void RefVarTracker::forgetAllExcept(const std::unordered_set<uint32_t>& keep) {
 }
 
 // ------------------------------------------------------------------------------------------------ WeatherTimeSync
+constexpr uint32_t kTimeScaleGlobalId = 0x3A;   // FalloutNV.esm TimeScale (world_hooks.cpp kTimeScaleGlobal)
 std::vector<fnvcoop::Effect> WeatherTimeSync::poll(const FormRef& weather, bool haveWeather, float timeScale) {
     std::vector<fnvcoop::Effect> out;
     if (haveWeather) {
@@ -383,7 +384,10 @@ std::vector<fnvcoop::Effect> WeatherTimeSync::poll(const FormRef& weather, bool 
     }
     if (timeScale > 0 && (!scale_ || *scale_ != timeScale)) {
         scale_ = timeScale;
-        out.push_back(fnvcoop::SetTimeScale{timeScale});
+        // The TimeScale GLOBAL (game minutes per real minute, 30 by default) goes out as that global's value. It is not the engine's global
+        // time multiplier (SetGlobalTimeMultiplier, the simulation speed, 1 by default), which is what a SetTimeScale effect sets on a guest:
+        // sent as one, a guest ran at 30x speed after the host's reload restarted the session (2026-10-29).
+        out.push_back(fnvcoop::SetGlobal{fnvcoop::FormRef("falloutnv.esm", kTimeScaleGlobalId), timeScale});
     }
     return out;
 }
@@ -393,7 +397,8 @@ void WeatherTimeSync::noteSent(const fnvcoop::Effect& e) {
         return;  // MUTANT: script-driven changes are sent a second time by the next poll
     }
     if (auto* w = std::get_if<fnvcoop::SetWeather>(&e)) weather_ = w->weather;
-    else if (auto* t = std::get_if<fnvcoop::SetTimeScale>(&e)) scale_ = t->scale;
+    else if (auto* g = std::get_if<fnvcoop::SetGlobal>(&e); g && *g == fnvcoop::SetGlobal{fnvcoop::FormRef("falloutnv.esm", kTimeScaleGlobalId), g->value})
+        scale_ = g->value;   // a script's `set TimeScale to ...` already went out as the global
 }
 
 bool WeatherTimeSync::blockLocal(bool guest, bool applying) {

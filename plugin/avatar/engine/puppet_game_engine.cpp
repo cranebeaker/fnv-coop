@@ -359,9 +359,35 @@ bool GamePuppetEngine::MakeNonCombatant(RefId ref) {
     return a && b;
 }
 
+FormId GamePuppetEngine::LookBase(Slot slot, FormId templateBase, const Appearance& a) {
+    if (!looksByBase_ || !templateBase) return templateBase;
+    // A fresh copy for every spawn: the game keeps the head it built on the NPC base (TESNPC +0x1C4 / +0x1C8, BSFaceGenNiNode), so a copy
+    // rewritten for a second look could hand the new puppet the old head. A copy is one NPC record (0x20C bytes).
+    LookCopy& c = lookCopies_[slot];
+    const FormId copy = be_.CloneNpcBase(templateBase);
+    if (!copy) {
+        ++st_.lookFailures;
+        looksByBase_ = false;   // never again this session: every puppet is the template, as before
+        return templateBase;
+    }
+    c = LookCopy{copy, templateBase, be_.WorldEpoch()};
+    opt_.taggedBases.push_back(copy);   // a ref made from it is one of ours (Ours / FindTaggedPuppets)
+    ++st_.lookCopies;
+    bool face = false;
+    if (!be_.WriteNpcLook(c.copy, templateBase, a, &face)) {
+        ++st_.lookFailures;
+        return templateBase;
+    }
+    ++st_.lookWrites;
+    if (face) ++st_.lookFaces;
+    return c.copy;
+}
+
 bool GamePuppetEngine::ApplyAppearance(RefId ref, const Appearance& a) {
     RefInfo ri;
     if (!Ours(ref, ri)) return false;
+    for (const auto& lc : lookCopies_)
+        if (lc.second.copy && lc.second.copy == ri.base) return true;   // spawned from its own look copy (LookBase): the base carries the look
     // The console has no race / face / hair command (command_table.json), so the look is the template NPC's. Race and sex are
     // chosen by the template (Config::templates); the body height is matched with SetScale on the PUPPET (a calling-reference command:
     // it never touches the player or the shared template); anything finer is reported as approximate, never faked.
@@ -639,7 +665,7 @@ std::string GamePuppetEngine::StatsJson() const {
                   "{\"lines\":%llu,\"linesRefused\":%llu,\"linesException\":%llu,\"linesRefGone\":%llu,\"evalFailures\":%llu,"
                   "\"refused3D\":%llu,\"foreignRefused\":%llu,\"spawnCalls\":%llu,\"spawnNoAnchor\":%llu,\"spawnRefused\":%llu,"
                   "\"spawnNoNewRef\":%llu,\"spawnAmbiguous\":%llu,\"spawnThrottled\":%llu,\"spawnRejected\":%llu,\"setPosCalls\":%llu,\"setPosSkipped\":%llu,\"setYawCalls\":%llu,"
-                  "\"setYawSkipped\":%llu,\"appearanceApproximate\":%llu,\"scaleApplied\":%llu,\"modLines\":%llu,\"modReads\":%llu,\"drift3D\":%llu,\"maxDrift3D\":%.1f,"
+                  "\"setYawSkipped\":%llu,\"appearanceApproximate\":%llu,\"scaleApplied\":%llu,\"lookCopies\":%llu,\"lookWrites\":%llu,\"lookFaces\":%llu,\"lookFailures\":%llu,\"modLines\":%llu,\"modReads\":%llu,\"drift3D\":%llu,\"maxDrift3D\":%.1f,"
                   "\"costP50Us\":%u,\"costP95Us\":%u,\"costMaxUs\":%u}",
                   (unsigned long long)s.lines, (unsigned long long)s.linesRefused, (unsigned long long)s.linesException,
                   (unsigned long long)s.linesRefGone, (unsigned long long)s.evalFailures, (unsigned long long)s.refused3D,
@@ -648,6 +674,7 @@ std::string GamePuppetEngine::StatsJson() const {
                   (unsigned long long)s.spawnThrottled, (unsigned long long)s.spawnRejected,
                   (unsigned long long)s.setPosCalls, (unsigned long long)s.setPosSkipped, (unsigned long long)s.setYawCalls,
                   (unsigned long long)s.setYawSkipped, (unsigned long long)s.appearanceApproximate, (unsigned long long)s.scaleApplied,
+                  (unsigned long long)s.lookCopies, (unsigned long long)s.lookWrites, (unsigned long long)s.lookFaces, (unsigned long long)s.lookFailures,
                   (unsigned long long)s.modLines, (unsigned long long)s.modReads, (unsigned long long)s.drift3D,
                   static_cast<double>(s.maxDrift3D), s.costP50Us, s.costP95Us, s.costMaxUs);
     return buf;

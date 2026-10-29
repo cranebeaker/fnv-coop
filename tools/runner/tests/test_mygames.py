@@ -22,7 +22,8 @@ FORBIDDEN = re.compile(r"""Path\.home\(\)\s*/\s*["']Documents["']""")
 # mygames.py itself keeps the home-folder lookup only as the last fallback (no shell folder at all).
 # tools/installer/fnv_install.py ships alone in the release zip (no tools/runner next to it), so it carries its own copy of the
 # same lookup: the shell Documents folder (SHGetFolderPathW CSIDL_PERSONAL) first, the home folder only as the last fallback.
-ALLOWED = {Path("tools/runner/mygames.py"), Path("tools/installer/fnv_install.py")}
+# tools/launcher/fnv_party_saves.py ships in the release without tools/runner too, with the same order (FNV_DOCUMENTS_DIR, shell folder, home).
+ALLOWED = {Path("tools/runner/mygames.py"), Path("tools/installer/fnv_install.py"), Path("tools/launcher/fnv_party_saves.py")}
 
 
 def mutant_documents_dir(resolver=mygames.shell_documents) -> Path:

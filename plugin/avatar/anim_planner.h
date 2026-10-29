@@ -6,8 +6,9 @@
 //     corrected from the velocity, so feet never skate; a moving code with zero velocity (running into a wall) is kept.
 //   * a frozen interpolation buffer (the remote stopped sending) means idle at once, never run-in-place.
 //   * jump = JumpStart, JumpLoop, then JumpLand for landMs; a forward variant when moving.
-//   * reload beats everything but jump; draw / holster play a transition group for equipAnimMs when standing still.
+//   * reload beats everything but jump (it plays the owner's reload group when the stream carries one); draw / holster play a transition group for equipAnimMs when standing still.
 //   * weapon drawn and standing: Aim (or AimIS), AimUp / AimDown when the pitch is beyond the dead zone.
+//   * the owner's other one-shots (attack, block, stagger ...) are NOT planned here: PuppetManager plays them once per counter bump, on top of this.
 #pragma once
 #include <cstdint>
 

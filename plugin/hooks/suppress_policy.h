@@ -73,6 +73,30 @@ public:
     // nature (each machine owns its own player), so on a guest it runs like a GuestLocalRun script instead of being dropped. Only
     // a single line that starts with "player." qualifies; anything else typed on a guest console (SetStage, Enable, ...) stays blocked.
     static bool isLocalPlayerConsoleLine(const char* text);
+    // Explicit local-player scope (nvhooks::LocalPlayerScope): the console lines run while it is open act on THIS machine's own player and world view
+    // only. A line run inside it is a per-machine run like a GuestLocalRun script: not blocked on a guest, muted from the capture hub on a host, so it is
+    // never captured or sent. It covers console / bridge lines (temporary scripts) only: an ESM script that happens to run inside the scope (an event
+    // a line raised) keeps the rules of any other script. Nests; the counter is plain because the scope is main-thread only (engine_hooks.cpp).
+    void enterLocalPlayerScope() { ++scopeDepth_; }
+    void leaveLocalPlayerScope() { if (scopeDepth_ > 0) --scopeDepth_; }
+    bool inLocalPlayerScope() const {
+#ifdef NVHOOKS_MUTANT
+        return false;   // mutant: the scope exempts nothing (the guest's character creation is dropped again)
+#else
+        return scopeDepth_ > 0;
+#endif
+    }
+    // A console / bridge line runs as a temporary script: refID 0, or 0xFF...... (ESM scripts are never console lines).
+    static bool isConsoleLineScriptId(uint32_t scriptRefID) { return scriptRefID == 0 || (scriptRefID >> 24) == 0xFF; }
+    // The per-machine decision of Script::Execute: a GuestLocalRun script, a console line inside a LocalPlayerScope, or (guest only) a typed single
+    // "player." line. `consoleText` yields the line's source text and is only called for a console line outside a scope on a guest.
+    template <class TextFn>
+    bool runsLocal(uint32_t scriptRefID, TextFn&& consoleText) const {
+        if (isGuestLocalRun(scriptRefID)) return true;
+        if (!isConsoleLineScriptId(scriptRefID)) return false;
+        if (inLocalPlayerScope()) return true;
+        return guest_ && isLocalPlayerConsoleLine(consoleText());
+    }
     int scriptDepth() const { return depth_; }
 
     bool blockMutation();      // shared-state mutator called from a running script
@@ -90,6 +114,7 @@ private:
     int applying_ = 0;
     int depth_ = 0;
     int localDepth_ = 0;
+    int scopeDepth_ = 0;   // open LocalPlayerScopes
     Suppressed stats_;
     std::unordered_set<uint32_t> localRun_;
     std::unordered_set<uint32_t> hostState_;
