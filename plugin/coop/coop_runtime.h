@@ -26,7 +26,6 @@
 #include "fnvcoop_dlg/adapter.h"
 #include "hooks_ui/ui_bridge.h"
 #include "fnvcoop/enet_transport.h"
-#include "fnvcoop/steam_transport.h"
 #include "udp_transport.h"
 
 namespace fnvcoop::flight { class FlightRecorder; }   // T1a flight recorder (synccore/flight/flight.h)
@@ -42,7 +41,7 @@ struct Config {
     std::string listen = "127.0.0.1";  // host: bind address (use 0.0.0.0 to accept friends)
     std::string host = "127.0.0.1";    // client: host address
     uint16_t port = 27960;
-    std::string transport = "enet";  // "enet" (default, L4) | "udp" (L10 stand-in, kept as a test double) | "steam" (docs/steam.md; host = the host's Steam ID)
+    std::string transport = "enet";  // "enet" (default, L4; a Steam session is ENet to the local tunnel of fnvsteam.exe, docs/steam.md) | "udp" (L10 stand-in, kept as a test double)
     uint64_t token = 0;             // client identity; 0 = derive from time/pid (set it in the ini for stable slots)
     bool captureEnabled = true;     // host: wire CaptureHub -> commit
     bool applyEnabled = true;       // client: wire sink -> world
@@ -358,11 +357,6 @@ public:
     void setFlight(fnvcoop::flight::FlightRecorder* r) { flight_ = r; }
     UdpTransport* transport() { return udp_; }            // null unless transport=udp
     fnvcoop::EnetTransport* enet() { return enet_; }      // null unless transport=enet
-    fnvcoop::SteamTransport* steam() { return steam_; }   // null unless transport=steam
-    // transport=steam: where the game's Steam comes from. Default: the steam_api.dll the game loaded (steam_binding.h). Tests give a pretend one.
-    // Returns null (with a reason for the player) when there is none.
-    using SteamProvider = std::function<fnvcoop::ISteamApi*(std::string* why)>;
-    void setSteamProvider(SteamProvider p) { steamProvider_ = std::move(p); }
     uint16_t boundPort() const { return enet_ ? enet_->port() : udp_ ? udp_->localPort() : 0; }
     const std::string& lastError() const { return lastError_; }
 
@@ -418,9 +412,7 @@ private:
     std::unique_ptr<fnvcoop::ITransport> transport_;
     UdpTransport* udp_ = nullptr;
     fnvcoop::EnetTransport* enet_ = nullptr;
-    fnvcoop::SteamTransport* steam_ = nullptr;
-    fnvcoop::ILinkTransport* link_ = nullptr;   // enet_ or steam_: the connection events and the reconnect of a client
-    SteamProvider steamProvider_;
+    fnvcoop::ILinkTransport* link_ = nullptr;   // enet_: the connection events and the reconnect of a client
     fnvcoop::HandshakeInfo hsBase_;
     std::unique_ptr<fnvcoop::ThreadWorker> worker_;
     fnvcoop::RulesDb rulesDb_;

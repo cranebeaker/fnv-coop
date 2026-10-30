@@ -7,14 +7,14 @@
 
 What goes in (see PAYLOAD below): nvcoop.dll and the data files it reads from its own folder (rules, quest name maps, consent
 table, guest-script list, volatile-key list), a default nvcoop.ini with co-op switched off (the launcher switches it on) and the feature switches on, the installer and launcher
-(Python, no third-party packages), the launcher's Steam helper fnvsteam.exe (docs/steam.md; it uses the steam_api.dll of the player's own game, so no
-Valve file is shipped), PLAYER-GUIDE.md, the licence texts, manifest.json (every payload file with size and
+(Python, no third-party packages), the launcher's Steam helper fnvsteam.exe with Valve's redistributable steam_api.dll and steam_appid.txt (480, Valve's
+"Spacewar" sample app; docs/steam.md), PLAYER-GUIDE.md, the licence texts, manifest.json (every payload file with size and
 SHA-256, plus the supported game and xNVSE versions) and SHA256SUMS.txt (every file in the zip).
 
 Checks before the zip is written, each one stops the build with a clear message:
   * a required file is missing (--allow-missing downgrades this to a warning, for a dry look at an incomplete build);
-  * nvcoop.dll is not a 32-bit Windows DLL, or does not export the xNVSE plugin entry points; fnvsteam.exe is not a 32-bit Windows program
-    (it loads the game's 32-bit steam_api.dll);
+  * nvcoop.dll is not a 32-bit Windows DLL, or does not export the xNVSE plugin entry points; fnvsteam.exe or steam_api.dll is not a 32-bit Windows
+    program (the helper loads the 32-bit DLL next to it);
   * any shipped file contains a personal Windows path (C:\\Users\\<name>\\...) or a --forbid string, as plain text or UTF-16.
 The zip is reproducible: same inputs and the same source date give the same bytes. After writing it, the zip is opened again
 and checked against its own manifest and checksums, exactly like a player's installer will.
@@ -42,8 +42,11 @@ REPO = HERE.parent.parent
 DEFAULT_NAME = "FNV-CoOp"
 DEFAULT_STEAM_HELPER = REPO / "out" / "steamlink" / "fnvsteam.exe"
 INSTALLER_FILES = ("fnv_mut.py", "fnv_pe.py", "fnv_ini.py", "fnv_find.py", "fnv_manifest.py", "fnv_install.py")
+# Valve's redistributable steam_api.dll (Steamworks, 32-bit, flat API): not in the repo; --steam-api, the FNVCOOP_STEAM_API environment variable, or this path
+DEFAULT_STEAM_API = Path(os.environ.get("FNVCOOP_STEAM_API") or (REPO / "third_party" / "steam" / "steam_api.dll"))
 STEAM_HELPER = "fnvsteam.exe"
-STEAM_APPID = b"22380\r\n"   # Fallout: New Vegas; the helper runs under the game's own AppID so Steam shows "playing Fallout: New Vegas"
+STEAM_API = "steam_api.dll"
+STEAM_APPID = b"480\r\n"   # Spacewar, Valve's sample app that every Steam account may run: players show as playing "Spacewar" while they play together
 # The terminal launcher only (the old Tk window, launcher_gui.py, is no longer shipped). Every fnv_* module a shipped script imports must be here or in
 # installer/ (run_tests.py check_shipped_imports_are_shipped).
 LAUNCHER_FILES = ("fnv_launcher_core.py", "fnv_portcheck.py", "fnv_lobby.py", "fnv_party_saves.py", "fnv_steam.py", "fnv_terminal.py", "terminal.html",
@@ -242,7 +245,8 @@ def readme_first(version: str) -> bytes:
             "2. Double-click Install.cmd. It finds your game, checks the version, backs up what it changes and copies the plugin.\n"
             "3. Double-click Launcher.cmd and type your courier name. One player picks HOST A GAME, the others JOIN A FRIEND with\n"
             "   the host's address. Everyone readies up in the lobby, the host starts, and every game starts a new game together.\n"
-            "   No address and no router settings? Set the launcher's CONNECTION to STEAM: you join your Steam friends who host.\n\n"
+            "   No address and no router settings? Set the launcher's CONNECTION to STEAM: you join your Steam friends who host. Steam must be\n"
+            "   running on both PCs (you show up as playing \"Spacewar\"; nobody needs to own it) and the launcher stays open while you play.\n\n"
             "Every player must use the same release. To remove everything: Uninstall.cmd. Your saves are never touched.\n"
             "Read PLAYER-GUIDE.md for the details and for fixing common problems.\n")
     return text.encode("utf-8")
@@ -253,8 +257,9 @@ def third_party_text() -> bytes:
     lic = enet.read_text(encoding="utf-8", errors="replace") if enet.is_file() else "See https://github.com/lsalzman/enet"
     return ("Third-party software\n\n"
             "nvcoop.dll contains ENet (networking), MIT licence:\n\n" + lic.strip() + "\n\n"
-            "Co-op over Steam uses the steam_api.dll of the player's own Fallout: New Vegas install and the Steam client already on the PC; no file\n"
-            "from Valve is included.\n\n"
+            "Co-op over Steam (launcher\\fnvsteam.exe) loads launcher\\steam_api.dll, Valve's Steamworks redistributable library, and talks to the\n"
+            "Steam client already on the PC as Valve's sample app Spacewar (launcher\\steam_appid.txt says 480). steam_api.dll is the property of\n"
+            "Valve Corporation and is included unchanged. Nothing else from Valve is included.\n\n"
             "The launcher's terminal font is VT323 (The VT323 Project Authors), SIL Open Font License 1.1: launcher\\VT323-OFL.txt\n\n"
             "xNVSE is NOT included. Get it from its official page: " + fnv_find.LINK_NVSE + "\n").encode("utf-8")
 
@@ -297,7 +302,7 @@ def collect(args) -> Tuple[Dict[str, bytes], dict, List[str], List[str]]:
     if helper.is_file():
         data = helper.read_bytes()
         if fnv_pe.machine_type(helper) != fnv_pe.MACHINE_I386 and not fnv_mut.on("skip_helper_check"):
-            errors.append(f"{STEAM_HELPER} is not a 32-bit Windows program (it has to load the game's 32-bit steam_api.dll)")
+            errors.append(f"{STEAM_HELPER} is not a 32-bit Windows program (the Steam helper is built for 32 bits like the game)")
         data, blanked = scrub_paths(data)
         if blanked:
             warnings.append(f"{STEAM_HELPER}: blanked {blanked} string(s) that held a build-machine path")
@@ -307,6 +312,15 @@ def collect(args) -> Tuple[Dict[str, bytes], dict, List[str], List[str]]:
         (warnings if args.allow_missing else errors).append(
             f"launcher/{STEAM_HELPER}: not found (the Steam helper; build it: python -I tools/build/build.py --source tools/steamlink "
             "--build build/steamlink --target fnvsteam)")
+    api = Path(getattr(args, "steam_api", None) or DEFAULT_STEAM_API)
+    if api.is_file():
+        if fnv_pe.machine_type(api) != fnv_pe.MACHINE_I386 and not fnv_mut.on("skip_steam_api_check"):
+            errors.append(f"{STEAM_API} is not a 32-bit Windows DLL (the 32-bit {STEAM_HELPER} loads it; take Windows-x86 from the Steamworks redistributable)")
+        files[f"launcher/{STEAM_API}"] = api.read_bytes()      # Valve's file, shipped as it is (no path scrubbing: that would change it)
+        mt = max(mt, api.stat().st_mtime)
+    else:
+        (warnings if args.allow_missing else errors).append(
+            f"launcher/{STEAM_API}: not found (Valve's 32-bit Steamworks redistributable; pass --steam-api, set FNVCOOP_STEAM_API, or put it at {DEFAULT_STEAM_API})")
     files["launcher/steam_appid.txt"] = STEAM_APPID
     for n in INSTALLER_FILES:
         files[f"installer/{n}"] = (HERE / n).read_bytes()
@@ -440,6 +454,8 @@ def main(argv=None) -> int:
     b.add_argument("--volatile", default=str(REPO / "plugin" / "snapshot" / "data" / "volatile_keys.txt"))
     b.add_argument("--start-save", default=str(REPO / "plugin" / "coop" / "data" / "nvcoop_start.fos"))
     b.add_argument("--data-dir", action="append", help="folder with nvcoop_edids.json etc. (repeatable; searched before the defaults)")
+    b.add_argument("--steam-api", default=str(DEFAULT_STEAM_API),
+                   help="Valve's 32-bit steam_api.dll (Steamworks redistributable, Windows-x86), shipped as launcher\\steam_api.dll")
     b.add_argument("--steam-helper", default=str(DEFAULT_STEAM_HELPER), help="the launcher's Steam helper (tools/steamlink), shipped as launcher\\fnvsteam.exe")
     b.add_argument("--license", help="licence file to include (default: LICENSE in the repo root)")
     b.add_argument("--out", default=str(REPO / "out" / "release"))

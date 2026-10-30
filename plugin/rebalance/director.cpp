@@ -49,7 +49,7 @@ void Director::tick() {
         const Profile& stepped = ramp_.step(now);
         applied_ = applier_.apply(stepped);
         applied_ = effects_.apply(stepped) && applied_;
-        if (!applied_) nextApply_ = now + 1000;   // the originals could not be read yet: not every frame
+        if (!applied_) nextApply_ = now + 1000;   // the originals could not be read yet (the game is still starting): once a second is plenty
     }
 
     // which mode this campaign uses, on screen

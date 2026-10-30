@@ -1,10 +1,16 @@
 #include "rebalance/balance.h"
 
+#include <cmath>
+
 namespace nvcoop::rebalance {
 
 const Balance& coopBalance() {
     static const Balance b;
     return b;
+}
+
+float focus(int players) {
+    return 1.0f + coopBalance().focusPerExtraPlayer * static_cast<float>(extraPlayers(players));
 }
 
 float extrasPerEnemy(int players) {
@@ -14,13 +20,30 @@ float extrasPerEnemy(int players) {
 }
 
 float toughness(int players) {
-    if (FNV_MUT(1211)) return 1.0f;   // MUTANT 1211: enemies are as tough for four players as for two
+    if (FNV_MUT(1211)) return 1.0f;   // MUTANT 1211: enemies are as tough for four players as for one
     return 1.0f + coopBalance().toughnessPerExtraPlayer * static_cast<float>(extraPlayers(players));
 }
 
-float resourceShare(int players) {
-    if (FNV_MUT(1474)) return 1.0f;   // MUTANT 1474: a bigger party loots and heals as much per body, box and Stimpak as two players
+int maxExtras(int players) {
+    return coopBalance().extrasCapPerExtraPlayer * extraPlayers(players);
+}
+
+float damageToPlayersFactor(int players) {
+    return 1.0f + coopBalance().damageToPlayersPerExtraPlayer * static_cast<float>(extraPlayers(players));
+}
+
+float rewardShare(int players) {
+    if (FNV_MUT(1474)) return 1.0f;   // MUTANT 1474: a bigger party loots and earns as much per body as one player
     return 1.0f / (1.0f + extrasPerEnemy(players));
+}
+
+float fightLength(int players) {
+    return (1.0f + extrasPerEnemy(players)) * toughness(players) / focus(players);
+}
+
+float loadPerPlayer(int players) {
+    const float group = 1.0f + extrasPerEnemy(players);
+    return damageToPlayersFactor(players) * group * group * toughness(players) / (static_cast<float>(clampPlayers(players)) * focus(players));
 }
 
 Profile profileFor(const CampaignSettings& s, int players) {
@@ -28,17 +51,16 @@ Profile profileFor(const CampaignSettings& s, int players) {
     if (!s.balanced() || FNV_MUT(1212)) return p;   // MUTANT 1212: Normal gets the balanced numbers too
     const Balance& b = coopBalance();
     p.blend = 1;
-    p.damageToPlayers = b.damageToPlayers;
-    p.damageByPlayers = b.damageByPlayers / toughness(players);
-    p.killXp = b.killXpMult / (1.0f + extrasPerEnemy(players));
-    p.carryWeightBase = b.carryWeightBase;
-    p.skillPointsBase = b.skillPointsBase;
-    const float share = resourceShare(players);
-    p.suppliesKept = b.suppliesKept * share;
-    p.bodyAmmoKept = b.bodyAmmoKept * share;
-    p.stimpakHeal = b.stimpakHealMult * (FNV_MUT(1475) ? 1.0f : share);   // MUTANT 1475: a Stimpak heals the same for any party size
-    p.headMult = b.headMult; p.limbMult = b.limbMult;
-    p.mediumArmorDr = b.mediumArmorDr; p.heavyArmorDr = b.heavyArmorDr;
+    p.damageToPlayers = damageToPlayersFactor(players);
+    p.damageByPlayers = 1.0f / toughness(players);
+    p.killXp = rewardShare(players);
+    const float share = rewardShare(players);
+    p.suppliesKept = share;
+    p.bodyAmmoKept = share;
+    p.stimpakHeal = FNV_MUT(1475) ? 1.0f : loadPerPlayer(players);   // MUTANT 1475: a Stimpak heals the game's amount at any party size
+    p.headMult = std::pow(toughness(players), b.headRegainExponent);
+    p.limbMult = b.limbMult;
+    if (clampPlayers(players) > kSoloParty) { p.mediumArmorDr = b.mediumArmorDr; p.heavyArmorDr = b.heavyArmorDr; }   // armour as a role: only in a party
     return p;
 }
 
@@ -62,9 +84,6 @@ Profile mix(const Profile& a, const Profile& b, float t) {
     p.damageToPlayers = l(a.damageToPlayers, b.damageToPlayers);
     p.damageByPlayers = l(a.damageByPlayers, b.damageByPlayers);
     p.killXp = l(a.killXp, b.killXp);
-    // absolute numbers: a vanilla side has none, so the other side's value is used the whole way (the blend carries the change)
-    p.carryWeightBase = a.blend > 0 && b.blend > 0 ? l(a.carryWeightBase, b.carryWeightBase) : (b.blend > 0 ? b.carryWeightBase : a.carryWeightBase);
-    p.skillPointsBase = a.blend > 0 && b.blend > 0 ? l(a.skillPointsBase, b.skillPointsBase) : (b.blend > 0 ? b.skillPointsBase : a.skillPointsBase);
     p.suppliesKept = l(a.suppliesKept, b.suppliesKept);
     p.bodyAmmoKept = l(a.bodyAmmoKept, b.bodyAmmoKept);
     p.stimpakHeal = l(a.stimpakHeal, b.stimpakHeal);

@@ -3,7 +3,7 @@
 // through DirectorEnv, so the tests run a host and guests against fakes. docs/rebalance.md.
 //
 // Who applies what (so nothing is applied twice on two machines):
-//   * the game's numbers (damage to / by players, carry weight, skill points, kill XP): every machine sets them to the same absolute values worked out from the
+//   * the game's numbers (damage to / by players, kill XP): every machine sets them to the same absolute values worked out from the
 //     same inputs (the campaign setting and the party size, both told by the host). A shot is computed by the engine of the player who fires it, a hit on a
 //     player by that player's engine, so each hit is scaled once, by one machine. Setting an absolute value twice is the same as once.
 //   * Stimpak strength (the first effect of the Stimpak forms, EffectApplier): the same absolute value on every machine, from the form's original.
@@ -30,10 +30,17 @@ namespace nvcoop::rebalance {
 struct DirectorConfig {
     bool enabled = true;
     bool extras = true;                // reinforcements
-    uint32_t rampMs = 6000;
+    // How long a change of the party size takes to settle. About one firefight (10 to 20 s in the game), so a player who joins during a fight changes its
+    // toughness by a small step over the rest of it instead of all at once. Smoothstep, so the start and the end of the move are gentle too.
+    uint32_t rampMs = 10000;
+    // How often the ramp's next point is written to the game. With the ramp above each write moves a number by about 1 % of its change, far below anything a
+    // player can see, and 10 writes a second is nothing for a handful of settings.
     uint32_t applyEveryMs = 100;
+    // How often the host looks at the fights for reinforcements. A second is fast enough that a copy joins a fight while it is still young and slow enough
+    // that one enemy is not counted twice by a rescan (the net id guards that as well).
     uint32_t fightsEveryMs = 1000;
-    uint32_t sizeNoticeMinMs = 4000;   // between two "now scaled for N players" lines
+    // Between two "now scaled for N players" lines: about the time one line stays readable on the HUD, so a quick run of joins or leaves does not stack them.
+    uint32_t sizeNoticeMinMs = 4000;
 };
 
 struct DirectorEnv {

@@ -71,13 +71,13 @@ TEST(threat_model, hysteresis_a_small_lead_does_not_move_it_a_clear_one_does) {
     Record r;
     r.since = 0;
     addDamage(r, 0, 20, kNow, c);
-    addDamage(r, 1, 28, kNow, c);                                             // needs more than 20 * 1.25 + 4 = 29
+    addDamage(r, 1, 30, kNow, c);                                             // needs more than 20 * 1.3 + 5 = 31
     std::vector<Candidate> cs{cand(0, 500, true), cand(1)};
     CHECK(decide(r, cs, kNow, c).verdict == Verdict::Keep);                   // twin 1004: any lead moves it
     Record r2;
     r2.since = 0;
     addDamage(r2, 0, 20, kNow, c);
-    addDamage(r2, 1, 30, kNow, c);
+    addDamage(r2, 1, 33, kNow, c);
     std::vector<Candidate> cs2{cand(0, 500, true), cand(1)};
     const Decision d = decide(r2, cs2, kNow, c);
     CHECK(d.verdict == Verdict::Switch);
@@ -124,7 +124,7 @@ TEST(threat_model, others_already_on_a_player_count_against_that_player) {
     r2.since = 0;
     addDamage(r2, 0, 30, kNow, c);
     addDamage(r2, 1, 28, kNow, c);
-    std::vector<Candidate> few{cand(0, 500, true, 1), cand(1, 500, false, 0)};  // one other: 20 against 28 is not clear (needs more than 20 * 1.25 + 4 = 29)
+    std::vector<Candidate> few{cand(0, 500, true, 1), cand(1, 500, false, 0)};  // one other: 20 against 28 is not clear (needs more than 20 * 1.3 + 5 = 31)
     CHECK(decide(r2, few, kNow, c).verdict == Verdict::Keep);
 }
 

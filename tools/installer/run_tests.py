@@ -642,6 +642,7 @@ class Args:
         self.data_dir = [str(td / "in")]
         self.license = str(td / "in" / "LICENSE")
         self.steam_helper = str(td / "in" / "fnvsteam.exe")
+        self.steam_api = str(td / "in" / "steam_api.dll")
         self.out = str(td / "out")
         self.forbid = []
         self.source_date_epoch = 1767225600
@@ -659,6 +660,7 @@ def pkg_inputs(td, dll=None):
     (d / "volatile.txt").write_text("key\n")
     (d / "nvcoop_start.fos").write_bytes(b"FO3SAVEGAME test start save")
     (d / "fnvsteam.exe").write_bytes(fg.make_pe((1, 0, 0, 0), tail=b"steam helper"))
+    (d / "steam_api.dll").write_bytes(fg.make_pe((1, 0, 0, 0), tail=b"valve steam api"))
     (d / "LICENSE").write_text("MIT test licence\n")
     for n in ("nvcoop_edids.json", "nvcoop_infoquest.json", "nvcoop_guest_local_run.json", "nvcoop_intents.json", "nvcoop_cause_quests.json", "nvcoop_pack_watch.json"):
         (d / n).write_text("{}")
@@ -681,9 +683,9 @@ def check_package_builds_a_verified_zip():
                          "payload/nvcoop_guest_local_run.json", "payload/nvcoop_intents.json", "payload/nvcoop_cause_quests.json", "payload/nvcoop_pack_watch.json", "payload/nvcoop_consent_messages.txt", "payload/nvcoop_volatile_keys.txt",
                          "installer/fnv_install.py", "installer/fnv_manifest.py", "launcher/fnv_launcher_core.py", "launcher/fnv_terminal.py", "launcher/fnv_lobby.py",
                          "launcher/fnv_party_saves.py", "launcher/terminal.html", "launcher/VT323-Regular.ttf",
-                         "launcher/fnv_portcheck.py", "launcher/fnv_steam.py", "launcher/fnvsteam.exe", "launcher/steam_appid.txt"):
+                         "launcher/fnv_portcheck.py", "launcher/fnv_steam.py", "launcher/fnvsteam.exe", "launcher/steam_api.dll", "launcher/steam_appid.txt"):
                 assert root + need in names, need
-            assert zf.read(root + "launcher/steam_appid.txt").strip() == b"22380", "the helper runs under the game's own AppID"
+            assert zf.read(root + "launcher/steam_appid.txt").strip() == b"480", "the helper runs as Valve's Spacewar sample app"
             assert not any(n.endswith("launcher_gui.py") or n.endswith("Launcher-Classic.cmd") for n in names), "the old Tk launcher is not shipped"
             # every fnv_* module a shipped script imports is shipped too (0.1.4 nearly went out without fnv_party_saves.py: the launcher would not start)
             shipped_mods = {n.rsplit("/", 1)[-1][:-3] for n in names if n.endswith(".py")}
@@ -694,9 +696,14 @@ def check_package_builds_a_verified_zip():
                     m = re.match(r"\s*(?:import|from)\s+(fnv_\w+)", line)
                     if m:
                         assert m.group(1) in shipped_mods, f"{n} imports {m.group(1)}, which the zip does not ship"
-            assert not any(n.lower().endswith("steam_api.dll") or "fnv_steam_fake" in n for n in names), "nothing from Valve and no test double is shipped"
+            assert not any("fnv_steam_fake" in n for n in names), "no test double is shipped"
+            assert [n for n in names if n.lower().endswith("steam_api.dll")] == [root + "launcher/steam_api.dll"], "Valve's library is shipped once, next to the helper"
             assert zf.read(root + "launcher/fnvsteam.exe") == (td / "in" / "fnvsteam.exe").read_bytes()
-            assert b"CONNECTION to STEAM" in zf.read(root + "README-FIRST.txt")
+            assert zf.read(root + "launcher/steam_api.dll") == (td / "in" / "steam_api.dll").read_bytes(), "Valve's file goes in unchanged"
+            readme = zf.read(root + "README-FIRST.txt")
+            assert b"CONNECTION to STEAM" in readme and b"Spacewar" in readme
+            third = zf.read(root + "THIRD-PARTY.txt")
+            assert b"steam_api.dll" in third and b"Valve" in third and b"480" in third
             assert not any("run_tests" in n or "/tests/" in n or "package_release" in n for n in names), "test and packaging code is not shipped"
             shipped_ini = zf.read(root + "payload/nvcoop.ini").decode("ascii")
             assert "\r\nminimized=0\r\n" in shipped_ini and "\r\nfocusGuard=0\r\n" in shipped_ini, \
@@ -774,6 +781,19 @@ def check_package_ships_the_steam_helper():
         assert quiet(pkg.build, Args(td, out=str(td / "o3"))) == 1
         (td / "in" / "fnvsteam.exe").write_bytes(fg.make_pe((1, 0, 0, 0), tail=b"built in C:\\Users\\someone\\src\\main.cpp today\0"))
         assert quiet(pkg.build, Args(td, out=str(td / "o4"))) == 1, "a personal path inside the helper stops the build"
+
+
+def check_package_ships_steam_api():
+    """Valve's steam_api.dll is an input: it has to be there and has to be the 32-bit one the 32-bit helper can load."""
+    with tmp() as td:
+        pkg_inputs(td)
+        assert quiet(pkg.build, Args(td)) == 0
+        (td / "in" / "steam_api.dll").unlink()                      # no library: the helper cannot start, so the release is not built
+        assert quiet(pkg.build, Args(td, out=str(td / "o2"))) == 1 and not (td / "o2").exists()
+        assert quiet(pkg.build, Args(td, allow_missing=True, dry_run=True)) == 0
+        pkg_inputs(td)
+        (td / "in" / "steam_api.dll").write_bytes(fg.make_pe((1, 0, 0, 0), machine=0x8664))     # steam_api64.dll cannot be loaded by a 32-bit program
+        assert quiet(pkg.build, Args(td, out=str(td / "o3"))) == 1 and not (td / "o3").exists()
 
 
 def check_package_privacy_scan():
@@ -856,7 +876,7 @@ REAL = [check_pe_version, check_find_steam, check_find_steam_ansi_library_path, 
         check_uninstall_keeps_user_changed_file, check_install_rolls_back_on_failure, check_install_detects_bad_copy,
         check_install_upgrade_keeps_originals, check_restore_inis, check_pick_game, check_check_report, check_cli,
         check_package_builds_a_verified_zip, check_package_is_reproducible, check_package_stops_on_missing_required,
-        check_package_checks_the_dll, check_package_ships_the_steam_helper, check_package_privacy_scan, check_package_blanks_baked_build_paths,
+        check_package_checks_the_dll, check_package_ships_the_steam_helper, check_package_ships_steam_api, check_package_privacy_scan, check_package_blanks_baked_build_paths,
         check_verify_zip_detects_tampering]
 
 TWINS = [
@@ -895,6 +915,7 @@ TWINS = [
     (check_verify_zip_detects_tampering, "verify_skip_sums"),
     (check_package_checks_the_dll, "skip_dll_check"),
     (check_package_ships_the_steam_helper, "skip_helper_check"),
+    (check_package_ships_steam_api, "skip_steam_api_check"),
     (check_package_ships_the_steam_helper, "skip_privacy_scan"),
 ]
 

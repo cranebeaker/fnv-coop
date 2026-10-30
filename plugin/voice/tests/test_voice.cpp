@@ -690,7 +690,7 @@ TEST(rx, two_voices_add_up_and_a_loud_sum_is_clipped_not_wrapped) {
         ++s2;
         rx.render(buf.data(), kFrameSamples);
     }
-    for (size_t i = 0; i < buf.size(); ++i) CHECK(buf[i] == 32767);   // 2 x 21213 clipped
+    for (size_t i = 0; i < buf.size(); ++i) CHECK(buf[i] > 32000 && buf[i] <= 32767);   // 2 x 21213 = 42426: limited to just under full scale, not wrapped
 }
 
 TEST(rx, each_voice_has_its_own_side) {

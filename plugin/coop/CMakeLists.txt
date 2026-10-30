@@ -64,7 +64,7 @@ endif()
 # production lib (twins compiled out, linked into nvcoop.dll); nvcoop_coop_core_rt carries FNVCOOP_RUNTIME_MUT and is what the tests and
 # fake peers use. FNVCOOP_MUT=1..4 breaks one wiring call, FNVCOOP_MUT=5 + COOP_UI_MUTANT/COOP_LEAVE_MUTANT=n the L11 / leave twins. ----
 foreach(v "" _rt)
-  add_library(nvcoop_coop_core${v} STATIC ${COOP_DIR}/udp_transport.cpp ${COOP_DIR}/steam_binding.cpp ${COOP_DIR}/coop_runtime.cpp ${COOP_DIR}/party_save.cpp)
+  add_library(nvcoop_coop_core${v} STATIC ${COOP_DIR}/udp_transport.cpp ${COOP_DIR}/coop_runtime.cpp ${COOP_DIR}/party_save.cpp)
   target_include_directories(nvcoop_coop_core${v} PUBLIC ${COOP_DIR} ${COOP_DIR}/.. ${COOP_DIR}/../dialogue/include ${COOP_REPO}/tools/mut)
   target_link_libraries(nvcoop_coop_core${v} PUBLIC nvcoop_coop_synccore ${COOP_HOOKS_LIB} ${COOP_UI_LIB} ws2_32)
   coop_flags(nvcoop_coop_core${v})

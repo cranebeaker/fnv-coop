@@ -22,7 +22,7 @@ function(mk_flags tgt)
 endfunction()
 
 # game-free core: production (what the plugin links) and the runtime-twin copy (what the tests link)
-set(MK_SRC ${MK_DIR}/mk_board.cpp ${MK_DIR}/mk_wire.cpp ${MK_DIR}/rv_authority.cpp ${MK_DIR}/rv_hold.cpp ${MK_DIR}/mk_service.cpp ${MK_DIR}/mk_layout.cpp)
+set(MK_SRC ${MK_DIR}/mk_board.cpp ${MK_DIR}/mk_wire.cpp ${MK_DIR}/rv_authority.cpp ${MK_DIR}/rv_hold.cpp ${MK_DIR}/mk_service.cpp ${MK_DIR}/mk_layout.cpp ${MK_DIR}/mk_project.cpp ${MK_DIR}/mk_paint.cpp)
 foreach(sfx "" "_rt")
   add_library(nvcoop_markers_core${sfx} STATIC ${MK_SRC})
   target_include_directories(nvcoop_markers_core${sfx} PUBLIC ${MK_DIR} ${MK_DIR}/.. ${MK_MUT_INC})
@@ -32,12 +32,12 @@ foreach(sfx "" "_rt")
   endif()
 endforeach()
 
-# ---- tests. One exe; twins 1301..1434 are chosen at run time with FNVCOOP_MUT=<n> ----
+# ---- tests. One exe; twins 1301..1464 are chosen at run time with FNVCOOP_MUT=<n> ----
 set(MK_TEST_EXCL "")
 if(TARGET nvcoop)
   set(MK_TEST_EXCL EXCLUDE_FROM_ALL)   # plugin build: skip tests unless asked for
 endif()
-add_executable(nvcoop_markers_tests ${MK_TEST_EXCL} ${MK_DIR}/tests/test_core.cpp ${MK_DIR}/tests/test_service.cpp ${MK_DIR}/tests/test_layout.cpp ${MK_REPO}/synccore/tests/main.cpp)
+add_executable(nvcoop_markers_tests ${MK_TEST_EXCL} ${MK_DIR}/tests/test_core.cpp ${MK_DIR}/tests/test_service.cpp ${MK_DIR}/tests/test_layout.cpp ${MK_DIR}/tests/test_project.cpp ${MK_DIR}/tests/test_paint.cpp ${MK_REPO}/synccore/tests/main.cpp)
 target_include_directories(nvcoop_markers_tests PRIVATE ${MK_REPO}/synccore/tests ${MK_DIR}/tests)
 target_link_libraries(nvcoop_markers_tests PRIVATE nvcoop_markers_core_rt)
 mk_flags(nvcoop_markers_tests)
@@ -48,10 +48,10 @@ endforeach()
 enable_testing()
 add_test(NAME markers_unit COMMAND nvcoop_markers_tests)
 
-# ---- plugin glue (x86, linked into nvcoop.dll next to the coop module): the engine half of the marker service, the HUD scripts, the order hooks ----
+# ---- plugin glue (x86, linked into nvcoop.dll next to the coop module): the engine half of the marker service, the HUD (engine reads + Direct3D overlay), the order hooks ----
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND TARGET nvcoop AND TARGET nvcoop_coop_core AND EXISTS "${MK_DIR}/mk_glue.cpp")
   target_link_libraries(nvcoop PRIVATE nvcoop_markers_core)
   target_compile_definitions(nvcoop PRIVATE NVCOOP_WITH_MARKERS=1)
   target_include_directories(nvcoop PRIVATE ${MK_DIR})
-  target_sources(nvcoop PRIVATE ${MK_DIR}/mk_glue.cpp ${MK_DIR}/mk_hud.cpp)
+  target_sources(nvcoop PRIVATE ${MK_DIR}/mk_glue.cpp ${MK_DIR}/mk_hud.cpp ${MK_DIR}/mk_engine.cpp ${MK_DIR}/mk_overlay.cpp)
 endif()

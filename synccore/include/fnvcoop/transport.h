@@ -29,9 +29,9 @@ public:
     virtual size_t backlogBytes(PeerId /*to*/) const { return 0; }
 };
 
-// A transport that has real connections (ENet, Steam): it reports peers coming and going, can drop a link and bring it back, and a
-// client can ask for its host again after a drop. The co-op runtime drives both the same way (plugin/coop frame()).
-// PeerId mapping, the same for both: a client sees its host as peer 0; a host numbers its guests from 1.
+// A transport that has real connections (ENet): it reports peers coming and going, can drop a link and bring it back, and a
+// client can ask for its host again after a drop. The co-op runtime drives it in plugin/coop frame().
+// PeerId mapping: a client sees its host as peer 0; a host numbers its guests from 1.
 class ILinkTransport : public ITransport {
 public:
     struct Event { enum Type { Connected, Disconnected } type; PeerId peer; };

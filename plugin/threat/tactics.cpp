@@ -9,14 +9,14 @@ namespace nvcoop::threat {
 
 StyleValues tacticsFor(const StyleValues& original, const TacticsConfig& cfg) {
     StyleValues v = original;
-    const bool usesCover = original.takeCover > 0 || FNV_MUT(1040);   // twin 1040: styles that never take cover are made to
+    const bool usesCover = original.takeCoverChance > 0 || FNV_MUT(1040);   // twin 1040: styles that never take cover are made to
     if (usesCover) {
-        v.takeCover = std::max(original.takeCover, cfg.takeCoverAtLeast);
-        v.coverRadius = original.coverRadius * cfg.coverRadiusMult;
-        v.sideStep = static_cast<uint8_t>(std::max<int>(original.sideStep, cfg.sideStepAtLeast));
+        v.takeCoverChance = std::max(original.takeCoverChance, cfg.takeCoverAtLeast);
+        v.coverSearchRadius = original.coverSearchRadius * cfg.coverRadiusMult;
+        v.lrChance = static_cast<uint8_t>(std::max<int>(original.lrChance, cfg.sideStepAtLeast));
     }
-    if (cfg.fleeWhenHurt) v.flags = static_cast<uint16_t>(original.flags | kStyleFleeWhenHurt);
-    if (FNV_MUT(1041)) v.takeCover = std::min(original.takeCover, cfg.takeCoverAtLeast);   // twin 1041: cover is capped instead of raised
+    if (cfg.fleeWhenHurt) v.csFlags = static_cast<uint16_t>(original.csFlags | kCsFlagFleeBasedOnPersonalSurvival);
+    if (FNV_MUT(1041)) v.takeCoverChance = std::min(original.takeCoverChance, cfg.takeCoverAtLeast);   // twin 1041: cover is capped instead of raised
     return v;
 }
 

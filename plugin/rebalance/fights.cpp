@@ -46,7 +46,7 @@ void FightDirector::tick(const std::vector<Fighter>& fighters, int players, bool
         for (const Fighter& f : fighters)
             if (!f.dead && f.fightsParty && f.generic && f.netId && std::find(extras_.begin(), extras_.end(), f.ref) == extras_.end()) copyOf = &f;
     }
-    if (copyOf && reinforcements_.take(alive, coopBalance().maxExtrasAlive)) {
+    if (copyOf && reinforcements_.take(alive, maxExtras(players))) {
         const uint32_t made = env_.spawn ? env_.spawn(*copyOf, copyOf->targetRef) : 0;
         if (made) {
             extras_.push_back(made);

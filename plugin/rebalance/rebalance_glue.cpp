@@ -5,7 +5,7 @@
 //   * the extras: PlaceAtMe next to a fighter through the actor port's engine, then StartCombat on the party player it was fighting
 //   * the HUD line, the friendly fire switch of plugin/combat, the ini, the bridge method rebalance.status
 // nvcoop.ini [rebalance]: enabled=1 mode=normal|balanced friendlyfire=0|1 (what a NEW campaign this host starts will play; a loaded campaign keeps its own)
-//                         extras=1 rampms=6000
+//                         extras=1 rampms=10000
 #include <Windows.h>
 
 #include <cmath>
@@ -49,7 +49,7 @@ constexpr uintptr_t kGmstCollection = 0x011C8048;      // third_party/NVSE nvse/
 constexpr uintptr_t kMapLookupFn = 0x00853130;         // third_party/NVSE nvse/NiTypes.h _NiTMap_Lookup: bool __thiscall NiTMapBase::Lookup(key, T_Data* out)
 constexpr uintptr_t kSettingMapOffset = 0x10C;         // GameSettingCollection::settingMap
 constexpr uint32_t kPlayerNetBase = 0xFE000000u;       // plugin/coop/live/avatar_wire.h playerNetId(slot): the net id of a player (the target of an actor's combat)
-constexpr float kLeftBehind = 6000.0f;                 // an extra this far from every player (or in another place) is cleared away
+constexpr float kLeftBehind = 6144.0f;                 // an extra this far from every player (or in another place) is cleared away: 1.5 exterior cells (a cell is 4096 units wide), well outside what a fight spans
 
 struct RawSetting { void* vtbl; uint32_t data; const char* name; };   // xNVSE Setting: vtable at +0, value at +4, name at +8
 
@@ -291,7 +291,7 @@ void Create() {
     const std::string ini = IniPath();
     g.cfg.enabled = GetPrivateProfileIntA("rebalance", "enabled", 1, ini.c_str()) != 0;
     g.cfg.extras = GetPrivateProfileIntA("rebalance", "extras", 1, ini.c_str()) != 0;
-    g.cfg.rampMs = static_cast<uint32_t>(GetPrivateProfileIntA("rebalance", "rampms", 6000, ini.c_str()));
+    g.cfg.rampMs = static_cast<uint32_t>(GetPrivateProfileIntA("rebalance", "rampms", 10000, ini.c_str()));
     g.iniFriendlyFire = GetPrivateProfileIntA("rebalance", "friendlyfire", 0, ini.c_str()) != 0;
     char mode[32] = {};
     GetPrivateProfileStringA("rebalance", "mode", "normal", mode, sizeof mode, ini.c_str());
@@ -328,7 +328,10 @@ void Create() {
 #ifdef NVCOOP_WITH_COMBAT
     nvcoop::combat::glueSetHitScale([](uint32_t victimRef, int limb) -> float {   // head, limb and armour factor, Co-op balanced only (balance.cpp)
         if (!g.director || !g.director->balancedOn() || limb < 0 || limb > 5) return 1.0f;
-        return rb::bodyHitFactor(g.director->profile(), static_cast<uint8_t>(limb), rb::armorClassOf(victimRef));
+        // The head and limb factors are there to give the party's aimed shots back what toughness took off, so they apply to hits on enemies only; a hit on a
+        // player counts as a torso hit (the armour factor still applies to both).
+        const uint8_t where = IsPartyRef(victimRef) ? 0 : static_cast<uint8_t>(limb);
+        return rb::bodyHitFactor(g.director->profile(), where, rb::armorClassOf(victimRef));
     });
 #endif
     nvcoop::threat::setBalancedQuery([] { return nvcoop::rebalance::glueBalancedOn(); });   // the threat AI's cover / side-step / flee tactics follow the campaign

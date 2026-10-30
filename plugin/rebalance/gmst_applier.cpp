@@ -12,8 +12,6 @@ const std::vector<GmstEntry>& gmstTable() {
         {"fDiffMultHPByPCVE", GmstKind::DamageByPlayers, false}, {"fDiffMultHPByPCE", GmstKind::DamageByPlayers, false},
         {"fDiffMultHPByPCN", GmstKind::DamageByPlayers, false},  {"fDiffMultHPByPCH", GmstKind::DamageByPlayers, false},
         {"fDiffMultHPByPCVH", GmstKind::DamageByPlayers, false},
-        {"fAVDCarryWeightsBase", GmstKind::CarryWeight, false},
-        {"iLevelUpSkillPointsBase", GmstKind::SkillPoints, true},
         {"iXPLevelKillCreatureVeryEasy", GmstKind::KillXp, true}, {"iXPLevelKillCreatureEasy", GmstKind::KillXp, true},
         {"iXPLevelKillCreatureAverage", GmstKind::KillXp, true},  {"iXPLevelKillCreatureHard", GmstKind::KillXp, true},
         {"iXPLevelKillCreatureVeryHard", GmstKind::KillXp, true},
@@ -30,8 +28,6 @@ float gmstValue(const GmstEntry& e, float original, const Profile& p) {
         case GmstKind::DamageToPlayers: v = original * p.damageToPlayers; break;
         case GmstKind::DamageByPlayers: v = original * p.damageByPlayers; break;
         case GmstKind::KillXp: v = original * p.killXp; break;
-        case GmstKind::CarryWeight: v = flatValue(original, p.carryWeightBase, p.blend); break;
-        case GmstKind::SkillPoints: v = flatValue(original, p.skillPointsBase, p.blend); break;
     }
     if (e.integer) v = std::round(v);
     return v;

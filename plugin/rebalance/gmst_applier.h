@@ -1,4 +1,4 @@
-// Writes a Profile into the game's own settings (GMSTs: the difficulty multipliers, carry weight, level-up skill points, kill XP) and puts the game's value back
+// Writes a Profile into the game's own settings (GMSTs: the difficulty multipliers and kill XP) and puts the game's value back
 // when the campaign is Normal. Game-free; the settings themselves come in through IGmst.
 //
 // "Applied once": every value is computed from the game's ORIGINAL value (read once, before the first change) and a profile, never from the current value, and a
@@ -20,7 +20,7 @@ public:
     virtual bool write(const std::string& name, float value) = 0;
 };
 
-enum class GmstKind : uint8_t { DamageToPlayers, DamageByPlayers, CarryWeight, SkillPoints, KillXp };
+enum class GmstKind : uint8_t { DamageToPlayers, DamageByPlayers, KillXp };
 struct GmstEntry { const char* name; GmstKind kind; bool integer; };
 const std::vector<GmstEntry>& gmstTable();
 

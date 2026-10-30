@@ -14,7 +14,6 @@
 #include "effect_json.h"
 #include "fnvcoop_mut.h"
 #include "fnvcoop_dlg/rules_link.h"
-#include "steam_binding.h"
 
 // Mutation twins: RUNTIME-switchable (tools/mut/fnvcoop_mut.h). The test builds (nvcoop_coop_core_rt) read FNVCOOP_MUT=<n>; the
 // shipped core has them compiled out. They prove the integration tests can fail:
@@ -123,7 +122,7 @@ bool ParseConfig(const std::string& text, Config* out, std::string* err) {
         else if (k == "listen") c.listen = v;
         else if (k == "host" || k == "hostaddress") c.host = v;
         else if (k == "port") { if (!parseU64(v, &u) || u == 0 || u > 65535) return bad("port out of range"); c.port = static_cast<uint16_t>(u); }
-        else if (k == "transport") { std::string t = lower(v); if (t != "enet" && t != "udp" && t != "steam") return bad("transport must be enet|udp|steam"); c.transport = t; }
+        else if (k == "transport") { std::string t = lower(v); if (t != "enet" && t != "udp") return bad("transport must be enet|udp"); c.transport = t; }
         else if (k == "forward_activate") { if (!parseBool(v, &c.forwardActivate)) return bad("forward_activate must be 0/1"); }
         else if (k == "clientload") { std::string t = lower(v); if (t != "rejoin" && t != "block") return bad("clientload must be rejoin|block"); c.clientLoadBlock = t == "block"; }
         else if (k == "rules") c.rulesFile = v;
@@ -244,29 +243,6 @@ bool Runtime::makeTransport(bool server, std::string* err) {
         auto t = server ? UdpTransport::Server(cfg_.listen, cfg_.port, err) : UdpTransport::Client(cfg_.host, cfg_.port, err);
         if (!t) return false;
         udp_ = t.get();
-        transport_ = std::move(t);
-        return true;
-    }
-    if (cfg_.transport == "steam") {
-        std::string why;
-        fnvcoop::ISteamApi* api = nullptr;
-        if (steamProvider_) api = steamProvider_(&why);
-        else if (SteamBinding::instance().attachToGame(&why)) api = &SteamBinding::instance();
-        if (!api) { if (err) *err = why.empty() ? "Steam is not available" : why; return false; }
-        auto t = std::make_unique<fnvcoop::SteamTransport>(*api);
-        bool ok;
-        if (server) {
-            if (!FNV_MUT(1271)) api->setHostTag(std::to_string(fnvcoop::kProtocolVersion), "");   // MUTANT 1271: friends are never told this host is joinable
-            ok = t->listen(8);
-        } else {
-            char* end = nullptr;
-            const unsigned long long id = std::strtoull(cfg_.host.c_str(), &end, 10);
-            if (cfg_.host.empty() || *end || id < 76561197960265728ull) { if (err) *err = "host must be the host's Steam ID (a 17-digit number) with transport=steam"; return false; }
-            ok = t->connect(id);
-        }
-        if (!ok) { if (err) *err = "steam " + std::string(server ? "listen" : "connect") + " failed"; return false; }
-        steam_ = t.get();
-        link_ = FNV_MUT(1270) ? nullptr : t.get();   // MUTANT 1270: the Steam link's events are not wired (no Disconnected for the host, no reconnect for a guest)
         transport_ = std::move(t);
         return true;
     }
@@ -607,7 +583,6 @@ void Runtime::stop() {
     transport_.reset();
     udp_ = nullptr;
     enet_ = nullptr;
-    steam_ = nullptr;
     link_ = nullptr;
     running_ = false;
 }
@@ -1754,13 +1729,6 @@ std::string Runtime::statusJson() const {
         Value t = Value::object();
         t.set("kind", "enet").set("datagramsIn", (int64_t)s.datagramsIn).set("datagramsOut", (int64_t)s.datagramsOut)
             .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("connected", enet_->connected());
-        o.set("transport", t);
-    } else if (steam_) {
-        const auto& s = steam_->stats();
-        Value t = Value::object();
-        t.set("kind", "steam").set("packetsIn", (int64_t)s.packetsIn).set("packetsOut", (int64_t)s.packetsOut)
-            .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("refused", (int64_t)s.refused)
-            .set("connected", steam_->connected()).set("error", steam_->lastError());
         o.set("transport", t);
     }
     if (hub_) {

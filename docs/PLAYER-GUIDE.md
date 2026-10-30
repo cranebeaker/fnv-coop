@@ -54,7 +54,7 @@ Your saves are never touched. If the game is running, close it first.
 2. Double-click **Launcher.cmd**, type your **player name**, pick **Join a friend** and type the address.
 3. Optional: press **Test connection**. If it says "answered", the path to the host works (the host must have the test
    listener on, or already be hosting in the game).
-4. Press **Start game**. Wait for the host to be in the world. (Steam players: leave Steam running, the game needs it.)
+4. Press **Start game**. Wait for the host to be in the world.
 
 Your launcher remembers a private number for your PC, so when you rejoin you get the same player slot.
 
@@ -62,20 +62,39 @@ Your launcher remembers a private number for your PC, so when you rejoin you get
 
 If you and your host are **Steam friends**, you can skip the IP address and the port forwarding: Steam carries the game traffic between your PCs.
 
-You need: Fallout: New Vegas **from Steam** (a GOG copy has no Steam to use), Steam running and logged in on every PC, and the host on your Steam friends list.
-The launcher shows you as "playing Fallout: New Vegas" in Steam while it is open. That is normal.
+You need: Steam running and logged in on every PC, and the host on your Steam friends list. Your copy of New Vegas can come from Steam or GOG.
+While the launcher's Steam link is open, Steam shows you as playing **Spacewar**. That is normal: it is a free sample app from Valve that every Steam
+account can run, and the launcher uses it to reach your friends. Nobody has to own it.
 
 **Host.** In the launcher's main menu press **CONNECTION** until it reads **STEAM FRIENDS**, then **HOST A GAME** (or **CONTINUE A GAME**). The lobby opens;
 you give nobody an address. Your friends see you in their launcher, and in Steam's friends list a **Join Game** button appears next to your name.
 
+**Invite.** In the lobby press **INVITE A STEAM FRIEND** and pick a friend from the list of friends who are online. If their launcher is open, it asks them
+to join you right away and one press takes them into your lobby. If it is closed, the invite waits in their Steam chat: they open **Launcher.cmd** first,
+then accept your invite (accepting it with the launcher closed starts Spacewar instead).
+
 **Join.** Set **CONNECTION** to **STEAM FRIENDS**, then press **JOIN A FRIEND**. The list shows your Steam friends who are hosting (the list refreshes itself).
 Pick your host. If the host is still in the lobby you land in it and ready up as usual; if the host is already in the world, your game starts and joins them.
 You can also keep the launcher open and click **Join Game** next to the host's name in Steam: the launcher then offers that host at the top of the list.
+(Start the launcher first. If it is not running, Steam starts Spacewar instead.)
 
-The lobby (ready-up, begin transmission, continue a saved campaign) works exactly as it does over an IP address. When the host presses begin, the launcher closes its
-Steam link and each game starts and talks to Steam itself.
+The lobby (ready-up, begin transmission, continue a saved campaign) works exactly as it does over an IP address.
+
+**Keep the launcher open while you play.** Over Steam the launcher's Steam link carries your game to your friends. If you close the launcher window, you are
+disconnected. Minimize it instead. To end the session, press **END THE STEAM SESSION** in the launcher.
 
 A host on a different release of FNV Co-Op is listed greyed out ("other release"): everyone needs the same release, as always.
+
+## Split screen on one PC (Couchlink)
+
+[Couchlink](https://github.com/cranebeaker/couchlink) runs one copy of the game per player on one PC, each in its own window or
+part of the screen, each with its own controller (or keyboard and mouse) and its own saves.
+
+1. Install FNV Co-Op as above, and start Fallout: New Vegas once from Steam so it writes its settings.
+2. Open Couchlink, let each player press a button on their controller to join, and pick **Fallout: New Vegas (co-op)** in the Library.
+3. Press Play. Player 1 hosts, everyone else joins on the same PC, and the party starts the new game together.
+
+You do not use this mod's launcher for split screen: Couchlink sets everything up for each copy.
 
 ## Save and continue a campaign
 
@@ -141,10 +160,13 @@ backup is just there in case).
 | "Fallout: New Vegas is already running" | Close the game, then try again. |
 | Installer says Windows did not allow the change | Right-click **Install.cmd** and choose "Run as administrator" (a game under Program Files can need it), and close programs that may hold the files open. Nothing was changed. |
 | Launcher: "UDP port ... already in use" | Another program, or a game that is already hosting, has the port. Pick another port (everyone must use the same one) or close the other program. |
-| Launcher: "Steam is not running or you are not logged in" | Start Steam, log in, then press the button again. The game must be the Steam copy. |
+| Launcher: "Steam is not running" or "not logged in" | Start Steam, log in, then press the button again. Both you and your host need Steam running. |
 | Steam: your host is not in the list | You must be Steam friends. The host must have pressed HOST A GAME with CONNECTION set to STEAM (or be in the world as host). The list refreshes every few seconds; press REFRESH. |
-| Steam: "the host did not answer" / stays on "Calling the host through Steam" | The host's game may still be loading (it answers once it is in the world), or the host is not on your Steam friends list. Wait a minute, then pick the host from the list again. |
-| Launcher: "this copy has no fnvsteam.exe" | The release is incomplete. Download it again; until then use the IP address instead. |
+| Steam: "the host's lobby did not answer" / stays on "Calling the host through Steam" | The host closed the lobby, left Steam, or lost the connection. Ask the host to open the lobby again, then pick the host from the list again. |
+| Steam: "Your friend's lobby was not found" | You must be Steam friends, and the host must still be hosting. Press REFRESH and pick the host again. |
+| Launcher: "this copy has no fnvsteam.exe", or "steam_api.dll is missing" | The release is incomplete. Download it again; until then use the IP address instead. |
+| Steam: you lose the connection to your friends when you close the launcher | Over Steam the launcher must stay open while you play (minimize it). |
+| Steam: clicking Join Game starts Spacewar | The launcher was not running. Close Spacewar, start the launcher, then click Join Game again. |
 | Friend cannot join | Run Test connection. Check the router rule is for **UDP**, the port number matches, and Windows Firewall allows the game. If you both are on the same home network, use the local address that Check port shows. |
 | Join is refused with a message | Read the message: the usual reasons are a different release, a different list of mods, or a full session (4 players). |
 | The game opens its own small launcher window instead of the game | Start the game once through Steam or GOG so it writes its settings, then use the co-op launcher again. |

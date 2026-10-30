@@ -1,10 +1,13 @@
 // Bigger fights for bigger groups (Co-op balanced, host only): each generic enemy that starts fighting the party brings a share of an extra copy of itself, more
-// with more players (three players: a quarter, four: a half). Never more health. The extra is made by the host's engine like any host-made actor, so the
-// other machines get it through the normal actor sync; the guests do nothing. Game-free; the engine comes in through FightDirector::Env.
+// with more players (two players: a fifth, three: two fifths, four: three fifths; balance.h extrasPerEnemy). Never more health. The extra is made by the host's
+// engine like any host-made actor, so the other machines get it through the normal actor sync; the guests do nothing. Game-free; the engine comes in through
+// FightDirector::Env.
 //
-// The rule (accumulating shares, a cap on extras alive, no rush of them once some die) decides how many extra enemies a bigger party meets; the observation (who is
-// fighting the party) is ours: the host sees the fights of the actors it owns from its own engine and the fights of the actors a guest owns from the owner's
-// reported combat target (the actor sync carries it).
+// The rule, and why: a share of a copy is OWED for every enemy that starts a fight and a whole copy is made when a whole one is owed (so the average is exact
+// for any share, and a lone enemy never doubles); at most `maxExtras(players)` extras are alive at once (an actor budget and sync-traffic limit, balance.h); a copy
+// is not made faster once some die (the cap trims what is owed to one, so a wiped wave does not come back as a rush). The observation (who is fighting the
+// party) is ours: the host sees the fights of the actors it owns from its own engine and the fights of the actors a guest owns from the owner's reported combat
+// target (the actor sync carries it).
 #pragma once
 #include <cstdint>
 #include <functional>

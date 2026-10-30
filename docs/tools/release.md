@@ -48,9 +48,13 @@ An explicit `--game` folder is the only folder used; it never falls back to anot
 ## Release zip
 
 ```
-python -I tools/installer/package_release.py build --version 1.0.0 --license <licence file> [--dll out/L1/nvcoop.dll] [--data-dir DIR ...]
+python -I tools/installer/package_release.py build --version 1.0.0 --license <licence file> [--dll out/L1/nvcoop.dll] [--data-dir DIR ...] [--steam-api <steam_api.dll>]
 python -I tools/installer/package_release.py verify out/release/FNV-CoOp-1.0.0.zip
 ```
+
+Steam files in `launcher\`: `fnvsteam.exe` (built from `tools/steamlink`, default `out/steamlink`), Valve's 32-bit `steam_api.dll` (Steamworks redistributable,
+Windows-x86; not in the repository: `--steam-api`, the `FNVCOOP_STEAM_API` environment variable, or `third_party/steam/steam_api.dll`; a 64-bit one stops the
+build) and `steam_appid.txt` with `480` (docs/steam.md).
 
 Payload (all next to `nvcoop.dll` in `Data/NVSE/Plugins`): `nvcoop.dll` (default `out/L1/nvcoop.dll`), `nvcoop_rules.json`
 (`docs/quest-policies/rules.json`), `nvcoop_edids.json`, `nvcoop_infoquest.json`, `nvcoop_pack_watch.json` (guest pack facts: the item forms a guest reports), `nvcoop_guest_local_run.json` (searched in

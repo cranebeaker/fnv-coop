@@ -9,10 +9,9 @@
 namespace nvcoop::voice {
 
 namespace {
-constexpr float kPi4 = 0.78539816339f;
 constexpr uint32_t kTalkingSamples = kSampleRate * 300 / 1000;
-// One-pole smoothing of the gains: a time constant of 40 ms, so a voice that moves or fades never clicks.
-const float kSlew = 1.0f - std::exp(-1.0f / (static_cast<float>(kSampleRate) * 0.04f));
+// The gains of a voice glide with a time constant of 40 ms, so a voice that moves or fades never clicks.
+const float kGlide = glideCoefficient(40.0f, static_cast<float>(kSampleRate));
 }  // namespace
 
 VoiceReceiver::Speaker* VoiceReceiver::find(uint8_t who) {
@@ -57,7 +56,7 @@ bool VoiceReceiver::talking(uint8_t who) const {
 
 float VoiceReceiver::gainOf(uint8_t who) const {
     const Speaker* s = find(who);
-    return s ? 0.5f * (s->gl + s->gr) : 0.0f;
+    return s ? 0.5f * (s->gain.l + s->gain.r) : 0.0f;
 }
 
 size_t VoiceReceiver::depthOf(uint8_t who) const {
@@ -72,7 +71,7 @@ const JitterStats* VoiceReceiver::jitterOf(uint8_t who) const {
 
 // Takes frames out of the jitter buffer until `frames` samples are ready (or the stream has nothing more to give).
 void VoiceReceiver::fill(Speaker& s, size_t frames, bool heardNow) {
-    const bool heard = heardNow || s.gl > 1e-4f || s.gr > 1e-4f;
+    const bool heard = heardNow || s.gain.l > 1e-4f || s.gain.r > 1e-4f;
     while (s.pcm.size() < frames) {
         JitterOut o = s.jitter.pop();
         if (o.kind == PopKind::None) break;
@@ -89,45 +88,30 @@ void VoiceReceiver::fill(Speaker& s, size_t frames, bool heardNow) {
             ++stats_.droppedInaudible;   // still taken out of the buffer, so the stream keeps its time
         }
         if (o.last) s.decoder->reset();
-        s.pcm.insert(s.pcm.end(), buf, buf + kFrameSamples);
+        s.pcm.push(buf, kFrameSamples);
     }
 }
 
 void VoiceReceiver::render(int16_t* stereo, size_t frames) {
     if (!stereo || frames == 0) return;
-    std::vector<float> sum(frames * 2, 0.0f);
-    for (auto& kv : speakers_) {
-        Speaker& s = kv.second;
-        const Placement& place = place_[kv.first];
-        const bool audible = place.audible && place.gain > 0 && !muted_[kv.first];
+    bus_.begin(frames);
+    block_.resize(frames);
+    for (auto& entry : speakers_) {
+        const uint8_t who = entry.first;
+        Speaker& s = entry.second;
+        const Placement& place = place_[who];
+        const bool audible = place.audible && place.gain > 0 && !muted_[who];
         fill(s, frames, audible);
-        float tl = 0, tr = 0;
+        float targetL = 0, targetR = 0;
         if (audible || FNV_MUT(343)) {   // twin 343: a muted speaker is only turned down by the placement, not by the mute
-            const float angle = (std::clamp(place.pan, -1.0f, 1.0f) + 1.0f) * kPi4;   // equal power
-            tl = master_ * place.gain * std::cos(angle);
-            tr = master_ * place.gain * std::sin(angle);
+            panGains(master_ * place.gain, place.pan, targetL, targetR);
         }
-        const size_t have = std::min(frames, s.pcm.size());
-        for (size_t i = 0; i < frames; ++i) {
-            if (FNV_MUT(341)) {   // twin 341: the gains jump to the target (clicks when a voice moves or fades)
-                s.gl = tl;
-                s.gr = tr;
-            } else {
-                s.gl += (tl - s.gl) * kSlew;
-                s.gr += (tr - s.gr) * kSlew;
-            }
-            const float x = i < have ? static_cast<float>(s.pcm[i]) : 0.0f;
-            sum[i * 2] += x * s.gl;
-            sum[i * 2 + 1] += x * s.gr;
-        }
-        s.pcm.erase(s.pcm.begin(), s.pcm.begin() + static_cast<std::ptrdiff_t>(have));
+        const size_t have = s.pcm.take(block_.data(), frames);
+        bus_.addVoice(block_.data(), have, s.gain, targetL, targetR, kGlide);
         if (have > 0) s.quiet = 0;
         else s.quiet = s.quiet > (1u << 29) ? s.quiet : s.quiet + static_cast<uint32_t>(frames);
     }
-    for (size_t i = 0; i < frames * 2; ++i) {
-        const float v = FNV_MUT(344) ? sum[i] : std::clamp(sum[i], -32768.0f, 32767.0f);   // twin 344: a loud mix wraps around
-        stereo[i] = static_cast<int16_t>(v);
-    }
+    bus_.finish(stereo);
 }
 
 }  // namespace nvcoop::voice

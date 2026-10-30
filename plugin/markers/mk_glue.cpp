@@ -11,7 +11,8 @@
 //   compass_x=0.5 compass_w=0.30 compass_y=36   optional overrides of the compass tile's centre and width (fractions of the screen width) and of the
 //                                   glyph line (pixels from the top); with no readable compass tile they are the strip of our own
 //   compass_span_deg=180            how many degrees the compass shows (-half .. +half from the heading); beyond it a mark is pinned to the end
-//   banner_y=520 tag_lift=75        pixel placement of the banner and of the tags over the point WorldToScreen gives
+//   banner_y=520 tag_lift=14        HUD units (the window height is 960 of them): where the banner sits from the top, how far a tag hangs over the head point
+//   tag_head=135                    game units above a friend's feet where the tag's point is
 //   map_mode=auto                   auto = markers over the map tile's rectangle read at run time (text list when it cannot be read);
 //                                   list = the text list only; local / world = markers over that map inside map_rect
 //   map_world_tile= map_local_tile= exact tile names of the two maps for auto mode (else found by name; the log lists the map menu's tiles)
@@ -134,6 +135,7 @@ void LoadCfg() {
     m.compassSpanRad = (std::max)(30.0f, (std::min)(360.0f, IniFloat("markers", "compass_span_deg", 180.0f, ini))) * nvmk::kPi / 180.0f;
     l.bannerY = num("markers", "banner_y", l.bannerY);
     l.tagLift = num("markers", "tag_lift", l.tagLift);
+    l.tagHeadUnits = IniFloat("markers", "tag_head", l.tagHeadUnits, ini);
     char mode[16] = {};
     GetPrivateProfileStringA("markers", "map_mode", "auto", mode, sizeof mode, ini.c_str());
     const std::string mm = mode;
@@ -307,6 +309,7 @@ public:
     nvmk::WorldMapBounds bounds;
     bool pipboyMapOpen = false;
     Place viewer;
+    bool menuOpen = false;
 
     Slot localSlot() override {
         nvcoop::coop::Runtime* rt = Rt();
@@ -336,6 +339,7 @@ public:
         if (PinsOk() && ControlHeldSEH(kCtrlActivate, held)) out.activateHeld = held;
         bool menu = false;
         if (PinsOk() && MenuModeSEH(menu)) out.uiBlocked = menu;
+        menuOpen = menu;
         viewer = out.at;
         bounds = nvmk::WorldMapBounds{};
         if (raw.haveMap && raw.world) { bounds.valid = true; bounds.nwX = raw.nwX; bounds.nwY = raw.nwY; bounds.seX = raw.seX; bounds.seY = raw.seY; }
@@ -409,7 +413,7 @@ private:
 
 // ---------------------------------------------------------------------------------------------------------------------------------- the module
 std::unique_ptr<Port> g_port;
-std::unique_ptr<ScriptHud> g_hud;
+std::unique_ptr<OverlayHud> g_hud;
 std::unique_ptr<nvmk::MarkerService> g_svc;
 bool g_hudTried = false;
 bool g_hadSession = false;
@@ -456,17 +460,8 @@ void MakeService() {
     g_port.reset(new Port());
     if (!g_hudTried) {
         g_hudTried = true;
-        g_hud.reset(new ScriptHud());
-        if (!g_hud->init(g_nvse, g_cfg.layout)) nvcoop::Log("markers: no HUD scripts: the banner goes to the notification line");
-        g_hud->setRefLookup([](Slot s) -> TESObjectREFR* {
-            uint32_t ref = 0;
-#ifdef NVCOOP_WITH_LIVE
-            ref = nvcoop::livewire::glueAvatarRef(static_cast<uint8_t>(s));
-#else
-            (void)s;
-#endif
-            return RefById(ref);
-        });
+        g_hud.reset(new OverlayHud());
+        if (!g_hud->init(g_cfg.layout)) nvcoop::Log("markers: no HUD overlay: the banner goes to the notification line");
     }
     g_svc.reset(new nvmk::MarkerService(*g_port, g_hud.get(), g_cfg.svc));
     nvcoop::threat::setDownedQuery([](uint8_t slot) {   // the host's rules know every player; a guest knows its friends from the party table
@@ -511,12 +506,13 @@ void OnFrame() {
     if (g_hud && g_hud->ready()) {
         MapContext mc;
         mc.pipboyMapOpen = g_port->pipboyMapOpen;
+        mc.menuOpen = g_port->menuOpen;
         mc.engineOk = PinsOk();   // the tile reads (menu array 0x11F350C) only on the exe the other pins were taken from
         mc.viewer = g_port->viewer;
         mc.bounds = g_port->bounds;
         g_hud->setMapContext(mc);
     } else if (!g_svc->lastFrame().banner.empty()) {
-        // no HUD scripts: the banner on the notification line, when it changes, at most every 8 s
+        // no HUD overlay: the banner on the notification line, when it changes, at most every 8 s
         static std::string last;
         static uint64_t at = 0;
         const std::string b = g_svc->lastFrame().banner;

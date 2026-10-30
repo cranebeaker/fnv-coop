@@ -87,8 +87,8 @@ async function poll() {
   const L = S.lobby;
   if (S.steam && S.steam.join_request && !L && !S.launched && screen === "main") { screen = "join"; sel = 0; }
   if (S.launched && screen !== "launched") { screen = "launched"; sel = 0; }
-  else if (L && !S.launched && screen !== "lobby") { screen = "lobby"; sel = 0; }
-  else if (!L && !S.launched && (screen === "lobby" || screen === "launched")) { screen = "main"; sel = 0; }
+  else if (L && !S.launched && screen !== "lobby" && screen !== "invite") { screen = "lobby"; sel = 0; }
+  else if (!L && !S.launched && (screen === "lobby" || screen === "launched" || screen === "invite")) { screen = "main"; sel = 0; }
 }
 
 // ---- rendering --------------------------------------------------------------------------------------------------------------
@@ -143,7 +143,8 @@ function screens() {
       const req = T && T.join_request;
       const rows = friends.map(f => opt(`${f.name.toUpperCase()}  ${f.mode === "lobby" ? "[IN LOBBY]" : "[IN GAME]"}${f.joinable ? "" : "  [OTHER RELEASE]"}`,
                                         () => act("/api/join_steam", { id: f.id, in_game: f.mode !== "lobby" }, ""), !f.joinable));
-      const top = req ? [opt(`[ JOIN ${up(req.name)} (YOU CLICKED JOIN GAME) ]`, () => act("/api/join_steam", { id: req.id, in_game: req.mode !== "lobby" }, ""))] : [];
+      const top = req ? [opt(req.invite ? `[ JOIN ${up(req.name)} (THEY INVITED YOU) ]` : `[ JOIN ${up(req.name)} (YOU CLICKED JOIN GAME) ]`,
+                             () => act("/api/join_steam", { id: req.id, lobby: req.lobby || "", in_game: req.invite ? false : req.mode !== "lobby" }, ""))] : [];
       return {
         body: `<div class="hdr">STEAM FRIENDS WHO ARE HOSTING</div><div class="rule"></div>` + (T && !T.available
           ? `<div class="warn">&gt; THIS COPY HAS NO fnvsteam.exe, SO IT CANNOT TALK TO STEAM. SWITCH THE CONNECTION BACK TO IP ADDRESS.</div>`
@@ -197,8 +198,9 @@ function screens() {
                      <div class="dim">&gt; INTERNET: YOUR PUBLIC ADDRESS, UDP ${st.port} FORWARDED ON THE ROUTER</div>` : "";
       const closed = L && L.state === "closed";
       const o = closed ? [opt("[ BACK ]", () => act("/api/leave"))]
-        : host ? [opt(L.can_start ? "[ BEGIN TRANSMISSION ]" : "[ BEGIN TRANSMISSION ] (WAITING)", () => act("/api/start"), !L.can_start || L.state !== "hosting"),
-                  opt("[ CLOSE LOBBY ]", () => act("/api/leave"))]
+        : host ? [opt(L.can_start ? "[ BEGIN TRANSMISSION ]" : "[ BEGIN TRANSMISSION ] (WAITING)", () => act("/api/start"), !L.can_start || L.state !== "hosting")]
+                 .concat(viaSteam ? [opt("[ INVITE A STEAM FRIEND ]", () => go("invite"))] : [])
+                 .concat([opt("[ CLOSE LOBBY ]", () => act("/api/leave"))])
         : [opt(me && me.ready ? "[ NOT READY ]" : "[ READY ]", () => act("/api/ready", { ready: !(me && me.ready) }), !me),
            opt("[ LEAVE ]", () => act("/api/leave"))];
       return {
@@ -210,13 +212,31 @@ function screens() {
         opts: o
       };
     }
-    case "launched": return {
+    case "invite": {
+      const T = S ? S.steam : null;
+      const online = T ? T.online : [];
+      const inParty = new Set((L ? L.players : []).map(p => up(p.name)));
+      const rows = online.map(f => opt(`INVITE ${up(f.name)}`, () => act("/api/steam_invite", { id: f.id }, `INVITE SENT TO ${up(f.name)}.`)));
+      return {
+        body: `<div class="hdr">INVITE A STEAM FRIEND</div><div class="rule"></div>`
+          + (T && T.error ? `<div class="warn">&gt; ${up(T.error)}</div>`
+             : online.length ? `<div class="dim">&gt; PICK A FRIEND. IF THEIR LAUNCHER IS OPEN IT ASKS THEM TO JOIN AT ONCE. IF NOT, THE INVITE WAITS IN THEIR STEAM CHAT: THEY OPEN LAUNCHER.CMD FIRST, THEN ACCEPT IT.</div>`
+             : `<div class="dim">&gt; NONE OF YOUR STEAM FRIENDS IS ONLINE RIGHT NOW. THIS LIST UPDATES ITSELF.</div>`)
+          + (inParty.size > 1 ? `<div class="dim">&gt; ALREADY HERE: ${[...inParty].join(", ")}</div>` : "")
+          + `<div class="rule"></div>`,
+        opts: rows.concat([opt("[ REFRESH ]", () => act("/api/steam_online", {}, "")), opt("[ BACK TO THE LOBBY ]", () => go("lobby"))])
+      };
+    }
+    case "launched": { const viaSteamNow = S.settings.connection === "steam"; return {
       body: `<div class="hdr">TRANSMISSION SENT</div><div class="rule"></div>
              <div>&gt; YOUR GAME IS STARTING${S.launched === "host" ? " AS HOST" : " AND JOINING THE HOST"}.</div>
-             <div class="dim">&gt; THE GAME TAKES A MOMENT TO APPEAR. YOU CAN CLOSE THIS WINDOW.</div><div class="rule"></div>`,
-      opts: [opt("[ BACK TO MENU ]", () => act("/api/leave")),
-             opt("[ EXIT ]", () => { api("/api/quit", {}).catch(() => {}); setTimeout(() => window.close(), 200); })]
-    };
+             ${viaSteamNow ? `<div class="dim">&gt; THE GAME TAKES A MOMENT TO APPEAR.</div>
+             <div class="warn">&gt; OVER STEAM, KEEP THIS WINDOW OPEN WHILE YOU PLAY. IT CARRIES YOUR GAME TO YOUR FRIENDS. CLOSING IT DISCONNECTS YOU.</div><div class="rule"></div>`
+             : `<div class="dim">&gt; THE GAME TAKES A MOMENT TO APPEAR. YOU CAN CLOSE THIS WINDOW.</div><div class="rule"></div>`}`,
+      opts: viaSteamNow ? [opt("[ END THE STEAM SESSION ]", () => act("/api/leave"))]
+           : [opt("[ BACK TO MENU ]", () => act("/api/leave")),
+              opt("[ EXIT ]", () => { api("/api/quit", {}).catch(() => {}); setTimeout(() => window.close(), 200); })]
+    }; }
   }
 }
 const val = id => (document.getElementById(id) || {}).value || "";
@@ -224,6 +244,7 @@ function addrVal() { joinAddr = val("addr"); return joinAddr; }
 function go(s) {
   screen = s; sel = 0; note = ""; tick(1200); render();
   if (s === "join" && S && S.settings.connection === "steam") api("/api/steam_refresh", {}).then(poll).then(render).catch(() => {});
+  if (s === "invite") api("/api/steam_online", {}).then(poll).then(render).catch(() => {});
 }
 
 function render() {
@@ -311,6 +332,7 @@ async function boot() {
   const n = document.getElementById("name"); if (n && !n.value) n.focus();
   setInterval(async () => {
     if (screen === "join" && S && S.settings.connection === "steam" && Date.now() - lastFriends > 5000) { lastFriends = Date.now(); api("/api/steam_refresh", {}).catch(() => {}); }
+    if (screen === "invite" && Date.now() - lastFriends > 8000) { lastFriends = Date.now(); api("/api/steam_online", {}).catch(() => {}); }
   }, 1000);
   setInterval(async () => { if (busy) return; await poll(); if (!document.activeElement || document.activeElement.tagName !== "INPUT" || screen === "lobby") render(); }, 500);
 }

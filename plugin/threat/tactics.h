@@ -7,25 +7,36 @@
 
 namespace nvcoop::threat {
 
-// The four fields of a combat style that tactics changes (xNVSE GameForms.h TESCombatStyle: +0x18 coverSearchRadius, +0x1C takeCoverChance %,
-// +0x59 LRChance %, +0xA8 csFlags with 0x04 = flee based on personal survival).
+// The four fields of a combat style that tactics changes, named as xNVSE names them (third_party/NVSE nvse/nvse/GameForms.h, class TESCombatStyle):
+// coverSearchRadius at +0x18, takeCoverChance at +0x1C (percent), LRChance at +0x59 (percent), csFlags at +0xA8.
 struct StyleValues {
-    float coverRadius = 0;
-    float takeCover = 0;
-    uint8_t sideStep = 0;
-    uint16_t flags = 0;
+    float coverSearchRadius = 0;
+    float takeCoverChance = 0;
+    uint8_t lrChance = 0;
+    uint16_t csFlags = 0;
     friend bool operator==(const StyleValues& a, const StyleValues& b) {
-        return a.coverRadius == b.coverRadius && a.takeCover == b.takeCover && a.sideStep == b.sideStep && a.flags == b.flags;
+        return a.coverSearchRadius == b.coverSearchRadius && a.takeCoverChance == b.takeCoverChance && a.lrChance == b.lrChance && a.csFlags == b.csFlags;
     }
     friend bool operator!=(const StyleValues& a, const StyleValues& b) { return !(a == b); }
 };
-constexpr uint16_t kStyleFleeWhenHurt = 0x04;
+// TESCombatStyle::kFlag_FleeBasedOnPersonalSurvival (GameForms.h): the style backs off when badly hurt. threat_module.cpp static_asserts the value against the header.
+constexpr uint16_t kCsFlagFleeBasedOnPersonalSurvival = 0x04;
 
+// Why these numbers (docs/threat.md, "Tactics"): a party attacks from several directions at once, and an enemy that stands in the open trades shots with all of
+// them. Rather than only making enemies spongier (rebalance's toughness), they use the engine's own combat-style levers a little more.
 struct TacticsConfig {
-    float takeCoverAtLeast = 75;           // % chance to take cover, for enemies that use cover at all
-    float coverRadiusMult = 1.5f;          // they look this much further for cover
-    uint8_t sideStepAtLeast = 75;          // % chance to step aside
-    bool fleeWhenHurt = true;              // every style backs off when badly hurt
+    // Floor for the chance to take cover, for enemies that use cover at all. 60: in about three of five firing decisions the enemy looks for cover, and two of
+    // five it trades in the open, so it is never a turret and never a coward. Styles that already take cover more often keep their own value.
+    float takeCoverAtLeast = 60;
+    // Cover search radius times this. Cover that hides an enemy from two attackers at an angle `a` apart lies about 1 / cos(a / 2) times as far out as cover
+    // that hides it from one; for two players about 90 degrees apart that is 1 / cos(45 degrees) = 1.41, rounded to 1.4.
+    float coverRadiusMult = 1.4f;
+    // Floor for the side-step chance (same rule as cover). 50: it steps aside in half of its decisions, so a moving target costs the party more shots without
+    // making the enemy a dancer. Cover comes first, strafing second, hence the lower floor.
+    uint8_t sideStepAtLeast = 50;
+    // Every style may back off when badly hurt: a creature that is losing against several attackers retreats, a dog as much as a raider. It only matters at
+    // low health, so it shortens the tail of a fight instead of changing its start.
+    bool fleeWhenHurt = true;
 };
 
 // The values a style gets. A style that never takes cover (takeCover 0: animals, robots) keeps its cover and side-step values.

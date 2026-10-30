@@ -1,12 +1,15 @@
-"""The launcher's Steam side (docs/steam.md): friends who are hosting, and the party lobby carried over Steam instead of UDP. Standard library only.
+"""The launcher's Steam side (docs/steam.md): friends who are hosting, the party lobby carried over Steam instead of UDP, and the game's tunnel.
+Standard library only.
 
-The launcher is Python and the lobby runs before anyone's game does, so a small helper program (fnvsteam.exe, tools/steamlink) talks to the
-player's Steam client for it, under the game's own AppID, using the game's own steam_api.dll. This module starts that helper and speaks its
-JSON-line protocol (the command and event lists are in tools/steamlink/main.cpp). The lobby code (fnv_lobby.py) sees an ordinary datagram
-socket: SteamSocket has the few socket methods it uses (sendto, recvfrom, settimeout, close), and an address is ("steam", peer): a guest
-sees its host as peer 0, a host numbers its guests from 1.
+The launcher is Python, so a small helper program (fnvsteam.exe, tools/steamlink) talks to the player's Steam client for it, as Valve's
+sample app "Spacewar" (AppID 480). This module starts that helper and speaks its JSON-line protocol (the command and event lists are at the top
+of tools/steamlink/main.cpp). The helper stays alive for the whole session: before the game starts it carries the lobby, afterwards it is the
+UDP tunnel the game's own ENet connection runs through (a guest's game connects to 127.0.0.1:tunnel_port).
 
-Everything is behind Channel so tests run the same code against a pretend helper (FakeSteam below) or against fnvsteam.exe in its mock mode.
+The lobby code (fnv_lobby.py) sees an ordinary datagram socket: SteamSocket has the few socket methods it uses (sendto, recvfrom, settimeout,
+close), and an address is ("steam", peer): a guest sees its host as peer 0, a host numbers its guests from 1.
+
+Everything is behind Channel so tests run the same code against a pretend helper (fnv_steam_fake.py) or against fnvsteam.exe in its mock mode.
 """
 import base64
 import json
@@ -24,6 +27,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 HELPER_EXE = "fnvsteam.exe"
 READY_TIMEOUT = 20.0       # the helper has to be up and logged in to Steam by then
 FRIENDS_TIMEOUT = 3.0
+HOST_TIMEOUT = 8.0         # Steam has to open the lobby by then
+JOIN_TIMEOUT = 15.0        # Steam has to let the guest into the host's lobby by then
 PEER = "steam"             # the "host" half of an address of the lobby's socket
 STEAM_ID_RE = re.compile(r"^7656119\d{10}$")   # a SteamID64 of an ordinary account: 17 digits
 
@@ -131,11 +136,12 @@ class ProcessChannel(Channel):
                 pass
 
 
-def spawn_helper(game_dir: str, exe: Optional[Path] = None, popen=subprocess.Popen) -> Channel:
+def spawn_helper(exe: Optional[Path] = None, popen=subprocess.Popen) -> Channel:
+    """Start fnvsteam.exe. It looks for steam_api.dll and steam_appid.txt (480) in its own folder."""
     exe = exe or helper_path()
     if exe is None:
         raise FileNotFoundError(f"{HELPER_EXE} is not in the launcher folder")
-    return ProcessChannel([str(exe), "--game-dir", game_dir], popen)
+    return ProcessChannel([str(exe)], popen)
 
 
 # ---- the link ---------------------------------------------------------------------------------------------------------------------------
@@ -150,13 +156,20 @@ class SteamLink:
         self.me = ""
         self.name = ""
         self.error = ""                 # why Steam is not usable ("" = fine or not started)
-        self.link_error = ""            # why the last connect did not work
+        self.link_error = ""            # why the last host / join did not work, or that the host left
+        self.tunnel_port = 0            # guest: the local UDP port the game connects to (0 = not joined)
+        self.hosting = False            # host: the Steam lobby is open
+        self._tunnel_event = threading.Event()
         self.state = "off"              # off | ready | error
         self.inbox: "queue.Queue[Tuple[int, bytes]]" = queue.Queue(maxsize=2048)
         self.peers: Dict[int, str] = {}   # up peers by number -> Steam ID
         self.join_requests: List[dict] = []
         self._friends: Optional[List[dict]] = None
         self._friends_event = threading.Event()
+        self._online: Optional[List[dict]] = None
+        self._online_event = threading.Event()
+        self._invited: Optional[dict] = None
+        self._invited_event = threading.Event()
         self._hosting = threading.Event()
         self._reader: Optional[threading.Thread] = None
 
@@ -199,7 +212,7 @@ class SteamLink:
             chan.close()
 
     def close(self) -> None:
-        """Quit the helper (before the game starts: the game talks to Steam itself)."""
+        """Quit the helper: the party is over (it ends the lobby and the game's tunnel)."""
         with self.lock:
             if self.chan:
                 try:
@@ -248,18 +261,34 @@ class SteamLink:
         elif kind == "friends":
             rows = [r for r in ev.get("list", []) if isinstance(r, dict) and valid_steam_id(str(r.get("id", "")))]
             self._friends = [{"id": str(r["id"]), "name": str(r.get("name") or r["id"])[:40], "mode": str(r.get("mode") or "")[:64],
-                              "same": bool(r.get("same", True))} for r in rows]
+                              "same": bool(r.get("same", True)), "lobby": str(r.get("lobby") or "")[:24]} for r in rows]
             self._friends_event.set()
+        elif kind == "online":
+            rows = [r for r in ev.get("list", []) if isinstance(r, dict) and valid_steam_id(str(r.get("id", "")))]
+            self._online = sorted(({"id": str(r["id"]), "name": str(r.get("name") or r["id"])[:40]} for r in rows), key=lambda r: r["name"].lower())
+            self._online_event.set()
+        elif kind == "invited":
+            self._invited = {"id": str(ev.get("id", ""))[:24], "error": str(ev.get("error", ""))[:200]}
+            self._invited_event.set()
         elif kind == "hosting":
+            self.hosting = not ev.get("error")
+            self.link_error = str(ev.get("error", ""))
             self._hosting.set()
+        elif kind == "tunnel":
+            try:
+                self.tunnel_port = int(ev.get("port", 0))
+            except (TypeError, ValueError):
+                self.tunnel_port = 0
+            self._tunnel_event.set()
         elif kind == "join_request":
             sid = str(ev.get("id", ""))
             if valid_steam_id(sid):
                 with self.lock:
-                    self.join_requests.append({"id": sid, "connect": str(ev.get("connect", ""))[:256]})
+                    self.join_requests.append({"id": sid, "connect": str(ev.get("connect", ""))[:256], "lobby": str(ev.get("lobby", ""))[:24]})
                     del self.join_requests[:-8]
         elif kind == "link":
             self.link_error = str(ev.get("error", ""))
+            self._tunnel_event.set()          # a join that is waiting for its tunnel learns it will not come
         elif kind == "error":
             with self.lock:
                 self.state, self.error = "error", str(ev.get("why", "Steam stopped."))
@@ -278,21 +307,59 @@ class SteamLink:
             return list(self._friends or [])
         return list(self._friends or [])
 
-    def host(self, tag: str, mode: str = "") -> None:
+    def online(self, timeout: float = FRIENDS_TIMEOUT) -> List[dict]:
+        """Steam friends who are online now, by name: the ones an invite can reach."""
+        self._online_event.clear()
+        self._send({"cmd": "online"})
+        self._online_event.wait(timeout)
+        return list(self._online or [])
+
+    def invite(self, steam_id: str, timeout: float = FRIENDS_TIMEOUT) -> str:
+        """Send this friend Steam's invite into our lobby (host only). Returns "" or why not."""
+        if not valid_steam_id(steam_id):
+            return "That is not a Steam ID."
+        self._invited_event.clear()
+        self._invited = None
+        self._send({"cmd": "invite", "id": steam_id})
+        if not self._invited_event.wait(timeout):
+            return "Steam did not answer. Is Steam running?"
+        return (self._invited or {}).get("error", "")
+
+    def host(self, tag: str, mode: str = "lobby", port: int = 0, max_players: int = 4) -> str:
+        """Open the friends-only Steam lobby. The game will host on 127.0.0.1:port; the helper forwards the friends' traffic there.
+        Returns "" or why Steam could not open it."""
         self._hosting.clear()
         self.link_error = ""
-        self._send({"cmd": "host", "tag": tag, "mode": mode})
-        self._hosting.wait(2.0)
+        self.hosting = False
+        self._send({"cmd": "host", "tag": tag, "mode": mode, "port": int(port), "max": int(max_players)})
+        if not self._hosting.wait(HOST_TIMEOUT):
+            return "Steam did not open the lobby. Is Steam running and are you logged in?"
+        return self.link_error
 
-    def join(self, steam_id: str) -> None:
+    def set_mode(self, mode: str) -> None:
+        """"lobby" (waiting for the party) or "game" (in the world: friends may still join)."""
+        self._send({"cmd": "mode", "mode": mode})
+
+    def join(self, steam_id: str, lobby: str = "", timeout: float = JOIN_TIMEOUT) -> str:
+        """Go into the lobby of this hosting friend and open the tunnel. Returns "" (then tunnel_port is the port the game connects to) or why not."""
+        self._tunnel_event.clear()
         self.link_error = ""
-        self._send({"cmd": "join", "id": steam_id})
+        self.tunnel_port = 0
+        self._send({"cmd": "join", "id": steam_id, "lobby": lobby})
+        if not self._tunnel_event.wait(timeout):
+            return "Steam did not let you into the host's lobby in time. Is the host still hosting?"
+        if self.tunnel_port <= 0:
+            return self.link_error or "Steam would not let you into the host's lobby."
+        return ""
 
     def send(self, peer: int, data: bytes) -> None:
         self._send({"cmd": "send", "peer": int(peer), "b64": base64.b64encode(data).decode("ascii")})
 
     def stop(self) -> None:
+        """Leave the lobby and close the tunnels; the helper keeps running."""
         self._send({"cmd": "stop"})
+        self.tunnel_port = 0
+        self.hosting = False
         with self.lock:
             self.peers.clear()
         while True:
@@ -310,7 +377,8 @@ class SteamLink:
 
 
 class SteamSocket:
-    """The slice of a UDP socket the lobby uses, over a SteamLink. Closing it leaves the party (it does not end the helper)."""
+    """The slice of a UDP socket the lobby uses, over a SteamLink. Closing it only ends the lobby's datagrams: the Steam link (the party and
+    the game's tunnel) lives on until the launcher ends the session (SteamLink.close)."""
 
     def __init__(self, link: SteamLink):
         self.link = link
@@ -341,4 +409,8 @@ class SteamSocket:
     def close(self) -> None:
         if not self.closed:
             self.closed = True
-            self.link.stop()
+            while True:
+                try:
+                    self.link.inbox.get_nowait()
+                except queue.Empty:
+                    break

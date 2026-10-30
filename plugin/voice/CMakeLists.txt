@@ -3,7 +3,7 @@
 #     everything is inert until a co-op session runs, and nvcoop.ini [voice] enabled=0 switches it off)
 #   * standalone, for the game-free tests + mutation twins:  plugin\voice\run_tests.cmd (uses the shared tree build\all)
 # Targets
-#   nvcoop_voice_core / _rt   wire, jitter buffer, placement, transmitter, receiver, session, settings, Opus glue (production / runtime twins 301..399)
+#   nvcoop_voice_core / _rt   wire, jitter buffer, placement, transmitter, receiver, mixer, resampler, session, settings, Opus glue (production / runtime twins 301..399)
 #   nvcoop_voice_tests        EXCLUDE_FROM_ALL in the plugin build; twins are switched with FNVCOOP_MUT=<n> (tools/mut/run_twins.py)
 #   nvcoop_opus               third_party/opus (C library)
 cmake_minimum_required(VERSION 3.20)
@@ -29,7 +29,7 @@ if(NOT TARGET nvcoop_opus)
   include(${VC_REPO}/third_party/opus/CMakeLists.txt)
 endif()
 
-set(VC_SRC ${VC_DIR}/voice_wire.cpp ${VC_DIR}/voice_jitter.cpp ${VC_DIR}/voice_placement.cpp ${VC_DIR}/voice_tx.cpp ${VC_DIR}/voice_rx.cpp
+set(VC_SRC ${VC_DIR}/voice_wire.cpp ${VC_DIR}/voice_jitter.cpp ${VC_DIR}/voice_placement.cpp ${VC_DIR}/voice_tx.cpp ${VC_DIR}/voice_rx.cpp ${VC_DIR}/voice_mix.cpp ${VC_DIR}/voice_resample.cpp
            ${VC_DIR}/voice_session.cpp ${VC_DIR}/voice_config.cpp ${VC_DIR}/opus_codec.cpp)
 foreach(sfx "" "_rt")
   add_library(nvcoop_voice_core${sfx} STATIC ${VC_SRC})
@@ -46,7 +46,7 @@ set(VC_TEST_EXCL "")
 if(TARGET nvcoop)
   set(VC_TEST_EXCL EXCLUDE_FROM_ALL)   # plugin build: skip tests unless asked for
 endif()
-add_executable(nvcoop_voice_tests ${VC_TEST_EXCL} ${VC_DIR}/tests/test_voice.cpp ${VC_DIR}/tests/test_opus.cpp ${VC_REPO}/synccore/tests/main.cpp)
+add_executable(nvcoop_voice_tests ${VC_TEST_EXCL} ${VC_DIR}/tests/test_voice.cpp ${VC_DIR}/tests/test_opus.cpp ${VC_DIR}/tests/test_audio.cpp ${VC_REPO}/synccore/tests/main.cpp)
 target_include_directories(nvcoop_voice_tests PRIVATE ${VC_REPO}/synccore/tests ${VC_DIR}/tests)
 target_link_libraries(nvcoop_voice_tests PRIVATE nvcoop_voice_core_rt)
 vc_flags(nvcoop_voice_tests)
@@ -63,7 +63,7 @@ add_test(NAME voice_unit COMMAND nvcoop_voice_tests)
 # ---- plugin glue (x86, linked into nvcoop.dll next to the coop module) ----
 # voice_module.cpp holds the NVCOOP_MODULE registration, so it must be a direct source of the nvcoop target.
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND TARGET nvcoop AND TARGET nvcoop_coop_core AND EXISTS "${VC_DIR}/voice_module.cpp")
-  target_link_libraries(nvcoop PRIVATE nvcoop_voice_core winmm)
+  target_link_libraries(nvcoop PRIVATE nvcoop_voice_core ole32)
   target_compile_definitions(nvcoop PRIVATE NVCOOP_WITH_VOICE=1)
   target_sources(nvcoop PRIVATE ${VC_DIR}/voice_module.cpp ${VC_DIR}/voice_audio_win.cpp)
   target_include_directories(nvcoop PRIVATE ${VC_DIR})

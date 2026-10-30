@@ -20,7 +20,10 @@ TEST(feed, loaded_npcs_are_tracked_and_the_player_is_not) {
     r.eng.addNpc(0x103, 0x510, {1800, 1000, 0}).baseUnique = true;
     r.startSession();
     r.frame();
-    CHECK(r.feed.fedCount() == 4 && r.sync->trackedCount() == 4);
+    // the sync tracks the 4 NPCs plus the host's own player record (since the entity rebuild every player is an ActorSync record; the host
+    // pins its own each tick), while the feed itself never feeds the player
+    CHECK_MSG(r.feed.fedCount() == 4 && r.sync->trackedCount() == 5,
+              "fed " + std::to_string(r.feed.fedCount()) + ", tracked " + std::to_string(r.sync->trackedCount()));
     for (RefId ref : {0x100, 0x101, 0x102, 0x103}) CHECK(r.port.bound(r.id(static_cast<RefId>(ref))) && r.feed.fed(r.id(static_cast<RefId>(ref))));
     CHECK(!r.feed.fed(r.id(0x14)) && r.feed.netOfRef(0x100) == r.id(0x100));
     CHECK(r.tracked.size() == 4);

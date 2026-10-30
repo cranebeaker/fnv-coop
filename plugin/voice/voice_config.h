@@ -18,8 +18,8 @@
 //   hud=1              show a hint on the HUD while your microphone is on the air
 //   global_fallback=1  no avatar layer = no places: hear everybody evenly at full volume (0: hear nobody)
 //   muted=             comma separated slots whose voices you do not want to hear (slot 0 is the host)
-//   mic_device=-1      waveIn device number (-1: the system default)
-//   speaker_device=-1  waveOut device number (-1: the system default)
+//   mic_device=-1      audio device number, counted in the active microphones (-1: the system default)
+//   speaker_device=-1  audio device number, counted in the active speakers (-1: the system default)
 #pragma once
 #include <functional>
 #include <set>

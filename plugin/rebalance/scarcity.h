@@ -1,12 +1,15 @@
 // Co-op balanced: scarcer supplies and ammo (docs/rebalance.md). The rule that thins what a body or a box holds, game-free. The loot service (plugin/loot) calls it
 // ONCE per container or corpse, on the machine that registers it, before the contents become the shared ones (LootSync::setTrimHook); this file never touches the game.
 //
+// Why: the reinforcements (fights.h) are extra bodies, and a body carries a kit. What a fight pays in loot must not grow with the party, so what a BODY holds
+// shrinks by the share the fight grew by (balance.h rewardShare). A container is placed by the world's designers and does not grow with the party, so it is
+// never touched. (Per player the world still pays less as the party grows: the same loot is shared by more people. That is left alone on purpose.)
+//
 // Rules, by what the stack is and where it lies:
-//   * food, drink and medicine (Supply): every box and every body keeps `suppliesKept` of each stack
-//   * ammo: only a body keeps `bodyAmmoKept` of it (a box of ammo is somebody's stash and stays whole)
-//   * a unique character's body and boxes are left alone (their kit is written by hand, often for a quest)
+//   * food, drink and medicine (Supply) and ammo: a BODY keeps `suppliesKept` / `bodyAmmoKept` of each stack; a box keeps all of it
+//   * a unique character's body is left alone (their kit is written by hand, often for a quest)
 // The share is exact in the long run and the same on every machine: a stack of n keeps floor(n x share + u), where u in [0,1) comes from the container's net id and
-// the item's id, never from a random number. So a stack of one at 0.5 survives in half of the containers and the answer for one container never changes.
+// the item's id, never from a random number. So a stack of one at 0.5 survives in half of the bodies and the answer for one container never changes.
 #pragma once
 #include <cstdint>
 #include <string>

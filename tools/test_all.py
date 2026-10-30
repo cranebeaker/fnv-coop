@@ -102,7 +102,7 @@ SUITES = [
     ("Text chat (text rules, limiter, line editor, wire, relay, view, input, key blocker, overlay layout, twins)", ["cmd", "/c", r"plugin\chat\run_tests.cmd"], True, CM),
     ("Voice chat (wire, jitter, placement, Opus round trip, 3-machine session, config, twins)", ["cmd", "/c", r"plugin\voice\run_tests.cmd"], True, CM),
     ("Friend markers and revive (board, wire, revive authority + hold, service, HUD layout, twins)", ["cmd", "/c", r"plugin\markers\run_tests.cmd"], True, CM),
-    ("Steam helper fnvsteam.exe builds (tools/steamlink, shipped by package_release)", [sys.executable, "-I", "tools/build/build.py", "--source", "tools/steamlink", "--build", "build/steamlink", "--target", "fnvsteam", "--label", "steamlink"], True, CM),
+    ("Steam helper fnvsteam.exe builds (tools/steamlink, shipped by package_release; its tunnel runs in the launcher suite, mock Steam)", [sys.executable, "-I", "tools/build/build.py", "--source", "tools/steamlink", "--build", "build/steamlink", "--target", "fnvsteam", "--label", "steamlink"], True, CM),
     ("M4 real-time VATS (policy, party slow-mo, limb API, perks, wire, sync on 3 machines, call-site patcher, pins verifier + proof selftest, 60 runtime twins)", ["cmd", "/c", r"plugin\vats\run_tests.cmd"], True, CM),
     ("M4 VATS playbooks (gun, melee, explosive, energy on the fake VATS world, 19 twins)", [sys.executable, "-I", "tools/bots/playbooks/tests/run_vats_tests.py"], False, NO),
     ("social-core (companions, crime, kill rewards: rules + 66 runtime twins)", ["cmd", "/c", r"synccore\social\run_tests.cmd"], True, CM),

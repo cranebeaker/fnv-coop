@@ -19,38 +19,46 @@ struct Vec3 {
     float x = 0, y = 0, z = 0;
 };
 
-// All the knobs (nvcoop.ini [threat], see docs/threat.md). Scores are in "points of damage": a player who hurt the enemy for 30
-// within the fade time is worth 30, a player standing next to it is worth `nearBonus`.
+// All the knobs (nvcoop.ini [threat], docs/threat.md). The reasoning for every default is in docs/threat.md section "Where the numbers come from"; the short form:
+//   * Scores are in "points of damage". One scale anchors the rest: a second of ordinary fire is 20 points (two hits of ten).
+//   * Distances are in game units. A character is about 128 units tall (about 1.8 m), so a metre is about 70 units, and an exterior cell is 4096 units wide.
+//   * Times are multiples of the tick, because nothing here can change faster than the director looks.
 struct Config {
     bool enabled = true;
     bool tactics = false;                  // cover / side-step / flee-when-hurt combat styles (tactics.h); the module decides it from the rebalance mode
-    uint32_t tickMs = 500;                 // how often the director looks at the fights
-    uint32_t fadeMs = 8000;                // damage counts less with age and is gone after this
-    float damageWeight = 1.0f;
-    float nearBonus = 15;                  // a player right next to the enemy is worth this...
-    float nearRange = 1500;                // ...down to nothing at this distance (game units)
-    float seenBonus = 8;                   // the enemy can see the player
-    float engagedBonus = 6;                // the enemy is already fighting the player (stickiness)
-    float switchMargin = 1.25f;            // another player must beat the one it fights by this factor...
-    float switchAbsolute = 4;              // ...plus this many points
-    uint32_t minOnTargetMs = 3000;         // it stays on a target at least this long (unless the target is gone / downed)
-    float spreadPenalty = 14;              // minus this per OTHER enemy of the group already on that player
-    float groupRadius = 2500;              // "the group": enemies within this of the enemy
-    float reach = 5000;                    // players further than this are never picked
-    uint32_t sightMs = 1000;               // a sight check is good for this long
-    uint32_t maxSightChecks = 24;          // sight checks per tick (the engine call is the costly part)
-    uint32_t maxSwitches = 3;              // retargets per tick (each is two console lines)
-    uint32_t forgetMs = 20000;             // an enemy not seen in a fight for this long is forgotten
+    uint32_t tickMs = 500;                 // how often the director looks at the fights: a human retargets in a quarter to a half second, and each retarget costs the
+                                           // owner two console lines, so looking more often than this buys nothing
+    uint32_t fadeMs = 8000;                // damage counts less with age and is gone after this: two volleys of a typical four second burst-and-reload cycle
+    float damageWeight = 1.0f;             // the unit: a point of damage is a point of score
+    float nearBonus = 20;                  // a player right next to the enemy is worth a second of fire (it can melee or shotgun the enemy)...
+    float nearRange = 1500;                // ...down to nothing at this distance, about 21 m, the reach of pistols, shotguns and SMGs
+    float seenBonus = 10;                  // the enemy can see the player: half a second of fire (it can shoot them now, but has not hurt them yet)
+    float engagedBonus = 10;               // the enemy already fights the player: as much as sight, so seeing someone else never outweighs the fight it is in
+    float switchMargin = 1.3f;             // another player must beat the one it fights by this factor...
+    float switchAbsolute = 5;              // ...plus a quarter second of fire, so two near-zero scores cannot swap on rounding noise
+    uint32_t minOnTargetMs = 4000;         // it stays on a target at least this long (unless the target is gone / downed): turning to a new target costs the enemy
+                                           // about a second and a half of aiming, so a swap sooner than ~2.5 s of shooting later is a net loss
+    float spreadPenalty = 20;              // minus this per OTHER enemy of the group already on that player: a second of fire. One step of balancing (leaving a player
+                                           // with one more enemy than another) must beat the stickiness plus the hysteresis (10 + 5), or a group stops at 3-1-2 instead
+                                           // of 2-2-2; 20 gives a margin of 5 and the tests check that six enemies over three players end two each
+    float groupRadius = 2048;              // "the group": enemies within this of the enemy, half a cell, about 29 m: a squad that fights together
+    float reach = 4096;                    // players further than this are never picked: one cell, about 58 m, the farthest a fight is worth walking to
+    uint32_t sightMs = 1000;               // a sight check is good for this long (two ticks)
+    uint32_t maxSightChecks = 24;          // sight checks per tick (the engine call is the costly part): six enemies times a party of four
+    uint32_t maxSwitches = 3;              // retargets per tick (each is two console lines): six lines a tick at most
+    uint32_t forgetMs = 30000;             // an enemy not seen in a fight for this long is forgotten: longer than the quiet period, so a quiet enemy is not forgotten
     bool includeNamed = false;             // unique story NPCs: false = left to the story's rules
     // Damage the engine glue could not attribute (no hit feed): the health drop of an enemy is split between the players who were aiming at it.
     bool inferDamage = true;
-    uint32_t feedQuietMs = 1500;           // an enemy a hit feed reported on within this is not inferred about
-    float aimCone = 0.866f;                // cosine of the half angle a shooter's aim must be within (30 degrees)
-    float aimRange = 6000;
-    // The engine overruled a retarget (its own AI went back) this many times: leave that enemy to the engine for a while.
+    uint32_t feedQuietMs = 1500;           // an enemy a hit feed reported on within this (three ticks) is not inferred about
+    float aimCone = 0.866f;                // cosine of the half angle a shooter's aim must be within: 30 degrees, a little inside the half field of view of 37
+                                           // degrees at the game's default 75 degree field of view, where a player keeps a target they are shooting at
+    float aimRange = 6144;                 // shooters further than this are not counted: 1.5 cells, the farthest a rifle shot is taken in the loaded area
+    // The engine overruled a retarget (its own AI went back) this many times: leave that enemy to the engine for a while. One overrule can be a race, two a
+    // coincidence, three within ten seconds a pattern.
     uint32_t overrideLimit = 3;
-    uint32_t overrideWindowMs = 2500;
-    uint32_t quietMs = 20000;
+    uint32_t overrideWindowMs = 2500;      // "went back right after we moved it": within five ticks
+    uint32_t quietMs = 20000;              // long enough for the engine's own fight to run its course (a firefight is 10 to 20 s)
 };
 
 // One player as the director sees them this tick.

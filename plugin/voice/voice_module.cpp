@@ -4,9 +4,9 @@
 //
 //   * reads nvcoop.ini [voice] (voice_config.h); enabled=0 switches everything off
 //   * a co-op session (host or joined guest) builds a VoiceSession on the session's mux (channel kChannelVoice, unreliable)
-//   * the microphone (waveIn) feeds the session once per frame; the talk key is polled with GetAsyncKeyState while the game window
+//   * the microphone (WASAPI) feeds the session once per frame; the talk key is polled with GetAsyncKeyState while the game window
 //     has the focus
-//   * the speakers (waveOut) pull the mix on their own thread; every frame this module tells the receiver where each remote player
+//   * the speakers (WASAPI) pull the mix on their own thread; every frame this module tells the receiver where each remote player
 //     is (their puppet's place relative to the local player, from the avatar layer) and the receiver moves the volume and side there
 //   * bridge methods: voice.status voice.mute voice.volume voice.mic voice.key voice.tone (the last two let a bot talk with no
 //     microphone and no key press, voice.status shows what each voice sounds like, so a test needs no ears)

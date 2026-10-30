@@ -75,7 +75,7 @@ TEST(threat_director, a_target_is_kept_for_the_minimum_time_then_given_up_for_a_
     r.tick();                                                   // on the guest since now
     const uint64_t at = r.now - 500;
     r.d.noteHit(kE1, 0, 400, r.now);                            // the host hurts it terribly
-    while (r.now < at + 3000) {
+    while (r.now < at + r.cfg.minOnTargetMs) {
         r.tick();
         CHECK(r.w.retargets.size() == 1);                       // twin 1005 is in the model suite; the director has to carry the verdict through
     }
@@ -274,7 +274,7 @@ TEST(threat_director, a_fight_that_ended_is_forgotten_after_a_while) {
     r.w.enemy(kE1).combatTarget = 0;
     r.ticks(10);
     CHECK(r.d.tracked() == 1);                                  // five seconds: it may start again
-    r.ticks(40);
+    r.ticks(62);                                                // 36 s in all, past forgetMs (30 s)
     CHECK(r.d.tracked() == 0);                                  // twin 1029
 }
 

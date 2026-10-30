@@ -9,9 +9,9 @@
 //  * a base form's combat style: TESCreature::combatStyle (+0x140) and TESNPC +0x1D4 (xNVSE GameForms.h); the pointer is only used when the form it
 //    points at has the combat style form type, so a wrong offset costs the tactics, never a crash;
 //  * TESCombatStyle fields +0x18 coverSearchRadius, +0x1C takeCoverChance, +0x59 LRChance, +0xA8 csFlags (xNVSE GameForms.h).
-// Switches in nvcoop.ini [threat] (docs/threat.md): enabled=1 tick_ms=500 fade_ms=8000 near_bonus=15 near_range=1500 seen_bonus=8 engaged_bonus=6 switch_pct=125
-//   switch_abs=4 min_on_target_ms=3000 spread=14 group_radius=2500 reach=5000 max_switches=3 named=0 infer_damage=1 tactics=0 tactics_cover=75
-//   tactics_radius_pct=150 tactics_sidestep=75 tactics_flee=1.
+// Switches in nvcoop.ini [threat] (docs/threat.md): enabled tick_ms fade_ms near_bonus near_range seen_bonus engaged_bonus switch_pct switch_abs min_on_target_ms
+//   spread group_radius reach max_switches named infer_damage tactics tactics_cover tactics_radius_pct tactics_sidestep tactics_flee. Every default is the one in
+//   threat_types.h Config / tactics.h TacticsConfig (the values and the reasons for them are there); nothing is repeated in this file.
 #include <Windows.h>
 
 #include <cstdio>
@@ -43,6 +43,8 @@ constexpr uint32_t kEvalGetDetected = 0x0059D6E0;
 constexpr uint32_t kPlayerRef = 0x14;
 constexpr uint32_t kTeammateFlag = 0x18D;
 constexpr uint32_t kMaxLoaded = 400;
+
+static_assert(th::kCsFlagFleeBasedOnPersonalSurvival == TESCombatStyle::kFlag_FleeBasedOnPersonalSurvival, "tactics.h flag value must match xNVSE GameForms.h");
 
 uint64_t NowMs() { return static_cast<uint64_t>(GetTickCount64()); }
 
@@ -124,10 +126,10 @@ public:
         __try {
             TESCombatStyle* s = reinterpret_cast<TESCombatStyle*>(style);
             if (!s || s->typeID != kFormType_TESCombatStyle) return false;
-            out.coverRadius = s->coverSearchRadius;
-            out.takeCover = s->takeCoverChance;
-            out.sideStep = s->LRChance;
-            out.flags = s->csFlags;
+            out.coverSearchRadius = s->coverSearchRadius;
+            out.takeCoverChance = s->takeCoverChance;
+            out.lrChance = s->LRChance;
+            out.csFlags = s->csFlags;
             return true;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             return false;
@@ -137,10 +139,10 @@ public:
         __try {
             TESCombatStyle* s = reinterpret_cast<TESCombatStyle*>(style);
             if (!s || s->typeID != kFormType_TESCombatStyle) return false;
-            s->coverSearchRadius = v.coverRadius;
-            s->takeCoverChance = v.takeCover;
-            s->LRChance = v.sideStep;
-            s->csFlags = v.flags;
+            s->coverSearchRadius = v.coverSearchRadius;
+            s->takeCoverChance = v.takeCoverChance;
+            s->LRChance = v.lrChance;
+            s->csFlags = v.csFlags;
             return true;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             return false;
@@ -280,22 +282,22 @@ void ReadSettings() {
     c.nearRange = static_cast<float>((std::max)(1, geti("near_range", static_cast<int>(c.nearRange))));
     c.seenBonus = static_cast<float>(geti("seen_bonus", static_cast<int>(c.seenBonus)));
     c.engagedBonus = static_cast<float>(geti("engaged_bonus", static_cast<int>(c.engagedBonus)));
-    c.switchMargin = static_cast<float>((std::max)(100, geti("switch_pct", 125))) / 100.0f;
+    c.switchMargin = static_cast<float>((std::max)(100, geti("switch_pct", static_cast<int>(c.switchMargin * 100.0f + 0.5f)))) / 100.0f;
     c.switchAbsolute = static_cast<float>(geti("switch_abs", static_cast<int>(c.switchAbsolute)));
     c.minOnTargetMs = static_cast<uint32_t>((std::max)(0, geti("min_on_target_ms", static_cast<int>(c.minOnTargetMs))));
     c.spreadPenalty = static_cast<float>(geti("spread", static_cast<int>(c.spreadPenalty)));
     c.groupRadius = static_cast<float>(geti("group_radius", static_cast<int>(c.groupRadius)));
     c.reach = static_cast<float>(geti("reach", static_cast<int>(c.reach)));
     c.maxSwitches = static_cast<uint32_t>((std::max)(1, geti("max_switches", static_cast<int>(c.maxSwitches))));
-    c.includeNamed = geti("named", 0) != 0;
-    c.inferDamage = geti("infer_damage", 1) != 0;
+    c.includeNamed = geti("named", c.includeNamed ? 1 : 0) != 0;
+    c.inferDamage = geti("infer_damage", c.inferDamage ? 1 : 0) != 0;
     g_set.tacticsIni = geti("tactics", 0) != 0;
     th::TacticsConfig& t = g_set.tactics;
     t = th::TacticsConfig{};
     t.takeCoverAtLeast = static_cast<float>((std::min)(100, (std::max)(0, geti("tactics_cover", static_cast<int>(t.takeCoverAtLeast)))));
-    t.coverRadiusMult = static_cast<float>((std::max)(100, geti("tactics_radius_pct", 150))) / 100.0f;
+    t.coverRadiusMult = static_cast<float>((std::max)(100, geti("tactics_radius_pct", static_cast<int>(t.coverRadiusMult * 100.0f + 0.5f)))) / 100.0f;
     t.sideStepAtLeast = static_cast<uint8_t>((std::min)(100, (std::max)(0, geti("tactics_sidestep", t.sideStepAtLeast))));
-    t.fleeWhenHurt = geti("tactics_flee", 1) != 0;
+    t.fleeWhenHurt = geti("tactics_flee", t.fleeWhenHurt ? 1 : 0) != 0;
 }
 
 void Init() {

@@ -5,7 +5,10 @@ The window (launcher_gui.py) only shows these functions. Everything here is test
 What the launcher writes into Data\\NVSE\\Plugins\\nvcoop.ini (only these keys, every other line of the file is left alone):
 
   [coop]    enable=1  role=host|client  listen=0.0.0.0 (host)  host=<address> (join)  port=<n>  maxplayers=<2..4>  token=<n> (join)
-            transport=enet|steam                    steam (docs/steam.md): no listen / port, and host=<the host's Steam ID> when joining
+            transport=enet                          always written (an older release wrote transport=steam, which the plugin no longer accepts)
+            via=ip|steam                            only for the launcher: how the session was set up (the plugin ignores it). Over Steam
+                                                    (docs/steam.md) the game is a normal ENet session: the host listens on 127.0.0.1:port and
+                                                    a guest joins host=127.0.0.1 port=<the local port of fnvsteam.exe's tunnel>
             handshake=1 baseline=1 dialogue=1       session defaults, see SESSION_DEFAULTS
             name=<player name>                      the plugin ignores keys it does not know; no screen shows the name yet
   [combat]  xpmode=1|0        1 = kill XP is shared by the party, 0 = the player who lands the killing blow gets it (read by plugin/combat)
@@ -52,7 +55,8 @@ class Settings:
     mode: str = "host"                 # "host" | "join"
     connection: str = "ip"             # "ip" (UDP, the host's address and a forwarded port) | "steam" (Steam friends, nothing to forward)
     address: str = ""                  # join: the host's address, "1.2.3.4" or "1.2.3.4:27960" or a name; over Steam the host's Steam ID
-    port: int = DEFAULT_PORT           # host: the port to listen on
+    port: int = DEFAULT_PORT           # host: the port to listen on (over Steam: on this PC only, for the Steam helper)
+    tunnel_port: int = 0               # join over Steam: the local UDP port of the Steam helper's tunnel, where the game connects (set by the launcher)
     max_players: int = 4
     xp_share: bool = False
     slowmo: bool = False
@@ -237,24 +241,27 @@ def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> 
     coop.update(SESSION_DEFAULTS["coop"])
     if s.connection not in ("ip", "steam"):
         plan.errors.append("Pick IP address or Steam.")
-    if s.connection == "steam" or not fnv_mut.on("steam_transport_sticky"):
-        coop["transport"] = "steam" if s.connection == "steam" else "enet"   # always written: a Steam run must not stick to the next IP run
-    if s.mode == "host" and s.connection == "steam":
-        coop.update({"role": "host", "maxplayers": str(s.max_players)})   # no port to open, nothing to forward
-    elif s.mode == "host":
+    if not fnv_mut.on("steam_transport_sticky"):
+        coop["transport"] = "enet"   # always written: a Steam session is plain ENet too, and an old transport=steam would stop the plugin
+    coop["via"] = s.connection
+    if s.mode == "host":
         port, why = parse_port(s.port)
         if port is None:
             plan.errors.append(why)
         else:
             plan.port = port
-            coop.update({"role": "host", "listen": "0.0.0.0", "port": str(port), "maxplayers": str(s.max_players)})
+            # over Steam the game listens on this PC only: the Steam helper forwards the friends to it; nothing is opened to the internet
+            coop.update({"role": "host", "listen": "127.0.0.1" if s.connection == "steam" and not fnv_mut.on("steam_listen_all") else "0.0.0.0", "port": str(port),
+                         "maxplayers": str(s.max_players)})
     elif s.connection == "steam":
         sid, why = parse_steam_host(s.address)
         if sid is None:
             plan.errors.append(why)
+        elif not 1 <= s.tunnel_port <= 65535:
+            plan.errors.append("Steam is not connected to your host yet. Pick your host from the list of Steam friends who are hosting.")
         else:
-            plan.host = sid
-            coop.update({"role": "client", "host": sid, "token": str(s.token or new_token())})
+            plan.host, plan.port = "127.0.0.1", s.tunnel_port
+            coop.update({"role": "client", "host": "127.0.0.1", "port": str(s.tunnel_port), "token": str(s.token or new_token())})
     else:
         addr, why = parse_address(s.address, DEFAULT_PORT, resolver)
         if addr is None:
@@ -331,10 +338,10 @@ def read_settings_from_ini(game, base: Optional[Settings] = None) -> Settings:
     p, _ = parse_port(g("coop", "port") or "")
     if p:
         s.port = p
-    s.connection = "steam" if (g("coop", "transport") or "").strip().lower() == "steam" else "ip"
+    s.connection = "steam" if (g("coop", "via") or "").strip().lower() == "steam" else "ip"
     h = g("coop", "host")
-    if h and role in ("client", "guest") and h != "127.0.0.1":
-        s.address = h if (s.port == DEFAULT_PORT or s.connection == "steam") else f"{h}:{s.port}"
+    if h and role in ("client", "guest") and s.connection == "ip" and h != "127.0.0.1":
+        s.address = h if s.port == DEFAULT_PORT else f"{h}:{s.port}"
     s.xp_share = flag(g("combat", "xpmode"), s.xp_share)
     s.slowmo = flag(g("party", "slowmo"), s.slowmo)
     s.tether = flag(g("party", "tether"), s.tether)
@@ -418,7 +425,7 @@ def start_session(s: Settings, *, resolver: Optional[Callable[[str], str]] = Non
     if not plan.ok:
         r.messages += ["PROBLEM: " + e for e in plan.errors]
         return r
-    if s.mode == "host" and (s.connection == "ip" or fnv_mut.on("steam_host_port_check")):
+    if s.mode == "host":
         ok, why = port_free(plan.port)
         if not ok and not fnv_mut.on("skip_port_check"):
             r.messages.append("PROBLEM: " + why)
@@ -432,11 +439,11 @@ def start_session(s: Settings, *, resolver: Optional[Callable[[str], str]] = Non
         return r
     r.ok = True
     if s.mode == "host" and s.connection == "steam":
-        r.messages.append("Starting the game as host over Steam. When you are in the world, your Steam friends can join.")
+        r.messages.append("Starting the game as host over Steam. When you are in the world, your Steam friends can join. Keep the launcher open while you play.")
     elif s.mode == "host":
         r.messages.append(f"Starting the game as host on UDP port {plan.port}. When you are in the world, friends can join.")
     elif s.connection == "steam":
-        r.messages.append("Starting the game and joining your host over Steam.")
+        r.messages.append("Starting the game and joining your host over Steam. Keep the launcher open while you play.")
     else:
         r.messages.append(f"Starting the game and joining {plan.host}:{plan.port}.")
     return r

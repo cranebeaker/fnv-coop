@@ -2,11 +2,11 @@
 // and side of where each speaker is (placement.h), changed smoothly. Game-free. NOT thread safe: the caller locks (the audio
 // thread calls render(), the game thread calls the rest).
 #pragma once
-#include <deque>
 #include <map>
 #include <memory>
 
 #include "voice_jitter.h"
+#include "voice_mix.h"
 #include "voice_placement.h"
 #include "voice_codec.h"
 #include "voice_types.h"
@@ -46,8 +46,8 @@ private:
         explicit Speaker(JitterConfig j) : jitter(j) {}
         JitterBuffer jitter;
         std::unique_ptr<IVoiceDecoder> decoder;
-        std::deque<int16_t> pcm;      // decoded, not played yet
-        float gl = 0, gr = 0;         // the gains in use now, moved towards the target a sample at a time
+        SampleFifo pcm;               // decoded, not played yet
+        VoiceGain gain;               // the gains in use now, moved towards the target a sample at a time
         uint32_t quiet = 1u << 30;    // samples since the last decoded frame was taken for playing
     };
     Speaker* find(uint8_t who);
@@ -57,6 +57,8 @@ private:
     IVoiceCodecFactory& codecs_;
     JitterConfig jitterCfg_;
     std::map<uint8_t, Speaker> speakers_;
+    MixBus bus_;                   // scratch for render(), kept so the audio thread allocates nothing once warm
+    std::vector<int16_t> block_;   // one speaker's samples for the block being mixed
     Placement place_[kMaxSlots];   // by slot, kept when a speaker is forgotten
     bool muted_[kMaxSlots] = {};
     float master_ = 1.0f;

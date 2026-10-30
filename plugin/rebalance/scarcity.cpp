@@ -34,7 +34,8 @@ int32_t trimLoot(const LootSource& src, std::vector<LootStack>& stacks, const Pr
     for (LootStack& s : stacks) {
         float share = 1.0f;
         if (s.kind == ItemKind::Supply && !FNV_MUT(1470)) share = p.suppliesKept;   // MUTANT 1470: supplies are never thinned
-        else if (s.kind == ItemKind::Ammo && (src.corpse || FNV_MUT(1472))) share = p.bodyAmmoKept;   // MUTANT 1472: the ammo in boxes is thinned too
+        else if (s.kind == ItemKind::Ammo) share = p.bodyAmmoKept;
+        if (!src.corpse && !FNV_MUT(1472)) share = 1.0f;   // MUTANT 1472: the supplies and ammo in boxes are thinned too
         if (share >= 1.0f) continue;
         const int32_t kept = keptCount(src.net, s.id, s.count, share);
         removed += s.count - kept;

@@ -5,8 +5,8 @@
 namespace nvcoop::rebalance {
 
 const std::vector<EffectEntry>& effectTable() {
-    // FalloutNV.esm, load order slot 0, so the runtime ids are the file ids. Both are FalloutNV.esm forms (Stimpak, Super Stimpak); the port checks
-    // each form's own name before it touches it.
+    // FalloutNV.esm form ids (load order slot 0, so the runtime ids are the file ids) of the two ingestibles this module rewrites, read from the ESM's ALCH records:
+    // EDID Stimpak = 0x15169, EDID NVSuperStimpak = 0xCCEF2. The port still reads each form's own name before it touches it.
     static const std::vector<EffectEntry> t = {
         {0x00015169u, "Stimpak"},
         {0x000CCEF2u, "Super Stimpak"},

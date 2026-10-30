@@ -1,9 +1,15 @@
 """A pretend Steam for the launcher tests (not shipped): FakeSteam hands out Channels that behave like fnvsteam.exe, so the real lobby code
-runs over a "Steam" that is just a few Python objects. See fnv_steam.py."""
+runs over a "Steam" that is just a few Python objects. See fnv_steam.py and the protocol at the top of tools/steamlink/main.cpp.
+
+It keeps the rules the real helper keeps: only friends see a hosting friend, a lobby has a member limit, a host numbers its guests from 1 and a
+guest sees its host as peer 0, and a guest that joins gets a local tunnel port for its game. Only the lobby's datagrams are carried here; the
+game's UDP tunnel is tested against the real fnvsteam.exe in its mock mode (tools/launcher/run_tests.py)."""
 import queue
 from typing import Dict, List, Optional, Tuple
 
 from fnv_steam import Channel
+
+NOT_FOUND = "Your friend's lobby was not found. Is the host still hosting, and are you Steam friends?"
 
 
 class FakeSteam:
@@ -15,6 +21,7 @@ class FakeSteam:
         self.friend_pairs: set = set()
         self.cut: set = set()
         self.log: List[Tuple[str, dict]] = []
+        self.next_tunnel_port = 41000
 
     def befriend(self, a: str, b: str) -> None:
         self.friend_pairs.add(frozenset((a, b)))
@@ -31,8 +38,9 @@ class FakeSteam:
         def __init__(self, world: "FakeSteam", steam_id: str, name: str, error: str):
             self.w, self.id, self.name, self.error = world, steam_id, name, error
             self.q: "queue.Queue[Optional[dict]]" = queue.Queue()
-            self.hosting: Optional[dict] = None       # {"tag", "mode"}
+            self.hosting: Optional[dict] = None       # {"tag", "mode", "port", "max"}
             self.joined: Optional[str] = None         # host id (a guest)
+            self.tunnel_port = 0                      # guest: the port its game would connect to
             self.guests: Dict[int, str] = {}          # host: peer number -> guest id
             self.closed = False
             if error:
@@ -49,13 +57,33 @@ class FakeSteam:
                 rows = []
                 for p in self.w.players.values():
                     if p is not self and p.hosting is not None and not p.closed and self.w.are_friends(self.id, p.id):
-                        rows.append({"id": p.id, "name": p.name, "mode": p.hosting["mode"], "same": not tag or tag == p.hosting["tag"]})
+                        rows.append({"id": p.id, "name": p.name, "mode": p.hosting["mode"], "same": not tag or tag == p.hosting["tag"],
+                                     "lobby": "1097752" + p.id[-6:]})
                 self.q.put({"ev": "friends", "list": rows})
             elif c == "host":
-                self.hosting = {"tag": str(obj.get("tag", "")), "mode": str(obj.get("mode", ""))}
+                self._leave()
+                self.hosting = {"tag": str(obj.get("tag", "")), "mode": str(obj.get("mode", "")), "port": int(obj.get("port", 0)),
+                                "max": int(obj.get("max", 4))}
                 self.guests.clear()
                 self.joined = None
                 self.q.put({"ev": "hosting"})
+            elif c == "mode":
+                if self.hosting is not None:
+                    self.hosting["mode"] = str(obj.get("mode", ""))
+            elif c == "online":
+                rows = [{"id": p.id, "name": p.name} for p in self.w.players.values()
+                        if p is not self and not p.closed and self.w.are_friends(self.id, p.id)]
+                self.q.put({"ev": "online", "list": rows})
+            elif c == "invite":
+                to = str(obj.get("id", ""))
+                ev = {"ev": "invited", "id": to}
+                if self.hosting is None:
+                    ev["error"] = "Open the lobby first: HOST A GAME with the connection set to Steam."
+                elif not self.w.are_friends(self.id, to) or to not in self.w.players:
+                    ev["error"] = "Only Steam friends can be invited."
+                else:
+                    self.w.players[to].q.put({"ev": "join_request", "id": self.id, "connect": "invite", "lobby": "1097752" + self.id[-6:]})
+                self.q.put(ev)
             elif c == "join":
                 self._join(str(obj.get("id", "")))
             elif c == "send":
@@ -84,17 +112,21 @@ class FakeSteam:
         def _join(self, host_id: str) -> None:
             self._leave()
             host = self.w.players.get(host_id)
-            if host is None or host.hosting is None or host.closed:
-                self.q.put({"ev": "link", "error": "The host's game is not running (yet)."})
+            if host is None or host.hosting is None or host.closed or not self.w.are_friends(self.id, host_id):
+                self.q.put({"ev": "link", "error": NOT_FOUND})      # a stranger sees nothing of the lobby
                 return
-            if not self.w.are_friends(self.id, host_id):
-                return            # a stranger gets no answer at all
+            if len(host.guests) + 1 >= host.hosting["max"]:
+                self.q.put({"ev": "link", "error": "The party is full."})
+                return
             peer = 1
             while peer in host.guests:
                 peer += 1
             host.guests[peer] = self.id
             self.joined = host_id
+            self.w.next_tunnel_port += 1
+            self.tunnel_port = self.w.next_tunnel_port
             host.q.put({"ev": "peer", "peer": peer, "state": "up", "id": self.id})
+            self.q.put({"ev": "tunnel", "port": self.tunnel_port})
             self.q.put({"ev": "peer", "peer": 0, "state": "up", "id": host_id})
 
         def _send_to(self, peer: int, b64: str) -> None:
@@ -119,15 +151,18 @@ class FakeSteam:
                             del host.guests[n]
                             host.q.put({"ev": "peer", "peer": n, "state": "down", "id": self.id})
                 self.joined = None
+                self.tunnel_port = 0
             if self.hosting is not None:
                 for n, g in list(self.guests.items()):
                     guest = self.w.players.get(g)
                     if guest and guest.joined == self.id:
                         guest.joined = None
+                        guest.tunnel_port = 0
                         guest.q.put({"ev": "peer", "peer": 0, "state": "down", "id": self.id})
+                        guest.q.put({"ev": "link", "error": "The host left the party."})
                 self.guests.clear()
                 self.hosting = None
 
         def click_join_game(self, host_id: str) -> None:
             """The player clicked Join Game on a hosting friend while the helper runs."""
-            self.q.put({"ev": "join_request", "id": host_id, "connect": "+fnvcoop_join " + host_id})
+            self.q.put({"ev": "join_request", "id": host_id, "connect": "+connect_lobby 1097752" + host_id[-6:], "lobby": "1097752" + host_id[-6:]})

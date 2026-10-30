@@ -64,6 +64,7 @@ class App:
         self.steam_spawn = None                  # tests: makes a pretend Steam helper (fnv_steam_fake) instead of starting fnvsteam.exe
         self.steam_lock = threading.Lock()       # one helper start at a time (it can take seconds; the page's polling must not wait for it)
         self.steam_friends: List[dict] = []
+        self.steam_online: List[dict] = []         # friends online now (the invite list)
         self.steam_note = ""
         self.steam_tag = fnv_steam.protocol_tag()
         self.last_poll: Optional[float] = None
@@ -163,9 +164,12 @@ class App:
         req = link.join_requests[-1] if link and link.join_requests else None
         if req:
             known = next((f for f in self.steam_friends if f["id"] == req["id"]), None)
-            req = {"id": req["id"], "name": known["name"] if known else req["id"], "mode": known["mode"] if known else ""}
+            online = next((f for f in self.steam_online if f["id"] == req["id"]), None)
+            req = {"id": req["id"], "name": (known or online or {}).get("name") or req["id"], "mode": known["mode"] if known else "",
+                   "lobby": req.get("lobby", ""), "invite": req.get("connect") == "invite"}
         return {"available": self.steam_available(), "state": link.state if link else "off", "name": link.name if link else "",
-                "error": (link.error if link else "") or self.steam_note, "friends": list(self.steam_friends), "join_request": req}
+                "error": (link.error if link else "") or self.steam_note, "friends": list(self.steam_friends), "join_request": req,
+                "online": list(self.steam_online)}
 
     def steam_ready(self) -> Tuple[Optional[fnv_steam.SteamLink], str]:
         """The running helper, starting it if needed (outside self.lock: it can take seconds)."""
@@ -175,12 +179,10 @@ class App:
             if self.steam is not None:
                 self.steam.close()
                 self.steam = None
-            if not self.s.game_dir and self.steam_spawn is None:
-                return None, "Pick your Fallout: New Vegas folder first (Steam needs the game's own steam_api.dll)."
             if not self.steam_available():
                 self.steam_note = "Steam joining needs fnvsteam.exe next to the launcher. This copy does not have it; use an IP address instead."
                 return None, self.steam_note
-            spawn = self.steam_spawn or (lambda: fnv_steam.spawn_helper(self.s.game_dir))
+            spawn = self.steam_spawn or fnv_steam.spawn_helper
             link = fnv_steam.SteamLink(spawn)
             ok, why = link.start()
             if not ok:
@@ -190,10 +192,10 @@ class App:
             return link, ""
 
     def steam_close(self) -> None:
-        """Quit the helper (when the game is about to start: it talks to Steam itself)."""
+        """Quit the helper: the party is over. It stays alive from the lobby through the whole game, because it carries the game's traffic."""
         with self.steam_lock:
             link, self.steam = self.steam, None
-        if link is not None and not fnv_mut.on("steam_keep_helper"):
+        if link is not None:
             link.close()
 
     def steam_refresh(self) -> dict:
@@ -205,9 +207,36 @@ class App:
         out = []
         for r in rows:
             joinable = r.get("same", True) or fnv_mut.on("steam_ignore_release")
-            out.append({"id": r["id"], "name": r["name"], "mode": r["mode"], "joinable": joinable})
+            out.append({"id": r["id"], "name": r["name"], "mode": r["mode"], "joinable": joinable, "lobby": r.get("lobby", "")})
         with self.lock:
             self.steam_friends = out
+        return {"ok": True}
+
+    def steam_online_refresh(self) -> dict:
+        """Ask Steam which friends are online: the host's invite list."""
+        link, why = self.steam_ready()
+        if link is None:
+            return {"ok": False, "why": why}
+        rows = link.online()
+        with self.lock:
+            self.steam_online = rows
+        return {"ok": True}
+
+    def steam_invite(self, steam_id: str) -> dict:
+        """Host over Steam: send this friend Steam's invite into our lobby. If their launcher is open it asks them to join at once;
+        otherwise the invite waits in their Steam chat (they open the launcher first, then accept it)."""
+        with self.lock:
+            hosting = isinstance(self.lobby, fnv_lobby.HostLobby) and self.lobby.sock_factory is not None   # a lobby held over Steam
+        if not hosting:
+            return {"ok": False, "why": "Host a game with the connection set to STEAM first, then invite."}
+        link, why = self.steam_ready()
+        if link is None:
+            return {"ok": False, "why": why}
+        why = link.invite(steam_id)
+        if why:
+            return {"ok": False, "why": why}
+        who = next((f["name"] for f in self.steam_online if f["id"] == steam_id), steam_id)
+        self.log(f"INVITE SENT TO {who}. IF THEIR LAUNCHER IS OPEN THEY CAN JOIN NOW; IF NOT, THEY OPEN IT AND ACCEPT YOUR INVITE IN STEAM.")
         return {"ok": True}
 
     def autostart_for(self, mode: str, lobby) -> str:
@@ -227,9 +256,13 @@ class App:
         return "start"
 
     def _lobby_start(self, mode: str, lobby, address: str = "") -> None:
-        """A lobby decided to start the game: over Steam the helper goes first, so the game has Steam to itself."""
+        """A lobby decided to start the game. Over Steam the helper stays: the host's friends keep arriving through it, and every game's
+        traffic runs through it. The host's lobby changes to "in the world" so friends can join in progress."""
         if getattr(lobby, "sock_factory", None) is not None:
-            self.steam_close()
+            if fnv_mut.on("steam_close_at_start"):
+                self.steam_close()
+            elif mode == "host" and self.steam is not None:
+                self.steam.set_mode("game")
         self._launch(mode, address, lobby=lobby)
 
     def _launch(self, mode: str, address: str = "", lobby=None) -> bool:
@@ -238,6 +271,12 @@ class App:
         s.mode, s.address = mode, address or s.address
         if lobby is not None:
             s.connection = "ip" if getattr(lobby, "sock_factory", None) is None else "steam"   # how the lobby was held is how the game joins
+        if s.connection == "steam":
+            link = self.steam
+            if mode == "join":
+                s.tunnel_port = link.tunnel_port if link is not None else 0
+            elif link is not None and not link.hosting:
+                link.host(self.steam_tag, "game", s.port, s.max_players)    # no lobby was held: open the Steam side now, friends join in progress
         s.autostart = self.autostart_for(mode, lobby)
         s.party = len(lobby.view().players) if lobby else 0
         r = core.start_session(s, resolver=socket.gethostbyname)
@@ -274,7 +313,9 @@ class App:
             if not gl["ok"]:
                 return {"ok": False, "why": gl["line"]}
             if link is not None:
-                link.host(self.steam_tag, "lobby")      # friends see "joinable" in Steam and in their launcher's list
+                why = link.host(self.steam_tag, "lobby", self.s.port, self.s.max_players)   # friends see the lobby in Steam and in their launcher's list
+                if why:
+                    return {"ok": False, "why": why}
                 lob = fnv_lobby.HostLobby(name, 0, self.version, max_players=self.s.max_players, sock_factory=link.socket)
             else:
                 lob = fnv_lobby.HostLobby(name, self.s.port, self.version, max_players=self.s.max_players)
@@ -290,7 +331,7 @@ class App:
             if pick:
                 self.log(f"CONTINUING {pick.name.upper()} (CAMPAIGN {fnv_party_saves.short_campaign(pick.campaign).upper()}).")
             if link is not None:
-                self.log("LOBBY OPEN OVER STEAM. YOUR STEAM FRIENDS PICK YOU IN JOIN A FRIEND, OR CLICK JOIN GAME NEXT TO YOUR NAME. NO ADDRESS, NO PORT.")
+                self.log("LOBBY OPEN OVER STEAM. YOUR STEAM FRIENDS PICK YOU IN JOIN A FRIEND, OR CLICK JOIN GAME NEXT TO YOUR NAME. NO ADDRESS, NO PORT FORWARDING.")
             else:
                 ips = ", ".join(f"{ip}:{lob.port}" for ip in fnv_portcheck.local_ips()) or "this PC's address"
                 self.log(f"LOBBY OPEN ON UDP {lob.port}. HOME NETWORK: {ips}. INTERNET: YOUR PUBLIC ADDRESS, UDP {lob.port} FORWARDED.")
@@ -319,16 +360,17 @@ class App:
             self.lobby = lob
             return {"ok": True}
 
-    def join_steam(self, steam_id: str, in_game: bool = False) -> dict:
+    def join_steam(self, steam_id: str, in_game: bool = False, lobby: str = "") -> dict:
         """Join a Steam friend who is hosting: into their lobby, or straight into their game when they are already in the world (in_game)."""
         sid, why = core.parse_steam_host(steam_id)
         if sid is None:
             return {"ok": False, "why": why}
         known = next((f for f in self.steam_friends if f["id"] == sid), None)
+        lobby = lobby if lobby.isdigit() else (known["lobby"] if known else "")   # an invite names its lobby; a listed friend has one
         if known is not None and not known["joinable"]:
             return {"ok": False, "why": f"{known['name']} runs a different release of FNV Co-Op. Everyone needs the same one."}
         if in_game:
-            return self.join_direct(sid, steam=True)
+            return self.join_direct(sid, steam=True, lobby=lobby)
         link, why = self.steam_ready()
         if link is None:
             return {"ok": False, "why": why}
@@ -345,7 +387,9 @@ class App:
                 self.s.token = core.new_token()
             self.s.connection, self.s.address = "steam", sid
             self.remember()
-            link.join(sid)
+            why = link.join(sid, lobby)
+            if why:
+                return {"ok": False, "why": why}
             lob = fnv_lobby.GuestLobby(name, self.s.token, fnv_steam.PEER, 0, self.version, sock_factory=link.socket)
             lob.on_start = lambda: self._lobby_start("join", lob, sid)
             lob.open()
@@ -353,19 +397,26 @@ class App:
             link.join_requests.clear()
             return {"ok": True}
 
-    def join_direct(self, address: str, steam: bool = False) -> dict:
-        """The host is already in the world: no lobby, start the game and join it."""
-        if steam or self.s.connection == "steam":
+    def join_direct(self, address: str, steam: bool = False, lobby: str = "") -> dict:
+        """The host is already in the world: no lobby, start the game and join it. Over Steam the helper first goes into the host's Steam
+        lobby (that opens the tunnel), then the game connects to the tunnel."""
+        over_steam = steam or self.s.connection == "steam"
+        if over_steam:
             sid, why = core.parse_steam_host(address)
             if sid is None:
                 return {"ok": False, "why": why}
             address = sid
+            link, why = self.steam_ready()
+            if link is None:
+                return {"ok": False, "why": why}
+            why = link.join(sid, lobby)
+            if why:
+                return {"ok": False, "why": why}
         with self.lock:
             if self.lobby:
                 return {"ok": False, "why": "Leave the current lobby first."}
-            if steam:
+            if over_steam:
                 self.s.connection = "steam"
-            self.steam_close()
             ok = self._launch("join", address.strip())
             return {"ok": ok, "why": "" if ok else "See the messages below."}
 
@@ -469,7 +520,9 @@ def make_handler(app: App, key: str):
                 "/api/join": lambda: app.join(str(body.get("address", ""))),
                 "/api/join_direct": lambda: app.join_direct(str(body.get("address", ""))),
                 "/api/steam_refresh": app.steam_refresh,
-                "/api/join_steam": lambda: app.join_steam(str(body.get("id", "")), bool(body.get("in_game"))),
+                "/api/join_steam": lambda: app.join_steam(str(body.get("id", "")), bool(body.get("in_game")), str(body.get("lobby", ""))[:24]),
+                "/api/steam_online": app.steam_online_refresh,
+                "/api/steam_invite": lambda: app.steam_invite(str(body.get("id", ""))[:24]),
                 "/api/ready": lambda: app.ready(bool(body.get("ready"))),
                 "/api/start": app.start,
                 "/api/leave": app.leave,

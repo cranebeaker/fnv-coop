@@ -11,6 +11,9 @@ namespace nvcoop::threat {
 
 namespace {
 
+// A health drop smaller than this is rounding noise (health is a float that regenerates in small steps), not a blow.
+constexpr float kHealthNoise = 0.5f;
+
 float dist3(const Vec3& a, const Vec3& b) {
     const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     return std::sqrt(dx * dx + dy * dy + dz * dz);
@@ -61,7 +64,7 @@ void ThreatDirector::noteHit(RefId enemy, Slot slot, float damage, uint64_t now)
     if (!(damage > 0) && !FNV_MUT(1030)) return;                  // twin 1030: (a blow of nothing is kept as a record)
     auto it = book_.find(enemy);
     if (it == book_.end()) {
-        if (book_.size() >= 512) return;                          // (a hit feed on a huge battle must not grow the book without end)
+        if (book_.size() >= 512) return;                          // (a hit feed on a huge battle must not grow the book without end: more than the 400 actors the port lists)
         it = book_.emplace(enemy, Record{}).first;
         it->second.seenAt = now;
         it->second.since = now >= cfg_.minOnTargetMs ? now - cfg_.minOnTargetMs : 0;
@@ -137,7 +140,7 @@ void ThreatDirector::tick(uint64_t now) {
             // somebody changed its target since we looked: the engine going back on what we assigned, or its own AI picking another
             const bool overruled = r.assigned != kNoSlot && r.assigned == r.target && now - r.assignedAt <= cfg_.overrideWindowMs && !FNV_MUT(1025);   // twin 1025: the engine's own AI is never noticed fighting us
             if (overruled) {
-                if (r.overrides == 0 || now - r.overrideFrom > 10000) {
+                if (r.overrides == 0 || now - r.overrideFrom > 4 * cfg_.overrideWindowMs) {   // the overrules must come within four windows (ten seconds)
                     r.overrides = 0;
                     r.overrideFrom = now;
                 }
@@ -155,7 +158,7 @@ void ThreatDirector::tick(uint64_t now) {
         if (cfg_.inferDamage) {
             float h = 0;
             if (port_.health(e.ref, h)) {
-                if (r.lastHealth >= 0 && h < r.lastHealth - 0.5f && (now - r.fedAt >= cfg_.feedQuietMs || FNV_MUT(1026)))   // twin 1026: a blow the feed reported is counted again from the health drop
+                if (r.lastHealth >= 0 && h < r.lastHealth - kHealthNoise && (now - r.fedAt >= cfg_.feedQuietMs || FNV_MUT(1026)))   // twin 1026: a blow the feed reported is counted again from the health drop
                     infer(r, e, players, r.lastHealth - h, now);
                 r.lastHealth = h;
             }
@@ -235,7 +238,7 @@ void ThreatDirector::tick(uint64_t now) {
         const bool ok = port_.retarget(w.e->ref, pit->second->ref);
         if (!ok && !FNV_MUT(1024)) {                              // twin 1024: a retarget the engine refused is taken for done
             ++stats_.failed;
-            r.retryAt = now + 3000;
+            r.retryAt = now + 6 * cfg_.tickMs;   // a refused retarget: try again in six ticks (three seconds), after the engine's own reaction to the last order has played out
             continue;
         }
         ++switches;

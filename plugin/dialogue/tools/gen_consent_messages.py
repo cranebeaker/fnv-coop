@@ -28,7 +28,11 @@ DEFAULT_DATA = extract.DEFAULT_DATA      # found by install discovery, so region
 
 
 def find_data():
-    """The Data folder with the ESMs: the discovered install, else the test instances next to the repo (fnv-instances/<n>/Data)."""
+    """The Data folder with the ESMs: FNV_ESM_DIR (the same setting tools/questsweep/refcheck.py reads), the discovered install, else the
+    test instances next to the repo (fnv-instances/<n>/Data)."""
+    env = os.environ.get('FNV_ESM_DIR')
+    if env and os.path.exists(os.path.join(env, 'FalloutNV.esm')):
+        return env
     if os.path.exists(os.path.join(DEFAULT_DATA, 'FalloutNV.esm')):
         return DEFAULT_DATA
     inst = os.path.join(os.path.dirname(ROOT), 'fnv-instances')

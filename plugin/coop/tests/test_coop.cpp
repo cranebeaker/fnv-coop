@@ -13,7 +13,6 @@
 #include "baseline_file.h"
 #include "change_tracker.h"
 #include "udp_transport.h"
-#include "fnvcoop/steam_fake.h"
 #include "common/nvcoop_api.h"
 #include "party_state.h"
 #include "save_sidecars.h"
@@ -91,7 +90,7 @@ struct UiRig {
 static std::string consentPath() { return g_outDir + "/../../plugin/dialogue/data/consent_messages.txt"; }
 
 struct Node {
-    struct Opt { const char* transport = "enet"; bool baseline = false; int seed = 0; bool dialogue = false; bool blockClientLoad = false; bool rules = false; bool handshake = false; bool partyWarp = false; bool noPlayerRef = false; int bindGhosts = 0; /*1: bindPlayerRefs with ghosts for slots 1,2; 2: ghost for slot 1 only*/ uint64_t buildHash = 0; unsigned maxPlayers = 0; std::vector<std::string> plugins; bool ui = false; const char* rulesJson = nullptr; std::function<void(Runtime&)> preStart; std::string host; /*client: the host (a Steam ID with transport=steam)*/ };
+    struct Opt { const char* transport = "enet"; bool baseline = false; int seed = 0; bool dialogue = false; bool blockClientLoad = false; bool rules = false; bool handshake = false; bool partyWarp = false; bool noPlayerRef = false; int bindGhosts = 0; /*1: bindPlayerRefs with ghosts for slots 1,2; 2: ghost for slot 1 only*/ uint64_t buildHash = 0; unsigned maxPlayers = 0; std::vector<std::string> plugins; bool ui = false; const char* rulesJson = nullptr; std::function<void(Runtime&)> preStart; std::string host; /*client: the host address*/ };
     nvhooks::CaptureHub hub;
     FakeWorld world;
     std::unique_ptr<Runtime> rt;
@@ -206,88 +205,10 @@ static void testConfig() {
     CHECK(!ParseConfig("[coop]\nrole=banana\n", &f, &err));
     CHECK(!ParseConfig("[coop]\nport=99999\n", &f, &err));
     Config g;
-    CHECK(ParseConfig("[coop]\nenable=1\nrole=client\ntransport=steam\nhost=76561198000000001\n", &g, &err));
-    CHECK(g.transport == "steam" && g.host == "76561198000000001");
+    CHECK(ParseConfig("[coop]\nenable=1\nrole=client\ntransport=enet\nhost=127.0.0.1\nport=40123\n", &g, &err));
+    CHECK(g.transport == "enet" && g.host == "127.0.0.1" && g.port == 40123);   // a Steam session is this: ENet to the helper's local port
+    CHECK(!ParseConfig("[coop]\ntransport=steam\n", &g, &err));                // the game itself no longer talks to Steam (docs/steam.md)
     CHECK(!ParseConfig("[coop]\ntransport=carrier-pigeon\n", &g, &err));
-    {   // a guest on Steam needs the host's Steam ID, and a Steam that is there: either missing is a clear error, not a crash
-        Config h;
-        h.enable = true;
-        h.role = Role::Client;
-        h.transport = "steam";
-        h.host = "127.0.0.1";
-        Runtime bad(h, nullptr, nullptr, nowMs);
-        bad.setSteamProvider([](std::string*) -> fnvcoop::ISteamApi* { static fnvcoop::FakeSteamNet n; return &n.player(1); });
-        std::string why;
-        CHECK(!bad.start(&why) && why.find("Steam ID") != std::string::npos);
-        Runtime none(h, nullptr, nullptr, nowMs);
-        none.setSteamProvider([](std::string* w) -> fnvcoop::ISteamApi* { *w = "Steam is not running."; return nullptr; });
-        CHECK(!none.start(&why) && why.find("Steam is not running.") != std::string::npos);
-    }
-}
-
-// Co-op over Steam (docs/steam.md): the whole runtime on the Steam transport, against a pretend Steam. Convergence with a late joiner,
-// only friends join, the host is told to look joinable, and a guest whose link dropped comes back (the Disconnected -> reconnect wiring).
-// Twins: FNVCOOP_MUT=1270 (the link's events are not wired) and 1271 (the host never says it is joinable).
-static void testSteamRuntime() {
-    std::printf("steam transport (pretend Steam: convergence, friends only, joinable presence, reconnect)\n");
-    constexpr uint64_t kHostId = 76561198000000001ull, kA = 76561198000000002ull, kB = 76561198000000003ull, kLate = 76561198000000004ull,
-                       kStranger = 76561198000000009ull;
-    fnvcoop::FakeSteamNet net;
-    net.befriend(kHostId, kA);
-    net.befriend(kHostId, kB);
-    net.befriend(kHostId, kLate);
-    auto nodeFor = [&](Role role, uint64_t me, uint64_t token) {
-        Node::Opt o;
-        o.transport = "steam";
-        if (role == Role::Client) o.host = std::to_string(kHostId);
-        o.preStart = [&net, me](Runtime& rt) { rt.setSteamProvider([&net, me](std::string*) -> fnvcoop::ISteamApi* { return &net.player(me); }); };
-        return std::make_unique<Node>(role, 0, token, o);
-    };
-    auto host = nodeFor(Role::Host, kHostId, 0);
-    CHECK(host->rt->running() && host->rt->steam() != nullptr);
-    CHECK(net.player(kHostId).hosting);
-    CHECK(net.player(kHostId).tag == std::to_string(fnvcoop::kProtocolVersion));   // friends' launchers list this host by that tag
-    auto c1 = nodeFor(Role::Client, kA, 1001), c2 = nodeFor(Role::Client, kB, 1002);
-    CHECK(c1->rt->running() && c2->rt->running());
-    for (auto* n : {host.get(), c1.get(), c2.get()}) n->rt->steam()->setTimeouts(1500, 6000);
-    auto tick = [&] { net.nowMs = static_cast<uint32_t>(nowMs()); };
-    auto frameAll = [&] { tick(); host->rt->frame(); c1->rt->frame(); c2->rt->frame(); };
-    CHECK(pumpUntil(frameAll, [&] { return c1->rt->client()->joined() && c2->rt->client()->joined(); }));
-    CHECK(c1->rt->client()->slot() != c2->rt->client()->slot());
-
-    runVcg02(host->world, host->hub);
-    CHECK(pumpUntil(frameAll, [&] { return c1->rt->client()->applied() == 1 && c2->rt->client()->applied() == 1 && host->rt->host()->allSynced(); }));
-    CHECK(host->world.dump().dump() == c1->world.dump().dump());
-    CHECK(host->world.dump().dump() == c2->world.dump().dump());
-
-    // a late joiner replays everything; a stranger (not the host's Steam friend) never gets in
-    auto late = nodeFor(Role::Client, kLate, 1003);
-    auto stranger = nodeFor(Role::Client, kStranger, 1004);
-    for (auto* n : {late.get(), stranger.get()}) n->rt->steam()->setTimeouts(1500, 6000);
-    auto frameMore = [&] { frameAll(); late->rt->frame(); stranger->rt->frame(); };
-    CHECK(pumpUntil(frameMore, [&] { return late->rt->client()->applied() == 1 && late->rt->client()->joined(); }));
-    CHECK(host->world.dump().dump() == late->world.dump().dump());
-    CHECK(!stranger->rt->client()->joined());
-    CHECK(stranger->world.dump().dump() != host->world.dump().dump());
-
-    Value st;
-    std::string err;
-    CHECK(nvcoop::json::parse(host->rt->statusJson(), st, err));
-    CHECK(st.get("transport").get("kind").asString("") == "steam");
-    CHECK(st.get("transport").get("refused").asInt() >= 0);
-
-    // a guest's link drops (a stall past the timeout): the runtime re-creates it and the guest rejoins by itself
-    const uint64_t dropsBefore = c1->rt->counters().disconnects;
-    net.cutOff.insert(kA);
-    CHECK(pumpUntil(frameMore, [&] { return c1->rt->counters().disconnects > dropsBefore; }, 6000));
-    net.cutOff.clear();
-    CHECK(pumpUntil(frameMore, [&] { return c1->rt->counters().reconnects >= 1 && c1->rt->client()->joined() && host->rt->host()->allSynced(); }, 12000));
-    {
-        nvhooks::ScopedCapture sc(host->hub, fnvcoop::Cause{fnvcoop::CauseKind::DialogueResult, R("FalloutNV.esm", 0x15D4E9), 0});
-        host->world.hostMutate(host->hub, fnvcoop::SetObjective{R("FalloutNV.esm", 0x10A214), 3, 3});
-    }
-    CHECK(pumpUntil(frameMore, [&] { return c1->rt->client()->applied() == 2 && late->rt->client()->applied() == 2 && host->rt->host()->allSynced(); }));
-    CHECK(host->world.dump().dump() == c1->world.dump().dump());
 }
 
 static void testTransport() {
@@ -2276,12 +2197,6 @@ static void testStashOrderCarriesTheType() {
 
 int main(int argc, char** argv) {
     if (argc > 0) { g_outDir = argv[0]; size_t sl = g_outDir.find_last_of("\\/"); g_outDir = sl == std::string::npos ? "." : g_outDir.substr(0, sl); }
-    if (argc > 1 && std::string(argv[1]) == "--steam") {   // just the Steam transport (docs/steam.md)
-        testConfig();
-        testSteamRuntime();
-        std::printf("%d checks, %d failed\n", g_checks, g_failed);
-        return g_failed ? 1 : 0;
-    }
     const bool uiOnly = argc > 1 && std::string(argv[1]) == "--ui";   // mutation-twin runs: only the wiring tests (COOP_UI_MUTANT=n must break them)
     if (argc > 1 && std::string(argv[1]) == "--leave") {   // mutation-twin runs for leave()/join() (COOP_LEAVE_MUTANT=n must break them)
         testLeaveJoin();
@@ -2312,7 +2227,6 @@ int main(int argc, char** argv) {
         testObjVarSidecar();
         testFrameOrder();
         testRulesViewsAndLink();
-        testSteamRuntime();
         testGuestRewardLandsOnce(2, "enet");
         testGuestRewardLandsOnce(4, "enet");
         testGuestRewardRouting(2);
@@ -2331,7 +2245,6 @@ int main(int argc, char** argv) {
     testTransport();
     testConvergence("enet");
     testConvergence("udp");
-    testSteamRuntime();
     testActions();
     testDialogue();
     testBaseline();
