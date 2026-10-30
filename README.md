@@ -60,6 +60,9 @@ A step marked **Claimed** is being worked on right now. Want to take one? Open a
 
 **Alpha 0.1.6 is out as a pre-release for playtesting.** Expect bugs, and report them on the issue tracker or on Discord.
 
+0. Once per PC you need Fallout: New Vegas 1.4.0.525, [Python 3](https://www.python.org/downloads/) (tick "Add python.exe to PATH") and xNVSE 6.3.0 or newer:
+   download the newest `nvse_x_x_x.7z` from the [xNVSE releases](https://github.com/xNVSE/NVSE/releases), open it with [7-Zip](https://www.7-zip.org/), copy
+   everything inside into the game folder (the one with `FalloutNV.exe`), then start the game once with `nvse_loader.exe` to check it works.
 1. Download `FNV-CoOp-0.1.6-alpha.zip` from [Releases](../../releases) and unzip it.
 2. Run **Install.cmd**. It finds your New Vegas install and adds the plugin next to xNVSE.
 3. Run **Launcher.cmd** and type your courier name. The host picks HOST A GAME, friends pick JOIN A FRIEND (an address, which also joins a game already in progress, or a

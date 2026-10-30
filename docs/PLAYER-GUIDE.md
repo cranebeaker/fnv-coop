@@ -8,9 +8,11 @@ others join. This guide is for players, not developers, and uses plain words.
 Every player needs:
 
 * Windows and a copy of **Fallout: New Vegas** (Steam or GOG), updated to version **1.4.0.525** (the latest patch).
-* **xNVSE** 6.3.0 or newer, the script extender that most New Vegas mods use. Get it from its official page,
-  <https://github.com/xNVSE/NVSE/releases>, and unpack it into your game folder (the one that holds `FalloutNV.exe`).
-  Start the game once through `nvse_loader.exe` to make sure it works.
+* **xNVSE** 6.3.0 or newer, the script extender that most New Vegas mods use. To install it:
+  1. Open <https://github.com/xNVSE/NVSE/releases> and download the newest `nvse_x_x_x.7z` under Assets.
+  2. Open it with [7-Zip](https://www.7-zip.org/) (or another unpacker that reads .7z).
+  3. Copy everything inside it into your game folder (the one that holds `FalloutNV.exe`). Say yes if Windows asks to merge.
+  4. Start the game once with `nvse_loader.exe` instead of the normal shortcut. If the main menu opens, it works.
 * **Python 3** with tkinter, for the installer and the launcher. The installer from <https://www.python.org/downloads/>
   includes everything; tick "Add python.exe to PATH" in it.
 * The **same release of FNV Co-Op as everyone else in your group.** The game checks this when you join and tells you
