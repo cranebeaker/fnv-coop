@@ -41,6 +41,9 @@ public:
         int group = -1;                      // running group id (-1 none)
         int groupState = 1;                  // its play state as the engine reports it (1 = animated, 0 = a finished leftover in the slot)
         int groupPlayMs = -1;                // how long it has been playing (-1 = the backend cannot tell)
+        // The local player's first-person AnimData (PlayerCharacter+0x690): a separate set that holds what he plays in first person.
+        bool fpSet = false;                  // the set exists (reads as valid, with nothing in it until fpGroup is set)
+        int fpGroup = -1, fpSlot = 1, fpState = 1, fpPlayMs = -1;
         std::map<FormId, int> inv;
         std::set<FormId> worn;
         std::map<FormId, uint8_t> mods;      // weapon form -> ExtraWeaponModFlags
@@ -275,6 +278,15 @@ public:
             out.playMs[f->groupSlot] = f->groupPlayMs;
             out.nGroups = 1;
         }
+        if (f->fpSet || f->fpGroup >= 0) {
+            out.alt[0].valid = true;
+            if (f->fpGroup >= 0) {
+                out.alt[0].groups[f->fpSlot] = f->fpGroup;
+                out.alt[0].state[f->fpSlot] = f->fpState;
+                out.alt[0].playMs[f->fpSlot] = f->fpPlayMs;
+                out.alt[0].nGroups = 1;
+            }
+        }
         out.aiming = f->aiming;
         out.weaponOut = WeaponOut(*f);
         out.haveMover = f->haveMover;
@@ -299,9 +311,65 @@ public:
         if (descendingEquipped) std::reverse(out.begin(), out.end());
         return true;
     }
+    // ---- look copies (CloneNpcBase / WriteNpcLook): the model of TESNPC::CopyFrom (the copy starts as the template's look) and of the writer ----------------
+    bool cloneWorks = false;                // CloneNpcBase makes a copy (off: it returns 0, as an engine without the pins does)
+    int cloneRefusals = 0;                  // the next N CloneNpcBase calls return 0 even when cloneWorks
+    bool faceArraysOwned = true;            // the copy owns its FaceGen arrays (CopyFrom allocated them); off: they are shared with the template and never written
+    bool headPartsKnown = true;             // the head part forms of a look are known on this machine
+    unsigned clones = 0;
+    std::map<FormId, FormId> copyOf;        // copy -> template
+    std::map<FormId, Appearance> copyLook;  // the look a copy has now
+    bool CanCloneNpcBase() override { return cloneWorks; }
+    FormId CloneNpcBase(FormId base) override {
+        if (!cloneWorks || !knownBases.count(base)) return 0;
+        if (cloneRefusals > 0) {
+            --cloneRefusals;
+            return 0;
+        }
+        const FormId id = 0xFF100000u + static_cast<FormId>(++clones);
+        copyOf[id] = base;
+        knownBases.insert(id);
+        auto it = baseAppearance.find(base);
+        copyLook[id] = it == baseAppearance.end() ? Appearance{} : it->second;   // CopyFrom: the copy begins as the template
+        return id;
+    }
+    bool WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, bool* faceWritten) override {
+        if (faceWritten) *faceWritten = false;
+        auto it = copyLook.find(base);
+        if (it == copyLook.end() || base == tmpl) return false;   // never the template itself
+        Appearance& c = it->second;
+        c.female = a.female;
+        if (a.race) c.race = a.race;
+        if (a.hair) c.hair = a.hair;
+        if (a.eyes) c.eyes = a.eyes;
+        if (a.hairColor) c.hairColor = a.hairColor;
+        if (a.height) c.height = a.height;
+        if (a.weight) c.weight = a.weight;
+        bool face = false;
+        if (!a.faceCoeffs.empty() && faceArraysOwned) {
+            c.faceCoeffs = a.faceCoeffs;
+            face = true;
+        }
+        if (faceWritten) *faceWritten = face;
+        bool parts = false;
+        if (!a.headParts.empty() && headPartsKnown) {
+            c.headParts = a.headParts;
+            parts = true;
+        }
+        lookNote_ = std::string("face ") + (face ? "written" : "not written") + ", head parts " + (parts ? "written" : "not written");
+        return true;
+    }
+    std::string LastLookNote() override { return lookNote_; }
+    std::string lookNote_;
+
     bool ReadAppearance(RefId ref, Appearance& out) override {
         FRef* f = Get(ref);
         if (!f || !f->exists) return false;
+        auto cp = copyLook.find(f->base);
+        if (cp != copyLook.end()) {
+            out = cp->second;
+            return true;
+        }
         auto it = baseAppearance.find(f->base);
         if (it == baseAppearance.end()) return false;
         out = it->second;

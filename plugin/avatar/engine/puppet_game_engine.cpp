@@ -360,26 +360,40 @@ bool GamePuppetEngine::MakeNonCombatant(RefId ref) {
 }
 
 FormId GamePuppetEngine::LookBase(Slot slot, FormId templateBase, const Appearance& a) {
-    if (!looksByBase_ || !templateBase) return templateBase;
+    if (!LooksByBase() || !templateBase) return templateBase;
+    if (!a.known() && !FNV_MUT(961)) {   // MUTANT 961: the bare Appearance{} of a player whose look has not arrived is written into a copy (sex forced to male, nothing else)
+        lookNotes_[slot] = "template, the look of this player is not known yet";
+        return templateBase;
+    }
     // A fresh copy for every spawn: the game keeps the head it built on the NPC base (TESNPC +0x1C4 / +0x1C8, BSFaceGenNiNode), so a copy
     // rewritten for a second look could hand the new puppet the old head. A copy is one NPC record (0x20C bytes).
     LookCopy& c = lookCopies_[slot];
     const FormId copy = be_.CloneNpcBase(templateBase);
     if (!copy) {
         ++st_.lookFailures;
-        looksByBase_ = false;   // never again this session: every puppet is the template, as before
+        // One refusal can be a moment (the data handler busy); three in a row mean the game does not do it: every puppet is the template, as before.
+        // The first version gave up for the whole session after one refusal and every puppet then wore the LOCAL player's look.
+        ++cloneFailStreak_;
+        if (cloneFailStreak_ >= (FNV_MUT(962) ? 1u : 3u)) looksByBase_ = false;
+        lookNotes_[slot] = std::string("template, the game made no copy of the base (refusal ") + std::to_string(cloneFailStreak_) +
+                           (looksByBase_ ? ", will try again" : ", given up for this session") + ")";
         return templateBase;
     }
+    cloneFailStreak_ = 0;
     c = LookCopy{copy, templateBase, be_.WorldEpoch()};
     opt_.taggedBases.push_back(copy);   // a ref made from it is one of ours (Ours / FindTaggedPuppets)
     ++st_.lookCopies;
     bool face = false;
     if (!be_.WriteNpcLook(c.copy, templateBase, a, &face)) {
         ++st_.lookFailures;
+        lookNotes_[slot] = "template, the look could not be written into the copy";
         return templateBase;
     }
     ++st_.lookWrites;
     if (face) ++st_.lookFaces;
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "look copy %08X of %08X, ", static_cast<unsigned>(copy), static_cast<unsigned>(templateBase));
+    lookNotes_[slot] = std::string(buf) + be_.LastLookNote();
     return c.copy;
 }
 

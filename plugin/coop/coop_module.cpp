@@ -6,6 +6,7 @@
 // Starts lazily from onFrame once L5's hooks are initialised (nvhooks::hub() != null), so the module order of the
 // DeferredInit message does not matter. All of it runs on the game main thread.
 #include <Windows.h>
+#include <intrin.h>   // _ReturnAddress: the load guard tells the mod's own console loads from the menus' (load_guard.h)
 
 #include <algorithm>
 #include <cctype>
@@ -29,6 +30,8 @@
 #include "reload/reload_state.h"
 #include "baseline_file.h"
 #include "coop_runtime.h"
+#include "load_guard.h"
+#include "chargen_flow.h"
 #ifdef NVCOOP_WITH_FLIGHT
 #include "flight/flight_service.h"
 #endif
@@ -45,6 +48,7 @@
 #include "stash_order.h"
 #include "save_sidecars.h"
 #include "objvar_sidecar.h"
+#include "intro_watch.h"        // the opening scene's log lines and its "Doc is waiting for you" notice (game-free, tested)
 #include "party_save_glue.h"   // party saves: every host save is a save of every guest too (docs/party-save.md)
 #ifdef NVCOOP_WITH_MARKERS
 #include "markers/mk_glue.h"   // friend markers and the revive of a downed friend (docs/markers.md, docs/revive.md)
@@ -352,16 +356,10 @@ void IntroWakeUp() {
 // Barrier stage: GuestBarrierPasses does not pass it for this guest before the last menu is closed, so nobody leaves without a character.
 struct GuestChargen {
     bool running = false, done = false;
-    int step = 0;
-    uint64_t nextAt = 0, issuedAt = 0;
-    std::set<int> before;   // menus open when the step's line ran: the one that appears after it is the step's own menu
-    int menu = 0;           // that menu's id (0 = not seen yet)
-    int closedFrames = 0;
-    int blockedBy = 0;      // another menu the next step waits for (logged once)
+    ChargenFlow flow;   // chargen_flow.h: which step is next, which menu is the step's own, when a line is tried again or the step is skipped
 };
 GuestChargen g_chargen;
 constexpr uint64_t kChargenAfterWakeMs = 4000;   // the wake-up fade first
-constexpr uint64_t kChargenOpenWaitMs = 3000;    // a menu that never opens (a line the game refused) is skipped
 // Lines that run first (VCG04's own resets), then the line that opens the step's menu. SPECIAL and tag skills come from Doc's machine, not the
 // Vit-o-Matic: its menu (ShowLoveTesterMenuParams, love_tester_menu.xml) is drawn for the machine in front of the player and a guest saw only the
 // blurred room (2026-10-29); SetSPECIALPoints opens the plain SPECIAL screen (char_gen_menu.xml), 40 points as in Doc's scene, and the tag skills
@@ -384,6 +382,8 @@ constexpr ChargenStep kChargenSteps[] = {
     {"traits", "ShowTraitMenu", nullptr, false},
 };
 constexpr uint32_t kOwnPlayerRef = 0x14;   // the calling reference of this machine's own player
+// SPECIAL and tag skills open from a script command that the game runs in a script's GameMode block (which does not run while a menu is open): they wait for the pause menu too.
+const std::vector<ChargenStepRule> kChargenRules = {{"name", false}, {"face", false}, {"SPECIAL", true}, {"tag skills", true}, {"traits", false}};
 
 // The open menus by id. MenuMode(id) 0x702450 (plugin/vats/vats_addrs.h kMenuModeOf), the engine function the console's `MenuMode <id>` runs:
 // true for every open menu with that id, not only the top one (the escape menu 1013 and the menu under it both answer 1).
@@ -428,36 +428,37 @@ void ConfigureIdentity() {
 void StartGuestChargen() {
     g_chargen = GuestChargen{};
     g_chargen.running = true;
-    g_chargen.nextAt = NowMs() + kChargenAfterWakeMs;
+    g_chargen.flow = ChargenFlow(kChargenRules);
+    g_chargen.flow.start(NowMs() + kChargenAfterWakeMs);
     nvcoop::Log("coop: chargen for this guest starts in %llu ms (name, face, SPECIAL, tag skills, traits)", (unsigned long long)kChargenAfterWakeMs);
 }
 
+// The race / face menu (RaceSexMenu, 1036) just closed on this machine, in Doc's scene (the host) or in this guest's own chargen: the look is final, so the avatar
+// layer reads it and sends it now instead of at the next poll.
+void LookEditFrame() {
+#ifdef NVCOOP_WITH_LIVE
+    static bool wasOpen = false;
+    constexpr int kRaceSexMenu = 1036;
+    static const bool pinOk = std::memcmp(reinterpret_cast<const void*>(kMenuModeOf), kMenuModeOfPrologue, sizeof kMenuModeOfPrologue) == 0;
+    if (!pinOk) return;
+    const bool open = reinterpret_cast<bool(__cdecl*)(int)>(static_cast<uintptr_t>(kMenuModeOf))(kRaceSexMenu);
+    if (wasOpen && !open) {
+        nvcoop::Log("coop: the face menu closed: the look is read and sent now");
+        nvcoop::livewire::glueLookEdited();
+    }
+    wasOpen = open;
+#endif
+}
+
 void GuestChargenFrame() {
+    LookEditFrame();
     if (!g_chargen.running || g_chargen.done) return;
     const uint64_t now = NowMs();
-    if (now < g_chargen.nextAt) return;
-    constexpr int kSteps = static_cast<int>(sizeof kChargenSteps / sizeof kChargenSteps[0]);
     const std::set<int> open = OpenMenus();
-    if (g_chargen.issuedAt) {   // the step's menu is up (or about to be): wait for that menu to close
-        if (!g_chargen.menu) {
-            for (int id : open)
-                if (id != kEscapeMenu && !g_chargen.before.count(id)) { g_chargen.menu = id; break; }
-            if (g_chargen.menu) nvcoop::Log("coop: chargen %s: menu %d is open", kChargenSteps[g_chargen.step].what, g_chargen.menu);
-            else if (now - g_chargen.issuedAt < kChargenOpenWaitMs) return;
-        }
-        if (g_chargen.menu && open.count(g_chargen.menu)) { g_chargen.closedFrames = 0; return; }
-        if (g_chargen.menu && ++g_chargen.closedFrames < 20) return;   // closed for a moment, not between two of its own screens
-        nvcoop::Log("coop: chargen %s %s", kChargenSteps[g_chargen.step].what, g_chargen.menu ? "done" : "never opened, skipped");
-        g_chargen.issuedAt = 0;
-        ++g_chargen.step;
-    }
-    for (int id : open)
-        if (id != kEscapeMenu) {   // something else is open (a message box, Doc's talk): our next menu waits. The escape menu does not count.
-            if (g_chargen.blockedBy != id) { g_chargen.blockedBy = id; nvcoop::Log("coop: chargen waits for menu %d to close", id); }
-            return;
-        }
-    g_chargen.blockedBy = 0;
-    if (g_chargen.step >= kSteps) {
+    const ChargenFlow::Out out = g_chargen.flow.frame(now, open);
+    for (const std::string& l : g_chargen.flow.takeLog()) nvcoop::Log("coop: %s", l.c_str());
+    if (out.what == ChargenFlow::Do::Nothing) return;
+    if (out.what == ChargenFlow::Do::Finish) {
         g_chargen.done = true;
         {   // the host's dazed white flashes that reached this guest before its menus started (VCG01PlayerStrainISFX, VCG01PlayerStrain3ISFX)
             nvhooks::ApplierExecScope exec;
@@ -471,20 +472,20 @@ void GuestChargenFrame() {
         const bool freed = nvhooks::enableAllPlayerControls();
         IntroNotice("Character ready. You can look around while the host finishes with Doc.");
         nvcoop::Log("coop: chargen finished for this guest (controls %s)", freed ? "free" : "NOT freed");
+#ifdef NVCOOP_WITH_LIVE
+        nvcoop::livewire::glueLookEdited();   // the character is made: its look goes to the party now
+#endif
         return;
     }
     nvhooks::ApplierExecScope exec;
     nvhooks::LocalPlayerScope own;   // the guest's own character: not dropped by its game's script suppression, not captured on a host
-    const ChargenStep& st = kChargenSteps[g_chargen.step];
+    const ChargenStep& st = kChargenSteps[out.step];
     auto run = [&](const char* line) { return st.onPlayer ? nvhooks::execConsoleLineOn(line, kOwnPlayerRef) : nvhooks::execConsoleLine(line); };
     if (const char* const* p = st.first)
         for (; *p; ++p) run(*p);
     const bool ok = run(st.line);
-    nvcoop::Log("coop: chargen %s: '%s' %s", kChargenSteps[g_chargen.step].what, kChargenSteps[g_chargen.step].line, ok ? "issued" : "FAILED");
-    g_chargen.issuedAt = now;
-    g_chargen.before = open;
-    g_chargen.menu = 0;
-    g_chargen.closedFrames = 0;
+    nvcoop::Log("coop: chargen %s: '%s' %s%s", st.what, st.line, ok ? "issued" : "FAILED", out.attempt > 1 ? (" (attempt " + std::to_string(out.attempt) + ")").c_str() : "");
+    g_chargen.flow.issued(now, open);
 }
 
 // A guest that joined a campaign already under way (the host Continued a save; this guest had none of its own and loaded the start save): the host says
@@ -516,8 +517,46 @@ void JoinHostWarp(uint64_t now) {
 #endif
 }
 
+// The opening scene's watcher (intro_watch.h): on every machine, from the moment the party's intro has begun until the player may walk (VCG01 stage 55). It logs
+// each stage change, the wake-up steps and a scene that waits (and for what), and tells a window that is not in front that a menu waits for its player.
+introwatch::IntroWatch g_introWatch;
+uint64_t g_introWatchAt = 0;
+bool g_introWatchOn = false, g_introWatchDone = false;
+const fnvcoop::FormRef& Vcg01Ref() {
+    static const fnvcoop::FormRef r = [] { fnvcoop::FormRef f; nvhooks::strToRef("falloutnv.esm:104C1C", &f); return f; }();
+    return r;
+}
+bool GameWindowInFront() {
+    HWND fg = GetForegroundWindow();
+    DWORD pid = 0;
+    if (!fg) return false;
+    GetWindowThreadProcessId(fg, &pid);
+    return pid == GetCurrentProcessId();
+}
+void IntroWatchFrame(uint64_t now) {
+    if (g_introWatchDone || now < g_introWatchAt) return;
+    g_introWatchAt = now + 500;
+    if (!g_introWatchOn) {
+        if (!g_intro.armed || !g_intro.started) return;
+        g_introWatchOn = true;
+        g_introWatch = introwatch::IntroWatch();
+    }
+    introwatch::Sample s;
+    s.nowMs = now;
+    s.vcg00 = nvhooks::localQuestStage(Vcg00());
+    s.vcg01 = nvhooks::localQuestStage(Vcg01Ref());
+    s.foreground = GameWindowInFront();
+    for (int id : OpenMenus())
+        if (id != kEscapeMenu) { s.menu = id; break; }
+    const introwatch::Out o = g_introWatch.step(s);
+    for (const std::string& l : o.log) nvcoop::Log("%s", l.c_str());
+    if (!o.notice.empty()) IntroNotice(o.notice);
+    if (s.vcg01 >= 56) g_introWatchDone = true;
+}
+
 void IntroFrame() {
     const uint64_t now = NowMs();
+    IntroWatchFrame(now);
     partyglue::frame(g_rt.get());   // party saves: the host's and the guest's machine tick (no-op without a session)
     if (g_noIntro.on && !g_noIntro.done && g_chargen.done && now >= g_noIntro.nextAt) JoinHostWarp(now);
     if (g_intro.check) {
@@ -698,6 +737,20 @@ std::shared_ptr<void> OpenFactsScope(const fnvcoop_dlg::ResultRequest& rq) {
     return h;
 }
 
+// Guest: the host's campaign is noted in nvcoop.ini ([coop] lastcampaign) so the launcher can find this player's own save of it the next time it joins the
+// same host in progress (nothing tells a guest the campaign before its game is loaded). Only the 16 hex digits of a real id are written, and only on a change.
+void NoteHostCampaign(const std::string& id) {
+    static std::string noted;
+    if (id.size() != 16 || id == noted || id == "0000000000000000") return;
+    for (char c : id)
+        if (!std::isxdigit(static_cast<unsigned char>(c))) return;
+    noted = id;
+    std::string low = id;
+    for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const BOOL ok = WritePrivateProfileStringA("coop", "lastcampaign", low.c_str(), IniPath().c_str());
+    nvcoop::Log("coop: the host's campaign %s is noted in nvcoop.ini (lastcampaign) %s", low.c_str(), ok ? "" : "FAILED");
+}
+
 // Guest: an order the host sent for THIS machine's player (kAppOrderChannel).
 std::string ApplyOrder(const std::string& json) {
     nvcoop::json::Value v;
@@ -776,7 +829,10 @@ std::string ApplyOrder(const std::string& json) {
         nvcoop::Log("coop: host says the campaign is under way: no opening movie, character creation, then the join warp");
         return "Ok";
     }
-    if (partyglue::isGuestOp(op)) return partyglue::applyOrder(g_rt.get(), v);   // party saves: campaign, partySave, partySaveWait
+    if (partyglue::isGuestOp(op)) {   // party saves: campaign, partySave, partySaveWait
+        if (op == "campaign") NoteHostCampaign(v.get("id").asString(""));
+        return partyglue::applyOrder(g_rt.get(), v);
+    }
 #ifdef NVCOOP_WITH_MARKERS
     if (nvcoop::markers::isGuestOp(op)) return nvcoop::markers::applyGuestOrder(json);   // the host's party table: friend markers and the revive state
 #endif
@@ -794,8 +850,10 @@ std::string HandleOrder(fnvcoop::PlayerId from, const std::string& json) {
 #endif
     if (v.get("op").asString("") == "introReady") {   // a guest loaded the start save and joined: one more player on the black screen
         // This host is not at the start save: it Continued a campaign (or the intro is long over). Nothing to wait for, no movie to play: the guest skips it.
-        const bool underway = g_gameLoaded && !g_intro.check && (!g_intro.armed || (g_intro.started && nvhooks::localQuestStage(Vcg00()) >= 100));
-        if (underway && g_rt) {
+        // The host's own movie blocks its main loop, so a request that is handled after g_intro.started finds the movie over: a late guest (the party was smaller than the
+        // lobby, or the guest joined in progress) skips it and wakes at Doc's with the host's world instead of watching it alone after the host has moved on.
+        const bool underway = g_gameLoaded && !g_intro.check && (!g_intro.armed || g_intro.started);
+        if (underway && g_rt && !(g_intro.started && g_intro.ready.count(from))) {   // (a guest the host already counted for the movie gets the movie order again below)
             g_rt->sendOrder(from, "{\"op\":\"noIntro\"}");
             nvcoop::Log("coop: guest slot %d asks for the intro, the campaign is under way: no intro", (int)from);
             return "Ok";
@@ -1445,8 +1503,69 @@ bool MInject(const std::string& params, std::string& out) {
     return true;
 }
 
+// ---- only the host loads saves (load_guard.h) ----------------------------------------------------------------------------------------
+struct GuardMemory : nvhooks::MemoryOps {
+    bool read(nvhooks::Addr a, void* out, size_t n) override {
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(a), out, n, &got) && got == n;
+    }
+    bool write(nvhooks::Addr a, const void* in, size_t n) override {
+        DWORD old = 0;
+        void* p = reinterpret_cast<void*>(a);
+        if (!VirtualProtect(p, n, PAGE_EXECUTE_READWRITE, &old)) return false;
+        std::memcpy(p, in, n);
+        FlushInstructionCache(GetCurrentProcess(), p, n);
+        DWORD tmp;
+        VirtualProtect(p, n, old, &tmp);
+        return true;
+    }
+    nvhooks::Addr allocExec(size_t n) override {
+        return reinterpret_cast<nvhooks::Addr>(VirtualAlloc(nullptr, n, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    }
+    void freeExec(nvhooks::Addr a, size_t) override { VirtualFree(reinterpret_cast<void*>(a), 0, MEM_RELEASE); }
+};
+GuardMemory g_guardMem;
+std::unique_ptr<nvhooks::HookRegistry> g_guardReg;
+
+// BGSSaveLoadGame load (0x850760): thiscall(mgr, name, int, bool, bool), ret 0x10. 55 8B EC | 81 EC 2C 02 00 00 are whole instructions (9 stolen).
+const nvhooks::HookSpec kLoadSpec = {"CoopGuestLoadGuard", 0x850760u,
+    {0x55, 0x8b, 0xec, 0x81, 0xec, 0x2c, 0x02, 0x00, 0x00, 0xa1, 0xbc, 0x16, 0x1c, 0x01, 0x33, 0xc5}, 16, 9, 0x10};
+using LoadFn = bool(__thiscall*)(void*, const char*, int, bool, bool);
+LoadFn o_Load = nullptr;
+uint64_t g_lastLoadNoticeMs = 0;
+
+bool __fastcall h_Load(void* mgr, void* /*edx*/, const char* name, int a, bool b, bool c) {
+    const uint32_t ret = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(_ReturnAddress()));
+    fnvcoop::ClientSession* cs = g_rt ? g_rt->client() : nullptr;
+    if (!guestLoadAllowed(cs && !cs->clientLoadAllowed(), ret)) {
+        nvcoop::Log("coop: refused a guest load of '%s' (called from 0x%08X): only the host loads saves ([coop] clientload=block)", name ? name : "?", ret);
+        const uint64_t now = NowMs();
+        if (now - g_lastLoadNoticeMs > 2000) {
+            g_lastLoadNoticeMs = now;
+            nvcoop::intents::game::engine().notify("Co-op: only the host loads saves while you are in the party. To play another save, quit the game and join again from the launcher.");
+        }
+        return false;
+    }
+    return o_Load(mgr, name, a, b, c);
+}
+
+void InstallLoadGuard() {
+    if (!g_cfg.enable || g_cfg.role != Role::Client || o_Load) return;
+    if (!g_guardReg) g_guardReg = std::make_unique<nvhooks::HookRegistry>(g_guardMem);
+    nvhooks::Addr tramp = 0;
+    const nvhooks::PatchStatus st = g_guardReg->acquire(kLoadSpec, reinterpret_cast<nvhooks::Addr>(&h_Load), &tramp, reinterpret_cast<nvhooks::Addr*>(&o_Load));
+    if (nvhooks::installed(st)) o_Load = reinterpret_cast<LoadFn>(tramp);
+    nvcoop::Log("coop: guest load guard %s", nvhooks::statusName(st));
+}
+
+void RemoveLoadGuard() {
+    g_guardReg.reset();   // the registry puts the original bytes back
+    o_Load = nullptr;
+}
+
 void OnLoad(void*) {
     LoadConfig();
+    InstallLoadGuard();
     g_sidecars.add({".fnvobjvars", []() { return nvcoop::coop::objVarSnapshot(nvhooks::objVarCopies()); }, [](const std::string& text) { nvcoop::coop::objVarRestore(nvhooks::objVarCopies(), text); }});   // follow-ups 1 item 3: the per-slot object variable copies
     g_sidecars.add({".fnvintents", []() { return nvcoop::intents::LedgerSnapshot(); }, [](const std::string& text) { nvcoop::intents::LedgerRestore(text); }});
 #ifdef NVCOOP_WITH_LIVE
@@ -1648,6 +1767,7 @@ void OnMessage(uint32_t type, void* data, uint32_t len) {
         partyglue::onLoaded(g_rt.get(), g_loadPath);   // the campaign of the loaded save (its .fnvparty sidecar)
         g_noIntro = NoIntroJoin{};
         g_intro = IntroHold{};
+        g_introWatchOn = g_introWatchDone = false;
         g_intro.check = true;   // IntroFrame looks at the loaded state once: the start save holds the party
         g_chargen = GuestChargen{};
     }
@@ -1685,6 +1805,7 @@ void ReloadShutdown() {
         g_rt->stop();
     }
     g_rt.reset();
+    RemoveLoadGuard();
     AdoptWorkerThread(nullptr);   // joined by stop(): off the drain's ignore list
     g_applier.reset();
 #ifdef NVCOOP_WITH_WORLD

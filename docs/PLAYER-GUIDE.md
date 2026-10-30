@@ -51,12 +51,24 @@ Your saves are never touched. If the game is running, close it first.
 ## Join a friend
 
 1. Get the host's address from them, for example `203.0.113.5` or `203.0.113.5:27960`. If no port is given, 27960 is used.
-2. Double-click **Launcher.cmd**, type your **player name**, pick **Join a friend** and type the address.
-3. Optional: press **Test connection**. If it says "answered", the path to the host works (the host must have the test
-   listener on, or already be hosting in the game).
-4. Press **Start game**. Wait for the host to be in the world.
+2. Double-click **Launcher.cmd**, type your **courier name**, press **JOIN A FRIEND** and type the address.
+3. Press **JOIN**. That is the only button you need. The launcher works out the rest and tells you what it is doing in the line at the bottom:
+   * **The host is still in the lobby** (they pressed HOST A GAME and are waiting for friends): you land in the lobby, press READY, and when the host
+     presses BEGIN TRANSMISSION every game starts together.
+   * **The host is already playing**: nothing answers the lobby call for about 3 seconds, then your game starts by itself and joins the host's world.
+     You do not click anything in the game's menus. If you played this campaign with this host before, your game loads your own newest save of it.
+     Otherwise it loads the starting save, skips the opening, you make your character at Doc Mitchell's (name, face, SPECIAL, tag skills, traits) and
+     you are moved next to the host.
+4. Optional: press **Test connection** in the classic launcher (**Launcher-Classic.cmd**). If it says "answered", the path to the host works (the host
+   must have the test listener on, or already be hosting in the game).
 
 Your launcher remembers a private number for your PC, so when you rejoin you get the same player slot.
+
+**While you are in a party you cannot load a save from the game's menus** (Continue, Load, quickload). Only the host loads. To play a different save,
+quit the game and join again from the launcher. If you press Continue anyway, the game shows a line saying so and nothing happens.
+
+If JOIN picks the wrong thing (a very slow connection can make it miss a lobby), press the **JOIN MODE** line under JOIN to force one: **LOBBY ONLY**
+waits for the lobby and never starts the game by itself, **GAME IN PROGRESS ONLY** starts your game at once and joins. **AUTOMATIC** is the default.
 
 ## Play over Steam (no address, no router settings)
 
@@ -74,7 +86,8 @@ to join you right away and one press takes them into your lobby. If it is closed
 then accept your invite (accepting it with the launcher closed starts Spacewar instead).
 
 **Join.** Set **CONNECTION** to **STEAM FRIENDS**, then press **JOIN A FRIEND**. The list shows your Steam friends who are hosting (the list refreshes itself).
-Pick your host. If the host is still in the lobby you land in it and ready up as usual; if the host is already in the world, your game starts and joins them.
+Pick your host. If the host is still in the lobby you land in it and ready up as usual; if the host is already in the world, your game starts and joins them
+(the list marks each host **IN LOBBY** or **IN GAME**, so you never have to choose a mode).
 You can also keep the launcher open and click **Join Game** next to the host's name in Steam: the launcher then offers that host at the top of the list.
 (Start the launcher first. If it is not running, Steam starts Spacewar instead.)
 
@@ -115,6 +128,10 @@ a line on screen and the party save follows as soon as the host can.
 
 A friend who has **no save of this campaign** (new to the group, or lost the file) joins as a new character: the game skips the opening, you make your
 character as in a new game, and you are moved to the host. Ordinary single-player saves are not offered by CONTINUE.
+
+**Joining while the host is already playing** works the same way without the lobby: JOIN starts your game and it loads, by itself, your newest save of
+the campaign you last played with that host, or the starting save when there is none. The game remembers the host's campaign in `nvcoop.ini` (the
+`lastcampaign` line, written by the plugin; leave it alone).
 
 Where the files are: your saves are where the game always keeps them (`Documents\My Games\FalloutNV\Saves`). Next to each co-op save is a small `.fnvparty`
 file (keep it with the save); `Data\NVSE\Plugins\nvcoop_party_index.txt` in your game folder lists which of your saves belongs to which host save.

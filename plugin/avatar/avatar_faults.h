@@ -42,6 +42,7 @@ struct AvatarFaults {
     bool puppetHitProceeds = false;      // the local puppet takes the damage itself (can die of a prediction)
     bool noPuppetHeal = false;           // a damaged puppet is never topped up (it dies from a few stray hits)
     bool noPuppetDeathRespawn = false;   // a puppet that died stays in the world as a corpse
+    bool noLookWait = false;             // a puppet is spawned before its player's look is known (a bare template that is then thrown away when the look arrives)
     bool appearanceUpdateRespawns = false;   // a look change that keeps race and sex still deletes and respawns the puppet
     bool adoptPhysicsPush = false;       // ActualPose reports the pushed place, so the buffer eases the puppet back from it (teleport out and back)
     bool noBodyRoom = false;             // a puppet is put inside the local player's body (the engine shoves the real player)
@@ -60,6 +61,8 @@ struct AvatarFaults {
     bool reloadGroupFixed = false;       // reload always plays the default group, not the one the owner's weapon uses
     bool heldNeverEnds = false;          // a held action (block, automatic fire) is not ended when the owner stops reporting it
     bool bridgeDropsAction = false;      // the live <-> avatar conversion forgets action / actionSeq / block
+    bool noAttackDraw = false;           // an attack on a puppet whose weapon is not out is played without drawing it first (a sheathed puppet may not throw a punch)
+    bool noOneShotVerify = false;        // the engine's answer to a played one-shot is never checked (a swing that does not show is not noticed)
     // the pose override (a downed friend's puppet keeps lying; PuppetManager::SetPoseOverride)
     bool poseOverrideIgnored = false;    // the override is stored but the planned group still plays
     bool poseReplaysPlanned = false;     // the periodic replay (heartbeat / readback mismatch) plays the planned group, not the override

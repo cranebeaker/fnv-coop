@@ -121,7 +121,14 @@ def primary_group(seqs: List[Dict[str, Any]]) -> Optional[int]:
 def primary_category(anim_actor: Optional[Dict[str, Any]]) -> Optional[str]:
     if not anim_actor:
         return None
-    return category_of(primary_group((anim_actor.get("anim") or {}).get("seqs") or []))
+    anim = anim_actor.get("anim") or {}
+    # the local player's own first-person / alternate AnimData (plugin/animprobe): a human in first person swings there, not in the process's set. An attack,
+    # reload or reaction in any of them is what the player is doing; otherwise the process's set decides as before.
+    cats = [category_of(primary_group(anim.get(k) or [])) for k in ("seqs_first_person", "seqs_alt")]
+    for c in cats:
+        if c in ("attack", "reload", "hit", "block", "dodge"):
+            return c
+    return category_of(primary_group(anim.get("seqs") or []))
 
 
 def decode_time_peek(hex_text: str) -> Optional[Tuple[float, float]]:

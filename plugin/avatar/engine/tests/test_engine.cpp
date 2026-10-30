@@ -26,6 +26,7 @@
 #include "avatar_runtime.h"
 #include "local_sampler.h"
 #include "puppet_game_engine.h"
+#include "face_blocks.h"
 #include "run_state.h"
 #include "testing/fake_backend.h"
 #include "../../avatar_groups.h"
@@ -1238,6 +1239,55 @@ void sampler_attack_reaches_the_snapshot() {
     CHECK(q.out.back().anim.actionSeq == 1);
 }
 
+
+// A human plays in FIRST PERSON: his swings and shots run on the first-person AnimData (PlayerCharacter+0x690), not on the process's one the old sampler read
+// ("I don't see the other person punching"). Twin 96 (local_sampler.cpp) never reads that set.
+void sampler_first_person_attack_reaches_the_snapshot() {
+    LRig r;
+    r.be.Player().firstPerson = true;
+    r.be.Player().fpSet = true;
+    r.Run(500);
+    CHECK(r.out.back().anim.action == 0 && r.out.back().anim.actionSeq == 0);
+    auto& p = r.be.Player();
+    p.fpGroup = 26;                             // the punch plays on the first-person set only; the third-person set shows nothing
+    p.fpState = 1;
+    p.fpPlayMs = 0;
+    r.Run(400, [&](float) { p.fpPlayMs += 16; });
+    p.fpGroup = -1;
+    p.fpPlayMs = -1;
+    r.Run(1200);
+    CHECK(SnapsWithAction(r, 26) >= 8);
+    CHECK(r.out.back().anim.action == 0 && r.out.back().anim.actionSeq == 1);
+    const LocalSampler::ActionEvent& e = r.s.lastActionEvent();
+    CHECK(e.group == 26 && e.set == kSetFirstPerson && e.firstPerson && e.setCount == 2 && r.s.counters().actionEvents == 1);
+    // two punches in a row on the first-person set are two events (the play time runs backwards)
+    LRig q;
+    q.be.Player().firstPerson = true;
+    q.be.Player().fpSet = true;
+    auto& pq = q.be.Player();
+    q.Run(300);
+    pq.fpGroup = 26; pq.fpState = 1; pq.fpPlayMs = 0;
+    q.Run(400, [&](float) { pq.fpPlayMs += 16; });
+    pq.fpPlayMs = 0;
+    q.Run(400, [&](float) { pq.fpPlayMs += 16; });
+    CHECK(q.out.back().anim.actionSeq == 2);
+    // a player in third person with the first-person set present but idle: the process's set still carries the attack
+    LRig w;
+    w.be.Player().fpSet = true;
+    w.Run(300);
+    auto& pw = w.be.Player();
+    pw.group = 32; pw.groupSlot = 1; pw.groupState = 1; pw.groupPlayMs = 0;
+    w.Run(300, [&](float) { pw.groupPlayMs += 16; });
+    CHECK(w.out.back().anim.action == 32 && w.out.back().anim.actionSeq == 1);
+    // a leftover (state 0) in the first-person set is no action
+    LRig v;
+    v.be.Player().firstPerson = true;
+    auto& pv = v.be.Player();
+    pv.fpGroup = 26; pv.fpState = 0; pv.fpPlayMs = 100;
+    v.Run(600);
+    CHECK(v.out.back().anim.action == 0 && v.out.back().anim.actionSeq == 0);
+}
+
 void sampler_every_start_is_an_event() {
     LRig r;
     r.Run(300);
@@ -1608,6 +1658,171 @@ void equip_watcher_carries_weapon_mods() {
 }
 
 // ======================================================================================================================
+// the look of a remote player in the puppet's own base (LookBase) and the face block layout
+// ======================================================================================================================
+
+Appearance RemoteLook() {
+    Appearance a;
+    a.race = 0x2000;
+    a.female = true;
+    a.hair = 0x44;
+    a.eyes = 0x45;
+    a.hairColor = 0x00ABCDEF;
+    a.height = 1050;
+    a.weight = 900;
+    for (int i = 0; i < 130; ++i) a.faceCoeffs.push_back(static_cast<int8_t>((i * 7) % 61 - 30));
+    a.headParts = {0x70, 0x71};
+    a.name = "Remote";
+    return a;
+}
+
+void SetupLooks(FakeGameBackend& be) {
+    be.cloneWorks = true;
+    Appearance mine;   // the local player's base is the template: its look must never change
+    mine.race = 0x1000;
+    mine.hair = 0x10;
+    mine.eyes = 0x11;
+    mine.hairColor = 0x111111;
+    mine.height = 1000;
+    mine.faceCoeffs.assign(130, 3);
+    mine.headParts = {0x60};
+    mine.name = "Mine";
+    be.baseAppearance[kTmpl] = mine;
+}
+
+// A remote player's puppet is built from a private copy of the template base with the remote's race, sex, hair, eyes, face and head parts written
+// into it, and a changed look makes a new puppet from a new copy. The local player's own base stays what it was.
+void look_copy_carries_the_remote_look() {
+    SRig r;
+    SetupLooks(r.be);
+    std::vector<std::string> log;
+    r.pm.SetLog([&](const std::string& s) { log.push_back(s); });
+    r.pm.AddPlayer(1, RemoteLook());
+    r.Pose(1, MkPose(kExtA, 300, 200));
+    CHECK(r.UntilDriving(1));
+    const FormId base = r.F(1)->base;
+    CHECK(base != kTmpl && r.be.copyOf.count(base) == 1 && r.be.copyOf[base] == kTmpl);
+    const Appearance w = r.be.copyLook[base];
+    CHECK(w.female && w.race == 0x2000 && w.hair == 0x44 && w.eyes == 0x45 && w.hairColor == 0x00ABCDEFu && w.height == 1050 && w.weight == 900);
+    CHECK(w.faceCoeffs == RemoteLook().faceCoeffs);
+    CHECK(w.headParts == (std::vector<uint32_t>{0x70, 0x71}));
+    CHECK(r.be.baseAppearance[kTmpl].hair == 0x10 && r.be.baseAppearance[kTmpl].headParts == (std::vector<uint32_t>{0x60}) && !r.be.baseAppearance[kTmpl].female);
+    bool logged = false;
+    for (const std::string& l : log)
+        logged = logged || (l.find("look copy") != std::string::npos && l.find("face written") != std::string::npos && l.find("head parts written") != std::string::npos);
+    CHECK(logged);
+    Appearance b = RemoteLook();
+    b.female = false;
+    b.hair = 0x99;
+    b.headParts = {0x72};
+    CHECK(r.pm.SetAppearance(1, b));
+    r.Run(1000);
+    CHECK(r.UntilDriving(1));
+    const FormId base2 = r.F(1)->base;
+    CHECK(base2 != base && r.be.copyLook[base2].hair == 0x99 && !r.be.copyLook[base2].female && r.be.copyLook[base2].headParts == (std::vector<uint32_t>{0x72}));
+    CHECK(r.eng.stats().lookCopies == 2 && r.eng.stats().lookWrites == 2 && r.eng.stats().lookFaces == 2);
+}
+
+// The game may refuse a copy once (a moment when the data handler is busy). The first version gave the whole session up after one refusal, and from then on
+// every puppet was the template: the local player's own look.
+void look_copy_refusal_is_not_forever() {
+    SRig r;
+    SetupLooks(r.be);
+    r.be.cloneRefusals = 1;
+    r.pm.AddPlayer(1, RemoteLook());
+    r.Pose(1, MkPose(kExtA, 300, 200));
+    CHECK(r.UntilDriving(1));
+    CHECK(r.F(1)->base == kTmpl);                  // the first try was refused: the template, for now
+    CHECK(r.eng.LooksByBase());                    // ... but the engine keeps trying copies
+    CHECK(r.eng.stats().lookFailures == 1 && r.eng.LookReport(1).find("will try again") != std::string::npos);
+    CHECK(r.pm.SetAppearance(1, RemoteLook()));
+    r.Run(1000);
+    CHECK(r.UntilDriving(1));
+    CHECK(r.F(1)->base != kTmpl && r.be.copyOf.count(r.F(1)->base) == 1);
+    // three refusals in a row: the game does not do it
+    SRig q;
+    SetupLooks(q.be);
+    q.be.cloneRefusals = 5;
+    q.pm.AddPlayer(1, RemoteLook());
+    q.Pose(1, MkPose(kExtA, 300, 200));
+    for (int i = 0; i < 3; ++i) {
+        CHECK(q.UntilDriving(1));
+        CHECK(q.pm.SetAppearance(1, RemoteLook()));
+        q.Run(1000);
+    }
+    CHECK(!q.eng.LooksByBase());
+    CHECK(q.eng.LookReport(1).find("given up") != std::string::npos);
+}
+
+// The bare Appearance{} of a player whose look has not arrived is not a look: it must not be written into a copy (it would make the sex male and keep
+// everything else of the local player).
+void look_base_ignores_an_unknown_look() {
+    ERig r;
+    SetupLooks(r.be);
+    CHECK(r.eng.LookBase(1, kTmpl, Appearance{}) == kTmpl);
+    CHECK(r.be.clones == 0 && r.eng.stats().lookCopies == 0);
+    CHECK(r.eng.LookReport(1).find("not known") != std::string::npos);
+    CHECK(r.eng.LookBase(1, kTmpl, RemoteLook()) != kTmpl && r.be.clones == 1);
+}
+
+// A copy that shares its FaceGen arrays with the template (CopyFrom did not allocate its own) must not be written: the face of the local player would change.
+void look_copy_without_own_face_arrays_keeps_the_template_face() {
+    SRig r;
+    SetupLooks(r.be);
+    r.be.faceArraysOwned = false;
+    r.pm.AddPlayer(1, RemoteLook());
+    r.Pose(1, MkPose(kExtA, 300, 200));
+    CHECK(r.UntilDriving(1));
+    const Appearance w = r.be.copyLook[r.F(1)->base];
+    CHECK(w.hair == 0x44 && w.faceCoeffs.size() == 130 && w.faceCoeffs[0] == 3);   // race, hair and parts are the remote's, the face numbers stay the template's
+    CHECK(r.eng.stats().lookFaces == 0 && r.eng.stats().lookWrites == 1);
+    CHECK(r.eng.LookReport(1).find("face not written") != std::string::npos);
+}
+
+// The face vector: every readable block goes out, an all-zero one included, and the receiver accepts it only at the length of its own readable blocks.
+void face_blocks_line_up_and_zeros_travel() {
+    FaceBlockRead in[kFaceBlockCount];
+    const uint32_t counts[kFaceBlockCount] = {50, 30, 50};
+    for (int b = 0; b < kFaceBlockCount; ++b) {
+        in[b].readable = true;
+        in[b].values.assign(counts[b], b == 0 ? 0.0f : 0.25f * static_cast<float>(b));   // the geometry block is all zero (a default face), the others are not
+    }
+    in[2].values[7] = -1.5f;
+    std::vector<int8_t> packed;
+    CHECK(PackFaceBlocks(in, packed) == 3);
+    CHECK(packed.size() == 130);
+    CHECK(packed.size() == 130 && packed[0] == 0 && packed[49] == 0 && packed[50] == 4 && packed[80] == 8 && packed[87] == -24);
+    float a[50], b[30], c[50];
+    for (float& f : a) f = 9.0f;
+    for (float& f : b) f = 9.0f;
+    for (float& f : c) f = 9.0f;
+    FaceSlot slots[kFaceBlockCount] = {{50, a}, {30, b}, {50, c}};
+    bool wrote = false;
+    CHECK(UnpackFaceBlocks(packed.data(), packed.size(), slots, &wrote) && wrote);
+    CHECK(a[0] == 0.0f && a[49] == 0.0f && b[0] == 0.25f && c[0] == 0.5f && c[7] == -1.5f);
+    // a block that is shared with the template keeps its numbers, and the next block still lands in its own array
+    for (float& f : a) f = 9.0f;
+    for (float& f : b) f = 9.0f;
+    for (float& f : c) f = 9.0f;
+    FaceSlot shared[kFaceBlockCount] = {{50, a}, {30, nullptr}, {50, c}};
+    CHECK(UnpackFaceBlocks(packed.data(), packed.size(), shared, &wrote) && wrote);
+    CHECK(b[0] == 9.0f && c[0] == 0.5f && a[0] == 0.0f);
+    // a vector of another length (a block one side could not read) writes nothing
+    FaceSlot twoBlocks[kFaceBlockCount] = {{50, a}, {0, nullptr}, {50, c}};
+    for (float& f : a) f = 9.0f;
+    CHECK(!UnpackFaceBlocks(packed.data(), packed.size(), twoBlocks, &wrote) && !wrote && a[0] == 9.0f);
+    // the sender could not read the middle block: its vector has two blocks, and a receiver that reads all three refuses it
+    in[1].readable = false;
+    CHECK(PackFaceBlocks(in, packed) == 2 && packed.size() == 100);
+    CHECK(!UnpackFaceBlocks(packed.data(), packed.size(), slots, &wrote) && !wrote);
+    CHECK(UnpackFaceBlocks(packed.data(), packed.size(), twoBlocks, &wrote) && wrote && a[0] == 0.0f && c[0] == 0.5f);
+    // an oversized block is not a block
+    in[1].readable = true;
+    in[1].values.assign(65, 0.0f);
+    CHECK(PackFaceBlocks(in, packed) == 2);
+}
+
+// ======================================================================================================================
 // runtime: loopback, remote players, events, status
 // ======================================================================================================================
 
@@ -1747,6 +1962,45 @@ void runtime_loopback_shows_the_players_attacks() {
     CHECK(q.be.badLines.empty());
     CHECK(q.rt->manager().stats().oneShots == 3 + 5 + 1);
     CHECK(q.rt->manager().stats().oneShotsFailed == 0);
+}
+
+
+// The same through the whole runtime: a human's first-person punch is sent in a snapshot, the loopback puppet punches, and nvcoop.log says so
+// (local attack seen ... / remote attack received ... puppet animation started ...).
+void runtime_first_person_punch_is_sent_shown_and_logged() {
+    RRig q;
+    std::vector<std::string> lines;
+    q.rt->SetLog([&](const std::string& l) { lines.push_back(l); });
+    CHECK(q.rt->SetLoopback(true));
+    q.be.Player().firstPerson = true;
+    q.be.Player().fpSet = true;
+    q.Run(2500);
+    const RefId ref = q.rt->RefOf(1);
+    CHECK(ref != 0 && q.rt->manager().PhaseOf(1) == Phase::Driving);
+    auto& pl = q.be.Player();
+    for (int i = 0; i < 2; ++i) {
+        pl.fpGroup = 26;
+        pl.fpState = 1;
+        pl.fpPlayMs = 0;
+        q.Run(350, [&](float) { pl.fpPlayMs += 16; });
+        pl.fpGroup = -1;
+        pl.fpPlayMs = -1;
+        q.Run(1500);
+    }
+    size_t withAction = 0;
+    for (const auto& s : q.sent)
+        if (s.anim.action == 26) ++withAction;
+    CHECK(withAction >= 6);                                           // sent
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 0") == 2);      // shown
+    auto count = [&](const char* needle) {
+        int n = 0;
+        for (const auto& l : lines)
+            if (l.find(needle) != std::string::npos) ++n;
+        return n;
+    };
+    CHECK(count("local attack seen: group 26 (AttackLeft) from the first-person set, camera first person") == 2);
+    CHECK(count("remote attack received from slot 1: group 26 (AttackLeft)") == 2 && count("puppet animation started") == 2);
+    CHECK(count("local attack source: 2 animation set(s) readable, camera first person") == 1);
 }
 
 void runtime_loopback_off_removes_the_puppet() {
@@ -2018,13 +2272,14 @@ const TestCase kTests[] = {
     T(stack_cell_change), T(stack_rebuilt_3d_is_reasserted), T(stack_menu_pauses_and_replays), T(stack_survives_all_evaluators_missing),
     T(stack_reused_ref_ids), T(stack_makes_room_for_the_local_player), T(sampler_period_identity_and_sequence), T(sampler_velocity_and_locomotion),
     T(sampler_teleport_and_cell_change_restart_the_speed), T(sampler_speed_is_clamped), T(sampler_small_jump_is_a_teleport_not_a_speed), T(sampler_flags_from_the_engine), T(sampler_mover_flags_only_when_informative),
-    T(sampler_attack_reaches_the_snapshot), T(sampler_every_start_is_an_event), T(sampler_block_is_held_and_released),
+    T(sampler_attack_reaches_the_snapshot), T(sampler_first_person_attack_reaches_the_snapshot), T(sampler_every_start_is_an_event), T(sampler_block_is_held_and_released),
     T(sampler_ignores_dead_players_and_leftover_sequences), T(sampler_action_counter_survives_loading_screens),
     T(sampler_not_ready_publishes_nothing), T(equip_watcher_publishes_stable_changes_only), T(local_appearance_is_read_from_the_base),
-    T(runtime_loopback_follows_the_player), T(runtime_loopback_shows_the_players_attacks), T(runtime_loopback_off_removes_the_puppet), T(runtime_loopback_refuses_the_local_slot),
+    T(runtime_loopback_follows_the_player), T(runtime_loopback_shows_the_players_attacks), T(runtime_first_person_punch_is_sent_shown_and_logged), T(runtime_loopback_off_removes_the_puppet), T(runtime_loopback_refuses_the_local_slot),
     T(runtime_loopback_carries_equipment), T(runtime_remote_players_follow_their_own_streams), T(runtime_no_puppet_before_the_first_snapshot),
     T(runtime_game_events), T(runtime_status_json_contract),
-    T(appearance_height_is_matched_with_setscale), T(weapon_mod_lines_and_readback), T(hit_target_health_lines),
+    T(appearance_height_is_matched_with_setscale), T(look_copy_carries_the_remote_look), T(look_copy_refusal_is_not_forever),
+    T(look_base_ignores_an_unknown_look), T(look_copy_without_own_face_arrays_keeps_the_template_face), T(face_blocks_line_up_and_zeros_travel), T(weapon_mod_lines_and_readback), T(hit_target_health_lines),
     T(stack_weapon_mods_converge_and_follow_changes), T(stack_hit_target_puppet_survives_and_is_replaced), T(stack_look_update_keeps_the_puppet),
     T(equip_watcher_carries_weapon_mods), T(runtime_reads_the_local_facts), T(runtime_reads_the_local_pack), T(runtime_remote_look_update_and_local_look), T(runtime_starts_only_with_a_player_and_says_why_not),
 };

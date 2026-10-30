@@ -48,7 +48,8 @@ struct Config {
     uint32_t maxPlayers = 4;
     int party = 0;                  // [coop] party=N: the launcher lobby's size; a game started from the start save waits for N players (0 = nobody to wait for)
     bool forwardActivate = false;   // [coop] forward_activate=1: guest Activate -> submitAction to the host (suppresses the local call)
-    bool clientLoadBlock = false;   // [coop] clientload=block: host policy, guests may not load saves while joined (default rejoin)
+    bool clientLoadBlock = true;    // [coop] clientload=block|rejoin: host policy. block (default): a joined guest may not load a save, the game
+                                    // refuses it (load_guard.h); rejoin: the guest's load is allowed and it re-baselines from the host
     std::string rulesFile;          // [coop] rules=<path to rules.json>: quest rules engine on the host (empty = off)
     uint8_t compareClasses = 0xDF;  // desync digest: entry classes the dump really covers (0..4 quest/stage/obj/vars/globals, 6 factions, 7 flags; 5 refs only with watch refs)
     uint32_t digestIntervalMs = 10000;   // client desync digest interval (0 = off)

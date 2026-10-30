@@ -451,3 +451,35 @@ and the lab's walk room as tracks): lab walk room p95 clean 65.6 before / 22.3 a
 - ENet's packet throttle may drop unreliable snapshots on a clean link (published 28 to 30 Hz, received 24 to 25 Hz in every pass). Not touched (the transport is not this round's); it costs no lag, only gaps the buffer extrapolates over.
 - Behind mobile_tether and transatlantic the error is mostly the link's own one-way delay times the speed; the buffer adds 30 to 75 ms.
 - The tests above ran in the game on branch wt/avatarlag2 (build of 2026-10-28 06:32 for the final DLLs); the profile table is from the build before the roster fix (the walk code is the same).
+
+
+## A human's attack in first person (2026-10-30, "I don't see the other person punching")
+* **Cause (unverified in a game, found by reading the exe).** The sampler read the player's running animation groups from the process's AnimData (BaseProcess slot 0x6E,
+  the third-person set). `PlayerCharacter::GetAnimData` (0x950A10) returns `[player+0x690]` in first person, `[+0x6A0]` when set: that is where a human's punch, swing or
+  shot plays. Bots and the lab's player were seen, a human in first person was not. `engine_pins.h` has `kPlayerFirstPersonAnimData` / `kPlayerAltAnimData`;
+  `AnimRead::alt[2]` carries both; `ReadLocalFrame` asks the first-person set first while the camera is first person, then the process's, then the alternate; jump and reload
+  flags are the union. Twin 96 (local_sampler.cpp) never reads them.
+* **Receiver.** A one-shot on a puppet whose weapon is not out (the owner's fists, a holstered weapon) draws it first (`SetAlert 1`), waits 150 ms, plays the group and
+  holds the weapon out for the swing (`Puppet::attackDrawUntil`, stat `attackDraws`, fault `noAttackDraw`). ~150 ms after the `PlayGroup` the engine's answer is read back:
+  `oneShotsSeen` / `oneShotsNotSeen` (fault `noOneShotVerify`), so a swing the engine accepted and did not show is a counter and a log line, not silence.
+* **Log lines to look for (nvcoop.log).** Owner: `avatar: local attack source: N animation set(s) readable, camera first person` (N is 2 when the first-person set was
+  found), `avatar: local attack seen: group 26 (AttackLeft) from the first-person set, camera first person, process action A -> sent as event E in snapshot S`,
+  `avatar: local process action X -> Y with no action group playing in any readable set` (an attack we cannot see). Receiver: `avatar: remote attack received from slot N:
+  group G (Name), event E, weapon out|away, puppet animation started|REFUSED`, then ~150 ms later `avatar: remote attack on slot N: the puppet is playing group G` or
+  `... PlayGroup G ran but the puppet is playing group C instead: the swing is NOT visible`; also `... dropped: the stream is stale`, `... missed`, `... given up after 3 refusals`.
+* `avatar.local` (bridge) now also reports `actionSet`, `sets`, `firstPerson`, `procAction`, `actionEvents`; `avatar.status` stats add `oneShotsSeen`, `oneShotsNotSeen`, `attackDraws`.
+* Tests: `avatar_engine_tests` (`sampler_first_person_attack_reaches_the_snapshot`, `runtime_first_person_punch_is_sent_shown_and_logged`), `avatar_tests`
+  (`t_oneshot_unarmed_punch_draws_first`, `t_oneshot_unseen_swing_is_reported`), `animprobe_tests` (twin 7), `tools/lab` parity.
+
+## Round of 2026-10-30: the other player's look (face, skin, head parts) and the guest's character creation
+
+Unit tested on fakes, **not run in the game**. Above, "Face, hair style and eyes are not applied" is out of date: since 2026-10-29 a puppet is spawned from a private copy of the template base with the remote look written in (`GamePuppetEngine::LookBase`). Found and fixed now:
+
+- **Face blocks were misaligned.** The sender skipped all-zero FaceGen blocks, the receiver wrote by its own block sizes, so the skin tone (FGTS) could land in the geometry. `engine/face_blocks.h`: every readable block travels (zeros too), the receiver accepts the vector only at the exact length of its own readable blocks. Layout read off the exe (TESNPC::Save 0x601CA0 + accessors): block = `{+0C first ptr, +10 last ptr, +18 count, +1C size}`, floats at `first`.
+- **Head parts** (eyebrows, facial hair; `TESNPC +0x1DC` list) were never sent, so the copy kept the LOCAL player's. `Appearance::headParts`, Look flag 0x10, written with the engine's own `tList` clear 0x470470 / add 0x905820 (pinned).
+- **One refused clone disabled looks for the session** (every puppet then wore the local player's look). Now 3 refusals in a row; a game that cannot clone at all (`CanCloneNpcBase`) is told apart.
+- **Puppet spawned from `Appearance{}`** (roster before Look): wrong sex, local face, then thrown away. The manager waits up to `lookWaitMs` (4 s) for the first look; an unknown look is never written.
+- **Look timing**: local look read every 500 ms (was 2 s), a changed look is offered after `lookSettleMs` (1.2 s) so the race menu does not rebuild the other side's puppet at every slider; the first look and `glueLookEdited()` (race menu closed, chargen finished) go out at once.
+- Guest chargen: `plugin/coop/chargen_flow.h` retries a line whose menu does not open (3 tries) and waits for the pause menu before SPECIAL / tag skills. In the latest run SPECIAL (menu 1048) and tag skills did open; the "never opened" lines were from an older run.
+- Log lines to read next run: `avatar: my look is now ...`, `avatar: my look goes out ...`, `avatar: look of slot N arrived ...`, `avatar: puppet of slot N spawned as ref ... : look copy ..., face written, head parts written`, `coop: the face menu closed: the look is read and sent now`.
+- Twins: engine 960 to 962, avatar_tests `noLookWait`, live wiring 1186 and 1187.

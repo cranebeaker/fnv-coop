@@ -50,6 +50,15 @@ def release_version() -> str:
         return "dev"
 
 
+def join_key(connection: str, address: str) -> str:
+    """Who a guest joins, as one string: the same host gives the same key (the port counts, the default port is written out)."""
+    a = (address or "").strip().lower()
+    if connection == "steam":
+        return "steam:" + a
+    addr, _ = core.parse_address(a, core.DEFAULT_PORT)
+    return "ip:%s:%d" % addr if addr else ""
+
+
 class App:
     def __init__(self, settings_path: Optional[Path] = None, version: Optional[str] = None):
         self.settings_path = settings_path
@@ -116,6 +125,7 @@ class App:
             lob = asdict(self.lobby.view()) if self.lobby else None
             s = asdict(self.s)
             s.pop("token", None)
+            s.pop("last_campaign", None)
             saves = [{"name": h.name, "campaign": fnv_party_saves.short_campaign(h.campaign), "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(h.mtime))}
                      for h in self.host_saves()[:8]]
             return {"version": self.version, "settings": s, "game": self.game_line(), "lobby": lob, "launched": self.launched,
@@ -125,7 +135,7 @@ class App:
     def apply_settings(self, d: dict) -> dict:
         with self.lock:
             for k, v in d.items():
-                if k in ("token",) or not hasattr(self.s, k):
+                if k in ("token", "last_join_key", "last_campaign") or not hasattr(self.s, k):
                     continue
                 cur = getattr(self.s, k)
                 if isinstance(cur, bool):
@@ -145,6 +155,9 @@ class App:
                         self.s.chat_key = key
                     else:
                         self.log(why)
+                elif k == "join_mode":
+                    if v in core.JOIN_MODES:
+                        self.s.join_mode = v
                 elif k == "connection":
                     if v in ("ip", "steam") and not self.lobby:
                         self.s.connection = v
@@ -239,11 +252,12 @@ class App:
         self.log(f"INVITE SENT TO {who}. IF THEIR LAUNCHER IS OPEN THEY CAN JOIN NOW; IF NOT, THEY OPEN IT AND ACCEPT YOUR INVITE IN STEAM.")
         return {"ok": True}
 
-    def autostart_for(self, mode: str, lobby) -> str:
+    def autostart_for(self, mode: str, lobby, camp: str = "") -> str:
         """[coop] autostart for this machine when the lobby starts: a new game loads the start save; a continued campaign loads the host's
-        save (host) or this player's own save for that host save (guest). A guest with no save for the campaign joins with the start save."""
+        save (host) or this player's own save for that host save (guest). A guest with no save for the campaign joins with the start save.
+        No lobby (a guest joining a game in progress): see autostart_in_progress."""
         if lobby is None:
-            return ""
+            return self.autostart_in_progress(camp) if mode == "join" else ""
         if mode == "host":
             return "load:" + lobby.host_save if lobby.campaign and lobby.host_save else "start"
         camp, host_save = lobby.start_info
@@ -253,6 +267,24 @@ class App:
                 self.log(f"CONTINUING WITH YOUR SAVE {mine.upper()}.")
                 return "load:" + mine
             self.log("NO SAVE OF YOURS FOR THIS CAMPAIGN. YOU JOIN THE HOST AS A NEW CHARACTER.")
+        return "start"
+
+    def autostart_in_progress(self, camp: str = "") -> str:
+        """[coop] autostart for a guest that joins a game already in the world, so nobody has to click through the game's menus:
+        * the host's campaign (`camp`) is known when this PC joined the same host before (the plugin noted it in nvcoop.ini, _launch reads it):
+          load this player's newest save of that campaign, the way CONTINUE does for a lobby;
+        * otherwise the shipped start save. The plugin then skips the opening movie (the host says the campaign is under way), the guest makes its
+          character at Doc's and is moved to the host (docs/party-save.md, "A guest with no save for the campaign").
+        Never "" and never a wait for a party: a joined guest has nothing to wait for."""
+        if fnv_mut.on("inprogress_loads_nothing"):
+            return ""
+        camp = fnv_party_saves.norm_campaign(camp)
+        if camp and not fnv_mut.on("inprogress_ignores_campaign"):
+            mine = fnv_party_saves.guest_pick(self.s.game_dir, camp, "", self.documents)
+            if mine:
+                self.log(f"JOINING IN PROGRESS WITH YOUR SAVE {mine.upper()}.")
+                return "load:" + mine
+        self.log("JOINING IN PROGRESS AS A NEW CHARACTER: YOUR GAME SKIPS THE OPENING, YOU MAKE YOUR CHARACTER AND ARE MOVED TO THE HOST.")
         return "start"
 
     def _lobby_start(self, mode: str, lobby, address: str = "") -> None:
@@ -277,7 +309,13 @@ class App:
                 s.tunnel_port = link.tunnel_port if link is not None else 0
             elif link is not None and not link.hosting:
                 link.host(self.steam_tag, "game", s.port, s.max_players)    # no lobby was held: open the Steam side now, friends join in progress
-        s.autostart = self.autostart_for(mode, lobby)
+        key = join_key(s.connection, address or s.address) if mode == "join" else ""
+        s.last_campaign = ""
+        if mode == "join" and key and key == self.s.last_join_key and self.s.game_dir:
+            s.last_campaign = fnv_party_saves.last_campaign(self.s.game_dir)      # the same host as last time: the plugin's note is about its campaign
+        s.autostart = self.autostart_for(mode, lobby, s.last_campaign)
+        if mode == "join" and lobby is not None:
+            s.last_campaign = lobby.start_info[0]                                 # the lobby said it ("" in a new game: the plugin notes the new campaign)
         s.party = len(lobby.view().players) if lobby else 0
         r = core.start_session(s, resolver=socket.gethostbyname)
         for m in r.messages:
@@ -287,6 +325,7 @@ class App:
             self.s.mode = mode
             if mode == "join":
                 self.s.address = s.address
+                self.s.last_join_key = key
             self.remember()
         return r.ok
 
@@ -337,7 +376,12 @@ class App:
                 self.log(f"LOBBY OPEN ON UDP {lob.port}. HOME NETWORK: {ips}. INTERNET: YOUR PUBLIC ADDRESS, UDP {lob.port} FORWARDED.")
             return {"ok": True}
 
-    def join(self, address: str) -> dict:
+    def join(self, address: str, mode: str = "") -> dict:
+        """JOIN with an IP address. `mode` (default: the setting): "auto" asks the host's lobby first and, when nothing answers within a few
+        seconds, starts the game to join the host in the world; "lobby" only the lobby; "game" only the game in progress."""
+        mode = mode if mode in core.JOIN_MODES else self.s.join_mode
+        if mode == "game":
+            return self.join_direct(address)
         with self.lock:
             if self.lobby:
                 return {"ok": False, "why": "Leave the current lobby first."}
@@ -354,11 +398,25 @@ class App:
                 self.s.token = core.new_token()
             self.s.address = address.strip()
             self.remember()
-            lob = fnv_lobby.GuestLobby(name, self.s.token, addr[0], addr[1], self.version)
+            lob = fnv_lobby.GuestLobby(name, self.s.token, addr[0], addr[1], self.version, probe_s=fnv_lobby.PROBE_FOR if mode == "auto" and not fnv_mut.on("join_no_probe") else 0.0)
             lob.on_start = lambda: self._launch("join", address.strip(), lobby=lob)
+            lob.on_no_lobby = lambda: self._no_lobby(lob, address.strip())
             lob.open()
             self.lobby = lob
+            if mode == "auto":
+                self.log("LOOKING FOR THE HOST'S LOBBY. IF THE HOST IS ALREADY IN THE WORLD, YOUR GAME STARTS AND JOINS THEM.")
             return {"ok": True}
+
+    def _no_lobby(self, lob, address: str) -> None:
+        """Nothing answered the lobby hello: the host is in the world (or not there). Start the game and join it in progress."""
+        with self.lock:
+            if self.lobby is not lob:
+                return                      # the player left in the meantime
+            self.lobby = None
+            self.log("NO LOBBY ANSWERED, SO THE HOST IS PROBABLY IN THE WORLD ALREADY. STARTING YOUR GAME TO JOIN THEM.")
+        r = self.join_direct(address)
+        if not r.get("ok"):
+            self.log("COULD NOT START YOUR GAME. SEE THE MESSAGES ABOVE.")
 
     def join_steam(self, steam_id: str, in_game: bool = False, lobby: str = "") -> dict:
         """Join a Steam friend who is hosting: into their lobby, or straight into their game when they are already in the world (in_game)."""
@@ -517,7 +575,7 @@ def make_handler(app: App, key: str):
                 "/api/find": lambda: (app.find_game(), app.remember(), {"ok": bool(app.s.game_dir)})[-1],
                 "/api/browse": app.browse,
                 "/api/host": lambda: app.host(bool(body.get("continue")), str(body.get("save", ""))),
-                "/api/join": lambda: app.join(str(body.get("address", ""))),
+                "/api/join": lambda: app.join(str(body.get("address", "")), str(body.get("mode", ""))),
                 "/api/join_direct": lambda: app.join_direct(str(body.get("address", ""))),
                 "/api/steam_refresh": app.steam_refresh,
                 "/api/join_steam": lambda: app.join_steam(str(body.get("id", "")), bool(body.get("in_game")), str(body.get("lobby", ""))[:24]),

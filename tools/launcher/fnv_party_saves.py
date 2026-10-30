@@ -199,3 +199,11 @@ def guest_pick(game, campaign: str, host_save: str, documents: Optional[str] = N
     saves = game_save_dir(game, documents)
     e = pick_guest_save(read_index(game), campaign, host_save, lambda n: (saves / (n + ".fos")).is_file())
     return e.guest_save if e and valid_save_name(e.guest_save) else None
+
+
+def last_campaign(game) -> str:
+    """The campaign the plugin noted in nvcoop.ini ([coop] lastcampaign) the last time this PC joined a host: the host told it with its campaign order.
+    The launcher uses it to find the guest's own save when it joins a game in progress, because nothing says which campaign that host plays before the
+    game is loaded. "" when there is none."""
+    t = fnv_ini.read_text(Path(game).joinpath("Data", "NVSE", "Plugins", "nvcoop.ini"))
+    return norm_campaign(fnv_ini.get(t, "coop", "lastcampaign")) if t else ""

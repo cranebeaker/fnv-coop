@@ -82,7 +82,11 @@ public:
     bool MakeNonCombatant(RefId ref) override;
     bool ApplyAppearance(RefId ref, const Appearance& a) override;
     FormId LookBase(Slot slot, FormId templateBase, const Appearance& a) override;
-    bool LooksByBase() override { return looksByBase_; }
+    bool LooksByBase() override { return looksByBase_ && be_.CanCloneNpcBase(); }
+    std::string LookReport(Slot slot) override {
+        auto it = lookNotes_.find(slot);
+        return it == lookNotes_.end() ? std::string() : it->second;
+    }
 
     bool SetPos(RefId ref, const Vec3& pos) override;
     bool SetYaw(RefId ref, float yawRad) override;
@@ -143,7 +147,9 @@ private:
     std::vector<uint64_t> spawnTimes_;   // NowUs of the recent spawns (circuit breaker)
     struct LookCopy { FormId copy = 0, from = 0; uint32_t epoch = 0; };
     std::map<Slot, LookCopy> lookCopies_;   // per remote player: the private copy of its template with its look written in (LookBase)
-    bool looksByBase_ = true;               // false once the game refused to make a copy (then every puppet is the template, as before)
+    bool looksByBase_ = true;               // false once the game refused to make a copy three times in a row (then every puppet is the template, as before)
+    unsigned cloneFailStreak_ = 0;
+    std::map<Slot, std::string> lookNotes_; // LookReport
     std::vector<uint32_t> costs_;     // ring of the last console line costs (us)
     size_t costNext_ = 0;
     uint32_t costMax_ = 0;

@@ -24,6 +24,7 @@
 #include "nvse/PluginAPI.h"
 
 #include "../engine_pins.h"
+#include "../face_blocks.h"
 #include "engine_hooks.h"
 
 namespace nvcoop::avatar::engine {
@@ -137,10 +138,35 @@ struct RawAnim {
     int state[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     int playMs[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     int nGroups = 0;
+    AnimSet alt[2];   // the local player's first-person and alternate AnimData (PlayerCharacter+0x690 / +0x6A0)
     int action = -1;
     uint32_t moverFlags = 0;
     bool firstPerson = false;
 };
+
+// The nine sequence slots of one AnimData: group id, play state and play time per slot (the same reads for every set).
+void ReadAnimDataSlots(uintptr_t animData, int* groups, int* state, int* playMs, int* n) {
+    for (int i = 0; i < 9; ++i) {
+        uintptr_t seq = 0;
+        const uintptr_t at = animData + (i < 8 ? P::kAnimDataSeqBase + 4u * i : P::kAnimDataSeq9);
+        if (!SafeRead(at, &seq, sizeof seq) || !seq) continue;
+        uintptr_t vt = 0;
+        if (!SafeRead(seq, &vt, sizeof vt) || vt != P::kVtblBSAnimGroupSequence) continue;
+        uintptr_t grp = 0;
+        uint8_t id = 0;
+        if (SafeRead(seq + P::kSeqAnimGroup, &grp, sizeof grp) && grp && SafeRead(grp + P::kAnimGroupId, &id, 1)) {
+            groups[i] = id;
+            ++*n;
+            // play state and play time (the same reads the NPC animation layer makes, plugin/actors/anim/anim_game.cpp)
+            uint32_t st = 0;
+            float tBegin = 0, tLast = 0;
+            if (SafeRead(seq + P::kSeqState, &st, sizeof st)) state[i] = static_cast<int>(st);
+            if (SafeRead(seq + P::kSeqBegin, &tBegin, sizeof tBegin) && SafeRead(seq + P::kSeqLast, &tLast, sizeof tLast) &&
+                std::isfinite(tBegin) && std::isfinite(tLast) && tLast >= tBegin && tLast - tBegin < 3600.0f)
+                playMs[i] = static_cast<int>((tLast - tBegin) * 1000.0f);
+        }
+    }
+}
 
 void ReadAnimRaw(Actor* a, bool isPlayer, RawAnim& o) {
     __try {
@@ -160,26 +186,16 @@ void ReadAnimRaw(Actor* a, bool isPlayer, RawAnim& o) {
             if (CallSlot(p, P::kProcIsWeaponOut, v)) o.weaponOut = (v & 0xFF) != 0;
             if (CallSlot(p, P::kProcGetKnocked, v)) o.knocked = v != 0;
             uint32_t animData = 0;
-            if (CallSlot(p, P::kProcGetAnimData, animData) && animData) {
-                for (int i = 0; i < 9; ++i) {
-                    uintptr_t seq = 0;
-                    const uintptr_t at = animData + (i < 8 ? P::kAnimDataSeqBase + 4u * i : P::kAnimDataSeq9);
-                    if (!SafeRead(at, &seq, sizeof seq) || !seq) continue;
-                    uintptr_t vt = 0;
-                    if (!SafeRead(seq, &vt, sizeof vt) || vt != P::kVtblBSAnimGroupSequence) continue;
-                    uintptr_t grp = 0;
-                    uint8_t id = 0;
-                    if (SafeRead(seq + P::kSeqAnimGroup, &grp, sizeof grp) && grp && SafeRead(grp + P::kAnimGroupId, &id, 1)) {
-                        o.groups[i] = id;
-                        ++o.nGroups;
-                        // play state and play time (the same reads the NPC animation layer makes, plugin/actors/anim/anim_game.cpp)
-                        uint32_t st = 0;
-                        float tBegin = 0, tLast = 0;
-                        if (SafeRead(seq + P::kSeqState, &st, sizeof st)) o.state[i] = static_cast<int>(st);
-                        if (SafeRead(seq + P::kSeqBegin, &tBegin, sizeof tBegin) && SafeRead(seq + P::kSeqLast, &tLast, sizeof tLast) &&
-                            std::isfinite(tBegin) && std::isfinite(tLast) && tLast >= tBegin && tLast - tBegin < 3600.0f)
-                            o.playMs[i] = static_cast<int>((tLast - tBegin) * 1000.0f);
-                    }
+            if (CallSlot(p, P::kProcGetAnimData, animData) && animData) ReadAnimDataSlots(animData, o.groups, o.state, o.playMs, &o.nGroups);
+            if (isPlayer) {   // the player's other AnimData objects: a swing or a shot in first person plays on the first-person one
+                uintptr_t seen[2] = {animData, animData};
+                for (int k = 0; k < 2; ++k) {
+                    uintptr_t other = 0;
+                    if (!SafeRead(ap + (k == 0 ? P::kPlayerFirstPersonAnimData : P::kPlayerAltAnimData), &other, sizeof other) || !other) continue;
+                    if (other == seen[0] || other == seen[1]) continue;   // the same object as one already read
+                    seen[k] = other;
+                    o.alt[k].valid = true;
+                    ReadAnimDataSlots(other, o.alt[k].groups, o.alt[k].state, o.alt[k].playMs, &o.alt[k].nGroups);
                 }
             }
         }
@@ -377,11 +393,34 @@ int LoadedCellsRaw(uint32_t* out, int max) {
     return n;
 }
 
+// TESNPC::headPart (+0x1DC): a tList<BGSHeadPart>, the first node inline in the NPC ({data, next}). NPC_ PNAM entries: the eyebrows, the facial hair, the mouth,
+// teeth ... that the race menu picks besides `hair` and `eyes`. TESNPC::CopyFrom (0x6035E0 -> 0x603790) copies the list node by node, so a clone of the
+// local player's base wears the LOCAL player's beard and brows unless the list is replaced. Read with guarded reads only: a form id is the dword at +0x0C
+// of the head part form.
+constexpr uint32_t kNpcHeadPartList = 0x1DC;
+constexpr uint32_t kFormRefIdOffset = 0x0C;
+int ReadHeadPartIds(const TESNPC* npc, uint32_t* out, int max) {
+    int n = 0;
+    uintptr_t node = reinterpret_cast<uintptr_t>(npc) + kNpcHeadPartList;
+    for (int guard = 0; node && guard < 64 && n < max; ++guard) {
+        uint32_t cell[2] = {0, 0};   // {data, next}
+        if (!SafeRead(node, cell, sizeof cell)) break;
+        if (cell[0]) {
+            uint32_t id = 0;
+            if (SafeRead(cell[0] + kFormRefIdOffset, &id, sizeof id) && id) out[n++] = id;
+        }
+        node = cell[1];
+    }
+    return n;
+}
+
 struct RawAppearance {
     bool ok = false, female = false;
     uint32_t race = 0, hair = 0, eyes = 0, hairColor = 0;
     float height = 0, weight = 0;
     char name[48] = {};
+    uint32_t headParts[kMaxHeadParts] = {};
+    int nHeadParts = 0;
 };
 
 void ReadAppearanceRaw(TESForm* base, RawAppearance& o) {
@@ -395,6 +434,7 @@ void ReadAppearanceRaw(TESForm* base, RawAppearance& o) {
         o.hairColor = npc->hairColor;
         o.height = npc->height;
         o.weight = npc->weight;
+        o.nHeadParts = ReadHeadPartIds(npc, o.headParts, static_cast<int>(kMaxHeadParts));
         const char* nm = npc->fullName.name.m_data;
         if (nm) {
             std::strncpy(o.name, nm, sizeof o.name - 1);
@@ -406,44 +446,42 @@ void ReadAppearanceRaw(TESForm* base, RawAppearance& o) {
     }
 }
 
-// FaceGen morph coefficients of an NPC base (TESNPC::faceGenData[3], xNVSE GameForms.h). The layout is NOT proven (the header calls `values` "an array
-// of arrays" and `useOffset` "participates in the array base calculation"): two readings are tried per block, a reading counts only when every
-// float is finite and plausible (|v| <= 16) and not all zero, and the numbers are quantised to 1/16. Whatever this returns is sent with the Look
-// message and logged by the in-game proof; nothing applies it (no write path is known), so a wrong reading is harmless and visible.
+// FaceGen morph coefficients of an NPC base (TESNPC::faceGenData[3], xNVSE GameForms.h): three blocks, FGGS 50 floats, FGGA 30, FGTS 50 (the skin tone).
+// The layout is now read off a reference exe (TESNPC::Save 0x601CA0 writes FGGS / FGGA / FGTS from faceGenData[0..2]; its element accessors 0x60B370,
+// 0x6578B0 and 0x662820 index a vector): a block is {+0C first, +10 last, +14 end of storage, +18 count, +1C size}. `first` is a POINTER to the floats and
+// `last` an end pointer ((last - first) / 4 is the count); the xNVSE header calls +10 "useOffset", which made the old reader try floats at first + offset.
+// A block is readable when first is set, count is 1..64 and size is 1; its floats are then read straight from `first`. Every readable block is sent, an
+// all-zero one included (engine/face_blocks.h says why).
+uintptr_t FaceBlockFloats(TESNPC* npc, int blk, uint32_t* countOut) {
+    uintptr_t fg = reinterpret_cast<uintptr_t>(&npc->faceGenData[blk]);
+    uint32_t first = 0, last = 0, count = 0, size = 0;
+    if (!Rd(fg + 0x0C, first) || !Rd(fg + 0x10, last) || !Rd(fg + 0x18, count) || !Rd(fg + 0x1C, size)) return 0;
+    if (!first || count == 0 || count > kFaceBlockMaxCount || size != 1) return 0;
+    if (last > first && (last - first) % 4 == 0 && (last - first) / 4 != count) return 0;   // the vector says another number than the count field: not the layout we read
+    *countOut = count;
+    return first;
+}
+
 int ReadFaceCoeffsRaw(TESForm* base, int8_t* out, int max) {
     if (!base || base->typeID != kFormType_TESNPC) return 0;
     TESNPC* npc = static_cast<TESNPC*>(base);
-    int n = 0;
-    for (int blk = 0; blk < 3; ++blk) {
-        uintptr_t fg = reinterpret_cast<uintptr_t>(&npc->faceGenData[blk]);
-        uint32_t values = 0, useOffset = 0, count = 0, size = 0;
-        if (!Rd(fg + 0x0C, values) || !Rd(fg + 0x10, useOffset) || !Rd(fg + 0x18, count) || !Rd(fg + 0x1C, size)) continue;
-        if (!values || count == 0 || count > 64 || size != 1 || n + static_cast<int>(count) > max) continue;
-        uint32_t candidates[2] = {0, 0};
-        Rd(values, candidates[0]);                                        // reading A: values[0] points at the floats
-        candidates[1] = values + (useOffset <= 0x400 ? useOffset : 0);    // reading B: the floats start at values + useOffset
-        for (int c = 0; c < 2; ++c) {
-            if (!candidates[c]) continue;
-            int8_t q[64] = {};
-            bool ok = true, any = false;
-            for (uint32_t i = 0; i < count && ok; ++i) {
-                float f = 0;
-                if (!Rd(candidates[c] + 4u * i, f) || !std::isfinite(f) || std::fabs(f) > 16.0f) {
-                    ok = false;
-                    break;
-                }
-                int v = static_cast<int>(std::lround(f * 16.0f));
-                v = v < -127 ? -127 : (v > 127 ? 127 : v);
-                q[i] = static_cast<int8_t>(v);
-                any = any || v != 0;
-            }
-            if (ok && any) {
-                for (uint32_t i = 0; i < count; ++i) out[n++] = q[i];
-                break;
-            }
-        }
+    FaceBlockRead blocks[kFaceBlockCount];
+    for (int blk = 0; blk < kFaceBlockCount; ++blk) {
+        uint32_t n = 0;
+        const uintptr_t fl = FaceBlockFloats(npc, blk, &n);
+        if (!fl) continue;
+        std::vector<float> v(n);
+        bool ok = true;
+        for (uint32_t i = 0; i < n && ok; ++i) ok = Rd(fl + 4u * i, v[i]) && std::isfinite(v[i]);
+        if (!ok) continue;
+        blocks[blk].readable = true;
+        blocks[blk].values = std::move(v);
     }
-    return n;
+    std::vector<int8_t> packed;
+    PackFaceBlocks(blocks, packed);
+    if (static_cast<int>(packed.size()) > max) return 0;
+    for (size_t i = 0; i < packed.size(); ++i) out[i] = packed[i];
+    return static_cast<int>(packed.size());
 }
 
 int ReadFaceCoeffsSEH(TESForm* base, int8_t* out, int max) {
@@ -481,28 +519,27 @@ uint32_t CloneNpcRaw(TESForm* src) {
     }
 }
 
-// The float array of one FaceGenData block the way ReadFaceCoeffsRaw finds it (same two readings, same plausibility test). 0 = none.
-uintptr_t FaceBlockFloats(TESNPC* npc, int blk, uint32_t* countOut) {
-    uintptr_t fg = reinterpret_cast<uintptr_t>(&npc->faceGenData[blk]);
-    uint32_t values = 0, useOffset = 0, count = 0, size = 0;
-    if (!Rd(fg + 0x0C, values) || !Rd(fg + 0x10, useOffset) || !Rd(fg + 0x18, count) || !Rd(fg + 0x1C, size)) return 0;
-    if (!values || count == 0 || count > 64 || size != 1) return 0;
-    uint32_t candidates[2] = {0, values + (useOffset <= 0x400 ? useOffset : 0)};
-    Rd(values, candidates[0]);
-    for (uint32_t c : candidates) {
-        if (!c) continue;
-        bool ok = true, any = false;
-        for (uint32_t i = 0; i < count && ok; ++i) {
-            float f = 0;
-            ok = Rd(c + 4u * i, f) && std::isfinite(f) && std::fabs(f) <= 16.0f;
-            any = any || (ok && f != 0);
-        }
-        if (ok && any) {
-            *countOut = count;
-            return c;
-        }
+// The engine's own list functions, the ones TESNPC::CopyFrom calls: tList::RemoveAll 0x470470 (thiscall(list), frees the nodes after the head, empties the head)
+// and tList::AddTail 0x905820 (thiscall(list, T** data) ret 4, appends a node from the game heap, or fills an empty head). Their first 16 bytes are pinned.
+constexpr uint32_t kListClear = 0x00470470;
+constexpr uint8_t kListClearPro[16] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0, 0x8B, 0x45, 0xF0, 0x83, 0x78, 0x04, 0x00};
+constexpr uint32_t kListAdd = 0x00905820;
+constexpr uint8_t kListAddPro[16] = {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xFB, 0xB0, 0xEE, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00};
+bool HeadPartPinsOk() {
+    static const bool ok = std::memcmp(reinterpret_cast<const void*>(uintptr_t(kListClear)), kListClearPro, sizeof kListClearPro) == 0 &&
+                           std::memcmp(reinterpret_cast<const void*>(uintptr_t(kListAdd)), kListAddPro, sizeof kListAddPro) == 0;
+    return ok;
+}
+// Replaces the head part list of `npc` (a copy made by CloneNpcRaw, never the template) by `parts` (BGSHeadPart forms, already resolved and type-checked).
+bool WriteHeadPartsRaw(TESNPC* npc, const TESForm* const* parts, int n) {
+    if (!npc || !parts || n <= 0 || !HeadPartPinsOk()) return false;
+    void* list = reinterpret_cast<char*>(npc) + kNpcHeadPartList;
+    reinterpret_cast<void(__thiscall*)(void*)>(uintptr_t(kListClear))(list);
+    for (int i = 0; i < n; ++i) {
+        void* data = const_cast<TESForm*>(parts[i]);
+        reinterpret_cast<void(__thiscall*)(void*, void**)>(uintptr_t(kListAdd))(list, &data);
     }
-    return 0;
+    return true;
 }
 
 struct LookWrite {
@@ -513,6 +550,10 @@ struct LookWrite {
     const int8_t* coeffs = nullptr;
     int coeffCount = 0;
     bool faceWritten = false;
+    bool faceLayoutOk = true;           // the face vector had the length of this machine's readable blocks
+    const TESForm* const* headParts = nullptr;   // resolved BGSHeadPart forms; null / 0 = leave the copy's list alone
+    int headPartCount = 0;
+    bool headPartsWritten = false;
 };
 // Writes the look into `npc` (a copy made by CloneNpcRaw). The face morphs only go into arrays the copy owns: when CopyFrom shared the
 // template's array, writing it would change the template (the local player) too, and the face stays the template's.
@@ -526,16 +567,19 @@ bool WriteLookRaw(TESNPC* npc, TESNPC* tmpl, LookWrite& w) {
         if (w.hairColor) npc->hairColor = w.hairColor;
         if (w.height > 0) npc->height = w.height;
         if (w.weight > 0) npc->weight = w.weight;
-        int k = 0;
-        for (int blk = 0; blk < 3 && k < w.coeffCount; ++blk) {
-            uint32_t n = 0, nt = 0;
-            const uintptr_t mine = FaceBlockFloats(npc, blk, &n);
-            const uintptr_t theirs = tmpl ? FaceBlockFloats(tmpl, blk, &nt) : 0;
-            if (!mine) continue;
-            if (mine == theirs) { k += static_cast<int>(n); continue; }   // shared with the template: never written
-            for (uint32_t i = 0; i < n && k < w.coeffCount; ++i, ++k) reinterpret_cast<float*>(mine)[i] = w.coeffs[k] / 16.0f;
-            w.faceWritten = true;
+        if (w.coeffCount > 0) {   // the face: the copy's own blocks only; a block shared with the template (the local player's face) is never written
+            FaceSlot slots[kFaceBlockCount];
+            for (int blk = 0; blk < kFaceBlockCount; ++blk) {
+                uint32_t n = 0, nt = 0;
+                const uintptr_t mine = FaceBlockFloats(npc, blk, &n);
+                const uintptr_t theirs = tmpl ? FaceBlockFloats(tmpl, blk, &nt) : 0;
+                if (!mine) continue;
+                slots[blk].count = n;
+                slots[blk].dst = (mine == theirs) ? nullptr : reinterpret_cast<float*>(mine);
+            }
+            w.faceLayoutOk = UnpackFaceBlocks(w.coeffs, static_cast<size_t>(w.coeffCount), slots, &w.faceWritten);
         }
+        if (w.headParts && w.headPartCount > 0) w.headPartsWritten = WriteHeadPartsRaw(npc, w.headParts, w.headPartCount);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -729,6 +773,7 @@ bool WinBackend::ReadAnim(RefId ref, AnimRead& out) {
         out.playMs[i] = ra.playMs[i];
     }
     out.nGroups = ra.nGroups;
+    for (int k = 0; k < 2; ++k) out.alt[k] = ra.alt[k];
     out.action = ra.action;
     out.aiming = ra.aiming;
     out.weaponOut = ra.weaponOut;
@@ -781,13 +826,18 @@ bool WinBackend::ReadAppearance(RefId ref, Appearance& out) {
     out.height = static_cast<uint16_t>(ra.height > 0 && ra.height < 65.0f ? std::lround(ra.height * 1000.0f) : 0);
     out.weight = static_cast<uint16_t>(ra.weight > 0 && ra.weight < 65.0f ? std::lround(ra.weight * 1000.0f) : 0);
     out.name = ra.name;
+    out.headParts.assign(ra.headParts, ra.headParts + ra.nHeadParts);
     return true;
 }
 
-FormId WinBackend::CloneNpcBase(FormId base) {
+bool WinBackend::CanCloneNpcBase() {
     static const bool pinsOk = std::memcmp(reinterpret_cast<const void*>(uintptr_t(kCreateFormInstance)), kCreateFormInstancePro, sizeof kCreateFormInstancePro) == 0 &&
                                std::memcmp(reinterpret_cast<const void*>(uintptr_t(kDataHandlerAddForm)), kDataHandlerAddFormPro, sizeof kDataHandlerAddFormPro) == 0;
-    if (!lookupOk_ || !pinsOk) return 0;
+    return lookupOk_ && pinsOk;
+}
+
+FormId WinBackend::CloneNpcBase(FormId base) {
+    if (!CanCloneNpcBase()) return 0;
     return CloneNpcRaw(LookupSEH(base));
 }
 
@@ -807,8 +857,23 @@ bool WinBackend::WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, boo
     w.weight = a.weight / 1000.0f;
     w.coeffs = a.faceCoeffs.data();
     w.coeffCount = static_cast<int>(a.faceCoeffs.size());
+    const TESForm* parts[kMaxHeadParts] = {};
+    int np = 0;
+    bool partsOk = true;
+    for (uint32_t id : a.headParts) {
+        if (np >= static_cast<int>(kMaxHeadParts)) break;
+        const TESForm* hp = LookupSEH(id);
+        if (!hp || hp->typeID != kFormType_BGSHeadPart) { partsOk = false; break; }   // a part this machine does not know: keep the copy's own list, not half of the remote's
+        parts[np++] = hp;
+    }
+    if (partsOk && np > 0) {
+        w.headParts = parts;
+        w.headPartCount = np;
+    }
     const bool ok = WriteLookRaw(static_cast<TESNPC*>(f), t && t->typeID == kFormType_TESNPC ? static_cast<TESNPC*>(t) : nullptr, w);
     if (faceWritten) *faceWritten = w.faceWritten;
+    lastLookNote_ = std::string("face ") + (w.coeffCount == 0 ? "none sent" : (!w.faceLayoutOk ? "layout mismatch" : (w.faceWritten ? "written" : "shared with the template")));
+    lastLookNote_ += std::string(", head parts ") + (a.headParts.empty() ? "none sent" : (!partsOk ? "unknown here" : (w.headPartsWritten ? "written" : "not written")));
     return ok;
 }
 

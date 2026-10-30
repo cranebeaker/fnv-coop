@@ -22,7 +22,7 @@ struct Rd {
 };
 
 // Look v2 flags byte
-constexpr uint8_t kLkFemale = 0x01, kLkHairColor = 0x02, kLkBody = 0x04, kLkFace = 0x08, kLkReserved = 0xF0;
+constexpr uint8_t kLkFemale = 0x01, kLkHairColor = 0x02, kLkBody = 0x04, kLkFace = 0x08, kLkHeadParts = 0x10, kLkReserved = 0xE0;
 // per equipment entry flags byte
 constexpr uint8_t kEqWeapon = 0x01, kEqMods = 0x02, kEqReserved = 0xFC;
 // Pack flags
@@ -36,6 +36,8 @@ void encodeAppearanceFields(LookBytes& b, const Appearance& a) {
     if (a.hairColor) flags |= kLkHairColor;
     if (a.height || a.weight) flags |= kLkBody;
     if (nFace) flags |= kLkFace;
+    const size_t nParts = a.headParts.size() > kMaxHeadParts ? kMaxHeadParts : a.headParts.size();
+    if (nParts) flags |= kLkHeadParts;
     put8(b, flags);
     put32(b, a.race);
     put32(b, a.hair);
@@ -49,6 +51,10 @@ void encodeAppearanceFields(LookBytes& b, const Appearance& a) {
     if (flags & kLkFace) {
         put8(b, static_cast<uint8_t>(nFace));
         for (size_t i = 0; i < nFace; ++i) put8(b, static_cast<uint8_t>(a.faceCoeffs[i]));
+    }
+    if (flags & kLkHeadParts) {
+        put8(b, static_cast<uint8_t>(nParts));
+        for (size_t i = 0; i < nParts; ++i) put32(b, a.headParts[i]);
     }
     std::string name = a.name.substr(0, kMaxLookName);
     put8(b, static_cast<uint8_t>(name.size()));
@@ -74,6 +80,11 @@ bool decodeAppearanceFields(const uint8_t* data, size_t size, size_t& pos, Appea
         const uint8_t nf = r.u8();
         if ((nf == 0 || nf > kMaxFaceCoeffs) && !FNV_MUT(101)) r.ok = false;   // twin 101: an oversized face block is accepted
         for (uint8_t i = 0; i < nf && r.ok; ++i) a.faceCoeffs.push_back(static_cast<int8_t>(r.u8()));
+    }
+    if (flags & kLkHeadParts) {
+        const uint8_t np = r.u8();
+        if (np == 0 || np > kMaxHeadParts) r.ok = false;
+        for (uint8_t i = 0; i < np && r.ok; ++i) a.headParts.push_back(r.u32());
     }
     const uint8_t nl = r.u8();
     if (nl > kMaxLookName) r.ok = false;

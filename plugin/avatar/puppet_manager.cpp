@@ -320,12 +320,12 @@ std::string PuppetManager::StatusJson() const {
         s += buf;
         first = false;
     }
-    char buf[1100];
+    char buf[1300];
     std::snprintf(buf, sizeof buf,
                   "],\"stats\":{\"spawned\":%llu,\"spawnFailures\":%llu,\"deleted\":%llu,\"refLost\":%llu,\"setPos\":%llu,\"setYaw\":%llu,"
                   "\"playGroup\":%llu,\"groupRefused\":%llu,\"animReasserts\":%llu,\"restrainReasserts\":%llu,\"parked\":%llu,\"purged\":%llu,"
                   "\"saveDespawns\":%llu,\"equipOps\":%llu,\"equipGaveUp\":%llu,\"drift\":%llu,\"budgetDeferred\":%llu,\"load3DTimeouts\":%llu,\"pushesIgnored\":%llu,\"bodyYields\":%llu,"
-                  "\"oneShots\":%llu,\"oneShotsStale\":%llu,\"oneShotsMissed\":%llu,\"oneShotsFrozen\":%llu,\"oneShotsFailed\":%llu}}",
+                  "\"oneShots\":%llu,\"oneShotsStale\":%llu,\"oneShotsMissed\":%llu,\"oneShotsFrozen\":%llu,\"oneShotsFailed\":%llu,\"oneShotsSeen\":%llu,\"oneShotsNotSeen\":%llu,\"attackDraws\":%llu}}",
                   (unsigned long long)stats_.spawned, (unsigned long long)stats_.spawnFailures, (unsigned long long)stats_.deleted,
                   (unsigned long long)stats_.refLost, (unsigned long long)stats_.setPos, (unsigned long long)stats_.setYaw,
                   (unsigned long long)stats_.playGroup, (unsigned long long)stats_.groupRefused, (unsigned long long)stats_.animReasserts,
@@ -334,7 +334,8 @@ std::string PuppetManager::StatusJson() const {
                   (unsigned long long)stats_.drift, (unsigned long long)stats_.budgetDeferred, (unsigned long long)stats_.load3DTimeouts,
                   (unsigned long long)stats_.pushesIgnored, (unsigned long long)stats_.bodyYields, (unsigned long long)stats_.oneShots,
                   (unsigned long long)stats_.oneShotsStale, (unsigned long long)stats_.oneShotsMissed, (unsigned long long)stats_.oneShotsFrozen,
-                  (unsigned long long)stats_.oneShotsFailed);
+                  (unsigned long long)stats_.oneShotsFailed, (unsigned long long)stats_.oneShotsSeen, (unsigned long long)stats_.oneShotsNotSeen,
+                  (unsigned long long)stats_.attackDraws);
     s += buf;
     return s;
 }
@@ -381,6 +382,17 @@ void PuppetManager::TrySpawn(Puppet& p, uint32_t now) {
         Log("avatar: no template NPC for slot " + std::to_string((int)p.slot));
         return;
     }
+    // An engine that builds each puppet from its player's look needs that look first: a puppet made from an empty Appearance wears the LOCAL player's
+    // face with the wrong sex, and is thrown away (and made again) when the look arrives a moment later.
+    if (!p.app.known() && e_.LooksByBase() && !F.noLookWait) {
+        if (!p.lookWaiting) {
+            p.lookWaiting = true;
+            p.lookWaitSince = now;
+            Log("avatar: slot " + std::to_string((int)p.slot) + " is not spawned until its look has arrived (at most " + std::to_string(cfg_.lookWaitMs) + " ms)");
+        }
+        if (now - p.lookWaitSince < cfg_.lookWaitMs) return;
+        Log("avatar: no look from slot " + std::to_string((int)p.slot) + " after " + std::to_string(cfg_.lookWaitMs) + " ms: spawning it from the template");
+    }
     if (!Budget()) return;
     tmpl = e_.LookBase(p.slot, tmpl, p.app);   // its own copy with the look written in, when the engine can make one
     float yaw = F.usesPitchAsYaw ? p.pose.rot.x : WrapRad(p.pose.rot.y);
@@ -396,6 +408,12 @@ void PuppetManager::TrySpawn(Puppet& p, uint32_t now) {
             Log("avatar: giving up on slot " + std::to_string((int)p.slot) + " after " + std::to_string(p.attempts) + " spawn attempts");
         }
         return;
+    }
+    {
+        const std::string note = e_.LookReport(p.slot);
+        Log("avatar: puppet of slot " + std::to_string((int)p.slot) + " spawned as ref " + std::to_string(r) + " (race " + std::to_string(p.app.race) +
+            (p.app.female ? " female" : " male") + ", hair " + std::to_string(p.app.hair) + ", eyes " + std::to_string(p.app.eyes) + ", face data " +
+            std::to_string(p.app.faceCoeffs.size()) + ", head parts " + std::to_string(p.app.headParts.size()) + ")" + (note.empty() ? "" : ": " + note));
     }
     p.ref = r;
     p.gen = nextGen_++;
@@ -684,6 +702,10 @@ void PuppetManager::Drive(Puppet& p, uint32_t now, bool menuClosedNow) {
     if (pinned) po.group = heldGroup;
 
     bool wantDrawn = po.weaponDrawn;
+    if (p.attackDrawUntil) {   // an attack is playing on a puppet whose owner shows no weapon out (fists): hold it up until the swing is over
+        if (static_cast<int32_t>(now - p.attackDrawUntil) < 0 && !avatarFaults().noAttackDraw) wantDrawn = true;
+        else p.attackDrawUntil = 0;
+    }
     if ((!p.haveDrawn || p.drawn != wantDrawn) && static_cast<int32_t>(now - p.drawRetryAt) >= 0 && Budget()) {
         if (e_.SetWeaponDrawn(p.ref, wantDrawn)) {
             p.drawn = wantDrawn;
@@ -693,6 +715,7 @@ void PuppetManager::Drive(Puppet& p, uint32_t now, bool menuClosedNow) {
         }
     }
 
+    VerifyOneShot(p, now);
     EndOneShot(p, now, frozen);
     int cur = e_.CurrentGroup(p.ref);
     bool changed = po.group != p.lastGroup;
@@ -798,12 +821,14 @@ void PuppetManager::PlayOneShot(Puppet& p, uint32_t now, bool frozen) {
     if (frozen && !F.oneShotWhileFrozen) {
         p.actSeq = a.actionSeq;
         ++stats_.oneShotsFrozen;
+        if (oneShotLogs_++ < 400) Log("avatar: remote attack from slot " + std::to_string((int)p.slot) + " dropped: the stream is stale (the puppet is frozen)");
         return;
     }
     const int g = a.action;
     if (g == 0 || !IsActionGroup(g)) {   // the event was over before this copy's render time reached it
         p.actSeq = a.actionSeq;
         ++stats_.oneShotsMissed;
+        if (oneShotLogs_++ < 400) Log("avatar: remote attack from slot " + std::to_string((int)p.slot) + " missed: it was over before this copy's render time reached it (event " + std::to_string((int)a.actionSeq) + ")");
         return;
     }
     if (IsReloadActionGroup(g)) {   // shown by the planner from the reload flag
@@ -812,7 +837,28 @@ void PuppetManager::PlayOneShot(Puppet& p, uint32_t now, bool frozen) {
     }
     if (!Budget()) return;   // the counter is not taken yet: the next Tick tries again while the event is still in the stream
     const bool hold = IsHeldActionGroup(g);
-    if (e_.PlayGroup(p.ref, g, hold ? 1 : 0)) {
+    // A swing, a punch or a shot on a puppet whose weapon is not out (the owner's fists, or a weapon the planner shows holstered) may not play at all: draw it first,
+    // give the engine a moment, and hold it up until the swing is over (Drive keeps wantDrawn while attackDrawUntil runs).
+    if (IsAttackGroup(g) && !p.drawn && !avatarFaults().noAttackDraw) {
+        if (!p.actDrawWaitUntil) {
+            if (e_.SetWeaponDrawn(p.ref, true)) {
+                p.drawn = true;
+                p.haveDrawn = true;
+                ++stats_.attackDraws;
+                p.attackDrawUntil = now + OneShotMs(g) + 700;
+                p.actDrawWaitUntil = now + 150;
+                if (!p.actDrawWaitUntil) p.actDrawWaitUntil = 1;
+                return;   // the counter is not taken: the swing plays after the draw
+            }
+        }
+    }
+    if (p.actDrawWaitUntil && static_cast<int32_t>(now - p.actDrawWaitUntil) < 0) return;
+    p.actDrawWaitUntil = 0;
+    const bool played = e_.PlayGroup(p.ref, g, hold ? 1 : 0);
+    if (oneShotLogs_++ < 400)
+        Log("avatar: remote attack received from slot " + std::to_string((int)p.slot) + ": group " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") +
+            "), event " + std::to_string((int)a.actionSeq) + ", weapon " + (p.drawn ? "out" : "away") + ", puppet animation " + (played ? "started" : "REFUSED by the engine (try " + std::to_string(p.actTries + 1) + ")"));
+    if (played) {
         ++stats_.playGroup;
         ++stats_.oneShots;
         p.actSeq = a.actionSeq;
@@ -821,12 +867,39 @@ void PuppetManager::PlayOneShot(Puppet& p, uint32_t now, bool frozen) {
         p.actHeld = hold ? g : 0;
         p.actUntil = now + OneShotMs(g);
         p.mismatchSince = 0;
+        if (!avatarFaults().noOneShotVerify) {
+            p.actVerifyAt = now + 150;
+            if (!p.actVerifyAt) p.actVerifyAt = 1;
+            p.actVerifyGroup = g;
+        }
     } else if (++p.actTries >= 3) {   // the engine will not play it (no 3D yet, a group this weapon lacks): give the event up
         p.actSeq = a.actionSeq;
         p.actTries = 0;
         ++stats_.oneShotsFailed;
+        if (oneShotLogs_++ < 400) Log("avatar: remote attack from slot " + std::to_string((int)p.slot) + " given up after 3 refusals (group " + std::to_string(g) + ")");
     } else {
         ++stats_.groupRefused;
+    }
+}
+
+// ~150 ms after a one-shot was handed to the engine: does it show the group running? The script command says "ok" for a group the actor then does not play
+// (no such group for its weapon, a state that rejects it), and that is the whole "I don't see the other person punching" case, so it is counted and logged.
+void PuppetManager::VerifyOneShot(Puppet& p, uint32_t now) {
+    if (!p.actVerifyAt || static_cast<int32_t>(now - p.actVerifyAt) < 0) return;
+    const int g = p.actVerifyGroup;
+    const bool stale = static_cast<int32_t>(now - p.actVerifyAt) > 400;   // checked too late (a stalled frame): the swing may be over
+    p.actVerifyAt = 0;
+    p.actVerifyGroup = -1;
+    if (stale || g < 0) return;
+    const int cur = e_.CurrentGroup(p.ref);
+    if (cur == g) {
+        ++stats_.oneShotsSeen;
+        if (oneShotLogs_++ < 400) Log("avatar: remote attack on slot " + std::to_string((int)p.slot) + ": the puppet is playing group " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") + ")");
+    } else if (cur >= 0) {   // -1 = the engine cannot be read: no verdict
+        ++stats_.oneShotsNotSeen;
+        if (oneShotLogs_++ < 400)
+            Log("avatar: remote attack on slot " + std::to_string((int)p.slot) + ": PlayGroup " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") + ") ran but the puppet is playing group " +
+                std::to_string(cur) + " instead: the swing is NOT visible");
     }
 }
 

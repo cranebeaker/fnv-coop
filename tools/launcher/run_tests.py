@@ -443,7 +443,7 @@ def check_lobby_refusals():
     lone.open()
     try:
         assert wait_for(lambda: lone.view().state == "closed", fnv_lobby.GIVE_UP_AFTER + 4), lone.view()
-        assert "IN PROGRESS" in lone.view().message
+        assert "IN-PROGRESS" in lone.view().message, "a plain lobby join that finds no lobby points at the other join mode"
     finally:
         lone.close()
     assert fnv_lobby.unpack(b"junk") is None and fnv_lobby.unpack(fnv_lobby.MAGIC + b"[1]") is None
@@ -1152,7 +1152,10 @@ def check_continue_in_the_launcher():
         guest_lobby.campaign, guest_lobby.host_save = OTHER, "Save 1 - Other"
         assert app.autostart_for("join", guest_lobby) == "start", "no save of that campaign: the start save"
         assert app.autostart_for("join", fnv_lobby.GuestLobby("Bob", 7, "127.0.0.1", 1, "x")) == "start", "a new game"
-        assert app.autostart_for("join", None) == "", "joining a game in progress loads nothing"
+        assert app.autostart_for("join", None) == "start", "joining a game in progress with no known campaign loads the start save (never nothing)"
+        assert app.autostart_for("join", None, CAMP) == "load:Co-op 00ab12 Save 4 - Ann Primm", "a known campaign: the guest's own newest save of it"
+        assert app.autostart_for("join", None, OTHER) == "start", "no save of that campaign: the start save"
+        assert app.autostart_for("host", None) == "", "only a guest has an in-progress start"
         # the plan writes it, one-shot like "start", and refuses a name the plugin could not load
         pop = FakePopen()
         s = core.Settings(name="Ann", mode="host", port=28123, game_dir=str(g), autostart="load:Save 4 - Ann Primm", party=3)
@@ -1165,6 +1168,151 @@ def check_continue_in_the_launcher():
         s.autostart = "start"
         p = core.build_plan(s)
         assert p.values["coop"]["autostart"] == "start" and p.values["coop"]["party"] == "3"
+
+
+def fake_launcher_app(td, name="Ann", sub="g"):
+    """A launcher with a fake game folder: (app, game folder, list the fake game start appends to)."""
+    g = installed_game(td / sub)
+    cfg = td / (sub + ".json")
+    core.save_settings(core.Settings(name=name, game_dir=str(g), token=77, port=free_udp_port(), second_copy=True), cfg)
+    app = term.App(settings_path=cfg, version="0.1.1-alpha")
+    app.documents = str(td / (sub + "-docs"))
+    return app, g, []
+
+
+def check_join_one_button():
+    """JOIN with an IP address is one action: the lobby when there is one, else the game in progress, and either way nobody clicks in the game."""
+    with tmp() as td, ansi():
+        orig = core.launch_game
+        try:
+            # 1. the host is in its lobby: the guest lands in the lobby and no game is started
+            app, g, launches = fake_launcher_app(td)
+            core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+            host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", address="127.0.0.1")
+            assert host.open()[0]
+            try:
+                assert app.join(f"127.0.0.1:{host.port}")["ok"]
+                assert wait_for(lambda: app.lobby is not None and app.lobby.view().state == "lobby"), app.lobby.view()
+                time.sleep(fnv_lobby.PROBE_FOR + 0.8)
+                assert app.lobby is not None and app.lobby.view().state == "lobby" and not launches, "an answering lobby is never abandoned for a game start"
+            finally:
+                app.leave()
+                host.close()
+            # 2. nothing answers (the host is in the world; its game holds the port): the game starts and joins in progress, with the start save
+            app, g, launches = fake_launcher_app(td, sub="g2")
+            core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+            port = free_udp_port()
+            t0 = time.monotonic()
+            assert app.join(f"127.0.0.1:{port}")["ok"]
+            assert app.lobby is not None and app.lobby.view().state == "joining" and "lobby" in app.lobby.view().message.lower()
+            assert wait_for(lambda: len(launches) == 1, fnv_lobby.PROBE_FOR + 4), "no lobby answered: the game starts to join in progress"
+            assert time.monotonic() - t0 >= fnv_lobby.PROBE_FOR - 0.2, "the launcher waits for the lobby before it gives up on it"
+            assert app.lobby is None and app.launched == "guest"
+            t = fnv_ini.read_text(core.ini_path(g))
+            assert fnv_ini.get(t, "coop", "role") == "client" and fnv_ini.get(t, "coop", "port") == str(port), t
+            assert fnv_ini.get(t, "coop", "autostart") == "start", "the game loads the start save by itself: no menu clicks"
+            assert not fnv_ini.get(t, "coop", "party"), "a guest in progress waits for no party"
+            assert any("NO LOBBY ANSWERED" in l for l in app.state()["log"]), app.state()["log"]
+            assert app.s.last_join_key == f"ip:127.0.0.1:{port}"
+            # 3. forced modes: "game" starts at once, "lobby" does not fall back
+            app, g, launches = fake_launcher_app(td, sub="g3")
+            core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+            assert app.join(f"127.0.0.1:{free_udp_port()}", "game")["ok"] and len(launches) == 1 and app.lobby is None, "forced in-progress join: no lobby is asked"
+            app, g, launches = fake_launcher_app(td, sub="g4")
+            core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+            assert app.join(f"127.0.0.1:{free_udp_port()}", "lobby")["ok"] and app.lobby.probe_s == 0
+            time.sleep(fnv_lobby.PROBE_FOR + 1.0)
+            assert not launches and app.lobby.view().state == "joining", "forced lobby join keeps waiting for the lobby"
+            app.leave()
+            # the player can leave while it is still looking
+            app, g, launches = fake_launcher_app(td, sub="g5")
+            core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+            assert app.join(f"127.0.0.1:{free_udp_port()}")["ok"]
+            app.leave()
+            time.sleep(fnv_lobby.PROBE_FOR + 1.0)
+            assert not launches and app.lobby is None, "leaving cancels the in-progress fallback"
+            # the mode setting is validated and remembered; the launcher's own bookkeeping is not settable from the page
+            assert app.apply_settings({"join_mode": "lobby"})["ok"] and app.s.join_mode == "lobby"
+            app.apply_settings({"join_mode": "bogus"})
+            assert app.s.join_mode == "lobby"
+            app.apply_settings({"last_join_key": "x"})
+            assert app.s.last_join_key == "" and "last_campaign" not in app.state()["settings"]
+        finally:
+            core.launch_game = orig
+
+
+def check_join_probe_rules():
+    """The lobby side of the probe: a host whose game is starting is waited for, a real refusal is final."""
+    g = fnv_lobby.GuestLobby("Ann", 1, "127.0.0.1", 1, "0.1.1-alpha", probe_s=2.5)
+    g.opened = -100.0
+    g.handle({"t": "refuse", "why": "The game is already starting.", "code": "starting"})
+    assert g.state == "joining" and g.opened > -100.0, "the host's lobby is closing for its game: keep waiting, then join in progress"
+    g.handle({"t": "refuse", "why": "The party is full (4 players)."})
+    assert g.state == "closed", "a refusal with a reason ends the join"
+    plain = fnv_lobby.GuestLobby("Ann", 1, "127.0.0.1", 1, "0.1.1-alpha")
+    plain.handle({"t": "refuse", "why": "x", "code": "starting"})
+    assert plain.state == "closed", "a plain lobby join keeps the old behaviour"
+    host = fnv_lobby.HostLobby("Six", 0, "0.1.1-alpha", address="127.0.0.1")
+    host.started_at = 1.0
+    r = host.handle({"t": "hello", "token": 9, "ver": "0.1.1-alpha", "name": "Cy"}, ("127.0.0.1", 2))
+    assert r["t"] == "refuse" and r.get("code") == "starting", r
+    # no answer at all ends in "no_lobby" and calls the launcher back once
+    calls = []
+    q = fnv_lobby.GuestLobby("Ann", 2, "127.0.0.1", free_udp_port(), "0.1.1-alpha", probe_s=0.6)
+    q.on_no_lobby = lambda: calls.append(1)
+    q.open()
+    try:
+        assert wait_for(lambda: calls, 4) and q.view().state == "no_lobby", q.view()
+        time.sleep(0.4)
+        assert calls == [1]
+    finally:
+        q.close()
+
+
+def check_join_in_progress_loads_by_itself():
+    """A guest joining a game in progress loads its own save of the host's campaign when it knows it, else the start save: never the main menu."""
+    with tmp() as td, ansi():
+        app, g, launches = fake_launcher_app(td)
+        saves = fg.make_mygames(Path(app.documents)) / "Saves"
+        orig = core.launch_game
+        core.launch_game = lambda game, popen=None: launches.append(str(game)) or 4242
+        try:
+            assert ps.last_campaign(g) == "", "nothing noted yet"
+            r = app.join_direct("127.0.0.1")
+            assert r["ok"] and app.s.last_join_key == "ip:127.0.0.1:27960" and launches, r
+            ini = core.ini_path(g)
+            t = fnv_ini.read_text(ini)
+            assert fnv_ini.get(t, "coop", "autostart") == "start" and not fnv_ini.get(t, "coop", "lastcampaign"), t
+            # the plugin notes the host's campaign in nvcoop.ini when the host's order arrives; the guest's party save is in its index
+            fnv_ini.write_atomic(ini, fnv_ini.set_value(fnv_ini.read_text(ini), "coop", "lastcampaign", CAMP))
+            assert ps.last_campaign(g) == CAMP
+            write_index(g, [(CAMP, "Save 4 - Ann Primm", "Co-op 00ab12 Save 4 - Ann Primm", 2000)])
+            write_party_save(saves, "Co-op 00ab12 Save 4 - Ann Primm", CAMP, role="guest", host_save="Save 4 - Ann Primm")
+            app.launched = ""
+            assert app.join_direct("127.0.0.1")["ok"]
+            t = fnv_ini.read_text(ini)
+            assert fnv_ini.get(t, "coop", "autostart") == "load:Co-op 00ab12 Save 4 - Ann Primm", "the same host again: the guest's own newest save of the campaign"
+            assert fnv_ini.get(t, "coop", "lastcampaign") == CAMP, "the note survives the launch, for the next time"
+            assert not fnv_ini.get(t, "coop", "party")
+            # another host: the note is about the first one and is not used
+            app.launched = ""
+            assert app.join_direct("127.0.0.2")["ok"]
+            t = fnv_ini.read_text(ini)
+            assert fnv_ini.get(t, "coop", "autostart") == "start" and not fnv_ini.get(t, "coop", "lastcampaign"), t
+            # the lobby route hands the campaign on for next time too, and a new game in a lobby has none yet
+            lob = fnv_lobby.GuestLobby("Ann", 7, "127.0.0.1", 1, "0.1.1-alpha")
+            lob.campaign, lob.host_save = CAMP, "Save 4 - Ann Primm"
+            app.launched = ""
+            assert app._launch("join", "127.0.0.3", lobby=lob)
+            t = fnv_ini.read_text(ini)
+            assert fnv_ini.get(t, "coop", "lastcampaign") == CAMP and fnv_ini.get(t, "coop", "autostart") == "load:Co-op 00ab12 Save 4 - Ann Primm", t
+            lob.campaign, lob.host_save = "", ""
+            app.launched = ""
+            assert app._launch("join", "127.0.0.3", lobby=lob)
+            t = fnv_ini.read_text(ini)
+            assert not fnv_ini.get(t, "coop", "lastcampaign") and fnv_ini.get(t, "coop", "autostart") == "start", t
+        finally:
+            core.launch_game = orig
 
 
 def check_campaign_and_chat_options():
@@ -1198,6 +1346,7 @@ REAL = [check_parse_address, check_validate_name, check_build_plan, check_write_
         check_steam_plan, check_steam_link, check_steam_lobby_party_starts_together, check_steam_lobby_refusals, check_steam_in_the_launcher, check_steam_invite_in_the_launcher,
         check_steam_join_rules, check_steam_unavailable, check_steam_real_helper, check_steam_helper_twins,
         check_party_names_and_folder, check_party_host_saves, check_party_guest_pick, check_lobby_continue_message, check_continue_in_the_launcher,
+        check_join_one_button, check_join_probe_rules, check_join_in_progress_loads_by_itself,
         check_campaign_and_chat_options]
 
 TWINS = [
@@ -1217,6 +1366,8 @@ TWINS = [
     (check_steam_in_the_launcher, "steam_close_at_start"), (check_steam_join_rules, "steam_ignore_release"),
     (check_campaign_and_chat_options, "balanced_ignored"), (check_campaign_and_chat_options, "chat_no_name"),
     (check_campaign_and_chat_options, "chat_key_any"),
+    (check_join_one_button, "join_no_probe"), (check_join_in_progress_loads_by_itself, "inprogress_loads_nothing"),
+    (check_join_in_progress_loads_by_itself, "inprogress_ignores_campaign"),
 ]
 
 

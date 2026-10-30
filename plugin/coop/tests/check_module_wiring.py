@@ -141,8 +141,13 @@ REQUIRED[MODULE] += [
     ('op == "noIntro"', "party saves: a guest joining a campaign under way skips the opening movie"),
     ('{\\"op\\":\\"noIntro\\"}', "party saves: the host answers introReady at once with no intro when the campaign is under way"),
     ("JoinHostWarp(now)", "party saves: that guest is moved to the host after its character is made"),
+    ('NoteHostCampaign(v.get("id")', "join in progress: the host's campaign is noted in nvcoop.ini so the launcher can find the guest's own save next time"),
+    ('WritePrivateProfileStringA("coop", "lastcampaign"', "join in progress: ... under [coop] lastcampaign"),
+    ("InstallLoadGuard();", "load guard: a joined guest cannot load a save from the menus"),
+    ("guestLoadAllowed(", "load guard: the detour asks load_guard.h"),
 ]
 REQUIRED[MAIN] += [
+    ('(role == "client" || role == "guest") && PrepareStartSave(startErr)', "join in progress: a guest whose own save cannot load joins with the start save, never the main menu"),
     ('autostart.compare(0, 5, "load:")', "party saves: [coop] autostart=load:<save> (the launcher's CONTINUE) loads the named save"),
     ("LoadableSaveName(name, err)", "party saves: ... only a plain save name that exists in the save folder"),
 ]

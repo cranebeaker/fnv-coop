@@ -49,6 +49,15 @@ struct ActorEntry {
 };
 
 // Running animation groups and stance, read from the process objects (the same reads as plugin/animprobe, which verified the vtable slots).
+// One AnimData's nine sequence slots (see AnimRead::groups for the meaning of the fields).
+struct AnimSet {
+    bool valid = false;               // the AnimData was found and read
+    int groups[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int state[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int playMs[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int nGroups = 0;
+};
+
 struct AnimRead {
     bool valid = false;               // the actor has a process with animation data
     int groups[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};   // group id (low byte) of the sequence in each AnimData slot, -1 = none
@@ -57,6 +66,9 @@ struct AnimRead {
     // -1 = this backend cannot tell (then a held group counts as playing and a restart of the same group cannot be seen).
     int state[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     int playMs[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    // The LOCAL PLAYER only: the other AnimData objects the engine keeps for him. [0] = the first-person set (PlayerCharacter+0x690), [1] = the alternate (+0x6A0).
+    // A player in first person plays his attacks on [0], not on the set above (the process's, third person); not valid = not present / not the player.
+    AnimSet alt[2];
     int action = -1;                  // BaseProcess animation action, -1 unknown
     bool aiming = false;              // process IsAiming
     bool weaponOut = false;           // process IsWeaponOut
@@ -94,11 +106,15 @@ public:
     virtual bool ReadAnim(RefId ref, AnimRead& out) = 0;
     virtual bool ReadEquipped(RefId ref, std::vector<EquippedItem>& out) = 0;   // false = unknown
     virtual bool ReadAppearance(RefId ref, Appearance& out) = 0;                // race / sex / hair / eyes / body / face data of the actor's base
+    // Whether CloneNpcBase can work at all on this game (its pins hold): false is permanent, a 0 from CloneNpcBase while this is true is a refusal that may pass.
+    virtual bool CanCloneNpcBase() { return false; }
     // A private copy of an NPC base (a puppet's own look; the template stays untouched). 0 = not possible.
     virtual FormId CloneNpcBase(FormId /*base*/) { return 0; }
     // The look written into a copy made by CloneNpcBase (never into `tmpl`, the base it was copied from): sex, race, hair, eyes, hair colour,
     // height, weight, and the face morphs when the copy owns its FaceGen arrays (*faceWritten). False = nothing written.
     virtual bool WriteNpcLook(FormId /*base*/, FormId /*tmpl*/, const Appearance& /*a*/, bool* faceWritten) { if (faceWritten) *faceWritten = false; return false; }
+    // What the last WriteNpcLook did with the parts that can fail quietly ("face written, head parts written"), for the log. Empty = nothing to say.
+    virtual std::string LastLookNote() { return std::string(); }
 
     // ---- script -------------------------------------------------------------------------------------------------------
     // Runs one console line with `ctx` as the calling reference. 1 = ran, 0 = the engine refused or could not compile it,

@@ -45,6 +45,8 @@ public:
     // the 3D), so the manager respawns it.
     virtual FormId LookBase(Slot /*slot*/, FormId templateBase, const Appearance& /*a*/) { return templateBase; }
     virtual bool LooksByBase() { return false; }
+    // One line about what the last LookBase(slot) did ("look copy 0xFF000123 ..." / "template, ..."), for the log. Empty = nothing to say.
+    virtual std::string LookReport(Slot /*slot*/) { return std::string(); }
 
     // ---- driving (every Tick) -----------------------------------------------------------------------------------
     virtual bool SetPos(RefId ref, const Vec3& pos) = 0;

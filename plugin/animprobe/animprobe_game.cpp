@@ -196,15 +196,21 @@ void Sample(Actor* a, bool wantBones, const std::vector<std::string>& boneNames,
         if (CallSlot(p, kProcGetCurrentPackage, v) && v) Rd(static_cast<uintptr_t>(v) + 0x0C, out.package);
 
         uint32_t animData = 0;
-        if (CallSlot(p, kProcGetAnimData, animData) && animData) {
+        auto readSet = [](uintptr_t ad, std::vector<SeqSample>& into) {
             for (int i = 0; i < 9; ++i) {
                 uintptr_t seq = 0;
-                const uintptr_t at = animData + (i < 8 ? kAnimDataSeqBase + 4u * i : 0x100);
+                const uintptr_t at = ad + (i < 8 ? kAnimDataSeqBase + 4u * i : 0x100);
                 if (Rd(at, seq) && seq) {
                     SeqSample s;
-                    if (ReadSeq(seq, i, s)) out.seqs.push_back(s);
+                    if (ReadSeq(seq, i, s)) into.push_back(s);
                 }
             }
+        };
+        if (CallSlot(p, kProcGetAnimData, animData) && animData) readSet(animData, out.seqs);
+        if (out.isPlayer) {   // PlayerCharacter::GetAnimData (0x950A10): [+0x6A0] if set, else (first person) [+0x690], else the process's set above
+            uintptr_t fp = 0, alt = 0;
+            if (Rd(ap + 0x690, fp) && fp && fp != animData) readSet(fp, out.fpSeqs);
+            if (Rd(ap + 0x6A0, alt) && alt && alt != animData && alt != fp) readSet(alt, out.altSeqs);
         }
     }
 

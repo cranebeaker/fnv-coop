@@ -1633,6 +1633,43 @@ TEST(entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode) {
     for (const Mode& m : kModes) looksFactsPacksAndRoster(m);
 }
 
+// A character creation edits the base form live: every state of the race menu would make the other machines build the puppet again. A look goes out once it has
+// stayed the same for a moment (the first look and a finished step, announced with noteLookEdited(), at once), and the finished face is the one that arrives.
+TEST(entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once) {
+    Rig3 r(true, false);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    auto cur = std::make_shared<av::Appearance>();
+    cur->race = 1;
+    cur->name = "Alpha";
+    cur->hair = 0x10;
+    a.an->setLocalAppearanceReader([cur](av::Appearance& ap) { ap = *cur; return true; });
+    h.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 1; ap.name = "Host"; return true; });
+    r.run(4000);
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.hair == 0x10);
+    const uint64_t before = h.an->stats().appearanceUpdates;
+    for (int i = 0; i < 10; ++i) {   // the race menu: a new state every 300 ms for three seconds
+        cur->hair = static_cast<uint32_t>(0x20 + i);
+        cur->faceCoeffs.assign(130, static_cast<int8_t>(i + 1));
+        r.run(300);
+    }
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.hair == 0x10);   // none of it went out while it kept changing
+    CHECK(h.an->stats().appearanceUpdates == before);
+    r.run(2500);                                                          // it stopped changing: the last state goes out, and only that one
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.hair == 0x29 && h.an->lookOf(1)->appearance.faceCoeffs.size() == 130 && h.an->lookOf(1)->appearance.faceCoeffs[0] == 10);
+    CHECK(h.an->stats().appearanceUpdates == before + 1);                 // one new puppet, not ten
+    cur->headParts = {0x70, 0x71};
+    r.run(3000);
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.headParts == (std::vector<uint32_t>{0x70, 0x71}));
+    // the face menu closed: the look is read and goes out without waiting for the poll and the settle time
+    cur->hair = 0x30;
+    cur->headParts = {0x72};
+    a.an->noteLookEdited();
+    r.run(900);
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.hair == 0x30 && h.an->lookOf(1)->appearance.headParts == (std::vector<uint32_t>{0x72}));
+    CHECK(h.puppets() == 1 && a.puppets() == 1);
+}
+
 // A session where the roster changes and the link to the host drops: the puppets come back, dressed, in every mode.
 static void churn(const Mode& m) {
     std::printf("    mode: %s\n", m.name);
@@ -1859,6 +1896,7 @@ int main() {
     run("avatars_teleport_arrives_at_once", avatars_teleport_arrives_at_once);
     run("avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet", avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet);
     run("entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode", entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode);
+    run("entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once", entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once);
     run("entities_link_loss_leave_and_rejoin_in_every_mode", entities_link_loss_leave_and_rejoin_in_every_mode);
     run("entities_the_old_messages_are_still_understood_under_parts_unified", entities_the_old_messages_are_still_understood_under_parts_unified);
     run("entities_the_stream_through_actor_sync_follows_like_the_avatar_channel", entities_the_stream_through_actor_sync_follows_like_the_avatar_channel);

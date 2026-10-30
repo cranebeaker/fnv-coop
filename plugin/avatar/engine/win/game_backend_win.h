@@ -33,8 +33,10 @@ public:
     bool ReadAnim(RefId ref, AnimRead& out) override;
     bool ReadEquipped(RefId ref, std::vector<EquippedItem>& out) override;
     bool ReadAppearance(RefId ref, Appearance& out) override;
+    bool CanCloneNpcBase() override;
     FormId CloneNpcBase(FormId base) override;
     bool WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, bool* faceWritten) override;
+    std::string LastLookNote() override { return lastLookNote_; }
     int RunLine(RefId ctx, const std::string& line) override;
     bool Eval(Cond fn, RefId ref, FormId param, double& out) override;
     bool ReadPlayerRegions(std::vector<FormId>& out, size_t max) override;
@@ -48,6 +50,7 @@ private:
     uint32_t lastPlayerPtr_ = 0;
     uint32_t playerSwaps_ = 0;
     uint64_t qpcFreq_ = 1;
+    std::string lastLookNote_;
 };
 
 }  // namespace nvcoop::avatar::engine

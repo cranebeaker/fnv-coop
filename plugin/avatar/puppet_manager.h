@@ -121,9 +121,15 @@ private:
         int actHeld = 0;
         uint32_t actUntil = 0;
         unsigned actTries = 0;
+        // the engine's answer to the one-shot we played: checked ~150 ms later (the group must be running), and an attack on a puppet whose weapon is not out draws it first
+        uint32_t actVerifyAt = 0;
+        int actVerifyGroup = -1;
+        uint32_t actDrawWaitUntil = 0, attackDrawUntil = 0;
         bool sneak = false, haveSneak = false;
         bool drawn = false, haveDrawn = false;
         uint32_t gen3d = 0;
+        bool lookWaiting = false;          // held back from spawning until its player's look is known (LooksByBase engines)
+        uint32_t lookWaitSince = 0;
         bool needSetup = true;             // appearance + first-time configuration still to do
         bool appDirty = false;             // the look changed while the puppet lives: ApplyAppearance again
         bool wasParked = false;
@@ -143,12 +149,14 @@ private:
     void Drive(Puppet& p, uint32_t now, bool menuClosedNow);
     void EndOneShot(Puppet& p, uint32_t now, bool frozen);
     void PlayOneShot(Puppet& p, uint32_t now, bool frozen);
+    void VerifyOneShot(Puppet& p, uint32_t now);
     void DespawnAll(bool callEngine);
     void Purge();
     FormId ChooseTemplate(const Appearance& a) const;
     bool Budget(unsigned n = 1);
     Vec3 MakeRoom(CellId cell, const Vec3& want, const Vec3& from, bool haveFrom);
     void Log(const std::string& s) const { if (log_) log_(s); }
+    int oneShotLogs_ = 0;   // log lines about remote attacks so far (capped)
 
     IPuppetEngine& e_;
     Config cfg_;

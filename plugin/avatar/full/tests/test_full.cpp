@@ -875,8 +875,22 @@ void wire_look_v2_roundtrip_and_rejections() {
     CHECK(decodeLook(mb.data(), mb.size(), o) && o == m);
     // reserved flag bits: rejected (a future field must not be misread by this build)
     AvBytes bad = b;
-    bad[4] |= 0x10;
+    bad[4] |= 0x20;
     CHECK(!decodeLook(bad.data(), bad.size(), o));
+    // head parts (eyebrows, facial hair): flag 0x10, a count and the form ids; a look without them is the same bytes as before
+    AvLook hp = l;
+    hp.appearance.headParts = {0x70, 0x71, 0x72};
+    AvBytes hb = encodeLook(hp);
+    CHECK(hb.size() == b.size() + 1 + 12 && (hb[4] & 0x10) && !(b[4] & 0x10));
+    CHECK(decodeLook(hb.data(), hb.size(), o) && o == hp && o.appearance.headParts == (std::vector<uint32_t>{0x70, 0x71, 0x72}));
+    CHECK(!(o == l));                                                                   // a changed head part is a changed look
+    AvLook hp17 = l;
+    hp17.appearance.headParts.assign(av::kMaxHeadParts + 1, 5);
+    AvBytes hb17 = encodeLook(hp17);
+    CHECK(decodeLook(hb17.data(), hb17.size(), o) && o.appearance.headParts.size() == av::kMaxHeadParts);   // the sender cuts at the cap
+    AvBytes zero = hb;
+    zero[4 + 1 + 16 + 4 + 4 + 1 + 130] = 0;                                              // flags, race hair eyes face, hair colour, height weight, face count + 130 coefficients, then the part count
+    CHECK(!decodeLook(zero.data(), zero.size(), o));                                     // a part block of none is not a block
     // a face block over the cap is rejected
     AvLook many = l;
     many.appearance.faceCoeffs.assign(av::kMaxFaceCoeffs, 3);

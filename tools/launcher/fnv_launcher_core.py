@@ -43,6 +43,7 @@ import fnv_portcheck  # noqa: E402
 import fnv_steam  # noqa: E402
 
 DEFAULT_PORT = fnv_portcheck.DEFAULT_PORT
+JOIN_MODES = ("auto", "lobby", "game")
 MAX_NAME = 24
 PLUGIN_INI_REL = ("Data", "NVSE", "Plugins", "nvcoop.ini")
 PLUGIN_DLL_REL = ("Data", "NVSE", "Plugins", "nvcoop.dll")
@@ -74,6 +75,9 @@ class Settings:
     friendly_fire: bool = False        # host: a new campaign lets players hurt each other
     chat: bool = True                  # text chat in the game
     chat_key: str = "Y"                # the key that opens the chat line
+    join_mode: str = "auto"            # JOIN with an IP address: "auto" (look for the lobby, else join the game in progress) | "lobby" | "game"
+    last_join_key: str = ""            # who this PC last joined ("ip:host:port" or "steam:<id>"): the campaign the plugin noted is only used for the same host
+    last_campaign: str = ""            # join: the campaign this guest is rejoining; written as [coop] lastcampaign, which the plugin keeps current (set by the launcher per start)
 
     def normalized(self) -> "Settings":
         """Same dependency rule as the plugin (live_switches.cpp resolveSwitches): combat and spawns need actors."""
@@ -191,6 +195,8 @@ def load_settings(path: Optional[Path] = None) -> Settings:
         s.token = new_token()
     if s.mode not in ("host", "join"):
         s.mode = "host"
+    if s.join_mode not in JOIN_MODES:
+        s.join_mode = "auto"
     return s
 
 
@@ -285,6 +291,9 @@ def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> 
     if s.mode == "join":
         plan.values["coop"].pop("maxplayers", None)
     plan.values["coop"]["autostart"] = autostart_value(s.autostart)
+    if s.mode == "join":
+        # The campaign this guest is rejoining (see fnv_party_saves.last_campaign): written again so the plugin's note survives the launch, "" for a new host.
+        plan.values["coop"]["lastcampaign"] = fnv_party_saves.norm_campaign(s.last_campaign)
     plan.values["coop"]["party"] = str(s.party) if plan.values["coop"]["autostart"] == "start" and 1 <= s.party <= 8 else ""
     # The game lets one copy run per PC; the plugin hides that check in a second copy ([bridge] multiInstance, the same keys
     # tools/splitscreen/plan.py writes), and the second copy gets its own bridge pipe number.

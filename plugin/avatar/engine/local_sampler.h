@@ -44,9 +44,15 @@ struct LocalFrame {
     bool animReadable = false;
     int actionGroup = -1;            // base group id of the action group playing now (attack, block, stagger, reload ...), -1 none
     int actionPlayMs = -1;           // how long it has been playing, -1 unknown
+    int actionSet = -1;              // which animation set it was found in (kSetThird / kSetFirstPerson / kSetAlt), -1 none
+    int setCount = 0;                // how many sets were readable this frame (1 = only the process's)
+    int procAction = -1;             // BaseProcess animation action (diagnostic only), -1 unknown
     bool havePos3D = false;          // the player's 3D node was readable: pos3D is where the renderer has him (the reference position `pos` can lag it)
     Vec3 pos3D;
 };
+
+// Animation sets of the local player (LocalFrame::actionSet).
+constexpr int kSetThird = 0, kSetFirstPerson = 1, kSetAlt = 2;
 
 // Group classes for the local animation state (xNVSE TESAnimGroup table, tools/animcheck/animgroups_table.py).
 bool IsReloadGroupId(int g);
@@ -60,6 +66,7 @@ public:
     struct Out {
         uint8_t action = 0, actionSeq = 0;
         bool block = false;
+        bool started = false;   // this step saw a one-shot START (a new group, or the same one restarted): the counter bumped
     };
     explicit ActionTracker(const LocalSamplerConfig& cfg = {}) : cfg_(cfg) {}
     // `rawGroup`: the action group playing now (-1 none), `rawPlayMs` how long it has been playing (-1 unknown).
@@ -75,6 +82,7 @@ private:
     int cur_ = 0;
     uint32_t heldUntil_ = 0;
     bool holding_ = false;
+    bool started_ = false;
 };
 
 // Reads the player into a frame. Cheap: one reference read, one animation read, two evaluators.
@@ -95,9 +103,18 @@ public:
     void Reset();   // after a load / teleport: forget the previous position
 
     struct Counters {
-        uint64_t published = 0, notReady = 0, teleports = 0, cellChanges = 0;
+        uint64_t published = 0, notReady = 0, teleports = 0, cellChanges = 0, actionEvents = 0;
     };
     const Counters& counters() const { return c_; }
+    // The newest one-shot START the sampler saw (for the log): the base group, the animation set it was in, the process's action, the camera, how many sets were readable.
+    struct ActionEvent {
+        int group = -1, set = -1, procAction = -1;
+        bool firstPerson = false;
+        int setCount = 0;
+        uint8_t seq = 0;
+        uint32_t atMs = 0;
+    };
+    const ActionEvent& lastActionEvent() const { return lastEvent_; }
     const LocalFrame& lastFrame() const { return last_; }
     Vec3 lastVelocity() const { return vel_; }
     uint8_t lastLoco() const { return loco_; }
@@ -118,6 +135,7 @@ private:
     uint8_t loco_ = 0;
     LocalFrame last_;
     Counters c_;
+    ActionEvent lastEvent_;
 };
 
 // Watches the player's worn items. Poll() returns true once per stable change (and once at the start) with the full set, weapons

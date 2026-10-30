@@ -18,7 +18,7 @@ constexpr size_t kMaxLookEquip = 64;
 constexpr size_t kMaxLookName = 48;
 using LookBytes = std::vector<uint8_t>;
 
-// Appearance: [flags][race u32][hair u32][eyes u32][faceHash u32][hairColor u32 if flags&2][height u16, weight u16 if flags&4][n u8, n * i8 if flags&8][nameLen u8][name]
+// Appearance: [flags][race u32][hair u32][eyes u32][faceHash u32][hairColor u32 if flags&2][height u16, weight u16 if flags&4][n u8, n * i8 if flags&8][n u8, n * u32 if flags&16 (head parts)][nameLen u8][name]
 void encodeAppearanceFields(LookBytes& out, const Appearance& a);
 bool decodeAppearanceFields(const uint8_t* data, size_t size, size_t& pos, Appearance& out);
 

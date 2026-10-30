@@ -238,6 +238,8 @@ class LauncherApp:
         if self.listener:
             self.toggle_listener()   # the game needs the port itself
         s = self.collect()
+        if s.mode == "join":
+            s.autostart = "start"   # this window has no lobby: the host is in the world, so the game loads the start save by itself and joins (docs/party-save.md)
         r = core.start_session(s, resolver=socket.gethostbyname)
         for m in r.messages:
             self.log(m)

@@ -60,7 +60,9 @@ struct AvatarNetOptions {
     uint32_t poseReportMs = 200;           // how often remote players' places go to the ownership service (when they changed)
     fnvcoop::live::SenderConfig sender;
     nvcoop::avatar::StreamRateConfig rate;  // 20 Hz near / 5 Hz far / 1 Hz elsewhere (stream_rate.h); rate.enabled = false sends everything at full rate
-    uint32_t appearancePollMs = 2000;      // how often the local look (race, sex, hair, body, face) is read from the game
+    uint32_t appearancePollMs = 500;       // how often the local look (race, sex, hair, body, face) is read from the game (it was 2000: with the 500 ms part poll a new face took up to 2.5 s to leave)
+    uint32_t lookSettleMs = 1200;          // a look that changed is offered to the others once it has stayed the same this long: the race menu edits the base live, and every offered look
+                                           // makes the other machines build the puppet again. The first look of a session and a look announced by noteLookEdited() go out at once.
     bool tickSide = true;                  // the hub's tick drives the avatar layer (false: something else ticks it)
 };
 
@@ -127,6 +129,9 @@ public:
     // Tier the stream of `subject` currently has for `observer` (diagnostics, tests).
     nvcoop::avatar::StreamTier tierOf(PlayerId observer, PlayerId subject) { return rate_.tierOf(observer, subject); }
     bool hasLook(PlayerId slot) const { return looks_.count(slot) != 0; }
+    // The character creation of this machine's player ended a step (the race menu closed, the last screen was left): read the look from the game on the next poll and
+    // offer it without the settle time. Without it a finished face waited for the poll and the settle (up to ~2 s) and a menu closed in between could hide the change.
+    void noteLookEdited();
     // W3a item 3 (host): what is known about a remote player for the party conditions. Sex and worn items come from its Look, sneaking from its newest snapshot, the rest from
     // its Facts message. Each is false until the player sent it ("unknown": the member is skipped).
     const nvcoop::avatar::PlayerFacts* factsOf(PlayerId slot) const { auto it = facts_.find(slot); return it == facts_.end() ? nullptr : &it->second; }
@@ -227,6 +232,11 @@ private:
     nvcoop::avatar::Appearance localApp_;                       // the cached local look
     bool haveLocalApp_ = false;
     uint64_t lastAppRead_ = 0;
+    bool forceAppRead_ = false;                                 // noteLookEdited(): read the game at the next chance
+    uint64_t settleNowUntil_ = 0;                               // ... and offer a changed look without the settle time until then
+    nvcoop::avatar::Appearance lookCand_, lookOffered_;         // the newest look read, and the one the Look part offers (readLocalPart)
+    bool haveLookCand_ = false, haveLookOffered_ = false;
+    uint64_t lookCandSince_ = 0;
     fnvcoop::live::SnapshotSender sender_;
     fnvcoop::live::SnapshotReceiver recv_;
     std::vector<fnvcoop::live::ActorSnapshot> localOut_;   // snapshots the side produced during this tick

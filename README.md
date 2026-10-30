@@ -2,7 +2,7 @@
 
 [![Discord](https://img.shields.io/badge/Discord-chat%20and%20help-5865F2?logo=discord&logoColor=white)](https://discord.gg/EXGB49R82t)
 
-> **Status (October 2026): alpha 0.1.5.** The whole party starts together from a lobby, the opening movie plays for everyone
+> **Status (October 2026): alpha 0.1.6.** The whole party starts together from a lobby, the opening movie plays for everyone
 > at once, and Steam join, voice and text chat, Co-op balanced mode, friend markers and revive are in. Expect bugs: this build
 > is for playtesting.
 >
@@ -18,7 +18,7 @@
 > | Runs on its own, without NV:MP | yes: own networking, player avatars, NPC and combat sync |
 > | Steam join, voice and text chat, Co-op balanced mode, friend markers and revive, enemies that split their attention | in the alpha, game-free tests pass, being playtested |
 >
-> Alpha 0.1.5 is out as a pre-release ([Releases](../../releases)).
+> Alpha 0.1.6 is out as a pre-release ([Releases](../../releases)).
 
 Play the whole **Fallout: New Vegas** story together: 2 to 4 players, one shared world, one shared quest
 state. This repo is the whole co-op mod: an xNVSE plugin plus a game-free sync core. It keeps quests, objectives,
@@ -54,15 +54,15 @@ A step marked **Claimed** is being worked on right now. Want to take one? Open a
 | 7 | Desync check and repair | Every area checks itself every few seconds and fixes any difference it finds. | Code written for enemies, loot and the world, in-game test next |
 | 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | **Claimed**: alpha playtest of the campaign. Script calls synced: 99.98%. Goodsprings: 65 of 104 stages pass in game, and the scripted story run passes 7 of 18 steps |
 | 9 | Every side quest and DLC | All side quests, companions and the four DLCs, played through by two-copy test bots. | Playthrough plans and test bots written, in-game runs next |
-| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default). Alpha 0.1.5 has the launcher lobby, a synced start for the whole party, join through Steam friends, voice and text chat and a Co-op balanced mode; playtesting now |
+| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default). Alpha 0.1.6 has the launcher lobby, a synced start for the whole party, join through Steam friends, voice and text chat and a Co-op balanced mode; playtesting now |
 
 ## Play in three steps
 
-**Alpha 0.1.5 is out as a pre-release for playtesting.** Expect bugs, and report them on the issue tracker or on Discord.
+**Alpha 0.1.6 is out as a pre-release for playtesting.** Expect bugs, and report them on the issue tracker or on Discord.
 
-1. Download `FNV-CoOp-0.1.5-alpha.zip` from [Releases](../../releases) and unzip it.
+1. Download `FNV-CoOp-0.1.6-alpha.zip` from [Releases](../../releases) and unzip it.
 2. Run **Install.cmd**. It finds your New Vegas install and adds the plugin next to xNVSE.
-3. Run **Launcher.cmd** and type your courier name. The host picks HOST A GAME, friends pick JOIN A FRIEND (an address, or a
+3. Run **Launcher.cmd** and type your courier name. The host picks HOST A GAME, friends pick JOIN A FRIEND (an address, which also joins a game already in progress, or a
    Steam friend with CONNECTION set to STEAM). Everyone readies up and the host starts: the whole party starts the new game together.
 
 Split screen on one PC: install [Couchlink](https://github.com/cranebeaker/couchlink) and pick Fallout: New Vegas (co-op) in its

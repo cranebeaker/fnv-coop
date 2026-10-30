@@ -40,6 +40,7 @@ HELLO_EVERY = 0.5
 DROP_AFTER = 5.0
 START_FOR = 2.0          # seconds the host keeps answering "start" before it gives the port to its game
 GIVE_UP_AFTER = 6.0      # a guest that hears nothing for this long reports the host as gone
+PROBE_FOR = 2.5          # JOIN in automatic mode: no answer to the hello for this long = the host is not in a lobby (it is in the world, or not there)
 
 
 def pack(msg: dict) -> bytes:
@@ -168,7 +169,7 @@ class HostLobby:
         m = self.members.get(token)
         if m is None:
             if self.started_at is not None:
-                return {"t": "refuse", "why": "The game is already starting. Join it once the host is in the world."}
+                return {"t": "refuse", "why": "The game is already starting. Join it once the host is in the world.", "code": "starting"}
             slot = self._free_slot()
             if slot is None:
                 return {"t": "refuse", "why": f"The party is full ({self.max_players} players)."}
@@ -246,8 +247,13 @@ class HostLobby:
 
 class GuestLobby:
     def __init__(self, name: str, token: int, host: str, port: int, version: str, clock: Callable[[], float] = time.monotonic,
-                 sock_factory: Optional[Callable[[], object]] = None):
+                 sock_factory: Optional[Callable[[], object]] = None, probe_s: float = 0.0):
         self.name, self.token, self.host, self.port, self.version = name, token, host, port, version
+        # probe_s > 0 (the launcher's automatic JOIN): the hello doubles as a question, "is there a lobby?". When nothing answers for probe_s
+        # seconds the lobby ends in state "no_lobby" and on_no_lobby is called: the host is already in the world (or not there at all), and the
+        # launcher starts the game to join it in progress. 0 = a plain lobby join that waits GIVE_UP_AFTER seconds and then reports it.
+        self.probe_s = probe_s
+        self.on_no_lobby: Optional[Callable[[], None]] = None
         self.sock_factory = sock_factory           # Steam: see HostLobby
         self.clock = clock
         self.ready = False
@@ -258,7 +264,7 @@ class GuestLobby:
         self.players: List[dict] = []
         self.you = -1
         self.state = "joining"
-        self.message = f"Calling {host}:{port} ..." if sock_factory is None else "Calling the host through Steam ..."
+        self.message = (f"Looking for the lobby at {host}:{port} ..." if probe_s else f"Calling {host}:{port} ...") if sock_factory is None else "Calling the host through Steam ..."
         self.last_heard: Optional[float] = None
         self.opened = 0.0
         self.rtt = -1
@@ -295,6 +301,11 @@ class GuestLobby:
         t = msg.get("t")
         now = self.clock()
         if t == "refuse":
+            if msg.get("code") == "starting" and self.probe_s and self.last_heard is None:
+                # the lobby is closing right now because the host's game is starting: wait for its port to go quiet, then join the game in progress
+                self.opened = now
+                self.message = "The host is starting its game ..."
+                return None
             self.state, self.message = "closed", str(msg.get("why") or "The host refused.")
             return None
         if t not in ("roster", "start"):
@@ -332,6 +343,7 @@ class GuestLobby:
 
     def _run(self) -> None:
         next_hello = 0.0
+        no_lobby = False
         while not self._stop.is_set():
             now = self.clock()
             with self.lock:
@@ -341,14 +353,18 @@ class GuestLobby:
                     self._send_hello()
                     next_hello = now + HELLO_EVERY
                 silent_for = now - (self.last_heard if self.last_heard is not None else self.opened)
+                if self.probe_s and self.last_heard is None and silent_for > self.probe_s:
+                    self.state, self.message = "no_lobby", "No lobby answered. The host is already in the world."
+                    no_lobby = True
+                    break
                 if silent_for > GIVE_UP_AFTER:
                     if self.last_heard is None:
                         self.state = "closed"
                         self.message = (f"No lobby answered at {self.host}:{self.port}. Check the address, that the host pressed HOST, "
-                                        "and the router forwards UDP. If the host is already in the game, use JOIN GAME IN PROGRESS."
+                                        "and the router forwards UDP. If the host is already in the game, set JOIN MODE to AUTOMATIC or IN-PROGRESS."
                                         if self.sock_factory is None else
                                         "The host's lobby did not answer. Check that the host pressed HOST (connection: Steam) and that you are Steam friends. "
-                                        "If the host is already in the game, use JOIN GAME IN PROGRESS.")
+                                        "If the host is already in the game, pick the host marked IN GAME.")
                     else:
                         self.state, self.message = "closed", "Lost the host. The lobby closed."
                     break
@@ -369,6 +385,9 @@ class GuestLobby:
             if self.sock:
                 self.sock.close()
                 self.sock = None
+        cb = self.on_no_lobby if no_lobby else None
+        if cb:
+            cb()
 
     def close(self) -> None:
         with self.lock:

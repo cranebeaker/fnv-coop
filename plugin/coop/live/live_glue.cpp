@@ -205,6 +205,7 @@ public:
 class AvatarsService : private GlueSideHolder, public AvatarNet {
 public:
     AvatarsService() : GlueSideHolder(), AvatarNet(side, avatarOptions()) {
+        setLog([](const std::string& s) { nvcoop::Log("%s", s.c_str()); });   // look changes on both sides land in nvcoop.log
 #ifdef NVCOOP_WITH_ACTORS
         setEntityDirectory(&dir_);
         // A puppet that was bound again (a respawn after a save, a cell park, another template) is dressed again from the last parts known.
@@ -759,6 +760,12 @@ uint32_t glueAvatarRef(uint8_t slot) {
 #else
     (void)slot;
     return 0;
+#endif
+}
+
+void glueLookEdited() {
+#ifdef NVCOOP_WITH_AVATAR_ENGINE
+    if (g_avatarNet) g_avatarNet->noteLookEdited();
 #endif
 }
 

@@ -90,6 +90,17 @@ class Helpers(unittest.TestCase):
         self.assertEqual(P.primary_category(probe_actor("0x1", group=26)), "attack")
         self.assertIsNone(P.primary_category(None))
 
+    def test_a_first_person_punch_is_an_attack(self):
+        # a human in first person swings on the player's first-person AnimData (plugin/animprobe anim.seqs_first_person), not on the process's set
+        a = probe_actor("0x14", group=0, player=True)
+        a["anim"]["seqs_first_person"] = [seq(26, slot=4)]
+        self.assertEqual(P.primary_category(a), "attack")
+        a["anim"]["seqs_first_person"] = [seq(3, slot=0)]          # only locomotion there: the process's set decides
+        self.assertEqual(P.primary_category(a), "idle")
+        a["anim"]["seqs_first_person"] = []
+        a["anim"]["seqs_alt"] = [seq(32, slot=4)]
+        self.assertEqual(P.primary_category(a), "attack")
+
 
 class Assemble(unittest.TestCase):
     def test_the_player_the_puppet_and_the_npcs_are_told_apart(self):

@@ -54,6 +54,9 @@ public:
     bool reportsCurrentGroup = true;
     bool menuResetsGroup = true;
     int playGroupRefusalsLeft = 0;
+    bool playGroupSilent = false;              // PlayGroup says ok but the actor plays nothing (a group its state rejects)
+    bool attackNeedsDrawn = false;             // an attack group plays only on an actor whose weapon is out (a sheathed puppet does not throw a punch)
+    unsigned silentPlays = 0;                  // PlayGroup calls that were accepted and did nothing
     bool weaponDrawSupported = true;
     bool equippedKnown = true;
     bool requireItemOwned = true;
@@ -198,6 +201,17 @@ public:
     bool CellLoaded(CellId c) override { return loadedCells.count(c) != 0; }
     bool SameSpace(CellId a, CellId b) override { return exterior.count(a) && exterior.count(b); }
 
+    // An engine that builds each puppet from its player's look (GamePuppetEngine with a look copy): LookBase hands back a private base per call and keeps
+    // the look it was asked for, so a test can see what a puppet was built from.
+    bool looksByBase = false;
+    std::vector<std::pair<Slot, Appearance>> lookBaseCalls;
+    bool LooksByBase() override { return looksByBase; }
+    FormId LookBase(Slot slot, FormId templateBase, const Appearance& a) override {
+        if (!looksByBase) return templateBase;
+        lookBaseCalls.push_back({slot, a});
+        return templateBase;
+    }
+
     RefId Spawn(FormId base, CellId cell, const Vec3& pos, float yaw) override {
         ++spawnCalls;
         trace.push_back("Spawn");
@@ -338,6 +352,10 @@ public:
             return false;
         }
         ++playGroupCalls;
+        if (playGroupSilent || (attackNeedsDrawn && IsAttackGroup(baseGroup) && !f->drawn)) {
+            ++silentPlays;
+            return true;
+        }
         f->group = baseGroup;
         groupLog.push_back({ref, baseGroup});
         groupFlags.push_back(flags);

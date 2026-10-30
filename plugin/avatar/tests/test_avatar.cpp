@@ -77,7 +77,14 @@ struct Rig {
     bool autoPose = true;
     std::map<Slot, PuppetPose> cur;
 
+    std::vector<std::string> log;
+    bool Logged(const char* needle) const {
+        for (const auto& l : log)
+            if (l.find(needle) != std::string::npos) return true;
+        return false;
+    }
     explicit Rig(const std::function<void(Config&)>& tweak = nullptr) : cfg(Make(tweak)), pm(eng, cfg) {
+        pm.SetLog([this](const std::string& l) { log.push_back(l); });
         eng.loadedCells = {kCellA, kCellB, kExtA, kExtB};
         eng.exterior = {kExtA, kExtB};
     }
@@ -1508,6 +1515,64 @@ static void t_reload_group_from_owner() {
     CHECK(CountGroup(w, kGrpReloadA) == 1 && CountGroup(w, 32) == 1);
 }
 
+
+// "I don't see the other person punching": an attack on a puppet whose weapon is away (the owner's fists show no weapon out) must still show. The puppet draws first,
+// the swing plays after the draw, the weapon goes away again when it is over; the log says what happened (remote attack received / puppet animation started).
+static void t_oneshot_unarmed_punch_draws_first() {
+    g_test = "oneshot_unarmed_punch_draws_first";
+    Rig r;
+    r.eng.attackNeedsDrawn = true;                    // the engine plays no attack on a sheathed actor
+    StartDriving(r);
+    CHECK(!r.F(1)->drawn);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 26 /*AttackLeft: a punch*/, 5));
+    r.Run(500);
+    CHECK(r.Group(1) == 26);                          // the punch is on screen
+    CHECK(r.pm.stats().attackDraws == 1 && r.pm.stats().oneShots == 1 && r.eng.silentPlays == 0);
+    CHECK(r.Logged("remote attack received from slot 1: group 26 (AttackLeft)") && r.Logged("puppet animation started"));
+    CHECK(r.pm.stats().oneShotsSeen == 1 && r.pm.stats().oneShotsNotSeen == 0);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 0, 5));
+    r.Run(3000);
+    CHECK(!r.F(1)->drawn);                            // the fists go down again once the swing is over
+    // a melee swing and a power attack the same way
+    for (int g : {32, 92}) {
+        Rig q;
+        q.eng.attackNeedsDrawn = true;
+        StartDriving(q);
+        q.Pose(1, Act(MkPose(kCellA, 100, 200), g, 5));
+        q.Run(500);
+        CHECK(q.Group(1) == g && q.pm.stats().oneShotsSeen == 1);
+    }
+    // an owner whose weapon IS out needs no extra draw
+    Rig w;
+    w.eng.attackNeedsDrawn = true;
+    w.Add(1, [] { PuppetPose p = MkPose(kCellA, 100, 200); p.anim.weaponDrawn = true; return Act(p, 0, 4); }());
+    CHECK(w.UntilDriving(1));
+    w.Run(1500);
+    PuppetPose armed = MkPose(kCellA, 100, 200);
+    armed.anim.weaponDrawn = true;
+    w.Pose(1, Act(armed, 32, 5));
+    w.Run(500);
+    CHECK(w.Group(1) == 32 && w.pm.stats().attackDraws == 0);
+}
+
+// A PlayGroup the engine accepts and then does not show is found and logged ("the swing is NOT visible"), not silently counted as played.
+static void t_oneshot_unseen_swing_is_reported() {
+    g_test = "oneshot_unseen_swing_is_reported";
+    Rig r;
+    r.eng.playGroupSilent = true;
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    r.Run(600);
+    CHECK(r.eng.silentPlays >= 1);
+    CHECK(r.pm.stats().oneShotsNotSeen == 1 && r.pm.stats().oneShotsSeen == 0);
+    CHECK(r.Logged("NOT visible"));
+    Rig q;                                            // a swing that does show is confirmed
+    StartDriving(q);
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    q.Run(600);
+    CHECK(q.pm.stats().oneShotsSeen == 1 && q.pm.stats().oneShotsNotSeen == 0 && !q.Logged("NOT visible"));
+}
+
 // An engine that refuses the group: a few tries while the event is in the stream, then given up (not every Tick for ever); one refusal is retried.
 static void t_oneshot_refusals() {
     g_test = "oneshot_refusals";
@@ -1626,6 +1691,49 @@ static void t_appearance_update() {
     CHECK(r.F(1)->base == 0x1001);
     CHECK(r.F(1)->worn.count(0x510) == 1);
     CHECK(!r.pm.SetAppearance(5, a));                              // unknown slot
+}
+
+// An engine that builds each puppet from its player's look must not build one from "nothing known": the roster creates the puppet before the Look part
+// arrives, and a puppet made from an empty Appearance wears the local player's face with the wrong sex, then is thrown away a moment later.
+static void t_spawn_waits_for_the_look() {
+    g_test = "spawn_waits_for_the_look";
+    {
+        Rig r;
+        r.eng.looksByBase = true;
+        r.pm.AddPlayer(1, Appearance{});
+        r.Pose(1, MkPose(kCellA, 100, 200));
+        r.Run(1500);
+        CHECK(r.eng.spawnCalls == 0 && r.pm.RefOf(1) == 0);
+        CHECK(r.Logged("until its look has arrived"));
+        Appearance a = App(true);
+        a.hair = 0x44;
+        a.headParts = {0x55, 0x56};
+        CHECK(r.pm.SetAppearance(1, a));
+        r.Run(1500);
+        CHECK(r.eng.spawnCalls == 1 && r.pm.RefOf(1) != 0);
+        CHECK(r.eng.lookBaseCalls.size() == 1);
+        CHECK(r.eng.lookBaseCalls.size() == 1 && r.eng.lookBaseCalls[0].second.female && r.eng.lookBaseCalls[0].second.hair == 0x44 &&
+              r.eng.lookBaseCalls[0].second.headParts.size() == 2);
+        CHECK(r.Logged("spawned as ref") && r.Logged("head parts 2"));
+    }
+    {   // the look never comes (the other machine has no avatar layer): after lookWaitMs the puppet is made from the template
+        Rig r;
+        r.eng.looksByBase = true;
+        r.pm.AddPlayer(2, Appearance{});
+        r.Pose(2, MkPose(kCellA, 100, 200));
+        r.Run(2000);
+        CHECK(r.eng.spawnCalls == 0);
+        r.Run(4000);
+        CHECK(r.eng.spawnCalls == 1 && r.pm.RefOf(2) != 0);
+        CHECK(r.Logged("no look from slot 2"));
+    }
+    {   // an engine without look copies has nothing to wait for
+        Rig r;
+        r.pm.AddPlayer(3, Appearance{});
+        r.Pose(3, MkPose(kCellA, 100, 200));
+        r.Run(1500);
+        CHECK(r.eng.spawnCalls == 1);
+    }
 }
 
 static void t_puppet_hit_target_health() {
@@ -2031,11 +2139,14 @@ static void RunSuite() {
     RUN(t_oneshot_not_cut_by_readback);
     RUN(t_reload_group_from_owner);
     RUN(t_oneshot_refusals);
+    RUN(t_oneshot_unarmed_punch_draws_first);
+    RUN(t_oneshot_unseen_swing_is_reported);
     RUN(t_action_group_names);
     RUN(t_weapon_mods_applied);
     RUN(t_weapon_mods_refused_gives_up);
     RUN(t_weapon_mods_unverifiable_asked_once);
     RUN(t_appearance_update);
+    RUN(t_spawn_waits_for_the_look);
     RUN(t_puppet_hit_target_health);
     RUN(t_pose_override_holds);
     RUN(t_pose_override_no_dead_respawn);
@@ -2058,12 +2169,12 @@ static const Twin kTwins[] = {
     TWIN(noEquipFlapGuard), TWIN(weaponDrawBeforeEquip), TWIN(allowLocalSlot), TWIN(duplicateSlotSpawns), TWIN(noStaleRefCheck),
     TWIN(neverPark), TWIN(crossCellSetPos), TWIN(frozenKeepsRunning), TWIN(noYawNormalize), TWIN(noAnimHeartbeat),
     TWIN(noJumpLand), TWIN(ignoreBudget), TWIN(staleMapEntries), TWIN(noPostMenuSnap), TWIN(noSaveWait),
-    TWIN(noWeaponMods), TWIN(modsIgnoredInSet), TWIN(modsRetryForever), TWIN(appearanceUpdateRespawns), TWIN(noPuppetHeal),
+    TWIN(noWeaponMods), TWIN(modsIgnoredInSet), TWIN(modsRetryForever), TWIN(appearanceUpdateRespawns), TWIN(noLookWait), TWIN(noPuppetHeal),
     TWIN(noPuppetDeathRespawn), TWIN(apiLocalGetsPuppet), TWIN(apiPlayerIsPuppet), TWIN(apiActingNeedsPuppet), TWIN(hitsForwardEmpty),
     TWIN(puppetHitProceeds), TWIN(adoptPhysicsPush), TWIN(noBodyRoom),
     TWIN(noOneShots), TWIN(oneShotReplays), TWIN(oneShotNoBaseline), TWIN(oneShotKeepsBaseline), TWIN(oneShotNoWrap), TWIN(oneShotNextOnly),
     TWIN(oneShotWhileFrozen), TWIN(noOneShotReassert), TWIN(noOneShotMismatchGuard), TWIN(reloadGroupFixed), TWIN(heldNeverEnds),
-    TWIN(bridgeDropsAction), TWIN(oneShotAdoptsStale), TWIN(oneShotNoResync),
+    TWIN(bridgeDropsAction), TWIN(oneShotAdoptsStale), TWIN(oneShotNoResync), TWIN(noAttackDraw), TWIN(noOneShotVerify),
     TWIN(poseOverrideIgnored), TWIN(poseReplaysPlanned), TWIN(poseHeartbeats), TWIN(poseNoDeathGuard), TWIN(poseOneShotsPlay),
     TWIN(poseClearIgnored), TWIN(poseLostOnRespawn), TWIN(poseSurvivesRemove),
     TWIN(bindingUnbindForgotten),

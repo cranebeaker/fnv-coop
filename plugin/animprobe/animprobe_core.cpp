@@ -120,15 +120,21 @@ Value ToJson(const ActorSample& a) {
     if (a.haveAnim) {
         Value an = Value::object();
         an.set("action", a.action).set("sequence_raw", HexId(a.sequenceRaw));
-        Value sq = Value::array();
-        for (const SeqSample& s : a.seqs) {
-            Value so = Value::object();
-            so.set("slot", s.slot).set("group", s.group).set("state", s.state);
-            so.set("t", static_cast<double>(s.t)).set("begin", static_cast<double>(s.begin)).set("end", static_cast<double>(s.end));
-            so.set("freq", static_cast<double>(s.freq)).set("weight", static_cast<double>(s.weight));
-            if (s.seqPtr) so.set("ptr", HexId(s.seqPtr)).set("grp_ptr", HexId(s.grpPtr));   // only with scan_animdata
-            sq.push(so);
-        }
+        auto seqArray = [](const std::vector<SeqSample>& v) {
+            Value sq = Value::array();
+            for (const SeqSample& s : v) {
+                Value so = Value::object();
+                so.set("slot", s.slot).set("group", s.group).set("state", s.state);
+                so.set("t", static_cast<double>(s.t)).set("begin", static_cast<double>(s.begin)).set("end", static_cast<double>(s.end));
+                so.set("freq", static_cast<double>(s.freq)).set("weight", static_cast<double>(s.weight));
+                if (s.seqPtr) so.set("ptr", HexId(s.seqPtr)).set("grp_ptr", HexId(s.grpPtr));   // only with scan_animdata
+                sq.push(so);
+            }
+            return sq;
+        };
+        Value sq = seqArray(a.seqs);
+        if (!a.fpSeqs.empty() && !FNV_MUT(7)) an.set("seqs_first_person", seqArray(a.fpSeqs));   // twin 7: the first-person set is never emitted
+        if (!a.altSeqs.empty() && !FNV_MUT(7)) an.set("seqs_alt", seqArray(a.altSeqs));
         an.set("seqs", sq);
         o.set("anim", an);
     }

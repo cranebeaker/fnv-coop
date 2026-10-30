@@ -776,7 +776,18 @@ __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
             cfg.autoloadDelayFrames = 30;
             Log("autostart: the saved game '%s' loads when the main menu is up (launcher lobby, continue)", name.c_str());
         } else {
-            Log("autostart: not loading '%s' (%s); the main menu stays", name.c_str(), err.c_str());
+            // A guest must still end up in the host's world without a menu click: its own save is gone or unusable, so it joins with the start
+            // save like a guest that has no save of the campaign (the host says the campaign is under way, the guest makes its character and is
+            // moved to the host). A host does not: loading a new game over a Continue would be wrong, the main menu stays.
+            std::string startErr;
+            const std::string role = ReadIni("coop", "role", "");
+            if ((role == "client" || role == "guest") && PrepareStartSave(startErr)) {
+                cfg.autoloadSave = kStartSave;
+                cfg.autoloadDelayFrames = 30;
+                Log("autostart: not loading '%s' (%s); this guest joins with the start save instead", name.c_str(), err.c_str());
+            } else {
+                Log("autostart: not loading '%s' (%s); the main menu stays", name.c_str(), err.c_str());
+            }
         }
     }
 #ifdef NVCOOP_WITH_SNAPSHOT

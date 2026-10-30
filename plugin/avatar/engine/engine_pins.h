@@ -86,6 +86,10 @@ inline constexpr uint32_t kActorLifeState = 0x108;
 inline constexpr uint32_t kActorSwimming = 0x14D;       // not proven (animprobe), runtime guarded
 inline constexpr uint32_t kActorMover = 0x190;          // ActorMover*, vtable checked below
 inline constexpr uint32_t kPlayerNotFirstPerson = 0x64A;
+// PlayerCharacter::GetAnimData (vtable slot 0x79, 0x950A10; read from a reference exe 2026-10-30): returns [+0x6A0] when that is set, else, while +0x64A is 0 (first person), [+0x690]
+// when that is set, else the ordinary actor one (the process's AnimData, BaseProcess slot 0x6E). So a player in first person plays his swings and shots on the AnimData at +0x690,
+// which is NOT the one the process slot gives. Reading only the process's set can miss a human's first-person attack (whether the third-person body also plays it is not measured).
+inline constexpr uint32_t kPlayerFirstPersonAnimData = 0x690, kPlayerAltAnimData = 0x6A0;
 // PlayerCharacter::regionsList, a BSSimpleList<TESRegion> (xNVSE GameObjects.h: `TESRegionList regionsList; // 764`; the IsPlayerInRegion command 0x5CF490 reads it through
 // 0x4F2770, docs/engine-addresses.md section 11). Node = {TESRegion* item; node* next}, the head node is inline. TESForm::refID at +0x0C.
 inline constexpr uint32_t kPlayerRegionList = 0x764, kFormRefId = 0x0C;

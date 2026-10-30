@@ -104,6 +104,9 @@ function footer() {
   return `<div class="grow"></div><div class="rule"></div><div id="log">${lines}${n}<div>&gt; <span class="blink">█</span></div></div>`;
 }
 const opt = (label, fn, dis) => ({ label, fn, dis });
+// JOIN with an IP address: the launcher asks the host's lobby first and joins the game in progress when no lobby answers. The mode line forces one of them.
+const JOIN_MODES = { auto: "[ JOIN MODE: AUTOMATIC (LOBBY, ELSE GAME IN PROGRESS) ]", lobby: "[ JOIN MODE: LOBBY ONLY ]", game: "[ JOIN MODE: GAME IN PROGRESS ONLY ]" };
+const nextJoinMode = m => ({ auto: "lobby", lobby: "game", game: "auto" }[m] || "lobby");
 let opts = [];
 
 function screens() {
@@ -156,9 +159,10 @@ function screens() {
       };
     } else return {
       body: `<div>&gt; HOST ADDRESS: <input class="t" id="addr" value="${esc(joinAddr || st.address)}" placeholder="1.2.3.4 or 1.2.3.4:27960" spellcheck="false"></div>
-             <div class="dim">&gt; YOUR HOST TELLS YOU THE ADDRESS. NO PORT GIVEN = 27960.</div><div class="rule"></div>`,
-      opts: [opt("[ CONNECT TO LOBBY ]", () => act("/api/join", { address: addrVal() })),
-             opt("[ JOIN GAME IN PROGRESS ]", () => act("/api/join_direct", { address: addrVal() }, "STARTING YOUR GAME.")),
+             <div class="dim">&gt; YOUR HOST TELLS YOU THE ADDRESS. NO PORT GIVEN = 27960.</div>
+             <div class="dim">&gt; JOIN WORKS OUT BY ITSELF IF THE HOST IS STILL IN THE LOBBY OR ALREADY IN THE WORLD.</div><div class="rule"></div>`,
+      opts: [opt("[ JOIN ]", () => act("/api/join", { address: addrVal() }, "")),
+             opt(JOIN_MODES[st.join_mode] || JOIN_MODES.auto, () => act("/api/settings", { join_mode: nextJoinMode(st.join_mode) }, "")),
              opt("[ BACK ]", () => go("main"))]
     };
     case "settings": {
@@ -187,6 +191,11 @@ function screens() {
       };
     }
     case "lobby": {
+      if (L && L.role === "guest" && (L.state === "joining" || L.state === "no_lobby")) return {
+        body: `<div class="hdr">CALLING THE HOST</div><div class="rule"></div><div>&gt; ${up(L.message)}</div>
+               <div class="dim">&gt; A HOST IN THE LOBBY TAKES YOU INTO IT. A HOST ALREADY IN THE WORLD STARTS YOUR GAME, AND YOU ARE LOADED IN WITHOUT ANY MENU CLICKS.</div><div class="rule"></div>`,
+        opts: [opt("[ CANCEL ]", () => act("/api/leave"))]
+      };
       const host = L && L.role === "host";
       const rows = (L ? L.players : []).map(p => `<div class="row"><span>0${p.slot + 1}</span><span>${up(p.name)}${p.host ? " *" : ""}${p.slot === L.you ? " (YOU)" : ""}</span>
                    <span>${p.host ? "HOST" : p.ping + "MS"}</span><span>${p.ready ? "[READY]" : "[ ... ]"}</span></div>`);

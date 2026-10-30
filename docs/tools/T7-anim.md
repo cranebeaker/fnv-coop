@@ -26,6 +26,12 @@ sequences come from the process's AnimData (`BaseProcess` slot 0x6E), i.e. the t
 the first-person set for the player. Both choices are verified statically by `verify_engine.py`; that the third-person body keeps animating
 in first person is a documented engine behaviour we have not seen in a run.
 
+### The player's other AnimData objects (2026-10-30)
+`PlayerCharacter::GetAnimData` (vtable slot 0x79, 0x950A10, checked by `verify_engine.py`) returns `[player+0x6A0]` when that is set, else, while `+0x64A` is 0
+(first person), `[player+0x690]`, else the process's set. A human in first person plays his swings and shots on the `+0x690` set, which the process slot (0x6E) never
+shows. For the local player the probe therefore adds `anim.seqs_first_person` (+0x690) and `anim.seqs_alt` (+0x6A0) when they hold sequences; `seqs` is unchanged.
+Whether the third-person body also plays the attack in first person is NOT measured; read both. The avatar sampler reads the same sets (docs/tools/avatar.md).
+
 ### Cost
 Measured now (game-free): encoding 16 actors x 16 bones to JSON takes about 0.95 ms (59 us per actor) per call on this PC (`animprobe_tests --bench`).
 Engine reads are unknown until measured: `anim.stats` reports them; `tools/animcheck/cli.py collect` prints them after a run. `bones:false` skips the skeleton walk.

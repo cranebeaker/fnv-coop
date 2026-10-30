@@ -81,6 +81,11 @@ add_executable(party_save_tests ${COOP_DIR}/tests/test_party_save.cpp)
 target_link_libraries(party_save_tests PRIVATE nvcoop_coop_core_rt)
 list(APPEND COOP_TEST_TARGETS party_save_tests)
 add_test(NAME party_save_unit COMMAND party_save_tests)
+# the opening scene's watcher (intro_watch.h): header only, its own exe
+add_executable(intro_watch_tests ${COOP_DIR}/tests/test_intro_watch.cpp)
+target_link_libraries(intro_watch_tests PRIVATE nvcoop_coop_core_rt)
+list(APPEND COOP_TEST_TARGETS intro_watch_tests)
+add_test(NAME intro_watch_unit COMMAND intro_watch_tests)
 # the fake peer: tests/test_integration.py starts it with FNVCOOP_MUT=1..4 for the mutant-peer scenarios
 add_executable(coop_peer ${COOP_DIR}/tests/coop_peer.cpp)
 target_link_libraries(coop_peer PRIVATE nvcoop_coop_core_rt)

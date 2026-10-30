@@ -61,10 +61,13 @@ struct Appearance {
     // Body and look data of the NPC base (round of 2026-10-22). All of it travels in the Look message (plugin/coop/live/avatar_wire.h).
     uint32_t hairColor = 0;                // TESNPC hair colour (packed)
     uint16_t height = 0, weight = 0;       // TESNPC height / weight in thousandths (1000 = 1.0), 0 = unknown
-    std::vector<int8_t> faceCoeffs;        // FaceGen morph coefficients, quantised to 1/16 (at most kMaxFaceCoeffs); empty = not readable
+    std::vector<int8_t> faceCoeffs;        // FaceGen morph coefficients, quantised to 1/16 (at most kMaxFaceCoeffs); empty = not readable. All three blocks in a fixed order (engine/face_blocks.h)
+    std::vector<uint32_t> headParts;       // BGSHeadPart form ids of the NPC base (eyebrows, facial hair, mouth ...; TESNPC +0x1DC), in list order; empty = not readable / none
     std::string name;
+    bool known() const { return race != 0; }   // a real look was read (an Appearance{} is "nothing known yet": it must not be written into a puppet)
 };
 constexpr size_t kMaxFaceCoeffs = 160;     // 50 + 30 + 50 floats are what the three FaceGenData blocks of the player hold
+constexpr size_t kMaxHeadParts = 16;
 
 // Facts about the LOCAL player that host-run conditions ask about (GetLevel, GetSitting, IsPlayerActionActive, IsPlayerInRegion) and that no snapshot carries (W3a item 3).
 // Read at a low rate by the guest's avatar layer and sent to the host only when they change (plugin/coop/live/avatar_wire.h, Facts message).
@@ -138,6 +141,7 @@ struct Config {
     FormId defaultTemplate = 0;              // used when no entry matches (appearance is then only approximate)
 
     // spawn
+    uint32_t lookWaitMs = 4000;              // an engine that builds a puppet from its player's look (LooksByBase) waits this long for the first look before it spawns from the bare template
     uint32_t spawnBackoffMs = 500;           // doubled per failure, capped at spawnBackoffMaxMs
     uint32_t spawnBackoffMaxMs = 8000;
     uint32_t load3DTimeoutMs = 5000;         // a spawned ref that never gets 3D is deleted and respawned
@@ -200,6 +204,8 @@ struct Stats {
     uint64_t bodyYields = 0;                                         // driven places moved out of the local player's body (frames, not episodes)
     uint64_t oneShots = 0, oneShotsStale = 0, oneShotsMissed = 0;    // the owner's attacks / reactions played; counter replays or reordering dropped; events over before this copy saw them
     uint64_t oneShotsFrozen = 0, oneShotsFailed = 0;                 // dropped because the stream was dry; refused by the engine for good
+    uint64_t oneShotsSeen = 0, oneShotsNotSeen = 0;                  // a played one-shot the engine then showed running / did not show running ~150 ms later
+    uint64_t attackDraws = 0;                                        // the puppet's weapon was drawn first so that an unarmed or sheathed attack can play
 };
 
 }  // namespace nvcoop::avatar

@@ -23,7 +23,7 @@ bool operator==(const AvLook& a, const AvLook& b) {
     if (a.slot != b.slot || a.appearance.race != b.appearance.race || a.appearance.female != b.appearance.female || a.appearance.hair != b.appearance.hair ||
         a.appearance.eyes != b.appearance.eyes || a.appearance.faceHash != b.appearance.faceHash || a.appearance.name != b.appearance.name ||
         a.appearance.hairColor != b.appearance.hairColor || a.appearance.height != b.appearance.height || a.appearance.weight != b.appearance.weight ||
-        a.appearance.faceCoeffs != b.appearance.faceCoeffs || a.equipment.size() != b.equipment.size())
+        a.appearance.faceCoeffs != b.appearance.faceCoeffs || a.appearance.headParts != b.appearance.headParts || a.equipment.size() != b.equipment.size())
         return false;
     for (size_t i = 0; i < a.equipment.size(); ++i)
         if (a.equipment[i].form != b.equipment[i].form || a.equipment[i].weapon != b.equipment[i].weapon ||

@@ -190,6 +190,7 @@ struct Node {
     void pushWorld(const std::string& key, const std::string& json) { world.applyWorldJson(json); rt->pushWorldEffect(key, json); }
 };
 
+#include "load_guard.h"
 static void testConfig() {
     std::printf("config\n");
     Config c;
@@ -201,6 +202,13 @@ static void testConfig() {
     CHECK(d.role == Role::Client && d.host == "10.0.0.5" && d.enable);
     Config e;
     CHECK(ParseConfig("", &e, &err) && !e.enable && e.role == Role::Off);  // default: inert
+    CHECK(e.clientLoadBlock);                                             // only the host loads saves unless the host allows it
+    Config r;
+    CHECK(ParseConfig("[coop]\nclientload=rejoin\n", &r, &err) && !r.clientLoadBlock);
+    // the load guard: a joined guest under the block is refused, except the console's LoadGame (the mod's own start save / Continue)
+    CHECK(!nvcoop::coop::guestLoadAllowed(true, 0x00851234u));
+    CHECK(nvcoop::coop::guestLoadAllowed(true, nvcoop::coop::kConsoleLoadReturn));
+    CHECK(nvcoop::coop::guestLoadAllowed(false, 0x00851234u));
     Config f;
     CHECK(!ParseConfig("[coop]\nrole=banana\n", &f, &err));
     CHECK(!ParseConfig("[coop]\nport=99999\n", &f, &err));
@@ -1676,6 +1684,150 @@ static void testAnchorTether() {
 }
 
 // G26: the host's own chargen end and a guest's stage intent are each player's pass; the barrier opens when everybody passed.
+// ---- the guest's character creation order (chargen_flow.h) ------------------------------------------------------------------------------------------
+#include <map>
+#include <set>
+#include <string>
+#include "chargen_flow.h"
+namespace {
+using nvcoop::coop::ChargenFlow;
+using nvcoop::coop::ChargenFlowConfig;
+using nvcoop::coop::ChargenStepRule;
+// A scripted game: `opens[k]` says whether the k-th line of a step makes its menu appear (menu id 2000 + step); an open menu closes after `openFor` frames.
+struct ChargenGame {
+    ChargenFlow flow;
+    uint64_t now = 0;
+    std::set<int> open;
+    std::map<int, int> willOpenOnAttempt;   // step -> the attempt (1-based) whose line works; absent = every attempt works
+    std::map<int, int> neverOpens;          // step -> 1: no attempt ever works
+    int openFor = 10;
+    int pauseMenuUntilMs = 0;               // the pause menu (1013) is open until this time
+    std::vector<std::pair<int, int>> issued;   // (step, attempt)
+    std::vector<std::string> log;
+    int closeIn = 0, curMenu = 0;
+    bool finished = false;
+    uint64_t pauseSeenAtIssue = 0;
+    std::vector<bool> pauseOpenAtIssue;
+    ChargenGame(ChargenFlowConfig cfg = {}) : flow({{"name", false}, {"face", false}, {"SPECIAL", true}, {"tag skills", true}, {"traits", false}}, cfg) { flow.start(0); }
+    void Frame() {
+        now += 16;
+        std::set<int> view = open;
+        if (now < static_cast<uint64_t>(pauseMenuUntilMs)) view.insert(1013);
+        const ChargenFlow::Out o = flow.frame(now, view);
+        for (const std::string& l : flow.takeLog()) log.push_back(l);
+        if (o.what == ChargenFlow::Do::Finish) finished = true;
+        if (o.what == ChargenFlow::Do::Issue) {
+            issued.push_back({o.step, o.attempt});
+            pauseOpenAtIssue.push_back(view.count(1013) != 0);
+            flow.issued(now, view);
+            const bool works = !neverOpens.count(o.step) && (!willOpenOnAttempt.count(o.step) || willOpenOnAttempt[o.step] == o.attempt);
+            if (works) {
+                open.insert(2000 + o.step);
+                closeIn = openFor;
+                curMenu = 2000 + o.step;
+            }
+        }
+        if (curMenu && --closeIn <= 0) {
+            open.erase(curMenu);
+            curMenu = 0;
+        }
+    }
+    void Run(uint64_t ms) {
+        const uint64_t end = now + ms;
+        while (now < end && !finished) Frame();
+    }
+};
+}  // namespace
+
+static void testGuestChargenFlow() {
+    std::printf("guest chargen flow\n");
+    {   // all five menus open at once: five steps, in order, once each
+        ChargenGame g;
+        g.Run(60000);
+        CHECK(g.finished);
+        CHECK(g.issued.size() == 5);
+        for (size_t i = 0; i < g.issued.size(); ++i) CHECK(g.issued[i].first == static_cast<int>(i) && g.issued[i].second == 1);
+    }
+    {   // the SPECIAL line does nothing the first time (the game was not ready for it): it is tried again, the step is not lost
+        ChargenGame g;
+        g.willOpenOnAttempt[2] = 2;
+        g.Run(120000);
+        CHECK(g.finished);
+        int specialLines = 0;
+        for (auto& i : g.issued) specialLines += i.first == 2;
+        CHECK(specialLines == 2);
+        bool tryAgain = false, skipped = false;
+        for (auto& l : g.log) {
+            tryAgain = tryAgain || l.find("SPECIAL: no menu after attempt 1") != std::string::npos;
+            skipped = skipped || l.find("SPECIAL never opened") != std::string::npos;
+        }
+        CHECK(tryAgain && !skipped);
+        CHECK(g.issued.size() == 6);   // five steps and the one repeated line
+    }
+    {   // a line that never works is tried maxAttempts times and then skipped; the steps after it still run
+        ChargenGame g;
+        g.neverOpens[3] = 1;
+        g.Run(200000);
+        CHECK(g.finished);
+        int lines = 0;
+        for (auto& i : g.issued) lines += i.first == 3;
+        CHECK(lines == 3);
+        bool skipped = false;
+        for (auto& l : g.log) skipped = skipped || l.find("tag skills never opened after 3 attempts") != std::string::npos;
+        CHECK(skipped);
+        bool traitsRan = false;
+        for (auto& i : g.issued) traitsRan = traitsRan || i.first == 4;
+        CHECK(traitsRan);
+    }
+    {   // the old behaviour (one line per step, then skipped) loses the step: this is what the owner's two-copy run showed
+        ChargenFlowConfig cfg;
+        cfg.maxAttempts = 1;
+        ChargenGame g(cfg);
+        g.willOpenOnAttempt[2] = 2;
+        g.Run(120000);
+        int specialLines = 0;
+        for (auto& i : g.issued) specialLines += i.first == 2;
+        CHECK(specialLines == 1);
+        bool skipped = false;
+        for (auto& l : g.log) skipped = skipped || l.find("SPECIAL never opened") != std::string::npos;
+        CHECK(skipped);
+    }
+    {   // the pause menu (the game window lost focus): SPECIAL and tag skills wait until it is gone; name, face and traits do not
+        ChargenGame g;
+        g.pauseMenuUntilMs = 15000;
+        g.Run(120000);
+        CHECK(g.finished);
+        for (size_t i = 0; i < g.issued.size(); ++i) {
+            const int step = g.issued[i].first;
+            const bool quietStep = step == 2 || step == 3;
+            if (quietStep) CHECK(!g.pauseOpenAtIssue[i]);
+        }
+        bool waited = false;
+        for (auto& l : g.log) waited = waited || l.find("waits for the pause menu") != std::string::npos;
+        CHECK(waited);
+    }
+    {   // a pause menu that never goes away does not hold the guest back for ever
+        ChargenFlowConfig cfg;
+        cfg.escapeWaitMs = 5000;
+        ChargenGame g(cfg);
+        g.pauseMenuUntilMs = 1 << 30;
+        g.Run(200000);
+        CHECK(g.finished);
+        bool gaveUp = false;
+        for (auto& l : g.log) gaveUp = gaveUp || l.find("going on anyway") != std::string::npos;
+        CHECK(gaveUp);
+    }
+    {   // a message box in the way holds the next step back until it is closed
+        ChargenGame g;
+        g.open.insert(1001);
+        g.Run(3000);
+        CHECK(g.issued.empty());
+        g.open.erase(1001);
+        g.Run(60000);
+        CHECK(g.finished && g.issued.size() == 5);
+    }
+}
+
 static void testChargenPasses() {
     std::printf("wave 2: chargen passes (host stage, guest stage intent)\n");
     int stageRuns = 0;
@@ -2242,6 +2394,7 @@ int main(int argc, char** argv) {
         return g_failed ? 1 : 0;
     }
     testConfig();
+    testGuestChargenFlow();
     testTransport();
     testConvergence("enet");
     testConvergence("udp");

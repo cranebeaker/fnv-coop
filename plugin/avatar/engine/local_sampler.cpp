@@ -18,7 +18,7 @@
 // 89 every sample while it plays is a new event                90 a one-shot is not held in the stream
 // 91 a dead player keeps publishing his last action            92 block is never published
 // 93 a finished sequence still counts as playing               94 a held action (block) is held as long as a one-shot
-// 95 the counter is reset by a world gap
+// 95 the counter is reset by a world gap                       96 the first-person animation set is never read (a human's first-person attack is invisible)
 
 namespace nvcoop::avatar::engine {
 
@@ -54,22 +54,41 @@ LocalFrame ReadLocalFrame(IGameBackend& be) {
         f.dead = ar.dead;
         f.firstPerson = ar.firstPerson;
         bool jump = false, reload = false;
-        for (int i = 0; i < 9; ++i) {
-            if (ar.groups[i] < 0) continue;
-            if (IsJumpGroupId(ar.groups[i])) jump = true;
-            if (IsReloadGroupId(ar.groups[i])) reload = true;
+        // The sets the player's animation lives in: the process's (third person) and, for the local player, the first-person one (PlayerCharacter+0x690) and
+        // the alternate (+0x6A0). A player in first person plays his swings and shots on the first-person set (engine_pins.h), so that set is asked first then.
+        struct SetRef { const int* groups; const int* state; const int* playMs; int id; };
+        SetRef sets[3];
+        int nSets = 0;
+        const SetRef third{ar.groups, ar.state, ar.playMs, kSetThird};
+        const SetRef first{ar.alt[0].groups, ar.alt[0].state, ar.alt[0].playMs, kSetFirstPerson};
+        const SetRef alt{ar.alt[1].groups, ar.alt[1].state, ar.alt[1].playMs, kSetAlt};
+        if (ar.firstPerson && ar.alt[0].valid && !FNV_MUT(96)) sets[nSets++] = first;   // twin 96: the first-person set is never read
+        sets[nSets++] = third;
+        if (!ar.firstPerson && ar.alt[0].valid && !FNV_MUT(96)) sets[nSets++] = first;
+        if (ar.alt[1].valid && nSets < 3 && !FNV_MUT(96)) sets[nSets++] = alt;
+        f.setCount = nSets;
+        for (int k = 0; k < nSets; ++k) {
+            for (int i = 0; i < 9; ++i) {
+                if (sets[k].groups[i] < 0) continue;
+                if (IsJumpGroupId(sets[k].groups[i])) jump = true;
+                if (IsReloadGroupId(sets[k].groups[i])) reload = true;
+            }
         }
         // The action: the last slot first (the NPC layer reads the nine slots the same way, plugin/actors/anim/anim_game.cpp). A sequence the engine
         // reports as not playing (state other than animated / easing in / easing out) is a leftover in its slot, not an action.
-        for (int i = 8; i >= 0; --i) {
-            const int g = ar.groups[i];
-            if (g < 0 || !IsActionGroup(g)) continue;
-            const int st = ar.state[i];
-            if (!FNV_MUT(93) && st >= 0 && (st < 1 || st > 3)) continue;
-            f.actionGroup = g;
-            f.actionPlayMs = ar.playMs[i];
-            break;
+        for (int k = 0; k < nSets && f.actionGroup < 0; ++k) {
+            for (int i = 8; i >= 0; --i) {
+                const int g = sets[k].groups[i];
+                if (g < 0 || !IsActionGroup(g)) continue;
+                const int st = sets[k].state[i];
+                if (!FNV_MUT(93) && st >= 0 && (st < 1 || st > 3)) continue;
+                f.actionGroup = g;
+                f.actionPlayMs = sets[k].playMs[i];
+                f.actionSet = sets[k].id;
+                break;
+            }
         }
+        f.procAction = ar.action;
         f.anim.jump = FNV_MUT(43) ? false : jump;
         f.anim.reload = FNV_MUT(44) ? false : reload;
         if (ar.haveMover) {
@@ -95,12 +114,14 @@ void ActionTracker::Clear() {
 }
 
 ActionTracker::Out ActionTracker::Step(uint32_t nowMs, int rawGroup, int rawPlayMs) {
+    started_ = false;
     const bool raw = rawGroup > 0 && IsActionGroup(rawGroup);
     if (raw) {
         const bool newGroup = rawGroup != rawPrev_;
         const bool restarted = !newGroup && rawPlayMs >= 0 && playPrev_ >= 0 && rawPlayMs + cfg_.restartBackstepMs < playPrev_;
         bool started = newGroup || (restarted && !FNV_MUT(88));   // twin 88: a restart of the same group is no event (two punches in a row look like one)
         if (FNV_MUT(89)) started = true;                          // twin 89: every sample while it plays is a new event (the attack is replayed over and over)
+        started_ = started;
         if (started) {
             ++seq_;
             cur_ = rawGroup;
@@ -116,6 +137,7 @@ ActionTracker::Out ActionTracker::Step(uint32_t nowMs, int rawGroup, int rawPlay
         cur_ = 0;
     }
     Out o;
+    o.started = raw && started_;
     o.action = static_cast<uint8_t>(holding_ ? cur_ : 0);
     o.actionSeq = seq_;
     o.block = !FNV_MUT(92) && holding_ && cur_ == actors::anim::kGroupBlockIdle;   // twin 92: blocking is never published
@@ -209,6 +231,10 @@ bool LocalSampler::Update(uint32_t nowMs, const LocalFrame& f, live::ActorSnapsh
         anim.actionSeq = action_.seq();   // nothing plays on a dead player, but the counter goes on
     } else {
         const ActionTracker::Out ao = action_.Step(nowMs, f.actionGroup, f.actionPlayMs);
+        if (ao.started) {   // a new event: remembered for the log line (avatar_runtime.cpp PublishLocal)
+            ++c_.actionEvents;
+            lastEvent_ = ActionEvent{f.actionGroup, f.actionSet, f.procAction, f.firstPerson, f.setCount, ao.actionSeq, nowMs};
+        }
         if (!FNV_MUT(87)) {   // twin 87: the player's attacks and reactions never reach the snapshot
             anim.action = ao.action;
             anim.actionSeq = ao.actionSeq;

@@ -135,6 +135,7 @@ private:
     };
 
     void PublishLocal(uint32_t nowMs);
+    void LogLocalAction(const live::ActorSnapshot& s);
     void DriveRemotes(uint32_t nowMs);
     void Log(const std::string& s) const { if (log_) log_(s); }
 
@@ -166,6 +167,9 @@ private:
     uint64_t lastTickUs_ = 0;
     bool haveTickUs_ = false;
     uint32_t lastSetPosCount_ = 0;
+    // log lines of the local player's attacks (PublishLocal): events already logged, the process action and animation sets last logged
+    uint64_t loggedActionEvents_ = 0;
+    int loggedProcAction_ = -2, loggedSetState_ = -1, actionLogs_ = 0;
     uint32_t lastNetFrame_ = 0;
     bool haveNetFrame_ = false;
 };

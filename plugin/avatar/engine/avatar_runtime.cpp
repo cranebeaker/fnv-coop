@@ -151,6 +151,39 @@ bool AvatarRuntime::SetLoopback(bool on) {
 
 // ---- per frame -----------------------------------------------------------------------------------------------------------
 
+// The owner can read next run whether his own attacks were seen and handed to the net layer (nvcoop.log). Capped: an attack every few seconds is the normal rate.
+void AvatarRuntime::LogLocalAction(const live::ActorSnapshot& s) {
+    const LocalFrame& f = sampler_.lastFrame();
+    // which animation sets can be read (a change is worth a line: 1 = only the process's, 2/3 = the first-person / alternate set is there too)
+    const int setState = f.setCount * 4 + (f.firstPerson ? 1 : 0);
+    if (setState != loggedSetState_) {
+        loggedSetState_ = setState;
+        Log("avatar: local attack source: " + std::to_string(f.setCount) + " animation set(s) readable, camera " + (f.firstPerson ? "first person" : "third person"));
+    }
+    const auto& c = sampler_.counters();
+    if (c.actionEvents != loggedActionEvents_) {
+        loggedActionEvents_ = c.actionEvents;
+        const auto& e = sampler_.lastActionEvent();
+        if (actionLogs_++ < 400) {
+            const char* name = GroupName(e.group);
+            const char* setName = e.set == kSetFirstPerson ? "first-person set" : e.set == kSetAlt ? "alternate set" : "third-person set";
+            char buf[240];
+            std::snprintf(buf, sizeof buf, "avatar: local attack seen: group %d (%s) from the %s, camera %s, process action %d -> sent as event %u in snapshot %u",
+                          e.group, name ? name : "?", setName, e.firstPerson ? "first person" : "third person", e.procAction, (unsigned)s.anim.actionSeq, (unsigned)s.seq);
+            Log(buf);
+        }
+    }
+    // The engine's own "what the player is doing" value changing with no animation group behind it is the sign of an attack we cannot see
+    if (f.procAction != loggedProcAction_) {
+        const int before = loggedProcAction_;
+        loggedProcAction_ = f.procAction;
+        if (actionLogs_ < 400 && f.procAction >= 0 && f.actionGroup < 0) {
+            ++actionLogs_;
+            Log("avatar: local process action " + std::to_string(before) + " -> " + std::to_string(f.procAction) + " with no action group playing in any readable set");
+        }
+    }
+}
+
 void AvatarRuntime::PublishLocal(uint32_t nowMs) {
     if (loading_ && !FNV_MUT(63)) return;
     live::ActorSnapshot s;
@@ -161,6 +194,7 @@ void AvatarRuntime::PublishLocal(uint32_t nowMs) {
             const Vec3 a = sampler_.lastFrame().pos, b = sampler_.lastFrame().pos3D;
             stages_.localDrift3D.add(std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)));
         }
+        LogLocalAction(s);
         traceLocal_.push_back(LocalPt{s.tick, s.pos.x, s.pos.y, s.pos.z, s.vel.x, s.vel.y, s.vel.z});
         if (traceLocal_.size() > kTraceLocal) traceLocal_.pop_front();
         if (snapSink_) {
@@ -378,17 +412,19 @@ std::string AvatarRuntime::LocalJson() {
     const LocalFrame& f = sampler_.lastFrame();
     const Vec3 v = sampler_.lastVelocity();
     const auto& c = sampler_.counters();
-    char buf[800];
+    char buf[1000];
     std::snprintf(buf, sizeof buf,
                   "{\"have\":%s,\"cell\":\"%s\",\"pos\":[%.1f,%.1f,%.1f],\"rot\":[%.3f,%.3f,%.3f],\"vel\":[%.1f,%.1f,%.1f],\"loco\":%d,"
                   "\"weaponDrawn\":%s,\"sneak\":%s,\"jump\":%s,\"reload\":%s,\"aim\":%s,\"animReadable\":%s,\"published\":%llu,\"notReady\":%llu,"
-                  "\"teleports\":%llu,\"cellChanges\":%llu,\"seq\":%u,\"rawAction\":%d,\"action\":%d,\"actionSeq\":%d}",
+                  "\"teleports\":%llu,\"cellChanges\":%llu,\"seq\":%u,\"rawAction\":%d,\"action\":%d,\"actionSeq\":%d,"
+                  "\"actionSet\":%d,\"sets\":%d,\"firstPerson\":%s,\"procAction\":%d,\"actionEvents\":%llu}",
                   f.valid ? "true" : "false", Hex8(f.cell).c_str(), f.pos.x, f.pos.y, f.pos.z, f.rot.x, f.rot.y, f.rot.z, v.x, v.y, v.z,
                   (int)sampler_.lastLoco(), f.anim.weaponDrawn ? "true" : "false", f.anim.sneak ? "true" : "false",
                   f.anim.jump ? "true" : "false", f.anim.reload ? "true" : "false", f.anim.aim ? "true" : "false",
                   f.animReadable ? "true" : "false", (unsigned long long)c.published, (unsigned long long)c.notReady,
                   (unsigned long long)c.teleports, (unsigned long long)c.cellChanges, haveSnap_ ? (unsigned)lastSnap_.seq : 0u, f.actionGroup,
-                  haveSnap_ ? (int)lastSnap_.anim.action : 0, haveSnap_ ? (int)lastSnap_.anim.actionSeq : 0);
+                  haveSnap_ ? (int)lastSnap_.anim.action : 0, haveSnap_ ? (int)lastSnap_.anim.actionSeq : 0, f.actionSet, f.setCount,
+                  f.firstPerson ? "true" : "false", f.procAction, (unsigned long long)c.actionEvents);
     return buf;
 }
 

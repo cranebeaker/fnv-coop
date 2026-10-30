@@ -31,6 +31,9 @@ void glueShutdown();
 const LiveSwitches& glueSwitches();
 // Engine ref of the puppet that stands for a remote player slot (the ghost-ref map of the acting-player design); 0 = none / avatars off.
 uint32_t glueAvatarRef(uint8_t slot);
+// This machine's own character creation reached a point where the look is final (a face menu closed, the last screen was left): the avatar layer reads the look from
+// the game at once and sends it without its settle time. No-op without avatars.
+void glueLookEdited();
 // W3a item 3 (host): what the avatar layer knows about the remote player `slot` for the party conditions (sex and worn items from its Look, sneaking from its newest
 // snapshot, level / seat / actions / regions from its Facts message). false = no avatars service or the player is unknown; each group has its own have* flag.
 bool glueSlotFacts(uint8_t slot, nvcoop::SlotFacts* out);

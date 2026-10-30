@@ -88,6 +88,19 @@ static void testJson() {
     CHECK(head.size() == 3 && head[2].asNumber() == 3.0);   // (never index an empty list: a missing "bones" key must FAIL the test, not crash it)
     CHECK(HexId(0xABCDEF) == "0x00ABCDEF");
 
+    // the player's first-person AnimData: a human's swing plays there, so the probe must carry it (twin 7)
+    SeqSample fp;
+    fp.slot = 4;
+    fp.group = 26;
+    fp.state = 1;
+    a.fpSeqs.push_back(fp);
+    Value jf = ToJson(a);
+    Value backf;
+    CHECK(nvcoop::json::parse(jf.dump(), backf, err));
+    CHECK(backf.get("anim").get("seqs_first_person").items().size() == 1);
+    CHECK(backf.get("anim").get("seqs_first_person").items().size() == 1 && backf.get("anim").get("seqs_first_person").items()[0].get("group").asInt() == 26);
+    CHECK(backf.get("anim").find("seqs_alt") == nullptr && back.get("anim").find("seqs_first_person") == nullptr);
+
     ActorSample b;  // no bones, not the player: those keys must be absent
     Value jb = ToJson(b);
     CHECK(jb.find("bones") == nullptr);

@@ -50,6 +50,9 @@ struct ActorSample {
     int action = -1;             // HighProcess::GetCurrentAnimAction
     uint32_t sequenceRaw = 0;    // HighProcess::GetCurrentSequence (raw dword, meaning unverified)
     std::vector<SeqSample> seqs;
+    // The LOCAL PLAYER only: his other AnimData objects (PlayerCharacter+0x690 first person, +0x6A0 alternate). A player in first person plays his swings and shots on the first-person
+    // set, not on the process's (`seqs`), so a probe that reads only `seqs` never sees a human's attack. Emitted as anim.seqs_first_person / anim.seqs_alt when non-empty.
+    std::vector<SeqSample> fpSeqs, altSeqs;
 
     // locomotion (raw engine flags; bits decoded by animcheck)
     bool haveMove = false;

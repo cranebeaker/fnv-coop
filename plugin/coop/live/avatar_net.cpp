@@ -31,7 +31,7 @@ nvcoop::avatar::StreamRateConfig rateConfig(nvcoop::avatar::StreamRateConfig c) 
 }
 bool sameAppearance(const nvcoop::avatar::Appearance& a, const nvcoop::avatar::Appearance& b) {
     return a.race == b.race && a.female == b.female && a.hair == b.hair && a.eyes == b.eyes && a.faceHash == b.faceHash &&
-           a.hairColor == b.hairColor && a.height == b.height && a.weight == b.weight && a.faceCoeffs == b.faceCoeffs;
+           a.hairColor == b.hairColor && a.height == b.height && a.weight == b.weight && a.faceCoeffs == b.faceCoeffs && a.headParts == b.headParts;
 }
 }  // namespace
 
@@ -78,6 +78,8 @@ void AvatarNet::sessionBegin(const SessionInfo& info, ILiveLink& link) {
     rate_.clear();
     haveLocalApp_ = false;
     lastAppRead_ = 0;
+    forceAppRead_ = haveLookCand_ = haveLookOffered_ = false;
+    settleNowUntil_ = lookCandSince_ = 0;
     sender_ = live::SnapshotSender(opt_.sender);
     recv_ = live::SnapshotReceiver(receiverConfig());
     localOut_.clear();
@@ -399,6 +401,9 @@ void AvatarNet::applyRemoteAppearance(PlayerId slot, const nvcoop::avatar::Appea
         // MUTANT 105: every look change rebuilds the puppet (it flashes; the interpolation state and equipment start over)
         if (FNV_MUT(105)) side_.addRemote(slot, app);
         else side_.setRemoteAppearance(slot, app);
+        log("avatar: look of slot " + std::to_string(slot) + " arrived (race " + std::to_string(app.race) + (app.female ? " female" : " male") +
+            ", hair " + std::to_string(app.hair) + ", eyes " + std::to_string(app.eyes) + ", face data " + std::to_string(app.faceCoeffs.size()) + ", head parts " +
+            std::to_string(app.headParts.size()) + ") -> " + (templateChanged ? "new puppet" : "puppet updated"));
         applied_[slot] = app;
         ++stats_.appearanceUpdates;
         if (templateChanged) ++stats_.puppetRespawnsForLook;
@@ -512,10 +517,11 @@ bool AvatarNet::localEquipmentNow(std::vector<nvcoop::avatar::EquipEntry>& out) 
 // The local look as the game has it: an injected reader is asked every time, the game itself at most once per appearancePollMs.
 bool AvatarNet::localAppearanceNow(nvcoop::avatar::Appearance& out) {
     if (localAppearance_) return localAppearance_(out);
-    if (haveLocalApp_ && nowMs_ - lastAppRead_ < opt_.appearancePollMs) {
+    if (haveLocalApp_ && !forceAppRead_ && nowMs_ - lastAppRead_ < opt_.appearancePollMs) {
         out = localApp_;
         return true;
     }
+    forceAppRead_ = false;
     nvcoop::avatar::Appearance a;
     lastAppRead_ = nowMs_;
     if (side_.readLocalAppearance(a)) {
@@ -525,6 +531,12 @@ bool AvatarNet::localAppearanceNow(nvcoop::avatar::Appearance& out) {
     if (!haveLocalApp_) return false;
     out = localApp_;
     return true;
+}
+
+void AvatarNet::noteLookEdited() {
+    if (FNV_MUT(1187)) return;   // MUTANT 1187: the end of a character creation step is not announced (the final face waits for the poll and the settle time)
+    forceAppRead_ = true;
+    settleNowUntil_ = nowMs_ + 5000;
 }
 
 void AvatarNet::checkLocalLook(uint64_t nowMs) {
@@ -676,11 +688,31 @@ bool AvatarNet::readLocalPart(nvcoop::actors::PartKind kind, Bytes& out) {
     using nvcoop::actors::PartKind;
     switch (kind) {
         case PartKind::Look: {
-            nvcoop::avatar::Appearance a;
-            if (!localAppearanceNow(a)) return false;
-            out = nvcoop::avatar::encodeAppearance(a);
+            nvcoop::avatar::Appearance read;
+            if (!localAppearanceNow(read)) return false;
+            // The look the game has now becomes the offered one once it has stayed the same for lookSettleMs (the first one and a noteLookEdited() one at once).
+            if (!haveLookCand_ || !sameAppearance(lookCand_, read)) {
+                lookCand_ = read;
+                lookCand_.name = read.name;
+                haveLookCand_ = true;
+                lookCandSince_ = nowMs_;
+                log("avatar: my look is now race " + std::to_string(read.race) + (read.female ? " female" : " male") + ", hair " + std::to_string(read.hair) + ", eyes " +
+                    std::to_string(read.eyes) + ", face data " + std::to_string(read.faceCoeffs.size()) + ", head parts " + std::to_string(read.headParts.size()) +
+                    (haveLookOffered_ ? " (it goes out when it has stayed the same for a moment)" : " (first look, it goes out now)"));
+            }
+            const bool changed = !haveLookOffered_ || !sameAppearance(lookOffered_, lookCand_);
+            if (changed && (!haveLookOffered_ || nowMs_ <= settleNowUntil_ || nowMs_ - lookCandSince_ >= opt_.lookSettleMs || FNV_MUT(1186))) {   // MUTANT 1186: no settle time, every state of the race menu is offered
+                settleNowUntil_ = 0;
+                lookOffered_ = lookCand_;
+                haveLookOffered_ = true;
+                log("avatar: my look goes out: race " + std::to_string(lookOffered_.race) + (lookOffered_.female ? " female" : " male") + ", hair " +
+                    std::to_string(lookOffered_.hair) + ", eyes " + std::to_string(lookOffered_.eyes) + ", face data " + std::to_string(lookOffered_.faceCoeffs.size()) +
+                    ", head parts " + std::to_string(lookOffered_.headParts.size()));
+            }
+            if (!haveLookOffered_) return false;
+            out = nvcoop::avatar::encodeAppearance(lookOffered_);
             lastLookSent_.slot = self_;
-            lastLookSent_.appearance = a;
+            lastLookSent_.appearance = lookOffered_;
             lookSentValid_ = true;
             if (isHost_) looks_[self_] = lastLookSent_;
             return true;
