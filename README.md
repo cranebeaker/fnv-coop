@@ -2,12 +2,10 @@
 
 [![Discord](https://img.shields.io/badge/Discord-chat%20and%20help-5865F2?logo=discord&logoColor=white)](https://discord.gg/EXGB49R82t)
 
-> **Development is paused (October 2026).** If you want to play New Vegas in co-op today, I recommend
-> [New Vegas True Co-op](https://www.nexusmods.com/newvegas/mods/100267) by Zyrcxies
-> ([source on GitHub](https://github.com/Zyrcxies/NewVegasCoop)). It is playable start to finish and is being worked on.
->
-> This repo stays up as it is: the code, the tests and the docs are all here for anyone who wants to build on them.
-> Nothing below is being worked on right now.
+> **Status (October 2026): alpha 0.1.4.** The whole party starts together from a lobby, the opening movie plays for everyone
+> at once, and Steam join, voice and text chat, Co-op balanced mode, friend markers and revive are in. Expect bugs: this build
+> is for playtesting. Also worth a look: [New Vegas True Co-op](https://www.nexusmods.com/newvegas/mods/100267) by Zyrcxies
+> ([source on GitHub](https://github.com/Zyrcxies/NewVegasCoop)), another co-op mod for New Vegas.
 >
 > | Area | Where it stands |
 > |---|---|
@@ -19,9 +17,9 @@
 > | Goodsprings stage sweep | 65 of 104 stages pass |
 > | Goodsprings story run (two copies play the opening quests start to finish) | 7 of 18 steps pass, including Doc Mitchell's farewell and the gecko fight |
 > | Runs on its own, without NV:MP | yes: own networking, player avatars, NPC and combat sync |
-> | Steam join, voice and text chat, Co-op balanced mode, friend markers and revive, enemies that split their attention | built, game-free tests pass, in-game test next |
+> | Steam join, voice and text chat, Co-op balanced mode, friend markers and revive, enemies that split their attention | in the alpha, game-free tests pass, being playtested |
 >
-> Alpha 0.1.0 is still available as a pre-release ([Releases](../../releases)).
+> Alpha 0.1.4 is out as a pre-release ([Releases](../../releases)).
 
 Play the whole **Fallout: New Vegas** story together: 2 to 4 players, one shared world, one shared quest
 state. This repo is the whole co-op mod: an xNVSE plugin plus a game-free sync core. It keeps quests, objectives,
@@ -44,28 +42,29 @@ NV:MP it does nothing.
 ## Roadmap: 10 steps to full co-op
 
 After these ten steps the whole game plays in co-op: story, enemies, combat, loot and the world, for 2 to 4 players.
-Development is paused, so no step is being worked on right now. The table shows where each one was left.
+A step marked **Claimed** is being worked on right now. Want to take one? Open an issue and it gets claimed for you.
 
 | # | Step | What it means when you play | Status |
 |---|---|---|---|
 | 1 | Enemy and NPC sync | One PC runs each enemy's AI and everyone sees a smooth copy. Hits count once, deaths happen once, encounters spawn once, and enemy attacks, flinches and death poses look right on every screen. | Code written, in-game test next |
-| 2 | Enemy sync in the real game | The two-copy fight, ownership handoff, spawn and corpse-loot tests pass on a real PC, and the feature is switched on by default. | Paused: switched on by default in the alpha. The actor adapter passes all 36 checks in game and the Goodsprings gecko fight passes on two copies; the full task list is in docs/WORK-QUEUE.md |
+| 2 | Enemy sync in the real game | The two-copy fight, ownership handoff, spawn and corpse-loot tests pass on a real PC, and the feature is switched on by default. | **Claimed**: switched on by default in the alpha. The actor adapter passes all 36 checks in game and the Goodsprings gecko fight passes on two copies; the full task list is in docs/WORK-QUEUE.md |
 | 3 | Player avatars | You see your friends as characters that walk, run, aim and animate, without needing NV:MP. | Code written, in-game test next |
 | 4 | Full combat | Real-time VATS for every player, projectiles and explosions, companions in fights, crime and faction hostility. | Code written (combat, real-time VATS, companions, crime), in-game test next |
 | 5 | Loot, items and containers | Shared containers and corpses, item drops and pickups, and no duplicated items. | Code written, in-game test next |
 | 6 | World, time and travel | Doors, terminals, switches and traps; time and weather; fast travel, waiting and sleeping by party vote; saving and rejoining. | Code written, in-game test next |
 | 7 | Desync check and repair | Every area checks itself every few seconds and fixes any difference it finds. | Code written for enemies, loot and the world, in-game test next |
-| 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | Paused: alpha playtest of the campaign. Script calls synced: 99.98%. Goodsprings: 65 of 104 stages pass in game, and the scripted story run passes 7 of 18 steps |
+| 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | **Claimed**: alpha playtest of the campaign. Script calls synced: 99.98%. Goodsprings: 65 of 104 stages pass in game, and the scripted story run passes 7 of 18 steps |
 | 9 | Every side quest and DLC | All side quests, companions and the four DLCs, played through by two-copy test bots. | Playthrough plans and test bots written, in-game runs next |
-| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default). Join through Steam friends, voice and text chat, and a Co-op balanced mode are built; paused before their in-game test |
+| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | Alpha package built (installer, launcher, player guide, every feature on by default). Alpha 0.1.4 adds the launcher lobby, a synced start for the whole party, join through Steam friends, voice and text chat and a Co-op balanced mode; playtesting now |
 
 ## Play in three steps
 
-**Alpha 0.1.0 is still available as a pre-release.** Development is paused, so bugs are not being fixed for now.
+**Alpha 0.1.4 is out as a pre-release for playtesting.** Expect bugs, and report them on the issue tracker or on Discord.
 
-1. Download `FNV-CoOp-0.1.0-alpha.zip` from [Releases](../../releases) and unzip it.
+1. Download `FNV-CoOp-0.1.4-alpha.zip` from [Releases](../../releases) and unzip it.
 2. Run **Install.cmd**. It finds your New Vegas install and adds the plugin next to xNVSE.
-3. Run **Launcher.cmd**: the host picks Host a game, friends pick Join a friend.
+3. Run **Launcher.cmd** and type your courier name. The host picks HOST A GAME, friends pick JOIN A FRIEND (an address, or a
+   Steam friend with CONNECTION set to STEAM). Everyone readies up and the host starts: the whole party starts the new game together.
 
 You need New Vegas 1.4.0.525, xNVSE 6.3.0 or newer and Python 3. `PLAYER-GUIDE.md` in the zip has the details.
 

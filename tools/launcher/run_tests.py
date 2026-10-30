@@ -140,6 +140,7 @@ def check_build_plan():
         assert sc.values["bridge"] == {"multiInstance": "1", "instance": "1", "focusGuard": "1", "windowSide": "right"} and sc.values["coop"]["autostart"] == "start", sc.values
         hc = core.build_plan(core.Settings(name="Ann", mode="host", second_copy=True))
         assert hc.values["bridge"]["windowSide"] == "left" and hc.values["bridge"]["focusGuard"] == "1", "two copies on one PC: host left, no pause on focus loss"
+        assert hc.values["bridge"]["instance"] == "0" and hc.values["bridge"]["multiInstance"] == "1", "host and guest on one PC use different pipes"
         assert sc.values["coop"]["party"] == "2", "the lobby's size goes with the start save"
         assert core.build_plan(core.Settings(name="Ann", autostart="new")).values["coop"]["autostart"] == "", "the old New-button value is gone"
         assert core.build_plan(core.Settings(name="Ann", autostart="rm -rf")).values["coop"]["autostart"] == "", "only known autostart values"

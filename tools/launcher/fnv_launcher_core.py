@@ -281,7 +281,8 @@ def build_plan(s: Settings, resolver: Optional[Callable[[str], str]] = None) -> 
     plan.values["coop"]["party"] = str(s.party) if plan.values["coop"]["autostart"] == "start" and 1 <= s.party <= 8 else ""
     # The game lets one copy run per PC; the plugin hides that check in a second copy ([bridge] multiInstance, the same keys
     # tools/splitscreen/plan.py writes), and the second copy gets its own bridge pipe number.
-    plan.values["bridge"] = {"multiInstance": b(s.second_copy), "instance": "1" if s.second_copy else "0"}
+    # Host and guest on one PC each get their own bridge pipe (two copies on pipe 1 left the second without one).
+    plan.values["bridge"] = {"multiInstance": b(s.second_copy), "instance": "1" if s.second_copy and s.mode == "join" else "0"}
     # Two copies on one PC: the one without the focus pauses (the engine opens the escape menu when its window is deactivated; the focus guard,
     # plugin/splitscreen/focus_guard.h, keeps that from it), and they would open on top of each other (host on the left, the friend on the right).
     plan.values["bridge"]["focusGuard"] = b(s.second_copy)
