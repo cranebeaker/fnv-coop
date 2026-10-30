@@ -1,6 +1,8 @@
 #include "areadigest/actor_source.h"
 
 #include <algorithm>
+#include <cmath>
+#include "actors/actor_trace.h"
 #include "fnvcoop_mut.h"
 
 namespace nvcoop::areadigest {
@@ -78,22 +80,37 @@ HealResult ActorAreaSource::heal(const Item& auth, const Diff& plan, uint64_t no
     }
 
     if (cur.alive && auth.alive) {
-        if (plan.cell || plan.pos == fnvcoop::areadigest::RubberMode::Snap) {
+        const bool movePlanned = plan.cell || plan.pos != fnvcoop::areadigest::RubberMode::None;
+        const bool held = movePlanned && !FNV_MUT(83) && f_.moveHeld(id);   // twin 83: the digest drags a copy that is still getting out of its chair
+        static nvcoop::actors::Throttle thr;
+        if (held) {
+            ++st_.heldByPoseLock;
             smooth_.erase(id);
-            bool ok;
-            if (plan.cell && !FNV_MUT(67)) ok = f_.moveToCell(id, auth.cell, auth.pos);   // twin 67: another cell is "fixed" with a same-cell move
-            else ok = f_.setPos(id, auth.pos);
-            if (ok) { ++st_.snaps; did = true; }
-            else ++st_.moveFailed;
-        } else if (plan.pos == fnvcoop::areadigest::RubberMode::Smooth) {
-            if (FNV_MUT(68)) {   // twin 68: a 2 m .. 10 m error is snapped instead of smoothed
-                if (f_.setPos(id, auth.pos)) { ++st_.snaps; did = true; } else ++st_.moveFailed;
-            } else {
-                fnvcoop::areadigest::Smoother s;
-                s.begin(nowMs, cur.pos, auth.pos, cfg_);
-                smooth_[id] = s;
-                ++st_.smooths;
-                did = true;
+            if (thr.allow(20, id, static_cast<uint32_t>(nowMs), 3000))
+                nvcoop::actors::trace("areadigest: actor %s position heal left alone: the copy is held while it gets out of furniture (authority at (%.0f,%.0f,%.0f), copy at (%.0f,%.0f,%.0f))", nvcoop::actors::who(id).c_str(),
+                                      auth.pos.x, auth.pos.y, auth.pos.z, cur.pos.x, cur.pos.y, cur.pos.z);
+        } else {
+            if (movePlanned && thr.allow(21, id, static_cast<uint32_t>(nowMs), 1000))
+                nvcoop::actors::trace("areadigest: actor %s %s: copy at (%.0f,%.0f,%.0f) cell %08X, authority at (%.0f,%.0f,%.0f) cell %08X, %.1f m apart", nvcoop::actors::who(id).c_str(),
+                                      plan.cell ? "snapped to another cell" : (plan.pos == fnvcoop::areadigest::RubberMode::Snap ? "snapped" : "smoothed"), cur.pos.x, cur.pos.y, cur.pos.z, cur.cell,
+                                      auth.pos.x, auth.pos.y, auth.pos.z, auth.cell, plan.dist / 70.0f);
+            if (plan.cell || plan.pos == fnvcoop::areadigest::RubberMode::Snap) {
+                smooth_.erase(id);
+                bool ok;
+                if (plan.cell && !FNV_MUT(67)) ok = f_.moveToCell(id, auth.cell, auth.pos);   // twin 67: another cell is "fixed" with a same-cell move
+                else ok = f_.setPos(id, auth.pos);
+                if (ok) { ++st_.snaps; did = true; }
+                else ++st_.moveFailed;
+            } else if (plan.pos == fnvcoop::areadigest::RubberMode::Smooth) {
+                if (FNV_MUT(68)) {   // twin 68: a 2 m .. 10 m error is snapped instead of smoothed
+                    if (f_.setPos(id, auth.pos)) { ++st_.snaps; did = true; } else ++st_.moveFailed;
+                } else {
+                    fnvcoop::areadigest::Smoother s;
+                    s.begin(nowMs, cur.pos, auth.pos, cfg_);
+                    smooth_[id] = s;
+                    ++st_.smooths;
+                    did = true;
+                }
             }
         }
         if (plan.hp) {
@@ -113,6 +130,7 @@ void ActorAreaSource::tick(uint64_t nowMs) {
         --budget;
         ActorRead cur;
         if (!f_.read(it->first, cur) || !cur.alive) { it = smooth_.erase(it); continue; }   // gone or dead: nothing to move
+        if (!FNV_MUT(83) && f_.moveHeld(it->first)) { ++it; continue; }   // held while it gets out of furniture: the job waits
         Vec3 p;
         const bool more = it->second.step(nowMs, p);
         if (more) p.z = cur.pos.z;   // height is left to the engine (gravity / navmesh) until the last step puts the exact target

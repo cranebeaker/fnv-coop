@@ -1,5 +1,7 @@
 #include "actors/engine/engine_port.h"
 
+#include "actors/actor_trace.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -337,16 +339,48 @@ bool EnginePort::applyPose(Entry& e, const live::InterpOut& w, bool force) {
     const float yaw = w.rot.y;
     if (!snapped && !FNV_MUT(87)) {   // MUT 87 BAD: a copy that is still getting out of its chair is moved (slides across the room seated)
         const Registry& reg = registry();
-        if (reg.poseLocked && reg.poseLocked(e.id)) { ++st_.drivesHeldSeated; return false; }
+        if (reg.poseLocked && reg.poseLocked(e.id)) {
+            ++st_.drivesHeldSeated;
+            if (thr_.allow(2, e.id, static_cast<uint32_t>(now_), 3000))
+                nvcoop::actors::trace("port %s: position held (the copy is getting out of furniture); the owner is at (%.0f,%.0f,%.0f); %llu drives held so far", nvcoop::actors::who(e.id).c_str(),
+                                      w.pos.x, w.pos.y, w.pos.z, (unsigned long long)st_.drivesHeldSeated);
+            return false;
+        }
     }
     if (!snapped && !FNV_MUT(15) && e.haveApplied && now_ < e.appliedMs + cfg_.driveMinMs) { ++st_.drivesSkippedRate; return false; }
     if (!snapped && !FNV_MUT(14) && e.haveApplied && w.cell == e.appliedCell) {
         const bool small = std::fabs(w.pos.x - e.appliedPos.x) <= cfg_.posEpsilonXY && std::fabs(w.pos.y - e.appliedPos.y) <= cfg_.posEpsilonXY &&
                            std::fabs(w.pos.z - e.appliedPos.z) <= cfg_.posEpsilonZ && yawDiffDeg(yaw, e.appliedYaw) <= cfg_.yawEpsilonDeg;
-        if (small) { ++st_.drivesSkippedSmall; return true; }
+        if (small) {
+            // "Small" is measured against what THIS port wrote last, not against where the actor is: a copy that something else moved (its own AI for a frame, a
+            // furniture exit, a script's MoveTo, a push) while the owner stands still was never put back until the area digest noticed 2 m later. Look where it
+            // really is, a few times a second, and write the pose again when it is further from our last write than driftXY (twin 88: never looked).
+            if (!FNV_MUT(88) && cfg_.driftCheckMs && now_ >= e.driftCheckMs + cfg_.driftCheckMs) {
+                e.driftCheckMs = now_;
+                CellId rc = 0; live::Vec3 rp; float rz = 0;
+                if (eng_.readPose(r, rc, rp, rz)) {
+                    const float dxy = std::sqrt((rp.x - e.appliedPos.x) * (rp.x - e.appliedPos.x) + (rp.y - e.appliedPos.y) * (rp.y - e.appliedPos.y));
+                    const float dz = std::fabs(rp.z - e.appliedPos.z);
+                    if (dxy > cfg_.driftXY || dz > cfg_.driftZ) {
+                        ++st_.driftsFixed;
+                        if (thr_.allow(1, e.id, static_cast<uint32_t>(now_), 2000)) nvcoop::actors::trace("port %s was moved by something else: engine at (%.0f,%.0f,%.0f), our last write (%.0f,%.0f,%.0f), wanted (%.0f,%.0f,%.0f): written again", nvcoop::actors::who(e.id).c_str(),
+                                              rp.x, rp.y, rp.z, e.appliedPos.x, e.appliedPos.y, e.appliedPos.z, w.pos.x, w.pos.y, w.pos.z);
+                        e.haveApplied = false;
+                        writePose(e, r, w.cell, w.pos, yaw, false, false);   // (a refused write leaves haveApplied false: the next frame tries again)
+                        return true;
+                    }
+                }
+            }
+            ++st_.drivesSkippedSmall;
+            return true;
+        }
     }
     if (!writePose(e, r, w.cell, w.pos, yaw, snapped, false)) return true;   // the ref is gone or not placeable: the next drive() retries
-    if (snapped) ++st_.snaps;
+    if (snapped) {
+        ++st_.snaps;
+        if (thr_.allow(3, e.id, static_cast<uint32_t>(now_), 2000))
+            nvcoop::actors::trace("port %s snapped to (%.0f,%.0f,%.0f) cell %08X (%s)", nvcoop::actors::who(e.id).c_str(), w.pos.x, w.pos.y, w.pos.z, w.cell, force ? "forced" : "the stream says teleport");
+    }
     return true;
 }
 
@@ -457,14 +491,17 @@ void EnginePort::applyAi(Entry& e, bool on) {
         if (scriptRestrained && !FNV_MUT(12)) {
             // a script (or something we cannot see) already holds it: we must not be the one to let it go later
             e.aiOff = true; e.aiRef = 0;
+            nvcoop::actors::trace("port %s AI left as it is: a script already holds the actor restrained", nvcoop::actors::who(e.id).c_str());
             return;
         }
         if (eng_.setRestrained(r, true)) {
             if (!FNV_MUT(13)) ledgerAdd(LedgerKind::Restrained, r);
             e.aiOff = true; e.aiRef = r;
             ++st_.aiOff;
+            nvcoop::actors::trace("port %s AI off (SetRestrained 1 ran; combat=%d, script-restrained before=%d)", nvcoop::actors::who(e.id).c_str(), readOk && raw.inCombat ? 1 : 0, scriptRestrained ? 1 : 0);
         } else {
             ++st_.aiFailed;
+            nvcoop::actors::trace("port %s AI off FAILED (SetRestrained 1 refused): the copy keeps running its own AI", nvcoop::actors::who(e.id).c_str());
         }
         return;
     }
@@ -477,8 +514,10 @@ void EnginePort::applyAi(Entry& e, bool on) {
             if (held == r) eng_.evaluatePackage(r);
             e.aiRef = 0;
             ++st_.aiOn;
+            nvcoop::actors::trace("port %s AI on (this machine runs the actor now)", nvcoop::actors::who(e.id).c_str());
         } else {
             ++st_.aiFailed;
+            nvcoop::actors::trace("port %s AI on FAILED (SetRestrained 0 refused)", nvcoop::actors::who(e.id).c_str());
         }
     }
     if (weRestrained && cfg_.startCombatOnTakeover && !FNV_MUT(28) && e.haveAi && e.lastAi.combatTarget) {

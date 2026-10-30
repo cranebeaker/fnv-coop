@@ -28,6 +28,24 @@ double yawRadToDegrees(float yawRad) {
     return a * 180.0 / kPi;
 }
 
+bool GuardedScript::Exec(NetId id, const std::string& line) {
+    std::shared_ptr<void> scope;
+    if (open_ && !FNV_MUT(88)) scope = open_();   // twin 88: the line runs bare, a guest's gate swallows it
+    ++lines_;
+    const bool ok = inner_.Exec(id, line);
+    if (!ok) ++failed_;
+    return ok;
+}
+
+bool GuardedScript::ExecOnRef(uint32_t ref, const std::string& line) {
+    std::shared_ptr<void> scope;
+    if (open_ && !FNV_MUT(88)) scope = open_();
+    ++lines_;
+    const bool ok = inner_.ExecOnRef(ref, line);
+    if (!ok) ++failed_;
+    return ok;
+}
+
 Result ScriptNpcAnimEngine::PlayGroup(NetId id, int baseGroup, bool hold) {
     const char* name = groupName(baseGroup);
     if (FNV_MUT(70) && (!name || !*name)) name = "Idle";   // twin 70: an unknown group is guessed (a wrong animation instead of none)
@@ -89,5 +107,7 @@ Result ScriptNpcAnimEngine::StandUp(NetId id, uint32_t furniture, uint32_t attem
 }
 
 Result ScriptNpcAnimEngine::Restrain(NetId id) { return line(id, "SetRestrained 1"); }
+
+Result ScriptNpcAnimEngine::SetBodyEnabled(NetId id, bool enabled) { return line(id, enabled ? "Enable" : "Disable"); }
 
 }  // namespace nvcoop::actors::anim

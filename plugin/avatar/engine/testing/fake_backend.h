@@ -53,6 +53,9 @@ public:
         uint32_t moverFlags = 0;
         bool haveMover = false, swimming = false, dead = false, knocked = false, firstPerson = false;
         bool weaponOutForced = false;        // the local player draws its weapon without SetAlert
+        bool weaponFlag = false;             // the process's weapon-out flag (BaseProcess::SetWeaponOut)
+        int sitSleep = 0;                    // BaseProcess::GetSitSleepState (kSitSleepState_*: 4 sitting, 9 sleeping)
+        RefId usedFurniture = 0;             // the furniture an Activate put the actor in
         int level = 1;                       // GetLevel
         int sitState = 0;                    // GetSitting
         double inventoryWeight = 0;          // GetActorValue InventoryWeight (46); tests keep it in step with `inv` by hand
@@ -72,6 +75,10 @@ public:
     int vanishAfterFrames = -1;             // deleted references disappear after this many frames (-1 = never)
     bool restraintLostOnRebuild = true;
     bool alertDrawsWeapon = true;
+    bool directWeaponOut = true;            // BaseProcess::SetWeaponOut is available (the pin holds)
+    bool attackNeedsWeaponOut = false;      // an attack group plays only on an actor whose process says "weapon out" (the sheathed variant has no sequence): else PlayGroup says ok and nothing plays
+    bool sitSleepReadable = true;           // ReadSitSleep answers
+    bool activateSeats = true;              // Activate <actor> 1 on a furniture seats the actor (off: accepted, nothing happens)
     bool equipRequiresOwned = true;
     bool equippedReadable = true, animReadable = true, cellsReadable = true;
     bool descendingEquipped = false;        // the engine lists worn items in descending form id order
@@ -362,6 +369,48 @@ public:
     std::string LastLookNote() override { return lookNote_; }
     std::string lookNote_;
 
+    // ---- the process's weapon flag, sit state, furniture ----------------------------------------------------------------------------------------
+    std::vector<RefId> furniture;           // placed furniture references (AddFurniture)
+    unsigned weaponOutCalls = 0;
+    RefId AddFurniture(CellId cell, RefId id, const Vec3& pos) {
+        AddStatic(cell, id, pos);
+        furniture.push_back(id);
+        return id;
+    }
+    bool SetWeaponOut(RefId ref, bool on) override {
+        FRef* f = Get(ref);
+        if (!directWeaponOut || !f || !f->exists || !f->isActor) return false;
+        ++weaponOutCalls;
+        f->weaponFlag = on;
+        return true;
+    }
+    bool ReadSitSleep(RefId ref, int& out) override {
+        out = 0;
+        FRef* f = Get(ref);
+        if (!sitSleepReadable || !f || !f->exists || !f->isActor) return false;
+        out = f->sitSleep;
+        return true;
+    }
+    RefId NearestFurniture(RefId ref) override {
+        FRef* me = Get(ref);
+        if (!me || !me->exists) return 0;
+        RefId best = 0;
+        float bestD2 = 140.0f * 140.0f;
+        for (RefId id : furniture) {
+            FRef* f = Get(id);
+            if (!f || !f->exists || f->cell != me->cell) continue;
+            const float dz = f->pos.z - me->pos.z;
+            if (dz > 120.0f || dz < -120.0f) continue;
+            const float dx = f->pos.x - me->pos.x, dy = f->pos.y - me->pos.y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = id;
+            }
+        }
+        return best;
+    }
+
     bool ReadAppearance(RefId ref, Appearance& out) override {
         FRef* f = Get(ref);
         if (!f || !f->exists) return false;
@@ -438,7 +487,7 @@ private:
         return 0xFF000000u + (++nextId_);
     }
     bool WeaponOut(const FRef& f) const {
-        if (f.weaponOutForced) return true;
+        if (f.weaponOutForced || f.weaponFlag) return true;
         if (!f.alert || !alertDrawsWeapon) return false;
         for (FormId w : f.worn)
             if (weaponItems.count(w)) return true;
@@ -547,6 +596,7 @@ private:
             }
             if (id < 0) return Bad(line);
             if (needs3D) return 0;
+            if (attackNeedsWeaponOut && id >= 26 && id <= 167 && !WeaponOut(c)) return 1;   // accepted, nothing plays
             c.group = id;
             return 1;
         }
@@ -614,6 +664,28 @@ private:
             int slot = std::atoi(w[2].c_str());
             if (!enableModWorks || slot < 1 || slot > 3 || !c.worn.count(wp) || !weaponItems.count(wp)) return 0;
             c.mods[wp] = static_cast<uint8_t>(c.mods[wp] | (1u << (slot - 1)));
+            return 1;
+        }
+        if (Ieq(cmd, "Activate")) {   // furniture.Activate <actor> 1: the actor uses the furniture (or, if it is in it already, gets out)
+            if (w.size() != 3 || !IsHex8(w[1]) || w[2] != "1") return Bad(line);
+            if (std::find(furniture.begin(), furniture.end(), c.id) == furniture.end()) return Bad(line);   // the line only makes sense on a furniture
+            FRef* a = Get(static_cast<RefId>(std::strtoul(w[1].c_str(), nullptr, 16)));
+            if (!a || !a->exists || !a->isActor || !a->has3D()) return 0;
+            if (activateSeats) {
+                if (a->sitSleep == 0) {
+                    a->sitSleep = 4;
+                    a->usedFurniture = c.id;
+                } else {
+                    a->sitSleep = 0;
+                    a->usedFurniture = 0;
+                }
+            }
+            return 1;
+        }
+        if (Ieq(cmd, "EvaluatePackage")) {
+            if (w.size() != 1) return Bad(line);
+            if (needs3D) return 0;
+            c.sitSleep = 0;   // the AI lets it out of the furniture
             return 1;
         }
         if (Ieq(cmd, "MoveToMarker")) {

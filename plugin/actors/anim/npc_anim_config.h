@@ -58,6 +58,17 @@ struct DriverConfig {
     uint32_t standSettleMs = 900;   // a backend that cannot read the sit state: the stand-up is assumed finished after this
     uint32_t standMaxTries = 3;     // escalations (gentle, then harder) before the layer gives up for sitRetryMs
     uint32_t sitRetryMs = 3000;     // after giving up a stand-up, look again this much later
+    uint32_t lockMaxMs = 3500;      // the actor port holds a copy's position for a stand-up at most this long (then it moves on: a copy that is still in the chair
+                                    // follows its owner anyway, a frozen one is the worse desync)
+    uint32_t leavingStuckMs = 2500; // the engine's "leaving the furniture" state that lasts this long while the stream stands means the copy is still in it
+    // The last rung of the stand-up ladder: Disable + Enable the reference (the process, and with it the furniture state, is rebuilt), then the hold goes
+    // back. Only after standMaxTries failed rungs, and rarely: at most resetMaxPerActor per actor, resetCooldownMs apart.
+    bool standReset = true;
+    uint32_t resetGapMs = 400;      // Disable -> Enable
+    uint32_t resetMaxWaitMs = 4000; // Enable issued -> the 3D is back (then the copy is judged anyway)
+    uint32_t resetCooldownMs = 30000;
+    uint32_t resetMaxPerActor = 3;
+    uint32_t divergeLogMs = 1500;   // a copy whose furniture state differs from the stream's this long gets a log line (and one every 3 s while it lasts)
     // ---- death / corpse ----
     uint32_t deathVerifyMs = 600;   // the actor must read dead this long after we were told it died; else Kill again
     uint32_t deathMaxRetries = 4;

@@ -330,6 +330,64 @@ int ListActorsRaw(TESObjectCELL* c, ActorEntry* out, int max) {
     return n;
 }
 
+// ---- the process's weapon / furniture state ---------------------------------------------------------------------------------------------
+// The actor's process, but only when the function its vtable holds in `slot` IS the pinned one (a process of another class, or another exe build, makes the call
+// unsupported and the caller falls back to a console line). The vtable must lie in .rdata and the function in .text.
+bool ProcWithPinnedSlot(uintptr_t actor, uint32_t slot, uintptr_t fn, uintptr_t& proc) {
+    uintptr_t p = 0, vt = 0, f = 0;
+    if (!actor || !Rd(actor + P::kActorBaseProcess, p) || !p) return false;
+    if (!Rd(p, vt) || vt < kRdataLo || vt >= kRdataHi || !Rd(vt + 4u * slot, f)) return false;
+    if (f != fn || f < kTextLo || f >= kTextHi) return false;
+    proc = p;
+    return true;
+}
+
+bool CallSetWeaponOutSEH(uintptr_t fn, void* proc, void* actor, bool on) {
+    __try {
+        reinterpret_cast<void(__thiscall*)(void*, void*, bool)>(fn)(proc, actor, on);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool CallGetSitSleepSEH(uintptr_t fn, void* proc, int& out) {
+    __try {
+        out = reinterpret_cast<int(__thiscall*)(void*)>(fn)(proc);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// The placed furniture reference nearest to `me` (same cell, within the pinned reach); 0 = none. Plain data only.
+uint32_t NearestFurnitureRaw(TESObjectREFR* me) {
+    uint32_t best = 0;
+    __try {
+        TESObjectCELL* cell = me->parentCell;
+        if (!cell) return 0;
+        const float x = me->posX, y = me->posY, z = me->posZ;
+        float bestD2 = P::kFurnitureReachXY * P::kFurnitureReachXY;
+        int guard = 0;
+        for (auto* node = cell->objectList.Head(); node && guard < 30000; node = node->next, ++guard) {
+            TESObjectREFR* r = node->data;
+            if (!r || !r->refID || !r->baseForm || (r->flags & P::kFormFlagDeleted)) continue;
+            if (r->typeID != kFormType_TESObjectREFR || r->baseForm->typeID != kFormType_TESFurniture) continue;
+            const float dz = r->posZ - z;
+            if (dz > P::kFurnitureReachZ || dz < -P::kFurnitureReachZ) continue;
+            const float dx = r->posX - x, dy = r->posY - y;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = r->refID;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    return best;
+}
+
 // A placed non-actor reference with a loaded 3D if there is one (a position that is certainly in the cell), else any.
 uint32_t AnchorRaw(TESObjectCELL* c, float* pos) {
     uint32_t any = 0, anyOk = 0;
@@ -551,6 +609,7 @@ struct LookWrite {
     int coeffCount = 0;
     bool faceWritten = false;
     bool faceLayoutOk = true;           // the face vector had the length of this machine's readable blocks
+    int blockState[3] = {0, 0, 0};      // per face block (FGGS, FGGA, FGTS): 0 = not readable in the copy, 1 = written, 2 = shared with the template (left alone)
     const TESForm* const* headParts = nullptr;   // resolved BGSHeadPart forms; null / 0 = leave the copy's list alone
     int headPartCount = 0;
     bool headPartsWritten = false;
@@ -576,6 +635,7 @@ bool WriteLookRaw(TESNPC* npc, TESNPC* tmpl, LookWrite& w) {
                 if (!mine) continue;
                 slots[blk].count = n;
                 slots[blk].dst = (mine == theirs) ? nullptr : reinterpret_cast<float*>(mine);
+                w.blockState[blk] = slots[blk].dst ? 1 : 2;
             }
             w.faceLayoutOk = UnpackFaceBlocks(w.coeffs, static_cast<size_t>(w.coeffCount), slots, &w.faceWritten);
         }
@@ -830,6 +890,35 @@ bool WinBackend::ReadAppearance(RefId ref, Appearance& out) {
     return true;
 }
 
+bool WinBackend::SetWeaponOut(RefId ref, bool on) {
+    if (!lookupOk_ || !PinOk("BaseProcess::SetWeaponOut")) return false;
+    TESForm* f = LookupSEH(ref);
+    if (!IsActorType(f)) return false;
+    uintptr_t proc = 0;
+    if (!ProcWithPinnedSlot(reinterpret_cast<uintptr_t>(f), P::kProcSlotSetWeaponOut, P::ProcSetWeaponOut.addr, proc)) return false;
+    return CallSetWeaponOutSEH(P::ProcSetWeaponOut.addr, reinterpret_cast<void*>(proc), f, on);
+}
+
+bool WinBackend::ReadSitSleep(RefId ref, int& out) {
+    out = 0;
+    if (!lookupOk_ || !PinOk("BaseProcess::GetSitSleepState")) return false;
+    TESForm* f = LookupSEH(ref);
+    if (!IsActorType(f)) return false;
+    uintptr_t proc = 0;
+    if (!ProcWithPinnedSlot(reinterpret_cast<uintptr_t>(f), P::kProcSlotGetSitSleepState, P::ProcGetSitSleepState.addr, proc)) return false;
+    int v = 0;
+    if (!CallGetSitSleepSEH(P::ProcGetSitSleepState.addr, reinterpret_cast<void*>(proc), v) || v < 0 || v > 32) return false;
+    out = v;
+    return true;
+}
+
+RefId WinBackend::NearestFurniture(RefId ref) {
+    if (!lookupOk_) return 0;
+    TESForm* f = LookupSEH(ref);
+    if (!IsRefType(f)) return 0;
+    return NearestFurnitureRaw(static_cast<TESObjectREFR*>(f));
+}
+
 bool WinBackend::CanCloneNpcBase() {
     static const bool pinsOk = std::memcmp(reinterpret_cast<const void*>(uintptr_t(kCreateFormInstance)), kCreateFormInstancePro, sizeof kCreateFormInstancePro) == 0 &&
                                std::memcmp(reinterpret_cast<const void*>(uintptr_t(kDataHandlerAddForm)), kDataHandlerAddFormPro, sizeof kDataHandlerAddFormPro) == 0;
@@ -873,6 +962,16 @@ bool WinBackend::WriteNpcLook(FormId base, FormId tmpl, const Appearance& a, boo
     const bool ok = WriteLookRaw(static_cast<TESNPC*>(f), t && t->typeID == kFormType_TESNPC ? static_cast<TESNPC*>(t) : nullptr, w);
     if (faceWritten) *faceWritten = w.faceWritten;
     lastLookNote_ = std::string("face ") + (w.coeffCount == 0 ? "none sent" : (!w.faceLayoutOk ? "layout mismatch" : (w.faceWritten ? "written" : "shared with the template")));
+    if (w.coeffCount > 0 && w.faceLayoutOk) {   // which of the three blocks (geometry, asymmetry, skin tone) really went into the copy
+        static const char* const kBlock[3] = {"FGGS", "FGGA", "FGTS"};
+        lastLookNote_ += " (";
+        for (int b = 0; b < 3; ++b) {
+            if (b) lastLookNote_ += ", ";
+            lastLookNote_ += kBlock[b];
+            lastLookNote_ += w.blockState[b] == 1 ? " written" : (w.blockState[b] == 2 ? " SHARED with the template" : " not readable");
+        }
+        lastLookNote_ += ")";
+    }
     lastLookNote_ += std::string(", head parts ") + (a.headParts.empty() ? "none sent" : (!partsOk ? "unknown here" : (w.headPartsWritten ? "written" : "not written")));
     return ok;
 }

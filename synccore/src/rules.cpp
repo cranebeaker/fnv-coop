@@ -570,6 +570,10 @@ StageDecision RulesEngine::onStageRequested(const FormRef& quest, uint32_t stage
         Cause c; c.kind = CauseKind::Script; c.source = quest; c.aux = static_cast<int32_t>(stage);
         host_.commit(kHostPlayer, c, {PartyTether{cells.empty() ? anchor : *cells.begin(), true}});   // clients gather / hold
         ++stats_.tetherGathers;
+        if (tetherHold) {   // tell the players outside the zone why the story waits and when they are brought along (never a silent hold or a silent warp)
+            const uint32_t waitMs = p.timeoutMs ? p.timeoutMs : opt_.barrierTimeoutMs;
+            tetherHold(quest, stage, tetherAbsent(p.cells, p.anchor, p.hasAnchor), cells.empty() ? anchor : *cells.begin(), waitMs, p.autoWarp);
+        }
         pending_.push_back(std::move(p));
         ++stats_.stagesDeferred;
         syncTravelLock(quest);
@@ -821,6 +825,15 @@ void RulesEngine::tick(uint64_t nowMs) {
     checkPending();
     for (size_t i = 0; i < pending_.size();) {
         const uint32_t limit = (pending_[i].kind == Pending::Stage && pending_[i].timeoutMs == 0) ? opt_.barrierTimeoutMs : pending_[i].timeoutMs;
+        {   // an auto-warp is announced kTetherWarnMs ahead (only for a hold that is longer than that: a short one said it at the start)
+            Pending& q = pending_[i];
+            constexpr uint32_t kTetherWarnMs = 10000;
+            if (q.tether && q.autoWarp && !q.warpSaid && tetherWarpSoon && limit > kTetherWarnMs && now_ + kTetherWarnMs >= q.since + limit && now_ < q.since + limit) {
+                q.warpSaid = true;
+                const std::vector<PlayerId> absent = tetherAbsent(q.cells, q.anchor, q.hasAnchor);
+                if (!absent.empty()) tetherWarpSoon(q.quest, q.stage, absent, q.cells.empty() ? q.anchor : *q.cells.begin(), static_cast<uint32_t>((q.since + limit - now_ + 999) / 1000));
+            }
+        }
         if (now_ >= pending_[i].since + limit) {
             if (pending_[i].kind == Pending::Stage) ++stats_.barrierTimeouts;
             release(i, true);
@@ -1341,6 +1354,11 @@ RulesEngine::JoinVerdict RulesEngine::onPlayerJoining(PlayerId slot) {
         return v;
     }
     if (hasZone_ && policy("late_join.after_scene", "warp-to-zone") == "warp-to-zone") {
+        // a player who already reports being in the zone (cell or worldspace) is where the warp would put him: a warp would only move him within the zone, and the
+        // 2026-10-30 report of a guest pulled back while running is exactly what an unneeded warp looks like
+        auto at = cellOf_.find(slot);
+        auto in = worldOf_.find(slot);
+        if ((at != cellOf_.end() && at->second == zone_) || (in != worldOf_.end() && in->second == zone_)) return v;
         v.kind = JoinVerdict::WarpToZone;
         v.zone = zone_;
         ++stats_.lateJoinWarps;

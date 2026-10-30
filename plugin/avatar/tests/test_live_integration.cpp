@@ -399,6 +399,91 @@ static AttackResult RunAttackScenario(unsigned lossPercent, uint32_t seed, bool 
     return res;
 }
 
+// ---- the owner sits down in a chair, over the real wire ---------------------------------------------------------------------------------
+struct SitResult {
+    unsigned sits = 0, stands = 0, setPosSeated = 0, groupsSeated = 0, spawns = 0;
+    bool stoodAtEnd = false;
+};
+static constexpr FormId kChair = 0x6000;
+
+static SitResult RunSitScenario(unsigned lossPercent, uint32_t seed, bool lowLatency) {
+    SitResult res;
+    FakePuppetEngine eng;
+    eng.furniture = {kChair};
+    eng.loadedCells = {kCell};
+    Config cfg;
+    cfg.localSlot = 0;
+    cfg.templates = {{1, false, 0x1000}};
+    PuppetManager pm(eng, cfg);
+    Appearance app;
+    app.race = 1;
+    pm.AddPlayer(1, app);
+
+    live::SnapshotSender sender;
+    live::ReceiverConfig rcfg;
+    rcfg.checkSenderIsOwner = false;
+    live::SnapshotReceiver receiver(rcfg);
+    live::InterpConfig icfg;
+    icfg.lowLatency = lowLatency;
+    live::InterpBuffer buf(icfg);
+    live::SeqAllocator seqs;
+    const ::fnvcoop::PlayerId kOwner = 1, kMe = 2;
+    const live::NetId kNet = 77;
+    std::mt19937 rng(seed);
+    struct InFlight { uint32_t arrive; live::Bytes data; };
+    std::vector<InFlight> wire, backWire;
+
+    const uint32_t kEnd = 15000, kSilentFrom = 14000;
+    uint32_t nextSend = 0;
+    for (uint32_t now = 0; now <= kEnd; now += 16) {
+        if (now >= nextSend) {
+            nextSend += 50;
+            Anim a;
+            // the owner walks to a chair, sits from 3 s to 9 s, and walks off again
+            if (now >= 3000 && now < 9000) {
+                a.sit = 2;
+                a.furniture = kChair;
+            }
+            live::ActorSnapshot s = MakeLocalSnapshot(kNet, 1, seqs.next(kNet, 1), now, kCell, Vec3{1000, 1000, 0}, Vec3{0, 0, 0}, Vec3{}, a);
+            if (now < kSilentFrom && sender.queue(kMe, s, now))
+                for (auto& pkt : sender.flush(kMe, now)) {
+                    if (rng() % 100 < lossPercent) continue;
+                    wire.push_back({now + 40 + rng() % 25, pkt});
+                }
+        }
+        for (size_t i = 0; i < wire.size();) {
+            if (wire[i].arrive <= now) {
+                for (auto& rs : receiver.receive(kOwner, wire[i].data.data(), wire[i].data.size()))
+                    if (rs.verdict == live::Verdict::Accepted) buf.push(rs.snap, now);
+                live::Bytes ack = receiver.takeAcks(kOwner);
+                if (!ack.empty()) backWire.push_back({now + 40, ack});
+                wire.erase(wire.begin() + i);
+            } else {
+                ++i;
+            }
+        }
+        for (size_t i = 0; i < backWire.size();) {
+            if (backWire[i].arrive <= now) {
+                sender.onAckPacket(kMe, backWire[i].data.data(), backWire[i].data.size());
+                backWire.erase(backWire.begin() + i);
+            } else {
+                ++i;
+            }
+        }
+        live::InterpOut io = buf.sample(now, nullptr);
+        eng.Frame();
+        if (io.state != live::InterpState::Empty) pm.SetPose(1, FromInterp(io));
+        pm.Tick(now + 1000);
+    }
+    res.sits = eng.sitCalls;
+    res.stands = eng.standCalls;
+    res.setPosSeated = eng.setPosWhileSeated;
+    res.groupsSeated = eng.playGroupWhileSeated;
+    res.spawns = eng.spawnCalls;
+    res.stoodAtEnd = eng.Get(pm.RefOf(1)) && eng.Get(pm.RefOf(1))->sit == 0;
+    return res;
+}
+
 static int JudgeAttacks(const AttackResult& r) {
     int bad = 0;
     auto chk = [&](bool c) {
@@ -406,6 +491,21 @@ static int JudgeAttacks(const AttackResult& r) {
         if (!c) ++bad;
     };
     for (int i = 0; i < 6; ++i) chk(r.plays[i] == 1);
+    chk(r.spawns == 1);
+    return bad;
+}
+
+static int JudgeSit(const SitResult& r) {
+    int bad = 0;
+    auto chk = [&](bool c) {
+        ++g_checks;
+        if (!c) ++bad;
+    };
+    chk(r.sits == 1);            // told once, not on every snapshot
+    chk(r.stands >= 1);
+    chk(r.setPosSeated == 0);    // nothing moved or animated it while it sat
+    chk(r.groupsSeated == 0);
+    chk(r.stoodAtEnd);
     chk(r.spawns == 1);
     return bad;
 }
@@ -524,6 +624,24 @@ int main() {
         lf.animExtNoDelta = true;      // a lone counter bump is not noticed by the delta encoder
         live::LiveFaultScope sc(lf);
         survivors += Twin("live.animExtNoDelta", JudgeAttacks(RunAttackScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        AvatarFaults f;
+        f.bridgeDropsSit = true;       // the conversion between the live layer and the puppet forgets the furniture block
+        AvatarFaultScope sc(f);
+        survivors += Twin("bridgeDropsSit", JudgeSit(RunSitScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        live::LiveFaults lf;
+        lf.dropSit = true;             // the live layer's encoder forgets the furniture block
+        live::LiveFaultScope sc(lf);
+        survivors += Twin("live.dropSit", JudgeSit(RunSitScenario(0, 1, true))) ? 0 : 1;
+    }
+    {
+        live::LiveFaults lf;
+        lf.sitNoDelta = true;          // a lone change of the furniture block is not noticed by the delta encoder
+        live::LiveFaultScope sc(lf);
+        survivors += Twin("live.sitNoDelta", JudgeSit(RunSitScenario(0, 1, true))) ? 0 : 1;
     }
     if (survivors) {
         std::printf("avatar live: %d twins survived\n", survivors);

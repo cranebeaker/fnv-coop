@@ -1,4 +1,5 @@
 #include "actors/actor_sync.h"
+#include "actors/actor_trace.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -328,6 +329,16 @@ void ActorSync::onOwnApplied(const OwnMsg& m, ApplyResult res) {
     else ++stats_.ownershipStale;
     if (res != ApplyResult::Applied && !MUT(8)) return;   // idempotent: a replayed message changes nothing
     if (m.kind == OwnMsg::Ack) return;
+    {   // who runs which actor is the first thing to read when an NPC differs between machines (the owner's machine runs its AI, every other one shows a copy)
+        static Throttle thr;
+        const Rec* tr = find(m.netId);
+        // (the first grants of a whole cell are not logged for ordinary NPCs: only the named ones and every handoff)
+        if (!live::isPlayerNet(m.netId) && (m.kind == OwnMsg::Transfer || m.kind == OwnMsg::Commit || (tr && tr->meta.named)) && thr.allow(m.kind, m.netId, static_cast<uint32_t>(now_), 100)) {
+            trace("ownership %s: %s owner=%u prev=%u epoch=%u (this machine is slot %u; %s)", nvcoop::actors::who(m.netId).c_str(), fnvcoop::toString(m.kind), static_cast<unsigned>(m.owner),
+                  static_cast<unsigned>(m.prevOwner), static_cast<unsigned>(m.epoch), static_cast<unsigned>(cfg_.self),
+                  tr ? (tr->meta.named ? "named NPC" : "NPC") : "not tracked here yet");
+        }
+    }
     if (m.kind == OwnMsg::Transfer) { /* the committed owner does not change until the Commit */ }
     else {
         live::SnapshotReceiver& rx = live::isPlayerNet(m.netId) ? receiverP_ : receiver_;   // a player's stream has its own receiver (StreamProfile)

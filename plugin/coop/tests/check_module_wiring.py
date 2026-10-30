@@ -58,6 +58,11 @@ REQUIRED = {
         ("g_rt->setCauseQuests(", "G02: the cause -> quest map"),
         ("g_rt->setPolicy(ReadRulesPolicy())", "owner switch: nvcoop.ini [rules] tether / death.* reach the rules engine"),
         ("setHostEffectApplier(", "G18 / G25 / G41: the host applies what the rules engine commits for its own player"),
+        ("g_rt->setTrace(", "2026-10-30 rubber band: every move / hold the session makes of a player (tether gather, late join hold and warp) is a log line"),
+        ("MotionFrame();", "2026-10-30 rubber band: the local player's position is watched every frame (player_motion.h) and a set-back is a log line"),
+        ("LogEffectArrival(e, ctx);", "2026-10-30 rubber band: a MoveRef / SetPlayerControls that reaches this machine is a log line with its sender and cause"),
+        ("NoteLocalMove(", "2026-10-30 rubber band: a warp / respawn / join warp of the local player is a log line and is named as the mod's in the motion watch"),
+
         ("setPlayerVarIO(", "G24: per-player quest variables around a guest's run"),
         ("setAnchorProbe(", "G25: anchor tether positions"),
         ("g_rt->reportCell(ref, wref)", "G25: exterior tethers get the worldspace"),

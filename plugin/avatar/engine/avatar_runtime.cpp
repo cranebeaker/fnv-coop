@@ -173,6 +173,20 @@ void AvatarRuntime::LogLocalAction(const live::ActorSnapshot& s) {
             Log(buf);
         }
     }
+    // The owner can read next run whether his own chair / couch / bed was seen: the engine's sit state, and the furniture handed to the net layer (0 = none found near him).
+    const unsigned sitNow = static_cast<unsigned>(s.anim.sit) & 3u;
+    const uint32_t seatKey = (sitNow << 28) ^ (s.anim.sleep ? 0x08000000u : 0u) ^ (s.anim.furniture * 2654435761u) ^ static_cast<uint32_t>(f.sitSleep + 1);
+    if (seatKey != loggedSeatKey_) {
+        loggedSeatKey_ = seatKey;
+        if (actionLogs_ < 400 && (sitNow != 0 || loggedSeatSet_)) {
+            ++actionLogs_;
+            static const char* const kSit[4] = {"standing", "going in", "in it", "getting out"};
+            Log(std::string("avatar: local furniture: engine sit state ") + std::to_string(f.sitSleep) + " -> " + kSit[sitNow] + (s.anim.sleep ? " (bed)" : "") + ", furniture " +
+                std::to_string(s.anim.furniture) + (sitNow != 0 && s.anim.furniture == 0 ? " (NONE found within reach: the other player's puppet cannot sit)" : "") + ", sent in snapshot " +
+                std::to_string(s.seq));
+        }
+        loggedSeatSet_ = sitNow != 0;
+    }
     // The engine's own "what the player is doing" value changing with no animation group behind it is the sign of an attack we cannot see
     if (f.procAction != loggedProcAction_) {
         const int before = loggedProcAction_;

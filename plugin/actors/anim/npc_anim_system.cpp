@@ -65,8 +65,30 @@ void NpcAnimSystem::trySendCorpse(PendingCorpse& pc, uint32_t now, bool& done) {
     if (FNV_MUT(61) || elapsed(now, pc.since) > cfg_.corpseResendMs) { ++stats_.corpseDropped; done = true; }   // twin 61: a refused event is never retried
 }
 
+// One line every 10 s while any counter moves: the plugin log then shows whether the animation commands LAND (many mismatches / reasserts with commands
+// "ok" is what a swallowed command looks like) and what the furniture ladder did, without a bridge query.
+void NpcAnimSystem::summary(uint32_t now) {
+    if (!nvcoop::actors::traceOn() || (nextSummaryMs_ && static_cast<int32_t>(now - nextSummaryMs_) < 0)) return;
+    nextSummaryMs_ = now + 10000u;
+    const DriverStats& d = driver_.stats();
+    char buf[480];
+    std::snprintf(buf, sizeof buf,
+        "anim summary: owned samples=%llu | copies drives=%llu commands=%llu refused=%llu unsupported=%llu groups=%llu mismatches=%llu reasserts=%llu waiting3D=%llu | weapon changes=%llu confirmed=%llu verifyFail=%llu | "
+        "furniture sits=%llu stands=%llu confirmed=%llu rungsFailed=%llu giveUps=%llu drifts=%llu drops=%llu leavingStuck=%llu resets=%llu/%llu divergences=%llu",
+        (unsigned long long)stats_.sampledOwned, (unsigned long long)d.drives, (unsigned long long)d.commands, (unsigned long long)d.refused, (unsigned long long)d.unsupported,
+        (unsigned long long)d.groupsPlayed, (unsigned long long)d.groupMismatches, (unsigned long long)d.reasserts, (unsigned long long)d.waiting3D,
+        (unsigned long long)d.weaponChanges, (unsigned long long)d.weaponConfirmed, (unsigned long long)d.weaponVerifyFailures,
+        (unsigned long long)d.sitsIssued, (unsigned long long)d.standsIssued, (unsigned long long)d.standsConfirmed, (unsigned long long)d.standRungsFailed, (unsigned long long)d.standGiveUps,
+        (unsigned long long)d.sitDrifts, (unsigned long long)d.sitDrops, (unsigned long long)d.leavingStuck, (unsigned long long)d.resetsDone, (unsigned long long)d.resetsStarted,
+        (unsigned long long)d.divergences);
+    if (lastSummary_ == buf) return;
+    lastSummary_ = buf;
+    if (d.drives || stats_.sampledOwned) nvcoop::actors::trace("%s", buf);
+}
+
 void NpcAnimSystem::tick(uint32_t now, const std::function<bool(NetId)>& isMine) {
     driver_.tick(now);
+    summary(now);
 
     // ---- owner side: watch the bodies this machine owns until they stop, then announce the resting place once ----
     for (NetId id : watcher_.ids()) {
@@ -119,7 +141,8 @@ std::string NpcAnimSystem::statsJson() const {
         "\"turns\":%llu,\"jumps\":%llu,\"rate_changes\":%llu,\"knockdowns\":%llu,\"knockdown_fallbacks\":%llu,\"get_ups\":%llu,"
         "\"deaths\":%llu,\"kill_retries\":%llu,\"kill_gave_up\":%llu,\"corpse_poses\":%llu,\"corpse_corrections\":%llu,"
         "\"corpse_within_tolerance\":%llu,\"corpse_gave_up\":%llu,\"corpse_missing\":%llu,\"corpse_late\":%llu,\"releases\":%llu,"
-        "\"sits\":%llu,\"stands\":%llu,\"stands_confirmed\":%llu,\"stand_give_ups\":%llu,\"sit_drops\":%llu,\"sit_drifts\":%llu,\"sit_no_furniture\":%llu,\"restrains\":%llu},"
+        "\"sits\":%llu,\"stands\":%llu,\"stands_confirmed\":%llu,\"stand_give_ups\":%llu,\"sit_drops\":%llu,\"sit_drifts\":%llu,\"sit_no_furniture\":%llu,\"restrains\":%llu,"
+        "\"stand_rungs_failed\":%llu,\"leaving_stuck\":%llu,\"resets_started\":%llu,\"resets_done\":%llu,\"resets_refused\":%llu,\"divergences\":%llu},"
         "\"system\":{\"sampled_owned\":%llu,\"drives\":%llu,\"died\":%llu,\"died_mine\":%llu,\"corpse_sent\":%llu,\"corpse_send_refused\":%llu,"
         "\"corpse_unreadable\":%llu,\"corpse_dropped\":%llu,\"net_events\":%llu,\"net_events_bad\":%llu,\"driven\":%zu,\"watching\":%zu}}",
         (unsigned long long)s.samples, (unsigned long long)s.unreadable, (unsigned long long)s.actionsStarted, (unsigned long long)s.actionsRestarted, (unsigned long long)s.flickersAbsorbed,
@@ -132,6 +155,7 @@ std::string NpcAnimSystem::statsJson() const {
         (unsigned long long)d.corpseWithinTolerance, (unsigned long long)d.corpseGaveUp, (unsigned long long)d.corpseMissing, (unsigned long long)d.corpseLate, (unsigned long long)d.releases,
         (unsigned long long)d.sitsIssued, (unsigned long long)d.standsIssued, (unsigned long long)d.standsConfirmed, (unsigned long long)d.standGiveUps,
         (unsigned long long)d.sitDrops, (unsigned long long)d.sitDrifts, (unsigned long long)d.sitNoFurniture, (unsigned long long)d.restrains,
+        (unsigned long long)d.standRungsFailed, (unsigned long long)d.leavingStuck, (unsigned long long)d.resetsStarted, (unsigned long long)d.resetsDone, (unsigned long long)d.resetsRefused, (unsigned long long)d.divergences,
         (unsigned long long)stats_.sampledOwned, (unsigned long long)stats_.drives, (unsigned long long)stats_.died, (unsigned long long)stats_.diedMine, (unsigned long long)stats_.corpseSent, (unsigned long long)stats_.corpseSendRefused,
         (unsigned long long)stats_.corpseUnreadable, (unsigned long long)stats_.corpseDropped, (unsigned long long)stats_.netEvents, (unsigned long long)stats_.netEventsBad,
         driver_.driven().size(), watcher_.count());

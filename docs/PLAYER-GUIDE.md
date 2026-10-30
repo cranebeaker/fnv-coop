@@ -147,7 +147,7 @@ These are in the launcher and are saved into `nvcoop.ini`. The host's settings a
 |---|---|
 | Share kill XP with the whole party | Off: the player who lands the killing blow gets the XP. On: everyone present shares it. Quest XP always goes to everyone. |
 | Party slow-mo | Host option. When one player uses VATS, everyone slows down together for a short time. Off by default. |
-| Tether | Story moments that need the group (a cutscene, a door everyone must pass) wait until the whole party is together. On by default. |
+| Tether | Story moments that need the group (a cutscene, a door everyone must pass) wait until the whole party is together. On by default. Nobody is held in place: the players who are not there yet get a message on screen (how long the story waits), and a warp to the party comes only after that wait, announced 10 seconds ahead. |
 | Sync layers | Enemies and NPCs, seeing other players as characters, hits and projectiles, spawn arbitration. All on by default. Untick one only to narrow down a problem you are reporting. Combat and spawns need enemies and NPCs, so ticking them switches that one on too. |
 
 Quest rewards, karma, reputation and the quest story are shared by everyone. Levels, perks, skills and SPECIAL are per player.
@@ -189,9 +189,13 @@ backup is just there in case).
 | Friend cannot join | Run Test connection. Check the router rule is for **UDP**, the port number matches, and Windows Firewall allows the game. If you both are on the same home network, use the local address that Check port shows. |
 | Join is refused with a message | Read the message: the usual reasons are a different release, a different list of mods, or a full session (4 players). |
 | The game opens its own small launcher window instead of the game | Start the game once through Steam or GOG so it writes its settings, then use the co-op launcher again. |
+| Something looks different on your friend's screen than on yours (a character seated or in the wrong place, a punch that does not show, a different face) | Keep playing for a minute so it is recorded, then send **both** `nvcoop.log` and `nvcoop_parity.jsonl` (see below), from your game **and**, if you can, from your friend's. |
 
 When you report a problem, send the file `Data\NVSE\Plugins\nvcoop.log` from your game folder (open it first and remove
-anything you do not want to share).
+anything you do not want to share). When you report a **desync** (the two screens disagree about something), also send
+`Data\NVSE\Plugins\nvcoop_parity.jsonl` from the same folder, and the same two files from your friend's game. The co-op plugin
+writes a short note about what each screen shows every two seconds and the host compares them: the `parity: DESYNC` lines in the host's
+`nvcoop.log` say what differs, and the file lets us compare both screens afterwards. It holds game positions and actor numbers only, nothing about you.
 
 ## Limits to know about
 

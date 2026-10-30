@@ -23,6 +23,7 @@
 #include "avatar_runtime_side.h"
 #include "avatar_wire.h"
 #include "live_hub.h"
+#include "look_text.h"
 #include "live_switches.h"
 #ifdef NVLIVE_HAVE_ACTOR_API
 #include "live_actors_cfg.h"
@@ -922,17 +923,17 @@ TEST(avatars_attacks_show_on_every_other_machine) {
         return n;
     };
     swing(h, 26, 400);    // the host punches
-    CHECK(seen(a, 0, "PlayGroup AttackLeft 0") == 1);
-    CHECK(seen(b, 0, "PlayGroup AttackLeft 0") == 1);
+    CHECK(seen(a, 0, "PlayGroup AttackLeft 1") == 1);
+    CHECK(seen(b, 0, "PlayGroup AttackLeft 1") == 1);
     swing(a, 114, 400);   // client 1 throws
-    CHECK(seen(h, 1, "PlayGroup AttackThrow 0") == 1);
-    CHECK(seen(b, 1, "PlayGroup AttackThrow 0") == 1);   // through the host's relay
+    CHECK(seen(h, 1, "PlayGroup AttackThrow 1") == 1);
+    CHECK(seen(b, 1, "PlayGroup AttackThrow 1") == 1);   // through the host's relay
     swing(b, 92, 600);    // client 2 makes a power attack
-    CHECK(seen(h, 2, "PlayGroup AttackPower 0") == 1);
-    CHECK(seen(a, 2, "PlayGroup AttackPower 0") == 1);
+    CHECK(seen(h, 2, "PlayGroup AttackPower 1") == 1);
+    CHECK(seen(a, 2, "PlayGroup AttackPower 1") == 1);
     swing(h, 26, 400);    // the host punches again: a second event, not a replay of the first
-    CHECK(seen(a, 0, "PlayGroup AttackLeft 0") == 2);
-    CHECK(seen(b, 0, "PlayGroup AttackLeft 0") == 2);
+    CHECK(seen(a, 0, "PlayGroup AttackLeft 1") == 2);
+    CHECK(seen(b, 0, "PlayGroup AttackLeft 1") == 2);
     // nothing plays on the attacker's own machine: it has no puppet of itself, and the real player is never driven
     CHECK(h.be.count("PlayGroup AttackLeft") == 0 && a.be.count("PlayGroup AttackThrow") == 0 && b.be.count("PlayGroup AttackPower") == 0);
     CHECK(h.be.badLines.empty() && a.be.badLines.empty() && b.be.badLines.empty());
@@ -1670,6 +1671,113 @@ TEST(entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once
     CHECK(h.puppets() == 1 && a.puppets() == 1);
 }
 
+// Every part of a look that the race / face menus change reaches the other machine's puppet on its own: the skin tone block alone, the face shape, the hair colour, the
+// height and weight, the eyes, the head parts, the sex, the race. Each is ONE new puppet, the line in nvcoop.log names what changed, and a look that did not change
+// builds nothing (the settle time and the equality cover every field, not only the ones the first version compared).
+TEST(entities_each_part_of_a_look_reaches_the_puppet_by_itself) {
+    Rig3 r(true, false);
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    auto cur = std::make_shared<av::Appearance>();
+    cur->race = 25;
+    cur->name = "Alpha";
+    cur->hair = 0x10;
+    cur->eyes = 0x20;
+    cur->hairColor = 0x00112233;
+    cur->height = 1000;
+    cur->weight = 1000;
+    cur->faceCoeffs.assign(130, 2);
+    cur->headParts = {0x70};
+    a.an->setLocalAppearanceReader([cur](av::Appearance& ap) { ap = *cur; return true; });
+    h.an->setLocalAppearanceReader([](av::Appearance& ap) { ap.race = 25; ap.name = "Host"; return true; });
+    std::vector<std::string> log;
+    h.an->setLog([&](const std::string& l) { log.push_back(l); });
+    r.run(4000);
+    CHECK(h.an->lookOf(1) && h.an->lookOf(1)->appearance.hair == 0x10);
+    struct Step { const char* what; std::function<void()> edit; };
+    const Step steps[] = {
+        {"skin tone", [&] { for (int i = 80; i < 130; ++i) cur->faceCoeffs[i] = 9; }},
+        {"face shape", [&] { cur->faceCoeffs[0] = -7; }},
+        {"face asymmetry", [&] { cur->faceCoeffs[60] = 5; }},
+        {"hair colour", [&] { cur->hairColor = 0x00445566; }},
+        {"height", [&] { cur->height = 1060; }},
+        {"weight", [&] { cur->weight = 940; }},
+        {"eyes", [&] { cur->eyes = 0x21; }},
+        {"head parts", [&] { cur->headParts = {0x70, 0x71}; }},
+        {"hair", [&] { cur->hair = 0x11; }},
+        {"sex", [&] { cur->female = true; }},
+        {"race", [&] { cur->race = 16970; }},
+    };
+    for (const Step& st : steps) {
+        const uint64_t before = h.an->stats().appearanceUpdates;
+        log.clear();
+        st.edit();
+        r.run(3500);                                                   // the settle time passes
+        const av::Appearance& got = h.an->lookOf(1)->appearance;
+        CHECK(h.an->stats().appearanceUpdates == before + 1);          // one new puppet for this change
+        CHECK(!av::lookDiffers(got, *cur));                            // and it is built from the whole look as it is now
+        bool named = false;
+        for (const std::string& l : log)
+            if (l.find("look of slot 1 arrived") != std::string::npos && l.find(std::string("changed: ") + st.what) != std::string::npos) named = true;
+        CHECK(named);
+        if (!named)
+            for (const std::string& l : log) std::printf("      log: %s\n", l.c_str());
+    }
+    const uint64_t quiet = h.an->stats().appearanceUpdates;
+    r.run(6000);                                                       // nothing changes: nothing is built
+    CHECK(h.an->stats().appearanceUpdates == quiet);
+    CHECK(h.puppets() == 1 && a.puppets() == 1);
+}
+
+// A player sits down on a couch (the host) and a client lies down on a bed: every OTHER machine seats that player's puppet in the same furniture, once, over a link that
+// loses a fifth of the datagrams; nothing moves or animates a seated puppet; when the player gets up the puppet does too. (Nothing is told to the player's own machine.)
+TEST(avatars_a_seated_player_is_seated_on_every_other_machine) {
+    Rig3 r;
+    Node& h = r.host();
+    Node& a = r.addClient(1);
+    Node& b = r.addClient(2);
+    constexpr uint32_t kCouch = 0x6000, kBed = 0x6001;
+    for (Node* n : {&h, &a, &b}) {
+        n->be.AddFurniture(FakeGameBackend::kExtA, kCouch, av::Vec3{n->be.Player().pos.x + 30, n->be.Player().pos.y, 0});
+        n->be.AddFurniture(FakeGameBackend::kExtA, kBed, av::Vec3{n->be.Player().pos.x + 90, n->be.Player().pos.y, 0});
+    }
+    r.run(4500);
+    CHECK(h.puppets() == 2 && a.puppets() == 2 && b.puppets() == 2);
+    fnvcoop::LinkParams lp;
+    lp.minLatencyMs = 20;
+    lp.maxLatencyMs = 50;
+    lp.loss = 0.2;
+    r.n.net.setLink(lp);
+    auto activates = [&](Node& viewer, PlayerId of, uint32_t furniture) {
+        const av::RefId ref = viewer.an->puppetRef(of);
+        char want[48];
+        std::snprintf(want, sizeof want, "Activate %08X 1", static_cast<unsigned>(ref));
+        int n = 0;
+        for (const auto& l : viewer.be.lines)
+            if (ref && l.ctx == furniture && l.text == want) ++n;
+        return n;
+    };
+    auto seatedState = [&](Node& viewer, PlayerId of) {
+        auto* f = viewer.be.Get(viewer.an->puppetRef(of));
+        return f ? f->sitSleep : -1;
+    };
+    h.be.Player().sitSleep = 4;     // the host sits on the couch
+    a.be.Player().sitSleep = 9;     // client 1 lies down (a bed state; the nearest furniture to it is a couch here)
+    r.run(4000);
+    CHECK(activates(a, 0, kCouch) == 1 && activates(b, 0, kCouch) == 1);
+    CHECK(seatedState(a, 0) == 4 && seatedState(b, 0) == 4);
+    CHECK(activates(h, 1, kCouch) == 1 && activates(b, 1, kCouch) == 1);   // the nearest furniture to client 1 is the couch too (every rig places both next to its own player)
+    CHECK(seatedState(h, 1) == 4 && seatedState(b, 1) == 4);
+    r.run(4000);
+    CHECK(activates(a, 0, kCouch) == 1 && activates(b, 0, kCouch) == 1);  // never repeated while he sits
+    for (Node* v : {&a, &b}) CHECK(v->an->puppetRef(0) != 0);
+    h.be.Player().sitSleep = 0;     // the host gets up
+    r.run(4000);
+    CHECK(seatedState(a, 0) == 0 && seatedState(b, 0) == 0);
+    CHECK(seatedState(h, 1) == 4);  // client 1 is still down
+    CHECK(h.be.badLines.empty() && a.be.badLines.empty() && b.be.badLines.empty());
+}
+
 // A session where the roster changes and the link to the host drops: the puppets come back, dressed, in every mode.
 static void churn(const Mode& m) {
     std::printf("    mode: %s\n", m.name);
@@ -1876,6 +1984,7 @@ int main() {
     run("wire_look_v2_bytes_are_the_old_codecs_bytes", wire_look_v2_bytes_are_the_old_codecs_bytes);
     run("avatars_three_machines_see_each_other", avatars_three_machines_see_each_other);
     run("avatars_attacks_show_on_every_other_machine", avatars_attacks_show_on_every_other_machine);
+    run("avatars_a_seated_player_is_seated_on_every_other_machine", avatars_a_seated_player_is_seated_on_every_other_machine);
     run("avatars_never_a_puppet_of_oneself", avatars_never_a_puppet_of_oneself);
     run("avatars_leave_removes_puppets_everywhere", avatars_leave_removes_puppets_everywhere);
     run("avatars_rejoin_follows_again", avatars_rejoin_follows_again);
@@ -1897,6 +2006,7 @@ int main() {
     run("avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet", avatars_teleport_of_one_player_next_to_a_player_he_has_not_heard_of_yet);
     run("entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode", entities_roster_look_equipment_weapon_facts_and_pack_in_every_mode);
     run("entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once", entities_a_look_settles_before_it_goes_out_and_a_finished_face_goes_at_once);
+    run("entities_each_part_of_a_look_reaches_the_puppet_by_itself", entities_each_part_of_a_look_reaches_the_puppet_by_itself);
     run("entities_link_loss_leave_and_rejoin_in_every_mode", entities_link_loss_leave_and_rejoin_in_every_mode);
     run("entities_the_old_messages_are_still_understood_under_parts_unified", entities_the_old_messages_are_still_understood_under_parts_unified);
     run("entities_the_stream_through_actor_sync_follows_like_the_avatar_channel", entities_the_stream_through_actor_sync_follows_like_the_avatar_channel);

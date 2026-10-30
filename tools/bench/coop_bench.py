@@ -42,12 +42,20 @@ TARGETS = {
     "net.bad_wifi_seq_lag_p95": (10.0, 100.0),    # messages behind on the bad_wifi profile (35 ms +- 25, 2 % loss with bursts)
     "net.bad_wifi_avatar_err_p95": (300.0, 2500.0),
     "net.recover_seq_lag_p95":  (5.0, 50.0),      # after the worst profile ("hell") is switched back to lan: how fast the session recovers
+    # parity: what the two screens disagree about during the run, from the plugin's own samples (docs/tools/parity.md); share of compared references
+    # (actors / player puppets) with a confirmed difference
+    "parity.npc_mismatch_pct":    (2.0, 25.0),
+    "parity.puppet_mismatch_pct": (2.0, 25.0),
 }
 CATEGORIES = {"performance": ["perf.fps_p5", "perf.hitch_pct", "perf.bridge_rtt_p95"],
               "sync": ["sync.seq_lag_p95", "sync.digest_mismatch_pm", "sync.repair_effects_pm"],
               "avatars": ["avatar.err_p95", "avatar.teleports_pm"],
               "gameplay": ["play.fight_pass_pct", "play.loot_pass_pct", "play.kill_latency_s", "play.npc_pos_err", "area.recovery_s"],
-              "network": ["net.bad_wifi_seq_lag_p95", "net.bad_wifi_avatar_err_p95", "net.recover_seq_lag_p95"]}
+              "network": ["net.bad_wifi_seq_lag_p95", "net.bad_wifi_avatar_err_p95", "net.recover_seq_lag_p95"],
+              "parity": ["parity.npc_mismatch_pct", "parity.puppet_mismatch_pct"]}
+# Categories shown next to the others but not part of the composite (so the composite stays comparable with every earlier run). Take "parity" out of this
+# tuple once a few runs have set its baseline.
+NOT_IN_COMPOSITE = ("parity",)
 
 
 def score(metric, value):
@@ -430,6 +438,9 @@ def derive(overall, phase_metrics, extras):
     ar = (extras or {}).get("area") or {}
     if ar.get("recovery_s") is not None:
         m["area.recovery_s"] = ar["recovery_s"]
+    par = (extras or {}).get("parity") or {}
+    m["parity.npc_mismatch_pct"] = par.get("npc_mismatch_pct")
+    m["parity.puppet_mismatch_pct"] = par.get("puppet_mismatch_pct")
     nb = (phase_metrics or {}).get("net_bad_wifi") or {}
     m["net.bad_wifi_seq_lag_p95"] = nb.get("sync.seq_lag_p95")
     m["net.bad_wifi_avatar_err_p95"] = nb.get("avatar.err_p95")
@@ -454,7 +465,7 @@ def scorecard(overall, phase_metrics=None, extras=None):
     for c, mets in CATEGORIES.items():
         sc = [out[x]["score"] for x in mets if out[x]["score"] is not None]
         cats[c] = round(sum(sc) / len(sc), 1) if sc else None
-    vals = [v for v in cats.values() if v is not None]
+    vals = [v for c, v in cats.items() if v is not None and c not in NOT_IN_COMPOSITE]
     return out, cats, round(sum(vals) / len(vals), 1) if vals else None
 
 
@@ -483,6 +494,20 @@ def report_extras(L, analysis, extras):
     if ar:
         L += ["", "## Area change (host into a building and back out)", "", f"coc: `{ar.get('coc')}`, cow: `{ar.get('cow')}`, ok {ar.get('ok')}. "
               f"Seconds until the client's puppet of the host was near the host again: **{ar.get('recovery_s')}** (99 = never).", ""]
+    par = extras.get("parity")
+    if par:
+        L += ["", "## Parity (what the two screens disagree about; plugin/parity samples, tools/parity/compare.py)", "",
+              f"Paired by {par.get('paired_by')}: {par.get('pairs')} sample pairs over {par.get('span_s')} s, {par.get('rounds', 0) - par.get('skipped', 0)} compared rounds "
+              f"({par.get('skipped')} skipped). References compared {par.get('refs')}, with a difference {par.get('refs_bad')} ({par.get('mismatch_pct')} %): "
+              f"actors {par.get('npc_mismatch_pct')} %, player puppets {par.get('puppet_mismatch_pct')} %.", "",
+              "| Kind | Checks | Mismatching | Rate % |", "|---|---|---|---|"]
+        for k, v in (par.get("kinds") or {}).items():
+            L.append(f"| {k} | {v['checks']} | {v['bad']} | {v['rate_pct']} |")
+        if par.get("worst"):
+            L += ["", "Worst offenders:", ""]
+            for w in par["worst"]:
+                L.append(f"- `{w['key']}` {w['kind']}: {w['rounds_bad']} of {w['rounds_seen']} rounds, {w['first_s']} s to {w['last_s']} s, host {w['host']}, client {w['client']}")
+        L.append("")
     ip = extras.get("input_probe")
     if ip:
         L += ["", "## Input-walk probe (does real movement input move a player?)", "", "```json", json.dumps(ip), "```", ""]
@@ -538,6 +563,47 @@ def top_desync_keys(conn):
         return [("unavailable: " + str(ex)[:80], 0)]
 
 
+def _parity_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("parity_compare", ROOT / "tools" / "parity" / "compare.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def parity_extras(folder):
+    """Score the two sample files saved in a run folder (parity_host.jsonl, parity_client.jsonl); None when there are none or too little to compare."""
+    h, c = Path(folder) / "parity_host.jsonl", Path(folder) / "parity_client.jsonl"
+    if not (h.is_file() and c.is_file()):
+        return None
+    try:
+        return _parity_module().bench_metrics(h, c)
+    except Exception as e:   # a broken file must not sink a benchmark run
+        return {"error": str(e)[:120]}
+
+
+def collect_parity(out, log=print):
+    """After the phases: copy each local copy's nvcoop_parity.jsonl into the run folder (copy 0 = host, copy 1 = client) and score them."""
+    if REMOTE[0] is not None:
+        return None   # the host copy runs on the other PC: its file is not here
+    try:
+        import instances
+        root = instances.instances_root()
+        got = 0
+        for i, name in ((0, "parity_host.jsonl"), (1, "parity_client.jsonl")):
+            src = root / str(i) / "Data" / "NVSE" / "Plugins" / "nvcoop_parity.jsonl"
+            if src.is_file() and src.stat().st_size:
+                (Path(out) / name).write_bytes(src.read_bytes())
+                got += 1
+        if got < 2:
+            log("parity: no nvcoop_parity.jsonl from both copies (provision with --ini parity.enabled=1); the parity score is skipped")
+            return None
+        return parity_extras(out)
+    except Exception as e:
+        log("parity: skipped (%s)" % str(e)[:100])
+        return None
+
+
 def run_once(a, label, stamp):
     """One full benchmark: (re)boot unless --no-boot, run the phases, analyse, write the folder. Returns (result dict, folder)."""
     out = ROOT / "out" / "bench" / stamp
@@ -590,6 +656,9 @@ def run_once(a, label, stamp):
         analysis = analyse(samp.rows)
         analysis["desync_top_keys"] = top_desync_keys(sconns[0])
         extras = finalize_extras(samp.rows, extras)
+        par = collect_parity(out, log)
+        if par is not None:
+            extras = dict(extras or {}, parity=par)
         sc, cats, comp = scorecard(analysis["overall"], analysis["phases"], extras)
         base = None
         if a.baseline and Path(a.baseline).is_file():
@@ -629,7 +698,7 @@ def aggregate(results, label):
         sc = [scores[x]["score"] for x in mets if scores[x]["score"] is not None]
         cats[c] = round(sum(sc) / len(sc), 1) if sc else None
     comps = [r["composite"] for r in results if r["composite"] is not None]
-    vals = [v for v in cats.values() if v is not None]
+    vals = [v for c, v in cats.items() if v is not None and c not in NOT_IN_COMPOSITE]
     comp = round(sum(vals) / len(vals), 1) if vals else None
     cov = None
     if len(comps) >= 2:

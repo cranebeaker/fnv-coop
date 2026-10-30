@@ -126,6 +126,7 @@ void setInventoryAccess(InventoryReader read, InventoryWriter write) { registry(
 
 void setEquipmentAccess(EquipmentReader read, EquipmentWriter write) { registry().equipRead = std::move(read); registry().equipWrite = std::move(write); }
 void setPoseLock(std::function<bool(NetId)> locked) { registry().poseLocked = std::move(locked); }
+bool poseLocked(NetId id) { const Registry& r = registry(); return r.poseLocked && r.poseLocked(id); }
 
 void onEffect(const fnvcoop::Effect& e) {
     Registry& reg = registry();

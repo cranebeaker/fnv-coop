@@ -40,6 +40,7 @@ game hooks (L5)  ->  effects  ->  HostSession / ClientSession (synccore)  ->  IT
 | `0xB1` | loot: container / corpse open, take, put, close, register; dropped items, pickup claims, physics clutter (section 22) | loot `synccore/loot/loot_wire.h`, `plugin/loot` |
 | `0xC8` | text chat: Say (guest -> host), Line (host -> guests), Hello, Notice; always reliable (docs/chat.md) | chat `plugin/chat/chat_wire.h` |
 | `0x56` | voice: Opus frames, guest -> host -> other guests, unreliable, self-versioned (docs/voice.md) | voice `plugin/voice` |
+| `0x9E` | live sync parity checker: a guest's compact sample of what its screen shows (actors near it, the puppets, its own player), guest -> host, reliable, self-versioned (section 23, docs/tools/parity.md) | parity `plugin/parity/parity_wire.h` |
 
 New channels must pick an unused first byte that is not 0xFC and is not 0xA1 (see 3.2), and be registered here and in
 `transport_util.h`. Datagrams with an unknown first byte are dropped by the mux. `AppData` (type 8) is an alternative for small
@@ -921,3 +922,18 @@ Rules (each has a mutation twin: synccore/loot 101..137, plugin/loot 141..167):
 - **Containers are mirrored by revision.** `MDelta` applies only as `rev + 1`; a gap asks `ReqResync`; the client digest (`ReqDigest`, every 2 s while quiet) triggers a table push on mismatch (at most once per 2 s per guest).
 - **Clutter** has one owner per epoch. Only the owner's snapshots at the current epoch and a higher seq are relayed; a second mover takes over only from an owner that is not moving.
 - **Coordination with section 19.** Both modules can handle a pickup or a container open. With `[loot] enabled=1` set `[intents] pickup=0` and `container=0`; the loot module logs a warning when they are not.
+
+## 23. Parity channel (first byte 0x9E)
+
+One message, guest -> host, reliable, every `sendEvery`-th sample (default every 4 s, about 600 bytes). The host takes a sample of its own the moment it arrives and
+compares the two (docs/tools/parity.md). It changes nothing in the game and is not part of the Hello handshake (like 0xAC, 0xCB, 0xDA): a build without the
+module drops the datagram as unroutable, a host without it simply never compares. The host takes the sender's slot from the peer the datagram came from, never from
+the slot inside it.
+
+```
+u8 0x9E  u8 version (1)  u8 kind (1 = Sample)
+u8 slot  varu seq  varu cell  varu ws  varu cov  u8 flags (bit 0 a menu was open)  u8 n (<= 64)
+n x entity: u8 head (bits 0..1 kind: 0 actor, 1 puppet, 2 the sender's own player; bit 2 seated, 3 dead, 4 disabled, 5 look follows, 6 player fields follow)
+            [u8 slot]  varu ref  vari x  vari y  vari z  u8 speed16  u8 hp bucket  u8 group  [varu attacks]  [varu race  u8 female  varu hair  varu eyes  u32 faceHash]
+u32 crc32 LE over everything before it
+```

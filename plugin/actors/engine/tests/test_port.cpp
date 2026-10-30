@@ -176,6 +176,26 @@ TEST(port, a_copy_still_in_its_furniture_is_not_moved_until_it_stood_up) {
     nvcoop::actors::engine::setPoseLock(nullptr);
 }
 
+// "Small" used to be measured against the port's own last write, so a copy that something else moved (its AI for a frame, a furniture exit, a scripted MoveTo)
+// while the owner stood still stayed wherever it was put, until the area digest found it 2 m off (2026-10-30 playtest: the guest's NPC in the wrong place).
+TEST(port, a_copy_that_something_else_moved_is_put_back_while_the_owner_stands_still) {   // twin 88
+    PortRig r;
+    const NetId id = r.npc(0x100, {1000, 1000, 0});
+    r.port.setAi(id, false);
+    r.port.drive(id, interpAt({1100, 1000, 0}));
+    r.step();
+    CHECK(std::fabs(r.eng.a[0x100].pos.x - 1100) < 0.01f);
+    r.eng.a[0x100].pos.x = 1110;                  // a nudge below the drift limit: left alone
+    for (int i = 0; i < 10; ++i) { r.port.drive(id, interpAt({1100, 1000, 0})); r.step(40); }
+    CHECK(std::fabs(r.eng.a[0x100].pos.x - 1110) < 0.01f && r.port.stats().driftsFixed == 0);
+    r.eng.a[0x100].pos.x = 1300;                  // something else carried it 2 m away
+    r.eng.log.clear();
+    for (int i = 0; i < 10; ++i) { r.port.drive(id, interpAt({1100, 1000, 0})); r.step(40); }
+    CHECK_MSG(std::fabs(r.eng.a[0x100].pos.x - 1100) < 0.01f, "still at x=" + std::to_string(r.eng.a[0x100].pos.x));
+    CHECK(r.port.stats().driftsFixed == 1);
+    CHECK(r.eng.count("setpos", 0x100) <= 2);     // one correction, not a write per frame
+}
+
 TEST(port, a_snap_ignores_the_window_and_writes_every_axis) {
     PortRig r;
     const NetId id = r.npc(0x100, {1000, 1000, 0});

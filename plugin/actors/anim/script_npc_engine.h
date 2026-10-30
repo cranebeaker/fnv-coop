@@ -14,9 +14,13 @@
 //   stand up, gentle: <furniture>.Activate <actor> 1 again; escalation: SetRestrained 0 + EvaluatePackage on the actor (its own AI then leaves
 //                                         the furniture, if its package says so), and Restrain puts SetRestrained 1 back. UNMEASURED: the driver
 //                                         reads the sit state back and climbs the ladder only while the copy is still in the furniture.
+//   Disable / Enable           last rung of the stand-up ladder: the reference is disabled and enabled again (the process, and with it the furniture state, is rebuilt)
 // Not available as a line (the backend answers Unsupported unless INpcGameAccess has the direct call): playback rate, aiming flag, knockdown,
 // get up.
 #pragma once
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 
 #include "npc_anim_engine.h"
@@ -50,6 +54,26 @@ public:
     virtual uint32_t RefIdOf(NetId id) = 0;   // the live reference of the actor (0 = none): the argument of the furniture lines
 };
 
+// Every line of the layer goes through this wrapper. The hooks module drops the mutating commands a console line (a temporary script) runs on a GUEST unless
+// the line is opened inside the sync layer's own scope (ApplyScope + ApplierExecScope, the pair the actor port's console uses): PlayGroup, SetForceSneak,
+// SetAlert, Activate, EvaluatePackage, SetRestrained, SetPos, Kill ... are swallowed and report success. Before 2026-10-30 this layer ran its lines bare, so on
+// the guest EVERY animation command (movement groups, sneak, weapon fallback, sit, stand-up, kill, corpse placement) did nothing while the host - which does not
+// drop - worked: the guest's NPC stayed in the chair pose it had been loaded in and slid around in it. The scope is a constructor argument on purpose, so a
+// new wiring cannot forget it (unit tests model the guest gate: tests/test_gate.cpp).
+class GuardedScript : public INpcScript {
+public:
+    using OpenScope = std::function<std::shared_ptr<void>()>;   // returns the live scope token; destroying it closes the scope
+    GuardedScript(INpcScript& inner, OpenScope open) : inner_(inner), open_(std::move(open)) {}
+    bool Exec(NetId id, const std::string& line) override;
+    bool ExecOnRef(uint32_t ref, const std::string& line) override;
+    uint64_t lines() const { return lines_; }
+    uint64_t failed() const { return failed_; }
+private:
+    INpcScript& inner_;
+    OpenScope open_;
+    uint64_t lines_ = 0, failed_ = 0;
+};
+
 std::string formatNumber(double v);        // "%.3f", never a decimal comma
 double yawRadToDegrees(float yawRad);      // wrapped to (-180, 180]
 
@@ -77,6 +101,7 @@ public:
     Result SitIn(NetId id, uint32_t furniture) override;
     Result StandUp(NetId id, uint32_t furniture, uint32_t attempt) override;
     Result Restrain(NetId id) override;
+    Result SetBodyEnabled(NetId id, bool enabled) override;
 
 private:
     Result useFurniture(NetId id, uint32_t furniture);

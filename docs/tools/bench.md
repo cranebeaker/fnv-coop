@@ -63,6 +63,10 @@ the composite is the mean of the categories.
 | sync | repair effects per minute | 5 | 300 |
 | avatars | distance between a player and the other copy's puppet of it, p95 | 200 | 1500 units |
 | avatars | puppet teleports per minute | 0 | 10 |
+| parity | actors with a confirmed host/guest difference, share of those compared (not in the composite) | 2 % | 25 % |
+| parity | player puppets with a confirmed difference, share of those compared (not in the composite) | 2 % | 25 % |
+
+The parity rows come from the plugin's own samples of both copies (docs/tools/parity.md); the copies need `--ini parity.enabled=1` when provisioned, and without the files that category is empty. It is shown next to the others but left out of the composite and of the sync number.
 
 Reported but not scored: frame time p50 / p95 / p99, fps mean and p1, CPU, RAM and RAM growth per minute, network bytes per second, digest `ok`
 count and `ever_converged`, sync latency (resolution about 0.25 s, so it reads 0 on a healthy link), walk legs that arrived and why not, and

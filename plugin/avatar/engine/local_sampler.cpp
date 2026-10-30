@@ -19,6 +19,7 @@
 // 91 a dead player keeps publishing his last action            92 block is never published
 // 93 a finished sequence still counts as playing               94 a held action (block) is held as long as a one-shot
 // 95 the counter is reset by a world gap                       96 the first-person animation set is never read (a human's first-person attack is invisible)
+// 97 the player's furniture is never read                      98 "wants to stand" is reported as leaving (the other player's puppet stands up while he sits)
 
 namespace nvcoop::avatar::engine {
 
@@ -31,7 +32,37 @@ bool FiniteV(const Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) &&
 constexpr uint32_t kMoverWalk = 1u << 7, kMoverRun = 1u << 8, kMoverSneak = 1u << 9;
 }  // namespace
 
-LocalFrame ReadLocalFrame(IGameBackend& be) {
+void SitFromEngine(int state, uint8_t& sit, bool& sleep) {
+    sit = 0;
+    sleep = false;
+    switch (state) {
+        case 1: case 2: case 3: sit = 1; break;                          // loading the sit idle, wants to sit, waiting for the sit animation
+        case 4: sit = 2; break;                                          // sitting
+        case 5: sit = FNV_MUT(98) ? 3 : 2; break;                        // wants to stand (or the getter's rewrite of 4): twin 98 reports it as leaving, so the puppet gets up while its owner sits
+        case 6: case 7: case 8: sit = 1; sleep = true; break;            // going to bed
+        case 9: sit = 2; sleep = true; break;                            // sleeping
+        case 10: sit = FNV_MUT(98) ? 3 : 2; sleep = true; break;
+        default: break;
+    }
+}
+
+namespace {
+// The furniture reference the player sits in: the nearest one, asked again when he has moved more than 8 units or nothing was found (at most every 500 ms).
+RefId LocalFurniture(IGameBackend& be, const Vec3& pos, SeatCache* sc) {
+    if (!sc) return be.NearestFurniture(kPlayerRef);
+    const uint32_t nowMs = static_cast<uint32_t>(be.NowUs() / 1000);
+    const bool moved = !sc->have || std::fabs(pos.x - sc->at.x) > 8.0f || std::fabs(pos.y - sc->at.y) > 8.0f || std::fabs(pos.z - sc->at.z) > 8.0f;
+    if (moved || (sc->furniture == 0 && static_cast<int32_t>(nowMs - sc->askedAtMs) >= 500)) {
+        sc->furniture = be.NearestFurniture(kPlayerRef);
+        sc->at = pos;
+        sc->have = true;
+        sc->askedAtMs = nowMs;
+    }
+    return sc->furniture;
+}
+}  // namespace
+
+LocalFrame ReadLocalFrame(IGameBackend& be, SeatCache* seat) {
     LocalFrame f;
     RefInfo ri;
     if (!be.ReadRef(kPlayerRef, ri) || !ri.exists || !ri.isPlayer || ri.cell == 0 || !ri.has3D) return f;
@@ -101,6 +132,26 @@ LocalFrame ReadLocalFrame(IGameBackend& be) {
     }
     if (FNV_MUT(45)) f.anim.sneak = f.moverSneak;
     else f.anim.sneak = sneakEval ? v != 0 : f.moverSneak;
+    // furniture: a chair, a bench or a bed the player uses. The process's own sit state when it can be read, else the GetSitting evaluator (any non-zero = in it).
+    if (!FNV_MUT(97) && !f.dead) {   // twin 97: the player's furniture is never read (a couch is invisible to the other player)
+        int ss = -1;
+        if (!be.ReadSitSleep(kPlayerRef, ss)) {
+            double gs = 0;
+            ss = be.Eval(Cond::GetSitting, kPlayerRef, 0, gs) ? (gs > 0.5 ? 4 : 0) : -1;
+        }
+        f.sitSleep = ss;
+        uint8_t sit = 0;
+        bool sleep = false;
+        SitFromEngine(ss, sit, sleep);
+        if (sit) {
+            f.anim.sit = sit;
+            f.anim.sleep = sleep;
+            f.anim.furniture = LocalFurniture(be, f.pos, seat);
+        } else if (seat) {
+            seat->furniture = 0;
+            seat->have = false;
+        }
+    }
     return f;
 }
 
@@ -166,7 +217,7 @@ void LocalSampler::Reset() {
 
 bool LocalSampler::Sample(IGameBackend& be, uint32_t nowMs, live::ActorSnapshot& out) {
     if (!Due(nowMs)) return false;
-    LocalFrame f = ReadLocalFrame(be);
+    LocalFrame f = ReadLocalFrame(be, &seat_);
     return Update(nowMs, f, out);
 }
 

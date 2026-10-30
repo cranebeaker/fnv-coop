@@ -1326,11 +1326,11 @@ static void t_oneshot_plays_once() {
     r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 6));
     r.Run(900);
     CHECK(CountGroup(r, 32) == 2);
-    // a one-shot plays without the hold flag
-    bool noHold = false;
+    // a one-shot is started now (flag 1): the queued mode (0) never lets go of the puppet's idle slot
+    bool immediate = false, queued = false;
     for (size_t i = 0; i < r.eng.groupLog.size(); ++i)
-        if (r.eng.groupLog[i].second == 32 && (r.eng.groupFlags[i] & 1) == 0) noHold = true;
-    CHECK(noHold);
+        if (r.eng.groupLog[i].second == 32) ((r.eng.groupFlags[i] & 1) ? immediate : queued) = true;
+    CHECK(immediate && !queued);
 }
 
 // A duplicate of the snapshot, or an older one that arrives late, plays nothing.
@@ -1564,13 +1564,239 @@ static void t_oneshot_unseen_swing_is_reported() {
     r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
     r.Run(600);
     CHECK(r.eng.silentPlays >= 1);
-    CHECK(r.pm.stats().oneShotsNotSeen == 1 && r.pm.stats().oneShotsSeen == 0);
-    CHECK(r.Logged("NOT visible"));
+    CHECK(r.pm.stats().oneShotsNotSeen >= 1 && r.pm.stats().oneShotsSeen == 0);
+    CHECK(r.pm.stats().attackRetries <= 2);            // played again at most twice, not for ever
+    CHECK(r.Logged("NOT visible") && r.Logged("weapon out in the engine"));
     Rig q;                                            // a swing that does show is confirmed
     StartDriving(q);
     q.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
     q.Run(600);
     CHECK(q.pm.stats().oneShotsSeen == 1 && q.pm.stats().oneShotsNotSeen == 0 && !q.Logged("NOT visible"));
+}
+
+// A swing the engine did not show is played again (and the weapon drawn again if the engine says it is away): the first draw of a process may not take, and a group
+// started in the same frame as the draw is lost. The first version logged "NOT visible" and gave up.
+static void t_oneshot_unseen_swing_is_retried() {
+    g_test = "oneshot_unseen_swing_is_retried";
+    Rig r;
+    r.eng.attackNeedsDrawn = true;
+    r.eng.drawNeedsTwoCalls = true;                   // the first SetWeaponDrawn(true) is accepted and does not take
+    StartDriving(r);
+    r.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    r.Run(700);
+    CHECK(r.pm.stats().oneShotsNotSeen == 1);         // the first try was not shown ...
+    CHECK(r.pm.stats().attackRetries == 1);           // ... the second one was
+    CHECK(r.pm.stats().oneShotsSeen == 1);
+    CHECK(r.Logged("NOT visible") && r.Logged("the puppet is playing group 32"));
+    // given up after two more tries, not for ever
+    Rig q;
+    q.eng.playGroupSilent = true;
+    StartDriving(q);
+    q.Pose(1, Act(MkPose(kCellA, 100, 200), 32, 5));
+    q.Run(1500);
+    CHECK(q.pm.stats().attackRetries == 2);
+}
+
+// An attack plays only after the ENGINE says the weapon is out: the puppet's own belief (the draw call was accepted) is not enough.
+static void t_oneshot_waits_for_the_engines_weapon() {
+    g_test = "oneshot_waits_for_the_engines_weapon";
+    Rig r;
+    r.eng.attackNeedsDrawn = true;
+    // an owner whose weapon is out: the planner draws the puppet's weapon, the engine reads it back as away (the draw did not take)
+    r.eng.drawNeedsTwoCalls = true;
+    PuppetPose armed = MkPose(kCellA, 100, 200);
+    armed.anim.weaponDrawn = true;
+    r.Add(1, Act(armed, 0, 4));
+    CHECK(r.UntilDriving(1));
+    r.Run(1200);
+    CHECK(!r.F(1)->drawn);                            // belief: drawn; engine: away
+    r.Pose(1, Act(armed, 32, 5));
+    r.Run(700);
+    CHECK(r.pm.stats().attackDraws >= 1);             // the attack drew it again before playing the group
+    CHECK(r.F(1)->drawn);
+    CHECK(r.pm.stats().oneShotsSeen == 1 && r.pm.stats().oneShotsNotSeen == 0);
+}
+
+// The look the engine built is read back after a spawn and the result is in the log.
+static void t_look_is_checked_after_the_spawn() {
+    g_test = "look_is_checked_after_the_spawn";
+    Appearance want = App(true);
+    want.hair = 0x44;
+    want.eyes = 0x45;
+    want.faceCoeffs.assign(130, 3);
+    {
+        Rig r;
+        r.eng.looksByBase = true;
+        r.eng.lookReadable = true;
+        r.pm.AddPlayer(1, want);
+        r.Pose(1, MkPose(kCellA, 100, 200));
+        CHECK(r.UntilDriving(1));
+        r.Run(800);
+        CHECK(r.pm.stats().looksChecked == 1 && r.pm.stats().looksWrong == 0);
+        CHECK(r.Logged("look check of slot 1: the puppet's base has the look that was asked for"));
+    }
+    {
+        Rig r;
+        r.eng.looksByBase = true;
+        r.eng.lookReadable = true;
+        r.eng.lookReadAsAsked = false;                // the engine built another face and skin tone
+        r.eng.lookReadBack = want;
+        r.eng.lookReadBack.faceCoeffs.assign(130, 0);
+        r.eng.lookReadBack.race = 99;
+        r.pm.AddPlayer(1, want);
+        r.Pose(1, MkPose(kCellA, 100, 200));
+        CHECK(r.UntilDriving(1));
+        r.Run(800);
+        CHECK(r.pm.stats().looksChecked == 1 && r.pm.stats().looksWrong == 1);
+        CHECK(r.Logged("DIFFERS from the look asked for in: race, face shape, face asymmetry, skin tone"));
+    }
+}
+
+// ---- furniture ---------------------------------------------------------------------------------------------------------------------
+
+static constexpr FormId kChair = 0x5000, kBench = 0x5001;
+static PuppetPose Sit(PuppetPose p, uint8_t sit, FormId furniture, bool sleep = false) {
+    p.anim.sit = sit;
+    p.anim.furniture = furniture;
+    p.anim.sleep = sleep;
+    return p;
+}
+
+// The owner sits: his puppet is told to use the same chair, is then left alone (no movement, no group: either would pull it out of the pose), and stands up
+// when the owner does, after which it is driven again.
+static void t_seat_follows_the_owner() {
+    g_test = "seat_follows_the_owner";
+    Rig r;
+    r.eng.furniture = {kChair, kBench};
+    StartDriving(r);
+    const unsigned setPosBefore = r.eng.setPosCalls;
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(1000);
+    CHECK(r.eng.sitCalls == 1 && r.eng.sitLog.back().second == kChair);
+    CHECK(r.F(1)->sit == 4 && r.pm.stats().seatsIssued == 1);
+    CHECK(r.Logged("sits in furniture 20480"));
+    const unsigned setPosSeated = r.eng.setPosCalls;
+    const unsigned groupsSeated = r.eng.playGroupCalls;
+    r.Run(4000);                                      // many Ticks, heartbeats and a restraint check later
+    CHECK(r.eng.sitCalls == 1);                       // never repeated: the chair would toggle
+    CHECK(r.eng.setPosWhileSeated == 0 && r.eng.playGroupWhileSeated == 0);
+    CHECK(r.eng.setPosCalls == setPosSeated && r.eng.playGroupCalls == groupsSeated);
+    CHECK(setPosSeated >= setPosBefore);
+    // the owner gets up
+    r.Pose(1, MkPose(kCellA, 100, 200));
+    r.Run(1500);
+    CHECK(r.eng.standCalls >= 1 && r.eng.standAttempts.front() == 0);
+    CHECK(r.F(1)->sit == 0);
+    CHECK(r.Logged("is out of the furniture"));
+    r.Pose(1, MkPose(kCellA, 300, 200));
+    r.Run(1000);
+    CHECK(r.F(1)->pos.x > 250);                       // driven again
+    CHECK(r.eng.setPosWhileSeated == 0);
+}
+
+// A sit the engine accepts and then drops is noticed (the sit state reads 0) and tried again after a pause; a refused one is retried at a calm pace and logged once.
+static void t_seat_dropped_and_refused() {
+    g_test = "seat_dropped_and_refused";
+    Rig r;
+    r.eng.furniture = {kChair};
+    r.eng.sitDropped = true;
+    StartDriving(r);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(12000);
+    CHECK(r.pm.stats().seatDrops >= 2);
+    CHECK(r.eng.sitCalls >= 3 && r.eng.sitCalls <= 6);   // not every Tick
+    Rig q;
+    q.eng.furniture = {kChair};
+    q.eng.sitAccepted = false;
+    StartDriving(q);
+    q.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    q.Pose(1, Sit(MkPose(kCellA, 150, 200), 2, kChair));
+    q.Run(8000);
+    CHECK(q.eng.sitCalls >= 3 && q.eng.sitCalls <= 7);
+    CHECK(q.Logged("refused to seat the puppet"));
+    int refusedLines = 0;
+    for (const auto& l : q.log)
+        if (l.find("refused to seat the puppet") != std::string::npos) ++refusedLines;
+    CHECK(refusedLines == 1);                            // said once
+    CHECK(q.F(1)->pos.x > 140);                          // a puppet that cannot sit is still driven where its owner is
+}
+
+// A sit state that cannot be read: the belief stands, and a stand-up is taken as done after the settle time (the movement does not wait for ever).
+static void t_seat_without_a_readable_state() {
+    g_test = "seat_without_a_readable_state";
+    Rig r;
+    r.eng.furniture = {kChair};
+    r.eng.sitReadable = false;
+    StartDriving(r);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(6000);
+    CHECK(r.eng.sitCalls == 1);                       // no read-back, no drop noticed, no repeats
+    r.Pose(1, MkPose(kCellA, 100, 200));
+    r.Run(3500);
+    CHECK(r.eng.standCalls >= 1);
+    r.Pose(1, MkPose(kCellA, 400, 200));
+    r.Run(1000);
+    CHECK(r.F(1)->pos.x > 350);                       // out and driven again
+}
+
+// The puppet is taken down around every save and put back: if its owner still sits, it sits again.
+static void t_seat_survives_a_respawn() {
+    g_test = "seat_survives_a_respawn";
+    Rig r;
+    r.eng.furniture = {kChair};
+    StartDriving(r);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(1000);
+    CHECK(r.eng.sitCalls == 1 && r.F(1)->sit == 4);
+    r.pm.OnSaveBegin();
+    r.Run(100);
+    r.pm.OnSaveEnd();
+    CHECK(r.UntilDriving(1));
+    r.Run(1500);
+    CHECK(r.eng.sitCalls == 2 && r.F(1)->sit == 4);
+    CHECK(r.eng.setPosWhileSeated == 0);
+}
+
+// Another chair: out of the first one before the second; and a bed is a bed.
+static void t_seat_another_furniture_and_bed() {
+    g_test = "seat_another_furniture_and_bed";
+    Rig r;
+    r.eng.furniture = {kChair, kBench};
+    StartDriving(r);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(1000);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kBench));
+    r.Run(2000);
+    CHECK(r.eng.sitLog.size() == 2 && r.eng.sitLog.back().second == kBench);
+    CHECK(r.eng.standCalls >= 1 && r.F(1)->sit == 4);
+    Rig b;
+    b.eng.furniture = {kBench};
+    StartDriving(b);
+    b.Pose(1, Sit(MkPose(kCellA, 100, 200), 1, kBench, true));   // going to bed
+    b.Run(1000);
+    CHECK(b.Logged("lies down in furniture 20481"));
+    // a furniture the owner could not name (0) is nothing to sit in
+    Rig c;
+    c.eng.furniture = {kChair};
+    StartDriving(c);
+    c.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, 0));
+    c.Run(1000);
+    CHECK(c.eng.sitCalls == 0);
+}
+
+// An escalation: a stand-up the engine ignores is repeated with a higher attempt number, and given up on (the puppet is driven again) after a while.
+static void t_seat_stand_up_escalates() {
+    g_test = "seat_stand_up_escalates";
+    Rig r;
+    r.eng.furniture = {kChair};
+    r.eng.standNeedsAttempt = 2;
+    StartDriving(r);
+    r.Pose(1, Sit(MkPose(kCellA, 100, 200), 2, kChair));
+    r.Run(1000);
+    r.Pose(1, MkPose(kCellA, 100, 200));
+    r.Run(6000);
+    CHECK(r.eng.standAttempts.size() >= 3 && r.eng.standAttempts[0] == 0 && r.eng.standAttempts[1] == 1 && r.eng.standAttempts[2] == 2);
+    CHECK(r.F(1)->sit == 0);
 }
 
 // An engine that refuses the group: a few tries while the event is in the stream, then given up (not every Tick for ever); one refusal is retried.
@@ -2141,6 +2367,15 @@ static void RunSuite() {
     RUN(t_oneshot_refusals);
     RUN(t_oneshot_unarmed_punch_draws_first);
     RUN(t_oneshot_unseen_swing_is_reported);
+    RUN(t_oneshot_unseen_swing_is_retried);
+    RUN(t_oneshot_waits_for_the_engines_weapon);
+    RUN(t_look_is_checked_after_the_spawn);
+    RUN(t_seat_follows_the_owner);
+    RUN(t_seat_dropped_and_refused);
+    RUN(t_seat_without_a_readable_state);
+    RUN(t_seat_survives_a_respawn);
+    RUN(t_seat_another_furniture_and_bed);
+    RUN(t_seat_stand_up_escalates);
     RUN(t_action_group_names);
     RUN(t_weapon_mods_applied);
     RUN(t_weapon_mods_refused_gives_up);
@@ -2178,6 +2413,7 @@ static const Twin kTwins[] = {
     TWIN(poseOverrideIgnored), TWIN(poseReplaysPlanned), TWIN(poseHeartbeats), TWIN(poseNoDeathGuard), TWIN(poseOneShotsPlay),
     TWIN(poseClearIgnored), TWIN(poseLostOnRespawn), TWIN(poseSurvivesRemove),
     TWIN(bindingUnbindForgotten),
+    TWIN(noAttackWeaponCheck), TWIN(noAttackRetry), TWIN(noSeatSync), TWIN(seatKeepsDriving), TWIN(seatNoStand), TWIN(seatRepeats),
 };
 
 int main(int argc, char** argv) {

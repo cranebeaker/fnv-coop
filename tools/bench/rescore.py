@@ -32,6 +32,9 @@ def rescore(folder: Path):
             if isinstance(v, dict):
                 v.pop("recovery_s", None)   # recompute from the samples with the current code
     extras = cb.finalize_extras(rows, extras)
+    par = cb.parity_extras(folder)   # parity_host.jsonl / parity_client.jsonl saved by the run: scored again with the current rules
+    if par is not None:
+        extras = dict(extras or {}, parity=par)
     scores, cats, comp = cb.scorecard(analysis["overall"], analysis["phases"], extras)
     return {"folder": str(folder), "composite": comp, "categories": cats, "scores": scores, "extras": extras, **analysis}
 

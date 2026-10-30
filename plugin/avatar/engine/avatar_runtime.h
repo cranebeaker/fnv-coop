@@ -136,6 +136,8 @@ private:
 
     void PublishLocal(uint32_t nowMs);
     void LogLocalAction(const live::ActorSnapshot& s);
+    uint32_t loggedSeatKey_ = 0;
+    bool loggedSeatSet_ = false;
     void DriveRemotes(uint32_t nowMs);
     void Log(const std::string& s) const { if (log_) log_(s); }
 

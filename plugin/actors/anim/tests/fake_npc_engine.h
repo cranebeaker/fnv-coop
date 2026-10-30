@@ -51,6 +51,11 @@ struct FakeNpc {
     uint32_t standMs = 400;
     bool restrained = true;            // the remote-driven hold; an escalated stand-up lets the actor's AI run
     int sitCalls = 0, standCalls = 0, restrainCalls = 0, playsWhileInFurniture = 0;
+    // real-game traps found 2026-10-30 (a scripted scene is not the chair the lab built): the actor's own AI wants it in the chair, and a disabled / enabled reference starts clean
+    bool aiResits = false;             // while the AI runs (not restrained) an actor out of the chair sits down again at once: its package says sit
+    uint32_t lastFurniture = 0;        // the furniture the AI goes back to
+    bool disabled = false, resetSupported = false, resetClearsSit = true;
+    int disableCalls = 0, enableCalls = 0;
     // counters
     int playsAfterDeath = 0, kills = 0, placeCalls = 0, releaseCalls = 0, knockCalls = 0, getUpCalls = 0;
     bool placedWhileSliding = false;   // PlaceCorpse was called while the ragdoll was still moving (it carries on to its own rest place)
@@ -79,6 +84,7 @@ public:
             if (n.nonHoldEnds && static_cast<int32_t>(now - n.nonHoldEnds) >= 0 && !n.hold) { n.moveGroup = kGroupIdle; n.nonHoldEnds = 0; }
             if (n.actionGroup >= 0 && n.actionEnd && static_cast<int32_t>(now - n.actionEnd) >= 0) n.actionGroup = -1;
             if (n.standDoneAt && static_cast<int32_t>(now - n.standDoneAt) >= 0) { n.standDoneAt = 0; n.sitSleep = 0; n.furniture = 0; }
+            if (n.aiResits && !n.restrained && !n.disabled && n.sitSleep == 0 && n.lastFurniture) { n.sitSleep = 4; n.furniture = n.lastFurniture; }
             if (n.sliding) {
                 const float t = std::min(1.0f, static_cast<float>(now - n.slideStart) / static_cast<float>(n.slideMs));
                 n.pos.x = n.slideFrom.x + (n.restPos.x - n.slideFrom.x) * t;
@@ -124,7 +130,7 @@ public:
         out.sitKnown = n.sitReadable; out.sitSleep = n.sitReadable ? n.sitSleep : 0; out.furniture = n.furnitureReadable ? n.furniture : 0;
         return true;
     }
-    uint32_t Generation3D(NetId id) override { auto it = a.find(id); return it == a.end() ? 0 : it->second.gen3D; }
+    uint32_t Generation3D(NetId id) override { auto it = a.find(id); return it == a.end() || it->second.disabled ? 0 : it->second.gen3D; }
     bool GetPose(NetId id, CellId& cell, Vec3& pos, float& yawRad) override {
         auto it = a.find(id);
         if (it == a.end() || !it->second.exists) return false;
@@ -221,7 +227,7 @@ public:
         ++totalCommands;
         ++n->sitCalls; n->log.push_back("sit:" + std::to_string(furn) + "@" + std::to_string(now));
         if (n->ignoreSitCalls > 0) { --n->ignoreSitCalls; return Result::Ok; }
-        n->sitSleep = 4; n->furniture = furn; n->standDoneAt = 0;
+        n->sitSleep = 4; n->furniture = furn; n->lastFurniture = furn; n->standDoneAt = 0;
         return Result::Ok;
     }
     Result StandUp(NetId id, uint32_t, uint32_t attempt) override {
@@ -235,6 +241,21 @@ public:
         if (n->ignoreStandCalls > 0) { --n->ignoreStandCalls; return Result::Ok; }
         if (static_cast<int>(attempt) < n->minStandAttempt || n->sitSleep == 0) return Result::Ok;
         n->sitSleep = 5; n->standDoneAt = now + n->standMs;
+        return Result::Ok;
+    }
+    Result SetBodyEnabled(NetId id, bool enabled) override {
+        auto it = a.find(id);
+        if (it == a.end() || !it->second.exists) return Result::Refused;
+        FakeNpc& n = it->second;
+        if (!n.resetSupported) return Result::Unsupported;
+        if (n.refuseAll) return Result::Refused;
+        ++totalCommands;
+        n.log.push_back(enabled ? "enable" : "disable");
+        if (!enabled) { n.disabled = true; n.has3D = false; ++n.disableCalls; return Result::Ok; }
+        n.disabled = false; n.has3D = true; ++n.enableCalls; ++n.gen3D;
+        n.moveGroup = NpcReads::kNoSequence; n.hold = false; n.actionGroup = -1;
+        n.restrained = false;   // a new process: the hold is gone until it is put back
+        if (n.resetClearsSit) { n.sitSleep = 0; n.furniture = 0; n.standDoneAt = 0; }
         return Result::Ok;
     }
     Result Restrain(NetId id) override {

@@ -84,6 +84,9 @@ public:
     // Furniture. Both only start the engine's own animation; the driver reads the sit state back before it believes either.
     virtual Result SitIn(NetId id, uint32_t furniture) = 0;                    // the actor uses that furniture reference (walks in / sits down by the engine's own logic)
     virtual Result StandUp(NetId id, uint32_t furniture, uint32_t attempt) = 0;   // leave the furniture; attempt 0 is the gentle way, higher ones are escalations
+    // Last rung of the stand-up ladder: the reference is disabled / enabled again (the console's Disable / Enable). Rebuilds the actor's process and so its furniture
+    // state; the caller waits between the two and puts the hold back. Unsupported -> the ladder gives up as before.
+    virtual Result SetBodyEnabled(NetId /*id*/, bool /*enabled*/) { return Result::Unsupported; }
     virtual Result Restrain(NetId id) = 0;                                     // put the remote-driven hold back after an escalated StandUp let the actor's AI run
 };
 

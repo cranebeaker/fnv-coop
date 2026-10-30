@@ -116,6 +116,16 @@ public:
     // What the last WriteNpcLook did with the parts that can fail quietly ("face written, head parts written"), for the log. Empty = nothing to say.
     virtual std::string LastLookNote() { return std::string(); }
 
+    // ---- the process's own weapon / furniture state (default: unsupported) ---------------------------------------------------------
+    // BaseProcess::SetWeaponOut (the engine's own draw / holster: it sets the process flag the animation code resolves the weapon variant of every group from, and
+    // notifies the actor). The console has no such command; SetAlert only makes an actor with a running AI draw, and a restrained puppet has none. False = unsupported
+    // (the process is of another class, the pin does not hold) or the call faulted.
+    virtual bool SetWeaponOut(RefId /*ref*/, bool /*on*/) { return false; }
+    // BaseProcess::GetSitSleepState: the xNVSE kSitSleepState_* number (0 normal, 4 sitting, 9 sleeping ...). False = cannot tell.
+    virtual bool ReadSitSleep(RefId /*ref*/, int& /*out*/) { return false; }
+    // The placed furniture reference nearest to the actor (the engine has no read of "the furniture this actor uses"). 0 = none within reach.
+    virtual RefId NearestFurniture(RefId /*ref*/) { return 0; }
+
     // ---- script -------------------------------------------------------------------------------------------------------
     // Runs one console line with `ctx` as the calling reference. 1 = ran, 0 = the engine refused or could not compile it,
     // -1 = an exception was caught, -2 = ctx is not a loaded reference.

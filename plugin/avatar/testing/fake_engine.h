@@ -38,6 +38,9 @@ public:
         std::map<FormId, uint8_t> mods;          // weapon form -> mod flags the puppet really has
         Appearance appearance;
         bool appearanceApplied = false;
+        int sit = 0;                             // the engine's sit state of the puppet (0 none, 4 sitting)
+        FormId furniture = 0;                    // the furniture it was told to use
+        int drawCalls = 0;                       // SetWeaponDrawn(true) calls it has had (drawNeedsTwoCalls)
     };
 
     // ---- knobs ----------------------------------------------------------------------------------------------------
@@ -58,6 +61,20 @@ public:
     bool attackNeedsDrawn = false;             // an attack group plays only on an actor whose weapon is out (a sheathed puppet does not throw a punch)
     unsigned silentPlays = 0;                  // PlayGroup calls that were accepted and did nothing
     bool weaponDrawSupported = true;
+    bool drawNeedsTwoCalls = false;            // the first SetWeaponDrawn(true) does not take (the process flag is not there yet); the second does
+    // furniture
+    std::set<FormId> furniture;                // furniture references that exist on this machine
+    bool sitAccepted = true;                   // SitIn is accepted
+    bool sitDropped = false;                   // ... and then the engine puts the puppet back on its feet (the pose is dropped)
+    bool sitReadable = true;                   // SitState answers
+    unsigned standNeedsAttempt = 0;            // a stand-up command with a smaller attempt number does nothing
+    unsigned sitCalls = 0, standCalls = 0;
+    std::vector<std::pair<RefId, FormId>> sitLog;
+    std::vector<unsigned> standAttempts;
+    // the look read back from the engine (ReadLook): what the puppet's base really has; unset = the look LookBase was asked for
+    bool lookReadable = false;
+    bool lookReadAsAsked = true;
+    Appearance lookReadBack;
     bool equippedKnown = true;
     bool requireItemOwned = true;
     int equipFailuresLeft = 0;
@@ -85,6 +102,7 @@ public:
     unsigned refusedNo3D = 0, commandsOnInvalid = 0, commandsOnForeign = 0, setPosCalls = 0, setYawCalls = 0, playGroupCalls = 0;
     unsigned moveToCellCalls = 0, spawnCalls = 0, deleteCalls = 0, equipCalls = 0, unequipCalls = 0, addCalls = 0, removeCalls = 0;
     unsigned resetHealthCalls = 0, isDeadCalls = 0;
+    unsigned setPosWhileSeated = 0, playGroupWhileSeated = 0;   // movement or a group sent to a puppet that sits (it would be pulled out of the chair)
     unsigned drawCalls = 0, drawOnCalls = 0, restrainCalls = 0, getEquippedCalls = 0, guardCalls = 0;
     unsigned Writes() const { return guardCalls + spawnCalls + deleteCalls; }
     std::vector<std::string> violations;
@@ -209,6 +227,7 @@ public:
     FormId LookBase(Slot slot, FormId templateBase, const Appearance& a) override {
         if (!looksByBase) return templateBase;
         lookBaseCalls.push_back({slot, a});
+        lastAsked_ = a;
         return templateBase;
     }
 
@@ -296,6 +315,7 @@ public:
         if (!f) return false;
         ++setPosCalls;
         trace.push_back("SetPos");
+        if (f->sit) ++setPosWhileSeated;
         if (cellOfPos) {
             CellId truth = cellOfPos(pos);
             if (truth != f->cell && !SameSpace(truth, f->cell))
@@ -352,6 +372,7 @@ public:
             return false;
         }
         ++playGroupCalls;
+        if (f->sit) ++playGroupWhileSeated;
         if (playGroupSilent || (attackNeedsDrawn && IsAttackGroup(baseGroup) && !f->drawn)) {
             ++silentPlays;
             return true;
@@ -385,7 +406,44 @@ public:
                 if (weaponItems.count(w)) haveWeapon = true;
             if (!haveWeapon && !weaponItems.empty()) violations.push_back("weapon drawn with no weapon equipped");
         }
+        if (on && drawNeedsTwoCalls && ++f->drawCalls < 2) return true;   // accepted, not taken
         f->drawn = on;
+        return true;
+    }
+    bool SitIn(RefId ref, FormId furn) override {
+        FakeRef* f = Guard(ref, "SitIn");
+        if (!f || !furniture.count(furn)) return false;
+        ++sitCalls;
+        sitLog.push_back({ref, furn});
+        trace.push_back("SitIn");
+        if (!sitAccepted) return false;
+        if (!sitDropped) {
+            f->sit = 4;
+            f->furniture = furn;
+        }
+        return true;
+    }
+    bool StandUp(RefId ref, FormId, unsigned attempt) override {
+        FakeRef* f = Guard(ref, "StandUp");
+        if (!f) return false;
+        ++standCalls;
+        standAttempts.push_back(attempt);
+        trace.push_back("StandUp");
+        if (attempt >= standNeedsAttempt) {
+            f->sit = 0;
+            f->furniture = 0;
+        }
+        return true;
+    }
+    int SitState(RefId ref) override {
+        const FakeRef* f = Get(ref);
+        if (!sitReadable || !f || !f->exists) return -1;
+        return f->sit;
+    }
+    bool ReadLook(RefId ref, Appearance& out) override {
+        const FakeRef* f = Get(ref);
+        if (!lookReadable || !f || !f->exists) return false;
+        out = lookReadAsAsked ? lastAsked_ : lookReadBack;
         return true;
     }
     bool IsWeaponDrawn(RefId ref) override {
@@ -503,6 +561,7 @@ private:
     }
     std::map<RefId, FakeRef> refs_;
     RefId nextId_ = 0xFF000100;
+    Appearance lastAsked_;
 };
 
 }  // namespace nvcoop::avatar

@@ -152,6 +152,12 @@ public:
     // or warps anybody, `tetherWarn` is called once per stage request with the players outside the scene zone (the plugin tells each of them); off = PartyTether rules are
     // ignored (no hold, no warning, no zone checkpoint).
     std::function<void(const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& outside, const FormRef& zone)> tetherWarn;
+    // tether.mode=on: a tether has just started to hold `stage` because the players in `outside` are not in the zone. `waitMs` is how long the hold lasts at most
+    // (the rule's timeout_s, else barrierTimeoutMs); `autoWarp` says the plugin will then warp them to `zone`. The plugin must TELL them (an on-screen message):
+    // nothing else on the player's screen explains why the story does not go on, and a warp with no word looks like the game pulling the player back.
+    std::function<void(const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& outside, const FormRef& zone, uint32_t waitMs, bool autoWarp)> tetherHold;
+    // tether.mode=on, gather=auto-warp: `secondsLeft` before the warp (once per hold, only when the hold is longer than that), so the player can walk there himself.
+    std::function<void(const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& outside, const FormRef& zone, uint32_t secondsLeft)> tetherWarpSoon;
     // A player is now within (near=true) / outside the radius of a PartyTether `anchor` ref (IntentKind::ReportNear / ReportFar).
     void onNearReported(PlayerId slot, const FormRef& anchor, bool isNear);
     // ReadyCheck: the INFO `info` of `quest` wants to run its end script (irreversible step). Deferred => do not run it now; every joined
@@ -316,6 +322,7 @@ private:
         FormRef info; uint32_t timeoutMs = 0; bool proceedOnTimeout = false; uint32_t minutes = 0;
         bool slideshowAfter = false;                                  // Barrier before=slideshow: hold the controls once released
         bool autoWarp = false;                                        // tether gather=auto-warp: warp the absent players on a timeout
+        bool warpSaid = false;                                        // tetherWarpSoon was called for this hold
         std::set<PlayerId> declined;                                  // a Choice vote: the "no" votes (passed holds the "yes" votes)
     };
     struct Lock { uint32_t mask = 0; uint64_t since = 0; };

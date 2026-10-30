@@ -86,6 +86,11 @@ add_executable(intro_watch_tests ${COOP_DIR}/tests/test_intro_watch.cpp)
 target_link_libraries(intro_watch_tests PRIVATE nvcoop_coop_core_rt)
 list(APPEND COOP_TEST_TARGETS intro_watch_tests)
 add_test(NAME intro_watch_unit COMMAND intro_watch_tests)
+# the local player's motion watch (player_motion.h): header only, its own exe
+add_executable(player_motion_tests ${COOP_DIR}/tests/test_player_motion.cpp)
+target_link_libraries(player_motion_tests PRIVATE nvcoop_coop_core_rt)
+list(APPEND COOP_TEST_TARGETS player_motion_tests)
+add_test(NAME player_motion_unit COMMAND player_motion_tests)
 # the fake peer: tests/test_integration.py starts it with FNVCOOP_MUT=1..4 for the mutant-peer scenarios
 add_executable(coop_peer ${COOP_DIR}/tests/coop_peer.cpp)
 target_link_libraries(coop_peer PRIVATE nvcoop_coop_core_rt)

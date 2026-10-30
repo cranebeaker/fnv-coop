@@ -40,6 +40,9 @@ public:
     int RunLine(RefId ctx, const std::string& line) override;
     bool Eval(Cond fn, RefId ref, FormId param, double& out) override;
     bool ReadPlayerRegions(std::vector<FormId>& out, size_t max) override;
+    bool SetWeaponOut(RefId ref, bool on) override;
+    bool ReadSitSleep(RefId ref, int& out) override;
+    RefId NearestFurniture(RefId ref) override;
     uint64_t NowUs() override;
 
 private:

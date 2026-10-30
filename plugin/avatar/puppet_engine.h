@@ -64,6 +64,18 @@ public:
     virtual bool SetWeaponDrawn(RefId ref, bool on) = 0;   // false = unsupported / refused
     virtual bool IsWeaponDrawn(RefId ref) = 0;
 
+    // ---- furniture (default: unsupported, so older engines and fakes need no change) --------------------------------------
+    // The puppet uses that furniture reference (a chair, a bench, a bed on this machine): the engine's own sit-down. False = unsupported / refused (an ordinary event).
+    virtual bool SitIn(RefId /*ref*/, FormId /*furniture*/) { return false; }
+    // Leave the furniture. attempt 0 is the gentle way (use the furniture again), higher ones are escalations that may let the actor's AI run (the restraint check puts the hold back).
+    virtual bool StandUp(RefId /*ref*/, FormId /*furniture*/, unsigned /*attempt*/) { return false; }
+    // The engine's sit / sleep state of the puppet, the xNVSE BaseProcess::kSitSleepState_* number (0 = not in furniture). -1 = cannot tell.
+    virtual int SitState(RefId /*ref*/) { return -1; }
+
+    // ---- the look the engine really built (default: unknown) -----------------------------------------------------------------
+    // The look of the puppet's own base as the game has it now (race, sex, hair, eyes, body, face blocks, head parts), for the check after a spawn.
+    virtual bool ReadLook(RefId /*ref*/, Appearance& /*out*/) { return false; }
+
     // ---- equipment ----------------------------------------------------------------------------------------------
     virtual bool GetEquipped(RefId ref, std::vector<FormId>& out) = 0;   // false = unknown
     virtual int ItemCount(RefId ref, FormId item) = 0;

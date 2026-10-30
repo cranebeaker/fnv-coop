@@ -48,6 +48,9 @@ struct EngineStats {
     uint64_t appearanceApproximate = 0;    // the face / hair of the template was kept (no engine path to change it)
     uint64_t scaleApplied = 0;             // SetScale sent to match the owner's height
     uint64_t lookCopies = 0, lookWrites = 0, lookFaces = 0, lookFailures = 0;   // LookBase: copies made, looks written, of them with the face morphs, refusals
+    uint64_t lookReused = 0;               // LookBase: a respawn (after a save, a park) whose look had not changed took the copy it already had
+    uint64_t weaponOutDirect = 0, weaponOutFallbacks = 0;   // BaseProcess::SetWeaponOut calls that took; of them, the flag did not read back and the alert state was raised as well
+    uint64_t sitCalls = 0, standCalls = 0;  // furniture commands sent
     uint64_t modLines = 0, modReads = 0;   // EnableWeaponMod lines sent / weapon-mod reads that knew the answer
     uint64_t drift3D = 0;                  // the scene object was more than 20 units from the reference position
     float maxDrift3D = 0;
@@ -99,6 +102,10 @@ public:
     bool SetAlert(RefId ref, bool on) override;
     bool SetWeaponDrawn(RefId ref, bool on) override;
     bool IsWeaponDrawn(RefId ref) override;
+    bool SitIn(RefId ref, FormId furniture) override;
+    bool StandUp(RefId ref, FormId furniture, unsigned attempt) override;
+    int SitState(RefId ref) override;
+    bool ReadLook(RefId ref, Appearance& out) override;
 
     bool GetEquipped(RefId ref, std::vector<FormId>& out) override;
     int ItemCount(RefId ref, FormId item) override;
@@ -145,7 +152,7 @@ private:
     std::map<RefId, RefState> state_;
     std::map<RefId, FormId> owned_;   // spawned this session and not deleted yet: ref -> base
     std::vector<uint64_t> spawnTimes_;   // NowUs of the recent spawns (circuit breaker)
-    struct LookCopy { FormId copy = 0, from = 0; uint32_t epoch = 0; };
+    struct LookCopy { FormId copy = 0, from = 0; uint32_t epoch = 0; Appearance written; };
     std::map<Slot, LookCopy> lookCopies_;   // per remote player: the private copy of its template with its look written in (LookBase)
     bool looksByBase_ = true;               // false once the game refused to make a copy three times in a row (then every puppet is the template, as before)
     unsigned cloneFailStreak_ = 0;

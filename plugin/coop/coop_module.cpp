@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -49,6 +51,7 @@
 #include "save_sidecars.h"
 #include "objvar_sidecar.h"
 #include "intro_watch.h"        // the opening scene's log lines and its "Doc is waiting for you" notice (game-free, tested)
+#include "player_motion.h"      // every move of this machine's own player that was not its legs: one log line (game-free, tested)
 #include "party_save_glue.h"   // party saves: every host save is a save of every guest too (docs/party-save.md)
 #ifdef NVCOOP_WITH_MARKERS
 #include "markers/mk_glue.h"   // friend markers and the revive of a downed friend (docs/markers.md, docs/revive.md)
@@ -88,9 +91,12 @@ std::unique_ptr<nvworld::WorldApplier> g_worldApplier;
 
 #endif
 
+void LogEffectArrival(const fnvcoop::Effect& e, const fnvcoop::IEffectSink::Context& ctx);   // below (the log line for a move / hold of the player that reaches this machine)
+
 class EngineWorld : public IWorldApplier {
 public:
     ApplyResult apply(const fnvcoop::Effect& e, const fnvcoop::IEffectSink::Context& ctx) override {
+        LogEffectArrival(e, ctx);
 #ifdef NVCOOP_WITH_LIVE
         nvcoop::livewire::glueOnEffect(e);   // the ownership service must know a story KillActor / ResurrectActor / CompanionOwner before the engine acts on it
 #endif
@@ -345,7 +351,10 @@ void IntroWakeUp() {
     int ok = 0;
     for (const char* l : kLines) ok += nvhooks::execConsoleLine(l) ? 1 : 0;
     ok += nvhooks::execConsoleLineOn("SetScale 1", 0x14) ? 1 : 0;   // SetScale needs a calling reference: this machine's own player (0x14)
-    nvcoop::Log("coop: intro over, this guest wakes up at Doc's (%d of 6 lines ran)", ok);
+    // VCG00 stage 100 also ends the intro's AI package of the player ("player.RemoveScriptPackage"): that line ran in the host's game only and a guest drops it, so this
+    // machine's player kept the intro's package from the start save for good (a package on the player is what walks the host out of bed). Same line, own player.
+    ok += nvhooks::execConsoleLineOn("RemoveScriptPackage", 0x14) ? 1 : 0;
+    nvcoop::Log("coop: intro over, this guest wakes up at Doc's (%d of 7 lines ran; the last ends the intro's AI package of this machine's player)", ok);
     StartGuestChargen();
 }
 
@@ -468,7 +477,16 @@ void GuestChargenFrame() {
         }
         // Free to walk around now. Doc's scene (VCG01, host's game) locks the host's player until Doc lets it walk (stage 55) and again for the
         // goodbye (stage 110); those locks reach every guest, so until Doc's goodbye is over (VCG01 stage 200) they are not this guest's.
-        nvhooks::setControlsLockVeto([] { return GuestFreeAfterChargen(); });
+        nvhooks::setControlsLockVeto([] {
+            const bool veto = GuestFreeAfterChargen();
+            static uint64_t lastSaid = 0;
+            const uint64_t now = NowMs();
+            if (veto && now - lastSaid >= 5000) {   // not once per lock: Doc's scene sends several
+                lastSaid = now;
+                nvcoop::Log("coop: a control lock from the host's scene is NOT applied here (this guest has made its character: free until Doc's goodbye, VCG01 stage 200)");
+            }
+            return veto;
+        });
         const bool freed = nvhooks::enableAllPlayerControls();
         IntroNotice("Character ready. You can look around while the host finishes with Doc.");
         nvcoop::Log("coop: chargen finished for this guest (controls %s)", freed ? "free" : "NOT freed");
@@ -496,6 +514,118 @@ struct NoIntroJoin {
 };
 NoIntroJoin g_noIntro;
 
+// ---- the local player's motion watch (player_motion.h) -------------------------------------------------------------------------------------------------------
+// 2026-10-30: "on the CLIENT I was constantly running and RUBBER BANDING back", and the log had no position and no move of the local player in it. From now on
+// every move the MOD makes to this machine's own player is a log line (NoteLocalMove: what, why, from where to where) and every displacement too fast to be the
+// player's legs is one too (MotionFrame), with the context that tells the causes apart: the control bits, the opening quest stages, the distance to the nearest
+// other player's puppet (an actor standing in the way pushes the real player). Reading only.
+bool RefPosition(uint32_t refID, float& x, float& y, float& z);
+motion::MotionWatch g_motion;
+bool LocalPlayerSample(motion::Sample& s) {
+    PlayerCharacter* pc = g_thePlayer ? *g_thePlayer : nullptr;
+    if (!pc || !pc->parentCell) return false;
+    s.cell = pc->parentCell->refID;
+    s.world = pc->parentCell->worldSpace ? pc->parentCell->worldSpace->refID : 0;
+    s.x = pc->posX;
+    s.y = pc->posY;
+    s.z = pc->posZ;
+    return true;
+}
+std::string LocalPosText() {
+    motion::Sample s;
+    if (!LocalPlayerSample(s)) return "(no player)";
+    char b[96];
+    std::snprintf(b, sizeof b, "(%.0f,%.0f,%.0f) cell %X", s.x, s.y, s.z, (unsigned)s.cell);
+    return b;
+}
+// The nearest other player's puppet on this machine, in game units (-1 = none known).
+float NearestPuppetDistance(const motion::Sample& me, int* slotOut) {
+    float best = -1.f;
+#ifdef NVCOOP_WITH_LIVE
+    const int self = g_rt && g_rt->client() ? static_cast<int>(g_rt->client()->slot()) : 0;
+    for (int slot = 0; slot < 4; ++slot) {
+        if (slot == self) continue;
+        const uint32_t ref = nvcoop::livewire::glueAvatarRef(static_cast<uint8_t>(slot));
+        float x = 0, y = 0, z = 0;
+        if (!ref || !RefPosition(ref, x, y, z)) continue;
+        const float d = std::sqrt((x - me.x) * (x - me.x) + (y - me.y) * (y - me.y) + (z - me.z) * (z - me.z));
+        if (best < 0 || d < best) { best = d; if (slotOut) *slotOut = slot; }
+    }
+#else
+    (void)me; (void)slotOut;
+#endif
+    return best;
+}
+std::string MotionContext(const motion::Sample& me) {
+    PlayerCharacter* pc = g_thePlayer ? *g_thePlayer : nullptr;
+    static const fnvcoop::FormRef vcg01 = [] { fnvcoop::FormRef f; nvhooks::strToRef("falloutnv.esm:104C1C", &f); return f; }();
+    char b[200];
+    int slot = -1;
+    const float d = NearestPuppetDistance(me, &slot);
+    std::snprintf(b, sizeof b, "controls-off bits 0x%02X, VCG00 %d VCG01 %d, chargen %s, ", pc ? *reinterpret_cast<const uint8_t*>(reinterpret_cast<const char*>(pc) + 0x680) : 0,
+                  nvhooks::localQuestStage(Vcg00()), nvhooks::localQuestStage(vcg01), g_chargen.done ? "done" : (g_chargen.running ? "running" : "not started"));
+    std::string out = b;
+    if (d >= 0) { std::snprintf(b, sizeof b, "nearest puppet: slot %d at %.0f u", slot, d); out += b; }
+    else out += "no puppet known";
+    return out;
+}
+// The mod is about to move THIS machine's own player (a warp, a respawn, a committed MoveRef that names it): the log says what and why, and the jump that
+// follows is reported as the mod's own.
+void NoteLocalMove(const std::string& what) {
+    nvcoop::Log("coop: MOVES local player: %s [now at %s]", what.c_str(), LocalPosText().c_str());
+    g_motion.noteModMove(NowMs(), what);
+}
+void MotionFrame() {
+    motion::Sample s;
+    if (!LocalPlayerSample(s)) return;
+    s.nowMs = NowMs();
+    for (const std::string& l : g_motion.step(s, [&] { return MotionContext(s); })) nvcoop::Log("%s", l.c_str());
+}
+const char* RecipientText(const fnvcoop::Recipient& r, char* buf, size_t n) {
+    switch (r.mode) {
+        case fnvcoop::Recipient::Default: return "the acting player";
+        case fnvcoop::Recipient::Origin: return "the sender";
+        case fnvcoop::Recipient::All: return "everybody";
+        default: std::snprintf(buf, n, "slots 0x%02X", (unsigned)r.mask); return buf;
+    }
+}
+std::string CauseText(const fnvcoop::IEffectSink::Context& ctx) {   // why: the quest / script / rule that produced the effect
+    if (!ctx.cause) return "cause unknown";
+    char b[120];
+    std::snprintf(b, sizeof b, "cause kind %d %s:%X aux %d", (int)ctx.cause->kind, ctx.cause->source.plugin.c_str(), (unsigned)ctx.cause->source.localId, (int)ctx.cause->aux);
+    return b;
+}
+// A MoveRef or a SetPlayerControls that reaches this machine moves or holds a player: the line says from whom, what and where (the applier may still drop it when it
+// names the SENDER's player: plugin/hooks/identity.h, "applyremote: ... dropped" in the trace).
+void LogEffectArrival(const fnvcoop::Effect& e, const fnvcoop::IEffectSink::Context& ctx) {
+    const auto* mv = std::get_if<fnvcoop::MoveRef>(&e);
+    const auto* sc = std::get_if<fnvcoop::SetPlayerControls>(&e);
+    if (!mv && !sc) return;
+    const int self = g_rt && g_rt->client() ? static_cast<int>(g_rt->client()->slot()) : 0;
+    char b[400], rb[32];
+    if (sc) {
+        std::snprintf(b, sizeof b, "coop: HOLDS/frees controls: %s bits 0x%02X for %s, sent by slot %d (txn %llu idx %u%s; %s); this machine is slot %d, controls-off bits now 0x%02X", sc->enable ? "enable" : "DISABLE",
+                      (unsigned)sc->controls, RecipientText(sc->to, rb, sizeof rb), (int)ctx.origin, (unsigned long long)ctx.seq, (unsigned)ctx.index, ctx.baseline ? ", baseline" : "", CauseText(ctx).c_str(), self,
+                      g_thePlayer && *g_thePlayer ? *reinterpret_cast<const uint8_t*>(reinterpret_cast<const char*>(*g_thePlayer) + 0x680) : 0);
+        nvcoop::Log("%s", b);
+        return;
+    }
+    int names = -1;   // which slot's player the move names (its wire ref, plugin/hooks/identity.h)
+    for (int sl = 0; sl < 8 && g_rt; ++sl) {
+        fnvcoop::FormRef pr;
+        if (g_rt->playerRefOf(static_cast<fnvcoop::PlayerId>(sl), pr) && pr == mv->ref) { names = sl; break; }
+    }
+    if (names < 0 && mv->ref.plugin == "falloutnv.esm" && mv->ref.localId == 0x14) names = 0;
+    const std::string what = std::string("MoveRef of ") + nvhooks::refToStr(mv->ref) + " to " + (mv->cell.plugin.empty() ? std::string("(no cell)") : nvhooks::refToStr(mv->cell));
+    std::snprintf(b, sizeof b, "%s + (%.0f,%.0f,%.0f)%s, sent by slot %d (txn %llu idx %u%s; %s)", what.c_str(), mv->x, mv->y, mv->z, mv->partyWarp ? ", party warp" : "", (int)ctx.origin,
+                  (unsigned long long)ctx.seq, (unsigned)ctx.index, ctx.baseline ? ", baseline" : "", CauseText(ctx).c_str());
+    if (names == self && !ctx.baseline) {
+        NoteLocalMove(b);   // names THIS machine's player: it moves (unless the applier drops it as the sender's own)
+    } else if (names >= 0) {
+        nvcoop::Log("coop: MoveRef arrives, names the player of slot %d (this machine is slot %d): %s", names, self, b);
+    }
+}
+
 // After the character is made: move this guest's player next to the host's. The rules' own late-join warp (policy late_join.after_scene) needs a checkpoint zone
 // the host may not have visited; this one needs only the host's puppet on this machine.
 void JoinHostWarp(uint64_t now) {
@@ -506,6 +636,7 @@ void JoinHostWarp(uint64_t now) {
     const uint32_t puppet = nvcoop::livewire::glueAvatarRef(static_cast<uint8_t>(fnvcoop::kHostPlayer));
     if (!puppet || !g_applier || !nvhooks::resolver().toRef(0x14, &me) || !nvhooks::resolver().toRef(puppet, &to)) return;
     nvhooks::ApplierExecScope exec;
+    NoteLocalMove("join warp: the character is made, going to the host's puppet " + nvhooks::refToStr(to) + " (try " + std::to_string(g_noIntro.tries) + ")");
     const nvhooks::ApplyStatus st = g_applier->apply(fnvcoop::MoveRef{me, to, 0, 60, 0, true});
     nvcoop::Log("coop: join warp to the host: %s", nvhooks::applyStatusName(st));
     if (st == nvhooks::ApplyStatus::Ok) {
@@ -789,7 +920,10 @@ std::string ApplyOrder(const std::string& json) {
             if (reviveFrac < 0.999f) nvhooks::execConsoleLineOn(nvmk::inPlaceDamageLine(reviveFrac), 0x14);   // a failed line only leaves him at full health
         } else if (nvhooks::strToRef(v.get("checkpoint").asString(""), &cp) && g_applier) {
             fnvcoop::FormRef me;
-            if (nvhooks::resolver().toRef(0x14, &me)) g_applier->applyLocal(fnvcoop::MoveRef{me, cp, 0, 0, 0, true});   // my own player: not an effect from another machine
+            if (nvhooks::resolver().toRef(0x14, &me)) {
+                NoteLocalMove("respawn at the party's checkpoint " + nvhooks::refToStr(cp) + " (the host's order after a death)");
+                g_applier->applyLocal(fnvcoop::MoveRef{me, cp, 0, 0, 0, true});   // my own player: not an effect from another machine
+            }
         }
 #ifdef NVCOOP_WITH_MARKERS
         nvcoop::markers::onLocalUp(revivedBy);
@@ -1138,7 +1272,11 @@ void TryStart() {
     }
 #endif
     g_rt->setNotice([](const std::string& s) { nvcoop::intents::game::engine().notify(s); });
+    g_rt->setTrace([](const std::string& s) { nvcoop::Log("%s", s.c_str()); });   // every move / hold the session makes of a player: a tether gather, a late joiner's hold and warp
     g_rt->setHostEffectApplier([](const fnvcoop::Effect& e) {   // G18 / G25 / G41: what the rules engine commits by itself, for the host's own player
+        if (const auto* mv = std::get_if<fnvcoop::MoveRef>(&e)) NoteLocalMove("rules engine MoveRef of the host's player to " + nvhooks::refToStr(mv->cell) + (mv->partyWarp ? " (party warp)" : ""));
+        else if (const auto* sc = std::get_if<fnvcoop::SetPlayerControls>(&e))
+            nvcoop::Log("coop: HOLDS/frees controls of the host's player: %s bits 0x%02X (rules engine)", sc->enable ? "enable" : "DISABLE", (unsigned)sc->controls);
         if (g_applier) g_applier->applyLocal(e);
     });
     g_rt->setPlayerVarIO({[](const fnvcoop::FormRef& q, const std::vector<std::string>& names, std::vector<fnvcoop::RulesEngine::VarValue>& out) {   // G24
@@ -1648,6 +1786,7 @@ void OnFrame() {
         }
         GuestBarrierPasses();
         IntroFrame();
+        MotionFrame();
         bool lock = g_rt->syncing() || g_downed;
         {   // report the player's cell every 30 frames (party tether / presence): host -> rules engine, client -> ReportCell action
             static uint64_t frames = 0;
@@ -1737,6 +1876,8 @@ void OnMessage(uint32_t type, void* data, uint32_t len) {
         g_loadPath = ResolveSavePath(std::string(static_cast<const char*>(data), len ? strnlen(static_cast<const char*>(data), len) : strlen(static_cast<const char*>(data))));
         g_sidecars.onPreLoad(g_loadPath);
     }
+    if (type == NVSEMessagingInterface::kMessage_PreLoadGame || type == NVSEMessagingInterface::kMessage_PostLoadGame || type == NVSEMessagingInterface::kMessage_NewGame)
+        g_motion = motion::MotionWatch();   // a load or a new game puts the player somewhere else: that is no set-back
     if (type == NVSEMessagingInterface::kMessage_PostLoadGame && data) {   // the ledger of the loaded save comes back (none = reset); puppets register again
         g_sidecars.onPostLoad(SidecarIo());
         nvhooks::clearPlayerSlots();

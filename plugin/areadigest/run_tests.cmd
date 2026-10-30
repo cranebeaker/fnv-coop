@@ -11,7 +11,7 @@ for %%I in ("%~dp0..\..") do set "REPO=%%~fI"
 if not defined PYTHON set "PYTHON=python"
 "%PYTHON%" -I "%REPO%\tools\build\build.py" --target areadigest_tests nvcoop_areadigest_tests --label "area-desync" || exit /b 1
 "%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "area digest core" --twins 1-32,34-39,41,42 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\areadigest_tests\areadigest_tests.exe" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "area digest plugin" --twins 61-68,70,72-74,76-82 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\areadigest_plugin_tests\nvcoop_areadigest_tests.exe" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "area digest plugin" --twins 61-68,70,72-74,76-83 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\areadigest_plugin_tests\nvcoop_areadigest_tests.exe" || exit /b 1
 "%PYTHON%" -I "%REPO%\tools\areadigest\run_tests.py" || exit /b 1
 "%PYTHON%" -I "%REPO%\plugin\areadigest\tools\area_proof.py" --selftest || exit /b 1
 echo ALL OK

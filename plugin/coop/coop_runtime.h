@@ -212,6 +212,8 @@ public:
     void setHostEffectApplier(HostEffectApplier f) { hostApplier_ = std::move(f); }
     // A HUD line on THIS machine (the module: the game's notification). notifyPlayer sends one to a guest's machine as an order.
     void setNotice(std::function<void(const std::string&)> f) { notice_ = std::move(f); }
+    // One log line per time the session MOVES or HOLDS a player (a tether hold or gather, a late joiner's hold and warp): what, why, who, from where to where. The module: nvcoop.log.
+    void setTrace(std::function<void(const std::string&)> f) { trace_ = std::move(f); }
     bool notifyPlayer(fnvcoop::PlayerId slot, const std::string& text);
     // slot -> that player's FormRef: THE mapping of RulesEngine::Options::playerRef (slot 0 = the host's player, a guest = its ghost / puppet). nvhooks::setPlayerRefProvider uses it too.
     bool playerRefOf(fnvcoop::PlayerId slot, fnvcoop::FormRef& out) { return slotPlayerRef(slot, out); }
@@ -469,6 +471,9 @@ private:
     std::map<std::string, std::string> policy_;
     HostEffectApplier hostApplier_;
     std::function<void(const std::string&)> notice_;
+    std::function<void(const std::string&)> trace_;
+    void traceLine(const char* fmt, ...);   // printf-style into trace_ (no-op without one)
+    std::string slotPosText(fnvcoop::PlayerId slot);   // "(x,y,z)" of the slot's player from the anchor probe, "(?)" when unknown
     std::function<void()> reloadSave_;
     PlayerVarIO varIO_;
     std::vector<std::pair<fnvcoop::FormRef, std::vector<std::string>>> actingQuests_;   // quests with PerPlayerVars / PerPlayerState and their variable names

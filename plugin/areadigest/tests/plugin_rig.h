@@ -3,6 +3,7 @@
 #pragma once
 #include <cmath>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ public:
     bool ignoreHealth = false;            // setHealth says yes and changes nothing (an engine that keeps its own value)
     std::vector<uint32_t> resyncs;
     std::vector<std::string> calls;       // "hp 5 40", "pos 5", "cell 5 256"
+    std::set<uint32_t> held;              // copies the actor port holds in place while they get out of furniture (the pose lock)
 
     void add(uint32_t id, CellId cell, Vec3 pos, float hp = 100, bool alive = true, bool named = false, PlayerId owner = 0, uint32_t epoch = 1) {
         A x;
@@ -85,6 +87,7 @@ public:
         calls.push_back("cell " + std::to_string(id) + " " + std::to_string(cell));
         return true;
     }
+    bool moveHeld(uint32_t id) override { return held.count(id) != 0; }
     bool requestOwnerResync(uint32_t id) override {
         resyncs.push_back(id);
         return resyncOk;

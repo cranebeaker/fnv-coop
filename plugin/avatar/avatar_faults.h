@@ -63,6 +63,14 @@ struct AvatarFaults {
     bool bridgeDropsAction = false;      // the live <-> avatar conversion forgets action / actionSeq / block
     bool noAttackDraw = false;           // an attack on a puppet whose weapon is not out is played without drawing it first (a sheathed puppet may not throw a punch)
     bool noOneShotVerify = false;        // the engine's answer to a played one-shot is never checked (a swing that does not show is not noticed)
+    bool noAttackWeaponCheck = false;    // the swing is played on the strength of our own belief that the weapon is out, not the engine's answer (a sheathed puppet plays nothing)
+    bool noAttackRetry = false;          // a swing the engine did not show is given up at once, not played again
+    // the owner's furniture (AnimState::sit / sleep / furniture): a chair, a bench, a bed
+    bool bridgeDropsSit = false;         // the live <-> avatar conversion forgets the furniture block
+    bool noSeatSync = false;             // the puppet never sits down (the owner sits on a couch and his puppet stands in the middle of it)
+    bool seatKeepsDriving = false;       // a seated puppet is still moved and animated every Tick (it slides out of the chair and walks in place)
+    bool seatNoStand = false;            // a puppet is never told to leave the furniture when its owner gets up
+    bool seatRepeats = false;            // the sit command is repeated on every Tick (the chair is toggled between sitting and standing)
     // the pose override (a downed friend's puppet keeps lying; PuppetManager::SetPoseOverride)
     bool poseOverrideIgnored = false;    // the override is stored but the planned group still plays
     bool poseReplaysPlanned = false;     // the periodic replay (heartbeat / readback mismatch) plays the planned group, not the override

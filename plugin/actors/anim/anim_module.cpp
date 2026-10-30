@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 
+#include "actors/actor_trace.h"
 #include "actors/engine/actor_engine_api.h"
 #include "anim_game.h"
 #include "common/minijson.h"
@@ -67,6 +68,7 @@ struct SyncNet : IAnimNet {
 struct State {
     SyncNet net;
     std::unique_ptr<game::GameScript> script;
+    std::unique_ptr<GuardedScript> guarded;   // the only script the backend sees: every line opens the sync layer's console scope
     std::unique_ptr<game::GameAccess> access;
     std::unique_ptr<ScriptNpcAnimEngine> backend;
     std::unique_ptr<NpcAnimSystem> sys;
@@ -148,6 +150,7 @@ void OnLoad(void*) {
     gc.directAiming = IniBool("directaiming", gc.directAiming);
     gc.directRate = IniBool("directrate", gc.directRate);
     gc.directKnock = IniBool("directknock", gc.directKnock);
+    nvcoop::actors::setTraceSink([](const std::string& line) { nvcoop::Log("%s", line.c_str()); });   // "npc: ..." lines (actor_trace.h)
     SystemConfig sc;
     sc.driver.playAttacks = IniBool("attacks", sc.driver.playAttacks);
     sc.driver.playTurns = IniBool("turns", sc.driver.playTurns);
@@ -155,10 +158,20 @@ void OnLoad(void*) {
     sc.driver.useRate = IniBool("rate", sc.driver.useRate);
     sc.driver.knockdown = IniBool("knockdown", sc.driver.knockdown);
     sc.driver.playSit = IniBool("sit", sc.driver.playSit);
+    sc.driver.standReset = IniBool("standreset", sc.driver.standReset);   // [anim] standreset=0 turns the Disable / Enable rung of the stand-up ladder off
 
     st.script.reset(new game::GameScript([](uint32_t ref, const std::string& line) { return nvhooks::execConsoleLineOn(line, ref); }));
+    // The same pair the actor port's console uses (engine_real.cpp RealEngineHost::console): ApplyScope lifts the guest gate that swallows mutating
+    // commands run by a console line, ApplierExecScope keeps the line from being taken for a leaked result script / captured on a host.
+    st.guarded.reset(new GuardedScript(*st.script, []() -> std::shared_ptr<void> {
+        struct Token {
+            nvhooks::ApplyScope apply;
+            nvhooks::ApplierExecScope exec;
+        };
+        return std::make_shared<Token>();
+    }));
     st.access.reset(new game::GameAccess(gc, [] { return g_epoch; }));
-    st.backend.reset(new ScriptNpcAnimEngine(*st.script, *st.access));
+    st.backend.reset(new ScriptNpcAnimEngine(*st.guarded, *st.access));
     st.sys.reset(new NpcAnimSystem(*st.backend, st.net, sc));
 
     NpcAnimSystem* sys = st.sys.get();

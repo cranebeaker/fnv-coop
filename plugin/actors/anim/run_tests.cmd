@@ -14,6 +14,6 @@ if "%ERRORLEVEL%"=="0" ( echo anim: the group table checker twin SURVIVED & exit
 "%PYTHON%" -I "%REPO%\plugin\actors\anim\verify_slots.py" --mutant >nul
 if "%ERRORLEVEL%"=="0" ( echo anim: the slot checker twin SURVIVED & exit /b 1 )
 "%PYTHON%" -I "%REPO%\tools\build\build.py" --target nvcoop_anim_tests --label "enemy-anim" || exit /b 1
-"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "enemy-anim" --twins 1-8,20-22,30-56,60-63,70-87 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\anim_tests\nvcoop_anim_tests.exe" || exit /b 1
+"%PYTHON%" -I "%REPO%\tools\mut\run_twins.py" --label "enemy-anim" --twins 1-8,20-22,30-56,60-63,70-92 --real-regex ", 0 failed" --caught-regex ", [1-9][0-9]* failed" -- "%REPO%\build\all\anim_tests\nvcoop_anim_tests.exe" || exit /b 1
 echo enemy-anim: ALL OK
 exit /b 0

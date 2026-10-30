@@ -81,7 +81,7 @@ endif()
 # NOTE: xNVSE headers use max()/min(): do NOT define NOMINMAX for targets that include them.
 option(NVCOOP_LINK_SNAPSHOT "Link L7 fnvcoop_snapshot into nvcoop.dll (needs the xNVSE game-API sources; links in L7 snapshot)" ON)
 set(NVCOOP_SKIP_SUBDIRS "" CACHE STRING "semicolon list of plugin/<dir> to leave out (e.g. a lane whose code does not build yet)")
-foreach(sub hooks hooks_ui hooks_world snapshot nvmp coop flight animprobe reload bots actors avatar combat spawn splitscreen intents world_time vats companions areadigest loot rebalance threat chat voice markers)
+foreach(sub hooks hooks_ui hooks_world snapshot nvmp coop flight animprobe reload bots actors avatar combat spawn splitscreen intents world_time vats companions areadigest loot rebalance threat chat voice markers parity)
   if(sub IN_LIST NVCOOP_SKIP_SUBDIRS)
     continue()
   endif()

@@ -1,6 +1,7 @@
 // enemy-anim: furniture. The owner's sit / sleep state travels in the actor stream and a copy sits or stands like the owner's actor
 // (2026-10-29: the host's NPC stood up and walked off, the guest's copy stayed in the chair pose and slid across the room).
 // Sampler (owner side), driver (copy side), script backend and the whole path. Mutation twins: FNV_MUT(n), see the number in each comment.
+#include "actors/actor_trace.h"
 #include "anim_helpers.h"
 #include "anim_sit.h"
 #include "script_npc_engine.h"
@@ -488,3 +489,118 @@ TEST(sit, the_script_backend_refuses_what_it_cannot_address) {
 
 // ---- the whole path -----------------------------------------------------------------------------------------------------------------------
 // (test_pipeline.cpp: an NPC stands up and walks off, over a lossy link)
+
+// ---- a scripted scene is not the lab's chair (2026-10-30 playtest: Doc Mitchell stayed seated on the guest) ------------------------------------------------
+namespace {
+// Records the "npc:" trace lines for the length of a test.
+struct TraceCapture {
+    std::vector<std::string> lines;
+    TraceCapture() { nvcoop::actors::setTraceSink([this](const std::string& l) { lines.push_back(l); }); }
+    ~TraceCapture() { nvcoop::actors::setTraceSink(nullptr); }
+    int count(const std::string& needle) const {
+        int c = 0;
+        for (const auto& l : lines) if (l.find(needle) != std::string::npos) ++c;
+        return c;
+    }
+};
+}  // namespace
+
+TEST(sit, a_copy_that_reads_leaving_for_good_is_still_in_the_furniture_and_is_stood_up) {   // twin 89
+    // The engine's "leaving" state (5) is what a seated process reads while its package wants it out; on a copy whose AI is held it never completes.
+    // The first look and the read-back counted only "entering / using" as seated, so this copy was taken for standing and never touched.
+    Bench b;
+    b.npc().sitSleep = 5; b.npc().furniture = kChair; b.npc().lastFurniture = kChair;
+    b.npc().standMs = 400;
+    Walker w;
+    for (int i = 0; i < 70; ++i) b.frame(seated(w, SitState::None, 0));          // 2.3 s: not yet "for good"
+    CHECK(b.npc().standCalls == 0);
+    for (int i = 0; i < 200; ++i) b.frame(seated(w, SitState::None, 0));         // another 6.6 s
+    CHECK(b.npc().standCalls >= 1 && b.npc().sitSleep == 0);
+    CHECK(b.drv.stats().leavingStuck == 1 && b.drv.stats().sitDrifts >= 1);
+    CHECK(b.npc().moveGroup == kGroupIdle);
+}
+
+TEST(sit, a_copy_whose_own_ai_keeps_sitting_it_down_is_reset_by_disabling_and_enabling_it) {   // twins 90, 80
+    // The guest's Doc: the gentle way does nothing, the AI rungs stand him up and his package sits him straight back down, because the scripted package the
+    // host's scene used was never his on this machine. Only a rebuilt process (Disable, Enable) ends it; the hold goes back before the AI can act.
+    Bench b;
+    b.npc().minStandAttempt = 1; b.npc().aiResits = true; b.npc().resetSupported = true;
+    Walker w;
+    sitDown(b, w, kChair);
+    CHECK(b.npc().sitSleep == 4 && b.npc().lastFurniture == kChair);
+    for (int i = 0; i < 330; ++i) b.frame(seated(w, SitState::None, 0, false, 33, 130, 1));   // ten seconds of the owner walking
+    const FakeNpc& n = b.npc();
+    CHECK(n.disableCalls == 1 && n.enableCalls == 1);
+    CHECK(indexOf(n, "disable") < indexOf(n, "enable"));
+    CHECK(n.sitSleep == 0 && n.restrained);                           // out for good, and the AI is held again
+    CHECK(n.moveGroup == kGroupForward);                              // and it walks like its owner
+    CHECK(b.drv.stats().resetsStarted == 1 && b.drv.stats().resetsDone == 1);
+    CHECK(!b.drv.poseLocked(kId) && !b.drv.info(kId).resetting);
+    CHECK(n.playsWhileInFurniture == 0);
+}
+
+TEST(sit, the_reset_rung_is_rare_and_the_copy_is_held_in_place_only_while_it_runs) {   // twin 92
+    Bench b;
+    b.npc().ignoreStandCalls = 100000; b.npc().resetSupported = true; b.npc().resetClearsSit = false;   // nothing helps
+    Walker w;
+    sitDown(b, w, kChair);
+    bool lockedDuringReset = false;
+    for (int i = 0; i < 700; ++i) {                                   // 23 s: several ladders
+        b.frame(seated(w, SitState::None, 0));
+        if (b.drv.info(kId).resetting) lockedDuringReset = lockedDuringReset || b.drv.poseLocked(kId);
+    }
+    CHECK(lockedDuringReset);
+    CHECK(b.npc().disableCalls == 1 && b.npc().enableCalls == 1);     // not again within the cooldown
+    CHECK(b.drv.stats().resetsStarted == 1);
+}
+
+TEST(sit, a_backend_that_cannot_reset_is_asked_once) {
+    Bench b;
+    b.npc().ignoreStandCalls = 100000;                                // resetSupported stays false
+    Walker w;
+    sitDown(b, w, kChair);
+    for (int i = 0; i < 900; ++i) b.frame(seated(w, SitState::None, 0));
+    CHECK(b.drv.stats().resetsStarted == 0 && b.drv.stats().resetsRefused == 1);
+    CHECK(b.drv.stats().standGiveUps >= 2);                           // the old behaviour: give up, wait, try again
+}
+
+TEST(sit, the_position_hold_of_a_stand_up_has_an_end) {   // twin 91
+    // The actor port keeps a copy where it is while this is true. A stand-up that never takes used to hold it for every rung (4.5 s) and, when the ladder
+    // restarted, again: the copy froze, then jumped to its owner's place in the pose it had.
+    Bench b;
+    b.npc().ignoreStandCalls = 100000;
+    Walker w;
+    sitDown(b, w, kChair);
+    uint32_t lockedFor = 0;
+    bool pendingAfterLock = false;
+    for (int i = 0; i < 160; ++i) {                                   // 5.3 s
+        b.frame(seated(w, SitState::None, 0));
+        if (b.drv.poseLocked(kId)) lockedFor += 33;
+        else if (b.drv.info(kId).standPending) pendingAfterLock = true;
+    }
+    CHECK(lockedFor >= 3000 && lockedFor <= 4200);
+    CHECK(pendingAfterLock);                                          // still trying to stand it up, but no longer holding it
+}
+
+TEST(sit, the_log_tells_the_story_of_a_copy_that_is_stuck) {
+    TraceCapture log;
+    Bench b;
+    b.npc().ignoreStandCalls = 100000;
+    Walker w;
+    sitDown(b, w, kChair);
+    for (int i = 0; i < 330; ++i) b.frame(seated(w, SitState::None, 0));
+    CHECK(log.count("npc: anim: copy 00000001 sit-in issued") == 1);
+    CHECK(log.count("stand-up rung 0 issued") >= 1 && log.count("stand-up rung 1 issued") >= 1);
+    CHECK(log.count("did not take: still in the furniture") >= 3);
+    CHECK(log.count("DIVERGED") >= 1);                                // one line while the engine and the stream disagree, not one per frame
+    CHECK(log.count("DIVERGED") <= 8);
+    CHECK(log.count("given up for now") >= 1);
+    // the owner side
+    SampleRig r;
+    log.lines.clear();
+    r.npc().sitSleep = 4; r.npc().furniture = kChair;
+    r.take(); r.take();
+    r.npc().sitSleep = 0; r.npc().furniture = 0;
+    r.take(); r.take();
+    CHECK(log.count("owner 00000001: sit state published 0 -> 2") == 1 && log.count("published 2 -> 0") == 1);
+}

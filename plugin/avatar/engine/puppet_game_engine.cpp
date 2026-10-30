@@ -34,6 +34,10 @@ float Dist(const Vec3& a, const Vec3& b) {
     float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
+bool SameLook(const Appearance& x, const Appearance& y) {
+    return x.race == y.race && x.female == y.female && x.hair == y.hair && x.eyes == y.eyes && x.hairColor == y.hairColor && x.height == y.height &&
+           x.weight == y.weight && x.faceCoeffs == y.faceCoeffs && x.headParts == y.headParts && x.known() && y.known();
+}
 }  // namespace
 
 GamePuppetEngine::GamePuppetEngine(IGameBackend& be, EngineOptions opt) : be_(be), opt_(std::move(opt)) {
@@ -365,9 +369,16 @@ FormId GamePuppetEngine::LookBase(Slot slot, FormId templateBase, const Appearan
         lookNotes_[slot] = "template, the look of this player is not known yet";
         return templateBase;
     }
-    // A fresh copy for every spawn: the game keeps the head it built on the NPC base (TESNPC +0x1C4 / +0x1C8, BSFaceGenNiNode), so a copy
-    // rewritten for a second look could hand the new puppet the old head. A copy is one NPC record (0x20C bytes).
+    // A fresh copy for every NEW look: the game keeps the head it built on the NPC base (TESNPC +0x1C4 / +0x1C8, BSFaceGenNiNode), so a copy
+    // rewritten for a second look could hand the new puppet the old head. A copy is one NPC record (0x20C bytes). A respawn of the SAME look (the puppet
+    // is taken down around every save, or when its cell unloads) takes the copy it already has: its head is the right one, and the copies of a long session
+    // no longer pile up in the game's form list (one per save before).
     LookCopy& c = lookCopies_[slot];
+    if (c.copy && !FNV_MUT(964) && c.from == templateBase && c.epoch == be_.WorldEpoch() && SameLook(c.written, a)) {   // MUTANT 964: every spawn makes a new copy
+        ++st_.lookReused;
+        lookNotes_[slot] = std::string("look copy reused (the look has not changed), ") + lookNotes_[slot];
+        return c.copy;
+    }
     const FormId copy = be_.CloneNpcBase(templateBase);
     if (!copy) {
         ++st_.lookFailures;
@@ -380,7 +391,7 @@ FormId GamePuppetEngine::LookBase(Slot slot, FormId templateBase, const Appearan
         return templateBase;
     }
     cloneFailStreak_ = 0;
-    c = LookCopy{copy, templateBase, be_.WorldEpoch()};
+    c = LookCopy{copy, templateBase, be_.WorldEpoch(), Appearance{}};
     opt_.taggedBases.push_back(copy);   // a ref made from it is one of ours (Ours / FindTaggedPuppets)
     ++st_.lookCopies;
     bool face = false;
@@ -390,6 +401,7 @@ FormId GamePuppetEngine::LookBase(Slot slot, FormId templateBase, const Appearan
         return templateBase;
     }
     ++st_.lookWrites;
+    c.written = a;
     if (face) ++st_.lookFaces;
     char buf[64];
     std::snprintf(buf, sizeof buf, "look copy %08X of %08X, ", static_cast<unsigned>(copy), static_cast<unsigned>(templateBase));
@@ -540,10 +552,25 @@ bool GamePuppetEngine::SetAlert(RefId ref, bool on) {
 }
 
 bool GamePuppetEngine::SetWeaponDrawn(RefId ref, bool on) {
-    // There is no script command that draws a weapon; an alerted actor with a weapon holds it out (VaultMP drives its puppets
-    // this way). TODO-RE: unmeasured here, proof_puppet.py asserts avatar.wrong_weapon == 0.
+    // There is no script command that draws a weapon. The first version raised the alert state (SetAlert): an actor with a running AI then draws, but a
+    // restrained puppet has no AI, so its process kept "weapon not out" and the animation code resolved every attack group for the sheathed variant that the puppet
+    // has no sequence for (the owner's punches played nothing). The engine's own BaseProcess::SetWeaponOut sets that flag and notifies the actor; the alert state
+    // stays as the fallback for a process the direct call does not know, and as the second try when the flag does not read back.
     if (FNV_MUT(18)) return false;
-    return SetAlert(ref, on);
+    RefInfo ri;
+    if (!OursWith3D(ref, ri)) return false;
+    bool direct = false;
+    if (!FNV_MUT(963) && be_.SetWeaponOut(ref, on)) {   // MUTANT 963: only the alert state, as before
+        direct = true;
+        ++st_.weaponOutDirect;
+    }
+    if (direct) {
+        double v = 0;
+        const bool readable = be_.Eval(Cond::IsWeaponOut, ref, 0, v);
+        if (!readable || (v != 0) == on) return true;
+        ++st_.weaponOutFallbacks;   // the flag does not read back as asked: raise the alert as well
+    }
+    return Run(ref, on ? "SetAlert 1" : "SetAlert 0");
 }
 
 bool GamePuppetEngine::IsWeaponDrawn(RefId ref) {
@@ -554,6 +581,48 @@ bool GamePuppetEngine::IsWeaponDrawn(RefId ref) {
     ++st_.evalFailures;
     AnimRead ar;
     return be_.ReadAnim(ref, ar) && ar.valid && ar.weaponOut;
+}
+
+// ---- furniture -------------------------------------------------------------------------------------------------------
+
+// The puppet uses a placed furniture reference: the console command runs on the FURNITURE with the puppet as its argument (Activate <activator> 1), the same
+// line the NPC layer uses. Only the puppet is ever the argument; the furniture must be a loaded non-actor reference.
+bool GamePuppetEngine::SitIn(RefId ref, FormId furniture) {
+    RefInfo ri;
+    if (!OursWith3D(ref, ri)) return false;
+    RefInfo fi;
+    if (!furniture || !be_.ReadRef(furniture, fi) || !fi.exists || fi.isActor || fi.deleted || fi.disabled) return false;
+    ++st_.sitCalls;
+    return Run(furniture, "Activate " + Hex(ref) + " 1");
+}
+
+bool GamePuppetEngine::StandUp(RefId ref, FormId furniture, unsigned attempt) {
+    RefInfo ri;
+    if (!Ours(ref, ri)) return false;
+    ++st_.standCalls;
+    if (attempt == 0 && furniture) {   // the gentle way: use the furniture again
+        RefInfo fi;
+        if (be_.ReadRef(furniture, fi) && fi.exists && !fi.isActor && !fi.deleted && !fi.disabled) return Run(furniture, "Activate " + Hex(ref) + " 1");
+    }
+    // Escalation: let the actor's own AI run, it leaves furniture its package does not ask for. The manager's restraint check puts the hold back.
+    const bool a = Run(ref, "SetRestrained 0");
+    const bool b = Run(ref, "EvaluatePackage");
+    RefState& s = StateOf(ref, ri);
+    s.restrainedKnown = false;
+    return a && b;
+}
+
+int GamePuppetEngine::SitState(RefId ref) {
+    RefInfo ri;
+    if (!Ours(ref, ri, false)) return -1;
+    int v = 0;
+    return be_.ReadSitSleep(ref, v) ? v : -1;
+}
+
+bool GamePuppetEngine::ReadLook(RefId ref, Appearance& out) {
+    RefInfo ri;
+    if (!Ours(ref, ri, false)) return false;
+    return be_.ReadAppearance(ref, out);
 }
 
 // ---- equipment -----------------------------------------------------------------------------------------------------
@@ -674,12 +743,13 @@ EngineStats GamePuppetEngine::stats() const {
 
 std::string GamePuppetEngine::StatsJson() const {
     EngineStats s = stats();
-    char buf[1500];
+    char buf[1800];
     std::snprintf(buf, sizeof buf,
                   "{\"lines\":%llu,\"linesRefused\":%llu,\"linesException\":%llu,\"linesRefGone\":%llu,\"evalFailures\":%llu,"
                   "\"refused3D\":%llu,\"foreignRefused\":%llu,\"spawnCalls\":%llu,\"spawnNoAnchor\":%llu,\"spawnRefused\":%llu,"
                   "\"spawnNoNewRef\":%llu,\"spawnAmbiguous\":%llu,\"spawnThrottled\":%llu,\"spawnRejected\":%llu,\"setPosCalls\":%llu,\"setPosSkipped\":%llu,\"setYawCalls\":%llu,"
                   "\"setYawSkipped\":%llu,\"appearanceApproximate\":%llu,\"scaleApplied\":%llu,\"lookCopies\":%llu,\"lookWrites\":%llu,\"lookFaces\":%llu,\"lookFailures\":%llu,\"modLines\":%llu,\"modReads\":%llu,\"drift3D\":%llu,\"maxDrift3D\":%.1f,"
+                  "\"lookReused\":%llu,\"weaponOutDirect\":%llu,\"weaponOutFallbacks\":%llu,\"sitCalls\":%llu,\"standCalls\":%llu,"
                   "\"costP50Us\":%u,\"costP95Us\":%u,\"costMaxUs\":%u}",
                   (unsigned long long)s.lines, (unsigned long long)s.linesRefused, (unsigned long long)s.linesException,
                   (unsigned long long)s.linesRefGone, (unsigned long long)s.evalFailures, (unsigned long long)s.refused3D,
@@ -690,7 +760,8 @@ std::string GamePuppetEngine::StatsJson() const {
                   (unsigned long long)s.setYawSkipped, (unsigned long long)s.appearanceApproximate, (unsigned long long)s.scaleApplied,
                   (unsigned long long)s.lookCopies, (unsigned long long)s.lookWrites, (unsigned long long)s.lookFaces, (unsigned long long)s.lookFailures,
                   (unsigned long long)s.modLines, (unsigned long long)s.modReads, (unsigned long long)s.drift3D,
-                  static_cast<double>(s.maxDrift3D), s.costP50Us, s.costP95Us, s.costMaxUs);
+                  static_cast<double>(s.maxDrift3D), (unsigned long long)s.lookReused, (unsigned long long)s.weaponOutDirect,
+                  (unsigned long long)s.weaponOutFallbacks, (unsigned long long)s.sitCalls, (unsigned long long)s.standCalls, s.costP50Us, s.costP95Us, s.costMaxUs);
     return buf;
 }
 

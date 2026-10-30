@@ -189,3 +189,44 @@ npc_corpse_unsettled | npc_proof_pass` for the Python side (plus the shared dete
   ragdoll result and count `corpse_missing` after 15 s.
 * Ownership handoff while a one-shot plays: the new owner continues the counter, but the animation in progress is not carried over.
 * Creatures use the same group ids; creature-specific attack groups beyond the common table are replayed only if their ids are in the table.
+
+## 2026-10-30: why the guest's NPC stayed seated (release 0.1.6 playtest) and what the log shows now
+
+**Root cause.** The hooks module drops every mutating command that a console line (a temporary script) runs on a GUEST unless the line runs
+inside the sync layer's own scope (`nvhooks::ApplyScope`; `blockedNow()` in `engine_hooks.cpp`, `SuppressPolicy::blockMutation`). The dropped line
+answers success. The actor port's console (`RealEngineHost::console`) opens that scope; the animation layer's runner (`anim_module.cpp`) did not.
+So on the guest EVERY animation line of this layer did nothing while reporting Ok: movement groups, sneak, the weapon fallback, the furniture
+`Activate`, the stand-up escalation (`SetRestrained 0`, `EvaluatePackage`), the hold (`SetRestrained 1`), the kill retry and the corpse placement.
+The port's own `SetPos` lines ran in the scope, so the guest's Doc Mitchell, loaded in the chair like the host's, was moved around the room by
+the stream in the pose he had, while the host's Doc (stood up by his scene's own packages) walked. Why no test saw it: every fake engine answered
+every line; none had the guest gate. `tests/test_gate.cpp` now has one, and `GuardedScript` (script_npc_engine.h) makes the scope a constructor
+argument of the layer's script, so a new wiring cannot forget it (twin 88).
+
+**Also changed.** The last rung of the stand-up ladder is now a reset of the reference (Disable, 400 ms, Enable, hold back; at most 3 per actor,
+30 s apart, `[anim] standreset=0` switches it off): the rungs before it only ask the actor's own AI, and on a guest that AI knows the package of
+the moment the copy was loaded, not the host's scene. A copy whose engine state reads "leaving the furniture" for 2.5 s is treated as still in
+it. The position hold of a stand-up ends after 3.5 s (`lockMaxMs`) and the area digest leaves a held copy alone. The actor port compares a copy
+with where the engine really has it (every 250 ms) and writes the pose again when something else moved it more than 28 units (`driftXY`).
+
+**The log (`nvcoop.log`, one grep: `npc:`).** Lines are rate limited per actor and name the actor as `<NetId>(ref <reference id> base <base form id>)`;
+find Doc Mitchell by his reference id in the host's lines first (`grep "npc:" nvcoop.log`) and follow the same NetId on the guest.
+* `npc: anim: copy <id> first look: engine sit raw=<n> ... stream sit=<n> furniture=<ref> -> driver seat=...` when a copy is first driven and either side
+  is in furniture. `raw` is the engine value (0 none, 1-3 going in, 4 sitting, 5 leaving, 6-10 bed). `stream sit`: 0 none, 1 entering, 2 using, 3 leaving.
+* `sit-in issued`, `stand-up rung <n> issued ... -> Ok/Refused`, `rung <n> ... did not take`, `is out of the furniture after <ms>`, `given up for now`,
+  `last rung: the reference is disabled`, `reset rung finished`. A rung that says Ok and "did not take" with raw unchanged is a line the engine
+  ignored (the old failure looked exactly like this).
+* `npc: anim: copy <id> DIVERGED for <ms>: stream sit=..., engine sit raw=...` every 3 s while a copy's furniture state differs from its owner's,
+  and `agrees with its owner again`.
+* `npc: owner <id>: sit state published <a> -> <b>` on the owner's machine (what the host's engine says Doc is doing), and `the sit state is NOT
+  readable (published as standing)` if an actor's process does not answer the pinned getter.
+* `npc: anim summary: ...` every 10 s while counters move: `commands` vs `groups` vs `mismatches`/`reasserts` (many mismatches with Ok commands =
+  swallowed lines), `furniture sits/stands/confirmed/rungsFailed/giveUps/resets`.
+* `npc: port <id> AI off/on (...)`, `AI off FAILED`, `AI left as it is: a script already holds the actor restrained`, `snapped to ...`,
+  `position held (the copy is getting out of furniture)`, `was moved by something else: engine at ... written again`.
+* `npc: areadigest: actor <id> snapped/smoothed: copy at ... authority at ...` and `position heal left alone: the copy is held`.
+* `npc: ownership <id>: Transfer/Commit/Grant owner=<slot> ...` for handoffs and named NPCs (who runs Doc on which machine).
+
+New twins: 88 (line runs bare, `test_gate`), 89 (a stuck "leaving" is taken for standing), 90 (no reset rung), 91 (the hold has no end),
+92 (no reset cooldown); engine port 88 (never looks where a copy really is); area digest plugin 83 (a held copy is dragged by a heal).
+**Not proven in a game:** that Disable/Enable clears the furniture state of a real actor, and what a stood-up Doc does on the guest between the
+Enable and the hold. The lines above are what the next run needs to say.

@@ -14,6 +14,7 @@
 #include <set>
 #include <vector>
 
+#include "actors/actor_trace.h"
 #include "anim_sit.h"
 #include "corpse.h"
 #include "npc_anim_config.h"
@@ -32,6 +33,7 @@ struct DriverStats {
     uint64_t corpseGaveUp = 0, corpseMissing = 0, corpseLate = 0;
     uint64_t releases = 0;
     uint64_t sitsIssued = 0, standsIssued = 0, standsConfirmed = 0, standGiveUps = 0, sitDrops = 0, sitDrifts = 0, sitNoFurniture = 0, restrains = 0;
+    uint64_t standRungsFailed = 0, leavingStuck = 0, resetsStarted = 0, resetsDone = 0, resetsRefused = 0, locksCapped = 0, divergences = 0;
 };
 
 // What a test or the dashboard can ask about one driven actor.
@@ -50,6 +52,10 @@ struct PuppetInfo {
     bool seated = false;           // the driver believes the copy is in the furniture it was told to use
     bool standPending = false;     // a stand-up was issued and the copy has not read "out of the furniture" yet
     uint32_t furniture = 0;
+    bool resetting = false;        // the last rung is under way: the reference is disabled / being enabled again
+    uint32_t standTries = 0;       // rungs of the current stand-up ladder issued so far
+    bool engineSitKnown = false;   // the last read-back could read the sit state
+    int engineSit = 0;             // ... and its raw value (anim_sit.h EngineSitSleep)
 };
 struct DeadInfo {
     bool known = false;
@@ -82,6 +88,7 @@ public:
     DeadInfo deadInfo(NetId id) const;
     // A stand-up is under way: the copy is still in the furniture. The actor port may keep the copy where it is until this turns false, so a
     // body that is told "standing" is out of the furniture before it is moved (the driver itself plays no movement group until then).
+    // (bounded: DriverConfig::lockMaxMs per ladder; during the reset rung until it is over)
     bool poseLocked(NetId id) const;
     bool isDead(NetId id) const { return dead_.count(id) != 0; }
     std::vector<NetId> deadActors() const { std::vector<NetId> v; for (auto& kv : dead_) v.push_back(kv.first); return v; }
@@ -181,6 +188,20 @@ private:
         SitView obs;
         uint32_t obsFurniture = 0;
         bool noFurnitureCounted = false;
+        // diagnostics / supervision (2026-10-30)
+        int obsRaw = 0;                 // the last raw engine sit value read back
+        int wantSit = 0;                // the stream's sit state at the last drive (live::SitState as int)
+        uint32_t wantFurniture = 0;
+        uint32_t leavingSince = 0;      // the engine has read "leaving the furniture" since (0 = not leaving)
+        uint32_t lockSince = 0;         // the current stand-up ladder started (poseLocked is bounded from here)
+        bool lockCapCounted = false;
+        uint32_t divergeSince = 0;      // the engine's furniture state has differed from the stream's since (0 = in step)
+        bool divergeLogged = false;
+        // the reset rung: Disable, wait, Enable, wait for the 3D, hold back
+        enum class Reset : uint8_t { None, Disabled, Enabling };
+        Reset reset = Reset::None;
+        uint32_t resetAt = 0;
+        uint32_t resetsDone = 0, lastResetAt = 0;
         // verification
         uint32_t nextVerifyMs = 0;
         bool dirty = true;              // re-issue everything at the next chance (menu closed, cell change ...)
@@ -216,7 +237,12 @@ private:
     void applyOneShot(NetId id, Puppet& p, const live::AnimState& a, uint32_t now);
     void applyKnock(NetId id, Puppet& p, const live::InterpOut& out, uint32_t now);
     bool applySeat(NetId id, Puppet& p, const live::AnimState& a, uint32_t now);
-    void observeSeat(Puppet& p, const NpcReads& r);
+    void observeSeat(Puppet& p, const NpcReads& r, uint32_t now);
+    bool canReset(const Puppet& p, uint32_t now) const;
+    bool startReset(NetId id, Puppet& p, uint32_t now);
+    void advanceReset(NetId id, Puppet& p, uint32_t now);
+    void superviseSeat(NetId id, Puppet& p, uint32_t now);
+    static const char* seatName(int seat);
     void verifyPuppet(NetId id, Puppet& p, uint32_t now);
     void tickDead(NetId id, Dead& d, uint32_t now);
     void markAllDirty();
@@ -234,7 +260,9 @@ private:
     bool menuWas_ = false;
     bool blockedCache_ = false, haveBlocked_ = false;
     uint32_t blockedAt_ = 0;
-    bool noRate_ = false, noWeapon_ = false, noAim_ = false, noKnock_ = false, noSeat_ = false;   // the backend answered Unsupported once: never asked again
+    uint32_t nowMs_ = 0;            // the newest clock value seen (poseLocked is const and has no clock of its own)
+    nvcoop::actors::Throttle thr_;
+    bool noRate_ = false, noWeapon_ = false, noAim_ = false, noKnock_ = false, noSeat_ = false, noReset_ = false;   // the backend answered Unsupported once: never asked again
 };
 
 }  // namespace nvcoop::actors::anim

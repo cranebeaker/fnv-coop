@@ -7,7 +7,7 @@ set(NVN_REPO "${NVN_DIR}/../../..")
 set(NVN_MUT_INC "${NVN_REPO}/tools/mut")
 set(NVN_INC "${NVN_DIR}" "${NVN_DIR}/../.." "${NVN_REPO}/synccore" "${NVN_REPO}/synccore/include" "${NVN_MUT_INC}")
 set(NVN_SRC ${NVN_DIR}/corpse.cpp ${NVN_DIR}/npc_anim_sampler.cpp ${NVN_DIR}/npc_anim_driver.cpp ${NVN_DIR}/npc_anim_system.cpp ${NVN_DIR}/script_npc_engine.cpp)
-set(NVN_MUTANTS 1 2 3 4 5 6 7 8 20 21 22 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 60 61 62 63 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87)
+set(NVN_MUTANTS 1 2 3 4 5 6 7 8 20 21 22 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 60 61 62 63 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92)
 
 function(nvn_flags tgt)
   if(MSVC)
@@ -28,7 +28,7 @@ target_compile_definitions(nvcoop_anim_core_rt PUBLIC FNVCOOP_RUNTIME_MUT)
 nvn_flags(nvcoop_anim_core_rt)
 
 add_executable(nvcoop_anim_tests EXCLUDE_FROM_ALL
-  ${NVN_DIR}/tests/test_sampler.cpp ${NVN_DIR}/tests/test_driver.cpp ${NVN_DIR}/tests/test_sit.cpp ${NVN_DIR}/tests/test_pipeline.cpp ${NVN_REPO}/synccore/tests/main.cpp)
+  ${NVN_DIR}/tests/test_sampler.cpp ${NVN_DIR}/tests/test_driver.cpp ${NVN_DIR}/tests/test_sit.cpp ${NVN_DIR}/tests/test_gate.cpp ${NVN_DIR}/tests/test_pipeline.cpp ${NVN_REPO}/synccore/tests/main.cpp)
 target_include_directories(nvcoop_anim_tests PRIVATE ${NVN_DIR}/tests ${NVN_REPO}/synccore/tests ${NVN_DIR}/../tests)
 target_link_libraries(nvcoop_anim_tests PRIVATE nvcoop_anim_core_rt nvcoop_actors_core)
 nvn_flags(nvcoop_anim_tests)

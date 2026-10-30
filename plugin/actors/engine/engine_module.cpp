@@ -401,6 +401,17 @@ void Teardown() {
 }
 
 void OnLoad(void* nvse) {
+    nvcoop::actors::setTraceSink([](const std::string& line) { nvcoop::Log("%s", line.c_str()); });   // "npc: ..." lines of the port, ActorSync, the area digest and enemy-anim (actor_trace.h)
+    nvcoop::actors::setTraceNamer([](uint32_t netId) -> std::string {   // which reference and base form a NetId in those lines is
+        const RefId ref = refOf(netId);
+        if (!ref) return std::string();
+        char b[64];
+        ActorRaw raw;
+        IActorEngine* e = actorEngine();
+        if (e && e->read(ref, raw) && raw.baseId) std::snprintf(b, sizeof b, "ref %08X base %08X", static_cast<unsigned>(ref), static_cast<unsigned>(raw.baseId));
+        else std::snprintf(b, sizeof b, "ref %08X", static_cast<unsigned>(ref));
+        return b;
+    });
     const Config c = ReadConfig();
     configure(c);
     if (!c.enabled) {

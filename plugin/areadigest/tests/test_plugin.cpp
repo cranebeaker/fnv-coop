@@ -149,6 +149,31 @@ TEST(actorsource, a_big_position_error_is_snapped_and_a_cell_error_moves_between
     CHECK(src.stats().moveFailed == 1);
 }
 
+// A copy that is still getting out of its chair is held in place by the actor port; a position heal moved it anyway (a 2 m .. 10 m error is smoothed, more is
+// snapped), so Doc Mitchell floated across the room seated, a hop every digest round (2026-10-30).
+TEST(actorsource, a_copy_that_is_held_while_it_gets_out_of_furniture_is_not_dragged_by_a_heal) {   // twin 83
+    FakeFacade f;
+    f.add(5, 0x100, V(0, 0, 0));
+    ActorAreaSource src(f, ad::Config());
+    f.held.insert(5);
+    CHECK(healTo(src, authority(5, 0x100, V(15 * kU, 0, 0)), 1000) == HealResult::Refused);   // a snap-sized error
+    CHECK(f.a[5].r.pos.x == 0 && src.stats().snaps == 0 && src.stats().heldByPoseLock == 1);
+    CHECK(healTo(src, authority(5, 0x100, V(5 * kU, 0, 0)), 2000) == HealResult::Refused);    // a smooth-sized one
+    CHECK(src.smoothing() == 0 && src.stats().smooths == 0);
+    f.held.clear();                                                                           // out of the chair: the next round heals it
+    CHECK(healTo(src, authority(5, 0x100, V(15 * kU, 0, 0)), 3000) == HealResult::Applied);
+    CHECK(f.a[5].r.pos.x == 15 * kU);
+    // a smoothing job that was running when the hold began waits instead of moving the body
+    f.add(6, 0x100, V(0, 0, 0));
+    CHECK(healTo(src, authority(6, 0x100, V(5 * kU, 0, 0)), 4000) == HealResult::Applied);
+    f.held.insert(6);
+    for (uint64_t t = 4000; t < 5000; t += 33) src.tick(t);
+    CHECK(f.a[6].r.pos.x == 0 && src.smoothing() == 1);
+    f.held.clear();
+    for (uint64_t t = 5000; t < 7000; t += 33) src.tick(t);
+    CHECK(f.a[6].r.pos.x == 5 * kU && src.smoothing() == 0);
+}
+
 TEST(actorsource, a_medium_position_error_is_smoothed_over_several_steps) {
     FakeFacade f;
     f.add(5, 0x100, V(0, 0, 0));

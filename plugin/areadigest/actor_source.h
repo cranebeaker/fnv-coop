@@ -49,6 +49,8 @@ public:
     virtual bool moveToCell(uint32_t netId, CellId cell, const Vec3& pos) = 0;
     // Ask the actor module for the owner's full state of this actor (the sanctioned way to learn a death). false = not available.
     virtual bool requestOwnerResync(uint32_t netId) = 0;
+    // The copy is being held in place while it gets out of furniture (the actor port's pose lock): a position heal would drag the seated body across the room.
+    virtual bool moveHeld(uint32_t /*netId*/) { return false; }
 };
 
 class ActorAreaSource : public fnvcoop::areadigest::IAreaSource {
@@ -65,7 +67,7 @@ public:
     size_t smoothing() const { return smooth_.size(); }
     struct Stats {
         uint64_t snaps = 0, smooths = 0, smoothSteps = 0, hpSet = 0, deathRequests = 0, refused = 0, missing = 0, moveFailed = 0, scans = 0;
-        uint64_t capped = 0;
+        uint64_t capped = 0, heldByPoseLock = 0;
     };
     const Stats& stats() const { return st_; }
     void setConfig(const Config& c) { cfg_ = c; tr_.setConfig(c); }

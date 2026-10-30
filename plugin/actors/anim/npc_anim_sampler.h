@@ -16,6 +16,7 @@
 #include <map>
 
 #include "npc_anim_config.h"
+#include "actors/actor_trace.h"
 #include "npc_anim_engine.h"
 
 namespace nvcoop::actors::anim {
@@ -65,6 +66,8 @@ private:
         bool holding = false;
         live::AnimState last;
         bool haveLast = false;
+        bool sitKnownSeen = false, sitKnownLast = false;   // trace only: the readability of the sit state, logged when it changes
+        uint8_t pubSit = 0;                                // trace only: the sit byte published last (state | bed << 2)
     };
     bool debounce(Flag& f, bool raw);
     uint8_t debounceLevel(Level& l, uint8_t raw);

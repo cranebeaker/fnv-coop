@@ -37,6 +37,11 @@ struct Anim {
     // stagger ... it is playing right now, and a counter that bumps every time one STARTS (wraps at 256). 0 = none. `block` = the block group is held.
     uint8_t action = 0, actionSeq = 0;
     bool block = false;
+    // The owner's furniture (live::AnimState::sit / sleep / furniture): 0 = standing, 1 = going in, 2 = in it, 3 = getting out (live::SitState); sleep = it is a bed;
+    // furniture = the reference id of the chair / bench / bed on the OWNER's machine (the same load order makes it the same here). The puppet sits in it.
+    uint8_t sit = 0;
+    bool sleep = false;
+    uint32_t furniture = 0;
 };
 
 // One interpolated sample for a puppet (what live::InterpBuffer::sample returns, see live_bridge.h).
@@ -165,6 +170,14 @@ struct Config {
     uint32_t animHeartbeatMs = 1500;         // re-issue the current group at least this often (engine may reset to idle)
     uint32_t animMismatchMs = 300;           // CurrentGroup() differs from the wanted group this long: re-issue
 
+    // furniture: the owner sits in a chair / bench / bed and his puppet is told to use the same one
+    uint32_t seatRetryMs = 1500;             // after a refused sit (or a sit the engine dropped) the command is not sent again for this long
+    uint32_t seatVerifyMs = 2500;            // a sit command is judged by the engine's own sit state only after this long (the walk-in and the sit-down animation take a while)
+    uint32_t standRetryMs = 1200;            // between stand-up commands while the engine still says the puppet is in the furniture
+    uint32_t standSettleMs = 1500;           // a puppet whose sit state cannot be read is taken for standing this long after the stand-up command
+    uint32_t standGiveUpMs = 8000;           // a puppet that does not get out of the furniture by then is driven again anyway (the movement code puts it where its owner is)
+    uint32_t lookCheckDelayMs = 500;         // a spawned puppet's look is read back from the engine this long after it started driving
+
     // a puppet is a hit target (enemies shoot it; combat forwards the damage to the real player): it must stay standing
     uint32_t healthCheckMs = 250;            // how often IsDead is polled
     uint32_t healMs = 2000;                  // ResetHealth at least this often (0 = never); the real player's health lives on the real player's machine
@@ -206,6 +219,9 @@ struct Stats {
     uint64_t oneShotsFrozen = 0, oneShotsFailed = 0;                 // dropped because the stream was dry; refused by the engine for good
     uint64_t oneShotsSeen = 0, oneShotsNotSeen = 0;                  // a played one-shot the engine then showed running / did not show running ~150 ms later
     uint64_t attackDraws = 0;                                        // the puppet's weapon was drawn first so that an unarmed or sheathed attack can play
+    uint64_t attackRetries = 0;                                      // a swing the engine did not show was played again
+    uint64_t seatsIssued = 0, standsIssued = 0, seatDrops = 0;       // the puppet was told to sit / to stand up; the engine dropped a sit it had accepted
+    uint64_t looksChecked = 0, looksWrong = 0;                       // a spawned puppet's look read back from the engine; ... and found different from what was asked
 };
 
 }  // namespace nvcoop::avatar

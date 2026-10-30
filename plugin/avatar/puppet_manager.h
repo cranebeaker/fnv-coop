@@ -125,6 +125,14 @@ private:
         uint32_t actVerifyAt = 0;
         int actVerifyGroup = -1;
         uint32_t actDrawWaitUntil = 0, attackDrawUntil = 0;
+        unsigned actRetries = 0;           // times the current swing was played again because the engine did not show it
+        // furniture: the puppet was told to use `seatFurn` (a belief, judged by the engine's sit state); `standing` = a stand-up is under way
+        bool seated = false, standing = false;
+        FormId seatFurn = 0;
+        uint32_t seatCmdAt = 0, seatRetryAt = 0, standSince = 0;
+        unsigned seatRefusals = 0, standTries = 0;
+        bool seatLoggedRefusal = false;
+        uint32_t lookCheckAt = 0;          // when the spawned puppet's look is read back (0 = done / not wanted)
         bool sneak = false, haveSneak = false;
         bool drawn = false, haveDrawn = false;
         uint32_t gen3d = 0;
@@ -150,6 +158,8 @@ private:
     void EndOneShot(Puppet& p, uint32_t now, bool frozen);
     void PlayOneShot(Puppet& p, uint32_t now, bool frozen);
     void VerifyOneShot(Puppet& p, uint32_t now);
+    bool SeatStep(Puppet& p, uint32_t now);   // true = the puppet is in (or getting out of) furniture: nothing else moves it this Tick
+    void CheckLook(Puppet& p, uint32_t now);
     void DespawnAll(bool callEngine);
     void Purge();
     FormId ChooseTemplate(const Appearance& a) const;

@@ -30,6 +30,11 @@ inline Anim FromLive(const live::AnimState& a) {
         o.actionSeq = a.actionSeq;
         o.block = a.block;
     }
+    if (!avatarFaults().bridgeDropsSit) {
+        o.sit = static_cast<uint8_t>(static_cast<uint8_t>(a.sit) & 3);
+        o.sleep = a.sleep && o.sit != 0;
+        o.furniture = o.sit ? a.furniture : 0;
+    }
     return o;
 }
 
@@ -45,6 +50,11 @@ inline live::AnimState ToLive(const Anim& a) {
         o.action = a.action;
         o.actionSeq = a.actionSeq;
         o.block = a.block;
+    }
+    if (!avatarFaults().bridgeDropsSit) {
+        o.sit = static_cast<live::SitState>(a.sit & 3);
+        o.sleep = a.sleep && o.sit != live::SitState::None;
+        o.furniture = o.sit != live::SitState::None ? a.furniture : 0;
     }
     return o;
 }

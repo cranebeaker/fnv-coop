@@ -171,6 +171,8 @@ void setEquipmentAccess(EquipmentReader read, EquipmentWriter write);
 // A copy told to stand up is still in its furniture: its position is held until this says false (plugin/actors/anim NpcAnimDriver::poseLocked),
 // so a seated body is never slid across the room (Doc Mitchell, 2026-10-29). A snapped pose (teleport, cell change) is applied anyway.
 void setPoseLock(std::function<bool(NetId)> locked);
+// True while that lock holds the copy (the area digest then leaves its position alone as well: it would drag the seated body across the room).
+bool poseLocked(NetId id);
 
 // Story effects applied on this machine (the host's captured ones too): KillActor, ResurrectActor and CompanionOwner reach ActorSync::onEffect().
 // Any other effect is ignored here. Called by the effect applier / capture sink wiring.
@@ -204,6 +206,8 @@ struct Config {
     uint32_t maxStandIns = 64;
     bool swapLeveled = true;                  // leveled pick differs from the local roll: replace the body with a clone of the pick (unverified in game)
     uint32_t saveGraceMs = 3000;              // after beforeSave(): no new clones for this long, so the save does not contain them
+    uint32_t driftCheckMs = 250;              // a copy whose pose was not written this frame is compared with where the engine really has it this often (0 = never)
+    float driftXY = 28.0f, driftZ = 40.0f;    // ... and written again when it is further than this from our last write (game units, 70 per metre)
     uint32_t deleteQuietMs = 750;             // a removed clone is deleted this long after its last write (0 = at once): the engine may still hold a queued SetPos for its id
 };
 void configure(const Config& c);
@@ -215,6 +219,7 @@ struct PortStats {
     uint64_t consoleLines = 0, consoleFailed = 0, linesDeferred = 0;
     uint64_t drives = 0, drivesSkippedSmall = 0, drivesSkippedRate = 0, snaps = 0, places = 0;
     uint64_t drivesHeldSeated = 0;   // a pose held while the copy was still getting out of furniture (setPoseLock)
+    uint64_t driftsFixed = 0;        // a copy found away from the pose we last wrote (something else moved it) and written again
     uint64_t aiOff = 0, aiOn = 0, aiFailed = 0, combatRestarted = 0, combatTargetUnresolved = 0;
     uint64_t standInsMade = 0, standInsRemoved = 0, standInsRefused = 0, standInsPurged = 0;
     uint64_t baseSwaps = 0, baseSwapFailed = 0, protectOn = 0, protectOff = 0, kills = 0, revives = 0;

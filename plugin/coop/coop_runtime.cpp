@@ -4,6 +4,8 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <random>
@@ -995,6 +997,24 @@ bool Runtime::slotPlayerRef(PlayerId slot, FormRef& out) {
     return false;
 }
 
+void Runtime::traceLine(const char* fmt, ...) {
+    if (!trace_ || FNV_MUT(1713)) return;
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    trace_(buf);
+}
+
+std::string Runtime::slotPosText(PlayerId slot) {
+    float x = 0, y = 0, z = 0;
+    if (!anchorProbe_.slotPos || !anchorProbe_.slotPos(slot, x, y, z)) return "(position unknown)";
+    char b[96];
+    std::snprintf(b, sizeof b, "(%.0f,%.0f,%.0f)", x, y, z);
+    return b;
+}
+
 void Runtime::buildRulesIndexes() {
     actingQuests_.clear();
     anchorRadius_.clear();
@@ -1030,6 +1050,10 @@ void Runtime::wireRulesCallbacks() {
             m.x = 64.f * static_cast<float>(k++);
             m.partyWarp = true;
             moves.push_back(m);
+            // what, why, who, from where: the player is told first (a warp with no word looks like the game pulling him back) and the log says it was us
+            traceLine("coop: MOVES player: tether gather of %s:%X stage %u ran out of time, warping slot %d from %s to zone %s:%X", quest.plugin.c_str(), (unsigned)quest.localId,
+                      (unsigned)stage, (int)s, slotPosText(s).c_str(), target.plugin.c_str(), (unsigned)target.localId);
+            if (!FNV_MUT(1711)) notifyPlayer(s, "The story needs the whole party. You are being brought to your party now.");
         }
         if (moves.empty() || !host_) return;
         Cause c;
@@ -1041,6 +1065,29 @@ void Runtime::wireRulesCallbacks() {
     };
     rules_->tetherWarn = [this](const FormRef&, uint32_t, const std::vector<PlayerId>& outside, const FormRef&) {
         for (PlayerId s : outside) notifyPlayer(s, "You are outside the scene zone. Go back to your party.");
+    };
+    // tether.mode=on: the hold itself is announced to the players it waits for (and the others hear why the story waits), and an auto-warp 10 s ahead.
+    rules_->tetherHold = [this](const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& outside, const FormRef& zone, uint32_t waitMs, bool autoWarp) {
+        const unsigned secs = static_cast<unsigned>((waitMs + 999) / 1000);
+        std::string who;
+        for (PlayerId s : outside) who += (who.empty() ? "" : ",") + std::to_string(int(s));
+        traceLine("coop: HOLDS story: tether of %s:%X stage %u waits for slot(s) %s to reach zone %s:%X (at most %u s, %s)", quest.plugin.c_str(), (unsigned)quest.localId, (unsigned)stage,
+                  who.c_str(), zone.plugin.c_str(), (unsigned)zone.localId, secs, autoWarp ? "then they are warped there" : "then the story goes on without them");
+        for (PlayerId s : outside)
+            if (!FNV_MUT(1710)) notifyPlayer(s, autoWarp ? "A story moment needs the whole party. Go to your party; in " + std::to_string(secs) + " s you are brought there."
+                                     : "A story moment needs the whole party. Go to your party.");
+        for (PlayerId s : joinedSlots()) {
+            if (std::find(outside.begin(), outside.end(), s) != outside.end()) continue;
+            notifyPlayer(s, "Waiting for the rest of the party to join this story moment.");
+        }
+        if (std::find(outside.begin(), outside.end(), kHostPlayer) == outside.end()) notifyPlayer(kHostPlayer, "Waiting for the rest of the party to join this story moment.");
+    };
+    rules_->tetherWarpSoon = [this](const FormRef& quest, uint32_t stage, const std::vector<PlayerId>& outside, const FormRef& zone, uint32_t secondsLeft) {
+        for (PlayerId s : outside) {
+            traceLine("coop: tether of %s:%X stage %u: slot %d is warped to zone %s:%X in %u s (now at %s)", quest.plugin.c_str(), (unsigned)quest.localId, (unsigned)stage, (int)s,
+                      zone.plugin.c_str(), (unsigned)zone.localId, (unsigned)secondsLeft, slotPosText(s).c_str());
+            notifyPlayer(s, "You are brought to your party in " + std::to_string(secondsLeft) + " s. Walk there yourself to stay where you are.");
+        }
     };
     rules_->respawnPlayer = [this](PlayerId slot, const FormRef& checkpoint) {
         Value o = Value::object();
@@ -1378,12 +1425,16 @@ void Runtime::tickLateJoin(uint64_t t) {
         if (v.kind == RulesEngine::JoinVerdict::WaitForScene) {
             if (lateJoinLocked_.insert(s).second) {
                 lock(s, true);
+                traceLine("coop: HOLDS player: late join of slot %d at %s, a scene is running (controls locked until it ends)", (int)s, slotPosText(s).c_str());
                 notifyPlayer(s, "A scene is running. You join your party when it ends.");
                 ++rulesStats_.lateJoinHeld;
             }
             continue;
         }
-        if (lateJoinLocked_.erase(s)) lock(s, false);
+        if (lateJoinLocked_.erase(s)) {
+            lock(s, false);
+            traceLine("coop: late join of slot %d: the scene ended, controls free again", (int)s);
+        }
         if (v.kind == RulesEngine::JoinVerdict::WarpToZone) {
             FormRef pr;
             if (slotPlayerRef(s, pr)) {
@@ -1391,9 +1442,14 @@ void Runtime::tickLateJoin(uint64_t t) {
                 m.ref = pr;
                 m.cell = v.zone;
                 m.partyWarp = true;
+                traceLine("coop: MOVES player: late join of slot %d, warp from %s to the party's zone %s:%X (policy late_join.after_scene=warp-to-zone)", (int)s, slotPosText(s).c_str(),
+                          v.zone.plugin.c_str(), (unsigned)v.zone.localId);
+                if (!FNV_MUT(1712)) notifyPlayer(s, "You join your party.");
                 host_->commit(kHostPlayer, c, {m});
                 ++rulesStats_.lateJoinWarped;
             }
+        } else if (FormRef zr; rules_->zone(zr)) {
+            traceLine("coop: late join of slot %d: no warp (already in the party's zone, or the policy says stay)", (int)s);
         }
         lateJoinPending_.erase(s);
     }

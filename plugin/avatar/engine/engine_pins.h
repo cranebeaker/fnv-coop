@@ -66,9 +66,25 @@ inline constexpr Pin EvalGetActorValue = {"GetActorValue", 0x59C4F0u,
 inline constexpr Pin RefIsDisabled = {"TESObjectREFR::IsDisabled", 0x565090u,
     {0x55, 0x8b, 0xec, 0x83, 0xec, 0x0c, 0x89, 0x4d, 0xf4, 0x68, 0x92, 0x00, 0x00, 0x00, 0x8b, 0x4d}, "plugin/hooks/engine_addrs.h"};
 
+// BaseProcess::SetWeaponOut (HighProcess vtable slot 0x116; void __thiscall(BaseProcess*, Actor*, bool): writes the byte +0x135 and notifies the actor) and
+// BaseProcess::GetSitSleepState (slot 0x12F; int __thiscall(BaseProcess*): the byte +0x13D, the xNVSE kSitSleepState_* number). The same two functions plugin/actors/anim
+// (anim_pins.h) pins; read off a reference exe 2026-10-30 (SetWeaponOut: `movzx ecx, byte [eax+0x135]` ... `mov [eax+0x135], cl`; IsWeaponOut 0x915D40 reads the same byte).
+// Called only after a RUN-TIME check that the actor's process vtable holds exactly these functions in those slots (a process of another class is "unsupported").
+// The animation code resolves the weapon variant of a group from this flag (Actor::ResolveAnimGroup 0x897910 asks process slot 0x115), which is why a restrained puppet that was
+// only "alerted" played none of the owner's punches.
+inline constexpr Pin ProcSetWeaponOut = {"BaseProcess::SetWeaponOut", 0x915D60u,
+    {0x55, 0x8b, 0xec, 0x51, 0x89, 0x4d, 0xfc, 0x8b, 0x45, 0xfc, 0x0f, 0xb6, 0x88, 0x35, 0x01, 0x00}, "plugin/actors/anim/anim_pins.h + disassembly"};
+inline constexpr Pin ProcGetSitSleepState = {"BaseProcess::GetSitSleepState", 0x8D8B20u,
+    {0x55, 0x8b, 0xec, 0x51, 0x89, 0x4d, 0xfc, 0x8b, 0x45, 0xfc, 0x8b, 0x10, 0x8b, 0x4d, 0xfc, 0x8b}, "plugin/actors/anim/anim_pins.h + disassembly"};
+inline constexpr uint32_t kProcSlotSetWeaponOut = 0x116, kProcSlotGetSitSleepState = 0x12F;
+// Furniture in use: the engine has no read for it (xNVSE has no layout), so the placed TESFurniture reference nearest to the seated actor within this reach is taken
+// (the NPC layer's rule, plugin/actors/anim/anim_pins.h). Not measured in a game.
+inline constexpr float kFurnitureReachXY = 140.0f, kFurnitureReachZ = 120.0f;
+
 inline constexpr const Pin* kAllPins[] = {&LookupFormByID, &MenuModeAny, &EvalGetRestrained, &EvalIsWeaponOut,
                                           &EvalIsSneaking, &EvalGetDead, &EvalGetItemCount, &EvalGetEquipped, &RefIsDisabled,
-                                          &EvalGetLevel, &EvalGetSitting, &EvalIsPlayerActionActive, &EvalGetActorValue};
+                                          &EvalGetLevel, &EvalGetSitting, &EvalIsPlayerActionActive, &EvalGetActorValue,
+                                          &ProcSetWeaponOut, &ProcGetSitSleepState};
 inline constexpr size_t kPinCount = sizeof(kAllPins) / sizeof(kAllPins[0]);
 
 // ---- data addresses (docs/engine-addresses.md section 3) ----

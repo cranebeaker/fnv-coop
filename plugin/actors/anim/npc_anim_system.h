@@ -67,6 +67,9 @@ public:
 private:
     struct PendingCorpse { NetId id; CorpsePose pose; uint32_t since; };
     void trySendCorpse(PendingCorpse& pc, uint32_t now, bool& done);
+    void summary(uint32_t now);
+    uint32_t nextSummaryMs_ = 0;
+    std::string lastSummary_;
     INpcAnimEngine& eng_;
     IAnimNet& net_;
     SystemConfig cfg_;

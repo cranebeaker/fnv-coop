@@ -4,6 +4,7 @@
 #include <ctime>
 
 #include "look_codec.h"
+#include "look_text.h"
 #include "fnvcoop_mut.h"   // FNV_MUT(n): twins 41..51 and 1170..1179 of the live wiring suite, 105..110 of the avatar suite (plugin/avatar/full)
 
 namespace nvcoop::livewire {
@@ -401,9 +402,9 @@ void AvatarNet::applyRemoteAppearance(PlayerId slot, const nvcoop::avatar::Appea
         // MUTANT 105: every look change rebuilds the puppet (it flashes; the interpolation state and equipment start over)
         if (FNV_MUT(105)) side_.addRemote(slot, app);
         else side_.setRemoteAppearance(slot, app);
-        log("avatar: look of slot " + std::to_string(slot) + " arrived (race " + std::to_string(app.race) + (app.female ? " female" : " male") +
-            ", hair " + std::to_string(app.hair) + ", eyes " + std::to_string(app.eyes) + ", face data " + std::to_string(app.faceCoeffs.size()) + ", head parts " +
-            std::to_string(app.headParts.size()) + ") -> " + (templateChanged ? "new puppet" : "puppet updated"));
+        const std::string what = ap == applied_.end() ? std::string("first look") : nvcoop::avatar::describeLookChange(ap->second, app);
+        log("avatar: look of slot " + std::to_string(slot) + " arrived (" + nvcoop::avatar::describeLook(app) + ") changed: " + (what.empty() ? "nothing the puppet is built from" : what) +
+            " -> " + (templateChanged ? "new puppet" : "puppet updated"));
         applied_[slot] = app;
         ++stats_.appearanceUpdates;
         if (templateChanged) ++stats_.puppetRespawnsForLook;
@@ -696,8 +697,7 @@ bool AvatarNet::readLocalPart(nvcoop::actors::PartKind kind, Bytes& out) {
                 lookCand_.name = read.name;
                 haveLookCand_ = true;
                 lookCandSince_ = nowMs_;
-                log("avatar: my look is now race " + std::to_string(read.race) + (read.female ? " female" : " male") + ", hair " + std::to_string(read.hair) + ", eyes " +
-                    std::to_string(read.eyes) + ", face data " + std::to_string(read.faceCoeffs.size()) + ", head parts " + std::to_string(read.headParts.size()) +
+                log("avatar: my look is now " + nvcoop::avatar::describeLook(read) +
                     (haveLookOffered_ ? " (it goes out when it has stayed the same for a moment)" : " (first look, it goes out now)"));
             }
             const bool changed = !haveLookOffered_ || !sameAppearance(lookOffered_, lookCand_);
@@ -705,9 +705,7 @@ bool AvatarNet::readLocalPart(nvcoop::actors::PartKind kind, Bytes& out) {
                 settleNowUntil_ = 0;
                 lookOffered_ = lookCand_;
                 haveLookOffered_ = true;
-                log("avatar: my look goes out: race " + std::to_string(lookOffered_.race) + (lookOffered_.female ? " female" : " male") + ", hair " +
-                    std::to_string(lookOffered_.hair) + ", eyes " + std::to_string(lookOffered_.eyes) + ", face data " + std::to_string(lookOffered_.faceCoeffs.size()) +
-                    ", head parts " + std::to_string(lookOffered_.headParts.size()));
+                log("avatar: my look goes out: " + nvcoop::avatar::describeLook(lookOffered_));
             }
             if (!haveLookOffered_) return false;
             out = nvcoop::avatar::encodeAppearance(lookOffered_);

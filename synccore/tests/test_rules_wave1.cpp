@@ -333,6 +333,34 @@ bool tetherWorldAndTimeoutHold() {
         eng.tick(r.now + 31000);
         ok &= n == 1 && warped == std::vector<PlayerId>{2} && target == QF("HooverDam") && eng.stats().tetherAutoWarps == 1;
     }
+    {   // 2026-10-30: a hold is never silent. The players it waits for are told at the start (how long, whether they are warped), and an auto-warp is announced 10 s ahead, once
+        Rig r; r.add(1); r.add(2);
+        RulesEngine eng(r.host, db, resolveEdid);
+        int holds = 0, soons = 0; uint32_t waitMs = 0, left = 0; bool autoWarp = false; std::vector<PlayerId> holdOutside, soonOutside;
+        eng.tetherHold = [&](const FormRef&, uint32_t, const std::vector<PlayerId>& outside, const FormRef&, uint32_t w, bool aw) { ++holds; holdOutside = outside; waitMs = w; autoWarp = aw; };
+        eng.tetherWarpSoon = [&](const FormRef&, uint32_t, const std::vector<PlayerId>& outside, const FormRef&, uint32_t s) { ++soons; soonOutside = outside; left = s; };
+        std::vector<PlayerId> warped; eng.gatherRest = [&](const FormRef&, uint32_t, const std::vector<PlayerId>& absent, const FormRef&) { warped = absent; };
+        r.connectAll(); r.run(400); eng.tick(r.now);
+        eng.onCellReported(0, QF("HooverDam")); eng.onCellReported(1, QF("HooverDam")); eng.onCellReported(2, QF("Elsewhere"));
+        ok &= eng.onStageRequested(QF("Zone"), 10, 0) == StageDecision::Deferred;
+        ok &= holds == 1 && holdOutside == std::vector<PlayerId>{2} && waitMs == 30000 && autoWarp;
+        eng.tick(r.now + 19000); ok &= soons == 0;                                   // 11 s to go: too early
+        eng.tick(r.now + 21000); ok &= soons == 1 && soonOutside == std::vector<PlayerId>{2} && left >= 8 && left <= 10 && warped.empty();
+        eng.tick(r.now + 25000); ok &= soons == 1;                                   // said once
+        eng.tick(r.now + 31000); ok &= warped == std::vector<PlayerId>{2};
+    }
+    {   // gather=wait: the hold is announced as a hold (no warp is promised) and no warp announcement ever follows
+        Rig r; r.add(1);
+        RulesEngine eng(r.host, db, resolveEdid);
+        int holds = 0, soons = 0; bool autoWarp = true; uint32_t waitMs = 0;
+        eng.tetherHold = [&](const FormRef&, uint32_t, const std::vector<PlayerId>&, const FormRef&, uint32_t w, bool aw) { ++holds; waitMs = w; autoWarp = aw; };
+        eng.tetherWarpSoon = [&](const FormRef&, uint32_t, const std::vector<PlayerId>&, const FormRef&, uint32_t) { ++soons; };
+        r.connectAll(); r.run(400); eng.tick(r.now);
+        eng.onCellReported(0, QF("HooverDam")); eng.onCellReported(1, QF("Elsewhere"));
+        ok &= eng.onStageRequested(QF("Zone"), 20, 0) == StageDecision::Deferred;
+        eng.tick(r.now + 100000);
+        ok &= holds == 1 && !autoWarp && soons == 0 && waitMs == 120000;
+    }
     {   // gather=wait never warps anybody
         Rig r; r.add(1);
         RulesEngine eng(r.host, db, resolveEdid);
@@ -552,6 +580,13 @@ bool deathAndLateJoinHold() {
         eng.setZone(QF("HooverDam"));
         auto jv = eng.onPlayerJoining(2);
         ok &= jv.kind == RulesEngine::JoinVerdict::WarpToZone && jv.zone == QF("HooverDam");
+        // 2026-10-30 (a guest "pulled back while running"): a player who already reports being in the zone is not warped again; one reported elsewhere still is
+        eng.onCellReported(2, QF("Goodsprings"));
+        ok &= eng.onPlayerJoining(2).kind == RulesEngine::JoinVerdict::WarpToZone;
+        eng.onCellReported(2, QF("HooverDam"));
+        ok &= eng.onPlayerJoining(2).kind == RulesEngine::JoinVerdict::JoinNow;
+        eng.onCellReported(2, QF("Goodsprings"), QF("HooverDam"));                  // an interior of a worldspace-zone: the worldspace is in the zone
+        ok &= eng.onPlayerJoining(2).kind == RulesEngine::JoinVerdict::JoinNow;
     }
     return ok;
 }

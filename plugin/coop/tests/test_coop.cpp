@@ -1983,6 +1983,68 @@ static void testGatherAndWorldReport() {
 }
 
 
+// 2026-10-30 ("on the CLIENT I was constantly running and RUBBER BANDING back"): the session never holds or moves a player silently. A tether hold tells the players it
+// waits for (and the others why the story waits), the warp that follows is announced to the player and is a log line (what, why, from where to where).
+static void testTetherHoldAndWarpAreAnnounced() {
+    std::printf("2026-10-30: a tether hold and its warp are on-screen messages and log lines\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    std::vector<std::string> trace, noticesA, noticesHost;
+    host.rt->setTrace([&](const std::string& l) { trace.push_back(l); });
+    host.rt->setNotice([&](const std::string& t) { noticesHost.push_back(t); });
+    Node::Opt oc;
+    Node a(Role::Client, host.rt->boundPort(), 6711, oc);
+    a.rt->setNotice([&](const std::string& t) { noticesA.push_back(t); });
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    const fnvcoop::PlayerId sa = a.rt->client()->slot();
+    host.rt->reportCell(QF("Grid(1,2)"), QF("HooverDam"));
+    a.rt->reportCell(QF("Elsewhere"), fnvcoop::FormRef());
+    pumpUntil(fr, [] { return false; }, 400);
+    CHECK(!host.rt->stageRequested(QF("Zone"), 10, 0));                       // gather=auto-warp, timeout_s=1: held
+    CHECK(pumpUntil(fr, [&] { return noticeText(noticesA).find("Go to your party; in 1 s you are brought there") != std::string::npos; }));   // the far guest is told, with the time, why the story waits
+    CHECK(noticeText(noticesA).find("needs the whole party") != std::string::npos);
+    CHECK(noticeText(noticesHost).find("Waiting for the rest of the party") != std::string::npos);     // and the one who is there hears why the story waits
+    CHECK(noticeText(trace).find("HOLDS story: tether") != std::string::npos);
+    CHECK(pumpUntil(fr, [&] { return noticeText(trace).find("MOVES player: tether gather") != std::string::npos; }, 4000));   // the warp is a log line: what, why, who ...
+    CHECK(noticeText(trace).find("warping slot " + std::to_string((int)sa)) != std::string::npos);
+    CHECK(noticeText(trace).find("from (position unknown) to zone") != std::string::npos || noticeText(trace).find(" to zone ") != std::string::npos);   // ... from where to where
+    CHECK(pumpUntil(fr, [&] { return noticeText(noticesA).find("being brought to your party now") != std::string::npos; }));   // ... and the player heard it before it happened
+}
+
+// A late joiner held during a scene and warped afterwards: both are log lines, and the warp is announced.
+static void testLateJoinHoldAndWarpAreLogged() {
+    std::printf("2026-10-30: a late joiner's hold and warp are log lines and messages\n");
+    Node::Opt o;
+    o.rules = true;
+    o.rulesJson = kW2Rules;
+    Node host(Role::Host, 0, 0, o);
+    std::vector<std::string> trace, noticesB;
+    host.rt->setTrace([&](const std::string& l) { trace.push_back(l); });
+    host.rt->setStageApplier([](const fnvcoop::FormRef&, uint32_t) {});
+    Node::Opt oa;
+    Node a(Role::Client, host.rt->boundPort(), 6721, oa);
+    auto fr = [&] { host.rt->frame(); a.rt->frame(); };
+    CHECK(pumpUntil(fr, [&] { return a.rt->client()->joined() && host.rt->host()->clients().size() == 1; }));
+    pumpUntil(fr, [] { return false; }, 400);                                  // A's own late join is over (no scene, no zone yet)
+    CHECK(!host.rt->stageRequested(QF("Chargen"), 200, 0));                   // a barrier scene runs ...
+    Node::Opt ob;
+    Node b(Role::Client, host.rt->boundPort(), 6722, ob);
+    b.rt->setNotice([&](const std::string& t) { noticesB.push_back(t); });
+    auto fr2 = [&] { host.rt->frame(); a.rt->frame(); b.rt->frame(); };
+    CHECK(pumpUntil(fr2, [&] { return b.rt->client()->joined() && host.rt->host()->clients().size() == 2; }));
+    CHECK(pumpUntil(fr2, [&] { return noticeText(trace).find("HOLDS player: late join of slot") != std::string::npos; }));   // ... B is held: a log line ...
+    CHECK(noticeText(noticesB).find("A scene is running") != std::string::npos);                                            // ... and a message
+    host.rt->rules()->setZone(QF("HooverDam"));                               // the party has a checkpoint
+    CHECK(host.rt->stageHeldForPass(a.rt->client()->slot(), QF("Chargen"), 200));   // everybody passes: the scene (and B's hold) ends
+    CHECK(host.rt->stageHeldForPass(b.rt->client()->slot(), QF("Chargen"), 200));
+    CHECK(pumpUntil(fr2, [&] { return noticeText(trace).find("MOVES player: late join of slot") != std::string::npos; }, 4000));   // the warp: what, why, from where to where
+    CHECK(noticeText(trace).find("to the party's zone") != std::string::npos);
+    CHECK(pumpUntil(fr2, [&] { return noticeText(noticesB).find("You join your party.") != std::string::npos; }));   // (the hold said "...when it ends.")
+}
+
 // W3a item 5 (P6 request 1): a guest-only scene lock does not lock the host. controlsGuestOnly is what the SetPlayerControls hook asks inside the capture scope.
 static void testControlsGuestOnly() {
     std::printf("W3a: a lock for the initiator alone skips the host's own engine call\n");
@@ -2371,6 +2433,8 @@ int main(int argc, char** argv) {
         testDeathAndLateJoin();
         testTetherPolicyAndWorldspace();
         testGatherAndWorldReport();
+        testTetherHoldAndWarpAreAnnounced();
+        testLateJoinHoldAndWarpAreLogged();
         testRosterAndReconcile();
         testControlsGuestOnly();
         testCompanionViewsAroundScripts();
@@ -2428,6 +2492,8 @@ int main(int argc, char** argv) {
     testDeathAndLateJoin();
     testTetherPolicyAndWorldspace();
     testGatherAndWorldReport();
+    testTetherHoldAndWarpAreAnnounced();
+    testLateJoinHoldAndWarpAreLogged();
     testRosterAndReconcile();
     testControlsGuestOnly();
     testCompanionViewsAroundScripts();

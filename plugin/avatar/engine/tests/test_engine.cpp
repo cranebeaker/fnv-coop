@@ -31,6 +31,7 @@
 #include "testing/fake_backend.h"
 #include "../../avatar_groups.h"
 #include "../../loco.h"
+#include "../../look_text.h"
 
 using namespace nvcoop::avatar;
 using namespace nvcoop::avatar::engine;
@@ -577,7 +578,8 @@ void stance_and_weapon() {
     CHECK(r.eng.SetAlert(ref, true));
     CHECK(LastLine(r.be) == "SetAlert 1");
     r.eng.SetAlert(ref, false);
-    // weapon draw = SetAlert; IsWeaponDrawn reports the engine's own answer, not the request
+    // the alert fallback (a process the direct call does not know): weapon draw = SetAlert; IsWeaponDrawn reports the engine's own answer, not the request
+    r.be.directWeaponOut = false;
     CHECK(!r.eng.IsWeaponDrawn(ref));
     CHECK(r.eng.SetWeaponDrawn(ref, true));
     CHECK(LastLine(r.be) == "SetAlert 1");
@@ -852,7 +854,7 @@ void stack_equipment_converges() {
     p.anim.weaponDrawn = true;
     r.Pose(1, p);
     r.Run(600);
-    CHECK(r.F(1)->alert);
+    CHECK(r.F(1)->weaponFlag);          // drawn through the process's own SetWeaponOut
     CHECK(r.eng.IsWeaponDrawn(r.pm.RefOf(1)));
     CHECK(r.be.badLines.empty());
 }
@@ -1938,17 +1940,17 @@ void runtime_loopback_shows_the_players_attacks() {
         q.Run(1500);
     };
     for (int i = 0; i < 3; ++i) play(26, 350);   // three punches
-    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 0") == 3);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 1") == 3);
     play(32, 350);                               // a swing
     play(92, 600);                               // a power attack
     play(114, 400);                              // a throw
     play(38, 200);                               // a shot
     play(223, 500);                              // a stagger
-    CHECK(CountLines(q.be, ref, "PlayGroup AttackRight 0") == 1);
-    CHECK(CountLines(q.be, ref, "PlayGroup AttackPower 0") == 1);
-    CHECK(CountLines(q.be, ref, "PlayGroup AttackThrow 0") == 1);
-    CHECK(CountLines(q.be, ref, "PlayGroup Attack3 0") == 1);
-    CHECK(CountLines(q.be, ref, "PlayGroup Stagger 0") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackRight 1") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackPower 1") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackThrow 1") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup Attack3 1") == 1);
+    CHECK(CountLines(q.be, ref, "PlayGroup Stagger 1") == 1);
     // block is held with the hold flag, released again, and the movement group comes back
     pl.group = 170;
     pl.groupState = 1;
@@ -1991,7 +1993,7 @@ void runtime_first_person_punch_is_sent_shown_and_logged() {
     for (const auto& s : q.sent)
         if (s.anim.action == 26) ++withAction;
     CHECK(withAction >= 6);                                           // sent
-    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 0") == 2);      // shown
+    CHECK(CountLines(q.be, ref, "PlayGroup AttackLeft 1") == 2);      // shown
     auto count = [&](const char* needle) {
         int n = 0;
         for (const auto& l : lines)
@@ -2255,6 +2257,213 @@ void runtime_starts_only_with_a_player_and_says_why_not() {
     CHECK(std::string(notRunningBecause(false, false)).find("enabled=0") != std::string::npos);
 }
 
+// ======================================================================================================================
+// 2026-10-30: the process's weapon flag, the look copy of a respawn, the local player's furniture
+// ======================================================================================================================
+
+// A restrained puppet has no AI, so the alert state draws nothing: the process flag the animation code resolves every attack group from stays "away", and the group
+// resolves to a variant the puppet has no sequence for (the engine accepts PlayGroup and plays nothing: "I don't see the other person punching"). The engine's own
+// BaseProcess::SetWeaponOut sets that flag. Twin 963: only the alert state.
+void weapon_out_flag_makes_a_swing_show() {
+    ERig r;
+    r.be.attackNeedsWeaponOut = true;
+    r.be.alertDrawsWeapon = false;                    // the alert state does not draw (no AI)
+    RefId ref = r.Make();
+    CHECK(r.eng.SetWeaponDrawn(ref, true));
+    CHECK(r.eng.IsWeaponDrawn(ref));                  // the engine's own answer
+    CHECK(r.eng.PlayGroup(ref, 32, 1));
+    CHECK(r.eng.CurrentGroup(ref) == 32);             // the swing shows
+    CHECK(r.eng.stats().weaponOutDirect == 1 && r.be.weaponOutCalls == 1);
+    CHECK(HasLine(r.be, ref, "PlayGroup AttackRight 1"));
+    CHECK(r.eng.SetWeaponDrawn(ref, false));
+    CHECK(!r.eng.IsWeaponDrawn(ref));
+    // a process the direct call does not know: the alert state is all there is, and the swing does not show
+    ERig q;
+    q.be.attackNeedsWeaponOut = true;
+    q.be.alertDrawsWeapon = false;
+    q.be.directWeaponOut = false;
+    RefId qref = q.Make();
+    CHECK(q.eng.SetWeaponDrawn(qref, true));
+    CHECK(q.eng.PlayGroup(qref, 32, 1));
+    CHECK(q.eng.CurrentGroup(qref) != 32);
+    CHECK(q.be.weaponOutCalls == 0 && q.eng.stats().weaponOutDirect == 0 && HasLine(q.be, qref, "SetAlert 1"));
+}
+
+// A respawn of the same look (the puppet is taken down around every save) takes the copy it already has: no new form in the game's list, no new head. A changed look
+// (here: only the skin tone block) makes a new copy. Twin 964: a copy per spawn.
+void look_copy_is_reused_for_the_same_look() {
+    SRig r;
+    SetupLooks(r.be);
+    r.pm.AddPlayer(1, RemoteLook());
+    r.Pose(1, MkPose(kExtA, 300, 200));
+    CHECK(r.UntilDriving(1));
+    const FormId base = r.F(1)->base;
+    CHECK(r.be.clones == 1 && r.eng.stats().lookCopies == 1 && r.eng.stats().lookReused == 0);
+    for (int i = 1; i <= 3; ++i) {
+        r.pm.OnSaveBegin();
+        r.Step();
+        r.pm.OnSaveEnd();
+        CHECK(r.UntilDriving(1));
+        CHECK(r.F(1)->base == base);
+        CHECK(r.be.clones == 1 && r.eng.stats().lookReused == static_cast<uint64_t>(i));
+    }
+    CHECK(r.eng.LookReport(1).find("reused") != std::string::npos);
+    Appearance b = RemoteLook();
+    for (int i = 80; i < 130; ++i) b.faceCoeffs[i] = static_cast<int8_t>(b.faceCoeffs[i] + 5);   // the skin tone block only
+    CHECK(r.pm.SetAppearance(1, b));
+    r.Run(1000);
+    CHECK(r.UntilDriving(1));
+    CHECK(r.F(1)->base != base && r.be.clones == 2);
+    CHECK(r.be.copyLook[r.F(1)->base].faceCoeffs == b.faceCoeffs);
+    // a new world (a load) forgets the copies
+    r.be.Load();
+    r.pm.OnLoadBegin();
+    r.pm.OnLoadEnd();
+    CHECK(r.UntilDriving(1));
+    CHECK(r.be.clones == 3);
+}
+
+// What is read of the engine says which of the face blocks reached the copy, and the look read back is what the check compares.
+void look_read_back_names_the_blocks() {
+    ERig r;
+    SetupLooks(r.be);
+    const FormId copy = r.eng.LookBase(1, kTmpl, RemoteLook());
+    RefId ref = r.Make(Vec3{300, 200, 0}, kExtA, copy);
+    CHECK(ref != 0);
+    Appearance got;
+    CHECK(r.eng.ReadLook(ref, got));
+    CHECK(got.faceCoeffs == RemoteLook().faceCoeffs && got.race == 0x2000 && got.hair == 0x44 && got.headParts == RemoteLook().headParts);
+    CHECK(describeLookChange(RemoteLook(), got).empty());
+    Appearance other = got;
+    other.faceCoeffs[100] = static_cast<int8_t>(other.faceCoeffs[100] + 1);
+    other.hairColor = 1;
+    CHECK(describeLookChange(RemoteLook(), other) == "hair colour, skin tone");
+    CHECK(describeLook(RemoteLook()).find("skin tone ") != std::string::npos && describeLook(RemoteLook()) != describeLook(other));
+    other = got;
+    other.race = 5;
+    other.female = false;
+    other.faceCoeffs[3] = static_cast<int8_t>(other.faceCoeffs[3] + 1);
+    other.faceCoeffs[60] = static_cast<int8_t>(other.faceCoeffs[60] + 1);
+    CHECK(describeLookChange(RemoteLook(), other) == "race, sex, face shape, face asymmetry");
+}
+
+// ---- the local player's chair, couch or bed ------------------------------------------------------------------------------------------
+
+void furniture_engine_calls() {
+    ERig r;
+    const RefId chair = r.be.AddFurniture(kExtA, 0x6000, Vec3{300, 210, 0});
+    RefId ref = r.Make();
+    CHECK(!r.eng.SitIn(ref, 0x6999));                // not a loaded reference
+    CHECK(!r.eng.SitIn(ref, ref));                   // an actor is no furniture
+    CHECK(r.eng.SitState(ref) == 0);
+    CHECK(r.eng.SitIn(ref, chair));
+    CHECK(r.be.lines.back().ctx == chair);            // the line runs ON the furniture, with the puppet as its argument
+    char want[48];
+    std::snprintf(want, sizeof want, "Activate %08X 1", static_cast<unsigned>(ref));
+    CHECK(r.be.lines.back().text == want);
+    CHECK(r.eng.SitState(ref) == 4);
+    CHECK(r.eng.StandUp(ref, chair, 0));             // the gentle way: use it again
+    CHECK(r.be.lines.back().text == want && r.eng.SitState(ref) == 0);
+    CHECK(r.eng.SitIn(ref, chair));
+    CHECK(r.eng.StandUp(ref, chair, 1));             // escalation: let the actor's AI run
+    CHECK(HasLine(r.be, ref, "SetRestrained 0") && HasLine(r.be, ref, "EvaluatePackage") && r.eng.SitState(ref) == 0);
+    r.be.sitSleepReadable = false;
+    CHECK(r.eng.SitState(ref) == -1);
+    CHECK(r.eng.stats().sitCalls == 2 && r.eng.stats().standCalls == 2);
+    CHECK(!r.eng.SitIn(kPlayerRef, chair));         // never the player
+    CHECK(r.be.badLines.empty());
+    // a foreign actor is not seated either
+    const RefId stranger = r.be.AddActor(kUntagged, kExtA, Vec3{310, 200, 0});
+    CHECK(!r.eng.SitIn(stranger, chair) && !r.eng.StandUp(stranger, chair, 0));
+}
+
+// The sampler puts the player's chair in the snapshot: the engine's sit state, the bed flag, and the nearest furniture.
+void sampler_reports_the_players_furniture() {
+    LRig r;
+    const RefId couch = r.be.AddFurniture(FakeGameBackend::kExtA, 0x6000, Vec3{1030, 1000, 0});
+    r.be.AddFurniture(FakeGameBackend::kExtA, 0x6001, Vec3{1100, 1000, 0});
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::None && r.out.back().anim.furniture == 0);
+    auto& p = r.be.Player();
+    p.sitSleep = 4;                                    // sitting
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::Using && !r.out.back().anim.sleep && r.out.back().anim.furniture == couch);
+    p.sitSleep = 3;                                    // going in
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::Entering && r.out.back().anim.furniture == couch);
+    p.sitSleep = 5;                                    // the getter reads a sitting player as 5 in some states: still sitting
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::Using);
+    p.sitSleep = 9;                                    // sleeping
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::Using && r.out.back().anim.sleep);
+    p.sitSleep = 0;
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::None && !r.out.back().anim.sleep && r.out.back().anim.furniture == 0);
+    // the process cannot be asked: the GetSitting evaluator says "in it"
+    r.be.sitSleepReadable = false;
+    p.sitState = 3;
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::Using && r.out.back().anim.furniture == couch);
+    p.sitState = 0;
+    r.Run(300);
+    CHECK(r.out.back().anim.sit == live::SitState::None);
+    // no furniture within reach: sitting is reported, the furniture is 0 (the other side cannot seat its puppet, and the log says so)
+    LRig q;
+    q.be.Player().sitSleep = 4;
+    q.Run(300);
+    CHECK(q.out.back().anim.sit == live::SitState::Using && q.out.back().anim.furniture == 0);
+    // a dead player sits nowhere
+    LRig d;
+    d.be.AddFurniture(FakeGameBackend::kExtA, 0x6000, Vec3{1030, 1000, 0});
+    d.be.Player().sitSleep = 4;
+    d.be.Player().dead = true;
+    d.Run(300);
+    CHECK(d.out.back().anim.sit == live::SitState::None);
+}
+
+// The whole runtime: the player sits on a couch, the loopback puppet is told to use it and stays put, the log says so on both sides, and it stands up with the player.
+void runtime_loopback_seats_the_puppet() {
+    RRig q;
+    std::vector<std::string> lines;
+    q.rt->SetLog([&](const std::string& l) { lines.push_back(l); });
+    const RefId couch = q.be.AddFurniture(FakeGameBackend::kExtA, 0x6000, Vec3{1030, 1000, 0});
+    CHECK(q.rt->SetLoopback(true));
+    q.Run(2500);
+    const RefId ref = q.rt->RefOf(1);
+    CHECK(ref != 0 && q.rt->manager().PhaseOf(1) == Phase::Driving);
+    q.be.AddFurniture(FakeGameBackend::kExtA, 0x6100, Vec3{5000, 5000, 0});   // another one, far away
+    q.be.Player().sitSleep = 4;
+    q.Run(2500);
+    char want[48];
+    std::snprintf(want, sizeof want, "Activate %08X 1", static_cast<unsigned>(ref));
+    size_t sits = 0;
+    for (const auto& l : q.be.lines)
+        if (l.ctx == couch && l.text == want) ++sits;
+    CHECK(sits == 1);
+    CHECK(q.be.Get(ref)->sitSleep == 4 && q.be.Get(ref)->usedFurniture == couch);
+    q.Run(3000);
+    size_t sits2 = 0;
+    for (const auto& l : q.be.lines)
+        if (l.ctx == couch && l.text == want) ++sits2;
+    CHECK(sits2 == 1);                                // never repeated while he sits
+    auto count = [&](const char* needle) {
+        int n = 0;
+        for (const auto& l : lines)
+            if (l.find(needle) != std::string::npos) ++n;
+        return n;
+    };
+    CHECK(count("local furniture: engine sit state 4 -> in it, furniture 24576") == 1);
+    CHECK(count("remote player slot 1 sits in furniture 24576") == 1);
+    q.be.Player().sitSleep = 0;
+    q.Run(3000);
+    CHECK(q.be.Get(ref)->sitSleep == 0);
+    CHECK(count("local furniture: engine sit state 0 -> standing") == 1);
+    CHECK(count("the puppet of slot 1 is out of the furniture") == 1);
+    CHECK(q.rt->manager().stats().seatsIssued == 1 && q.rt->manager().stats().standsIssued == 1);
+}
+
+
 struct TestCase {
     const char* name;
     void (*fn)();
@@ -2281,6 +2490,8 @@ const TestCase kTests[] = {
     T(appearance_height_is_matched_with_setscale), T(look_copy_carries_the_remote_look), T(look_copy_refusal_is_not_forever),
     T(look_base_ignores_an_unknown_look), T(look_copy_without_own_face_arrays_keeps_the_template_face), T(face_blocks_line_up_and_zeros_travel), T(weapon_mod_lines_and_readback), T(hit_target_health_lines),
     T(stack_weapon_mods_converge_and_follow_changes), T(stack_hit_target_puppet_survives_and_is_replaced), T(stack_look_update_keeps_the_puppet),
+    T(weapon_out_flag_makes_a_swing_show), T(look_copy_is_reused_for_the_same_look), T(look_read_back_names_the_blocks), T(furniture_engine_calls),
+    T(sampler_reports_the_players_furniture), T(runtime_loopback_seats_the_puppet),
     T(equip_watcher_carries_weapon_mods), T(runtime_reads_the_local_facts), T(runtime_reads_the_local_pack), T(runtime_remote_look_update_and_local_look), T(runtime_starts_only_with_a_player_and_says_why_not),
 };
 

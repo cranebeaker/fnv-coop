@@ -47,6 +47,7 @@ struct LocalFrame {
     int actionSet = -1;              // which animation set it was found in (kSetThird / kSetFirstPerson / kSetAlt), -1 none
     int setCount = 0;                // how many sets were readable this frame (1 = only the process's)
     int procAction = -1;             // BaseProcess animation action (diagnostic only), -1 unknown
+    int sitSleep = -1;               // the engine's sit / sleep state (BaseProcess::GetSitSleepState, kSitSleepState_*), -1 unreadable; anim.sit / sleep / furniture are made from it
     bool havePos3D = false;          // the player's 3D node was readable: pos3D is where the renderer has him (the reference position `pos` can lag it)
     Vec3 pos3D;
 };
@@ -85,8 +86,20 @@ private:
     bool started_ = false;
 };
 
+// The furniture the local player sits in is looked up by distance (the engine has no read for it); the answer is kept while he does not move, so the cell is not scanned per frame.
+struct SeatCache {
+    RefId furniture = 0;
+    Vec3 at;
+    bool have = false;
+    uint32_t askedAtMs = 0;
+};
+
+// The engine's sit / sleep state as the snapshot's furniture block: sit 0 none, 1 going in, 2 in it (live::SitState), sleep = a bed. (4 = sitting and 9 = sleeping; the engine's getter
+// reads them as 5 and 10 while a virtual of the process says so, so 5 and 10 count as "in it" too: the player is not told to get up a second early.)
+void SitFromEngine(int state, uint8_t& sit, bool& sleep);
+
 // Reads the player into a frame. Cheap: one reference read, one animation read, two evaluators.
-LocalFrame ReadLocalFrame(IGameBackend& be);
+LocalFrame ReadLocalFrame(IGameBackend& be, SeatCache* seat = nullptr);
 
 class LocalSampler {
 public:
@@ -136,6 +149,7 @@ private:
     LocalFrame last_;
     Counters c_;
     ActionEvent lastEvent_;
+    SeatCache seat_;
 };
 
 // Watches the player's worn items. Poll() returns true once per stable change (and once at the start) with the full set, weapons

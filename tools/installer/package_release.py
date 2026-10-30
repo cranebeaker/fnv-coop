@@ -84,6 +84,8 @@ DEFAULT_INI = ("; nvcoop.ini - settings of the co-op plugin. The launcher edits 
                "enabled=1\n"
                "[areadigest]\n"
                "enabled=1\n"
+               "[parity]\n"
+               "enabled=1\n"
                "[worldtime]\n"
                "enabled=1\n"
                "[loot]\n"

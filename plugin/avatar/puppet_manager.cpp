@@ -7,6 +7,7 @@
 #include "avatar_faults.h"
 #include "avatar_groups.h"
 #include "live/live.h"
+#include "look_text.h"
 #include "loco.h"
 
 namespace nvcoop::avatar {
@@ -172,6 +173,13 @@ void PuppetManager::DeleteRef(Puppet& p, bool callEngine) {
     p.actPlaying = false;
     p.actHeld = 0;
     p.actTries = 0;
+    p.actRetries = 0;
+    p.seated = p.standing = false;   // a new puppet is not in any furniture: it is told again if its owner still sits
+    p.seatFurn = 0;
+    p.seatRetryAt = 0;
+    p.seatRefusals = 0;
+    p.seatLoggedRefusal = false;
+    p.lookCheckAt = 0;
     if (!avatarFaults().oneShotKeepsBaseline) p.actKnown = false;
 }
 
@@ -320,12 +328,12 @@ std::string PuppetManager::StatusJson() const {
         s += buf;
         first = false;
     }
-    char buf[1300];
+    char buf[1700];
     std::snprintf(buf, sizeof buf,
                   "],\"stats\":{\"spawned\":%llu,\"spawnFailures\":%llu,\"deleted\":%llu,\"refLost\":%llu,\"setPos\":%llu,\"setYaw\":%llu,"
                   "\"playGroup\":%llu,\"groupRefused\":%llu,\"animReasserts\":%llu,\"restrainReasserts\":%llu,\"parked\":%llu,\"purged\":%llu,"
                   "\"saveDespawns\":%llu,\"equipOps\":%llu,\"equipGaveUp\":%llu,\"drift\":%llu,\"budgetDeferred\":%llu,\"load3DTimeouts\":%llu,\"pushesIgnored\":%llu,\"bodyYields\":%llu,"
-                  "\"oneShots\":%llu,\"oneShotsStale\":%llu,\"oneShotsMissed\":%llu,\"oneShotsFrozen\":%llu,\"oneShotsFailed\":%llu,\"oneShotsSeen\":%llu,\"oneShotsNotSeen\":%llu,\"attackDraws\":%llu}}",
+                  "\"oneShots\":%llu,\"oneShotsStale\":%llu,\"oneShotsMissed\":%llu,\"oneShotsFrozen\":%llu,\"oneShotsFailed\":%llu,\"oneShotsSeen\":%llu,\"oneShotsNotSeen\":%llu,\"attackDraws\":%llu,\"attackRetries\":%llu,\"seatsIssued\":%llu,\"standsIssued\":%llu,\"seatDrops\":%llu,\"looksChecked\":%llu,\"looksWrong\":%llu}}",
                   (unsigned long long)stats_.spawned, (unsigned long long)stats_.spawnFailures, (unsigned long long)stats_.deleted,
                   (unsigned long long)stats_.refLost, (unsigned long long)stats_.setPos, (unsigned long long)stats_.setYaw,
                   (unsigned long long)stats_.playGroup, (unsigned long long)stats_.groupRefused, (unsigned long long)stats_.animReasserts,
@@ -335,7 +343,8 @@ std::string PuppetManager::StatusJson() const {
                   (unsigned long long)stats_.pushesIgnored, (unsigned long long)stats_.bodyYields, (unsigned long long)stats_.oneShots,
                   (unsigned long long)stats_.oneShotsStale, (unsigned long long)stats_.oneShotsMissed, (unsigned long long)stats_.oneShotsFrozen,
                   (unsigned long long)stats_.oneShotsFailed, (unsigned long long)stats_.oneShotsSeen, (unsigned long long)stats_.oneShotsNotSeen,
-                  (unsigned long long)stats_.attackDraws);
+                  (unsigned long long)stats_.attackDraws, (unsigned long long)stats_.attackRetries, (unsigned long long)stats_.seatsIssued, (unsigned long long)stats_.standsIssued,
+                  (unsigned long long)stats_.seatDrops, (unsigned long long)stats_.looksChecked, (unsigned long long)stats_.looksWrong);
     s += buf;
     return s;
 }
@@ -411,9 +420,7 @@ void PuppetManager::TrySpawn(Puppet& p, uint32_t now) {
     }
     {
         const std::string note = e_.LookReport(p.slot);
-        Log("avatar: puppet of slot " + std::to_string((int)p.slot) + " spawned as ref " + std::to_string(r) + " (race " + std::to_string(p.app.race) +
-            (p.app.female ? " female" : " male") + ", hair " + std::to_string(p.app.hair) + ", eyes " + std::to_string(p.app.eyes) + ", face data " +
-            std::to_string(p.app.faceCoeffs.size()) + ", head parts " + std::to_string(p.app.headParts.size()) + ")" + (note.empty() ? "" : ": " + note));
+        Log("avatar: puppet of slot " + std::to_string((int)p.slot) + " spawned as ref " + std::to_string(r) + " (" + describeLook(p.app) + ")" + (note.empty() ? "" : ": " + note));
     }
     p.ref = r;
     p.gen = nextGen_++;
@@ -464,6 +471,7 @@ bool PuppetManager::Configure(Puppet& p, uint32_t now) {
     p.actPlaying = false;
     p.actHeld = 0;
     p.actStaleSince = 0;
+    p.lookCheckAt = (e_.LooksByBase() && p.app.known()) ? (now + cfg_.lookCheckDelayMs) | 1u : 0;
     p.phase = Phase::Driving;
     return true;
 }
@@ -615,6 +623,19 @@ void PuppetManager::Drive(Puppet& p, uint32_t now, bool menuClosedNow) {
         }
         if (!F.noPostMenuSnap) p.forcePose = true;
     }
+
+    // 4b. furniture: a puppet whose owner sits is put into the same chair / bench / bed, and stays there (no movement, no pose, no group) until the owner gets up
+    if (!F.noSeatSync && SeatStep(p, now) && !F.seatKeepsDriving) {
+        if (!F.oneShotKeepsBaseline) p.actKnown = false;   // what the owner did meanwhile is over for this puppet when it stands up
+        p.actPlaying = false;
+        p.actHeld = 0;
+        if (callsLeft_ > 0 || F.ignoreBudget) {
+            int n = p.equip.Tick(e_, p.ref, now, stats_);
+            if (!F.ignoreBudget) callsLeft_ = n >= static_cast<int>(callsLeft_) ? 0 : callsLeft_ - n;
+        }
+        return;
+    }
+    CheckLook(p, now);
 
     const PuppetPose& pose = p.pose;
     const Vec3 target = MakeRoom(pose.cell, pose.pos, p.appliedPos, p.haveApplied && p.cell == pose.cell);
@@ -838,9 +859,12 @@ void PuppetManager::PlayOneShot(Puppet& p, uint32_t now, bool frozen) {
     if (!Budget()) return;   // the counter is not taken yet: the next Tick tries again while the event is still in the stream
     const bool hold = IsHeldActionGroup(g);
     // A swing, a punch or a shot on a puppet whose weapon is not out (the owner's fists, or a weapon the planner shows holstered) may not play at all: draw it first,
-    // give the engine a moment, and hold it up until the swing is over (Drive keeps wantDrawn while attackDrawUntil runs).
-    if (IsAttackGroup(g) && !p.drawn && !avatarFaults().noAttackDraw) {
-        if (!p.actDrawWaitUntil) {
+    // give the engine a moment, and hold it up until the swing is over (Drive keeps wantDrawn while attackDrawUntil runs). "Not out" is the ENGINE's answer: the
+    // first version trusted its own belief (p.drawn), and a draw that only raised the alert state of a restrained puppet left the process flag unset, so every attack
+    // group resolved to a variant the puppet has no sequence for.
+    if (IsAttackGroup(g) && !avatarFaults().noAttackDraw) {
+        const bool out = p.drawn && (F.noAttackWeaponCheck || e_.IsWeaponDrawn(p.ref));
+        if (!out && !p.actDrawWaitUntil) {
             if (e_.SetWeaponDrawn(p.ref, true)) {
                 p.drawn = true;
                 p.haveDrawn = true;
@@ -854,15 +878,18 @@ void PuppetManager::PlayOneShot(Puppet& p, uint32_t now, bool frozen) {
     }
     if (p.actDrawWaitUntil && static_cast<int32_t>(now - p.actDrawWaitUntil) < 0) return;
     p.actDrawWaitUntil = 0;
-    const bool played = e_.PlayGroup(p.ref, g, hold ? 1 : 0);
+    // flag 1 = start it now (PlayGroup's second argument, AnimData::SetAnimGroup's "immediate" mode): the groups of the movement kind (reaction, stagger, grip) are otherwise only
+    // QUEUED for the process to pick up, and the puppet's idle never lets go of the slot.
+    const bool played = e_.PlayGroup(p.ref, g, 1);
     if (oneShotLogs_++ < 400)
         Log("avatar: remote attack received from slot " + std::to_string((int)p.slot) + ": group " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") +
-            "), event " + std::to_string((int)a.actionSeq) + ", weapon " + (p.drawn ? "out" : "away") + ", puppet animation " + (played ? "started" : "REFUSED by the engine (try " + std::to_string(p.actTries + 1) + ")"));
+            "), event " + std::to_string((int)a.actionSeq) + ", weapon " + (p.drawn ? (e_.IsWeaponDrawn(p.ref) ? "out" : "out (ours, the engine says away)") : "away") + ", puppet animation " + (played ? "started" : "REFUSED by the engine (try " + std::to_string(p.actTries + 1) + ")"));
     if (played) {
         ++stats_.playGroup;
         ++stats_.oneShots;
         p.actSeq = a.actionSeq;
         p.actTries = 0;
+        p.actRetries = 0;
         p.actPlaying = true;
         p.actHeld = hold ? g : 0;
         p.actUntil = now + OneShotMs(g);
@@ -897,9 +924,126 @@ void PuppetManager::VerifyOneShot(Puppet& p, uint32_t now) {
         if (oneShotLogs_++ < 400) Log("avatar: remote attack on slot " + std::to_string((int)p.slot) + ": the puppet is playing group " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") + ")");
     } else if (cur >= 0) {   // -1 = the engine cannot be read: no verdict
         ++stats_.oneShotsNotSeen;
+        const bool engineOut = e_.IsWeaponDrawn(p.ref);
         if (oneShotLogs_++ < 400)
             Log("avatar: remote attack on slot " + std::to_string((int)p.slot) + ": PlayGroup " + std::to_string(g) + " (" + (GroupName(g) ? GroupName(g) : "?") + ") ran but the puppet is playing group " +
-                std::to_string(cur) + " instead: the swing is NOT visible");
+                std::to_string(cur) + " instead: the swing is NOT visible (weapon out in the engine: " + (engineOut ? "yes" : "no") + ", try " + std::to_string(p.actRetries + 1) + ")");
+        // The swing is still on (its nominal time has not run out): draw the weapon again if the engine says it is away, and play the group once more. The process may need a
+        // frame between the draw and the group, and a group started in the same frame as a rebuilt 3D is lost.
+        const AvatarFaults& F = avatarFaults();
+        if (!F.noAttackRetry && p.actRetries < 2 && p.actPlaying && static_cast<int32_t>(p.actUntil - now) > 200 && Budget(2)) {
+            if (IsAttackGroup(g) && !engineOut) e_.SetWeaponDrawn(p.ref, true);
+            if (e_.PlayGroup(p.ref, g, 1)) {
+                ++p.actRetries;
+                ++stats_.attackRetries;
+                ++stats_.playGroup;
+                p.actVerifyAt = (now + 150) | 1u;
+                p.actVerifyGroup = g;
+            }
+        }
+    }
+}
+
+// ---- furniture ---------------------------------------------------------------------------------------------------------------------------
+// The owner's chair / bench / bed (Anim::sit, furniture): the puppet is told to use the same one and is then left alone - no SetPos, no movement group, no one-shots - until the
+// owner gets up, because every one of those would pull it out of the pose (the engine puts a sitting actor on the furniture's marker, a SetPos back to the owner's place would
+// move the body away from it each Tick). The engine's own sit state (BaseProcess::GetSitSleepState) judges what the commands did when it can be read; when it cannot, the
+// belief stands and a stand-up is assumed done after standSettleMs. Returns true while the puppet is held (sitting or getting out).
+bool PuppetManager::SeatStep(Puppet& p, uint32_t now) {
+    const AvatarFaults& F = avatarFaults();
+    const Anim& a = p.pose.anim;
+    const bool wantSeat = (a.sit == 1 || a.sit == 2) && a.furniture != 0 && p.pose.cell == p.cell;
+    if (!wantSeat && !p.seated) return false;
+    if (p.pose.frozen && p.seated) return true;   // a dry stream says nothing: stay where the last word put it
+    const int eng = e_.SitState(p.ref);   // -1 cannot tell, 0 not in furniture, anything else in it or on the way (kSitSleepState_*)
+    if (wantSeat) {
+        p.standing = false;
+        p.standTries = 0;
+        if (p.seated && p.seatFurn == a.furniture) {
+            if (F.seatRepeats) {   // twin: the command goes out again every Tick
+                if (e_.SitIn(p.ref, a.furniture)) p.seatCmdAt = now;
+                return true;
+            }
+            const bool judged = static_cast<int32_t>(now - p.seatCmdAt) >= static_cast<int32_t>(cfg_.seatVerifyMs);
+            if (eng == 0 && judged) {   // the engine accepted the command and then dropped the pose: try again after a pause
+                p.seated = false;
+                ++stats_.seatDrops;
+                p.seatRetryAt = now + cfg_.seatRetryMs;
+                Log("avatar: the puppet of slot " + std::to_string((int)p.slot) + " is not in the furniture " + std::to_string(p.seatFurn) + " although it was told to sit: it will be told again");
+            } else {
+                return true;
+            }
+        }
+        if (p.seated && p.seatFurn != a.furniture) {   // another piece of furniture: out of the old one first
+            if (Budget()) e_.StandUp(p.ref, p.seatFurn, 0);
+            p.seated = false;
+            p.seatRetryAt = now + 800;
+            return false;
+        }
+        if (static_cast<int32_t>(now - p.seatRetryAt) < 0 && !F.seatRepeats) return false;
+        if (!Budget()) return false;
+        if (e_.SitIn(p.ref, a.furniture)) {
+            p.seated = true;
+            p.seatFurn = a.furniture;
+            p.seatCmdAt = now;
+            p.seatRefusals = 0;
+            p.seatLoggedRefusal = false;
+            ++stats_.seatsIssued;
+            Log("avatar: remote player slot " + std::to_string((int)p.slot) + " " + (a.sleep ? "lies down in" : "sits in") + " furniture " + std::to_string(a.furniture) +
+                ": the puppet was told to use it (engine sit state " + std::to_string(eng) + ")");
+            return true;
+        }
+        ++p.seatRefusals;
+        p.seatRetryAt = now + cfg_.seatRetryMs;
+        if (!p.seatLoggedRefusal) {
+            p.seatLoggedRefusal = true;
+            Log("avatar: remote player slot " + std::to_string((int)p.slot) + " sits in furniture " + std::to_string(a.furniture) + " but the engine refused to seat the puppet there (will retry every " +
+                std::to_string(cfg_.seatRetryMs) + " ms)");
+        }
+        return false;
+    }
+    // the owner is up (or went somewhere the puppet is not): get the puppet out before anything moves it
+    if (F.seatNoStand) return true;   // twin: it stays in the chair for good
+    if (!p.standing) {
+        p.standing = true;
+        p.standSince = now;
+        p.standTries = 0;
+        p.seatRetryAt = 0;
+    }
+    const bool out = eng == 0 || (eng < 0 && static_cast<int32_t>(now - p.standSince) >= static_cast<int32_t>(cfg_.standSettleMs)) ||
+                     static_cast<int32_t>(now - p.standSince) >= static_cast<int32_t>(cfg_.standGiveUpMs);
+    if (out) {
+        p.seated = p.standing = false;
+        p.forceAnim = true;   // the movement group and the owner's place are asserted again
+        p.forcePose = true;
+        ++stats_.standsIssued;
+        Log("avatar: the puppet of slot " + std::to_string((int)p.slot) + " is out of the furniture " + std::to_string(p.seatFurn) + " (engine sit state " + std::to_string(eng) + ", " +
+            std::to_string(p.standTries) + " stand-up command(s))");
+        return false;
+    }
+    if (static_cast<int32_t>(now - p.seatRetryAt) >= 0 && Budget()) {
+        e_.StandUp(p.ref, p.seatFurn, p.standTries);
+        ++p.standTries;
+        p.seatRetryAt = now + cfg_.standRetryMs;
+    }
+    return true;
+}
+
+// ~500 ms after a puppet started driving: the look its base really has (read back from the engine) against the look that was asked for. The log line is the answer to
+// "does the other player look the way he made himself": a wrong race, a head part this machine does not know, a face block that was left alone are named.
+void PuppetManager::CheckLook(Puppet& p, uint32_t now) {
+    if (!p.lookCheckAt || static_cast<int32_t>(now - p.lookCheckAt) < 0) return;
+    p.lookCheckAt = 0;
+    Appearance got;
+    if (!e_.ReadLook(p.ref, got)) return;
+    ++stats_.looksChecked;
+    const std::string diff = describeLookChange(p.app, got);
+    if (diff.empty()) {
+        Log("avatar: look check of slot " + std::to_string((int)p.slot) + ": the puppet's base has the look that was asked for (" + describeLook(got) + ")");
+    } else {
+        ++stats_.looksWrong;
+        Log("avatar: look check of slot " + std::to_string((int)p.slot) + ": the puppet's base DIFFERS from the look asked for in: " + diff + ". Asked for " + describeLook(p.app) +
+            "; the base has " + describeLook(got));
     }
 }
 

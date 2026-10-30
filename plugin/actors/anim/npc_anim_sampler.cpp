@@ -81,6 +81,16 @@ bool NpcAnimSampler::sample(NetId id, live::ActorSnapshot& snap, uint32_t nowMs)
             raw = static_cast<uint8_t>(static_cast<uint8_t>(v.state) | (v.bed ? 4 : 0));
         }
         const uint8_t code = debounceLevel(s.sit, raw);
+        if (!s.sitKnownSeen || s.sitKnownLast != r.sitKnown) {
+            // Logged on the first read of an actor and when it changes: an actor whose process does not answer the pinned getter is published standing for ever.
+            if (!s.sitKnownSeen && r.sitKnown) { /* the normal case: nothing to say */ }
+            else nvcoop::actors::trace("owner %s: the sit state is %s (engine sit raw=%d)", nvcoop::actors::who(id).c_str(), r.sitKnown ? "readable" : "NOT readable (published as standing)", r.sitSleep);
+            s.sitKnownSeen = true; s.sitKnownLast = r.sitKnown;
+        }
+        if (code != s.pubSit) {
+            nvcoop::actors::trace("owner %s: sit state published %d -> %d%s (engine sit raw=%d, furniture=%08X)", nvcoop::actors::who(id).c_str(), s.pubSit & 3, code & 3, (code & 4) ? " bed" : "", r.sitSleep, r.furniture);
+            s.pubSit = code;
+        }
         a.sit = static_cast<live::SitState>(code & 3);
         a.sleep = a.sit != live::SitState::None && !FNV_MUT(85) && (code & 4) != 0;   // twin 85: a bed is published as a chair
         if (a.sit == live::SitState::None || r.ragdoll || a.knocked) { a.sit = live::SitState::None; a.sleep = false; s.furniture = 0; }   // (a body on the floor is not in the furniture)

@@ -93,6 +93,7 @@ public:
         return e->moveToCell(ref, cell, p, yaw);
     }
     bool requestOwnerResync(uint32_t netId) override { return g_resync && g_resync(netId); }
+    bool moveHeld(uint32_t netId) override { return eng::poseLocked(netId); }
 };
 
 }  // namespace

@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "actors/actor_trace.h"
 #include "actors/actor_types.h"
 #include "actors/engine/actor_engine_api.h"
 #include "actors/engine/engine_iface.h"
@@ -116,6 +117,7 @@ private:
         float appliedYaw = 0;
         CellId appliedCell = 0;
         uint64_t appliedMs = 0;
+        uint64_t driftCheckMs = 0;       // when the engine's real pose was last compared with our last write
         // sampling
         live::AiState sampledAi;           // what the AI was doing at the last sample taken while it ran (the handoff's final state is sampled after AI-off)
         bool haveSampledAi = false;
@@ -171,6 +173,7 @@ private:
     std::map<NetId, uint64_t> spawnRetryAt_;        // stand-in attempts that failed: not before this time
     std::vector<std::pair<RefId, uint64_t>> doomed_;   // removed clones waiting out the quiet period: (ref, delete not before)
     PortStats st_;
+    nvcoop::actors::Throttle thr_;   // trace lines only
 };
 
 }  // namespace nvcoop::actors::engine
