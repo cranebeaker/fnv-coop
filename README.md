@@ -4,8 +4,7 @@
 
 > **Status (October 2026): alpha 0.1.4.** The whole party starts together from a lobby, the opening movie plays for everyone
 > at once, and Steam join, voice and text chat, Co-op balanced mode, friend markers and revive are in. Expect bugs: this build
-> is for playtesting. Also worth a look: [New Vegas True Co-op](https://www.nexusmods.com/newvegas/mods/100267) by Zyrcxies
-> ([source on GitHub](https://github.com/Zyrcxies/NewVegasCoop)), another co-op mod for New Vegas.
+> is for playtesting.
 >
 > | Area | Where it stands |
 > |---|---|
@@ -148,9 +147,6 @@ playbook explains how to send it back.
 - **ENet** by Lee Salzman: https://github.com/lsalzman/enet (bundled in `third_party/enet`, MIT licensed).
 - **Opus** by the Xiph.Org Foundation and contributors: https://opus-codec.org (bundled in `third_party/opus`, BSD licensed),
   the codec of the voice chat.
-- **Zyrcxies** ([NewVegasCoop](https://github.com/Zyrcxies/NewVegasCoop)): some features here were inspired by their co-op
-  mod: joining through Steam, positional voice chat and text chat, the Co-op balanced mode, enemies splitting their
-  attention between the players, friend name tags and reviving a downed friend. Thanks!
 - **Nucleus Co-op** (SplitScreen.Me): the techniques for running several copies of a single-instance game on one
   PC: https://github.com/SplitScreen-Me/splitscreenme-nucleus
 - Fallout: New Vegas by Obsidian Entertainment and Bethesda Softworks. You need your own copy.

@@ -5,7 +5,7 @@
 namespace nvcoop::rebalance {
 
 const std::vector<EffectEntry>& effectTable() {
-    // FalloutNV.esm, load order slot 0, so the runtime ids are the file ids. Both from the other co-op mod's addresses.h (kStimpak, kSuperStimpak); the port checks
+    // FalloutNV.esm, load order slot 0, so the runtime ids are the file ids. Both are FalloutNV.esm forms (Stimpak, Super Stimpak); the port checks
     // each form's own name before it touches it.
     static const std::vector<EffectEntry> t = {
         {0x00015169u, "Stimpak"},

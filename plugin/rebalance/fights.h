@@ -2,7 +2,7 @@
 // with more players (three players: a quarter, four: a half). Never more health. The extra is made by the host's engine like any host-made actor, so the
 // other machines get it through the normal actor sync; the guests do nothing. Game-free; the engine comes in through FightDirector::Env.
 //
-// The rule (accumulating shares, a cap on extras alive, no rush of them once some die) follows the other co-op mod's reinforcements; the observation (who is
+// The rule (accumulating shares, a cap on extras alive, no rush of them once some die) decides how many extra enemies a bigger party meets; the observation (who is
 // fighting the party) is ours: the host sees the fights of the actors it owns from its own engine and the fights of the actors a guest owns from the owner's
 // reported combat target (the actor sync carries it).
 #pragma once

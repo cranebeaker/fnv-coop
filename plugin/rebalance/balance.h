@@ -1,6 +1,6 @@
 // Co-op balanced: the numbers, and what they become for a party of a given size (docs/rebalance.md). Game-free.
 //
-// The base numbers are the ones the other co-op mod uses for a balanced group (damage to players, damage by players, carry weight, level-up skill points, kill
+// The base numbers are for a balanced group (damage to players, damage by players, carry weight, level-up skill points, kill
 // XP, how much food and medicine enemies drop, the reinforcement rule). On top, this module scales them by the party size: the tuning point is two players;
 // each player past two makes enemies tougher (they take less from every shot), makes fights bigger (reinforcements) and pays less XP for each kill (there are more
 // kills to make). One or two players get the base numbers.

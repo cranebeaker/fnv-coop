@@ -1,6 +1,6 @@
 // The HUD half of the marker service, over the game (x86, xNVSE). NOTHING here has run in a game.
 //
-// How it draws (the way the other co-op mod puts its friend markers on the screen, adapted to our puppets and extended):
+// How it draws:
 //   * JIP LN's InjectUIComponent puts small text tiles into HUDMainMenu (and MapMenu for the Pip-Boy list); SetUIStringEx / SetUIFloat change them.
 //   * Johnny Guitar's WorldToScreen says where a point above a puppet is on the screen (0..1 across and down; 0 when off screen or behind).
 //   * Both are called from scripts compiled at start with xNVSE's NVSEScriptInterface::CompileScript. A script that does not compile (the plugin is not
