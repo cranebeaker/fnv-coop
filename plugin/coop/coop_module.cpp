@@ -679,6 +679,21 @@ void IntroWatchFrame(uint64_t now) {
     s.foreground = GameWindowInFront();
     for (int id : OpenMenus())
         if (id != kEscapeMenu) { s.menu = id; break; }
+    // Doc's black-screen greeting (VCG00 stage 90 to 99) is a dialogue menu that ends with its voice line. When the line never ends (no audio device, a
+    // missing voice file, a window that does not get the click) every player waits on a black screen for good: close it after a generous 45 s.
+    {
+        static int lastV0 = -1, lastV1 = -1;
+        static uint64_t changedAt = 0, forcedAt = 0;
+        if (s.vcg00 != lastV0 || s.vcg01 != lastV1) { lastV0 = s.vcg00; lastV1 = s.vcg01; changedAt = now; }
+        constexpr int kDialogueMenu = 1001;
+        if (s.vcg00 >= 90 && s.vcg00 < 100 && s.menu == kDialogueMenu && now - changedAt >= 45000 && now - forcedAt >= 15000) {
+            forcedAt = now;
+            nvhooks::ApplierExecScope exec;
+            nvhooks::LocalPlayerScope own;
+            const bool closed = nvui::ops::forceCloseDialog() || nvhooks::execConsoleLine("CloseAllMenus");
+            nvcoop::Log("coop: intro greeting waited 45 s on the black screen: dialogue closed by the mod (%s)", closed ? "ok" : "refused");
+        }
+    }
     const introwatch::Out o = g_introWatch.step(s);
     for (const std::string& l : o.log) nvcoop::Log("%s", l.c_str());
     if (!o.notice.empty()) IntroNotice(o.notice);

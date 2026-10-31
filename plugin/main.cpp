@@ -413,6 +413,27 @@ bool FocusStatusMethod(const std::string&, std::string& out) {
 }
 #endif
 
+// Players saw a white game window while the game loaded and while the host's opening movie blocked the main loop: the window class has no background
+// brush of its own, so every repaint the game does not answer is white. Give the class a black one (the game window of this process only), for the
+// first two minutes, which covers the load, the lobby start and the movie. The game re-creates its window after the splash: each new handle gets it.
+void BlackBackdropLoop() {
+    HWND done = nullptr;
+    for (int i = 0; i < 2400 && !g_stopMinimizer.load(); ++i, Sleep(50)) {
+        const char* gcls = *reinterpret_cast<const char* const*>(0x11A2FE8);   // see Diag_FindWindowA
+        if (!gcls) continue;
+        HWND h = nullptr;
+        while ((h = FindWindowExA(nullptr, h, gcls, nullptr)) != nullptr) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(h, &pid);
+            if (pid != GetCurrentProcessId() || h == done) continue;
+            SetClassLongPtrA(h, GCLP_HBRBACKGROUND, reinterpret_cast<LONG_PTR>(GetStockObject(BLACK_BRUSH)));
+            InvalidateRect(h, nullptr, TRUE);
+            done = h;
+            Log("window: black backdrop set on the game window %p", h);
+        }
+    }
+}
+
 void MinimizerLoop() {
     while (!g_stopMinimizer.load()) {
         EnumWindows(MinimizeEnumProc, 0);
@@ -811,6 +832,7 @@ __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
         const std::string side = ReadIni("bridge", "windowSide", "");
         g_windowSide = side == "left" ? -1 : side == "right" ? 1 : 0;
     }
+    if (ReadIni("bridge", "blackBackdrop", "1") != "0") std::thread(BlackBackdropLoop).detach();
     if (g_minimize.load() || g_focusGuard.load() || g_windowSide.load() != 0) {
         g_minimizer = std::thread(MinimizerLoop);
         Log("window thread started (minimize=%d focusGuard=%d windowSide=%d)", g_minimize.load() ? 1 : 0, g_focusGuard.load() ? 1 : 0,
