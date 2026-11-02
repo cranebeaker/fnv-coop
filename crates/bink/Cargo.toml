@@ -1,0 +1,9 @@
+[package]
+name = "bink"
+version = "0.1.0"
+description = "Bink 1 movie decoder, for the game's movies (Data\\Video)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

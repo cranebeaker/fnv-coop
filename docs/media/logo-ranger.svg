@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="nv-rs logo with a Ranger">
+  <title>nv-rs</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1d10"/>
+      <stop offset="0.55" stop-color="#7a3f17"/>
+      <stop offset="1" stop-color="#d9772b"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset="1" stop-color="#f29a2e"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.45" cy="0.4" r="0.65">
+      <stop offset="0" stop-color="#ff4a22"/>
+      <stop offset="0.5" stop-color="#e5260f"/>
+      <stop offset="1" stop-color="#8f0d05"/>
+    </radialGradient>
+    <linearGradient id="armor" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a2016"/>
+      <stop offset="0.5" stop-color="#15100a"/>
+      <stop offset="1" stop-color="#0b0805"/>
+    </linearGradient>
+    <linearGradient id="duster" x1="0" y1="0" x2="1" y2="0.3">
+      <stop offset="0" stop-color="#4a3826"/>
+      <stop offset="0.45" stop-color="#2a1f14"/>
+      <stop offset="1" stop-color="#120c07"/>
+    </linearGradient>
+    <linearGradient id="collar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3e2f20"/>
+      <stop offset="0.5" stop-color="#22190f"/>
+      <stop offset="1" stop-color="#110b06"/>
+    </linearGradient>
+    <filter id="glow" x="-1" y="-1" width="3" height="3">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="vest" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a4a4a"/>
+      <stop offset="0.5" stop-color="#303030"/>
+      <stop offset="1" stop-color="#1c1c1c"/>
+    </linearGradient>
+    <clipPath id="disc"><circle cx="256" cy="240" r="150"/></clipPath>
+    <clipPath id="sunclip"><circle cx="256" cy="226" r="104"/></clipPath>
+  </defs>
+
+  <!-- Gear -->
+  <g fill="#f2c14e">
+    <circle cx="256" cy="240" r="186"/>
+    <g id="tooth"><rect x="236" y="30" width="40" height="44" rx="6"/></g>
+    <use href="#tooth" transform="rotate(30 256 240)"/>
+    <use href="#tooth" transform="rotate(60 256 240)"/>
+    <use href="#tooth" transform="rotate(90 256 240)"/>
+    <use href="#tooth" transform="rotate(120 256 240)"/>
+    <use href="#tooth" transform="rotate(150 256 240)"/>
+    <use href="#tooth" transform="rotate(180 256 240)"/>
+    <use href="#tooth" transform="rotate(210 256 240)"/>
+    <use href="#tooth" transform="rotate(240 256 240)"/>
+    <use href="#tooth" transform="rotate(270 256 240)"/>
+    <use href="#tooth" transform="rotate(300 256 240)"/>
+    <use href="#tooth" transform="rotate(330 256 240)"/>
+  </g>
+  <circle cx="256" cy="240" r="164" fill="#14110b"/>
+
+  <g clip-path="url(#disc)">
+    <!-- Mojave sunset behind the Ranger -->
+    <rect x="96" y="80" width="320" height="320" fill="url(#sky)"/>
+    <circle cx="256" cy="226" r="104" fill="url(#sun)"/>
+    <g fill="#c4651f" clip-path="url(#sunclip)">
+      <rect x="140" y="252" width="232" height="6"/>
+      <rect x="140" y="270" width="232" height="9"/>
+      <rect x="140" y="290" width="232" height="12"/>
+    </g>
+    <path d="M96 318 L146 286 L186 304 L222 290 L290 290 L326 304 L366 284 L416 306 L416 400 L96 400 Z" fill="#3b2614"/>
+
+    <!-- Duster collar, standing up behind the neck (back face, then lining) -->
+    <path d="M190 332 Q186 296 192 268 Q196 252 210 248 Q256 242 302 248 Q316 252 320 268 Q326 296 322 332 Z" fill="url(#collar)"/>
+    <path d="M192 268 Q196 252 210 248 Q256 242 302 248 Q316 252 320 268" fill="none" stroke="#5a4530" stroke-width="5" stroke-linecap="round"/>
+    <path d="M192 268 Q196 252 210 248 Q256 242 302 248 Q316 252 320 268" fill="none" stroke="#f2c14e" stroke-opacity="0.45" stroke-width="1.5"/>
+    <path d="M204 332 Q200 300 206 282 Q214 270 230 268 Q256 264 282 268 Q298 270 306 282 Q312 300 308 332 Z" fill="#0c0805"/>
+
+    <!-- Neck -->
+    <path d="M226 292 Q256 300 286 292 L292 328 L220 328 Z" fill="#1e160d"/>
+    <path d="M228 308 Q256 314 284 308 M226 318 Q256 324 286 318" fill="none" stroke="#0b0805" stroke-width="2.5"/>
+
+    <!-- Coat body over the shoulders -->
+    <path d="M108 400 L126 350 Q156 320 196 314 L232 326 L280 326 L316 314 Q356 320 386 350 L404 400 Z" fill="url(#duster)"/>
+    <path d="M126 350 Q156 320 196 314" fill="none" stroke="#f2c14e" stroke-opacity="0.45" stroke-width="2.5"/>
+    <!-- Shoulder seams and fabric folds -->
+    <path d="M150 336 Q166 356 160 400 M178 324 Q190 352 186 400 M362 336 Q346 356 352 400 M334 324 Q322 352 326 400" fill="none" stroke="#0a0604" stroke-opacity="0.7" stroke-width="2"/>
+    <path d="M152 334 Q168 354 162 398" fill="none" stroke="#6a5038" stroke-opacity="0.4" stroke-width="1"/>
+
+    <!-- Armour vest showing in the open front -->
+    <path d="M230 326 L282 326 L278 400 L234 400 Z" fill="url(#vest)"/>
+    <path d="M233 330 L244 330 L240 400 L236 400 Z" fill="#6a6a6a" opacity="0.35"/>
+    <path d="M234 344 L278 344 M236 362 L276 362 M238 380 L274 380" stroke="#1c1c1c" stroke-width="2"/>
+    <path d="M232 336 L270 400" stroke="#3a2c1c" stroke-width="5"/>
+
+    <!-- Notched lapels folding open down the chest -->
+    <path d="M206 328 L232 326 L242 400 L216 400 L202 348 Z" fill="#33261a"/>
+    <path d="M306 328 L280 326 L270 400 L296 400 L310 348 Z" fill="#1a120b"/>
+    <path d="M232 326 L242 400" fill="none" stroke="#f2c14e" stroke-opacity="0.4" stroke-width="1.8"/>
+    <path d="M280 326 L270 400" fill="none" stroke="#f2c14e" stroke-opacity="0.22" stroke-width="1.8"/>
+
+    <!-- Collar points spreading out over the shoulders -->
+    <path d="M192 268 Q186 302 158 342 L208 328 Q202 300 206 282 Z" fill="url(#collar)"/>
+    <path d="M320 268 Q326 302 354 342 L304 328 Q310 300 306 282 Z" fill="#140e08"/>
+    <path d="M192 268 Q186 302 158 342 L208 328" fill="none" stroke="#f2c14e" stroke-opacity="0.45" stroke-width="2"/>
+    <path d="M320 268 Q326 302 354 342 L304 328" fill="none" stroke="#f2c14e" stroke-opacity="0.25" stroke-width="2"/>
+    <!-- Helmet -->
+    <path d="M196 224 Q196 150 256 146 Q316 150 316 224 L306 246 L206 246 Z" fill="url(#armor)"/>
+    <path d="M190 214 Q256 198 322 214 L320 226 Q256 210 192 226 Z" fill="#241b11"/>
+    <path d="M196 224 Q196 150 256 146 Q316 150 316 224" fill="none" stroke="#f2c14e" stroke-opacity="0.55" stroke-width="2.5"/>
+    <!-- Radio, antenna and light on the helmet side -->
+    <path d="M194 204 L186 136" stroke="#0b0805" stroke-width="4" stroke-linecap="round"/>
+    <path d="M193 204 L185 137" stroke="#f2c14e" stroke-opacity="0.35" stroke-width="1.2"/>
+    <rect x="184" y="200" width="16" height="30" rx="4" fill="#15100a" stroke="#f2c14e" stroke-opacity="0.3" stroke-width="1.5"/>
+    <circle cx="192" cy="218" r="3.5" fill="#ff3a24" filter="url(#glow)"/>
+    <!-- Mask -->
+    <path d="M206 232 L306 232 L298 276 Q280 304 256 306 Q232 304 214 276 Z" fill="#0f0b07"/>
+    <!-- Respirator -->
+    <circle cx="256" cy="284" r="17" fill="#1a140c" stroke="#3d2f1b" stroke-width="3"/>
+    <circle cx="256" cy="284" r="7" fill="#0b0805"/>
+    <path d="M241 284 L271 284 M256 269 L256 299" stroke="#3d2f1b" stroke-width="2"/>
+    <!-- Goggles: polygon lenses with glowing rims -->
+    <g filter="url(#glow)">
+      <path d="M218.3 233.3 L249.7 241.8 L245.5 255.4 L237 259.6 L220 258.8 L213.2 251.9 L213.2 239.2 Z" fill="url(#lens)" stroke="#ff3a24" stroke-width="2.5"/>
+      <path d="M293.7 233.3 L262.3 241.8 L266.5 255.4 L275 259.6 L292 258.8 L298.8 251.9 L298.8 239.2 Z" fill="url(#lens)" stroke="#ff3a24" stroke-width="2.5"/>
+    </g>
+  </g>
+  <circle cx="256" cy="240" r="150" fill="none" stroke="#f2c14e" stroke-width="4"/>
+
+  <!-- Wordmark plate -->
+  <rect x="116" y="388" width="280" height="80" rx="12" fill="#14110b" stroke="#f2c14e" stroke-width="5"/>
+  <text x="256" y="446" text-anchor="middle" font-family="'Arial Black', 'Segoe UI Black', Impact, sans-serif" font-weight="900" font-size="54" letter-spacing="6" fill="#f2c14e">NV·RS</text>
+</svg>

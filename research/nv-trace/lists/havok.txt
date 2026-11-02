@@ -1,0 +1,21 @@
+# Havok collision around the manifold record filter 00dae3a0 and its callers
+# (coordinator, 2026-10-28: the third call's record argument is the first call's address in
+# the real game, a new one in the port; is the callers' frame laid out like the exe's?).
+# Generated with `nv-trace genlist --src crates --max 200000 ...`, then checked against the
+# translations' doc comments: u32 words the docs name as pointers are typed `p`.
+#
+# Frames for the key script and the stack offsets.
+0086e650 frame    p               void Main::OnIdle
+007cb7d0 cdecl    bb              u8   StartMenu::Create
+# hkAgent1nMachine_Process (engine map, cdecl): track, input, provider, keys, state.
+00da4aa0 cdecl    ppppp           void max=200000 hkAgent1nMachine_Process
+# hkPredGskAgent3::process (engine map, cdecl): pair, entry, data, input, collector.
+00d41a30 cdecl    ppppp           u32  max=200000 hkPredGskAgent3::process
+# hkGskAgentUtil_processCollisionNoTim (Xbox PDB, cdecl): collision, user word, contact,
+# simplex, manifold, closest, output.
+00db4180 cdecl    pwppppp         void max=200000 hkGskAgentUtil_processCollisionNoTim
+# The manifold record filter (cdecl): record, points, start, cell, object.
+00dae3a0 cdecl    ppwpp           void max=200000 00dae3a0 (no label): manifold record filter
+# Adds an entry to a manifold record (cdecl, ten words): record, a1..a4, info, out, points,
+# object, flag.
+00daf1e0 cdecl    pwwwwppppw      u32  max=200000 00daf1e0 (no label): manifold record add

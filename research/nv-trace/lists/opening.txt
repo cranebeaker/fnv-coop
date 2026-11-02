@@ -1,0 +1,94 @@
+# The opening, recorded once for many comparisons (lead, 2026-10-29): a new game from the menu
+# through Doc's speech, the name box and the race menu into Doc's house. Collects what the
+# narrower lists recorded separately: the player's place every frame, speech and lip-sync,
+# Doc's AI packages and walk, Doc's head look (the maintainer sees the port's Doc look at the
+# floor while he talks), animation blend-outs (snappy animations), the race menu's shadow
+# lights, and the Direct3D state and draws of Doc's room 300 frames after the race menu closes
+# (shiny or sharp surfaces). Word counts as in the lists they come from, each from the exe.
+#
+# The frame, with the player's angles (+0x24) and position (+0x30) from 011dea3c (PlayerCharacter).
+0086e650 frame    p      void dump=*(0x011dea3c)+0x24:24 Main::OnIdle
+007cb7d0 cdecl    bb     u8   StartMenu::Create
+007ac730 cdecl    w      void RaceSexMenu::Create
+007ac530 thiscall pw     ptr  RaceSexMenu::scalar_deleting_destructor (RET 4; the port calls ~RaceSexMenu 007ac560 directly, so that address never reaches its tracer)
+00dae3a0 cdecl    ppwpp  void max=1 00dae3a0 (no label): manifold record filter (world start)
+# Speech and lip-sync (lists/speech.txt).
+0064aa00 thiscall ppf             void BSFaceGenAnimationData::AddPhonemeKeyframe
+0064ab40 thiscall ppf             void BSFaceGenAnimationData::AddModifiersKeyframe
+0064ad20 thiscall pwfw            void BSFaceGenAnimationData::AddSpeechEmptyKeyframe
+0064aec0 thiscall pbbbb           void BSFaceGenAnimationData::ClearSpeechKeyframeLists
+0064ca60 cdecl    fppb            u8   BSFaceGenAnimationData::UpdateKeyframeList
+0064ed60 thiscall pp              u8   BSFaceGenKeyframeMultiple::AddToList
+0064ebe0 thiscall pw              ptr  BSFaceGenKeyframeMultiple::scalar_deleting_destructor
+004d5930 thiscall ppf             u8   004d5930 (no label): plays a LipSynchAnim on a target
+008a20d0 thiscall pppwwwwwpbbbbb  f32  008a20d0 (no label): actor speaks a line
+# Doc's walk and the AI's package choice (lists/doc-walk.txt), longer caps.
+00b5cbd0 thiscall pp    ptr  after=007cb7d0 max=200000 dump=w1+0x30:4 dump=w1+0x8c:12 ShadowSceneNode::AddCaster
+008a6ce0 thiscall pbb   void after=007cb7d0 max=200000 dump=this+0xc:4 dump=*(this+0x20)+0xc:4 dump=this+0x30:12 dump=*(this+0x68):4 Actor::EvaluatePackage
+008d08b0 thiscall ppp   void after=007cb7d0 max=200000 dump=w1+0xc:4 dump=w1+0x1c:8 BaseProcess::SetCurrentPackage
+00903d10 thiscall ppw   void after=007cb7d0 max=200000 dump=w1+0xc:4 dump=w1+0x1c:8 HighProcess::PackageDone
+00913630 thiscall ppw   void after=007cb7d0 max=200000 dump=w1+0xc:4 LowProcess::PackageDone
+006e2f80 cdecl    p     ptr  after=007cb7d0 max=200000 PathingRequest::CreatePathingRequest
+009de490 thiscall pb    void after=007cb7d0 max=200000 ActorMover::SetPathingFailed
+009db950 thiscall pb    void after=007cb7d0 max=200000 ActorMover::ClearDataForNewPathingRequest
+# Doc's head look (lists/doc-look.txt), from his first line on.
+00c7aa60 thiscall pp     void after=008a20d0 max=60000 dump=this+0xc0:0x10 dump=this+0x180:0x28 dump=w1:0x30 bhkRagdollController::DoLookAtIK
+00c78610 thiscall pwp    u8   after=008a20d0 max=60000 dump=w2:0x30 dump=this+0xf0:0x40 dump=this+0x120:0x10 rdump=this+0x120:0x10 bhkRagdollController::LookAtUpdate (00c78610)
+00ce0290 cdecl    pppfpp ptr  after=008a20d0 max=60000 dump=w1:0x40 dump=w2:0x10 dump=w4:0x20 rdump=w0:1 rdump=w4:0x20 hkaLookAtIkSolver::solve
+# Animation blend-outs: NiControllerSequence::Deactivate (thiscall, RET 8: time, transition),
+# with the sequence's name.
+00a35030 thiscall pfb    u8   max=60000 dump=*(this+8):32 NiControllerSequence::Deactivate
+# The race menu's shadow lights (lists/racemenu-shadows3.txt).
+00b5b880 thiscall pp    void after=007ac730 max=4 dump=*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+8):32 dump=*(*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x18)+8):32 dump=*(*(*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x18)+0x18)+8):32 dump=*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+8):32 dump=*(*(*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x18)+8):32 ShadowSceneNode::UpdateDynamicShadows
+00b9f780 thiscall ppw   void after=007cb7d0 max=400 dump=0x011f9174:4 dump=*(*(0x011f9174)+0xf8)+0x30:4 dump=*(*(*(0x011f9174)+0xf8)+8):32 ShadowSceneLight::MTRenderFrustumDepthMap
+# Direct3D 9 in Doc's room after the race menu (lists/d3d-docroom.txt, gated on the menu's end):
+# creation always, state from the menu's end, draws and Present in frames 300..304 after it.
+00e68a80 thiscall ppppp      u8   dump=w1:0x104 (no label): texture from file
+00fdf3fc stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateTextureFromFileInMemory
+00fdf400 stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateCubeTextureFromFileInMemory
+00fdf404 stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateVolumeTextureFromFileInMemory
+7e02025c stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateTexture
+7e020260 stdcall  pwwwwwwwpp u32  rdump=w8:4 IDirect3DDevice9::CreateVolumeTexture
+7e020264 stdcall  pwwwwwpp   u32  rdump=w6:4 IDirect3DDevice9::CreateCubeTexture
+7e020268 stdcall  pwwwwpp    u32  rdump=w5:4 IDirect3DDevice9::CreateVertexBuffer
+7e02026c stdcall  pwwwwpp    u32  rdump=w5:4 IDirect3DDevice9::CreateIndexBuffer
+7e020270 stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateRenderTarget
+7e020274 stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateDepthStencilSurface
+7e020358 stdcall  ppp        u32  dump=w1:0x80 rdump=w2:4 IDirect3DDevice9::CreateVertexDeclaration
+7e02036c stdcall  ppp        u32  shader=w1 rdump=w2:4 IDirect3DDevice9::CreateVertexShader
+7e0203a8 stdcall  ppp        u32  shader=w1 rdump=w2:4 IDirect3DDevice9::CreatePixelShader
+7e020248 stdcall  pwwwp      u32  rdump=w4:4 IDirect3DDevice9::GetBackBuffer
+7e020298 stdcall  pwp        u32  rdump=w2:4 IDirect3DDevice9::GetRenderTarget
+7e0202a0 stdcall  pp         u32  rdump=w1:4 IDirect3DDevice9::GetDepthStencilSurface
+7e020294 stdcall  pwp        u32  after=007ac530 frames=305 IDirect3DDevice9::SetRenderTarget
+7e02029c stdcall  pp         u32  after=007ac530 frames=305 IDirect3DDevice9::SetDepthStencilSurface
+7e0202b0 stdcall  pwp        u32  after=007ac530 frames=305 dump=w2:64 IDirect3DDevice9::SetTransform
+7e0202bc stdcall  pp         u32  after=007ac530 frames=305 dump=w1:24 IDirect3DDevice9::SetViewport
+7e0202dc stdcall  pwp        u32  after=007ac530 frames=305 dump=w2:16 IDirect3DDevice9::SetClipPlane
+7e0202e4 stdcall  pww        u32  after=007ac530 frames=305 IDirect3DDevice9::SetRenderState
+7e020304 stdcall  pwp        u32  after=007ac530 frames=305 IDirect3DDevice9::SetTexture
+7e02030c stdcall  pwww       u32  after=007ac530 frames=305 IDirect3DDevice9::SetTextureStageState
+7e020314 stdcall  pwww       u32  after=007ac530 frames=305 IDirect3DDevice9::SetSamplerState
+7e02032c stdcall  pp         u32  after=007ac530 frames=305 dump=w1:16 IDirect3DDevice9::SetScissorRect
+7e02035c stdcall  pp         u32  after=007ac530 frames=305 IDirect3DDevice9::SetVertexDeclaration
+7e020364 stdcall  pw         u32  after=007ac530 frames=305 IDirect3DDevice9::SetFVF
+7e020370 stdcall  pp         u32  after=007ac530 frames=305 IDirect3DDevice9::SetVertexShader
+7e020378 stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*16 IDirect3DDevice9::SetVertexShaderConstantF
+7e020380 stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*16 IDirect3DDevice9::SetVertexShaderConstantI
+7e020388 stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*4 IDirect3DDevice9::SetVertexShaderConstantB
+7e020390 stdcall  pwpww      u32  after=007ac530 frames=305 IDirect3DDevice9::SetStreamSource
+7e020398 stdcall  pww        u32  after=007ac530 frames=305 IDirect3DDevice9::SetStreamSourceFreq
+7e0203a0 stdcall  pp         u32  after=007ac530 frames=305 IDirect3DDevice9::SetIndices
+7e0203ac stdcall  pp         u32  after=007ac530 frames=305 IDirect3DDevice9::SetPixelShader
+7e0203b4 stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*16 IDirect3DDevice9::SetPixelShaderConstantF
+7e0203bc stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*16 IDirect3DDevice9::SetPixelShaderConstantI
+7e0203c4 stdcall  pwpw       u32  after=007ac530 frames=305 dump=w2:w3*4 IDirect3DDevice9::SetPixelShaderConstantB
+7e020244 stdcall  ppppp      u32  after=007ac530 frames=300..305 IDirect3DDevice9::Present
+7e0202a4 stdcall  p          u32  after=007ac530 frames=300..305 IDirect3DDevice9::BeginScene
+7e0202a8 stdcall  p          u32  after=007ac530 frames=300..305 IDirect3DDevice9::EndScene
+7e0202ac stdcall  pwpwwfw    u32  after=007ac530 frames=300..305 IDirect3DDevice9::Clear
+7e020344 stdcall  pwww       u32  after=007ac530 frames=300..305 IDirect3DDevice9::DrawPrimitive
+7e020348 stdcall  pwwwwww    u32  after=007ac530 frames=300..305 IDirect3DDevice9::DrawIndexedPrimitive
+7e02034c stdcall  pwwpw      u32  after=007ac530 frames=300..305 IDirect3DDevice9::DrawPrimitiveUP
+7e020350 stdcall  pwwwwpwpw  u32  after=007ac530 frames=300..305 IDirect3DDevice9::DrawIndexedPrimitiveUP
+7e020288 stdcall  pppppw     u32  after=007ac530 frames=300..305 IDirect3DDevice9::StretchRect

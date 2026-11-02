@@ -1,0 +1,100 @@
+{
+  "name": "doc_positions",
+  "description": "Each peer teleports its own physical player (coop teleport; player.setpos only edits script state and the viewer re-reads the physical player, so it moves nobody). The other peer must see that avatar at least 150 units from the shared spawn point, and both peers must agree on each avatar within 40 units.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 31,
+  "duration_s": 14,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2552 1603.6 7360.0"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2152 1803.6 7360.0"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-moved-own",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "host"
+    },
+    {
+      "id": "guest-moved-own",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "guest"
+    },
+    {
+      "id": "host-moved-seen-by-guest",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "guest"
+    },
+    {
+      "id": "guest-moved-seen-by-host",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "host"
+    },
+    {
+      "id": "host-avatar-equal",
+      "path": "positions.host",
+      "on": "equal",
+      "tol": 40,
+      "dims": 2
+    },
+    {
+      "id": "guest-avatar-equal",
+      "path": "positions.guest",
+      "on": "equal",
+      "tol": 40,
+      "dims": 2
+    },
+    {
+      "id": "avatars",
+      "path": "live.avatars",
+      "op": "ge",
+      "value": 1,
+      "on": "both"
+    }
+  ]
+}

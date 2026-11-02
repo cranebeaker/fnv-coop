@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy to coop-run.local.json (git ignores it) and edit. Use real paths on the machine that runs the viewers.",
+  "viewer": "<repo>/target/release/nv-viewer.exe",
+  "data": "<game dir>/Data",
+  "out_dir": "out",
+  "base_port": 27960,
+  "launch_timeout_s": 120,
+  "grace_s": 20,
+  "background": true,
+  "screen_size": "640,360"
+}

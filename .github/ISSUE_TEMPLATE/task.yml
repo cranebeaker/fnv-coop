@@ -1,0 +1,50 @@
+name: Task proposal
+description: Propose a bounded implementation or research task.
+title: "[Task]: "
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the active milestone before proposing work. Keep the proposal focused and state what evidence would establish the result.
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone
+      description: Name the active milestone or explain why this is a blocker.
+      placeholder: e.g. M1 — Opening and persistent world
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: Describe the bounded work and the behavior or research question it addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and provenance
+      description: Link or summarize source evidence. For behavior research, include executable build/address, game record or asset, branch conditions, or recording as applicable. Do not upload proprietary game files or decompilation output.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Describe observable outcomes and the regression or comparison that would verify the task.
+    validations:
+      required: true
+  - type: dropdown
+    id: claim_status
+    attributes:
+      label: Current status
+      description: Distinguish implementation, testing, and comparison against the original game.
+      options:
+        - Proposed; not implemented
+        - Implemented; not tested
+        - Tested; not compared with original
+        - Compared with original game
+    validations:
+      required: true

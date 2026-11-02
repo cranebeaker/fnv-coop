@@ -1,0 +1,17 @@
+[package]
+name = "nv-probe"
+description = "In-process probe DLL: logs arguments, returns and memory at hooked function entries"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nv-oracle-core = { path = "../nv-oracle-core" }
+nv-win = { path = "../nv-win" }

@@ -1,0 +1,126 @@
+{
+  "name": "twin_live_avatars_visible",
+  "description": "MUTATION TWIN of live_avatars_visible: nobody teleports or walks. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 51,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "guest": {
+    "script": [],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-away-own",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "host"
+    },
+    {
+      "id": "guest-away-own",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "guest"
+    },
+    {
+      "id": "host-away-seen",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "guest"
+    },
+    {
+      "id": "guest-away-seen",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 150,
+      "on": "host"
+    },
+    {
+      "id": "host-walked",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2552,
+        1603.6
+      ],
+      "cmp": "ge",
+      "value": 40,
+      "on": "host"
+    },
+    {
+      "id": "guest-walked",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2152,
+        1803.6
+      ],
+      "cmp": "ge",
+      "value": 40,
+      "on": "guest"
+    },
+    {
+      "id": "host-equal",
+      "path": "positions.host",
+      "on": "equal",
+      "tol": 40,
+      "dims": 2
+    },
+    {
+      "id": "guest-equal",
+      "path": "positions.guest",
+      "on": "equal",
+      "tol": 40,
+      "dims": 2
+    },
+    {
+      "id": "avatars",
+      "path": "live.avatars",
+      "op": "ge",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

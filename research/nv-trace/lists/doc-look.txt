@@ -1,0 +1,9 @@
+# Doc Mitchell's head look in the opening (lead, 2026-10-29): the maintainer sees the port's Doc
+# look at the floor while he talks. Records the look-at IK from his first spoken line on.
+# Words from the exe: 00ce0290 is cdecl with six words (00c78d0e pushes six, 00c78d20 ADD ESP,0x18):
+# result, setup, target, gain, bone, limits; 00c78610 RET 8; 00c7aa60 RET 4.
+0086e650 frame    p      void Main::OnIdle
+008a20d0 thiscall pppwwwwwpbbbbb f32 max=40 Actor speaks a line
+00c7aa60 thiscall pp     void after=008a20d0 max=3000 dump=this+0xc0:0x10 dump=this+0x180:0x28 dump=w1:0x30 bhkRagdollController::DoLookAtIK
+00c78610 thiscall pwp    u8   after=008a20d0 max=6000 dump=w2:0x30 dump=this+0xf0:0x40 dump=this+0x120:0x10 rdump=this+0x120:0x10 bhkRagdollController::LookAtUpdate (00c78610)
+00ce0290 cdecl    pppfpp ptr  after=008a20d0 max=6000 dump=w1:0x40 dump=w2:0x10 dump=w4:0x20 rdump=w0:1 rdump=w4:0x20 hkaLookAtIkSolver::solve

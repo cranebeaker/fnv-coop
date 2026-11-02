@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible problem in nv-rs.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report behavior you can reproduce. Do not upload game assets, saves, recordings, executable data, or decompilation output. Before attaching an F12 report, review it for personal information such as local file paths, account names, or other identifying details. Redact those details while preserving the relevant diagnostic lines.
+  - type: input
+    id: version
+    attributes:
+      label: Build or commit
+      description: Include the version, commit, or package build you ran.
+      placeholder: e.g. release name or short commit hash
+    validations:
+      required: true
+  - type: input
+    id: game_version
+    attributes:
+      label: Game version and data source
+      description: Give the game edition/version and whether the Data directory is official base game data. Do not provide the directory path.
+      placeholder: e.g. Steam base game, no mods
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Mods and load order
+      description: List relevant mods, plugins, and dependencies, or say none.
+      placeholder: Include versions and load order where relevant; omit local paths.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the starting place/state and exact steps.
+      placeholder: |
+        1. Start at ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: F12 report or diagnostics
+      description: Paste only relevant diagnostics. Review for personal information and remove local paths, usernames, and identifying details first. Do not attach proprietary game files.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Comparison or supporting evidence
+      description: State what you compared against the original game, if applicable. Screenshots alone do not establish completion.
+    validations:
+      required: false

@@ -1,0 +1,2634 @@
+THIRD-PARTY NOTICES — nv-rs Windows viewer
+
+This file indexes license, notice, and attribution texts for the 329 external packages with a non-null source whose package IDs occur in the Windows viewer Cargo metadata resolve.nodes. Package names, versions, and license expressions come from viewer-metadata.json generated for this release.
+
+Files are bundled under licenses/<package>-<version>/ in release ZIPs (distribution/licenses/ in the source tree). For registry packages, collected files were copied from that exact version in the local Cargo registry cache. Packages without a license/notice file in the registry archive were checked at the immutable upstream commit recorded in the crate .cargo_vcs_info.json. No crate source or game assets are included.
+
+accesskit 0.18.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/AccessKit/accesskit
+  Provenance: no license/notice file in the registry archive; checked upstream at commit bcc70d9e1d1da545f3d1711226db5fb522dbabd3.
+  Upstream source: https://github.com/AccessKit/accesskit at bcc70d9e1d1da545f3d1711226db5fb522dbabd3 (crate path common).
+  Bundled license/notice/attribution files:
+    accesskit-0.18.0/LICENSE-APACHE
+    accesskit-0.18.0/LICENSE-MIT
+
+accesskit_consumer 0.27.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/AccessKit/accesskit
+  Provenance: no license/notice file in the registry archive; checked upstream at commit bcc70d9e1d1da545f3d1711226db5fb522dbabd3.
+  Upstream source: https://github.com/AccessKit/accesskit at bcc70d9e1d1da545f3d1711226db5fb522dbabd3 (crate path consumer).
+  Bundled license/notice/attribution files:
+    accesskit_consumer-0.27.0/LICENSE-APACHE
+    accesskit_consumer-0.27.0/LICENSE-MIT
+
+accesskit_windows 0.25.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/AccessKit/accesskit
+  Provenance: no license/notice file in the registry archive; checked upstream at commit bcc70d9e1d1da545f3d1711226db5fb522dbabd3.
+  Upstream source: https://github.com/AccessKit/accesskit at bcc70d9e1d1da545f3d1711226db5fb522dbabd3 (crate path platforms/windows).
+  Bundled license/notice/attribution files:
+    accesskit_windows-0.25.0/LICENSE-APACHE
+    accesskit_windows-0.25.0/LICENSE-MIT
+
+accesskit_winit 0.25.0
+  License expression: Apache-2.0
+  Repository: https://github.com/AccessKit/accesskit
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 5328b23bb20a05404cf078cf20295abc194e36f2.
+  Upstream source: https://github.com/AccessKit/accesskit at 5328b23bb20a05404cf078cf20295abc194e36f2 (crate path platforms/winit).
+  Bundled license/notice/attribution files:
+    accesskit_winit-0.25.0/LICENSE-APACHE
+
+adler2 2.0.1
+  License expression: 0BSD OR MIT OR Apache-2.0
+  Repository: https://github.com/oyvindln/adler2
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    adler2-2.0.1/LICENSE-0BSD
+    adler2-2.0.1/LICENSE-APACHE
+    adler2-2.0.1/LICENSE-MIT
+
+aho-corasick 1.1.5
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/BurntSushi/aho-corasick
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    aho-corasick-1.1.5/COPYING
+    aho-corasick-1.1.5/LICENSE-MIT
+    aho-corasick-1.1.5/UNLICENSE
+
+approx 0.5.1
+  License expression: Apache-2.0
+  Repository: https://github.com/brendanzab/approx
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    approx-0.5.1/LICENSE
+
+arrayvec 0.7.8
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bluss/arrayvec
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    arrayvec-0.7.8/LICENSE-APACHE
+    arrayvec-0.7.8/LICENSE-MIT
+
+ash 0.38.0+1.3.281
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/ash-rs/ash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ash-0.38.0+1.3.281/LICENSE-APACHE
+    ash-0.38.0+1.3.281/LICENSE-MIT
+
+assert_type_match 0.1.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/MrGVSV/assert_type_match
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    assert_type_match-0.1.1/LICENSE-APACHE
+    assert_type_match-0.1.1/LICENSE-MIT
+
+async-broadcast 0.7.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/smol-rs/async-broadcast
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-broadcast-0.7.2/LICENSE-APACHE
+    async-broadcast-0.7.2/LICENSE-MIT
+
+async-channel 2.5.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/async-channel
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-channel-2.5.0/LICENSE-APACHE
+    async-channel-2.5.0/LICENSE-MIT
+
+async-executor 1.14.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/async-executor
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-executor-1.14.0/LICENSE-APACHE
+    async-executor-1.14.0/LICENSE-MIT
+
+async-fs 2.2.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/async-fs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-fs-2.2.0/LICENSE-APACHE
+    async-fs-2.2.0/LICENSE-MIT
+
+async-lock 3.4.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/async-lock
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-lock-3.4.2/LICENSE-APACHE
+    async-lock-3.4.2/LICENSE-MIT
+
+async-task 4.7.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/async-task
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    async-task-4.7.1/LICENSE-APACHE
+    async-task-4.7.1/LICENSE-MIT
+
+atomic-waker 1.1.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/atomic-waker
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    atomic-waker-1.1.2/LICENSE-APACHE
+    atomic-waker-1.1.2/LICENSE-MIT
+    atomic-waker-1.1.2/LICENSE-THIRD-PARTY
+
+atomicow 1.2.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/atomicow
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    atomicow-1.2.0/LICENSE-APACHE
+    atomicow-1.2.0/LICENSE-MIT
+
+autocfg 1.5.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/cuviper/autocfg
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    autocfg-1.5.1/LICENSE-APACHE
+    autocfg-1.5.1/LICENSE-MIT
+
+base64 0.21.7
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/marshallpierce/rust-base64
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    base64-0.21.7/LICENSE-APACHE
+    base64-0.21.7/LICENSE-MIT
+
+base64 0.22.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/marshallpierce/rust-base64
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    base64-0.22.1/LICENSE-APACHE
+    base64-0.22.1/LICENSE-MIT
+
+bevy 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy-0.16.1/LICENSE-APACHE
+    bevy-0.16.1/LICENSE-MIT
+
+bevy_a11y 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_a11y-0.16.1/LICENSE-APACHE
+    bevy_a11y-0.16.1/LICENSE-MIT
+
+bevy_animation 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_animation-0.16.1/LICENSE-APACHE
+    bevy_animation-0.16.1/LICENSE-MIT
+
+bevy_app 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_app-0.16.1/LICENSE-APACHE
+    bevy_app-0.16.1/LICENSE-MIT
+
+bevy_asset 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_asset-0.16.1/LICENSE-APACHE
+    bevy_asset-0.16.1/LICENSE-MIT
+
+bevy_asset_macros 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_asset_macros-0.16.1/LICENSE-APACHE
+    bevy_asset_macros-0.16.1/LICENSE-MIT
+
+bevy_audio 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_audio-0.16.1/LICENSE-APACHE
+    bevy_audio-0.16.1/LICENSE-MIT
+
+bevy_color 0.16.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_color-0.16.2/LICENSE-APACHE
+    bevy_color-0.16.2/LICENSE-MIT
+
+bevy_core_pipeline 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_core_pipeline-0.16.1/LICENSE-APACHE
+    bevy_core_pipeline-0.16.1/LICENSE-MIT
+
+bevy_derive 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_derive-0.16.1/LICENSE-APACHE
+    bevy_derive-0.16.1/LICENSE-MIT
+
+bevy_diagnostic 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_diagnostic-0.16.1/LICENSE-APACHE
+    bevy_diagnostic-0.16.1/LICENSE-MIT
+
+bevy_ecs 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_ecs-0.16.1/LICENSE-APACHE
+    bevy_ecs-0.16.1/LICENSE-MIT
+
+bevy_ecs_macros 0.16.1
+  License expression: MIT OR Apache-2.0
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_ecs_macros-0.16.1/LICENSE-APACHE
+    bevy_ecs_macros-0.16.1/LICENSE-MIT
+
+bevy_encase_derive 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_encase_derive-0.16.1/LICENSE-APACHE
+    bevy_encase_derive-0.16.1/LICENSE-MIT
+
+bevy_gilrs 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_gilrs-0.16.1/LICENSE-APACHE
+    bevy_gilrs-0.16.1/LICENSE-MIT
+
+bevy_gizmos 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_gizmos-0.16.1/LICENSE-APACHE
+    bevy_gizmos-0.16.1/LICENSE-MIT
+
+bevy_gizmos_macros 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_gizmos_macros-0.16.1/LICENSE-APACHE
+    bevy_gizmos_macros-0.16.1/LICENSE-MIT
+
+bevy_gltf 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_gltf-0.16.1/LICENSE-APACHE
+    bevy_gltf-0.16.1/LICENSE-MIT
+
+bevy_image 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_image-0.16.1/LICENSE-APACHE
+    bevy_image-0.16.1/LICENSE-MIT
+
+bevy_input 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_input-0.16.1/LICENSE-APACHE
+    bevy_input-0.16.1/LICENSE-MIT
+
+bevy_input_focus 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_input_focus-0.16.1/LICENSE-APACHE
+    bevy_input_focus-0.16.1/LICENSE-MIT
+
+bevy_internal 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_internal-0.16.1/LICENSE-APACHE
+    bevy_internal-0.16.1/LICENSE-MIT
+
+bevy_log 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_log-0.16.1/LICENSE-APACHE
+    bevy_log-0.16.1/LICENSE-MIT
+
+bevy_macro_utils 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_macro_utils-0.16.1/LICENSE-APACHE
+    bevy_macro_utils-0.16.1/LICENSE-MIT
+
+bevy_math 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_math-0.16.1/LICENSE-APACHE
+    bevy_math-0.16.1/LICENSE-MIT
+
+bevy_mesh 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_mesh-0.16.1/LICENSE-APACHE
+    bevy_mesh-0.16.1/LICENSE-MIT
+
+bevy_mikktspace 0.16.1
+  License expression: Zlib AND (MIT OR Apache-2.0)
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_mikktspace-0.16.1/LICENSE-APACHE
+    bevy_mikktspace-0.16.1/LICENSE-MIT
+
+bevy_pbr 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_pbr-0.16.1/LICENSE-APACHE
+    bevy_pbr-0.16.1/LICENSE-MIT
+
+bevy_picking 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_picking-0.16.1/LICENSE-APACHE
+    bevy_picking-0.16.1/LICENSE-MIT
+
+bevy_platform 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_platform-0.16.1/LICENSE-APACHE
+    bevy_platform-0.16.1/LICENSE-MIT
+
+bevy_ptr 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_ptr-0.16.1/LICENSE-APACHE
+    bevy_ptr-0.16.1/LICENSE-MIT
+
+bevy_reflect 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_reflect-0.16.1/LICENSE-APACHE
+    bevy_reflect-0.16.1/LICENSE-MIT
+
+bevy_reflect_derive 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_reflect_derive-0.16.1/LICENSE-APACHE
+    bevy_reflect_derive-0.16.1/LICENSE-MIT
+
+bevy_render 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_render-0.16.1/LICENSE-APACHE
+    bevy_render-0.16.1/LICENSE-MIT
+
+bevy_render_macros 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_render_macros-0.16.1/LICENSE-APACHE
+    bevy_render_macros-0.16.1/LICENSE-MIT
+
+bevy_scene 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_scene-0.16.1/LICENSE-APACHE
+    bevy_scene-0.16.1/LICENSE-MIT
+
+bevy_sprite 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_sprite-0.16.1/LICENSE-APACHE
+    bevy_sprite-0.16.1/LICENSE-MIT
+
+bevy_state 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_state-0.16.1/LICENSE-APACHE
+    bevy_state-0.16.1/LICENSE-MIT
+
+bevy_state_macros 0.16.1
+  License expression: MIT OR Apache-2.0
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_state_macros-0.16.1/LICENSE-APACHE
+    bevy_state_macros-0.16.1/LICENSE-MIT
+
+bevy_tasks 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_tasks-0.16.1/LICENSE-APACHE
+    bevy_tasks-0.16.1/LICENSE-MIT
+
+bevy_text 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_text-0.16.1/LICENSE-APACHE
+    bevy_text-0.16.1/LICENSE-MIT
+
+bevy_time 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_time-0.16.1/LICENSE-APACHE
+    bevy_time-0.16.1/LICENSE-MIT
+
+bevy_transform 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_transform-0.16.1/LICENSE-APACHE
+    bevy_transform-0.16.1/LICENSE-MIT
+
+bevy_ui 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_ui-0.16.1/LICENSE-APACHE
+    bevy_ui-0.16.1/LICENSE-MIT
+
+bevy_utils 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_utils-0.16.1/LICENSE-APACHE
+    bevy_utils-0.16.1/LICENSE-MIT
+
+bevy_window 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_window-0.16.1/LICENSE-APACHE
+    bevy_window-0.16.1/LICENSE-MIT
+
+bevy_winit 0.16.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/bevy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bevy_winit-0.16.1/LICENSE-APACHE
+    bevy_winit-0.16.1/LICENSE-MIT
+
+bit-set 0.5.3
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/contain-rs/bit-set
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bit-set-0.5.3/LICENSE-APACHE
+    bit-set-0.5.3/LICENSE-MIT
+
+bit-set 0.8.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/contain-rs/bit-set
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bit-set-0.8.0/LICENSE-APACHE
+    bit-set-0.8.0/LICENSE-MIT
+
+bit-vec 0.6.3
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/contain-rs/bit-vec
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bit-vec-0.6.3/LICENSE-APACHE
+    bit-vec-0.6.3/LICENSE-MIT
+
+bit-vec 0.8.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/contain-rs/bit-vec
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bit-vec-0.8.0/LICENSE-APACHE
+    bit-vec-0.8.0/LICENSE-MIT
+
+bitflags 1.3.2
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/bitflags/bitflags
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bitflags-1.3.2/LICENSE-APACHE
+    bitflags-1.3.2/LICENSE-MIT
+
+bitflags 2.13.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bitflags/bitflags
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bitflags-2.13.2/LICENSE-APACHE
+    bitflags-2.13.2/LICENSE-MIT
+
+blake3 1.8.7
+  License expression: CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception
+  Repository: https://github.com/BLAKE3-team/BLAKE3
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    blake3-1.8.7/LICENSE_A2
+    blake3-1.8.7/LICENSE_A2LLVM
+    blake3-1.8.7/LICENSE_CC0
+
+blocking 1.7.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/blocking
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    blocking-1.7.0/LICENSE-APACHE
+    blocking-1.7.0/LICENSE-MIT
+
+bumpalo 3.20.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/fitzgen/bumpalo
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bumpalo-3.20.3/LICENSE-APACHE
+    bumpalo-3.20.3/LICENSE-MIT
+
+bytemuck 1.25.2
+  License expression: Zlib OR Apache-2.0 OR MIT
+  Repository: https://github.com/Lokathor/bytemuck
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bytemuck-1.25.2/LICENSE-APACHE
+    bytemuck-1.25.2/LICENSE-MIT
+    bytemuck-1.25.2/LICENSE-ZLIB
+
+bytemuck_derive 1.12.1
+  License expression: Zlib OR Apache-2.0 OR MIT
+  Repository: https://github.com/Lokathor/bytemuck
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    bytemuck_derive-1.12.1/LICENSE-APACHE
+    bytemuck_derive-1.12.1/LICENSE-MIT
+    bytemuck_derive-1.12.1/LICENSE-ZLIB
+
+byteorder 1.5.0
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/BurntSushi/byteorder
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    byteorder-1.5.0/COPYING
+    byteorder-1.5.0/LICENSE-MIT
+    byteorder-1.5.0/UNLICENSE
+
+byteorder-lite 0.1.0
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/image-rs/byteorder-lite
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    byteorder-lite-0.1.0/LICENSE-MIT
+    byteorder-lite-0.1.0/UNLICENSE
+
+cc 1.5.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/cc-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cc-1.5.1/LICENSE-APACHE
+    cc-1.5.1/LICENSE-MIT
+
+cfg_aliases 0.2.2
+  License expression: MIT
+  Repository: https://github.com/katharostech/cfg_aliases
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cfg_aliases-0.2.2/LICENSE
+
+cfg-if 1.0.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/cfg-if
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cfg-if-1.0.5/LICENSE-APACHE
+    cfg-if-1.0.5/LICENSE-MIT
+
+codespan-reporting 0.11.1
+  License expression: Apache-2.0
+  Repository: https://github.com/brendanzab/codespan
+  Provenance: no license/notice file in the registry archive; checked upstream at commit fd389a13f5bb6d625b71e2e4694b26e127f393f9.
+  Upstream source: https://github.com/brendanzab/codespan at fd389a13f5bb6d625b71e2e4694b26e127f393f9.
+  Bundled license/notice/attribution files:
+    codespan-reporting-0.11.1/LICENSE
+
+concurrent-queue 2.5.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/concurrent-queue
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    concurrent-queue-2.5.0/LICENSE-APACHE
+    concurrent-queue-2.5.0/LICENSE-MIT
+
+const_panic 0.2.17
+  License expression: Zlib
+  Repository: https://github.com/rodrimati1992/const_panic/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    const_panic-0.2.17/LICENSE-ZLIB.md
+
+const_soft_float 0.1.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/823984418/const_soft_float
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    const_soft_float-0.1.4/LICENSE-APACHE
+    const_soft_float-0.1.4/LICENSE-MIT
+
+const-fnv1a-hash 1.1.0
+  License expression: MIT
+  Repository: https://github.com/HindrikStegenga/const-fnv1a-hash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    const-fnv1a-hash-1.1.0/LICENSE
+
+constant_time_eq 0.4.2
+  License expression: CC0-1.0 OR MIT-0 OR Apache-2.0
+  Repository: https://github.com/cesarb/constant_time_eq
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    constant_time_eq-0.4.2/LICENSE-APACHE
+    constant_time_eq-0.4.2/LICENSE-CC0
+    constant_time_eq-0.4.2/LICENSE-MIT0
+
+constgebra 0.1.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/knickish/constgebra
+  Provenance: no license/notice file in the registry archive; checked upstream at commit eae8e094e5779f42f1db2a7adf9036aa33744bc8.
+  Additional source: standard Apache-2.0 text from https://www.apache.org/licenses/LICENSE-2.0.txt. The pinned upstream tree contains no license or copyright file; Cargo declares MIT OR Apache-2.0, and this package includes the Apache option text without inventing a copyright notice.
+  Bundled license/notice/attribution files:
+    constgebra-0.1.4/Apache-2.0.txt
+
+cosmic-text 0.13.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/pop-os/cosmic-text
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cosmic-text-0.13.2/LICENSE-APACHE
+    cosmic-text-0.13.2/LICENSE-MIT
+
+cpal 0.15.3
+  License expression: Apache-2.0
+  Repository: https://github.com/rustaudio/cpal
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cpal-0.15.3/LICENSE
+
+cpufeatures 0.3.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RustCrypto/utils
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cpufeatures-0.3.1/LICENSE-APACHE
+    cpufeatures-0.3.1/LICENSE-MIT
+
+crc32fast 1.5.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/srijs/rust-crc32fast
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    crc32fast-1.5.2/LICENSE-APACHE
+    crc32fast-1.5.2/LICENSE-MIT
+
+critical-section 1.2.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-embedded/critical-section
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    critical-section-1.2.0/LICENSE-APACHE
+    critical-section-1.2.0/LICENSE-MIT
+
+crossbeam-channel 0.5.17
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/crossbeam-rs/crossbeam
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    crossbeam-channel-0.5.17/LICENSE-APACHE
+    crossbeam-channel-0.5.17/LICENSE-MIT
+    crossbeam-channel-0.5.17/LICENSE-THIRD-PARTY
+
+crossbeam-queue 0.3.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/crossbeam-rs/crossbeam
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    crossbeam-queue-0.3.14/LICENSE-APACHE
+    crossbeam-queue-0.3.14/LICENSE-MIT
+
+crossbeam-utils 0.8.23
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/crossbeam-rs/crossbeam
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    crossbeam-utils-0.8.23/LICENSE-APACHE
+    crossbeam-utils-0.8.23/LICENSE-MIT
+
+ctrlc 3.5.2
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/Detegr/rust-ctrlc.git
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ctrlc-3.5.2/LICENSE-APACHE
+    ctrlc-3.5.2/LICENSE-MIT
+
+cursor-icon 1.2.0
+  License expression: MIT OR Apache-2.0 OR Zlib
+  Repository: https://github.com/rust-windowing/cursor-icon
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    cursor-icon-1.2.0/LICENSE-APACHE
+    cursor-icon-1.2.0/LICENSE-MIT
+    cursor-icon-1.2.0/LICENSE-ZLIB
+
+dasp_sample 0.11.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rustaudio/sample.git
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 97c3bb9b2363c0b46ac1633858bf1054fd02a980.
+  Upstream source: https://github.com/rustaudio/sample.git at 97c3bb9b2363c0b46ac1633858bf1054fd02a980.
+  Bundled license/notice/attribution files:
+    dasp_sample-0.11.0/LICENSE-APACHE
+    dasp_sample-0.11.0/LICENSE-MIT
+
+data-encoding 2.11.1
+  License expression: MIT
+  Repository: https://github.com/ia0/data-encoding
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    data-encoding-2.11.1/LICENSE
+
+derive_more 1.0.0
+  License expression: MIT
+  Repository: https://github.com/JelteF/derive_more
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    derive_more-1.0.0/LICENSE
+
+derive_more-impl 1.0.0
+  License expression: MIT
+  Repository: https://github.com/JelteF/derive_more
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    derive_more-impl-1.0.0/LICENSE
+
+disqualified 1.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/disqualified
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    disqualified-1.1.0/LICENSE-APACHE
+    disqualified-1.1.0/LICENSE-MIT
+
+document-features 0.2.12
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/slint-ui/document-features
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    document-features-0.2.12/LICENSE-APACHE
+    document-features-0.2.12/LICENSE-MIT
+
+downcast-rs 2.0.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/marcianx/downcast-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    downcast-rs-2.0.2/LICENSE-APACHE
+    downcast-rs-2.0.2/LICENSE-MIT
+
+dpi 0.1.2
+  License expression: Apache-2.0 AND MIT
+  Repository: https://github.com/rust-windowing/winit
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    dpi-0.1.2/LICENSE
+    dpi-0.1.2/LICENSE-LIBM-MIT
+
+either 1.18.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rayon-rs/either
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    either-1.18.0/LICENSE-APACHE
+    either-1.18.0/LICENSE-MIT
+
+encase 0.10.0
+  License expression: MIT-0
+  Repository: https://github.com/teoxoy/encase
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    encase-0.10.0/LICENSE
+
+encase_derive 0.10.0
+  License expression: MIT-0
+  Repository: https://github.com/teoxoy/encase
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 55e27bc7b9aafbbf037a2c8f8a28b966843df2cf.
+  Upstream source: https://github.com/teoxoy/encase at 55e27bc7b9aafbbf037a2c8f8a28b966843df2cf (crate path derive).
+  Bundled license/notice/attribution files:
+    encase_derive-0.10.0/LICENSE
+
+encase_derive_impl 0.10.0
+  License expression: MIT-0
+  Repository: https://github.com/teoxoy/encase
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 55e27bc7b9aafbbf037a2c8f8a28b966843df2cf.
+  Upstream source: https://github.com/teoxoy/encase at 55e27bc7b9aafbbf037a2c8f8a28b966843df2cf (crate path derive/impl).
+  Bundled license/notice/attribution files:
+    encase_derive_impl-0.10.0/LICENSE
+
+equivalent 1.0.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/indexmap-rs/equivalent
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    equivalent-1.0.2/LICENSE-APACHE
+    equivalent-1.0.2/LICENSE-MIT
+
+erased-serde 0.4.10
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/erased-serde
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    erased-serde-0.4.10/LICENSE-APACHE
+    erased-serde-0.4.10/LICENSE-MIT
+
+euclid 0.22.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/servo/euclid
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    euclid-0.22.14/COPYRIGHT
+    euclid-0.22.14/LICENSE-APACHE
+    euclid-0.22.14/LICENSE-MIT
+
+event-listener 5.4.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/event-listener
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    event-listener-5.4.2/LICENSE-APACHE
+    event-listener-5.4.2/LICENSE-MIT
+
+event-listener-strategy 0.5.4
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/event-listener-strategy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    event-listener-strategy-0.5.4/LICENSE-APACHE
+    event-listener-strategy-0.5.4/LICENSE-MIT
+
+fastrand 2.5.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/fastrand
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    fastrand-2.5.0/LICENSE-APACHE
+    fastrand-2.5.0/LICENSE-MIT
+
+fdeflate 0.3.7
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/image-rs/fdeflate
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    fdeflate-0.3.7/LICENSE-APACHE
+    fdeflate-0.3.7/LICENSE-MIT
+
+find-msvc-tools 0.1.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/cc-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    find-msvc-tools-0.1.14/LICENSE-APACHE
+    find-msvc-tools-0.1.14/LICENSE-MIT
+
+fixedbitset 0.5.7
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/petgraph/fixedbitset
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    fixedbitset-0.5.7/LICENSE-APACHE
+    fixedbitset-0.5.7/LICENSE-MIT
+
+flate2 1.1.10
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/flate2-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    flate2-1.1.10/LICENSE-APACHE
+    flate2-1.1.10/LICENSE-MIT
+
+fnv 1.0.7
+  License expression: Apache-2.0 / MIT
+  Repository: https://github.com/servo/rust-fnv
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    fnv-1.0.7/LICENSE-APACHE
+    fnv-1.0.7/LICENSE-MIT
+
+foldhash 0.1.5
+  License expression: Zlib
+  Repository: https://github.com/orlp/foldhash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    foldhash-0.1.5/LICENSE
+
+font-types 0.12.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/googlefonts/fontations
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    font-types-0.12.5/LICENSE-APACHE
+    font-types-0.12.5/LICENSE-MIT
+
+fontdb 0.16.2
+  License expression: MIT
+  Repository: https://github.com/RazrFalcon/fontdb
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    fontdb-0.16.2/LICENSE
+    fontdb-0.16.2/tests/fonts/LICENSE.txt
+
+futures-core 0.3.34
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/futures-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    futures-core-0.3.34/LICENSE-APACHE
+    futures-core-0.3.34/LICENSE-MIT
+
+futures-io 0.3.34
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/futures-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    futures-io-0.3.34/LICENSE-APACHE
+    futures-io-0.3.34/LICENSE-MIT
+
+futures-lite 2.6.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/futures-lite
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    futures-lite-2.6.1/LICENSE-APACHE
+    futures-lite-2.6.1/LICENSE-MIT
+    futures-lite-2.6.1/LICENSE-THIRD-PARTY
+
+getrandom 0.2.17
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/getrandom
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    getrandom-0.2.17/LICENSE-APACHE
+    getrandom-0.2.17/LICENSE-MIT
+
+getrandom 0.4.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/getrandom
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    getrandom-0.4.3/LICENSE-APACHE
+    getrandom-0.4.3/LICENSE-MIT
+
+gilrs 0.11.2
+  License expression: Apache-2.0/MIT
+  Repository: https://gitlab.com/gilrs-project/gilrs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    gilrs-0.11.2/SDL_GameControllerDB/LICENSE
+
+gilrs-core 0.6.8
+  License expression: Apache-2.0/MIT
+  Repository: https://gitlab.com/gilrs-project/gilrs
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 07e286e24b046cf39e5c367daa2770b805a64692.
+  Upstream source: https://gitlab.com/gilrs-project/gilrs at 07e286e24b046cf39e5c367daa2770b805a64692 (crate path gilrs-core).
+  Bundled license/notice/attribution files:
+    gilrs-core-0.6.8/LICENSE-APACHE
+    gilrs-core-0.6.8/LICENSE-MIT
+
+gl_generator 0.14.0
+  License expression: Apache-2.0
+  Repository: https://github.com/brendanzab/gl-rs/
+  Provenance: no license/notice file in the registry archive; checked upstream at commit ea503e8d5fb6d73c6030e6191ce738cd3bf3433e.
+  Upstream source: https://github.com/brendanzab/gl-rs/ at ea503e8d5fb6d73c6030e6191ce738cd3bf3433e.
+  Bundled license/notice/attribution files:
+    gl_generator-0.14.0/LICENSE
+
+glam 0.29.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bitshifter/glam-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    glam-0.29.3/LICENSE-APACHE
+    glam-0.29.3/LICENSE-MIT
+
+glow 0.16.0
+  License expression: MIT OR Apache-2.0 OR Zlib
+  Repository: https://github.com/grovesNL/glow
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    glow-0.16.0/LICENSE-APACHE
+    glow-0.16.0/LICENSE-MIT
+    glow-0.16.0/LICENSE-ZLIB
+
+gltf 1.4.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gltf-rs/gltf
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    gltf-1.4.1/LICENSE-APACHE
+    gltf-1.4.1/LICENSE-MIT
+
+gltf-derive 1.4.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gltf-rs/gltf
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    gltf-derive-1.4.1/LICENSE-APACHE
+    gltf-derive-1.4.1/LICENSE-MIT
+
+gltf-json 1.4.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gltf-rs/gltf
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    gltf-json-1.4.1/LICENSE-APACHE
+    gltf-json-1.4.1/LICENSE-MIT
+
+glutin_wgl_sys 0.6.1
+  License expression: Apache-2.0
+  Repository: https://github.com/rust-windowing/glutin
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    glutin_wgl_sys-0.6.1/LICENSE
+
+gpu-alloc 0.6.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/zakarumych/gpu-alloc
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 61020bdcb4eb04fca6bbf748aeb9570e859236e0.
+  Upstream source: https://github.com/zakarumych/gpu-alloc at 61020bdcb4eb04fca6bbf748aeb9570e859236e0 (crate path gpu-alloc).
+  Bundled license/notice/attribution files:
+    gpu-alloc-0.6.2/COPYING
+
+gpu-alloc-types 0.3.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/zakarumych/gpu-alloc
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 7ddd1fe576fcfc503347eb97e476a47581479f22.
+  Upstream source: https://github.com/zakarumych/gpu-alloc at 7ddd1fe576fcfc503347eb97e476a47581479f22 (crate path types).
+  Bundled license/notice/attribution files:
+    gpu-alloc-types-0.3.1/COPYING
+
+gpu-allocator 0.27.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/Traverse-Research/gpu-allocator
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    gpu-allocator-0.27.0/LICENSE-APACHE
+    gpu-allocator-0.27.0/LICENSE-MIT
+
+gpu-descriptor 0.3.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/zakarumych/gpu-descriptor
+  Provenance: no license/notice file in the registry archive; checked upstream at commit bb28b4e55b742e0ea3e7a0968e7ee6287ba0e06a.
+  Upstream source: https://github.com/zakarumych/gpu-descriptor at bb28b4e55b742e0ea3e7a0968e7ee6287ba0e06a (crate path gpu-descriptor).
+  Bundled license/notice/attribution files:
+    gpu-descriptor-0.3.2/COPYING
+
+gpu-descriptor-types 0.2.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/zakarumych/gpu-descriptor
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 9f2fb9546591322e7b77ee1e79385e01effd85e4.
+  Upstream source: https://github.com/zakarumych/gpu-descriptor at 9f2fb9546591322e7b77ee1e79385e01effd85e4 (crate path types).
+  Bundled license/notice/attribution files:
+    gpu-descriptor-types-0.2.0/COPYING
+
+grid 0.15.0
+  License expression: MIT
+  Repository: https://github.com/becheran/grid
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    grid-0.15.0/LICENSE
+
+guillotiere 0.6.2
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/nical/guillotiere
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    guillotiere-0.6.2/LICENSE
+
+half 2.7.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/VoidStarKat/half-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    half-2.7.1/LICENSE-APACHE
+    half-2.7.1/LICENSE-MIT
+
+hashbrown 0.15.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/hashbrown
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    hashbrown-0.15.5/LICENSE-APACHE
+    hashbrown-0.15.5/LICENSE-MIT
+
+hashbrown 0.17.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/hashbrown
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    hashbrown-0.17.1/LICENSE-APACHE
+    hashbrown-0.17.1/LICENSE-MIT
+
+heck 0.5.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/withoutboats/heck
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    heck-0.5.0/LICENSE-APACHE
+    heck-0.5.0/LICENSE-MIT
+
+hexasphere 15.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/OptimisticPeach/hexasphere.git
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    hexasphere-15.1.0/LICENSE-APACHE2
+    hexasphere-15.1.0/LICENSE-MIT
+
+hexf-parse 0.2.1
+  License expression: CC0-1.0
+  Repository: https://github.com/lifthrasiir/hexf
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 4225763d744183d720f575ae96d04161b4d08ea0.
+  Additional source: CC0 1.0 legal code from https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt. The pinned upstream tree contains no license or copyright file; Cargo declares CC0-1.0.
+  Bundled license/notice/attribution files:
+    hexf-parse-0.2.1/CC0-1.0.txt
+
+image 0.25.10
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/image-rs/image
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    image-0.25.10/LICENSE-APACHE
+    image-0.25.10/LICENSE-MIT
+
+immutable-chunkmap 2.1.4
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/estokes/immutable-chunkmap
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    immutable-chunkmap-2.1.4/LICENSE-APACHE
+    immutable-chunkmap-2.1.4/LICENSE-MIT
+
+indexmap 2.14.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/indexmap-rs/indexmap
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    indexmap-2.14.2/LICENSE-APACHE
+    indexmap-2.14.2/LICENSE-MIT
+
+inflections 1.1.1
+  License expression: MIT
+  Repository: https://docs.rs/inflections
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    inflections-1.1.1/LICENSE
+
+itertools 0.14.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-itertools/itertools
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    itertools-0.14.0/LICENSE-APACHE
+    itertools-0.14.0/LICENSE-MIT
+
+itoa 1.0.18
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/itoa
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    itoa-1.0.18/LICENSE-APACHE
+    itoa-1.0.18/LICENSE-MIT
+
+jobserver 0.1.35
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/jobserver-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    jobserver-0.1.35/LICENSE-APACHE
+    jobserver-0.1.35/LICENSE-MIT
+
+khronos_api 3.1.0
+  License expression: Apache-2.0
+  Repository: https://github.com/brendanzab/gl-rs/
+  Provenance: no license/notice file in the registry archive; checked upstream at commit f150967b1c44ae888e6676f93f639ebc82771bdc.
+  Upstream source: https://github.com/brendanzab/gl-rs/ at f150967b1c44ae888e6676f93f639ebc82771bdc.
+  Bundled license/notice/attribution files:
+    khronos_api-3.1.0/LICENSE
+
+khronos-egl 6.0.0
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/timothee-haudebourg/khronos-egl
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    khronos-egl-6.0.0/LICENSE-APACHE
+    khronos-egl-6.0.0/LICENSE-MIT
+
+ktx2 0.3.0
+  License expression: Apache-2.0
+  Repository: https://github.com/BVE-Reborn/ktx2
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ktx2-0.3.0/LICENSE
+
+lazy_static 1.5.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang-nursery/lazy-static.rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    lazy_static-1.5.0/LICENSE-APACHE
+    lazy_static-1.5.0/LICENSE-MIT
+
+lewton 0.10.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RustAudio/lewton
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    lewton-0.10.2/LICENSE
+
+libc 0.2.189
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/libc
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    libc-0.2.189/LICENSE-APACHE
+    libc-0.2.189/LICENSE-MIT
+
+libloading 0.8.9
+  License expression: ISC
+  Repository: https://github.com/nagisa/rust_libloading/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    libloading-0.8.9/LICENSE
+
+libm 0.2.16
+  License expression: MIT
+  Repository: https://github.com/rust-lang/compiler-builtins
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    libm-0.2.16/LICENSE.txt
+
+litrs 1.0.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/LukasKalbertodt/litrs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    litrs-1.0.0/LICENSE-APACHE
+    litrs-1.0.0/LICENSE-MIT
+
+lock_api 0.4.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/Amanieu/parking_lot
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    lock_api-0.4.14/LICENSE-APACHE
+    lock_api-0.4.14/LICENSE-MIT
+
+log 0.4.34
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/log
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    log-0.4.34/LICENSE-APACHE
+    log-0.4.34/LICENSE-MIT
+
+matchers 0.2.0
+  License expression: MIT
+  Repository: https://github.com/hawkw/matchers
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    matchers-0.2.0/LICENSE
+
+memchr 2.8.3
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/BurntSushi/memchr
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    memchr-2.8.3/COPYING
+    memchr-2.8.3/LICENSE-MIT
+    memchr-2.8.3/UNLICENSE
+
+memmap2 0.9.11
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RazrFalcon/memmap2-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    memmap2-0.9.11/LICENSE-APACHE
+    memmap2-0.9.11/LICENSE-MIT
+
+miniz_oxide 0.8.9
+  License expression: MIT OR Zlib OR Apache-2.0
+  Repository: https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    miniz_oxide-0.8.9/LICENSE
+    miniz_oxide-0.8.9/LICENSE-APACHE.md
+    miniz_oxide-0.8.9/LICENSE-MIT.md
+    miniz_oxide-0.8.9/LICENSE-ZLIB.md
+
+miniz_oxide 0.9.1
+  License expression: MIT OR Zlib OR Apache-2.0
+  Repository: https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    miniz_oxide-0.9.1/LICENSE
+    miniz_oxide-0.9.1/LICENSE-APACHE.md
+    miniz_oxide-0.9.1/LICENSE-MIT.md
+    miniz_oxide-0.9.1/LICENSE-ZLIB.md
+
+moxcms 0.8.1
+  License expression: BSD-3-Clause OR Apache-2.0
+  Repository: https://github.com/awxkee/moxcms.git
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    moxcms-0.8.1/LICENSE-APACHE.md
+    moxcms-0.8.1/LICENSE.md
+
+naga 24.0.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu/tree/trunk/naga
+  Provenance: no license/notice file in the registry archive; checked upstream at commit dc1e50e08cd4a5c8d6c3e8a180e93535d40bec4a.
+  Upstream source: https://github.com/gfx-rs/wgpu/tree/trunk/naga at dc1e50e08cd4a5c8d6c3e8a180e93535d40bec4a (crate path naga).
+  Bundled license/notice/attribution files:
+    naga-24.0.0/LICENSE.APACHE
+    naga-24.0.0/LICENSE.MIT
+
+naga_oil 0.17.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/naga_oil/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    naga_oil-0.17.1/LICENSE-APACHE
+    naga_oil-0.17.1/LICENSE-MIT
+
+nonmax 0.5.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/LPGhatguy/nonmax
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    nonmax-0.5.5/LICENSE-APACHE
+    nonmax-0.5.5/LICENSE-MIT
+
+ntapi 0.4.3
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/MSxDOS/ntapi
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ntapi-0.4.3/LICENSE-APACHE
+    ntapi-0.4.3/LICENSE-MIT
+
+nu-ansi-term 0.50.3
+  License expression: MIT
+  Repository: https://github.com/nushell/nu-ansi-term
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    nu-ansi-term-0.50.3/LICENSE
+
+num-traits 0.2.19
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-num/num-traits
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    num-traits-0.2.19/LICENSE-APACHE
+    num-traits-0.2.19/LICENSE-MIT
+
+offset-allocator 0.2.0
+  License expression: MIT
+  Repository: https://github.com/pcwalton/offset-allocator/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    offset-allocator-0.2.0/LICENSE-MIT
+
+ogg 0.8.0
+  License expression: BSD-3-Clause
+  Repository: https://github.com/RustAudio/ogg
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ogg-0.8.0/LICENSE
+
+once_cell 1.21.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/matklad/once_cell
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    once_cell-1.21.4/LICENSE-APACHE
+    once_cell-1.21.4/LICENSE-MIT
+
+ordered-float 4.6.0
+  License expression: MIT
+  Repository: https://github.com/reem/rust-ordered-float
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ordered-float-4.6.0/LICENSE-MIT
+
+parking 2.2.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/smol-rs/parking
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    parking-2.2.1/LICENSE-APACHE
+    parking-2.2.1/LICENSE-MIT
+    parking-2.2.1/LICENSE-THIRD-PARTY
+
+parking_lot 0.12.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/Amanieu/parking_lot
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    parking_lot-0.12.5/LICENSE-APACHE
+    parking_lot-0.12.5/LICENSE-MIT
+
+parking_lot_core 0.9.12
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/Amanieu/parking_lot
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    parking_lot_core-0.9.12/LICENSE-APACHE
+    parking_lot_core-0.9.12/LICENSE-MIT
+
+paste 1.0.15
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/paste
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    paste-1.0.15/LICENSE-APACHE
+    paste-1.0.15/LICENSE-MIT
+
+percent-encoding 2.3.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/servo/rust-url/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    percent-encoding-2.3.2/LICENSE-APACHE
+    percent-encoding-2.3.2/LICENSE-MIT
+
+petgraph 0.7.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/petgraph/petgraph
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    petgraph-0.7.1/assets/LICENSE.md
+    petgraph-0.7.1/LICENSE-APACHE
+    petgraph-0.7.1/LICENSE-MIT
+
+pin-project-lite 0.2.17
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/taiki-e/pin-project-lite
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    pin-project-lite-0.2.17/LICENSE-APACHE
+    pin-project-lite-0.2.17/LICENSE-MIT
+
+piper 0.2.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/smol-rs/piper
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    piper-0.2.5/LICENSE-APACHE
+    piper-0.2.5/LICENSE-MIT
+
+pkg-config 0.3.34
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/pkg-config-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    pkg-config-0.3.34/LICENSE-APACHE
+    pkg-config-0.3.34/LICENSE-MIT
+
+png 0.18.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/image-rs/image-png
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    png-0.18.1/LICENSE-APACHE
+    png-0.18.1/LICENSE-MIT
+
+portable-atomic 1.15.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/taiki-e/portable-atomic
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    portable-atomic-1.15.0/LICENSE-APACHE
+    portable-atomic-1.15.0/LICENSE-MIT
+
+pp-rs 0.2.1
+  License expression: BSD-3-Clause
+  Repository: https://github.com/Kangz/glslpp-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    pp-rs-0.2.1/LICENSE
+
+ppv-lite86 0.2.21
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/cryptocorrosion/cryptocorrosion
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ppv-lite86-0.2.21/LICENSE-APACHE
+    ppv-lite86-0.2.21/LICENSE-MIT
+
+presser 0.3.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/EmbarkStudios/presser
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    presser-0.3.1/LICENSE-APACHE
+    presser-0.3.1/LICENSE-MIT
+
+proc-macro2 1.0.107
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/proc-macro2
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    proc-macro2-1.0.107/LICENSE-APACHE
+    proc-macro2-1.0.107/LICENSE-MIT
+
+profiling 1.0.18
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/aclysma/profiling
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 8271551172eb6fa4cba47369aedd93790c623df9.
+  Upstream source: https://github.com/aclysma/profiling at 8271551172eb6fa4cba47369aedd93790c623df9 (crate path profiling).
+  Bundled license/notice/attribution files:
+    profiling-1.0.18/LICENSE-APACHE
+    profiling-1.0.18/LICENSE-MIT
+
+pxfm 0.1.30
+  License expression: BSD-3-Clause OR Apache-2.0
+  Repository: https://github.com/awxkee/pxfm
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    pxfm-0.1.30/LICENSE-APACHE.md
+    pxfm-0.1.30/LICENSE.md
+
+quote 1.0.47
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/quote
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    quote-1.0.47/LICENSE-APACHE
+    quote-1.0.47/LICENSE-MIT
+
+radsort 0.1.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/jakubvaltar/radsort
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    radsort-0.1.1/LICENSE-APACHE.txt
+    radsort-0.1.1/LICENSE-MIT.txt
+
+rand 0.8.8
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/rand
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rand-0.8.8/COPYRIGHT
+    rand-0.8.8/LICENSE-APACHE
+    rand-0.8.8/LICENSE-MIT
+
+rand_chacha 0.3.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/rand
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rand_chacha-0.3.1/COPYRIGHT
+    rand_chacha-0.3.1/LICENSE-APACHE
+    rand_chacha-0.3.1/LICENSE-MIT
+
+rand_core 0.6.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/rand
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rand_core-0.6.4/COPYRIGHT
+    rand_core-0.6.4/LICENSE-APACHE
+    rand_core-0.6.4/LICENSE-MIT
+
+rand_distr 0.4.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-random/rand
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rand_distr-0.4.3/COPYRIGHT
+    rand_distr-0.4.3/LICENSE-APACHE
+    rand_distr-0.4.3/LICENSE-MIT
+
+range-alloc 0.1.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/range-alloc
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    range-alloc-0.1.5/LICENSE.APACHE
+    range-alloc-0.1.5/LICENSE.MIT
+
+rangemap 1.8.0
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/jeffparsons/rangemap
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rangemap-1.8.0/LICENSE-APACHE
+    rangemap-1.8.0/LICENSE-MIT
+
+raw-window-handle 0.6.2
+  License expression: MIT OR Apache-2.0 OR Zlib
+  Repository: https://github.com/rust-windowing/raw-window-handle
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    raw-window-handle-0.6.2/LICENSE-APACHE.md
+    raw-window-handle-0.6.2/LICENSE-MIT.md
+    raw-window-handle-0.6.2/LICENSE-ZLIB.md
+
+read-fonts 0.41.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/googlefonts/fontations
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    read-fonts-0.41.0/LICENSE-APACHE
+    read-fonts-0.41.0/LICENSE-MIT
+
+rectangle-pack 0.4.2
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/chinedufn/rectangle-pack
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rectangle-pack-0.4.2/LICENSE-APACHE
+    rectangle-pack-0.4.2/LICENSE-MIT
+
+regex 1.13.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/regex
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    regex-1.13.1/LICENSE-APACHE
+    regex-1.13.1/LICENSE-MIT
+
+regex-automata 0.4.18
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/regex
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    regex-automata-0.4.18/LICENSE-APACHE
+    regex-automata-0.4.18/LICENSE-MIT
+
+regex-syntax 0.8.11
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/regex
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    regex-syntax-0.8.11/LICENSE-APACHE
+    regex-syntax-0.8.11/LICENSE-MIT
+    regex-syntax-0.8.11/src/unicode_tables/LICENSE-UNICODE
+
+renderdoc-sys 1.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/ebkalderon/renderdoc-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    renderdoc-sys-1.1.0/LICENSE-APACHE
+    renderdoc-sys-1.1.0/LICENSE-MIT
+
+rodio 0.20.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RustAudio/rodio
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rodio-0.20.1/LICENSE-APACHE
+    rodio-0.20.1/LICENSE-MIT
+
+ron 0.8.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/ron-rs/ron
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ron-0.8.1/LICENSE-APACHE
+    ron-0.8.1/LICENSE-MIT
+
+rustc-hash 1.1.0
+  License expression: Apache-2.0/MIT
+  Repository: https://github.com/rust-lang-nursery/rustc-hash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rustc-hash-1.1.0/LICENSE-APACHE
+    rustc-hash-1.1.0/LICENSE-MIT
+
+rustversion 1.0.23
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/rustversion
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rustversion-1.0.23/LICENSE-APACHE
+    rustversion-1.0.23/LICENSE-MIT
+
+rustybuzz 0.14.1
+  License expression: MIT
+  Repository: https://github.com/RazrFalcon/rustybuzz
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    rustybuzz-0.14.1/LICENSE
+    rustybuzz-0.14.1/scripts/ms-use/COPYING
+
+ruzstd 0.8.3
+  License expression: MIT
+  Repository: https://github.com/KillingSpark/zstd-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ruzstd-0.8.3/LICENSE
+
+scopeguard 1.2.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bluss/scopeguard
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    scopeguard-1.2.0/LICENSE-APACHE
+    scopeguard-1.2.0/LICENSE-MIT
+
+self_cell 1.3.0
+  License expression: Apache-2.0 OR GPL-2.0-only
+  Repository: https://github.com/Voultapher/self_cell
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    self_cell-1.3.0/LICENSE-APACHE
+    self_cell-1.3.0/LICENSE-GPLv2
+
+serde 1.0.229
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/serde-rs/serde
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    serde-1.0.229/LICENSE-APACHE
+    serde-1.0.229/LICENSE-MIT
+
+serde_core 1.0.229
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/serde-rs/serde
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    serde_core-1.0.229/LICENSE-APACHE
+    serde_core-1.0.229/LICENSE-MIT
+
+serde_derive 1.0.229
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/serde-rs/serde
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    serde_derive-1.0.229/LICENSE-APACHE
+    serde_derive-1.0.229/LICENSE-MIT
+
+serde_json 1.0.151
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/serde-rs/json
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    serde_json-1.0.151/LICENSE-APACHE
+    serde_json-1.0.151/LICENSE-MIT
+
+sharded-slab 0.1.7
+  License expression: MIT
+  Repository: https://github.com/hawkw/sharded-slab
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    sharded-slab-0.1.7/LICENSE
+
+shlex 2.0.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/comex/rust-shlex
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    shlex-2.0.1/LICENSE-APACHE
+    shlex-2.0.1/LICENSE-MIT
+
+simd-adler32 0.3.10
+  License expression: MIT
+  Repository: https://github.com/mcountryman/simd-adler32
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    simd-adler32-0.3.10/LICENSE.md
+
+skrifa 0.44.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/googlefonts/fontations
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    skrifa-0.44.0/LICENSE-APACHE
+    skrifa-0.44.0/LICENSE-MIT
+
+slab 0.4.12
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/slab
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    slab-0.4.12/LICENSE
+
+slotmap 1.1.1
+  License expression: Zlib
+  Repository: https://github.com/orlp/slotmap
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    slotmap-1.1.1/LICENSE
+
+smallvec 1.16.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/servo/rust-smallvec
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    smallvec-1.16.2/LICENSE-APACHE
+    smallvec-1.16.2/LICENSE-MIT
+
+smol_str 0.2.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-analyzer/smol_str
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    smol_str-0.2.2/LICENSE-APACHE
+    smol_str-0.2.2/LICENSE-MIT
+
+spin 0.9.9
+  License expression: MIT
+  Repository: https://github.com/mvdnes/spin-rs.git
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    spin-0.9.9/LICENSE
+
+spirv 0.3.0+sdk-1.3.268.0
+  License expression: Apache-2.0
+  Repository: https://github.com/gfx-rs/rspirv
+  Provenance: no license/notice file in the registry archive; checked upstream at commit e91a5debc10c395b36db7721dfff6326d697a1e2.
+  Upstream source: https://github.com/gfx-rs/rspirv at e91a5debc10c395b36db7721dfff6326d697a1e2 (crate path spirv).
+  Bundled license/notice/attribution files:
+    spirv-0.3.0+sdk-1.3.268.0/LICENSE
+
+stackfuture 0.3.1
+  License expression: MIT
+  Repository: https://github.com/microsoft/stackfuture
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    stackfuture-0.3.1/LICENSE.txt
+
+static_assertions 1.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/nvzqz/static-assertions-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    static_assertions-1.1.0/LICENSE-APACHE
+    static_assertions-1.1.0/LICENSE-MIT
+
+strum 0.26.3
+  License expression: MIT
+  Repository: https://github.com/Peternator7/strum
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    strum-0.26.3/LICENSE
+
+strum_macros 0.26.4
+  License expression: MIT
+  Repository: https://github.com/Peternator7/strum
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    strum_macros-0.26.4/LICENSE
+
+svg_fmt 0.4.5
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/nical/rust_debug
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 93f414cd572b5c2781df93dbdc068ed13443d05a.
+  Upstream source: https://github.com/nical/rust_debug at 93f414cd572b5c2781df93dbdc068ed13443d05a (crate path svg_fmt).
+  Bundled license/notice/attribution files:
+    svg_fmt-0.4.5/LICENSE
+
+swash 0.2.10
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/dfrg/swash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    swash-0.2.10/LICENSE-APACHE
+    swash-0.2.10/LICENSE-MIT
+
+syn 2.0.119
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/syn
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    syn-2.0.119/LICENSE-APACHE
+    syn-2.0.119/LICENSE-MIT
+
+syn 3.0.6
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/syn
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    syn-3.0.6/LICENSE-APACHE
+    syn-3.0.6/LICENSE-MIT
+
+sys-locale 0.3.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/1Password/sys-locale
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    sys-locale-0.3.2/LICENSE-APACHE
+    sys-locale-0.3.2/LICENSE-MIT
+
+sysinfo 0.34.2
+  License expression: MIT
+  Repository: https://github.com/GuillaumeGomez/sysinfo
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    sysinfo-0.34.2/LICENSE
+
+taffy 0.7.7
+  License expression: MIT
+  Repository: https://github.com/DioxusLabs/taffy
+  Provenance: no license/notice file in the registry archive; checked upstream at commit 38c99d9452109f739a5ecebeeba423cacd3a703d.
+  Upstream source: https://github.com/DioxusLabs/taffy at 38c99d9452109f739a5ecebeeba423cacd3a703d.
+  Bundled license/notice/attribution files:
+    taffy-0.7.7/LICENSE.md
+
+termcolor 1.4.1
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/BurntSushi/termcolor
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    termcolor-1.4.1/COPYING
+    termcolor-1.4.1/LICENSE-MIT
+    termcolor-1.4.1/UNLICENSE
+
+thiserror 1.0.69
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    thiserror-1.0.69/LICENSE-APACHE
+    thiserror-1.0.69/LICENSE-MIT
+
+thiserror 2.0.21
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    thiserror-2.0.21/LICENSE-APACHE
+    thiserror-2.0.21/LICENSE-MIT
+
+thiserror-impl 1.0.69
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    thiserror-impl-1.0.69/LICENSE-APACHE
+    thiserror-impl-1.0.69/LICENSE-MIT
+
+thiserror-impl 2.0.21
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    thiserror-impl-2.0.21/LICENSE-APACHE
+    thiserror-impl-2.0.21/LICENSE-MIT
+
+thread_local 1.1.10
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/Amanieu/thread_local-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    thread_local-1.1.10/LICENSE-APACHE
+    thread_local-1.1.10/LICENSE-MIT
+
+tinyvec 1.13.3
+  License expression: Zlib OR Apache-2.0 OR MIT
+  Repository: https://github.com/Lokathor/tinyvec
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tinyvec-1.13.3/LICENSE-APACHE.md
+    tinyvec-1.13.3/LICENSE-MIT.md
+    tinyvec-1.13.3/LICENSE-ZLIB.md
+
+toml_datetime 0.6.11
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/toml-rs/toml
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    toml_datetime-0.6.11/LICENSE-APACHE
+    toml_datetime-0.6.11/LICENSE-MIT
+
+toml_edit 0.22.27
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/toml-rs/toml
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    toml_edit-0.22.27/LICENSE-APACHE
+    toml_edit-0.22.27/LICENSE-MIT
+
+tracing 0.1.44
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/tracing
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tracing-0.1.44/LICENSE
+
+tracing-attributes 0.1.31
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/tracing
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tracing-attributes-0.1.31/LICENSE
+
+tracing-core 0.1.36
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/tracing
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tracing-core-0.1.36/LICENSE
+    tracing-core-0.1.36/src/spin/LICENSE
+
+tracing-log 0.2.0
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/tracing
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tracing-log-0.2.0/LICENSE
+
+tracing-subscriber 0.3.23
+  License expression: MIT
+  Repository: https://github.com/tokio-rs/tracing
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    tracing-subscriber-0.3.23/LICENSE
+
+ttf-parser 0.20.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RazrFalcon/ttf-parser
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ttf-parser-0.20.0/LICENSE-APACHE
+    ttf-parser-0.20.0/LICENSE-MIT
+
+ttf-parser 0.21.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/RazrFalcon/ttf-parser
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    ttf-parser-0.21.1/LICENSE-APACHE
+    ttf-parser-0.21.1/LICENSE-MIT
+
+twox-hash 2.1.4
+  License expression: MIT
+  Repository: https://github.com/shepmaster/twox-hash
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    twox-hash-2.1.4/LICENSE.txt
+
+typeid 1.0.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/typeid
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    typeid-1.0.3/LICENSE-APACHE
+    typeid-1.0.3/LICENSE-MIT
+
+typewit 1.15.2
+  License expression: Zlib
+  Repository: https://github.com/rodrimati1992/typewit/
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    typewit-1.15.2/LICENSE-ZLIB.md
+
+unicode-bidi 0.3.18
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/servo/unicode-bidi
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-bidi-0.3.18/AUTHORS
+    unicode-bidi-0.3.18/COPYRIGHT
+    unicode-bidi-0.3.18/LICENSE-APACHE
+    unicode-bidi-0.3.18/LICENSE-MIT
+
+unicode-bidi-mirroring 0.2.0
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/RazrFalcon/unicode-bidi-mirroring
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-bidi-mirroring-0.2.0/LICENSE-APACHE
+    unicode-bidi-mirroring-0.2.0/LICENSE-MIT
+
+unicode-ccc 0.2.0
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/RazrFalcon/unicode-ccc
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-ccc-0.2.0/LICENSE-APACHE
+    unicode-ccc-0.2.0/LICENSE-MIT
+
+unicode-ident 1.0.26
+  License expression: (MIT OR Apache-2.0) AND Unicode-3.0
+  Repository: https://github.com/dtolnay/unicode-ident
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-ident-1.0.26/LICENSE-APACHE
+    unicode-ident-1.0.26/LICENSE-MIT
+    unicode-ident-1.0.26/LICENSE-UNICODE
+
+unicode-linebreak 0.1.5
+  License expression: Apache-2.0
+  Repository: https://github.com/axelf4/unicode-linebreak
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-linebreak-0.1.5/LICENSE
+
+unicode-properties 0.1.4
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-properties
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-properties-0.1.4/COPYRIGHT
+    unicode-properties-0.1.4/LICENSE-APACHE
+    unicode-properties-0.1.4/LICENSE-MIT
+
+unicode-script 0.5.8
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-script
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-script-0.5.8/LICENSE-APACHE
+    unicode-script-0.5.8/LICENSE-MIT
+
+unicode-segmentation 1.13.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-segmentation
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-segmentation-1.13.3/COPYRIGHT
+    unicode-segmentation-1.13.3/LICENSE-APACHE
+    unicode-segmentation-1.13.3/LICENSE-MIT
+
+unicode-width 0.1.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-width
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-width-0.1.14/COPYRIGHT
+    unicode-width-0.1.14/LICENSE-APACHE
+    unicode-width-0.1.14/LICENSE-MIT
+
+unicode-xid 0.2.6
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-xid
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    unicode-xid-0.2.6/COPYRIGHT
+    unicode-xid-0.2.6/LICENSE-APACHE
+    unicode-xid-0.2.6/LICENSE-MIT
+
+uuid 1.26.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/uuid-rs/uuid
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    uuid-1.26.1/LICENSE-APACHE
+    uuid-1.26.1/LICENSE-MIT
+
+variadics_please 1.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bevyengine/variadics_please
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    variadics_please-1.1.0/LICENSE-APACHE
+    variadics_please-1.1.0/LICENSE-MIT
+
+vec_map 0.8.2
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/contain-rs/vec-map
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    vec_map-0.8.2/LICENSE-APACHE
+    vec_map-0.8.2/LICENSE-MIT
+
+version_check 0.9.5
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/SergioBenitez/version_check
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    version_check-0.9.5/LICENSE-APACHE
+    version_check-0.9.5/LICENSE-MIT
+
+wgpu 24.0.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    wgpu-24.0.5/LICENSE.APACHE
+    wgpu-24.0.5/LICENSE.MIT
+
+wgpu-core 24.0.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    wgpu-core-24.0.5/LICENSE.APACHE
+    wgpu-core-24.0.5/LICENSE.MIT
+
+wgpu-hal 24.0.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    wgpu-hal-24.0.4/LICENSE.APACHE
+    wgpu-hal-24.0.4/LICENSE.MIT
+
+wgpu-types 24.0.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    wgpu-types-24.0.0/LICENSE.APACHE
+    wgpu-types-24.0.0/LICENSE.MIT
+
+winapi 0.3.9
+  License expression: MIT/Apache-2.0
+  Repository: https://github.com/retep998/winapi-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    winapi-0.3.9/LICENSE-APACHE
+    winapi-0.3.9/LICENSE-MIT
+
+winapi-util 0.1.11
+  License expression: Unlicense OR MIT
+  Repository: https://github.com/BurntSushi/winapi-util
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    winapi-util-0.1.11/COPYING
+    winapi-util-0.1.11/LICENSE-MIT
+    winapi-util-0.1.11/UNLICENSE
+
+windows 0.54.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-0.54.0/license-apache-2.0
+    windows-0.54.0/license-mit
+
+windows 0.57.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-0.57.0/license-apache-2.0
+    windows-0.57.0/license-mit
+
+windows 0.58.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-0.58.0/license-apache-2.0
+    windows-0.58.0/license-mit
+
+windows 0.62.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-0.62.2/license-apache-2.0
+    windows-0.62.2/license-mit
+
+windows_x86_64_msvc 0.52.6
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows_x86_64_msvc-0.52.6/license-apache-2.0
+    windows_x86_64_msvc-0.52.6/license-mit
+
+windows-collections 0.3.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-collections-0.3.2/license-apache-2.0
+    windows-collections-0.3.2/license-mit
+
+windows-core 0.54.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-core-0.54.0/license-apache-2.0
+    windows-core-0.54.0/license-mit
+
+windows-core 0.57.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-core-0.57.0/license-apache-2.0
+    windows-core-0.57.0/license-mit
+
+windows-core 0.58.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-core-0.58.0/license-apache-2.0
+    windows-core-0.58.0/license-mit
+
+windows-core 0.62.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-core-0.62.2/license-apache-2.0
+    windows-core-0.62.2/license-mit
+
+windows-future 0.3.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-future-0.3.2/license-apache-2.0
+    windows-future-0.3.2/license-mit
+
+windows-implement 0.57.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-implement-0.57.0/license-apache-2.0
+    windows-implement-0.57.0/license-mit
+
+windows-implement 0.58.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-implement-0.58.0/license-apache-2.0
+    windows-implement-0.58.0/license-mit
+
+windows-implement 0.60.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-implement-0.60.2/license-apache-2.0
+    windows-implement-0.60.2/license-mit
+
+windows-interface 0.57.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-interface-0.57.0/license-apache-2.0
+    windows-interface-0.57.0/license-mit
+
+windows-interface 0.58.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-interface-0.58.0/license-apache-2.0
+    windows-interface-0.58.0/license-mit
+
+windows-interface 0.59.3
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-interface-0.59.3/license-apache-2.0
+    windows-interface-0.59.3/license-mit
+
+windows-link 0.2.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-link-0.2.1/license-apache-2.0
+    windows-link-0.2.1/license-mit
+
+windows-numerics 0.3.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-numerics-0.3.1/license-apache-2.0
+    windows-numerics-0.3.1/license-mit
+
+windows-result 0.1.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-result-0.1.2/license-apache-2.0
+    windows-result-0.1.2/license-mit
+
+windows-result 0.2.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-result-0.2.0/license-apache-2.0
+    windows-result-0.2.0/license-mit
+
+windows-result 0.4.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-result-0.4.1/license-apache-2.0
+    windows-result-0.4.1/license-mit
+
+windows-strings 0.1.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-strings-0.1.0/license-apache-2.0
+    windows-strings-0.1.0/license-mit
+
+windows-strings 0.5.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-strings-0.5.1/license-apache-2.0
+    windows-strings-0.5.1/license-mit
+
+windows-sys 0.52.0
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-sys-0.52.0/license-apache-2.0
+    windows-sys-0.52.0/license-mit
+
+windows-sys 0.61.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-sys-0.61.2/license-apache-2.0
+    windows-sys-0.61.2/license-mit
+
+windows-targets 0.52.6
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-targets-0.52.6/license-apache-2.0
+    windows-targets-0.52.6/license-mit
+
+windows-threading 0.2.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/microsoft/windows-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    windows-threading-0.2.1/license-apache-2.0
+    windows-threading-0.2.1/license-mit
+
+winit 0.30.13
+  License expression: Apache-2.0
+  Repository: https://github.com/rust-windowing/winit
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    winit-0.30.13/LICENSE
+
+winnow 0.7.15
+  License expression: MIT
+  Repository: https://github.com/winnow-rs/winnow
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    winnow-0.7.15/LICENSE-MIT
+
+xml-rs 0.8.29
+  License expression: MIT
+  Repository: https://github.com/kornelski/xml-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    xml-rs-0.8.29/LICENSE
+
+yazi 0.2.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/dfrg/yazi
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    yazi-0.2.1/LICENSE-APACHE
+    yazi-0.2.1/LICENSE-MIT
+
+zeno 0.3.3
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/dfrg/zeno
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    zeno-0.3.3/LICENSE-APACHE
+    zeno-0.3.3/LICENSE-MIT
+
+zerocopy 0.8.59
+  License expression: BSD-2-Clause OR Apache-2.0 OR MIT
+  Repository: https://github.com/google/zerocopy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    zerocopy-0.8.59/LICENSE-APACHE
+    zerocopy-0.8.59/LICENSE-BSD
+    zerocopy-0.8.59/LICENSE-MIT
+
+zerocopy-derive 0.8.59
+  License expression: BSD-2-Clause OR Apache-2.0 OR MIT
+  Repository: https://github.com/google/zerocopy
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    zerocopy-derive-0.8.59/LICENSE-APACHE
+    zerocopy-derive-0.8.59/LICENSE-BSD
+    zerocopy-derive-0.8.59/LICENSE-MIT
+
+zlib-rs 0.6.8
+  License expression: Zlib
+  Repository: https://github.com/trifectatechfoundation/zlib-rs
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    zlib-rs-0.6.8/LICENSE
+
+zmij 1.0.23
+  License expression: MIT
+  Repository: https://github.com/dtolnay/zmij
+  Provenance: license, notice, and attribution files from the Cargo registry package archive for this version.
+  Bundled license/notice/attribution files:
+    zmij-1.0.23/LICENSE-MIT
+

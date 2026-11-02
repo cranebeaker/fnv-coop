@@ -1,0 +1,9 @@
+[package]
+name = "mp3"
+version = "0.1.0"
+description = "MP3 decoder (MPEG-1, 2 and 2.5 Layer III), for the game's music"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

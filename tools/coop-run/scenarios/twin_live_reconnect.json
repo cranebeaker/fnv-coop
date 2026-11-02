@@ -1,0 +1,52 @@
+{
+  "name": "twin_live_reconnect",
+  "description": "MUTATION TWIN of live_reconnect: expects the guest to still see the host at the pre-outage point A, which a working reconnect refutes. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 57,
+  "duration_s": 30,
+  "settle_s": 8,
+  "outages": [
+    {
+      "at": 8,
+      "seconds": 8,
+      "dir": "both"
+    }
+  ],
+  "max_repairs": 20,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2552 1603.6 7360.0"
+      },
+      {
+        "at": 20,
+        "run": "coop teleport 2152 1403.6 7360.0"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2152 1803.6 7360.0"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-still-at-A",
+      "path": "positions.host",
+      "op": "near",
+      "value": [
+        2552,
+        1603.6
+      ],
+      "tol": 80,
+      "dims": 2,
+      "on": "guest"
+    }
+  ],
+  "expect_fail": true
+}

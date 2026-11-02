@@ -1,0 +1,12 @@
+[package]
+name = "nif"
+version = "0.1.0"
+description = "Reader for Fallout 3 / New Vegas NIF meshes (Gamebryo 20.2.0.7)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

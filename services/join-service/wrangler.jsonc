@@ -1,0 +1,19 @@
+{
+  // Worker name is generic on purpose. Rename if you like; it becomes part of the public workers.dev URL.
+  "name": "coop-join",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  // No log or trace persistence: blobs must never land in logs.
+  "observability": { "enabled": false },
+  "durable_objects": {
+    "bindings": [
+      { "name": "JOIN_ROOM", "class_name": "JoinRoom" },
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+    ]
+  },
+  "migrations": [
+    // new_sqlite_classes is what the free plan requires.
+    { "tag": "v1", "new_sqlite_classes": ["JoinRoom", "RateLimiter"] }
+  ]
+}

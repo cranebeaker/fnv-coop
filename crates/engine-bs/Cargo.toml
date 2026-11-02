@@ -1,0 +1,11 @@
+[package]
+name = "engine-bs"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FalloutNV.exe translated function by function: the Bethesda engine units (BSAudio, BSCore, BSMain, BSMenu, BSMovie, BSShader, BSSystem)"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-gamebryo = { path = "../engine-gamebryo" }

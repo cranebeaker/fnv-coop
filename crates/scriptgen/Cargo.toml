@@ -1,0 +1,11 @@
+[package]
+name = "scriptgen"
+version = "0.1.0"
+description = "Translates the game's scripts into Rust that runs exactly as the interpreter does"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+esm = { path = "../esm" }
+script = { path = "../script" }

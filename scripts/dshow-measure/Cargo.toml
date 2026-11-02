@@ -1,0 +1,9 @@
+[package]
+name = "dshow-measure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Measures what DirectShow's filter graph answers for the game's MP3 music (duration, position, events), for the platform's filter graph. Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

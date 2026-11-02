@@ -1,0 +1,48 @@
+{
+  "name": "twin_doc_player_quest_sync",
+  "description": "MUTATION TWIN of doc_player_quest_sync: the host never sets the quest stage. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "perfect",
+  "seed": 12,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "player-stage",
+      "path": "player_quests.host.VCG01.stage",
+      "op": "ge",
+      "value": 10,
+      "on": "both"
+    },
+    {
+      "id": "player-stage-equal",
+      "path": "player_quests.host.VCG01.stage",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    },
+    {
+      "id": "not-shared-host",
+      "path": "quests.VCG01",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "not-shared-guest",
+      "path": "quests.VCG01",
+      "op": "absent",
+      "on": "guest"
+    }
+  ],
+  "expect_fail": true
+}

@@ -1,0 +1,11 @@
+[package]
+name = "bsa"
+version = "0.1.0"
+description = "Reader for Fallout 3 / New Vegas BSA archives (versions 103 and 104)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Shared zlib decoder and Windows-1252 text handling.
+esm = { path = "../esm" }

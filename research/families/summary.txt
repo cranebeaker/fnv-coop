@@ -1,0 +1,69 @@
+# Look-alike families: summary (research/families group)
+
+functions with disassembly          66259 (44924 outside `compiler: static init/exit`)
+strict families (>= 2 members)      2014, holding 33152 functions (12022 outside static init)
+loose families (>= 2 members)       3034, holding 40816 functions (19550 outside static init)
+open functions                      20665
+open in a family of >= 2            strict 6047, loose 9149
+open with a translated sibling      strict 3264 (of them >= 10 insns: 2155), loose 4687 (>= 10 insns: 3193)
+
+Open functions by subsystem
+(s-fam/l-fam: open functions in a strict/loose family of two or more;
+ s-tr/l-tr: open functions whose strict/loose family has a translated member;
+ s-tr10/l-tr10: of those, functions of 10 or more instructions)
+
+scope                                  funcs  open  s-fam   s-tr s-tr10  l-fam   l-tr l-tr10
+Havok SDK                               6591  6404   1514    461    194   2267    581    211
+fallout shared                         10470  2253    690    488    391   1127    857    665
+(none)                                  2353  1552    474    236    164    724    342    247
+NiMain                                  1619  1374    308    139     23    536    216     91
+BSHavok                                 1615  1227    407    136     45    533    186     83
+NiAnimation                             1279  1216    349    137     12    599    187     62
+fallout/ai                              4849  1155    310    260    230    523    400    335
+fallout/interface                       2645   749    308    281    264    456    405    328
+BSMain                                   991   636    243    183    127    320    249    190
+fallout/magic                            705   584    159     72     59    233    124    101
+NiParticle                               649   581    214    108      4    314    133     28
+FaceGen                                  474   463    110      7      2    210     14      5
+fallout shared/pathfinding              1788   459    209    195    187    282    268    257
+fallout shared/facegen                   433   369    174    101     83    246    130    107
+fallout shared/havok                     478   231    122    100     85    143    117    101
+fallout/misc                            1045   231    125    108     98    140    119    109
+NiCollision                              215   210     25      8      7     44     12      9
+fallout shared/distant terrain system    204   112     49     37     34     68     49     40
+fallout shared/magic                     296   109     33     23     18     56     34     25
+fallout shared/region system             159   107     25     16     14     35     27     24
+fallout shared/tempeffects               149   105     40     37     24     52     48     33
+fallout/audio                            190    92     31     28     23     53     48     42
+BSCore                                   197    77     22     18      7     29     23     10
+NiSystem                                  92    77     11      6      3     18      7      4
+fallout shared/speedtree                 115    73     35     32     20     51     38     25
+fallout shared/sky                       164    71     15     15     13     31     29     26
+fallout/dialogue                          74    55     11      6      5     18     11     10
+BSAudio                                  304    53     22     15      9     25     20     13
+BSMenu                                   361    26      5      5      4      6      5      4
+fallout shared/settings                    9     7      1      0      0      4      2      2
+fallout/debug                             10     7      6      6      6      6      6      6
+BSDevices                                  8     0      0      0      0      0      0      0
+BSDiag                                     3     0      0      0      0      0      0      0
+BSMovie                                   62     0      0      0      0      0      0      0
+BSShader                                1549     0      0      0      0      0      0      0
+BSSystem                                 275     0      0      0      0      0      0      0
+BSSystemUtilities                         86     0      0      0      0      0      0      0
+LIBCMT                                   682     0      0      0      0      0      0      0
+NiXenonRenderer                          965     0      0      0      0      0      0      0
+RemoteLog                                  1     0      0      0      0      0      0      0
+SpeedTree                                732     0      0      0      0      0      0      0
+XAPILIB                                    8     0      0      0      0      0      0      0
+XBOXKRNL                                   1     0      0      0      0      0      0      0
+compiler: static init/exit             21335     0      0      0      0      0      0      0
+d3d9                                       1     0      0      0      0      0      0      0
+d3dx9                                     11     0      0      0      0      0      0      0
+libcpmt                                   12     0      0      0      0      0      0      0
+xaudio2                                    1     0      0      0      0      0      0      0
+zLib                                       4     0      0      0      0      0      0      0
+
+Focus units
+
+scope                                  funcs  open  s-fam   s-tr s-tr10  l-fam   l-tr l-tr10
+fallout/ai/middlehighprocess.cpp         194    96      5      5      2     27     21     16

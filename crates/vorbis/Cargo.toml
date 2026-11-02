@@ -1,0 +1,9 @@
+[package]
+name = "vorbis"
+version = "0.1.0"
+description = "Ogg Vorbis decoder for the game's voice and sound files, matched against the player's libvorbisfile"
+edition.workspace = true
+license = "GPL-3.0-or-later AND BSD-3-Clause"
+rust-version.workspace = true
+
+[dependencies]

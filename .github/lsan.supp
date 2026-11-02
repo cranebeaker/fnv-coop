@@ -1,2 +1,0 @@
-# LeakSanitizer suppressions for the sanitizers workflow. Each entry needs the reason and the issue that removes it.
-# Empty: the one known leak (runAsync reference cycle, #46) is fixed; its twin runs in its own step and must be caught by LSan.

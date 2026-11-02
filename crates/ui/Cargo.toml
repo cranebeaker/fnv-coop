@@ -1,0 +1,16 @@
+[package]
+name = "ui"
+version = "0.1.0"
+description = "The game's menus: its menu XML read into tiles and evaluated as its code does, its fonts and text layout, the HUD and the Pip-Boy"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The Pip-Boy reads the game's state (`pipboy::gather`).
+esm = { path = "../esm" }
+script = { path = "../script" }
+world = { path = "../world" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

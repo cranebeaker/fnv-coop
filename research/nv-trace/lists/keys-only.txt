@@ -1,0 +1,4 @@
+# The fewest hooks a scripted real run needs: the frame function (key timing, screenshots)
+# and the event that starts the world's key script (the world's first 00dae3a0).
+0086e650 frame    p               void Main::OnIdle
+00dae3a0 cdecl    ppwpp           void max=1 00dae3a0 (no label): manifold record filter

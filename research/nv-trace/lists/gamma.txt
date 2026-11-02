@@ -1,0 +1,5 @@
+# Brightness in the Settings menu (lead, 2026-10-29): the gamma ramp and the device call.
+0086e650 frame    p      void Main::OnIdle
+004dcef0 cdecl    -      void 004dcef0 (no label): build and set the gamma ramp (fGamma)
+7e020254 stdcall  pwwp   void IDirect3DDevice9::SetGammaRamp
+7e020258 stdcall  pwp    void IDirect3DDevice9::GetGammaRamp

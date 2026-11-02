@@ -1,0 +1,21 @@
+# nv-oracle: ground-truth oracle tools for 32-bit Windows (see README.md).
+# This is its own workspace, separate from the nv-rs workspace and the viewer.
+# It has no external dependencies: only std and core::arch.
+[workspace]
+resolver = "2"
+members = ["nv-oracle-core", "nv-win", "nv-call", "nv-call-engine", "nv-probe", "nv-inject", "nv-bink"]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.82"
+version = "0.1.0"
+
+# The probe runs inside another program: a panic must never unwind into it.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+debug = false

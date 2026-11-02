@@ -1,0 +1,11 @@
+# families: groups FalloutNV.exe functions into look-alike families by
+# normalised instruction shape and lists each family's translated and open
+# members (see README.md). Its own workspace; no external dependencies.
+[package]
+name = "families"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]

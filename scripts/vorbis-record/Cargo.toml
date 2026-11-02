@@ -1,0 +1,13 @@
+[package]
+name = "vorbis-record"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Records what the player's libvorbisfile.dll decodes from the game's .ogg files (hashes per file), for the platform's Vorbis decoder. Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. Reads the archives with crates/bsa.
+[workspace]
+
+[dependencies]
+bsa = { path = "../../crates/bsa" }
+vorbis = { path = "../../crates/vorbis" }

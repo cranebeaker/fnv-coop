@@ -1,0 +1,33 @@
+# FaceGen speech keyframes and the lip-sync start (FalloutNV.exe 1.4.0.525).
+# Format: address convention words return name (research/nv-trace/README.md).
+# Word counts and conventions from the port's translations of each address (their doc
+# comments name the convention; thiscall's first letter is ECX).
+#
+# Main::OnIdle: the recorder counts frames by it (the key script); recorded like the others.
+0086e650 frame    p               void Main::OnIdle
+# BSFaceGenAnimationData (Xbox PDB names), crates/engine-fallout/.../run_00649ba0.rs
+0064aa00 thiscall ppf             void BSFaceGenAnimationData::AddPhonemeKeyframe
+0064ab40 thiscall ppf             void BSFaceGenAnimationData::AddModifiersKeyframe
+0064ad20 thiscall pwfw            void BSFaceGenAnimationData::AddSpeechEmptyKeyframe
+0064aec0 thiscall pbbbb           void BSFaceGenAnimationData::ClearSpeechKeyframeLists
+0064ca60 cdecl    fppb            u8   BSFaceGenAnimationData::UpdateKeyframeList
+# BSFaceGenKeyframeMultiple, crates/engine-fallout/.../bsfacegenkeyframe.rs
+0064ed60 thiscall pp              u8   BSFaceGenKeyframeMultiple::AddToList
+0064ebe0 thiscall pw              ptr  BSFaceGenKeyframeMultiple::scalar_deleting_destructor
+# LipSynchAnim play (fallout_shared/run_004d5930.rs)
+004d5930 thiscall ppf             u8   004d5930 (no label): plays a LipSynchAnim on a target
+# Actor speak (fallout_ai/actor_p3.rs): this, name, out_sound, 5 words, actor, 5 bytes
+008a20d0 thiscall pppwwwwwpbbbbb  f32  008a20d0 (no label): actor speaks a line
+# Havok: manifold record filter (engine-havok/.../run_00dae3a0.rs, cdecl 5 words)
+00dae3a0 cdecl    ppwpp           void 00dae3a0 (no label): Havok manifold record filter
+# Render-pass arrays (coordinator, 2026-10-28: slot 0 of an array ends up null around the
+# wake-up). Hot functions: each records at most max= calls. Conventions from the
+# translations' doc comments (engine-fallout BSShaderProperty / BSShaderPPLightingProperty).
+00ba9ee0 thiscall ppwwwpppp       void max=400000 BSShaderProperty::RenderPassArray::Add
+00ba95e0 thiscall pw              void max=400000 BSShaderProperty::CheckCreateRenderPassArray
+00ba3aa0 thiscall pwp             void max=400000 00ba3aa0 (no label): NiTArray SetAt
+00ba8d30 thiscall pw              void max=400000 NiTArray<BSShaderProperty::RenderPass *>::SetSize
+00b67be0 thiscall ppwpwpb         ptr  max=400000 BSShaderPPLightingProperty::GetRenderPasses
+00bdf790 thiscall ppwpwpw         void max=400000 BSShaderPPLightingProperty::GetRenderPasses_2x
+# The key script's clock can start at the main menu's creation (--keys-after 007cb7d0:PORT_FRAME).
+007cb7d0 cdecl    bb              u8   StartMenu::Create

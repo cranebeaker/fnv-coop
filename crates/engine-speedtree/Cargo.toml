@@ -1,0 +1,10 @@
+[package]
+name = "engine-speedtree"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FalloutNV.exe translated function by function: the SpeedTree units"
+
+[dependencies]
+engine-core = { path = "../engine-core" }

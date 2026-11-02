@@ -1,0 +1,9 @@
+[package]
+name = "dsound-capture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Captures what DirectSound 8 answers on this machine to the calls FalloutNV.exe makes, for the platform's sound table (dsound.tsv). Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

@@ -1,0 +1,12 @@
+[package]
+name = "d3dx-texture-capture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Fills the machine-local D3DX texture cache: runs the player's d3dx9_38.dll (through the 32-bit d3dx-measure serve) on every texture in the game's archives and loose files, read-only, and keeps the levels D3DX makes itself. Windows only."
+
+# Standalone tool, not part of the root workspace.
+[workspace]
+
+[dependencies]
+bsa = { path = "../../crates/bsa" }

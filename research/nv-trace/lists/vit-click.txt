@@ -1,0 +1,7 @@
+# The Vit-o-Matic's click (lead, 2026-10-29): does the click reach LoveTesterMenu::DoClick, and what does the 3D pick answer.
+0086e650 frame    p      void Main::OnIdle
+00791e40 thiscall pww    void LoveTesterMenu::DoClick (RET 8)
+00e98e20 thiscall pppb   u8   max=400 after=00791e40:14 NiPick::PickObjects
+00a71080 thiscall pffpppw void max=400 after=00791e40:14 rdump=w3:12 rdump=w4:12 00a71080 (no label): the camera's ray through the cursor (RET 0x14)
+00792780 thiscall pw     void max=400 after=00791e40:14 00792780 (no label): per pick candidate (RET 4)
+007917a0 cdecl    -      void 007917a0 (no label): the finish (after Final Results)

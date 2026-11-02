@@ -1,0 +1,16 @@
+[package]
+name = "nv-call-engine"
+description = "The engine behind nv-call: maps a PE32 image and calls its functions on the real CPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nv-oracle-core = { path = "../nv-oracle-core" }
+nv-win = { path = "../nv-win" }

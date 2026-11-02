@@ -1,0 +1,13 @@
+[package]
+name = "assets"
+version = "0.1.0"
+description = "Finds game files across the Data folder's loose files and BSA archives, the way New Vegas does"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bsa = { path = "../bsa" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

@@ -1,0 +1,18 @@
+[package]
+name = "preview"
+version = "0.1.0"
+description = "CPU renderer for previewing Fallout 3 / New Vegas cells as images"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+esm = { path = "../esm" }
+nif = { path = "../nif" }
+dds = { path = "../dds" }
+assets = { path = "../assets" }
+world = { path = "../world" }
+physics = { path = "../physics" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

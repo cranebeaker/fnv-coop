@@ -1,0 +1,11 @@
+[package]
+name = "nv-trace"
+description = "nv-trace command line: diff two call traces, dump one"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nv-trace-core = { path = "../nv-trace-core" }

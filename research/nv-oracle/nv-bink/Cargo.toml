@@ -1,0 +1,18 @@
+[package]
+name = "nv-bink"
+description = "Decode a Bink movie with the game's own binkw32.dll and record each frame's exact planes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nv-oracle-core = { path = "../nv-oracle-core" }
+nv-win = { path = "../nv-win" }
+
+[[bin]]
+name = "nv-bink"
+path = "src/main.rs"
+test = false
+bench = false

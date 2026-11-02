@@ -1,0 +1,11 @@
+[package]
+name = "play-patch"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The play loop's patch crate: translations fixed during a play-build run, registered over the engine's own at start-up until they move to their home files"
+
+[dependencies]
+# The engine crates, for the helpers and constants a patched function shares with its home file.
+engine = { path = "../engine" }

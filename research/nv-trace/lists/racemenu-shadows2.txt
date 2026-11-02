@@ -1,0 +1,16 @@
+# The race menu's extra 1024x1024 pass and the interface plate's missing light passes
+# (coordinator, 2026-10-29). Recorded the same way in the real game and the port.
+# ShadowSceneNode::AddLight (00b5c940, thiscall, RET 8: this, NiLight, cast-shadow byte; makes a
+# ShadowSceneLight, its +0xfc the byte): the light's vtable, world translate (+0x8c) and radius
+# (+0xe0), from StartMenu::Create on.
+# AddAllLightsFromNode_Recurse (00b5ca70, RET 8).
+# UpdateDynamicShadows (00b5b880, thiscall, RET 4): its shadow-light list (+0xc0 head, +0xc8
+# count) - it renders a depth map (MTRenderFrustumDepthMap 00b9f780) for each light in it whose
+# NiLight is on and whose +0x110 is not 0xff; the light is in 011f9174.
+0086e650 frame    p     void Main::OnIdle
+007cb7d0 cdecl    bb    u8   StartMenu::Create
+007ac730 cdecl    w     void RaceSexMenu::Create
+00b5c940 thiscall ppb   ptr  after=007cb7d0 max=400 dump=*(w1):4 dump=w1+0x8c:12 dump=w1+0xe0:4 ShadowSceneNode::AddLight
+00b5ca70 thiscall ppp   u32  after=007cb7d0 max=400 ShadowSceneNode::AddAllLightsFromNode_Recurse
+00b5b880 thiscall pp    void after=007ac730 max=40 dump=this+0xc0:12 dump=this+0xc8:4 dump=*(*(this+0xc0)+8):4 dump=*(*(this+0xc0)+8)+0xec:4 dump=*(*(this+0xc0)+8)+0x110:2 dump=*(*(*(this+0xc0)+8)+0xf8)+0x30:4 dump=*(*(*(this+0xc0)+8)+0xf8)+0x8c:12 dump=*(*(*(this+0xc0))+8):4 dump=*(*(*(this+0xc0))+8)+0xec:4 dump=*(*(*(this+0xc0))+8)+0x110:2 dump=*(*(*(*(this+0xc0))+8)+0xf8)+0x30:4 dump=*(*(*(*(this+0xc0))+8)+0xf8)+0x8c:12 dump=*(*(*(*(this+0xc0)))+8):4 dump=*(*(*(*(this+0xc0)))+8)+0xec:4 dump=*(*(*(*(this+0xc0)))+8)+0x110:2 dump=*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x8c:12 dump=*(*(*(*(*(this+0xc0))))+8):4 dump=*(*(*(*(*(this+0xc0))))+8)+0xec:4 dump=*(*(*(*(*(this+0xc0))))+8)+0x110:2 dump=*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x8c:12 ShadowSceneNode::UpdateDynamicShadows
+00b9f780 thiscall ppw   void after=007cb7d0 max=200 dump=0x011f9174:4 dump=*(0x011f9174)+0xec:4 dump=*(0x011f9174)+0xfc:4 dump=*(0x011f9174)+0x110:2 dump=*(*(0x011f9174)+0xf8)+0x8c:12 dump=*(*(0x011f9174)+0xf8)+0xe0:4 ShadowSceneLight::MTRenderFrustumDepthMap

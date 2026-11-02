@@ -1,0 +1,13 @@
+[package]
+name = "dds"
+version = "0.1.0"
+description = "Reader for DDS textures (DXT1/3/5, ATI1/2 and uncompressed), with a PNG writer"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+# Used by tests to decompress PNG output and check it.
+esm = { path = "../esm" }

@@ -1,0 +1,65 @@
+{
+  "name": "live_guest_kills_npc",
+  "description": "The host brings a gecko into Doc Mitchell's house; the guest hits it dead. The kill is resolved once on the host and the NPC is dead on both peers. Needs the gecko to be a killable actor (VCG02Gecko1REF is not essential). The host never touches the gecko's health (it only enables and moves it), so a kill on the host can only come from the guest's hits through the live layer; hits_sent proves the guest sent them.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 52,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit VCG02Gecko1REF 3"
+      },
+      {
+        "at": 12,
+        "run": "coop hit VCG02Gecko1REF 100000"
+      },
+      {
+        "at": 16,
+        "run": "coop hit VCG02Gecko1REF 100000"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "dead-host",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "dead-guest",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "guest"
+    },
+    {
+      "id": "hits",
+      "path": "live.hits_sent",
+      "op": "ge",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

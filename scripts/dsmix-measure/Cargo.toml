@@ -1,0 +1,9 @@
+[package]
+name = "dsmix-measure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Captures (WASAPI loopback) what DirectSound sends to the device for known buffers and settings, for the platform's mixer. Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

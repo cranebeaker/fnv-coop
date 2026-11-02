@@ -1,0 +1,112 @@
+# Unit placements the ledger applies on top of engine_map.tsv (scripts/ledger, ADR-0007).
+# For functions the map placed in a subsystem but no unit (replaces empty), or in a unit
+# by a wrong name match (replaces names that unit), when the exe shows the
+# function belongs to an existing unit's class (an RTTI vtable slot of that class).
+# Holds addresses, units, subsystems and evidence only (ADR-0002).
+address	unit	subsystem	replaces	evidence
+00fb56c0	(unplaced)/run_00fb56c0	(unplaced)	compiler: dynamic initializers	a Ghidra gap entry of the _initterm table (rdata 0100f820): MOV ECX,011f4414; JMP 00a8a5f0 (the NiMainSDM constructor); in its own run unit with 00fc72d0, the two tail-jump library entries NiInit needs
+00fc72d0	(unplaced)/run_00fb56c0	(unplaced)	compiler: dynamic initializers	a Ghidra gap entry of the _initterm table (rdata 0101130c): MOV ECX,0126f104; JMP 00e91e30 (the renderer library registrar constructor); in run_00fb56c0 with 00fb56c0
+00fb5860	(unplaced)/run_00fb56c0	(unplaced)	compiler: dynamic initializers	a Ghidra gap entry of the _initterm table (rdata 0100f858): MOV ECX,011f4600; JMP 00a7cca0 (NiPixelFormat::NiPixelFormat); in run_00fb56c0 with the other tail-jump entries
+00fb97d0	(unplaced)/run_00fb56c0	(unplaced)	compiler: dynamic initializers	a Ghidra gap entry of the _initterm table (rdata 010100c4): MOV ECX,011f9604; JMP 00a69940 (NiPlane::NiPlane); in run_00fb56c0 with the other tail-jump entries
+0059bb30	(unplaced)/run_0059bb30	(unplaced)	d3d9/texture.cpp	the map files it under d3d9/texture.cpp by a folded Xbox name (D3DTexture_LockRect); the PC body is a getter (MOV EAX,[ECX+0x24]) that identical-code folding shares among unrelated callers (LowProcess 00907510, actor_p3, the cell loading), so it gets its own unplaced run unit
+00aa1b30	NiSystem/nifile.cpp	NiSystem		slot 4 of RTTI vtable NiFile; the named NiFile methods are in this unit
+00af2f40	BSSystemUtilities/bssavedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSSaveDataSystemUtility; its named methods are in this unit
+00af2f60	BSSystemUtilities/bssavedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSSaveDataSystemUtility; its named methods are in this unit
+00af2ff0	BSSystemUtilities/bssavedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSSaveDataSystemUtility; its named methods are in this unit
+00af3000	BSSystemUtilities/bssavedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSSaveDataSystemUtility; its named methods are in this unit
+00af3660	BSSystemUtilities/bssystemutilitiesstrings.cpp	BSSystemUtilities		slot of RTTI vtable BSSystemUtilitiesStrings; its named methods are in this unit
+00af3920	BSSystemUtilities/bscachedrivesystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSCacheDriveSystemUtility; its named methods are in this unit
+00af3940	BSSystemUtilities/bscachedrivesystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSCacheDriveSystemUtility; its named methods are in this unit
+00af39e0	BSSystemUtilities/bsgamedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSGameDataSystemUtility; its named methods are in this unit
+00af3a00	BSSystemUtilities/bsgamedatasystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSGameDataSystemUtility; its named methods are in this unit
+00af3b70	BSSystemUtilities/bssysinfosystemutility.cpp	BSSystemUtilities		slot of RTTI vtable BSSysInfoSystemUtility; its named methods are in this unit
+00afce80	BSSystem/archive.cpp	BSSystem		slot 0 (destructor) of RTTI vtable Archive; calls 00afc680 in this unit
+00afff20	BSSystem/bsfile.cpp	BSSystem		slot 0 (destructor) of RTTI vtable BSFile; calls BSFile::~BSFile (00aff240) in this unit
+00b01370	BSSystem/bsfilecache.cpp	BSSystem	xaudio2/baseswfilter.cpp	slot 15 of RTTI vtables BSFileCache and BSWin32FileCache (the base class's slot 0 is in this unit); the map's xaudio2 name is a wrong name match
+00bd16e0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e6cf40	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6d710	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6d740	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dc40	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dc80	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dcc0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dd00	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dd40	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dd90	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6de70	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6df60	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6df80	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6dfa0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6ee00	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6eea0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f100	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f260	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f310	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f4e0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f6e0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f840	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e6f9b0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e70140	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e70720	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e70be0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e711e0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e71cc0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e71cf0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e71e40	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e757b0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e757c0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e757d0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e757e0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e757f0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75810	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75820	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75830	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75840	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e758f0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e759c0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75a20	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75a30	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75a40	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e75a50	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e762f0	NiXenonRenderer/nixenonrenderer.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9Renderer; its other own slots are in this unit
+00e76350	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76450	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76500	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76570	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e765e0	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76610	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76620	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76630	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76770	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e76a80	NiXenonRenderer/nixenonshaderdeclaration.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9ShaderDeclaration; its other own slot is in this unit
+00e7c560	NiXenonRenderer/nid3ddefaultshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DDefaultShader; the named NiD3DDefaultShader methods are in this unit
+00e7c580	NiXenonRenderer/nid3ddefaultshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DDefaultShader; the named NiD3DDefaultShader methods are in this unit
+00e7c5d0	NiXenonRenderer/nid3ddefaultshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DDefaultShader; the named NiD3DDefaultShader methods are in this unit
+00e7c680	NiXenonRenderer/nid3dshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DShader; the named NiD3DShader methods are in this unit
+00e7c690	NiXenonRenderer/nid3dshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DShader; the named NiD3DShader methods are in this unit
+00e7cc10	NiXenonRenderer/nid3ddefaultshader.cpp	NiXenonRenderer		slot of RTTI vtable NiD3DDefaultShader; the named NiD3DDefaultShader methods are in this unit
+00e8d230	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d250	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d260	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d2e0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d2f0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d300	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d310	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d320	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d330	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d340	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d350	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d580	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d590	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d5f0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8d630	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8dbe0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8dc30	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e8dca0	NiXenonRenderer/nixenonfragmentshader.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9FragmentShader; its other own slots are in this unit
+00e91700	NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9PersistentSrcTextureRendererData; its other own slot is in this unit
+00e91710	NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9PersistentSrcTextureRendererData; its other own slot is in this unit
+00e91730	NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9PersistentSrcTextureRendererData; its other own slot is in this unit
+00e91740	NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9PersistentSrcTextureRendererData; its other own slot is in this unit
+00e91750	NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	NiXenonRenderer		slot of RTTI vtable NiDX9PersistentSrcTextureRendererData; its other own slot is in this unit
+00ec1a40	BSMovie/movieplayer_xenon.obj	BSMovie	BSDiag/bssendgenericdatacommand.obj	slot 5 of RTTI vtable NiTMap<const char*,char*> (NewItem), whose slot 0 and the rest of the template family sit in this unit around it; the map's BSDiag unit is a wrong name match
+00ec1a60	BSMovie/movieplayer_xenon.obj	BSMovie	BSDiag/bssherlockcommandmanager.obj	slot 6 of RTTI vtable NiTMap<const char*,char*> (DeleteItem), whose slot 0 and the rest of the template family sit in this unit around it; the map's BSDiag unit is a wrong name match

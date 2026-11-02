@@ -1,0 +1,10 @@
+[package]
+name = "nv-oracle-core"
+description = "Platform-independent parts of the nv-oracle tools: formats, decoder, hashing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]

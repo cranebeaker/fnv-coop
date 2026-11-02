@@ -1,0 +1,9 @@
+[package]
+name = "physics"
+version = "0.1.0"
+description = "Collision geometry and a walking character controller for nv-rs"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

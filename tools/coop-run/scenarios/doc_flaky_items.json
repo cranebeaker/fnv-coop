@@ -1,0 +1,16 @@
+{
+  "name": "doc_flaky_items",
+  "description": "Item pickups on both sides under the flaky profile (25 percent loss). Counts must be exact: no double apply, no loss.",
+  "cell": "GSDocMitchellHouse",
+  "network": "flaky",
+  "seed": 41,
+  "duration_s": 20,
+  "settle_s": 8,
+  "max_repairs": 10,
+  "host": { "script": [ { "at": 2, "run": "player.additem Stimpak 3" } ] },
+  "guest": { "script": [ { "at": 2, "run": "player.additem Stimpak 4" } ] },
+  "expect": [
+    { "id": "host-stim", "path": "items.host.Stimpak", "op": "eq", "value": 3, "on": "both" },
+    { "id": "guest-stim", "path": "items.guest.Stimpak", "op": "eq", "value": 4, "on": "both" }
+  ]
+}

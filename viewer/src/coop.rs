@@ -1,0 +1,435 @@
+//! Co-op in the viewer: a thin Bevy shell around `coop_session::Session`.
+//!
+//! `connect` (before the window opens) starts the session; a guest waits
+//! there for the host's place and loads it. `CoopPlugin` then runs the
+//! session once per frame: network receive and (guest) apply at
+//! `ViewerSet::Input`, collect, send, messages, status line, state dump and
+//! quit checks at `ViewerSet::AfterFrame`. See docs/COOP.md.
+//!
+//! Scripted lines (`--stage`, `--run`, `--run-at`) are held until the
+//! session is ready (the test harness's clock starts there). The host runs
+//! them; a guest sends them to the host as commands. Two prefixes change
+//! that: `local LINE` runs on the machine that has it (a guest moving its own
+//! player), and `coop VERB ...` is the live-layer test bot
+//! (`coop_live::bot`). The live layer (avatars, shared actors, loot,
+//! dialogue, rules) is `coop_live`, added by [`CoopPlugin`].
+
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use bevy::prelude::*;
+use coop_session::json::{self, V};
+use coop_session::{ChaosProfile, Command, Event as CoopEvent, Role, Session, SessionConfig};
+use world::coop::apply::{Ctx, Opts};
+
+use crate::args::{Args, Stance};
+use crate::coop_live::{self, LiveNow};
+use crate::dialogue::DialogueState;
+use crate::frame_order::ViewerSet;
+use crate::hud::{HudMessage, HudMessages};
+use crate::scripts::{LaterCommands, Notices, Scripts, StartCommands, StartStage};
+use crate::GameFiles;
+
+/// How long a guest waits for the host before giving up.
+const JOIN_WAIT: Duration = Duration::from_secs(90);
+/// Seconds between state dumps.
+const DUMP_EVERY: f32 = 1.0;
+
+/// The session, a non-send resource (its transport is not `Send`).
+pub struct CoopLink(pub Session);
+
+/// Scripted lines waiting for the session to be ready.
+#[derive(Resource, Default)]
+pub struct Held {
+    stage: Option<(String, u16)>,
+    run: Vec<String>,
+    run_at: Vec<(f32, String)>,
+    released: Option<f32>,
+    /// `local` lines (prefix removed), run on this machine.
+    local: Vec<String>,
+    local_at: Vec<(f32, String)>,
+}
+
+/// Takes the bot lines and the `local` lines out of the held ones.
+fn split_special(held: &mut Held, bot: &mut coop_live::Bot, now: f32) {
+    for l in std::mem::take(&mut held.run) {
+        if coop_live::is_bot_line(&l) {
+            bot.push_at(now, l);
+        } else if let Some(rest) = l.strip_prefix("local ") {
+            held.local.push(rest.to_string());
+        } else {
+            held.run.push(l);
+        }
+    }
+    for (at, l) in std::mem::take(&mut held.run_at) {
+        if coop_live::is_bot_line(&l) {
+            bot.push_at(now + at, l);
+        } else if let Some(rest) = l.strip_prefix("local ") {
+            held.local_at.push((at, rest.to_string()));
+        } else {
+            held.run_at.push((at, l));
+        }
+    }
+}
+
+/// Run bookkeeping and the harness options.
+#[derive(Resource)]
+pub struct Run {
+    role: Role,
+    cell: String,
+    state_dump: Option<PathBuf>,
+    quit_file: Option<PathBuf>,
+    quit_after: Option<f32>,
+    show_text: bool,
+    seq: u64,
+    last_dump: f32,
+    ready_at: Option<f32>,
+    loaded_logged: bool,
+    done: bool,
+}
+
+/// What `connect` hands to the plugin.
+pub struct Started {
+    link: CoopLink,
+    held: Held,
+    run: Run,
+}
+
+thread_local! {
+    static STASH: RefCell<Option<Started>> = const { RefCell::new(None) };
+}
+
+/// Keeps the started session for `CoopPlugin::build` (the plugin must be
+/// `Send`, the session is not).
+pub fn stash(started: Option<Started>) {
+    STASH.with(|s| *s.borrow_mut() = started);
+}
+
+fn fnv(bytes: impl IntoIterator<Item = u8>) -> u64 {
+    bytes.into_iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// A line in the log for a session that never started, so a harness sees
+/// why (`start`, `error`, `shutdown`).
+fn failure_log(path: Option<&Path>, role: &str, msg: &str) {
+    let Some(path) = path else { return };
+    use std::io::Write;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let Ok(mut f) = std::fs::File::create(path) else { return };
+    let pid = std::process::id() as u64;
+    let _ = writeln!(f, "{}", json::object(&[("t", V::F(0.0)), ("ev", V::S("start")), ("role", V::S(role)), ("pid", V::U(pid))]));
+    let _ = writeln!(f, "{}", json::object(&[("t", V::F(0.0)), ("ev", V::S("error")), ("msg", V::S(msg))]));
+    let _ = writeln!(
+        f,
+        "{}",
+        json::object(&[("t", V::F(0.0)), ("ev", V::S("shutdown")), ("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))])
+    );
+}
+
+/// Starts the session asked for by `--coop-host` / `--coop-join`. A guest
+/// waits here for the host's place and sets `args.cell` / `args.at` to it,
+/// and moves its `--stage` / `--run` / `--run-at` lines out of `args`
+/// (they are sent to the host once ready). `None` without co-op options.
+pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started>, String> {
+    let c = args.coop.clone();
+    if !c.active() {
+        return Ok(None);
+    }
+    let role = if c.host.is_some() { Role::Host } else { Role::Guest };
+    let role_name = if role == Role::Host { "host" } else { "guest" };
+    let pid = std::process::id();
+    let mut cfg = SessionConfig {
+        name: c.name.clone().unwrap_or_else(|| if role == Role::Host { "Host".into() } else { format!("Guest {}", pid % 1000) }),
+        addr: match (&c.host, &c.join) {
+            (Some(port), _) => port.to_string(),
+            (_, Some(a)) => a.clone(),
+            _ => String::new(),
+        },
+        live: true,
+        native_dialogue: true,
+        build_hash: fnv(env!("CARGO_PKG_VERSION").bytes()),
+        mods_hash: fnv(order.plugins().iter().flat_map(|p| p.name.to_ascii_lowercase().into_bytes().into_iter().chain([0]))),
+        chaos: c.net.as_deref().and_then(ChaosProfile::by_name).map(|p| (p, 0x5EED ^ pid as u64)),
+        log: c.log.clone(),
+        ..SessionConfig::default()
+    };
+    // Transport: UDP or Steam, random per-session token (see coop_link, coop_session::link).
+    let notices = crate::coop_link::open(&c, role, &mut cfg).map_err(|e| {
+        failure_log(c.log.as_deref(), role_name, &e);
+        e
+    })?;
+    let started = match role {
+        Role::Host => Session::host(cfg),
+        Role::Guest => Session::join(cfg),
+    };
+    let mut session = started.map_err(|e| {
+        failure_log(c.log.as_deref(), role_name, &e.to_string());
+        e.to_string()
+    })?;
+    crate::coop_link::log_notices(&mut session, &notices);
+    if role == Role::Guest {
+        let begun = Instant::now();
+        let place = loop {
+            session.poll(0.016);
+            if let Some(p) = session.host_place() {
+                break p;
+            }
+            if let Some(why) = session.last_error().map(str::to_string) {
+                session.log_event("shutdown", &[("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))]);
+                return Err(why);
+            }
+            if c.quit_file.as_deref().is_some_and(Path::exists) {
+                session.log_event("shutdown", &[("reason", V::S("quit-file")), ("clean", V::B(true)), ("code", V::I(0))]);
+                std::process::exit(0);
+            }
+            if begun.elapsed() > JOIN_WAIT {
+                session.log_event("error", &[("msg", V::S("no answer from the host"))]);
+                session.log_event("shutdown", &[("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))]);
+                return Err("the host did not answer".into());
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        };
+        if args.cell == crate::args::COOP_PLACE {
+            args.cell = place.query();
+        }
+        if args.at.is_none() {
+            args.at = place.pos.filter(|_| place.outdoors()).map(|p| Stance { feet: p, heading: 0.0, pitch: 0.0 });
+        }
+        println!("Co-op: joined; loading the host's place {}.", args.cell);
+    } else {
+        println!("Co-op: hosting on UDP port {}.", c.host.unwrap_or_default());
+    }
+    let held = Held {
+        stage: args.stage.take(),
+        run: std::mem::take(&mut args.run),
+        run_at: std::mem::take(&mut args.run_at),
+        released: None,
+        local: Vec::new(),
+        local_at: Vec::new(),
+    };
+    let run = Run {
+        role,
+        cell: args.cell.clone(),
+        state_dump: c.state_dump.clone(),
+        quit_file: c.quit_file.clone(),
+        quit_after: c.quit_after,
+        show_text: args.hud,
+        seq: 0,
+        last_dump: -DUMP_EVERY,
+        ready_at: None,
+        loaded_logged: false,
+        done: false,
+    };
+    Ok(Some(Started { link: CoopLink(session), held, run }))
+}
+
+/// Registers the co-op systems when `connect` started a session.
+pub struct CoopPlugin;
+
+impl Plugin for CoopPlugin {
+    fn build(&self, app: &mut App) {
+        let Some(started) = STASH.with(|s| s.borrow_mut().take()) else { return };
+        app.insert_non_send_resource(started.link)
+            .insert_resource(started.held)
+            .insert_resource(started.run)
+            .add_systems(Startup, setup_text)
+            .add_systems(Update, receive.in_set(ViewerSet::Input))
+            .add_systems(Update, send.in_set(ViewerSet::AfterFrame))
+            .add_systems(Last, at_exit)
+            .add_plugins(coop_live::LivePlugin);
+    }
+}
+
+#[derive(Component)]
+pub(crate) struct CoopText;
+
+fn setup_text(mut commands: Commands) {
+    commands.spawn((
+        Text::new(String::new()),
+        TextFont { font_size: 14.0, ..default() },
+        TextColor(Color::srgb(0.7, 0.95, 0.7)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(8.0),
+            left: Val::Px(8.0),
+            padding: UiRect::all(Val::Px(4.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+        Visibility::Hidden,
+        CoopText,
+    ));
+}
+
+/// Start of the frame: packets in; a guest applies the host's state.
+fn receive(
+    mut link: NonSendMut<CoopLink>,
+    mut state: ResMut<DialogueState>,
+    game: Res<GameFiles>,
+    scripts: Res<Scripts>,
+) {
+    let ctx = Ctx { order: &game.0.order, scripts: &scripts.0 };
+    link.0.pre_frame_with(&mut state.0, Opts { present: true, ctx: Some(ctx) });
+}
+
+fn log_script(s: &mut Session, line: &str) {
+    s.log_event("script", &[("line", V::S(line))]);
+}
+
+fn write_dump(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) {
+    let Some(path) = run.state_dump.clone() else { return };
+    run.seq += 1;
+    let root = Session::state_root(state);
+    let text = coop_session::dump::state_json_full(
+        state,
+        &game.0.order,
+        run.role,
+        now as f64,
+        run.seq,
+        root,
+        live.view.as_ref(),
+        &live.counters,
+    );
+    coop_session::out::write_atomic(&path, &text);
+    s.log_event("state_dump", &[("path", V::S(&path.display().to_string())), ("seq", V::U(run.seq))]);
+}
+
+fn finish(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, reason: &str, live: &LiveNow) {
+    if run.done {
+        return;
+    }
+    write_dump(s, run, state, game, now, live);
+    s.log_event("shutdown", &[("reason", V::S(reason)), ("clean", V::B(true)), ("code", V::I(0))]);
+    run.done = true;
+}
+
+/// End of the frame: collect and send, messages, scripts, dump, quit.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send(
+    time: Res<Time>,
+    mut link: NonSendMut<CoopLink>,
+    mut state: ResMut<DialogueState>,
+    game: Res<GameFiles>,
+    mut held: ResMut<Held>,
+    mut run: ResMut<Run>,
+    (mut start_stage, mut start_commands, mut later): (ResMut<StartStage>, ResMut<StartCommands>, ResMut<LaterCommands>),
+    (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
+    mut exit: EventWriter<AppExit>,
+    mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
+    (mut bot, live): (ResMut<coop_live::Bot>, Res<LiveNow>),
+    scripts: Res<Scripts>,
+) {
+    let now = time.elapsed_secs();
+    let s = &mut link.0;
+    s.post_frame(&mut state.0, time.delta_secs());
+    if !run.loaded_logged {
+        run.loaded_logged = true;
+        let cell = run.cell.clone();
+        s.log_event("loaded", &[("cell", V::S(&cell))]);
+    }
+    for ev in s.drain_events() {
+        if let Some(m) = ev.message() {
+            if messages.on {
+                messages.queue.push(HudMessage::from(m));
+            } else {
+                notices.push(m, now);
+            }
+        }
+        if ev == CoopEvent::Ready {
+            run.ready_at = Some(now);
+            held.released = Some(now);
+            split_special(&mut held, &mut bot, now);
+            start_commands.0.extend(std::mem::take(&mut held.local));
+            later.lines.extend(std::mem::take(&mut held.local_at));
+            later.ready_at = Some(now);
+            if run.role == Role::Host {
+                if let Some(stage) = held.stage.take() {
+                    log_script(s, &format!("SetStage {} {}", stage.0, stage.1));
+                    start_stage.0 = Some(stage);
+                }
+                for l in std::mem::take(&mut held.run) {
+                    log_script(s, &l);
+                    start_commands.0.push(l);
+                }
+                later.lines.extend(std::mem::take(&mut held.run_at));
+                later.ready_at = Some(now);
+            } else {
+                if let Some((q, n)) = held.stage.take() {
+                    log_script(s, &format!("SetStage {q} {n}"));
+                    s.send_command(Command::Stage(q, n));
+                }
+                for l in std::mem::take(&mut held.run) {
+                    log_script(s, &l);
+                    s.send_command(Command::Line(l));
+                }
+            }
+        }
+    }
+    // A guest's timed lines, from when the session became ready.
+    if let (Role::Guest, Some(t0)) = (run.role, held.released) {
+        let (due, later_lines): (Vec<_>, Vec<_>) = std::mem::take(&mut held.run_at).into_iter().partition(|(at, _)| now - t0 >= *at);
+        held.run_at = later_lines;
+        for (_, l) in due {
+            log_script(s, &l);
+            s.send_command(Command::Line(l));
+        }
+    }
+    // The host carries out what guests asked.
+    for (from, cmd) in s.take_commands() {
+        let line = cmd.as_line();
+        s.log_event("script", &[("line", V::S(&line)), ("from", V::U(from.0 as u64))]);
+        if from.is_host() || !state.0.coop.bank.enabled() {
+            start_commands.0.push(line);
+        } else {
+            // a guest's line works on that guest's own rows (inventory,
+            // skills), swapped in for the run
+            let order = &game.0.order;
+            state.0.with_player(from.0, |g| {
+                world::scripting::Runner::new(order, &scripts.0, g).run_source(&line, None, None);
+            });
+        }
+    }
+    if now - run.last_dump >= DUMP_EVERY {
+        run.last_dump = now;
+        write_dump(s, &mut run, &state.0, &game, now, &live);
+    }
+    let quit = if run.quit_file.as_deref().is_some_and(Path::exists) {
+        Some("quit-file")
+    } else {
+        match (run.quit_after, run.ready_at) {
+            (Some(after), Some(t)) if now - t >= after => Some("quit-after"),
+            _ => None,
+        }
+    };
+    if let Some(reason) = quit {
+        finish(s, &mut run, &state.0, &game, now, reason, &live);
+        exit.write(AppExit::Success);
+    }
+    let line = s.status().line();
+    for (mut text, mut vis) in &mut texts {
+        if text.0 != line {
+            text.0 = line.clone();
+        }
+        *vis = if run.show_text { Visibility::Inherited } else { Visibility::Hidden };
+    }
+}
+
+/// Any other way out (Esc, the window closing): the final dump and the
+/// `shutdown` line.
+fn at_exit(
+    mut events: EventReader<AppExit>,
+    time: Res<Time>,
+    mut link: NonSendMut<CoopLink>,
+    state: Res<DialogueState>,
+    game: Res<GameFiles>,
+    mut run: ResMut<Run>,
+    live: Res<LiveNow>,
+) {
+    if events.read().next().is_none() {
+        return;
+    }
+    finish(&mut link.0, &mut run, &state.0, &game, time.elapsed_secs(), "exit", &live);
+}

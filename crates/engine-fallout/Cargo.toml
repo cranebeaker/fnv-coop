@@ -1,0 +1,22 @@
+[package]
+name = "engine-fallout"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FalloutNV.exe translated function by function: the game's own units (fallout/*, fallout shared/*, FaceGen, the unplaced runs)"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-gamebryo = { path = "../engine-gamebryo" }
+engine-bs = { path = "../engine-bs" }
+engine-havok = { path = "../engine-havok" }
+engine-speedtree = { path = "../engine-speedtree" }
+
+[dev-dependencies]
+# The form-constructor checker of units::crt (ctor_test) for this crate's tests.
+engine-core = { path = "../engine-core", features = ["test-support"] }
+# The frame stages (`world::frame::player`, `interface`, `world_time`, `ai_stage`) that
+# the tests of `0086f940`, `0093e860` and other gameplay units compare their
+# call order with.
+world = { path = "../world" }

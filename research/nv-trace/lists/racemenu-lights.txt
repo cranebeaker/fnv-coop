@@ -1,0 +1,17 @@
+# The inputs of BSShaderPPLightingProperty::GetRenderPasses_2x (00bdf790) in the race menu
+# (coordinator, 2026-10-28: the real game builds 0xea/0x132/0x14a/0x252 for the head, the port
+# one 1-light 0xff pass). Recorded from RaceSexMenu::Create on, a few thousand calls.
+# Words: w0 this (the property), w1 geometry, w2 mask, w3 the pass count's address, w4 kind,
+# w5 accumulator, w6 pass word. Dumps: the property's flags (+0x20, +0x24); its light list
+# lLightList (+0x60 head, +0x64 tail, +0x68 count, +0x6c fForcedDarkness, +0x70, +0x74);
+# the first six list nodes (next, previous, light) and their lights' first 0x120 bytes
+# (+0xec bCastShadow, +0xf8 spLight, +0x110 the half-word is_active reads) and the NiLight's
+# byte +0x30 (bit 0: off); the accumulator's first 0x40 bytes.
+0086e650 frame    p               void Main::OnIdle
+007cb7d0 cdecl    bb              u8   StartMenu::Create
+007ac730 cdecl    w               void RaceSexMenu::Create
+00dae3a0 cdecl    ppwpp           void max=1 00dae3a0 (no label): manifold record filter (world start)
+# BSShaderLightingProperty::GetNumberofActiveNonShadowLights (Xbox PDB): thiscall, the count.
+00b707d0 thiscall p               u32  max=20000 after=007ac730 BSShaderLightingProperty::GetNumberofActiveNonShadowLights
+00bdf790 thiscall ppwpwpw         void max=3000 after=007ac730 dump=this+0x20:8 dump=this+0x60:0x18 dump=w5:0x40 dump=*(this+0x60):0xc dump=*(*(this+0x60)+8):0x120 dump=*(*(*(this+0x60)+8)+0xf8)+0x30:4 dump=*(*(this+0x60)):0xc dump=*(*(*(this+0x60))+8):0x120 dump=*(*(*(*(this+0x60))+8)+0xf8)+0x30:4 dump=*(*(*(this+0x60))):0xc dump=*(*(*(*(this+0x60)))+8):0x120 dump=*(*(*(*(*(this+0x60)))+8)+0xf8)+0x30:4 dump=*(*(*(*(this+0x60)))):0xc dump=*(*(*(*(*(this+0x60))))+8):0x120 dump=*(*(*(*(*(*(this+0x60))))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(this+0x60))))):0xc dump=*(*(*(*(*(*(this+0x60)))))+8):0x120 dump=*(*(*(*(*(*(*(this+0x60)))))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(this+0x60)))))):0xc dump=*(*(*(*(*(*(*(this+0x60))))))+8):0x120 dump=*(*(*(*(*(*(*(*(this+0x60))))))+8)+0xf8)+0x30:4 BSShaderPPLightingProperty::GetRenderPasses_2x
+00ba9ee0 thiscall ppwwwpppp       void max=20000 after=007ac730 BSShaderProperty::RenderPassArray::Add

@@ -1,0 +1,40 @@
+{
+  "name": "twin_live_dialogue_session",
+  "description": "MUTATION TWIN of live_dialogue_session: the guest never opens the dialogue menu. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 55,
+  "duration_s": 26,
+  "settle_s": 10,
+  "max_repairs": 12,
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "lines-host",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "lines-guest",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "lines-equal",
+      "path": "live.lines_played",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

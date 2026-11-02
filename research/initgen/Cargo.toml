@@ -1,0 +1,11 @@
+# initgen: the static-initializer table of the engine crate, generated from
+# the disassembly of FalloutNV.exe's `__cinit` entries (see README.md).
+# Its own workspace; no external dependencies.
+[package]
+name = "initgen"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]

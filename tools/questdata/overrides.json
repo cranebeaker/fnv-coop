@@ -1,6 +1,0 @@
-{
-  "_doc": "Manual per-quest overrides applied by classify.py. Key = quest EDID. Fields: tier ('T0'..'T4' replaces the computed tier; tier_auto is kept in risk.json) and notes (free text, copied to risk.json override_notes). Edit by hand; keep entries minimal.",
-  "quests": {
-    "VCG01": {"tier": "T4", "notes": "Prologue: chargen (race/sex menus), Doc Mitchell cutscene, Vigor tester. Hand-design the scenario."}
-  }
-}

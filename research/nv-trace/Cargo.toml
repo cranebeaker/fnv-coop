@@ -1,0 +1,20 @@
+# nv-trace: record-and-diff of function calls, real FalloutNV.exe against the port
+# (see README.md). Its own workspace, like research/nv-oracle; no external crates.
+[workspace]
+resolver = "2"
+members = ["nv-trace-core", "nv-trace", "nv-trace-rec", "nv-trace-launch"]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.82"
+version = "0.1.0"
+
+# The recorder runs inside the game: a panic must never unwind into it.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+debug = false

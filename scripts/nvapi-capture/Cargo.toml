@@ -1,0 +1,9 @@
+[package]
+name = "nvapi-capture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Captures what the player's nvapi.dll answers to the calls FalloutNV.exe makes on its renderer start-up, for the platform's machine table (appended to d3d9_adapter.tsv). Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

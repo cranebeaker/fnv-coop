@@ -1,0 +1,22 @@
+# FaceGen speech keyframes and the lip-sync start (FalloutNV.exe 1.4.0.525).
+# Format: address convention words return name (research/nv-trace/README.md).
+# Word counts and conventions from the port's translations of each address (their doc
+# comments name the convention; thiscall's first letter is ECX).
+#
+# Main::OnIdle: the recorder counts frames by it (the key script); recorded like the others.
+0086e650 frame    p               void Main::OnIdle
+# BSFaceGenAnimationData (Xbox PDB names), crates/engine-fallout/.../run_00649ba0.rs
+0064aa00 thiscall ppf             void BSFaceGenAnimationData::AddPhonemeKeyframe
+0064ab40 thiscall ppf             void BSFaceGenAnimationData::AddModifiersKeyframe
+0064ad20 thiscall pwfw            void BSFaceGenAnimationData::AddSpeechEmptyKeyframe
+0064aec0 thiscall pbbbb           void BSFaceGenAnimationData::ClearSpeechKeyframeLists
+0064ca60 cdecl    fppb            u8   BSFaceGenAnimationData::UpdateKeyframeList
+# BSFaceGenKeyframeMultiple, crates/engine-fallout/.../bsfacegenkeyframe.rs
+0064ed60 thiscall pp              u8   BSFaceGenKeyframeMultiple::AddToList
+0064ebe0 thiscall pw              ptr  BSFaceGenKeyframeMultiple::scalar_deleting_destructor
+# LipSynchAnim play (fallout_shared/run_004d5930.rs)
+004d5930 thiscall ppf             u8   004d5930 (no label): plays a LipSynchAnim on a target
+# Actor speak (fallout_ai/actor_p3.rs): this, name, out_sound, 5 words, actor, 5 bytes
+008a20d0 thiscall pppwwwwwpbbbbb  f32  008a20d0 (no label): actor speaks a line
+# Havok: manifold record filter (engine-havok/.../run_00dae3a0.rs, cdecl 5 words)
+00dae3a0 cdecl    ppwpp           void 00dae3a0 (no label): Havok manifold record filter

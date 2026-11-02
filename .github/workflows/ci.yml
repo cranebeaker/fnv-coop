@@ -1,128 +1,79 @@
-# Game-free checks only: no game files, no secrets, no downloads of anything from the game.
-name: ci
-
+name: CI
 on:
-  pull_request:
   push:
     branches: [main]
-
+  pull_request:
 permissions:
   contents: read
-
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  python-quick:
-    name: python quick suite (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  linux-viewer:
+    name: check (viewer, Linux)
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      # Suites that need the game, MSVC or a prebuilt DLL print "SKIP <name>: <reason>"; any FAIL fails the job.
-      - run: python -I tools/test_all.py --quick
-
-  synccore:
-    name: synccore tests (${{ matrix.os }}${{ matrix.arch && format(', {0}', matrix.arch) || '' }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Listed one by one: an include that only adds 'arch' to os: windows-latest would turn the x64 job into Win32
-        # instead of adding a job. The game is 32-bit and links synccore as Win32/x86 (tools/build/build.py defaults to
-        # x86), so that build is tested too: 4-byte pointers and size_t, x86 struct layout, the x86 MSVC code generator.
-        include:
-          - {os: ubuntu-latest,  pointer_bytes: 8}
-          - {os: windows-latest, pointer_bytes: 8}
-          - {os: windows-latest, pointer_bytes: 4, arch: Win32}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5   # the drift_effect_table test calls python
-        with:
-          python-version: "3.11"
-      - name: Install build tools (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libenet-dev
-      - name: Configure (Linux, Ninja)
-        if: runner.os == 'Linux'
-        run: cmake -S synccore -B build -G Ninja
-      - name: Configure (Windows, newest installed Visual Studio, x64)
-        if: runner.os == 'Windows' && !matrix.arch
-        run: cmake -S synccore -B build
-      - name: Configure (Windows, newest installed Visual Studio, ${{ matrix.arch }})
-        if: runner.os == 'Windows' && matrix.arch
-        run: cmake -S synccore -B build -A ${{ matrix.arch }}
-      # Each job must really build the pointer size it claims (the 64-bit jobs are the twin: the same check must see 8 there).
-      - name: Check the pointer size of the build
-        shell: bash
-        run: |
-          got=$(sed -n 's/^set(CMAKE_CXX_SIZEOF_DATA_PTR "\([0-9]*\)")$/\1/p' build/CMakeFiles/*/CMakeCXXCompiler.cmake)
-          echo "CMAKE_CXX_SIZEOF_DATA_PTR=$got (want ${{ matrix.pointer_bytes }})"
-          test "$got" = "${{ matrix.pointer_bytes }}"
-      - run: cmake --build build --config Release --parallel
-      - run: ctest --test-dir build -C Release -j 4 --timeout 300 --output-on-failure
-
-  plugin:
-    # nvcoop.dll as the game loads it (Win32/x86, static CRT), against xNVSE pinned to the version docs/tools/T4a-pool.md uses.
-    # xNVSE is public source, not game files. This only proves the DLL builds and is loadable by shape; nothing here runs it.
-    # The built DLL and its data files are kept as the run's nvcoop-plugin-win32 artifact.
-    name: plugin build (windows-latest, Win32)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install native viewer dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Check Linux viewer
+        working-directory: viewer
+        run: cargo check --locked
+  check:
+    name: check (${{ matrix.workspace }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [core, viewer]
+    env:
+      # CI builds once from a cache; incremental state and debug info only cost time.
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install stable Rust tools
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup default stable
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Reuse compiled dependencies between runs. Only pushes to main save the
+      # cache, so pull requests restore main's build without filling the store.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ matrix.workspace == 'viewer' && 'viewer -> target' || '. -> target' }}
+          shared-key: ${{ matrix.workspace }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check formatting, tests and lints
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+        run: |
+          if ($env:WORKSPACE -eq 'viewer') { Set-Location viewer }
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test --locked --workspace
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+  # On pushes to main only (2026-10-30): on pull requests the hosted macOS runners often never
+  # picked the job up, and GitHub cancelled it after 15 minutes without a single step, which
+  # marked the pull request failed. The Windows and Linux checks gate pull requests.
+  check-macos-viewer:
+    name: check viewer (macOS)
+    if: github.event_name == 'push'
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Fetch xNVSE 6.4.9
-        run: git clone --depth 1 --branch 6.4.9 https://github.com/xNVSE/NVSE third_party/NVSE
-      - run: cmake -S plugin -B build/L1 -A Win32
-      - run: cmake --build build/L1 --config Release --parallel
-      # The packager's own DLL check: PE32/i386 and exports NVSEPlugin_Query and NVSEPlugin_Load.
-      # Twin: the same check must reject a 64-bit DLL (the runner's own kernel32.dll), so a pass above means something.
-      - name: Check nvcoop.dll (and that the check rejects a 64-bit DLL)
-        shell: bash
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install stable Rust
         run: |
-          python -I - <<'PY'
-          import sys
-          from pathlib import Path
-          sys.path.insert(0, "tools/installer")
-          import package_release as pkg
-          dll = Path("out/L1/nvcoop.dll")
-          problems = pkg.check_dll(dll)
-          print("nvcoop.dll:", problems or "OK", f"({dll.stat().st_size} bytes)")
-          twin = pkg.check_dll(Path(r"C:\Windows\System32\kernel32.dll"))
-          print("twin kernel32.dll (must be rejected):", twin)
-          sys.exit(1 if problems or not any("32-bit" in p for p in twin) else 0)
-          PY
-      # The data files the build writes next to nvcoop.dll (nvcoop_guest_local_run.json): provision installs them with it,
-      # and without them a guest blocks every DLC setup script. The upload below matches them by pattern, which a missing
-      # file would pass silently, so this step fails instead.
-      - name: Check the plugin's data files
-        shell: bash
-        run: |
-          python -I - <<'PY'
-          import json, sys
-          from pathlib import Path
-          data = sorted(Path("out/L1").glob("nvcoop_*.json"))
-          for p in data:
-              json.loads(p.read_text(encoding="utf-8-sig"))
-          print("data files next to nvcoop.dll:", [p.name for p in data] or "none")
-          sys.exit(0 if data else 1)
-          PY
-      # Not a release: this commit's build for testers without Visual Studio (Linux, Proton on a Steam Deck), kept 14 days.
-      # docs/tools/proton-deck.md downloads it into out/L1; tools/lint/check_plugin_artifact.py keeps the list, the build
-      # outputs and that command in step.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nvcoop-plugin-win32
-          retention-days: 14
-          if-no-files-found: error
-          path: |
-            out/L1/nvcoop.dll
-            out/L1/nvcoop_*.json
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check the macOS viewer
+        run: cargo check --locked --manifest-path viewer/Cargo.toml

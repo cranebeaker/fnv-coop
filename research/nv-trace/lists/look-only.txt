@@ -1,0 +1,3 @@
+# The look-at solver only, from the start (lead, 2026-10-29): a quick port check of Doc's head.
+0086e650 frame    p      void Main::OnIdle
+00ce0290 cdecl    pppfpp ptr  max=4000 dump=w1:0x40 dump=w2:0x10 dump=w4:0x20 rdump=w0:1 rdump=w4:0x20 hkaLookAtIkSolver::solve

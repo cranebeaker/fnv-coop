@@ -1,0 +1,23 @@
+# ShadowSceneLight::TestFrustumCull (00b9e970) from RaceSexMenu::Create on (coordinator for
+# a22, 2026-10-28: the port culls the head lights, usFrustumCull 0xff and fLODDimmer 0).
+# thiscall, RET 4: w0 this (the ShadowSceneLight), w1 the culler (BSCullingProcess / NiCullingProcess).
+# Only the lights whose vtable is 010b7eb8 (ShadowSceneLight's own: its constructor stores it
+# at 00b9fde1). The calls that fail the condition are not counted by max=.
+# Entry dumps, in this order:
+#   NiLight *(this+0xf8): world translate +0x8c:12, radius +0xe0:4
+#   the culler's camera *(w1+0xc): world translate +0x8c:12, +0x110:4
+#   the culler's six planes and their mask (w1+0x2c:0x64; the mask is the last word, w1+0x8c)
+#   the accumulator's +8 object's +0x110 (BSShaderManager::GetAccumulator 00b4f5c0 returns the
+#   global 011f95ec): the global, then *(*(0x011f95ec)+8)+0x110:4
+#   the globals 011f9444:0x10 (light fade start/end 9444/9448, shadow fade 944c/9450)
+#   the light's +0xd0:0x10 (fLODDimmer, +0xd4, +0xd8, +0xdc), +0x110:2, +0xec:2 (+0xec, +0xed),
+#   +0x140:4
+#   the globals 011f9410:4 (added to +0xdc), 011ad834:4 (divides it), 011f91c0:4, 011f91d8:4
+#   (read on the shadow branch)
+# Return dumps: the light's +0xd0:0x10 and +0x110:2 (TestFrustumCull writes +0x110, +0xd0, +0xd4
+# last; +0xdc earlier).
+0086e650 frame    p    void Main::OnIdle
+007cb7d0 cdecl    bb   u8   StartMenu::Create
+007ac730 cdecl    w    void RaceSexMenu::Create
+00dae3a0 cdecl    ppwpp void max=1 00dae3a0 (no label): manifold record filter (world start)
+00b9e970 thiscall pp   void max=4000 after=007ac730 when=*(this)==0x010b7eb8 dump=*(this+0xf8)+0x8c:12 dump=*(this+0xf8)+0xe0:4 dump=*(w1+0xc)+0x8c:12 dump=*(w1+0xc)+0x110:4 dump=w1+0x2c:0x64 dump=0x011f95ec:4 dump=*(*(0x011f95ec)+8)+0x110:4 dump=0x011f9444:0x10 dump=this+0xd0:0x10 dump=this+0x110:2 dump=this+0xec:2 dump=this+0x140:4 dump=0x011f9410:4 dump=0x011ad834:4 dump=0x011f91c0:4 dump=0x011f91d8:4 rdump=this+0xd0:0x10 rdump=this+0x110:2 ShadowSceneLight::TestFrustumCull

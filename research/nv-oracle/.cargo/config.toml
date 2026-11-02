@@ -1,0 +1,6 @@
+# The tools that touch the game process are 32-bit Windows programs.
+# On the maintainer's machine build them with the MSVC target instead
+# (see README.md); this file only configures the MinGW cross build used
+# on Linux for the Wine tests.
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"

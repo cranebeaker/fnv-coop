@@ -1,0 +1,3 @@
+target/
+# Recordings are private.
+*.nvtrace

@@ -1,0 +1,54 @@
+{
+  "name": "doc_stage_bad_wifi",
+  "description": "Quest stage and a guest item pickup under bad_wifi, with a 3 s blackout in both directions. Chaos ends before the settle window, then both peers must converge with exact counts.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 21,
+  "duration_s": 20,
+  "settle_s": 8,
+  "outages": [
+    {
+      "at": 6,
+      "seconds": 3,
+      "dir": "both"
+    }
+  ],
+  "max_repairs": 5,
+  "timeout_s": 300,
+  "host": {
+    "script": [
+      {
+        "stage": "VCG03 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 5,
+        "run": "player.additem Caps001 25"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "stage",
+      "path": "quests.VCG03.stage",
+      "op": "ge",
+      "value": 10,
+      "on": "both"
+    },
+    {
+      "id": "caps-once",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 25,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

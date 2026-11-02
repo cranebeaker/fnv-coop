@@ -1,0 +1,9 @@
+[package]
+name = "d3d9-capture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Captures what Direct3D 9 answers on this machine, for the platform's Direct3D 9 layer (crates/engine-core/data/d3d9_adapter.tsv). Windows only."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

@@ -1,0 +1,11 @@
+[package]
+name = "nv-inject"
+description = "Load a DLL into a new or running process with CreateRemoteThread(LoadLibraryW)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nv-win = { path = "../nv-win" }

@@ -1,0 +1,87 @@
+{
+  "name": "twin_live_loot_sequence",
+  "description": "MUTATION TWIN of live_loot_sequence: the guest never opens or takes. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 54,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem Caps001 50"
+      },
+      {
+        "at": 6,
+        "run": "coop lootopen DocMitchellREF"
+      },
+      {
+        "at": 7,
+        "run": "coop loottake DocMitchellREF Caps001 20"
+      },
+      {
+        "at": 10,
+        "run": "coop lootclose DocMitchellREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "container-empty-host",
+      "path": "items.DocMitchellREF.Caps001",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "container-empty-guest",
+      "path": "items.DocMitchellREF.Caps001",
+      "op": "absent",
+      "on": "guest"
+    },
+    {
+      "id": "conserved",
+      "path": "items.host.Caps001",
+      "op": "sum",
+      "add": [
+        "items.guest.Caps001"
+      ],
+      "cmp": "eq",
+      "value": 54,
+      "on": "both"
+    },
+    {
+      "id": "host-took-20",
+      "path": "items.host.Caps001",
+      "op": "eq",
+      "value": 20,
+      "on": "both"
+    },
+    {
+      "id": "guest-got-the-rest",
+      "path": "items.guest.Caps001",
+      "op": "ge",
+      "value": 34,
+      "on": "both"
+    },
+    {
+      "id": "host-items-equal",
+      "path": "items.host",
+      "on": "equal"
+    },
+    {
+      "id": "guest-items-equal",
+      "path": "items.guest",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

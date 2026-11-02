@@ -1,0 +1,9 @@
+[package]
+name = "ledger"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Function ledger: every FalloutNV.exe function with a status (docs/ENGINE_PORT_PLAN.md)"
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

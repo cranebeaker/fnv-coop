@@ -1,0 +1,444 @@
+case	plain_100	144
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	144	0	144
+call	mmioDescend riff	0	ckid 46464952 cksize 136 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 100 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 144 endwrite 8192 bufoffset 0 diskoffset 144 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 100 sum 5b8e361e
+call	mmioAscend data	0	ckid 61746164 cksize 100 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	144	144
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 100 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	144
+proc	4	0	0	0	144	144
+call	mmioClose	0
+end
+case	plain_odd_101	146
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	146	0	146
+call	mmioDescend riff	0	ckid 46464952 cksize 138 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 101 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 146 endwrite 8192 bufoffset 0 diskoffset 146 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 101 sum 16388e61
+call	mmioAscend data	0	ckid 61746164 cksize 101 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	146	146
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 101 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	146
+proc	4	0	0	0	146	146
+call	mmioClose	0
+end
+case	plain_20000	20044
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 20036 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 20000 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 8192 endwrite 8192 bufoffset 0 diskoffset 8192 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	1
+proc	0	buf+0	8192	8192	8192	16384
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 8192 endwrite 8192 bufoffset 8192 diskoffset 16384 info0 1 err 0
+proc	0	buf+0	8192	3660	16384	20044
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 3660 endwrite 8192 bufoffset 16384 diskoffset 20044 info0 1 err 0
+call	data read	0	bytes 20000 sum 85fedf70
+call	mmioAscend data	0	ckid 61746164 cksize 20000 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	20044	20044
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 20000 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	20044
+proc	4	0	0	0	20044	20044
+call	mmioClose	0
+end
+case	plain_8192	8236
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 8228 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 8192 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 8192 endwrite 8192 bufoffset 0 diskoffset 8192 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	1
+proc	0	buf+0	8192	44	8192	8236
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 44 endwrite 8192 bufoffset 8192 diskoffset 8236 info0 1 err 0
+call	data read	0	bytes 8192 sum faddf000
+call	mmioAscend data	0	ckid 61746164 cksize 8192 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	8236	8236
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 8192 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	8236
+proc	4	0	0	0	8236	8236
+call	mmioClose	0
+end
+case	plain_8184	8228
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 8220 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 8184 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 8192 endwrite 8192 bufoffset 0 diskoffset 8192 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	1
+proc	0	buf+0	8192	36	8192	8228
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 36 endwrite 8192 bufoffset 8192 diskoffset 8228 info0 1 err 0
+call	data read	0	bytes 8184 sum 53a09664
+call	mmioAscend data	0	ckid 61746164 cksize 8184 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	8228	8228
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 8184 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	8228
+proc	4	0	0	0	8228	8228
+call	mmioClose	0
+end
+case	fmt18	110
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	110	0	110
+call	mmioDescend riff	0	ckid 46464952 cksize 102 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 18 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	0100020044ac000010b1020004001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 18 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 64 type 00000000 offset 46 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 46 endread 110 endwrite 8192 bufoffset 0 diskoffset 110 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 64 sum 0ded6be0
+call	mmioAscend data	0	ckid 61746164 cksize 64 type 00000000 offset 46 flags 0
+proc	0	buf+0	8192	0	110	110
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 64 type 00000000 offset 46 flags 0
+call	mmioSeek cur (probe)	110
+proc	4	0	0	0	110	110
+call	mmioClose	0
+end
+case	list_before_fmt	150
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	150	0	150
+call	mmioDescend riff	0	ckid 46464952 cksize 142 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 62 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 62 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 64 type 00000000 offset 86 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 86 endread 150 endwrite 8192 bufoffset 0 diskoffset 150 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 64 sum 0ded6be0
+call	mmioAscend data	0	ckid 61746164 cksize 64 type 00000000 offset 86 flags 0
+proc	0	buf+0	8192	0	150	150
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 64 type 00000000 offset 86 flags 0
+call	mmioSeek cur (probe)	150
+proc	4	0	0	0	150	150
+call	mmioClose	0
+end
+case	big_chunk_before_data	12354
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 12346 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+proc	2	12046	0	0	12046	12046
+proc	0	buf+0	8192	308	12046	12354
+call	mmioDescend data	0	ckid 61746164 cksize 300 type 00000000 offset 12054 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 8 endread 308 endwrite 8192 bufoffset 12046 diskoffset 12354 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 300 sum 7e8c335a
+call	mmioAscend data	0	ckid 61746164 cksize 300 type 00000000 offset 12054 flags 0
+proc	0	buf+0	8192	0	12354	12354
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 300 type 00000000 offset 12054 flags 0
+call	mmioSeek cur (probe)	12354
+proc	4	0	0	0	12354	12354
+call	mmioClose	0
+end
+case	smpl_after_data	5112
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	5112	0	5112
+call	mmioDescend riff	0	ckid 46464952 cksize 5104 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 5000 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 5112 endwrite 8192 bufoffset 0 diskoffset 5112 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 5000 sum 240e57dc
+call	mmioAscend data	0	ckid 61746164 cksize 5000 type 00000000 offset 44 flags 0
+call	mmioDescend smpl	0	ckid 6c706d73 cksize 60 type 00000000 offset 5052 flags 0
+call	mmioRead 60	60	0001020304050607
+call	mmioSeek cur (probe)	5112
+proc	4	0	0	0	0	5112
+call	mmioClose	0
+end
+case	smpl_after_odd_data	4210
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	4210	0	4210
+call	mmioDescend riff	0	ckid 46464952 cksize 4202 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 4097 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 4210 endwrite 8192 bufoffset 0 diskoffset 4210 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 4097 sum 38700803
+call	mmioAscend data	0	ckid 61746164 cksize 4097 type 00000000 offset 44 flags 0
+call	mmioDescend smpl	0	ckid 6c706d73 cksize 60 type 00000000 offset 4150 flags 0
+call	mmioRead 60	60	0001020304050607
+call	mmioSeek cur (probe)	4210
+proc	4	0	0	0	0	4210
+call	mmioClose	0
+end
+case	no_smpl	108
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	108	0	108
+call	mmioDescend riff	0	ckid 46464952 cksize 100 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 64 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 108 endwrite 8192 bufoffset 0 diskoffset 108 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 64 sum 0ded6be0
+call	mmioAscend data	0	ckid 61746164 cksize 64 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	108	108
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 64 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	108
+proc	4	0	0	0	108	108
+call	mmioClose	0
+end
+case	data_before_fmt	108
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	108	0	108
+call	mmioDescend riff	0	ckid 46464952 cksize 100 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 92 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 92 flags 0
+proc	0	buf+0	8192	0	108	108
+call	mmioDescend data	109	ckid 61746164 cksize 16 type 00000000 offset 92 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 0 endread 0 endwrite 8192 bufoffset 108 diskoffset 108 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+proc	0	buf+0	8192	0	108	108
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 0 endwrite 8192 bufoffset 108 diskoffset 108 info0 1 err 0
+call	data read	0	bytes 16 sum 2edf35f6
+call	mmioAscend data	0	ckid 61746164 cksize 16 type 00000000 offset 92 flags 0
+proc	0	buf+0	8192	0	108	108
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 16 type 00000000 offset 92 flags 0
+call	mmioSeek cur (probe)	108
+proc	4	0	0	0	108	108
+call	mmioClose	0
+end
+case	no_data	36
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	36	0	36
+call	mmioDescend riff	0	ckid 46464952 cksize 28 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+proc	0	buf+0	8192	0	36	36
+call	mmioDescend data	109	ckid 61746164 cksize 16 type 00000000 offset 20 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 0 endread 0 endwrite 8192 bufoffset 36 diskoffset 36 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+proc	0	buf+0	8192	0	36	36
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 0 endwrite 8192 bufoffset 36 diskoffset 36 info0 1 err 0
+call	data read	0	bytes 16 sum 04e9c8c7
+call	mmioAscend data	0	ckid 61746164 cksize 16 type 00000000 offset 20 flags 0
+proc	0	buf+0	8192	0	36	36
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 16 type 00000000 offset 20 flags 0
+call	mmioSeek cur (probe)	36
+proc	4	0	0	0	36	36
+call	mmioClose	0
+end
+case	no_fmt	84
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	84	0	84
+call	mmioDescend riff	0	ckid 46464952 cksize 76 type 45564157 offset 8 flags 0
+proc	0	buf+0	8192	0	84	84
+call	mmioDescend fmt	109	ckid 61746164 cksize 64 type 00000000 offset 20 flags 0
+proc	4	0	0	0	84	84
+call	mmioClose	0
+end
+case	fmt_short	100
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	100	0	100
+call	mmioDescend riff	0	ckid 46464952 cksize 92 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 8 type 00000000 offset 20 flags 0
+proc	4	0	0	0	0	100
+call	mmioClose	0
+end
+case	adpcm	110
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	110	0	110
+call	mmioDescend riff	0	ckid 46464952 cksize 102 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 18 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	02000100225600000000000000000400
+proc	4	0	0	0	0	110
+call	mmioClose	0
+end
+case	not_riff	48
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	48	0	48
+call	mmioDescend riff	0	ckid 4b4e554a cksize 40 type 00000000 offset 8 flags 0
+proc	0	buf+0	8192	0	48	48
+call	mmioDescend fmt	109	ckid 00000000 cksize 0 type 00000000 offset 48 flags 0
+proc	4	0	0	0	48	48
+call	mmioClose	0
+end
+case	empty	0
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	0	0	0
+call	mmioDescend riff	109	ckid aaaaaaaa cksize 2863311530 type aaaaaaaa offset 2863311530 flags 0
+proc	4	0	0	0	0	0
+call	mmioClose	0
+end
+case	truncated_data	444
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	444	0	444
+call	mmioDescend riff	0	ckid 46464952 cksize 1036 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 1000 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 444 endwrite 8192 bufoffset 0 diskoffset 444 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+proc	0	buf+0	8192	0	444	444
+call	mmioAdvance	0	flags 10000 cch 8192 next 0 endread 0 endwrite 8192 bufoffset 444 diskoffset 444 info0 1 err 0
+call	data read	0	bytes 1000 sum e1b7332a
+call	mmioAscend data	0	ckid 61746164 cksize 1000 type 00000000 offset 44 flags 0
+proc	2	1044	0	0	1044	444
+proc	0	buf+0	8192	0	1044	444
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 1000 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	1044
+proc	4	0	0	0	1044	444
+call	mmioClose	0
+end
+case	riff_size_short	1044
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	1044	0	1044
+call	mmioDescend riff	0	ckid 46464952 cksize 40 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 1000 type 00000000 offset 44 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 44 endread 1044 endwrite 8192 bufoffset 0 diskoffset 1044 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 1000 sum 2726712c
+call	mmioAscend data	0	ckid 61746164 cksize 1000 type 00000000 offset 44 flags 0
+proc	0	buf+0	8192	0	1044	1044
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 1000 type 00000000 offset 44 flags 0
+call	mmioSeek cur (probe)	1044
+proc	4	0	0	0	1044	1044
+call	mmioClose	0
+end
+case	open_fail	0
+proc	3	name	0	257	0	0
+call	mmioOpenA	0	err 257 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 257
+end
+case	header_straddle	8284
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 8276 type 45564157 offset 8 flags 0
+proc	0	buf+0	8192	92	8192	8284
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 8196 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 8196 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 64 type 00000000 offset 8220 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 28 endread 92 endwrite 8192 bufoffset 8192 diskoffset 8284 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 64 sum 0ded6be0
+call	mmioAscend data	0	ckid 61746164 cksize 64 type 00000000 offset 8220 flags 0
+proc	0	buf+0	8192	0	8284	8284
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 64 type 00000000 offset 8220 flags 0
+call	mmioSeek cur (probe)	8284
+proc	4	0	0	0	8284	8284
+call	mmioClose	0
+end
+case	fmt_straddle	8276
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 8268 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 8188 flags 0
+proc	0	buf+0	8192	84	8192	8276
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 8188 flags 0
+call	mmioDescend data	0	ckid 61746164 cksize 64 type 00000000 offset 8212 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 20 endread 84 endwrite 8192 bufoffset 8192 diskoffset 8276 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 64 sum 0ded6be0
+call	mmioAscend data	0	ckid 61746164 cksize 64 type 00000000 offset 8212 flags 0
+proc	0	buf+0	8192	0	8276	8276
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 64 type 00000000 offset 8212 flags 0
+call	mmioSeek cur (probe)	8276
+proc	4	0	0	0	8276	8276
+call	mmioClose	0
+end
+case	data_at_8192	13200
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	8192	0	8192
+call	mmioDescend riff	0	ckid 46464952 cksize 13192 type 45564157 offset 8 flags 0
+call	mmioDescend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+call	mmioRead 16	16	010001002256000044ac000002001000
+call	mmioAscend fmt	0	ckid 20746d66 cksize 16 type 00000000 offset 20 flags 0
+proc	0	buf+0	8192	5008	8192	13200
+call	mmioDescend data	0	ckid 61746164 cksize 5000 type 00000000 offset 8200 flags 0
+call	mmioGetInfo	0	flags 10000 cch 8192 next 8 endread 5008 endwrite 8192 bufoffset 8192 diskoffset 13200 info0 1 err 0
+call	mmioGetInfo rest	0	fcc 564157 proc_is_ours true task 0 r1 0 r2 0 hmmio_is_handle true info1 0 info2 0
+call	buffer past endread zero	0
+call	data read	0	bytes 5000 sum 240e57dc
+call	mmioAscend data	0	ckid 61746164 cksize 5000 type 00000000 offset 8200 flags 0
+proc	0	buf+0	8192	0	13200	13200
+call	mmioDescend smpl	109	ckid 6c706d73 cksize 5000 type 00000000 offset 8200 flags 0
+call	mmioSeek cur (probe)	13200
+proc	4	0	0	0	13200	13200
+call	mmioClose	0
+end
+case	rifx	108
+proc	3	name	0	0	0	0
+call	mmioOpenA	1	err 0 flags 0 cch 0 next 0 endread 0 endwrite 0 bufoffset 0 diskoffset 0 info0 0 err 0
+proc	0	buf+0	8192	108	0	108
+call	mmioDescend riff	0	ckid 58464952 cksize 100 type 00000000 offset 8 flags 0
+proc	2	544501110	0	0	544501110	108
+proc	0	buf+0	8192	0	544501110	108
+call	mmioDescend fmt	109	ckid 45564157 cksize 544501094 type 00000000 offset 16 flags 0
+proc	4	0	0	0	544501110	108
+call	mmioClose	0
+end

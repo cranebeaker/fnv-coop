@@ -1,0 +1,22 @@
+[package]
+name = "coop-core"
+version = "0.1.0"
+description = "Game-free co-op replication core: FormID-keyed deltas, snapshots, hashing, wire protocol, chaos transport"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+# Exposes the deterministic simulation harness (`sim_test`) to other crates.
+testkit = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
+lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1"
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }

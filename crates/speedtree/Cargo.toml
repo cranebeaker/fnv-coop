@@ -1,0 +1,12 @@
+[package]
+name = "speedtree"
+version = "0.1.0"
+description = "The game's SpeedTree trees: .spt files read and grown into branches, fronds and leaves as its SpeedTreeRT does"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

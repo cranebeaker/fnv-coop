@@ -1,0 +1,27 @@
+[package]
+name = "coop-net"
+version = "0.1.0"
+description = "Real transports for nv-rs co-op: UDP (LAN, direct IP, CI) and an optional Steam (Spacewar) backend behind coop-core's Transport trait"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Steam flat-API backend (runtime-loaded steam_api64.dll via libloading), the
+# SteamApi trait, MockSteam and the lobby logic. Off by default.
+steam = ["dep:libloading"]
+
+[dependencies]
+coop-core = { path = "../coop-core" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
+thiserror = "1"
+libloading = { version = "0.8", optional = true }
+
+[dev-dependencies]
+proptest = "1"
+
+[[test]]
+name = "steam_flow"
+required-features = ["steam"]

@@ -1,0 +1,13 @@
+Third-party software in the nv-rs co-op package
+
+Rust dependencies of nv-viewer.exe and nv-launcher.exe: see THIRD-PARTY-NOTICES.txt and the
+licenses folder in this package.
+
+Steam client library (optional): steam_api64.dll
+  This file belongs to Valve and is not covered by the GPL of this project.
+  STEAM_DLL_STATUS_PLACEHOLDER
+  The program loads it at run time only when present; without it everything else works over UDP.
+  Valve's terms for the Steamworks redistributable apply to that file.
+
+Fallout: New Vegas
+  Not included. You need your own copy. The launcher only reads your installation.

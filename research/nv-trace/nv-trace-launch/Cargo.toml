@@ -1,0 +1,15 @@
+[package]
+name = "nv-trace-launch"
+default-run = "nv-trace-launch"
+description = "Prepares the scratch folders, starts the real game suspended with the recorder injected, checks the player's folders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+nv-trace-core = { path = "../nv-trace-core" }
+nv-oracle-core = { path = "../../nv-oracle/nv-oracle-core" }
+nv-win = { path = "../../nv-oracle/nv-win" }

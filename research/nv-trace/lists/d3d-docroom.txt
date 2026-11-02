@@ -1,0 +1,71 @@
+# Milestone 3: the Direct3D 9 calls in Doc's room, for `nv-trace d3d` (draw-by-draw state).
+# Device methods are named by the port's addresses for them: 7e020200 + 4 * vtable slot
+# (crates/engine-core/src/units/platform/d3d9device.rs); the real recorder hooks the same slots
+# of the game's device. Calls are stdcall with `this` (the device) as w0 on both sides.
+# D3DX imports are named by the exe's import slots (00fdf3fc ...), as the port registers them.
+#
+# Objects are named by their creation, recorded from the start: textures from files by the hash
+# of the file bytes (hash=w1:w2), shaders by their bytecode (shader=w1), declarations by their
+# elements, the rest by their creation parameters; the out pointer at return (rdump) ties the
+# object's address in each run to its name.
+# The state calls are recorded from the world start (00dae3a0's first call) to the end of the
+# window (state set earlier and never again shows as unknown on both sides); the draws and
+# Present only in the window (frames=S..E: frames S to E-1 counted from the first call let
+# through).
+0086e650 frame    p          void Main::OnIdle
+007cb7d0 cdecl    bb         u8   StartMenu::Create
+007ac730 cdecl    w          void RaceSexMenu::Create
+00dae3a0 cdecl    ppwpp      void max=1 00dae3a0 (no label): manifold record filter (world start)
+# Creation (always). 00e68a80 (thiscall, RET 0x10, w1 the file name) makes a texture from a
+# file through D3DX: its name names the texture.
+00e68a80 thiscall ppppp      u8   dump=w1:0x104 (no label): texture from file
+00fdf3fc stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateTextureFromFileInMemory
+00fdf400 stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateCubeTextureFromFileInMemory
+00fdf404 stdcall  pppp       u32  hash=w1:w2 rdump=w3:4 D3DXCreateVolumeTextureFromFileInMemory
+7e02025c stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateTexture
+7e020260 stdcall  pwwwwwwwpp u32  rdump=w8:4 IDirect3DDevice9::CreateVolumeTexture
+7e020264 stdcall  pwwwwwpp   u32  rdump=w6:4 IDirect3DDevice9::CreateCubeTexture
+7e020268 stdcall  pwwwwpp    u32  rdump=w5:4 IDirect3DDevice9::CreateVertexBuffer
+7e02026c stdcall  pwwwwpp    u32  rdump=w5:4 IDirect3DDevice9::CreateIndexBuffer
+7e020270 stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateRenderTarget
+7e020274 stdcall  pwwwwwwpp  u32  rdump=w7:4 IDirect3DDevice9::CreateDepthStencilSurface
+7e020358 stdcall  ppp        u32  dump=w1:0x80 rdump=w2:4 IDirect3DDevice9::CreateVertexDeclaration
+7e02036c stdcall  ppp        u32  shader=w1 rdump=w2:4 IDirect3DDevice9::CreateVertexShader
+7e0203a8 stdcall  ppp        u32  shader=w1 rdump=w2:4 IDirect3DDevice9::CreatePixelShader
+7e020248 stdcall  pwwwp      u32  rdump=w4:4 IDirect3DDevice9::GetBackBuffer
+7e020298 stdcall  pwp        u32  rdump=w2:4 IDirect3DDevice9::GetRenderTarget
+7e0202a0 stdcall  pp         u32  rdump=w1:4 IDirect3DDevice9::GetDepthStencilSurface
+# State (from the world start on).
+7e020294 stdcall  pwp        u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetRenderTarget
+7e02029c stdcall  pp         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetDepthStencilSurface
+7e0202b0 stdcall  pwp        u32  after=00dae3a0 frames=34 dump=w2:64 IDirect3DDevice9::SetTransform
+7e0202bc stdcall  pp         u32  after=00dae3a0 frames=34 dump=w1:24 IDirect3DDevice9::SetViewport
+7e0202dc stdcall  pwp        u32  after=00dae3a0 frames=34 dump=w2:16 IDirect3DDevice9::SetClipPlane
+7e0202e4 stdcall  pww        u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetRenderState
+7e020304 stdcall  pwp        u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetTexture
+7e02030c stdcall  pwww       u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetTextureStageState
+7e020314 stdcall  pwww       u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetSamplerState
+7e02032c stdcall  pp         u32  after=00dae3a0 frames=34 dump=w1:16 IDirect3DDevice9::SetScissorRect
+7e02035c stdcall  pp         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetVertexDeclaration
+7e020364 stdcall  pw         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetFVF
+7e020370 stdcall  pp         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetVertexShader
+7e020378 stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*16 IDirect3DDevice9::SetVertexShaderConstantF
+7e020380 stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*16 IDirect3DDevice9::SetVertexShaderConstantI
+7e020388 stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*4 IDirect3DDevice9::SetVertexShaderConstantB
+7e020390 stdcall  pwpww      u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetStreamSource
+7e020398 stdcall  pww        u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetStreamSourceFreq
+7e0203a0 stdcall  pp         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetIndices
+7e0203ac stdcall  pp         u32  after=00dae3a0 frames=34 IDirect3DDevice9::SetPixelShader
+7e0203b4 stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*16 IDirect3DDevice9::SetPixelShaderConstantF
+7e0203bc stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*16 IDirect3DDevice9::SetPixelShaderConstantI
+7e0203c4 stdcall  pwpw       u32  after=00dae3a0 frames=34 dump=w2:w3*4 IDirect3DDevice9::SetPixelShaderConstantB
+# Draws and frame boundaries (the window).
+7e020244 stdcall  ppppp      u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::Present
+7e0202a4 stdcall  p          u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::BeginScene
+7e0202a8 stdcall  p          u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::EndScene
+7e0202ac stdcall  pwpwwfw    u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::Clear
+7e020344 stdcall  pwww       u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::DrawPrimitive
+7e020348 stdcall  pwwwwww    u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::DrawIndexedPrimitive
+7e02034c stdcall  pwwpw      u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::DrawPrimitiveUP
+7e020350 stdcall  pwwwwpwpw  u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::DrawIndexedPrimitiveUP
+7e020288 stdcall  pppppw     u32  after=00dae3a0 frames=30..34 IDirect3DDevice9::StretchRect

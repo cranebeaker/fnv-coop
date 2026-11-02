@@ -1,0 +1,9 @@
+[package]
+name = "script"
+version = "0.1.0"
+description = "The game's scripting language: parsing script source and running it"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

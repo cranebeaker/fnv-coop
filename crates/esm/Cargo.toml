@@ -1,0 +1,14 @@
+[package]
+name = "esm"
+version = "0.1.0"
+description = "Reader for the Fallout 3 / New Vegas plugin format (.esm/.esp)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# No external dependencies: zlib decompression for compressed records is
+# implemented in src/inflate.rs.
+[dependencies]
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

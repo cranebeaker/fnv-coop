@@ -1,0 +1,4 @@
+# Physics feel (lead, 2026-10-29): each Havok step's time and the world's settings (the first 0x100 bytes: gravity, solver), from Save 138.
+0086e650 frame    p      void Main::OnIdle
+00788770 thiscall pw     ptr  max=4 LoadingMenu::scalar_deleting_destructor
+00c91b10 thiscall pf     u32  after=00788770 max=4000 dump=this:0x100 hkpWorld::stepDeltaTime

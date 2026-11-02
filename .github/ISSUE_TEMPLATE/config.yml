@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project milestones and evidence
+    url: https://github.com/slaterain/nv-rs/blob/main/docs/MILESTONES.md
+    about: Check the active milestone and current blockers before opening an issue.

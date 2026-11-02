@@ -1,0 +1,20 @@
+[package]
+name = "nv-launcher"
+version = "0.1.0"
+description = "Player-facing terminal launcher for the nv-rs co-op build: finds the game, hosts, joins, keeps party saves, tests the port, collects diagnostics"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "nv_launcher"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nv-launcher"
+path = "src/main.rs"
+
+# std only apart from coop-net, which owns the join code format (NVRS-...). Its default
+# features leave Steam off, so no Steam code is linked.
+[dependencies]
+coop-net = { path = "../coop-net" }

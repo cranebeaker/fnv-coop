@@ -1,27 +1,44 @@
-# build output, run output, logs
-build/
-!tools/build/
-out/
-runs/
-*.log
-*.obj
-*.pdb
-*.ilk
-*.lib
-__pycache__/
-*.pyc
-.venv/
-
-# never commit game files, copies of the game, dumps, saves or binaries we do not own
+# Build output from both workspaces
+target/
+dist/
+userdata/
+reports/
+nv-rs-*.txt
+viewer/nv-rs-*.txt
+# Local game data, extracted assets and research databases are never published.
 *.esm
 *.esp
 *.bsa
-*.sav
-*.fos
-*.dll
+*.nif
+*.kf
+*.dds
+*.ogg
+*.mp3
+*.wav
 *.exe
-local/
-fnv-instances*/
-third_party/NVSE/
-third_party/nvmp/
-!third_party/enet/
+*.dll
+*.pdb
+*.sqlite
+*.sqlite3
+*.db
+*.log
+.env
+.env.*
+!/.env.example
+.DS_Store
+Thumbs.db
+# Local address-named decompiler output directories
+/00447330/
+/005b1ba0/
+/007050d0/
+
+# Python bytecode from research test helpers
+__pycache__/
+*.pyc
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+# Output of scripts/dlc-data-pass.ps1 (game data: never commit)
+dlc-data-pass.txt
+# The Direct3D 9 adapter capture (scripts/d3d9-capture): this machine's hardware, never commit
+d3d9_adapter.tsv

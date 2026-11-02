@@ -1,0 +1,8 @@
+[package]
+name = "nv-trace-core"
+description = "nv-trace's record format, function lists and the trace diff (portable)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false

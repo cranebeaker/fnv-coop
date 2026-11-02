@@ -1,0 +1,17 @@
+# The main scene node's light offset in the race menu (coordinator for a22, 2026-10-29): in the
+# port it is (-80, 0, 0) at every FORenderedMenuRaceSex::Draw, so the face's point lights are 80
+# off in x. Recorded from RaceSexMenu::Create on, frames 60..63 (console closed).
+# Dumps on each: the 12 bytes at [011f91c8]+0x1e4 (the offset the shaders subtract from light
+# positions; 00450b80(0) answers [011f91c8]) and the camera position at 011f474c, at entry and
+# at return. 008750e0 (thiscall, RET 0xc) is the setter: it stores its three floats at
+# this+0x1e4; 008761e0 calls it at 00876371 with this = [011f91c8].
+# Conventions from the RET of each: Draw RET 0xc (this + 3), 008761e0 RET 8 (this + 2),
+# 00875110 RET 0x10 (this + 4), 00874c10 RET (cdecl, none).
+0086e650 frame    p     void Main::OnIdle
+007cb7d0 cdecl    bb    u8   StartMenu::Create
+007ac730 cdecl    w     void RaceSexMenu::Create
+007fe1f0 thiscall pwww  void after=007ac730 frames=60..63 dump=*(0x011f91c8)+0x1e4:12 dump=0x011f474c:12 rdump=*(0x011f91c8)+0x1e4:12 rdump=0x011f474c:12 FORenderedMenuRaceSex::Draw
+008761e0 thiscall ppp   void after=007ac730 frames=60..63 dump=*(0x011f91c8)+0x1e4:12 dump=0x011f474c:12 rdump=*(0x011f91c8)+0x1e4:12 rdump=0x011f474c:12 008761e0 (no label): rendered-menu pass
+00875110 thiscall pwwww void after=007ac730 frames=60..63 dump=*(0x011f91c8)+0x1e4:12 dump=0x011f474c:12 rdump=*(0x011f91c8)+0x1e4:12 rdump=0x011f474c:12 00875110 (no label)
+00874c10 cdecl    -     void after=007ac730 frames=60..63 dump=*(0x011f91c8)+0x1e4:12 dump=0x011f474c:12 rdump=*(0x011f91c8)+0x1e4:12 rdump=0x011f474c:12 Main::DrawWorld_MTSetup1stPerson
+008750e0 thiscall pfff  void after=007ac730 frames=60..63 dump=this+0x1e4:12 rdump=this+0x1e4:12 008750e0 (no label): set the offset at +0x1e4

@@ -1,0 +1,9 @@
+[package]
+name = "mmio-measure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Measures how WinMM's mmio functions drive a custom I/O procedure in the order FalloutNV.exe reads WAV files, for the platform's mmio layer. Windows only, i686 target."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

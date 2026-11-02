@@ -1,0 +1,9 @@
+[package]
+name = "dsound-oracle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Compares the platform's DirectSound 3D stage and distortion (engine-core platform/ds3d.rs, dsfx.rs) with the player's own dsound.dll and dsdmo.dll, run in this process, without a sound device's output. Windows only, i686 target (the DLLs the game loads)."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

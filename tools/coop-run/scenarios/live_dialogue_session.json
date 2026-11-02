@@ -1,0 +1,43 @@
+{
+  "name": "live_dialogue_session",
+  "description": "The guest talks to Doc Mitchell with the game's own dialogue menu (--talk). The host runs each picked line's result scripts once; both peers play the lines. Under a bad link the shared state must still agree at the end.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 55,
+  "duration_s": 26,
+  "settle_s": 10,
+  "max_repairs": 12,
+  "guest": {
+    "script": [
+      {
+        "talk": true
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "lines-host",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "lines-guest",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "lines-equal",
+      "path": "live.lines_played",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

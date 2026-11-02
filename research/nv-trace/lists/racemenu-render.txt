@@ -1,0 +1,15 @@
+# Render-pass arrays from the race menu's creation on (coordinator, 2026-10-28: the real
+# recording of lists/m2.txt hit its caps at frame 13295, before the race menu at ~16763).
+# Each render function is recorded from the first RaceSexMenu::Create call (after=), capped
+# high enough for about a minute at the real game's frame rate.
+0086e650 frame    p               void Main::OnIdle
+007cb7d0 cdecl    bb              u8   StartMenu::Create
+# RaceSexMenu::Create (Xbox PDB, cdecl): one word (the port's interface.rs).
+007ac730 cdecl    w               void RaceSexMenu::Create
+00dae3a0 cdecl    ppwpp           void max=1 00dae3a0 (no label): manifold record filter (world start)
+00ba9ee0 thiscall ppwwwpppp       void max=3000000 after=007ac730 BSShaderProperty::RenderPassArray::Add
+00ba95e0 thiscall pw              void max=3000000 after=007ac730 BSShaderProperty::CheckCreateRenderPassArray
+00ba3aa0 thiscall pwp             void max=3000000 after=007ac730 00ba3aa0 (no label): NiTArray SetAt
+00ba8d30 thiscall pw              void max=3000000 after=007ac730 NiTArray<BSShaderProperty::RenderPass *>::SetSize
+00b67be0 thiscall ppwpwpb         ptr  max=3000000 after=007ac730 BSShaderPPLightingProperty::GetRenderPasses
+00bdf790 thiscall ppwpwpw         void max=3000000 after=007ac730 BSShaderPPLightingProperty::GetRenderPasses_2x

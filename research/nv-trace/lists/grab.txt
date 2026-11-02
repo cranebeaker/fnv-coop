@@ -1,0 +1,17 @@
+# Grab (Z) in the play build (lead, 2026-10-29): the control check, the handler, the crosshair ref, the spring.
+0086e650 frame    p      void Main::OnIdle
+00a24660 thiscall pww    u32  when=w1==0x1b max=200000 00a24660 (no label): control state (Grab = 0x1b)
+0095f6c0 thiscall pw     void max=200000 0095f6c0 (no label): the player's grab handler
+00703350 cdecl    -      ptr  max=200000 00703350 (no label): the crosshair's reference
+0095f930 thiscall pwww   void PlayerCharacter::CreateMouseSpring
+004b5260 cdecl    p      ptr  max=200000 FindFirstCollisionObject
+006fa820 thiscall p      ptr  max=200000 006fa820 (no label): the collision object's rigid body
+004b5400 thiscall p      f32  max=200000 004b5400 (no label): the rigid body's mass
+00403e20 thiscall p      ptr  when=w0==0x011d1230 max=200 dump=0x011d1230:12 00403e20 (no label): the grab mass limit setting (011d1230)
+# Inside CreateMouseSpring (port).
+00408d60 thiscall p      ptr  when=w0==0x011e0b1c max=100 dump=0x011e0b1c:12 00408d60 (no label): bool setting (011e0b1c)
+008d6f30 thiscall p      u32  max=400000 008d6f30 (no label): word at +0x40
+004b52f0 cdecl    p      ptr  max=400000 004b52f0 (no label): the node's rigid body
+00624b70 cdecl    pw     ptr  max=400000 BSXFlags::Find
+00c6e280 thiscall p      f32  max=400000 bhkCharacterController::GetRadius
+004b5040 thiscall pp     ptr  bhkMouseSpringAction::bhkMouseSpringAction

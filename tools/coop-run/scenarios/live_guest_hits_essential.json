@@ -1,0 +1,47 @@
+{
+  "name": "live_guest_hits_essential",
+  "description": "A guest cannot kill an essential person: Doc Mitchell takes the hits (the host ledger refuses the lethal ones) and stays alive on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 53,
+  "duration_s": 16,
+  "settle_s": 5,
+  "guest": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop hit DocMitchellREF 100000"
+      },
+      {
+        "at": 9,
+        "run": "coop hit DocMitchellREF 100000"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "alive-host",
+      "path": "dead.DocMitchellREF",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "alive-guest",
+      "path": "dead.DocMitchellREF",
+      "op": "absent",
+      "on": "guest"
+    },
+    {
+      "id": "hits",
+      "path": "live.hits_sent",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

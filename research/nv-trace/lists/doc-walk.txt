@@ -1,0 +1,14 @@
+# Doc Mitchell's walk after loading Save 138 (coordinator, 2026-10-29): his 3D position per frame
+# (the shadow caster, ShadowSceneNode::AddCaster 00b5cbd0), and the AI calls around the end of his
+# first walk: package evaluation, package choice and end, path requests, path failures.
+# Actors are told apart by their reference (+0xc form id) and base (+0x20 -> +0xc).
+0086e650 frame    p     void Main::OnIdle
+007cb7d0 cdecl    bb    u8   StartMenu::Create
+00b5cbd0 thiscall pp    ptr  after=007cb7d0 max=6000 dump=w1+0x30:4 dump=w1+0x8c:12 ShadowSceneNode::AddCaster
+008a6ce0 thiscall pbb   void after=007cb7d0 max=6000 dump=this+0xc:4 dump=*(this+0x20)+0xc:4 dump=this+0x30:12 dump=*(this+0x68):4 Actor::EvaluatePackage
+008d08b0 thiscall ppp   void after=007cb7d0 max=3000 dump=w1+0xc:4 dump=w1+0x1c:8 BaseProcess::SetCurrentPackage
+00903d10 thiscall ppw   void after=007cb7d0 max=3000 dump=w1+0xc:4 dump=w1+0x1c:8 HighProcess::PackageDone
+00913630 thiscall ppw   void after=007cb7d0 max=3000 dump=w1+0xc:4 LowProcess::PackageDone
+006e2f80 cdecl    p     ptr  after=007cb7d0 max=3000 PathingRequest::CreatePathingRequest
+009de490 thiscall pb    void after=007cb7d0 max=20000 ActorMover::SetPathingFailed
+009db950 thiscall pb    void after=007cb7d0 max=3000 ActorMover::ClearDataForNewPathingRequest

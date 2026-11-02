@@ -1,0 +1,24 @@
+[package]
+name = "coop-headless"
+version = "0.1.0"
+description = "Headless co-op scenario simulator: runs tools/coop-run scenarios in one process on a virtual clock, with the real session and live layers"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "coop_headless"
+
+[[bin]]
+name = "coop-sim"
+path = "src/main.rs"
+
+[dependencies]
+coop-core = { path = "../coop-core" }
+coop-session = { path = "../coop-session" }
+coop-policy = { path = "../coop-policy" }
+world = { path = "../world" }
+esm = { path = "../esm" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

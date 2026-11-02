@@ -1,0 +1,9 @@
+[package]
+name = "shaders"
+version = "0.1.0"
+description = "Reader for the game's compiled shader packages (.sdp) and a Direct3D 9 shader disassembler"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]

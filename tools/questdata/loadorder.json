@@ -1,6 +1,0 @@
-{
-  "_doc": "Shared load order for runtime FormIDs (index = position in `plugins`). Read by questdata scenarios, L9 hostowned and the runner. Runtime FormID = (index << 24) | localId. The in-game console only accepts hex FormIDs, not EditorIDs. FNV sorts ESMs by file timestamp, NOT plugins.txt order.",
-  "observed_from": "in-game `plugins` bridge method (L1), 2026-10-16",
-  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
-              "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm"]
-}

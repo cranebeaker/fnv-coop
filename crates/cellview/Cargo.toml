@@ -1,0 +1,21 @@
+[package]
+name = "cellview"
+version = "0.1.0"
+description = "Loads a Fallout: New Vegas cell into plain meshes, textures, materials and lights for a real-time renderer"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+physics = { path = "../physics" }
+esm = { path = "../esm" }
+nif = { path = "../nif" }
+dds = { path = "../dds" }
+assets = { path = "../assets" }
+world = { path = "../world" }
+preview = { path = "../preview" }
+mp3 = { path = "../mp3" }
+speedtree = { path = "../speedtree" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }

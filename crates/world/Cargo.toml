@@ -1,0 +1,20 @@
+[package]
+name = "world"
+version = "0.1.0"
+description = "Cells and placed objects for Fallout 3 / New Vegas, read from a load order"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+esm = { path = "../esm" }
+fos = { path = "../fos" }
+nif = { path = "../nif" }
+script = { path = "../script" }
+coop-core = { path = "../coop-core" }
+coop-policy = { path = "../coop-policy" }
+
+[dev-dependencies]
+fos = { path = "../fos", features = ["write"] }
+testdata = { path = "../testdata" }
+coop-core = { path = "../coop-core", features = ["testkit"] }

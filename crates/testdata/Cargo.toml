@@ -1,0 +1,10 @@
+[package]
+name = "testdata"
+version = "0.1.0"
+description = "Builders for game-format test data (NIF, DDS, plugins) used by the tests"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]

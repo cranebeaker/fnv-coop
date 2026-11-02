@@ -1,0 +1,12 @@
+[package]
+name = "engine-map"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone research tool (not part of the root workspace).
+[workspace]
+
+[dependencies]
+pdb = "0.8"
+msvc-demangler = "0.10"

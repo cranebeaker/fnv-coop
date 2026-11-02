@@ -1,0 +1,13 @@
+[package]
+name = "fos"
+version = "0.1.0"
+description = "Reader for Fallout: New Vegas's own save files (.fos)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+# Test support: builds synthetic saves (crate::write).
+write = []
+
+[dependencies]

@@ -1,0 +1,95 @@
+; Dead Money, Act 2 start: all three recruited, Elijah's Act 2 greeting said,
+; Dog travelling with the courier (MQ02a "Fires in the Sky" begun).
+; Start with:  nv-viewer <Data> DLC01StartMarker --official --character characters/dead-money-act2.txt
+; The Villa character (dead-money-villa.txt) plus what Act 1 and the greeting
+; do: the three finding quests finished by their own stage lines (their
+; result scripts run), the master quest's end, and the result script of
+; Elijah's Act 2 greeting. Dog is hired the way the game does it
+; (NVDLC01HireTriggerREF.Activate) and follows the courier. Not
+; played to get here: the three recruitments themselves (see MQ01a to c).
+;
+; Script lines as the game's console runs them, on a new game before its
+; first frame; editor IDs only. `level N` sets the level directly.
+
+; Level 20 (the level Dead Money is commonly played at); S.P.E.C.I.A.L. and
+; skills stay at the player record's own values.
+level 20
+
+; Character creation is long done: Radio New Vegas is on (MQ00's sign that
+; the player has left Doc Mitchell's house).
+RNVTARef.Enable
+
+; The pre-order packs gave their items at the start of the game.
+set VDLCPackQuest.bClassicItemsGiven to 1
+set VDLCPackQuest.bCaravanItemsGiven to 1
+set VDLCPackQuest.bMercenaryItemsGiven to 1
+set VDLCPackQuest.bTribalItemsGiven to 1
+
+; Gear for the trip (Dead Money takes it all away at the start and gives it
+; back at the end).
+player.AddItem ArmorLeather 1
+player.EquipItem ArmorLeather
+player.AddItem WeapNV9mmPistol 1
+player.EquipItem WeapNV9mmPistol
+player.AddItem Ammo9mm 120
+player.AddItem WeapNVHuntingShotgun 1
+player.AddItem Ammo20Ga 40
+player.AddItem Stimpak 10
+player.AddItem RadAway 2
+player.AddItem Caps001 1500
+
+; The other DLCs' broadcasts came in when the player left Doc Mitchell's
+; (their quests' own way: the flag that the message was shown, the stage).
+set NVDLC03MQ00.nEnableDLC to 2
+SetStage NVDLC03MQ00 10
+NVDLC03RadioREF.Enable
+set NVDLC02MQ00.nEnableDLC to 2
+SetStage NVDLC02MQ00 10
+NVDLC02JedRadioTAREF.Enable
+StartQuest NVDLC02RadioMessage
+set NVDLC04MQ00.nEnableDLC to 2
+SetStage NVDLC04MQ00 10
+; Gun Runners' Arsenal still sets up its vendors; its message was shown.
+set NVDLC05MQ00.nEnableDLC to 2
+
+; Dead Money: the broadcast has been heard (stage 10 unlocks the bunker and
+; shows its objective), as MQ00's script does it: its warp out of the
+; bunker and its download messages are past.
+SetStage NVDLC01MQ00 10
+set NVDLC01MQ00.bTeleportOut to 1
+set NVDLC01MQ00.DoOnceMessage to -1
+
+; The bunker's travel trigger (NVDLC01VillaTravelTriggerScript): MQ00 done,
+; the followers left behind, the gear taken into the equipment container.
+SetObjectiveCompleted NVDLC01MQ00 10 1
+SetStage NVDLC01MQ00 100
+StartQuest NVDLC01NewVegasFollowerFireQuest
+player.RemoveAllItems NVDLC01PlayerEquipmentContainerRef
+
+; The slideshow and the Villa transition timer are over: character creation
+; flag off. (The intro quest isn't started here: it would run the slideshow
+; again. Controls stay on rather than off as the intro leaves them; the
+; fountain's wake-up turns them on anyway.)
+SetInCharGen 0
+
+; Act 1: the three found and recruited (each quest's stage 100 runs its own
+; result script; MQ01c's also needs its crew notice shown).
+SetStage NVDLC01MQ01a 100
+SetStage NVDLC01MQ01b 100
+SetStage NVDLC01MQ01c 100
+SetStage NVDLC01MQ01d 100
+
+; The result script of Elijah's Act 2 greeting (his talking activator's topic).
+SetStage NVDLC01MQ02c 10
+SetStage NVDLC01MQ02b 10
+SetStage NVDLC01MQ02a 10
+set NVDLC01ElijahDialogue.bAct2Begin to 1
+ForceActiveQuest NVDLC01MQ02a
+SalidaDoor.Unlock
+PuestaDoor.Unlock
+
+; Elijah's first instructions at the fountain are long past.
+set NVDCL01FountainTriggerRef.bInitialInstructions to 1
+
+; Dog hired, as the game's own hire script does it (he follows the courier).
+NVDLC01HireTriggerREF.Activate NVDLC01DogREF 1

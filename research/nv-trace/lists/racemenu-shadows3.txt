@@ -1,0 +1,8 @@
+# Which shadow lights the race menu turns off (NiLight +0x30 bit 0, app-culled) in the real game:
+# the names of lights 3 and 4 of the main ShadowSceneNode's shadow list ([011f91c8]+0xc0) and of
+# their parents, and light 3's flags every frame from the race menu on.
+0086e650 frame    p     void after=007cb7d0 dump=*(*(*(*(*(*(0x011f91c8)+0xc0)))+8)+0xf8)+0x30:4 Main::OnIdle
+007cb7d0 cdecl    bb    u8   StartMenu::Create
+007ac730 cdecl    w     void RaceSexMenu::Create
+00b5b880 thiscall pp    void after=007ac730 max=4 dump=*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+8):32 dump=*(*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x18)+8):32 dump=*(*(*(*(*(*(*(*(this+0xc0)))+8)+0xf8)+0x18)+0x18)+8):32 dump=*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x30:4 dump=*(*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+8):32 dump=*(*(*(*(*(*(*(*(this+0xc0))))+8)+0xf8)+0x18)+8):32 ShadowSceneNode::UpdateDynamicShadows
+00b9f780 thiscall ppw   void after=007cb7d0 max=400 dump=0x011f9174:4 dump=*(*(0x011f9174)+0xf8)+0x30:4 dump=*(*(*(0x011f9174)+0xf8)+8):32 ShadowSceneLight::MTRenderFrustumDepthMap

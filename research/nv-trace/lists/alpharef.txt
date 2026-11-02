@@ -1,0 +1,7 @@
+# Who sets the alpha-test reference in Doc's room (lead, 2026-10-29): the real game has ALPHAREF 0x78 on env-mapped clutter, the port 0x80.
+0086e650 frame    p      void Main::OnIdle
+00788770 thiscall pw     ptr  max=4 LoadingMenu::scalar_deleting_destructor
+00b97f20 cdecl    www    void after=00788770 max=20000 00b97f20 (no label): alpha function and reference
+00b7ad00 thiscall pppw   void after=00788770 max=20000 00b7ad00 (no label): first stage, alpha reference from +0x70
+00bbdda0 thiscall ppp    void after=00788770 max=20000 00bbdda0 (no label): lighting30 stage, alpha reference
+00bac9c0 thiscall pp     void after=00788770 max=20000 00bac9c0 (no label): alpha property path

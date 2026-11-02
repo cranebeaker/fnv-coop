@@ -1,0 +1,19 @@
+[package]
+name = "nv-call"
+description = "Call functions of a mapped PE32 image on the real CPU (host program; the work is in nv-call-engine)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+nv-win = { path = "../nv-win" }
+
+[[bin]]
+name = "nv-call"
+path = "src/main.rs"
+# The host has no Rust runtime (no_main), which the test harness cannot use.
+test = false
+bench = false

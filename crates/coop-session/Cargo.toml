@@ -1,0 +1,23 @@
+[package]
+name = "coop-session"
+version = "0.1.0"
+description = "Headless co-op session driver: transport + host/guest sync + the world bridges, one call before and one after each frame"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Steam (Spacewar 480) transport: loads steam_api64.dll at run time through coop-net's
+# steam backend. Off by default; a default build has no Steam code.
+steam = ["coop-net/steam"]
+
+[dependencies]
+coop-core = { path = "../coop-core" }
+world = { path = "../world" }
+esm = { path = "../esm" }
+coop-net = { path = "../coop-net" }
+coop-policy = { path = "../coop-policy" }
+
+[dev-dependencies]
+testdata = { path = "../testdata" }
