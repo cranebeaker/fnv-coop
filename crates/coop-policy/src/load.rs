@@ -1,10 +1,10 @@
 //! Loader and validation. A table that loads is internally consistent.
 
 use crate::model::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
-pub const SCHEMA: u32 = 1;
+pub const SCHEMA: u32 = 2;
 
 /// The checked-in policy file.
 pub const BUNDLED: &str = include_str!("../data/policy.json");
@@ -27,6 +27,34 @@ impl fmt::Display for LoadError {
 }
 
 impl std::error::Error for LoadError {}
+
+/// What [`PolicyTable::remap`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemapReport {
+    /// Rows now keyed by a runtime id (including those that kept theirs).
+    pub resolved: usize,
+    /// Of those, rows whose id changed.
+    pub moved: usize,
+    /// Synthetic rows kept as they are.
+    pub synthetic: usize,
+    /// (plugin, editor id) of rows dropped because the quest is not in the load order.
+    pub unmatched: Vec<(String, String)>,
+}
+
+impl RemapReport {
+    /// A one-line summary for logs, naming the plugins with unmatched rows.
+    pub fn describe(&self) -> String {
+        if self.unmatched.is_empty() {
+            return format!("policy ids: all {} rows resolved ({} moved)", self.resolved, self.moved);
+        }
+        let mut by: BTreeMap<&str, usize> = BTreeMap::new();
+        for (p, _) in &self.unmatched {
+            *by.entry(p.as_str()).or_default() += 1;
+        }
+        let list: Vec<String> = by.iter().map(|(p, n)| format!("{p}: {n}")).collect();
+        format!("policy ids: {} rows resolved, {} not in the load order ({})", self.resolved, self.unmatched.len(), list.join(", "))
+    }
+}
 
 /// Validated table with lookups by form id and EDID.
 #[derive(Debug, Clone)]
@@ -70,6 +98,45 @@ impl PolicyTable {
             group_members.push(ids);
         }
         Ok(PolicyTable { file, by_id, by_edid, group_of, group_members })
+    }
+
+    /// A copy of the table with every row keyed by the id `resolve(row)` gives it (its runtime
+    /// form id in the actual load order). Rows `resolve` returns `None` for are quests that
+    /// are not loaded: they are dropped and listed in the report, never an error. Synthetic
+    /// rows (no record) keep the id they have.
+    pub fn remap(&self, mut resolve: impl FnMut(&QuestRow) -> Option<FormId>) -> Result<(PolicyTable, RemapReport), LoadError> {
+        let mut file = self.file.clone();
+        let mut rep = RemapReport::default();
+        let mut kept = Vec::with_capacity(file.quests.len());
+        let mut gone: BTreeSet<String> = BTreeSet::new();
+        for mut q in std::mem::take(&mut file.quests) {
+            if q.synthetic {
+                rep.synthetic += 1;
+                kept.push(q);
+                continue;
+            }
+            match resolve(&q) {
+                Some(id) => {
+                    if id != q.id {
+                        rep.moved += 1;
+                    }
+                    rep.resolved += 1;
+                    q.id = id;
+                    kept.push(q);
+                }
+                None => {
+                    rep.unmatched.push((q.plugin.clone(), q.edid.clone()));
+                    gone.insert(q.edid.clone());
+                }
+            }
+        }
+        file.quests = kept;
+        // an exclusive group keeps only the members that are loaded
+        for g in &mut file.groups {
+            g.members.retain(|m| !gone.contains(m));
+        }
+        file.groups.retain(|g| g.members.len() > 1);
+        Ok((PolicyTable::from_file(file)?, rep))
     }
 
     pub fn row(&self, id: FormId) -> Option<&QuestRow> {
@@ -142,6 +209,9 @@ fn validate(f: &PolicyFile) -> Vec<String> {
         }
         if !edids.insert(n.clone()) {
             e.push(format!("{n}: duplicate edid"));
+        }
+        if q.local > 0x00FF_FFFF {
+            e.push(format!("{n}: local id 0x{:08X} has a load index byte", q.local));
         }
         if q.plugin.is_empty() {
             e.push(format!("{n}: empty plugin"));

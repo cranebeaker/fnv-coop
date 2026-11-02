@@ -30,13 +30,27 @@ pub struct HostConfig {
     pub hash_history: usize,
     /// Campaign difficulty mode for the live layer.
     pub mode: Mode,
+    /// Join compatibility policy (the developer override lives here).
+    pub compat: crate::compat::CompatPolicy,
 }
 
 impl HostConfig {
     /// Sensible defaults for a given identity.
     pub fn new(hello: Hello, session: u64) -> Self {
-        HostConfig { hello, session, max_guests: 3, ring_cap: 128, hash_history: 32, mode: Mode::CoopBalanced }
+        HostConfig { hello, session, max_guests: 3, ring_cap: 128, hash_history: 32, mode: Mode::CoopBalanced, compat: Default::default() }
     }
+}
+
+/// A handshake that found differences (refused, or let in by the override);
+/// the session turns these into messages for the host's player.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompatNote {
+    /// The guest.
+    pub player: PlayerId,
+    /// What differed.
+    pub issues: Vec<crate::compat::Issue>,
+    /// True when the guest was turned away.
+    pub refused: bool,
 }
 
 #[derive(Debug, Default)]
@@ -49,6 +63,8 @@ struct Guest {
 /// The authoritative side.
 pub struct HostSync {
     cfg: HostConfig,
+    /// Handshakes that differed, not yet reported.
+    pub compat_log: Vec<CompatNote>,
     /// Authoritative state.
     pub store: StateStore,
     /// Who may write what.
@@ -76,6 +92,7 @@ impl HostSync {
         let live = HostLive::new(cfg.mode);
         HostSync {
             cfg,
+            compat_log: Vec::new(),
             store: StateStore::new(),
             auth: AuthorityTable::new(),
             ring,
@@ -151,9 +168,15 @@ impl HostSync {
             Msg::Hello(h) => {
                 if !self.guests.contains_key(&from) && self.guests.len() >= self.cfg.max_guests {
                     out.push((from, Msg::Reject(RejectReason::Full)));
-                } else if let Err(r) = session::check_hello(&self.cfg.hello, &h) {
+                } else if let crate::compat::Verdict::Refuse(r, found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                    out.push((from, Msg::Incompat(self.cfg.hello.clone())));
                     out.push((from, Msg::Reject(r)));
+                    self.compat_log.push(CompatNote { player: from, issues: found, refused: true });
                 } else {
+                    if let crate::compat::Verdict::Warn(found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                        out.push((from, Msg::Incompat(self.cfg.hello.clone())));
+                        self.compat_log.push(CompatNote { player: from, issues: found, refused: false });
+                    }
                     self.guests.entry(from).or_default().active = false;
                     out.push((
                         from,
@@ -205,7 +228,7 @@ impl HostSync {
                 }
             }
             Msg::Intent { id, epoch, changes } => out.extend(self.on_intent(from, id, epoch, changes)),
-            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_)) => {
+            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_) | Msg::Scene(_) | Msg::Interact(_) | Msg::Roam(_) | Msg::Combat(_)) => {
                 if self.guests.get(&from).map_or(false, |g| g.active) {
                     out.extend(self.live.on_msg(from, m, self.now_ms, &mut self.auth));
                 }

@@ -33,7 +33,8 @@
 //               PUSH/CALL/ENTER (string instructions such as REP STOSD).
 //   r_pointer   loads through a base register that is not the frame and
 //               without an absolute displacement (reading an object that a
-//               pointer argument or a global points at).
+//               pointer argument or a global points at), and loads with no
+//               memory operand other than the stack's (string instructions).
 //   fs          number of operands that use the FS segment (TLS block, SEH
 //               frame); any FS store is also counted in w_pointer.
 //   reg_in      registers among ECX and EDX that the entry block reads before
@@ -256,9 +257,21 @@ public class NvPurity extends GhidraScript {
                     indirect++;
                 }
             }
+            // A jump (conditional too) that leaves the body for code that is no function's
+            // entry: the function goes on in code nothing here analyses (00d0a360 jumps into
+            // 00d0a270, 00ec6370 into the string code at 00ec63e5). Counted as unknown code.
+            if (ft.isJump() && !call) {
+                for (Address t : ins.getFlows()) {
+                    if (!body.contains(t) && fm.getFunctionAt(t) == null) {
+                        indirect++;
+                        break;
+                    }
+                }
+            }
 
             // Operand-level loads and stores.
             boolean explicitStore = false;
+            boolean explicitLoad = false;
             for (int i = 0; i < ins.getNumOperands(); i++) {
                 // A memory operand is written in brackets ([ESP+0x4], dword ptr [0x011dea3c],
                 // FS:[0x0]); register and immediate operands are not.
@@ -274,6 +287,9 @@ public class NvPurity extends GhidraScript {
                 boolean write = rt != null ? rt.isWrite() : hasStore(ins);
                 boolean read = rt != null ? rt.isRead() : !write;
                 Base base = base(ins, i, ebpFrame);
+                // Any memory operand accounts for the instruction's own memory access, read or
+                // not by its reference type (a switch's JMP [EAX*4 + table] is INDIRECTION).
+                explicitLoad = true;
                 if (write) {
                     explicitStore = true;
                     if (base == Base.STACK) {
@@ -289,6 +305,12 @@ public class NvPurity extends GhidraScript {
                 else if (read && base == Base.POINTER && !mnem.equals("LEA")) {
                     rPointer++;
                 }
+            }
+            // Loads with no memory operand (string instructions: LODS, SCAS, CMPS, MOVS)
+            // read through ESI/EDI; the stack ones (POP, RET, LEAVE) don't count.
+            if (!explicitLoad && hasLoad(ins) && !mnem.startsWith("POP") && !mnem.startsWith("RET")
+                && !mnem.equals("LEAVE") && !mnem.startsWith("IRET")) {
+                rPointer++;
             }
             if (!explicitStore && hasStore(ins)) {
                 if (mnem.startsWith("PUSH") || mnem.equals("CALL") || mnem.equals("ENTER")) {
@@ -1056,6 +1078,15 @@ public class NvPurity extends GhidraScript {
     private static boolean isBracketed(Instruction ins, int i) {
         String s = ins.getDefaultOperandRepresentation(i);
         return s.contains("[");
+    }
+
+    private static boolean hasLoad(Instruction ins) {
+        for (PcodeOp op : ins.getPcode()) {
+            if (op.getOpcode() == PcodeOp.LOAD) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasStore(Instruction ins) {

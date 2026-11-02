@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "description": "A guest rejoins under its own persistent id and gets its own character (50 caps), then loads its own character with F9 after adding caps in the second session: the guest's load restores only its own character from its local file; the host's inventory, Doc's caps and the shared hash are untouched. Headless only.",
+  "party": {
+    "key": 4242,
+    "restart_at": 11,
+    "host_loads": true,
+    "guest_same_key": true,
+    "second": {
+      "duration_s": 14,
+      "guest": {
+        "script": [
+          {
+            "at": 1,
+            "run": "player.AddItem Caps001 25"
+          },
+          {
+            "at": 6,
+            "run": "coop pload"
+          }
+        ]
+      }
+    }
+  },
+  "expect": [
+    {
+      "id": "guest-restored-own",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "host-untouched",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "shared-untouched",
+      "path": "items.DocMitchellREF.Caps001",
+      "op": "ge",
+      "value": 9,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Stimpak 3"
+      },
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem Caps001 9"
+      },
+      {
+        "at": 7,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Caps001 50"
+      }
+    ]
+  },
+  "name": "live_guest_rejoin_own_character"
+}

@@ -21,7 +21,8 @@ pub struct Pure {
     /// Constants of the function and its callees (input tokens, see
     /// `purity::Facts::consts`), used as boundary inputs.
     pub consts: Vec<String>,
-    /// One buffer per pointer parameter (phase 1: read only).
+    /// One buffer per pointer parameter (the fields read and, in the store
+    /// tier, stored through it).
     pub bufs: Vec<Buf>,
     /// The exe may read memory at an address computed from the inputs (a
     /// table index): the function or a callee has LOADs no input explains,
@@ -41,12 +42,12 @@ pub struct Buf {
     /// The pointer passed is the buffer's address plus `bias` (room for
     /// negative offsets, `CONTAINING_RECORD`-style).
     pub bias: u32,
-    /// (offset from the pointer, size) of every field the exe reads.
+    /// (offset from the pointer, size) of every field the exe reads or stores.
     pub fields: Vec<(i64, u32)>,
 }
 
 impl Buf {
-    /// From the loads the exe makes through the pointer.
+    /// From the loads and stores the exe makes through the pointer.
     pub fn from_reads(param: usize, reads: &[(i64, u32)]) -> Buf {
         let mut fields = reads.to_vec();
         fields.sort_unstable();
@@ -138,9 +139,8 @@ pub enum Skip {
     PointerChase,
     /// Pointer tier: the pointer is handed to a callee.
     PointerPassed,
-    /// Pointer tier: stores through the argument, or the pointer itself is
-    /// stored (phase 2).
-    PointerStores,
+    /// Pointer tier: the pointer itself is stored somewhere.
+    PointerEscapes,
     /// A parameter the Rust signature types as a scalar is used as a pointer
     /// by the exe.
     ScalarUsedAsPointer,
@@ -161,10 +161,23 @@ fn convention(params: &[Ty], f: &Facts) -> Result<&'static str, String> {
     let reg: Vec<&str> = f.reg_in.iter().map(String::as_str).collect();
     let (cc, stack_words) = match reg.as_slice() {
         [] => {
+            let int_word = |t: Option<&Ty>| t.is_some_and(|t| t.words() == 1 && *t != Ty::F32);
             if f.ret_pop == 0 {
                 ("cdecl", words)
             } else if f.ret_pop == 4 * words as i64 {
                 ("stdcall", words)
+            // No register read, but the exe pops one (two) words less than the
+            // signature has: a method that ignores `this` (and EDX). Calling it as
+            // thiscall (fastcall) is right either way: the exe sees the same stack
+            // words, and a `this` it doesn't read changes nothing (00a38de0, a
+            // shared virtual stub that answers 0).
+            } else if f.ret_pop == 4 * (words as i64 - 1) && int_word(params.first()) {
+                ("thiscall", words - 1)
+            } else if f.ret_pop == 4 * (words as i64 - 2)
+                && int_word(params.first())
+                && int_word(params.get(1))
+            {
+                ("fastcall", words - 2)
             } else {
                 return Err(format!(
                     "pops {} bytes, Rust has {} argument words",
@@ -232,7 +245,19 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
             skip(Skip::NotInExeTable);
             continue;
         };
-        if !pure_set.contains(&addr) {
+        // Phase 2 of #193: the function itself may store through its pointer
+        // arguments (at known offsets, which the data flow below decides) when
+        // that is its only impurity and everything it calls is pure.
+        let stores_through_args = !pure_set.contains(&addr)
+            && f.w_pointer > 0
+            && f.indirect == 0
+            && f.imports == 0
+            && f.w_global == 0
+            && f.w_implicit == 0
+            && f.fs == 0
+            && f.calls.iter().all(|c| pure_set.contains(c))
+            && sig.params.contains(&Ty::Ptr);
+        if !pure_set.contains(&addr) && !stores_through_args {
             skip(Skip::Impure);
             continue;
         }
@@ -245,7 +270,9 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
             skip(Skip::HiddenInput);
             continue;
         }
-        if sig.ret == Ty::Void {
+        // A function that stores through its arguments has its buffers as a
+        // result; one that doesn't has nothing to compare.
+        if sig.ret == Ty::Void && !stores_through_args {
             skip(Skip::VoidResult);
             continue;
         }
@@ -319,6 +346,7 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
             }
         };
         let mut bufs = Vec::new();
+        let mut as_pointer: Vec<usize> = Vec::new();
         if pointer_tier {
             let Some(args) = &f.args else {
                 skip(Skip::NoDataFlow);
@@ -337,23 +365,41 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
                     }
                     continue;
                 };
-                why = if *t != Ty::Ptr {
-                    Some(Skip::ScalarUsedAsPointer)
-                } else if a.unknown {
+                // A number the exe computes with, passes on or stores: no buffer.
+                if *t != Ty::Ptr && !a.dereferenced() {
+                    continue;
+                }
+                // A word the Rust types as `u32`/`i32` but the exe dereferences is
+                // a pointer (out-parameters are often typed so): it gets a buffer
+                // and is listed as `ptr`, since the call passes a word either way.
+                // A narrower scalar can't hold an address.
+                if !matches!(t, Ty::Ptr | Ty::U32 | Ty::I32) {
+                    why = Some(Skip::ScalarUsedAsPointer);
+                    break;
+                }
+                if *t != Ty::Ptr {
+                    as_pointer.push(k);
+                }
+                why = if a.unknown {
                     Some(Skip::PointerOffsetUnknown)
                 } else if !a.chases.is_empty() {
                     Some(Skip::PointerChase)
                 } else if !a.passed.is_empty() {
                     Some(Skip::PointerPassed)
-                } else if a.escapes || !a.writes.is_empty() {
-                    Some(Skip::PointerStores)
+                } else if a.escapes {
+                    Some(Skip::PointerEscapes)
                 } else {
                     None
                 };
                 if why.is_some() {
                     break;
                 }
-                bufs.push(Buf::from_reads(k, &a.reads));
+                // Fields read and fields written: fills put known bytes under
+                // every store, so a missing, partial or misplaced one shows.
+                bufs.push(Buf::from_reads(
+                    k,
+                    &[a.reads.as_slice(), &a.writes].concat(),
+                ));
             }
             // An input the exe dereferences that is none of the parameters
             // (the convention check normally rules these out first).
@@ -364,6 +410,12 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
             {
                 why = Some(Skip::UnmatchedInput);
             }
+            // A function in the store tier whose stores the data flow does not
+            // put on an argument (all must be: `untracked_stores` is 0 above).
+            if why.is_none() && stores_through_args && !args.values().any(|a| !a.writes.is_empty())
+            {
+                why = Some(Skip::UntrackedPointer);
+            }
             if let Some(w) = why {
                 skip(w);
                 continue;
@@ -372,7 +424,12 @@ pub fn build(src: &Source, facts: &BTreeMap<u32, Facts>) -> Listing {
         out.pure.push(Pure {
             addr,
             cc,
-            params: sig.params.clone(),
+            params: sig
+                .params
+                .iter()
+                .enumerate()
+                .map(|(k, t)| if as_pointer.contains(&k) { Ty::Ptr } else { *t })
+                .collect(),
             ret: sig.ret,
             unit: unit.to_string_lossy().replace('\\', "/"),
             consts: {
@@ -403,11 +460,13 @@ pub const HEADER: &str = "\
 # Pure translations for the automatic oracle check (research/nv-oracle/nv-pure, #182).
 # Generated by `nv-pure list`: translated and complete in the engine crates, pure in
 # FalloutNV.exe 1.4.0.525 (NvPurity.java, transitively), scalar arguments and result,
-# or pointer arguments that are only read at known offsets (phase 1, #193).
-# Addresses, signatures, the constants each function compares with (used as
-# boundary inputs) and, per pointer parameter, `param:size:bias:off.size;...`
-# (the buffer and the fields the exe reads), and `computed_reads` (1 when the exe
-# may read an address computed from the inputs, such as a table index).
+# or pointer arguments read (phase 1, #193) and stored through (phase 2: the
+# function's only stores; the result may be `void`, its buffers are then its
+# result) at known offsets. `u32`/`i32` parameters the exe dereferences are listed
+# as `ptr`. Addresses, signatures, the constants each function compares with (used
+# as boundary inputs) and, per pointer parameter, `param:size:bias:off.size;...`
+# (the buffer and the fields the exe reads or stores), and `computed_reads` (1 when
+# the exe may read an address computed from the inputs, such as a table index).
 # Regenerate after translations land.
 address\tcc\tparams\tret\tunit\tcallees\tconsts\tbuffers\tcomputed_reads
 ";
@@ -574,6 +633,19 @@ mod tests {
         assert!(
             convention(&[Ty::U32, Ty::U32], &facts(0, &["ECX"], 4)).is_err(),
             "thiscall leaves a stack word"
+        );
+        // No register read, one (two) words fewer popped: `this` (and EDX) ignored.
+        assert_eq!(
+            convention(&[Ty::Ptr, Ty::U32], &facts(4, &[], -1)),
+            Ok("thiscall")
+        );
+        assert_eq!(
+            convention(&[Ty::Ptr, Ty::U32, Ty::U32], &facts(4, &[], -1)),
+            Ok("fastcall")
+        );
+        assert!(
+            convention(&[Ty::F32, Ty::U32], &facts(4, &[], -1)).is_err(),
+            "a float can't be `this`"
         );
     }
 

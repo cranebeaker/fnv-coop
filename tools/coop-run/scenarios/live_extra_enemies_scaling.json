@@ -1,0 +1,49 @@
+{
+  "name": "live_extra_enemies_scaling",
+  "description": "A forty creature encounter with two players brings at most two extras (2 per added player), made by the host and replicated.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 8,
+        "run": "coop spawnenc VCG02Gecko1REF 40"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "some",
+      "path": "combat.extras_made",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "capped",
+      "path": "combat.extras_made",
+      "op": "le",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

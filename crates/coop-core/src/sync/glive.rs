@@ -4,12 +4,15 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::actors::ActorClient;
-use crate::avatar::{AvatarMsg, AvatarParts, AvatarSender, AvatarState, InterpBuffer};
+use crate::combat::CombatClient;
+use crate::avatar::{ActionRx, AvatarAction, AvatarMsg, AvatarParts, AvatarSender, AvatarState, InterpBuffer};
 use crate::dialogue::DialogueClient;
 use crate::ids::{FormId, PlayerId};
+use crate::interact::InteractClient;
 use crate::loot::LootClient;
 use crate::proto::Msg;
 use crate::rules::RulesClient;
+use crate::scene::SceneClient;
 use crate::social::{ChatChannel, Marker, SocialMsg, VoiceRx};
 
 /// Chat lines kept.
@@ -22,6 +25,8 @@ pub struct RemoteAvatar {
     pub interp: InterpBuffer,
     /// Newest parts.
     pub parts: Option<AvatarParts>,
+    /// Combat action events, in order, once each.
+    pub actions: ActionRx,
 }
 
 /// One received chat line.
@@ -52,6 +57,12 @@ pub struct GuestLive {
     pub loot: LootClient,
     /// Rules prompts and notices.
     pub rules: RulesClient,
+    /// Scenes and the clock.
+    pub scene: SceneClient,
+    /// Player-world interactions.
+    pub interact: InteractClient,
+    /// Combat verdicts and request ids.
+    pub combat: CombatClient,
     /// Voice ordering.
     pub voice_rx: VoiceRx,
     /// Received chat.
@@ -62,6 +73,10 @@ pub struct GuestLive {
     pub markers: BTreeMap<(PlayerId, u16), Marker>,
     /// Voice frames accepted in order, for the audio side.
     pub voice_in: Vec<crate::social::VoicePacket>,
+    /// The host's weather and clock.
+    pub env: crate::env::GuestEnv,
+    /// Scene model data: other players' places, start placement, ops.
+    pub roam: crate::roam::GuestRoam,
     next_chat: u32,
 }
 
@@ -77,11 +92,16 @@ impl GuestLive {
             dialogue: DialogueClient::new(me),
             loot: LootClient::new(),
             rules: RulesClient::new(me),
+            scene: SceneClient::new(me),
+            interact: InteractClient::new(),
+            combat: CombatClient::new(me),
             voice_rx: VoiceRx::new(),
             chat_log: VecDeque::new(),
             chat_rejected: Vec::new(),
             markers: BTreeMap::new(),
             voice_in: Vec::new(),
+            env: Default::default(),
+            roam: Default::default(),
             next_chat: 1,
         }
     }
@@ -106,10 +126,18 @@ impl GuestLive {
                     r.parts = Some(parts);
                 }
             }
+            Msg::Avatar(AvatarMsg::Action { player, action }) if player != self.me => {
+                self.remote.entry(player).or_default().actions.push(action);
+            }
             Msg::Actor(m) => self.actors.on_msg(m),
+            Msg::Roam(m) => self.roam.on_msg(self.me, m),
             Msg::Dialogue(m) => self.dialogue.on_msg(m, now_ms),
             Msg::Loot(m) => self.loot.on_msg(m),
             Msg::Rules(m) => self.rules.on_msg(m),
+            Msg::Scene(m) => self.scene.on_msg(m, now_ms),
+            Msg::Interact(m) => self.interact.on_msg(m),
+            Msg::Env(m) => self.env.on_msg(m, now_ms),
+            Msg::Combat(m) => self.combat.on_msg(m),
             Msg::Social(SocialMsg::Line { from, name, text, .. }) => {
                 self.chat_log.push_back(ChatLine { from, name, text });
                 while self.chat_log.len() > CHAT_LOG_CAP {
@@ -142,6 +170,21 @@ impl GuestLive {
         }
         if let Some(m) = self.dialogue.heartbeat(now_ms) {
             out.push(Msg::Dialogue(m));
+        }
+        out.extend(self.roam.take_out());
+        out
+    }
+
+    /// A combat action event to send for the local avatar.
+    pub fn action(&mut self, kind: crate::avatar::ActionKind, arg: u32) -> Msg {
+        Msg::Avatar(self.sender.action(kind, arg))
+    }
+
+    /// Takes the action events received from every remote player.
+    pub fn take_actions(&mut self) -> Vec<(PlayerId, AvatarAction)> {
+        let mut out = Vec::new();
+        for (p, r) in self.remote.iter_mut() {
+            out.extend(r.actions.take().into_iter().map(|a| (*p, a)));
         }
         out
     }

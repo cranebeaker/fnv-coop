@@ -1,0 +1,67 @@
+{
+  "name": "live_voice_packets",
+  "description": "Each player holds push-to-talk for 2 s of tone (modelled microphone and speakers: the real coop-voice encoder, voice channel, jitter buffer and mixer run); the other side receives, mixes and shows the speaking indicator.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 72,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop voice 2"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 7,
+        "run": "coop voice 2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-heard-packets",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "guest"
+    },
+    {
+      "id": "host-heard-packets",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "host"
+    },
+    {
+      "id": "mixed",
+      "path": "live.voiced_frames",
+      "op": "ge",
+      "value": 40,
+      "on": "both"
+    },
+    {
+      "id": "indicator",
+      "path": "live.speaking_frames",
+      "op": "ge",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "sent",
+      "path": "live.voice_out",
+      "op": "ge",
+      "value": 90,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

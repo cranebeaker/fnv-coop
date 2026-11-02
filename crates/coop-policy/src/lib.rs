@@ -8,8 +8,11 @@
 
 pub mod engine;
 pub mod load;
+pub mod lifecycle;
 pub mod model;
+pub mod reducer;
 
 pub use engine::*;
-pub use load::{LoadError, PolicyTable};
+pub use load::{LoadError, PolicyTable, RemapReport};
 pub use model::*;
+pub use reducer::{Phase, Reducer};

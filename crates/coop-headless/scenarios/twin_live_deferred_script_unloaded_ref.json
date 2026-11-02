@@ -1,0 +1,58 @@
+{
+  "name": "twin_live_deferred_script_unloaded_ref",
+  "description": "MUTATION TWIN of live_deferred_script_unloaded_ref: the script never runs, so nothing is queued. Marked expect_fail.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 18,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop cell D00001"
+      },
+      {
+        "at": 10,
+        "run": "coop cell TestFightCell"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 0,
+        "run": "coop cell D00002"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "queued",
+      "path": "live.roam.deferred_queued",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "replayed",
+      "path": "live.roam.deferred_replayed",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "drained",
+      "path": "live.roam.deferred_pending",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

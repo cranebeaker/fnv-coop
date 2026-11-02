@@ -916,6 +916,7 @@ pub fn player_attack(
             }
             if let Some(swap) = swap {
                 state.ammo_loaded.insert(PLAYER_REF, swap.ammo);
+                state.coop_route(world::coop::interact::ammo_act(swap.ammo));
                 let carried = state.item_count(order, PLAYER_REF, swap.ammo).max(0) as u32;
                 if swap.animated {
                     let rate = combat::reload_rate(order, state, PLAYER_REF, Some(w)).max(1e-3);
@@ -1064,6 +1065,7 @@ pub fn player_attack(
         combat::damage_weapon(order, state, PLAYER_REF, w, wear);
         // Heard for a while (`world::noise::attacked`).
         world::noise::attacked(order, state, PLAYER_REF, w);
+        world::coop::combat_live::note_shot(state, w.form_id);
     }
     attack.next = now + weapon.as_ref().map_or(0.5, |w| w.shot_interval());
     attack.fired_at = Some(now);
@@ -1374,6 +1376,7 @@ pub fn player_attack(
             damage: hit.dealt,
             killed: state.dead.contains(&target),
         });
+        world::coop::combat_live::note_impact(state, [0, 1, 2].map(|k| eye[k] + dir[k] * d), Some(target), part);
         println!("{}.", tell_hit(order, state, &mut attack, target, d, &hit));
     }
 }

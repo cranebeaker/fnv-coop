@@ -1,0 +1,76 @@
+{
+  "name": "live_pickup_world_item",
+  "description": "The host drops 2 of its 3 stimpaks into the world (the host mints the reference FD000001); the guest picks them up. First claim wins and the item exists once: the guest holds 2, the host 1, and the dropped reference is disabled on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop give 0 Stimpak 3"
+      },
+      {
+        "at": 4,
+        "run": "coop drop Stimpak 2"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 10,
+        "run": "coop pickup FD000001 Stimpak 2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-has-host",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "guest-has-guest",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-kept-host",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-kept-guest",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "gone-host",
+      "path": "disabled.FD000001",
+      "op": "present",
+      "on": "host"
+    },
+    {
+      "id": "gone-guest",
+      "path": "disabled.FD000001",
+      "op": "present",
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

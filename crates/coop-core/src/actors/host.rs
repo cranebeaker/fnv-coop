@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::ownership::{Ownership, PlayerLoc, StateVerdict};
-use super::spawn::{SpawnArbiter, SpawnOutcome};
+use super::spawn::{SpawnArbiter, SpawnOutcome, SpawnRec};
 use super::{ActorMsg, ActorState, MAX_HITS_PER_SEC, MAX_HIT};
 use crate::authority::AuthorityTable;
 use crate::ids::{CellId, FormId, PlayerId};
@@ -105,6 +105,17 @@ impl ActorHost {
                 }
                 v
             }
+            ActorMsg::Track { actors } => {
+                // a peer's report of what it has loaded: the host tracks it
+                // too (once), so everyone sees it
+                for (a, st) in actors.into_iter().take(super::MAX_TRACK) {
+                    if self.spawn.is_live(a) || self.dead.contains(&a) {
+                        continue;
+                    }
+                    self.own.register(a, st);
+                }
+                vec![]
+            }
             ActorMsg::Despawn { id } => {
                 if self.spawn.site_owner_of(id) != Some(from) {
                     return vec![];
@@ -117,6 +128,24 @@ impl ActorHost {
             }
             _ => vec![],
         }
+    }
+
+    /// The host made a ref under its own id (a script's `PlaceAtMe`) and
+    /// decides here, once, that it exists: tracked, and announced to the
+    /// cell. Empty when the id was announced before.
+    pub fn announce_made(&mut self, id: FormId, base: FormId, site: FormId, state: ActorState) -> Vec<Out> {
+        let rec = SpawnRec { base, site, cell: state.cell, pos: state.pos };
+        if !self.spawn.adopt(id, rec) {
+            return vec![];
+        }
+        self.own.register(id, state);
+        vec![out(Audience::Cell(state.cell), ActorMsg::Spawned { id, base, site, cell: state.cell, pos: state.pos })]
+    }
+
+    /// The host removes a dynamic ref (cleaned up): everyone drops it. The
+    /// site's respawn timer starts.
+    pub fn despawn_dynamic(&mut self, id: FormId, now_ms: u64, auth: &mut AuthorityTable) -> Vec<Out> {
+        self.remove_dynamic(id, now_ms, auth)
     }
 
     fn remove_dynamic(&mut self, id: FormId, now_ms: u64, auth: &mut AuthorityTable) -> Vec<Out> {
@@ -238,6 +267,7 @@ impl ActorHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actors::DYN_ID_BASE;
     use crate::ids::{Epoch, Seq};
 
     const A: FormId = FormId(0x100);
@@ -346,6 +376,45 @@ mod tests {
         let o = h.on_msg(PlayerId(1), ActorMsg::Despawn { id }, 5, None, &mut auth);
         assert!(matches!(o[0].msg, ActorMsg::Despawn { .. }));
         assert!(h.own.get(id).is_none());
+    }
+
+    #[test]
+    fn a_peers_report_makes_the_host_track_the_actor_once() {
+        let (mut h, mut auth) = setup();
+        let b = FormId(0x200);
+        let rep = ActorMsg::Track { actors: vec![(b, st(30)), (A, st(5))] };
+        assert!(h.on_msg(PlayerId(1), rep.clone(), 0, None, &mut auth).is_empty());
+        assert_eq!(h.own.get(b).unwrap().state.health, 30);
+        assert_eq!(h.own.get(A).unwrap().state.health, 100, "an actor already tracked keeps its ledger");
+        // nobody is told twice; a later report changes nothing
+        h.on_msg(PlayerId(2), ActorMsg::Track { actors: vec![(b, st(1))] }, 5, None, &mut auth);
+        assert_eq!(h.own.get(b).unwrap().state.health, 30);
+        // then the nearest player owns it like any other
+        let o = h.tick(10, &players(&[(2, 1)]), &mut auth);
+        assert!(o.iter().any(|x| matches!(x.msg, ActorMsg::Assign { actor, owner: Some(PlayerId(2)), .. } if actor == b)));
+    }
+
+    #[test]
+    fn a_made_ref_is_announced_exactly_once_and_can_die_once() {
+        let (mut h, mut auth) = setup();
+        let id = FormId(DYN_ID_BASE + 1);
+        let o = h.announce_made(id, FormId(7), id, st(40));
+        assert_eq!(o.len(), 1);
+        assert!(matches!(o[0].msg, ActorMsg::Spawned { id: i, .. } if i == id));
+        assert_eq!(o[0].aud, Audience::Cell(C));
+        assert!(h.announce_made(id, FormId(7), id, st(40)).is_empty(), "decided once");
+        assert_eq!(h.snapshot_for_cell(C).iter().filter(|m| matches!(m, ActorMsg::Spawned { .. })).count(), 1);
+        let kill = |h: &mut ActorHost, auth: &mut AuthorityTable, n| h.on_msg(PlayerId(1), ActorMsg::Hit { actor: id, hit: n, amount: 100 }, 0, Some(C), auth);
+        let first = kill(&mut h, &mut auth, 1);
+        assert!(first.iter().any(|x| matches!(x.msg, ActorMsg::Died { .. })));
+        let again = kill(&mut h, &mut auth, 2);
+        assert!(again.is_empty(), "dies once");
+        // an arbiter grant after it never reuses the id
+        let (_, rec) = h.spawn.request(PlayerId(1), 1, FormId(0x50), FormId(7), C, [0; 3], 0);
+        assert_ne!(rec.unwrap().0, id);
+        // the host removing it tells the cell
+        let o = h.despawn_dynamic(id, 10, &mut auth);
+        assert!(matches!(o[0].msg, ActorMsg::Despawn { .. }));
     }
 
     #[test]

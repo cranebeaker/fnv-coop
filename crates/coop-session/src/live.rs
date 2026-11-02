@@ -113,6 +113,31 @@ pub struct ActorView {
     pub dead: bool,
 }
 
+/// One row of the actor table this machine knows (for the dump and tests).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ActorRow {
+    /// The reference.
+    pub id: FormId,
+    /// Current owner (`None`: dormant, nobody shares its place).
+    pub owner: Option<PlayerId>,
+    /// Alive per the host.
+    pub alive: bool,
+}
+
+/// A dynamic ref the host announced (a creature or person made while
+/// playing): every peer shows it once, under the host's id.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpawnedView {
+    /// Host-allocated id.
+    pub id: FormId,
+    /// Base form.
+    pub base: FormId,
+    /// Place (cell or worldspace) it was made in.
+    pub cell: u32,
+    /// Where it was made.
+    pub pos: [f32; 3],
+}
+
 /// The dialogue session this machine sees.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DialogueView {
@@ -190,6 +215,10 @@ pub struct LiveView {
     /// Actors this machine owns: publish animation ids for them
     /// (`gs.coop.live.anim`).
     pub owned_actors: Vec<FormId>,
+    /// Every actor this machine knows, with its owner and whether it lives.
+    pub actor_table: Vec<ActorRow>,
+    /// Dynamic refs the host announced and that still exist.
+    pub spawned: Vec<SpawnedView>,
     /// The dialogue session, if any.
     pub dialogue: Option<DialogueView>,
     /// Picked lines to play this frame: (step, INFO form).
@@ -202,6 +231,20 @@ pub struct LiveView {
     pub flags: LiveFlags,
     /// Short messages for the HUD.
     pub notices: Vec<String>,
+    /// Combat action events other players did since the last frame, in
+    /// order per player (puppets play them).
+    pub actions: Vec<(PlayerId, coop_core::avatar::AvatarAction)>,
+    /// Cell presence, owners per peer, deferred operations, a placement to
+    /// take (the roam model, docs/COOP-SCENES.md).
+    pub roam: crate::live_roam::RoamView,
+    /// The scene this player is in or held for (movie, locks, camera), if any.
+    pub scene: Option<coop_core::scene::SceneView>,
+    /// The party prompt waiting for this player's answer (see [`Intent::Answer`]).
+    pub prompt: Option<coop_core::rules::Prompt>,
+    /// Voice frames other players sent since the last frame.
+    pub voice: Vec<crate::live_extra::VoiceFrame>,
+    /// Guest: the host's game clock, smoothed (absolute hours).
+    pub hour: Option<f64>,
 }
 
 /// Something the local player does that the live layer carries.
@@ -247,6 +290,12 @@ pub enum Intent {
     ReviveBegin(PlayerId),
     /// Lets go of a revive.
     ReviveCancel,
+    /// Answers the open party prompt (a vote to sleep or wait, a barrier).
+    Answer(bool),
+    /// One encoded voice frame (envelope bytes) from the local microphone.
+    Voice(Vec<u8>),
+    /// A marker or ping to set or clear (`SocialMsg::MarkerSet` / `MarkerClear`).
+    Social(coop_core::social::SocialMsg),
 }
 
 /// The live layer's own state, inside the session.
@@ -255,8 +304,8 @@ pub struct Layer {
     no_policy: bool,
     setup: bool,
     registered: BTreeSet<PlayerId>,
-    host: Option<LiveHostAdapter>,
-    guest: Option<(PlayerId, LiveGuestAdapter)>,
+    pub(crate) host: Option<LiveHostAdapter>,
+    pub(crate) guest: Option<(PlayerId, LiveGuestAdapter)>,
     asked_travel: BTreeMap<FormId, u64>,
     present: BTreeSet<PlayerId>,
     was_wiped: bool,
@@ -264,6 +313,7 @@ pub struct Layer {
     /// Intents asked for before the layer could carry them (a guest that has
     /// not joined yet), with the session time they were asked at.
     queued: Vec<(u64, Intent)>,
+    pub(crate) x: crate::live_extra::Extra,
     /// The view of the last frame.
     pub view: LiveView,
 }
@@ -286,6 +336,7 @@ impl Layer {
             was_wiped: false,
             was_held: false,
             queued: Vec::new(),
+            x: Default::default(),
             view: LiveView::default(),
         }
     }
@@ -315,7 +366,7 @@ impl Session {
     /// Start of the frame (called by `pre_frame_with`): turns on the shadows
     /// and the policy gate, once, and keeps the guest adapter matched to the
     /// slot the host assigned.
-    pub(crate) fn live_setup(&mut self, gs: &mut GameState) {
+    pub(crate) fn live_setup(&mut self, gs: &mut GameState, order: Option<&esm::LoadOrder>) {
         let Some(l) = self.live.as_mut() else { return };
         if let Some(g) = &mut self.guest {
             let me = g.sync.player;
@@ -342,10 +393,24 @@ impl Session {
             return;
         }
         let mut problem = None;
+        let mut note: Option<String> = None;
         let table = match l.policy.clone() {
             Some(t) => Some(t),
             None => match PolicyTable::bundled() {
-                Ok(t) => Some(Arc::new(t)),
+                // the file keys DLC quests by their own load index: key them by the real order
+                Ok(t) => match order {
+                    Some(o) => match crate::policy_ids::resolve_policy(&t, o) {
+                        Ok((t, rep)) => {
+                            note = Some(rep.describe());
+                            Some(Arc::new(t))
+                        }
+                        Err(e) => {
+                            problem = Some(format!("policy ids: {e}"));
+                            None
+                        }
+                    },
+                    None => Some(Arc::new(t)),
+                },
                 Err(e) => {
                     problem = Some(format!("policy table: {e:?}"));
                     None
@@ -359,18 +424,36 @@ impl Session {
                 gs.enable_shadows(ShadowPlan::from_policy(&table), me);
             }
         }
+        if let Some(msg) = note {
+            self.log_event("policy_ids", &[("msg", crate::json::V::S(&msg))]);
+        }
         if let Some(msg) = problem {
             self.log_event("error", &[("msg", crate::json::V::S(&msg))]);
         }
     }
 
-    /// Host: starts replicating the actors of the loaded cells.
-    pub fn live_track(&mut self, cx: Ctx, gs: &GameState, actors: &[FormId]) {
-        if let (Some(h), Some(l)) = (&mut self.host, self.live.as_mut()) {
-            if let Some(ad) = l.host.as_mut() {
-                ad.track(cx, gs, &mut h.sync.live, actors);
-            }
+    /// Host: starts replicating the actors of the loaded cells; a guest
+    /// reports its own to the host. False when the layer cannot take them
+    /// yet (ask again).
+    pub fn live_track(&mut self, cx: Ctx, gs: &GameState, actors: &[FormId]) -> bool {
+        let Some(l) = self.live.as_mut() else { return false };
+        if let (Some(h), Some(ad)) = (&mut self.host, l.host.as_mut()) {
+            ad.track(cx, gs, &mut h.sync.live, actors);
+            true
+        } else if let Some((_, ad)) = l.guest.as_mut() {
+            // a guest reports what it has loaded; the host tracks it too
+            ad.track(cx, gs, actors);
+            true
+        } else {
+            // a guest that has not joined yet: ask again later
+            false
         }
+    }
+
+    /// Actors the host replicates (host) or this guest has reported.
+    pub fn live_tracked(&self) -> usize {
+        let Some(l) = &self.live else { return 0 };
+        l.host.as_ref().map(|h| h.tracked_count()).or_else(|| l.guest.as_ref().map(|g| g.1.tracked_count())).unwrap_or(0)
     }
 
     /// Host: registers a container for shared looting. False when it was
@@ -435,6 +518,9 @@ impl Session {
     /// time, [`QUEUE_MAX`] at most) and carried as soon as the layer can.
     pub fn live_intent(&mut self, intent: Intent) {
         if self.live.is_some() && !self.live_ready() {
+            if matches!(intent, Intent::Voice(_)) {
+                return;
+            }
             let now = self.now_ms;
             if let Some(l) = self.live.as_mut() {
                 if l.queued.len() < QUEUE_MAX {
@@ -482,6 +568,8 @@ impl Session {
                 Intent::Vote(k, p) => msgs.push(ad.rules.request_vote(k, p)),
                 Intent::ReviveBegin(p) => msgs.push(ad.rules.revive_begin(p)),
                 Intent::ReviveCancel => msgs.push(ad.rules.revive_cancel()),
+                Intent::Answer(y) => msgs.extend(ad.own.rules.answer(y).map(Msg::Rules)),
+                other => msgs.extend(crate::live_extra::social_msg(other, PlayerId::HOST)),
             }
             for m in msgs {
                 for (to, m) in ad.on_local(&mut h.sync.live, &mut h.sync.auth, now, m) {
@@ -505,6 +593,8 @@ impl Session {
                 Intent::Vote(k, p) => msgs.push(ad.rules.request_vote(k, p)),
                 Intent::ReviveBegin(p) => msgs.push(ad.rules.revive_begin(p)),
                 Intent::ReviveCancel => msgs.push(ad.rules.revive_cancel()),
+                Intent::Answer(y) => msgs.extend(live.rules.answer(y).map(Msg::Rules)),
+                other => msgs.extend(crate::live_extra::social_msg(other, g.sync.player)),
             }
             for m in msgs {
                 send_msg(&mut self.net, PlayerId::HOST, &m);
@@ -533,8 +623,9 @@ impl Session {
             }
             names.insert(me, me_name);
         }
-        self.live_setup(gs);
+        self.live_setup(gs, Some(cx.order));
         self.flush_queued();
+        let asked_time = gs.coop.live.scene.time_asks.len();
         let mut outs: Vec<(PlayerId, Msg)> = Vec::new();
         let mut to_host: Vec<Msg> = Vec::new();
         let Some(l) = self.live.as_mut() else { return None };
@@ -562,17 +653,30 @@ impl Session {
             }
             outs.extend(ad.frame(cx, gs, live, &mut h.sync.auth, now));
             run_released(cx, gs);
+            outs.extend(l.x.host_env(cx, gs, &members, now));
             view.members = members;
             collect_remote(&mut view, &mut ad.own, &names, now);
+            crate::live_roam::host_frame(cx, gs, live, &mut view, now);
         } else if let (Some(g), Some((_, ad))) = (&mut self.guest, l.guest.as_mut()) {
+            g.sync.live.scene.set_rtt(g.rtt_ms.unwrap_or(0));
+            if g.sync.phase() != coop_core::sync::GuestPhase::Active && g.sync.live.scene.count() > 0 {
+                // the link to the host is down: no scene outlives it (a rejoin is replayed the scenes)
+                g.sync.live.scene.abort_all();
+            }
             to_host.extend(ad.frame(cx, gs, &mut g.sync.live, now));
             let mut members = vec![PlayerId::HOST, me];
             members.extend(g.roster.iter().map(|p| p.player));
             members.sort();
             members.dedup();
             view.members = members;
+            view.hour = l.x.guest_env(cx, gs, &mut g.sync.live, now);
             collect_remote(&mut view, &mut g.sync.live, &names, now);
+            crate::live_roam::guest_frame(gs, &mut g.sync.live, &mut view);
         }
+        if asked_time > 0 {
+            view.notices.push("Asking the party to pass the time".to_string());
+        }
+        view.scene = gs.coop.live.scene.view.clone();
         // fast travel the party must agree to
         let requests = std::mem::take(&mut gs.coop.live.travel_requests);
         for m in requests {
@@ -629,6 +733,7 @@ impl Session {
 
 /// Fills avatars, actors, dialogue, chat and markers from a client view.
 fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<PlayerId, String>, now: u64) {
+    view.actions.extend(live.take_actions().into_iter().filter(|(p, _)| view.members.is_empty() || view.members.contains(p)));
     let ids: Vec<PlayerId> = live.remote.keys().copied().collect();
     for p in ids {
         if !view.members.contains(&p) && !view.members.is_empty() {
@@ -656,12 +761,17 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
             parts_rev: parts.map_or(0, |x| x.rev),
         });
     }
+    view.prompt = live.rules.prompt.clone();
     let me = view.me;
     for (id, rec) in live.actors.iter() {
         if rec.owner == Some(me) {
             continue;
         }
         let Some(st) = rec.state else { continue };
+        // nobody shares its place: every peer runs it for itself
+        if rec.owner.is_none() {
+            continue;
+        }
         view.remote_actors.push(ActorView {
             id: wf(*id),
             cell: st.cell.0,
@@ -674,6 +784,25 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
         });
     }
     view.owned_actors = live.actors.owned().into_iter().map(wf).collect();
+    view.actor_table = live
+        .actors
+        .iter()
+        .map(|(id, rec)| ActorRow { id: wf(*id), owner: rec.owner, alive: rec.alive })
+        .collect();
+    view.spawned = live
+        .actors
+        .spawn_at
+        .iter()
+        .filter_map(|(id, (cell, pos))| {
+            let base = *live.actors.spawned.get(id)?;
+            Some(SpawnedView {
+                id: wf(*id),
+                base: wf(base),
+                cell: cell.0,
+                pos: [dequant_pos(pos[0]), dequant_pos(pos[1]), dequant_pos(pos[2])],
+            })
+        })
+        .collect();
     if let Some(v) = live.dialogue.view() {
         view.dialogue = Some(DialogueView {
             session: v.session,
@@ -689,6 +818,7 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
     for id in std::mem::take(&mut live.chat_rejected) {
         view.notices.push(format!("Message {id} was refused"));
     }
+    crate::live_extra::drain_voice(view, live);
     for ((owner, _), m) in &live.markers {
         view.markers.push(MarkerView {
             owner: *owner,

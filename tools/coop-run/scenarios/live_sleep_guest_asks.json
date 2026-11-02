@@ -1,0 +1,66 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 12,
+  "settle_s": 8,
+  "name": "live_sleep_guest_asks",
+  "description": "The GUEST asks to sleep 8 hours; the host agrees. The hours pass once, on the host; the guest never runs a wait of its own and follows the host's clock.",
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop sleep 8"
+      }
+    ]
+  },
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop vote yes"
+      },
+      {
+        "at": 5,
+        "run": "coop vote yes"
+      },
+      {
+        "at": 6,
+        "run": "coop vote yes"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "skips-host",
+      "path": "time.skips",
+      "on": "host",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "skips-guest",
+      "path": "time.skips",
+      "on": "guest",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "clock",
+      "path": "globals.GameHour",
+      "on": "equal",
+      "tol": 0.4
+    },
+    {
+      "id": "days",
+      "path": "globals.GameDaysPassed",
+      "on": "equal",
+      "tol": 0.05
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

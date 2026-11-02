@@ -1,5 +1,6 @@
 //! Social channels: chat, map markers and pings, push-to-talk voice.
 
+pub mod compass;
 mod chat;
 mod markers;
 mod voice;

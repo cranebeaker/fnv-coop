@@ -10,13 +10,16 @@ use crate::dialogue::DialogueMsg;
 use crate::error::{Error, Result};
 use crate::hash::Repair;
 use crate::ids::{Epoch, FormId, PlayerId, Rev, Seq, Tick};
+use crate::interact::InteractMsg;
 use crate::loot::LootMsg;
 use crate::rules::RulesMsg;
+use crate::scene::SceneMsg;
+use crate::combat::CombatMsg;
 use crate::social::SocialMsg;
 use crate::schema::Field;
 
 /// Wire protocol version; bump on any incompatible message change.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 4;
 /// Largest datagram on the unreliable channel (fits a typical MTU).
 pub const MAX_UNRELIABLE_BYTES: usize = 1200;
 /// Largest single message on the reliable channel.
@@ -58,6 +61,12 @@ pub struct Hello {
     pub rules_hash: u64,
     /// Hash of the ordered mod list.
     pub mods_hash: u64,
+    /// Game executable version text (empty: unknown).
+    pub exe: String,
+    /// Hash of the volatile-key set (fields that change by themselves).
+    pub volatile_hash: u64,
+    /// Ordered plugin file names (may be empty; then only `mods_hash` is compared).
+    pub plugins: Vec<String>,
 }
 
 /// Why a handshake or resume was refused.
@@ -71,6 +80,14 @@ pub enum RejectReason {
     RulesMismatch,
     /// Mod lists differ.
     ModsMismatch,
+    /// Game executable versions differ.
+    ExeMismatch,
+    /// Volatile-key sets differ.
+    VolatileMismatch,
+    /// Plugin sets differ (missing or extra plugins).
+    PluginsMismatch,
+    /// Same plugins, different load order.
+    LoadOrderMismatch,
     /// Session is full.
     Full,
     /// Rejoin named a session the host does not run.
@@ -97,6 +114,10 @@ pub enum Msg {
     },
     /// Host refuses.
     Reject(RejectReason),
+    /// Host: its own identity, sent with a refusal (or a warning when the
+    /// developer override let the guest in) so the guest can name the
+    /// differences.
+    Incompat(Hello),
     /// Guest wants a fresh start (full snapshot).
     Join,
     /// Guest resumes with state it already holds.
@@ -185,6 +206,16 @@ pub enum Msg {
     Rules(RulesMsg),
     /// Chat, markers, voice (live layer).
     Social(SocialMsg),
+    /// Scenes, movies, control locks, endings and world time (live layer).
+    Scene(SceneMsg),
+    /// Player-world interactions: barter, doors, locks, crafting (live layer).
+    Interact(InteractMsg),
+    /// Host weather and clock for guests (live layer).
+    Env(crate::env::EnvMsg),
+    /// Cell presence, placement and deferred operations of the roam model.
+    Roam(crate::roam::RoamMsg),
+    /// Combat depth: NPC damage to players, shots, blasts, VATS (live layer).
+    Combat(CombatMsg),
 }
 
 impl Msg {
@@ -200,6 +231,8 @@ impl Msg {
             Msg::Avatar(m) if m.is_stream() => Channel::Unreliable,
             Msg::Actor(m) if m.is_stream() => Channel::Unreliable,
             Msg::Social(m) if m.is_stream() => Channel::Unreliable,
+            Msg::Env(m) if m.is_stream() => Channel::Unreliable,
+            Msg::Roam(m) if m.is_stream() => Channel::Unreliable,
             _ => Channel::ReliableOrdered,
         }
     }
@@ -217,6 +250,11 @@ impl Msg {
             Msg::Actor(m) => m.is_sane(),
             Msg::Loot(m) => m.is_sane(),
             Msg::Social(m) => m.is_sane(),
+            Msg::Scene(m) => m.is_sane(),
+            Msg::Interact(m) => m.is_sane(),
+            Msg::Hello(h) | Msg::Incompat(h) => crate::compat::hello_is_sane(h),
+            Msg::Roam(m) => m.is_sane(),
+            Msg::Combat(m) => m.is_sane(),
             _ => true,
         }
     }
@@ -277,7 +315,7 @@ mod tests {
     fn arb_msg() -> impl Strategy<Value = Msg> {
         prop_oneof![
             Just(Msg::Join),
-            any::<u64>().prop_map(|a| Msg::Hello(Hello { proto: 1, build_hash: a, rules_hash: !a, mods_hash: 7 })),
+            any::<u64>().prop_map(|a| Msg::Hello(Hello { proto: 1, build_hash: a, rules_hash: !a, mods_hash: 7, exe: String::new(), volatile_hash: 0, plugins: vec![] })),
             (any::<u32>(), any::<u64>(), any::<u64>())
                 .prop_map(|(s, a, b)| Msg::Rejoin { session: a, last_seq: Seq(s), have_rev: Rev(b) }),
             any::<u32>().prop_map(|s| Msg::Ack { seq: Seq(s) }),

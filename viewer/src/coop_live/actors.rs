@@ -1,12 +1,14 @@
-//! Shared actors: the host tracks the people of the loaded cells, owners
-//! publish their animation ids, and everyone else shows the owner's copy.
+//! Shared actors: every peer reports the people and creatures of the loaded
+//! cells (the host replicates them, a guest tells the host), owners publish
+//! their animation ids, and everyone else shows the owner's copy. An actor
+//! only another peer has loaded gets an entity here too ([`adopt_remote`]).
 //! Death is not handled here: a dead actor is released to the ordinary AI
 //! path (`ai::move_actors` lets it fall) as soon as the state says it died.
 
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
-use coop_session::{ActorView, Role};
+use coop_session::ActorView;
 use esm::FormId;
 use world::coop::apply::Ctx;
 
@@ -18,13 +20,14 @@ use crate::ai::Walker;
 use crate::coop::CoopLink;
 use crate::dialogue::DialogueState;
 use crate::scripts::Scripts;
-use crate::GameFiles;
+use crate::{GameFiles, Spawner};
 
 /// Units a second above which a copy walks, and runs.
 const WALK_SPEED: f32 = 5.0;
 const RUN_SPEED: f32 = 220.0;
 
-/// Host: starts replicating the people on screen, once each.
+/// Starts replicating the people and creatures on screen, once each (the
+/// host registers them; a guest reports them to the host).
 pub fn track(
     time: Res<Time>,
     mut link: NonSendMut<CoopLink>,
@@ -36,7 +39,7 @@ pub fn track(
     mut last: Local<f32>,
 ) {
     let t = time.elapsed_secs();
-    if link.0.role() != Role::Host || t - *last < 1.0 {
+    if t - *last < 1.0 {
         return;
     }
     *last = t;
@@ -45,8 +48,10 @@ pub fn track(
         return;
     }
     let cx = Ctx { order: &game.0.order, scripts: &scripts.0 };
-    link.0.live_track(cx, &state.0, &new);
-    known.extend(new);
+    // false: the layer cannot take them yet (a guest still joining)
+    if link.0.live_track(cx, &state.0, &new) {
+        known.extend(new);
+    }
 }
 
 /// Owners publish what their actors are doing (the animation id).
@@ -97,7 +102,8 @@ pub fn apply_remote(
         }
         let me = walker.reference;
         match remote.get(&me) {
-            Some(a) if !a.dead && !state.0.dead.contains(&me) => {
+            // an owner with no place for it yet publishes the origin: leave it to the AI
+            Some(a) if !a.dead && !state.0.dead.contains(&me) && a.pos != [0.0; 3] => {
                 if mark.is_none() {
                     commands.entity(e).insert(CoopPuppet(None));
                 }
@@ -122,6 +128,103 @@ pub fn apply_remote(
                     seen.remove(&me);
                 }
             }
+        }
+    }
+}
+
+/// Outdoors, how far (game units) an actor only another peer has loaded is
+/// still brought in (the loaded squares, as `bring_in_people`).
+const REACH: f32 = 2.5 * world::land::CELL_SIZE;
+/// Seconds before asking again for an actor that did not appear.
+const ASK_AGAIN: f32 = 4.0;
+
+/// An actor another peer owns that has no entity here (a creature found in
+/// a place only that peer had loaded, or one standing just inside our
+/// squares) is brought on screen like any placed person; `apply_remote`
+/// then drives it. Made references (`PlaceAtMe`) come through
+/// `bring_in_made` instead, from the record the live layer keeps.
+#[allow(clippy::too_many_arguments)]
+pub fn adopt_remote(
+    time: Res<Time>,
+    now: Res<LiveNow>,
+    state: Res<DialogueState>,
+    game: Res<GameFiles>,
+    player: Res<crate::walk::Player>,
+    walkers: Query<&Walker>,
+    mut talkers: ResMut<crate::dialogue::Talkers>,
+    mut spawner: Spawner,
+    mut asked: Local<HashMap<FormId, f32>>,
+    mut last: Local<f32>,
+) {
+    let t = time.elapsed_secs();
+    if !player.ready || t - *last < 1.0 {
+        return;
+    }
+    *last = t;
+    let Some(view) = &now.view else { return };
+    let gs = &state.0;
+    let Some(space) = gs.player_world.or(gs.player_cell) else { return };
+    let shown: HashSet<FormId> = walkers.iter().map(|w| w.reference).collect();
+    let mut new: Vec<FormId> = Vec::new();
+    for a in &view.remote_actors {
+        if a.dead || a.cell != space.0 || shown.contains(&a.id) || gs.dead.contains(&a.id) {
+            continue;
+        }
+        if gs.more.placed.refs.contains_key(&a.id) || asked.get(&a.id).is_some_and(|at| t - at < ASK_AGAIN) {
+            continue;
+        }
+        let far = gs.player_world.is_some()
+            && gs.player_position.is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) > REACH);
+        if far {
+            continue;
+        }
+        asked.insert(a.id, t);
+        new.push(a.id);
+    }
+    if new.is_empty() {
+        return;
+    }
+    let scene = game.0.actors_scene(&new);
+    for a in &scene.actors {
+        println!("Co-op: {} comes into view (shared actor).", FormId(a.reference));
+    }
+    for a in &scene.actors {
+        if !talkers.0.iter().any(|x| x.reference.0 == a.reference) {
+            talkers.0.push(crate::dialogue::Talker::from_actor(a));
+        }
+    }
+    let lighting = spawner.place_lighting.get();
+    spawner.spawn_with(&scene, lighting);
+}
+
+/// Counts the spawned people and creatures in the scene, and how many are
+/// not hidden, for the state dump (so a run on a real machine can assert
+/// that the people are there).
+pub fn count(
+    time: Res<Time>,
+    mut now: ResMut<LiveNow>,
+    actors: Query<(&Visibility, Option<&CoopPuppet>, Option<&crate::dress::Dressed>), With<Walker>>,
+    mut last: Local<f32>,
+) {
+    let t = time.elapsed_secs();
+    if t - *last < 0.5 {
+        return;
+    }
+    *last = t;
+    let c = &mut now.counters;
+    (c.npc_entities, c.npc_entities_visible, c.creature_entities, c.creature_entities_visible) = (0, 0, 0, 0);
+    for (vis, mark, person) in &actors {
+        // remote players' puppets are not NPCs
+        if mark.is_some_and(|m| m.0.is_some()) {
+            continue;
+        }
+        let shown = u64::from(*vis != Visibility::Hidden);
+        if person.is_some() {
+            c.npc_entities += 1;
+            c.npc_entities_visible += shown;
+        } else {
+            c.creature_entities += 1;
+            c.creature_entities_visible += shown;
         }
     }
 }

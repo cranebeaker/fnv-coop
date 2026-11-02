@@ -19,10 +19,11 @@ use world::scripting::{GameState, Runner, ScriptCache};
 
 fn table(row_extra: &str) -> Arc<PolicyTable> {
     let json = format!(
-        r#"{{"schema":1,
+        r#"{{"schema":2,
 "policy":{{"death":{{"mode":"downed","revive_s":60,"all_down":"reload-host-save"}},"late_join":{{"during_scene":"wait","after_scene":"warp-to-zone"}},"barrier_timeout_s":120,"tether_timeout_s":120,"follower_cap":{{"humanoid":1,"critter":1}},"party_cap":4}},
-"shadow_classes":{{"skills":"per_player","perks":"per_player","followers":"per_player","karma":"shared","reputation":"shared"}},
-"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host"{row_extra}}}]}}"#
+"shadow_classes":{{"skills":"per_player","perks":"per_player","followers":"per_player","quest_var":"per_player","karma":"shared","reputation":"shared"}},
+"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","local":"0x{:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host"{row_extra}}}]}}"#,
+        QUEST & 0x00FF_FFFF
     );
     Arc::new(PolicyTable::from_json(&json).expect("table"))
 }
@@ -281,6 +282,36 @@ fn coop_shadow_swap_leaves_hash_unchanged_and_is_panic_safe() {
     assert_eq!(gs.active_slot(), 0);
     assert_eq!(gs.items.get(&(PLAYER_REF, FormId(CAPS))), Some(&11));
     assert_eq!(held(&gs, 1, CAPS), 99);
+}
+
+/// A script variable the host sets for player 1 shows up in player 1's own live rows on its
+/// machine and in the host's copy of slot 1, and nowhere else (not the host's own rows, not
+/// player 2's, not the shared hash).
+#[test]
+fn a_per_player_quest_variable_reaches_its_owner_and_nobody_else() {
+    let (_d, order) = order("coop-shadow-var");
+    let scripts = ScriptCache::default();
+    let t = table(r#","shadow":{"scope":"test","vars":["bRunTimer"]}"#);
+    let mut rig = Rig::new(&order, &scripts, t);
+    let base = {
+        let s = world::scripting::script_of(&order, FormId(QUEST)).expect("quest script");
+        script::interp::Locals::new(&scripts.script(&order, s).expect("script"))
+    };
+    // the host's script run for player 1 (the host's quest variables exist; the guests' do not)
+    rig.host.variables.insert(FormId(QUEST), base);
+    rig.host.with_player(1, |g| {
+        assert!(g.variables.get_mut(&FormId(QUEST)).unwrap().set("bRunTimer", 1.0));
+    });
+    assert!(rig.settle(), "shared state converges");
+    let var = |gs: &GameState| gs.variables.get(&FormId(QUEST)).and_then(|l| l.get("bRunTimer")).unwrap_or(0.0);
+    assert_eq!(var(&rig.guests[0]), 1.0, "player 1's own rows hold the variable");
+    assert_eq!(var(&rig.guests[1]), 0.0, "player 2 does not");
+    assert_eq!(var(&rig.host), 0.0, "the host's own rows do not");
+    assert_eq!(rig.host.shadow_of(1).unwrap().quest_vars.len(), 1, "the host keeps a copy for slot 1");
+    assert_eq!(rig.guests[0].shadow_of(1), rig.host.shadow_of(1));
+    assert!(rig.guests[1].shadow_of(1).unwrap().quest_vars.len() == 1, "everyone holds every player's copy");
+    // the variable is not in the shared rows
+    assert!(!world::coop::export::export(&rig.host).values().any(|f| matches!(f, coop_core::schema::Field::ScriptVar { bits, .. } if *bits != 0)));
 }
 
 #[test]

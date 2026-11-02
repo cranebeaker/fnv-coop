@@ -192,9 +192,18 @@ pub fn drive(
         } else {
             gs.more.forced_sneak.remove(&me);
         }
-        let weapon = world::combat::weapon_in_hand(order, gs, me);
+        // combat events of that player, then the dead lie where they fell
+        for (_, ev) in view.actions.iter().filter(|(q, _)| *q == p) {
+            super::actions::play(&mut rig, &walker, gs, me, time.elapsed_secs(), ev.kind, ev.arg);
+        }
+        if !a.dead && rig.ragdoll.is_some() {
+            rig.ragdoll = None;
+        } else if a.dead && rig.ragdoll.is_none() {
+            super::actions::play(&mut rig, &walker, gs, me, time.elapsed_secs(), coop_session::ActionKind::Death, 0);
+        }
+        let weapon = world::combat::weapon_equipped(order, gs, me);
         rig.character = true;
-        rig.still = false;
+        rig.still = rig.ragdoll.is_some();
         rig.walking = speed > WALK_SPEED;
         rig.running = speed > RUN_SPEED;
         rig.sneaking = a.sneaking;
@@ -214,7 +223,7 @@ pub fn name_tags(
     state: Res<DialogueState>,
     mut puppets: ResMut<Puppets>,
     cameras: Query<(&Camera, &GlobalTransform), With<crate::FlyCamera>>,
-    mut tags: Query<(&mut Node, &mut Text, &mut Visibility), With<NameTag>>,
+    mut tags: Query<(&mut Node, &mut Text, &mut Visibility, &mut TextColor), With<NameTag>>,
 ) {
     let Some(view) = &now.view else { return };
     let Ok((camera, camera_at)) = cameras.single() else { return };
@@ -227,8 +236,7 @@ pub fn name_tags(
         }
     }
     for a in view.avatars.iter().filter(|a| wanted.contains(&a.player)) {
-        let metres = ((a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) / UNITS_PER_METRE).round();
-        let label = format!("{} {metres} m", a.name);
+        let (label, color) = super::hud_social::tag_text(&now, &state.0, a, super::voice::is_speaking(a.player.0));
         let Some(tag) = puppets.tags.get(&a.player).copied() else {
             let e = commands
                 .spawn((
@@ -243,7 +251,10 @@ pub fn name_tags(
             puppets.tags.insert(a.player, e);
             continue;
         };
-        let Ok((mut node, mut text, mut vis)) = tags.get_mut(tag) else { continue };
+        let Ok((mut node, mut text, mut vis, mut tint)) = tags.get_mut(tag) else { continue };
+        if tint.0 != color {
+            tint.0 = color;
+        }
         let head = Vec3::from(space::point([a.pos[0], a.pos[1], a.pos[2] + 190.0]));
         match camera.world_to_viewport(camera_at, head) {
             Ok(at) => {

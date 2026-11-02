@@ -197,6 +197,15 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<For
                 Request::Accept { buys, sells, total } => {
                     let buys: Vec<_> = buys.into_iter().map(|(f, n)| (FormId(f), n)).collect();
                     let sells: Vec<_> = sells.into_iter().map(|(f, n)| (FormId(f), n)).collect();
+                    // co-op: the party shares one stock; a guest asks the host
+                    if state.coop_route(world::coop::interact::barter_act(vendor, &buys, &sells, total))
+                        == world::coop::interact::Route::Remote
+                    {
+                        println!("Barter: asked the host ({total:+.1} caps).");
+                        let (player, goods, caps) = sides(order, state, vendor);
+                        b.menu.settled(&mut screen.ui, player, goods, caps);
+                        continue;
+                    }
                     if let Some(s) =
                         world::barter::accept(order, state, vendor, &buys, &sells, total)
                             .and_then(|s| order.form_by_editor_id(s))

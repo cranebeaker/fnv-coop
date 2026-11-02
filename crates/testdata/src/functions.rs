@@ -77,6 +77,11 @@ pub mod ids {
     pub const TRIGGER_SCRIPT: u32 = 0xF24;
     pub const TRIGGER: u32 = 0xF25;
     pub const TRIGGER_REF: u32 = 0xF3B;
+    /// A door whose `OnActivate` block counts itself in `TestValue` and asks
+    /// itself to open (`SetOpenState`), which activates it again.
+    pub const SELF_DOOR: u32 = 0xF3C;
+    pub const SELF_DOOR_REF: u32 = 0xF3D;
+    pub const SELF_DOOR_SCRIPT: u32 = 0xF3E;
     /// A travel package (`PKDT` type 6) and a sandbox one (12).
     pub const TRAVEL: u32 = 0xF26;
     pub const SANDBOX: u32 = 0xF27;
@@ -299,6 +304,27 @@ pub fn functions(tag: &str) -> TempData {
             &sub(b"MODL", &zstr("test\\door.nif")),
         ),
     ));
+    let mut self_door = sub(b"MODL", &zstr("test\\door.nif"));
+    self_door.extend(sub(b"SCRI", &SELF_DOOR_SCRIPT.to_le_bytes()));
+    plugin.extend(group(
+        *b"DOOR",
+        0,
+        &named(b"DOOR", SELF_DOOR, "TestSelfDoor", &self_door),
+    ));
+    let mut self_door_script = sub(b"SCHR", &[0; 20]);
+    self_door_script.extend(sub(
+        b"SCTX",
+        b"scn TestSelfDoorScript
+Begin OnActivate
+	set TestValue to TestValue + 1
+          	SelfDoorRef.SetOpenState 1
+End",
+    ));
+    plugin.extend(group(
+        *b"SCPT",
+        0,
+        &named(b"SCPT", SELF_DOOR_SCRIPT, "TestSelfDoorScript", &self_door_script),
+    ));
     plugin.extend(group(
         *b"CONT",
         0,
@@ -457,6 +483,15 @@ pub fn functions(tag: &str) -> TempData {
         [300.0, 0.0, 0.0],
         [0.0; 3],
         "DoorRef",
+        &[],
+    ));
+    refs.extend(thing(
+        b"REFR",
+        SELF_DOOR_REF,
+        SELF_DOOR,
+        [300.0, 300.0, 0.0],
+        [0.0; 3],
+        "SelfDoorRef",
         &[],
     ));
     refs.extend(thing(

@@ -1,0 +1,60 @@
+{
+  "name": "live_npc_attacks_remote_player",
+  "description": "The gecko (run by the host) bites the guest's player through the live layer; the host judges the blow and only the guest feels it.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 9,
+        "run": "coop npchit VCG02Gecko1REF 1 8"
+      },
+      {
+        "at": 11,
+        "run": "coop npchit VCG02Gecko1REF 1 8"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "sent",
+      "path": "combat.npc_hits_sent",
+      "op": "ge",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "felt",
+      "path": "combat.hurts_applied",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-unhurt",
+      "path": "combat.hurts_applied",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -315,11 +315,13 @@ pub fn after(
                     if let Some(t) = Terminal::load(order, h.terminal) {
                         terminal::hacked(order, state, &t, h.reference);
                     }
+                    state.coop_route(world::coop::interact::hack_act(h.reference, true));
                     h.granted = true;
                     println!("Hacked the terminal.");
                 }
                 Request::LockedOut => {
                     terminal::lock_out(state, h.reference);
+                    state.coop_route(world::coop::interact::hack_act(h.reference, false));
                     println!("The terminal locked the player out.");
                 }
                 Request::Close => {

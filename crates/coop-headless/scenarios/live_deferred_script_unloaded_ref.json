@@ -1,0 +1,61 @@
+{
+  "name": "live_deferred_script_unloaded_ref",
+  "description": "The host leaves the cell, a script runs a command that needs a loaded entity on a reference in the cell it left, and the command waits; when the host returns the command is replayed. Headless only: runs on the generated test data (cell TestFightCell) and uses the `coop cell` bot verb, which the viewer bot does not have.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 18,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop cell D00001"
+      },
+      {
+        "at": 6,
+        "run": "TestGeckoRef.PlayGroup Idle 1"
+      },
+      {
+        "at": 10,
+        "run": "coop cell TestFightCell"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 0,
+        "run": "coop cell D00002"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "queued",
+      "path": "live.roam.deferred_queued",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "replayed",
+      "path": "live.roam.deferred_replayed",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "drained",
+      "path": "live.roam.deferred_pending",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

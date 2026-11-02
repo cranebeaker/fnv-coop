@@ -1,0 +1,20 @@
+{
+  "name": "twin_live_friendly_fire_guard",
+  "description": "MUTATION TWIN of live_friendly_fire_guard: only two hits, inside the allowance, so nothing is blocked. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 68,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop ffhit 0 VMQ05 0 1" },
+      { "at": 3.2, "run": "coop ffhit 0 VMQ05 0 1" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "blocked", "path": "campaign.ff_blocked", "op": "eq", "value": 2, "on": "host" }
+  ]
+}

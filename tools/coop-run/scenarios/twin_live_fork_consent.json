@@ -1,0 +1,20 @@
+{
+  "name": "twin_live_fork_consent",
+  "description": "MUTATION TWIN of live_fork_consent: the guest never votes, so the vote stays open (its 90 s timeout is longer than the run) and the fork is not taken. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 67,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop fork NVDLC01ElijahDialogue 1" },
+      { "at": 4, "run": "coop vote NVDLC01ElijahDialogue 0 yes" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "approved", "path": "campaign.forks.NVDLC01ElijahDialogue_1", "op": "eq", "value": true, "on": "host" }
+  ]
+}

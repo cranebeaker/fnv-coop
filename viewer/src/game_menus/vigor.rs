@@ -158,6 +158,20 @@ impl VigorScreen {
         sounds
     }
 
+    /// `--answer-boxes`: puts the spare points on the first attribute (Up until it stops), then
+    /// accepts (the Done tile, which closes only once the budget is spent).
+    pub fn answer(&mut self, game: &cellview::Game, state: &mut GameState) -> Vec<esm::FormId> {
+        let (used, mut sounds) = self.key(ui::menu::key::UP, game, state);
+        if !used {
+            self.menu.intents.push(InputIntent::TileClick(4));
+            sounds.extend(self.inputs(game, state));
+            if self.menu.closed {
+                println!("--answer-boxes: the Vit-o-Matic accepted.");
+            }
+        }
+        sounds
+    }
+
     pub fn key(
         &mut self,
         code: u32,

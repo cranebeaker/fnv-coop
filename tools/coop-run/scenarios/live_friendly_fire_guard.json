@@ -1,0 +1,22 @@
+{
+  "name": "live_friendly_fire_guard",
+  "description": "VMQ05 protects Colonel Moore: three deliberate hits within 10 s are allowed, further hits are dropped by the guard. Five hits give two blocked.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 68,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop ffhit 0 VMQ05 0 1" },
+      { "at": 3.2, "run": "coop ffhit 0 VMQ05 0 1" },
+      { "at": 3.4, "run": "coop ffhit 0 VMQ05 0 1" },
+      { "at": 3.6, "run": "coop ffhit 0 VMQ05 0 1" },
+      { "at": 3.8, "run": "coop ffhit 0 VMQ05 0 1" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "blocked", "path": "campaign.ff_blocked", "op": "eq", "value": 2, "on": "host" }
+  ]
+}

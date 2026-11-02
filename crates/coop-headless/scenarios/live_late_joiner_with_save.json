@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "description": "A late joiner with a saved character: the host starts a fresh world after the restart (no party load), so it has no character for the guest's id; the guest offers the character file it kept locally and the host accepts it under its own shared state. The guest has its 50 caps, the host has none of the first session's stimpaks, and the shared hash matches. Headless only.",
+  "party": {
+    "key": 4242,
+    "restart_at": 11,
+    "host_loads": false,
+    "guest_same_key": true,
+    "guest_offers_own": true,
+    "second": {
+      "duration_s": 10
+    }
+  },
+  "expect": [
+    {
+      "id": "guest-kept-own",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "host-is-fresh",
+      "path": "items.host.Stimpak",
+      "op": "absent",
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Stimpak 3"
+      },
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem Caps001 9"
+      },
+      {
+        "at": 7,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Caps001 50"
+      }
+    ]
+  },
+  "name": "live_late_joiner_with_save"
+}

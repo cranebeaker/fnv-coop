@@ -8,6 +8,7 @@ pub mod app;
 pub mod cli;
 pub mod command;
 pub mod diag;
+pub mod extras;
 pub mod install;
 pub mod joincode;
 pub mod json;

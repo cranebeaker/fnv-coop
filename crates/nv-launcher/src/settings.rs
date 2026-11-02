@@ -35,6 +35,8 @@ pub struct Settings {
     pub uncap: bool,
     /// The address shown in join codes (your LAN or public IP), empty until asked.
     pub host_address: String,
+    /// `nv-viewer.exe`, when it is not next to the launcher (empty: look next to the launcher).
+    pub viewer_path: String,
 }
 
 impl Default for Settings {
@@ -49,6 +51,7 @@ impl Default for Settings {
             height: 720,
             uncap: false,
             host_address: String::new(),
+            viewer_path: String::new(),
         }
     }
 }
@@ -94,6 +97,7 @@ impl Settings {
             height: dim("height", d.height),
             uncap: v.get("uncap").and_then(Value::as_bool).unwrap_or(d.uncap),
             host_address: v.get("host_address").and_then(Value::as_str).unwrap_or("").trim().to_string(),
+            viewer_path: v.get("viewer_path").and_then(Value::as_str).unwrap_or("").trim().to_string(),
         }
     }
 
@@ -108,6 +112,7 @@ impl Settings {
             ("height".into(), Value::Num(self.height as f64)),
             ("uncap".into(), Value::Bool(self.uncap)),
             ("host_address".into(), Value::Str(self.host_address.clone())),
+            ("viewer_path".into(), Value::Str(self.viewer_path.clone())),
         ])
     }
 
@@ -173,6 +178,7 @@ mod tests {
             height: 1080,
             uncap: true,
             host_address: "203.0.113.9".into(),
+            viewer_path: r"D:\nv\nv-viewer.exe".into(),
         };
         let p = d.join("settings.json");
         s.save(&p).unwrap();

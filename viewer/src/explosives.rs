@@ -509,6 +509,7 @@ fn tend_mines(
         .iter()
         .filter(|t| !state.dead.contains(&t.reference))
         .map(|t| (t.reference, t.position))
+        .chain(world::coop::combat_live::remote_candidates(state))
         .collect();
     let player = (!state.dead.contains(&PLAYER_REF)).then_some(feet);
     let s = world::mines::MineSettings::read(order);
@@ -600,6 +601,9 @@ fn explode(
     if !state.dead.contains(&PLAYER_REF) {
         candidates.push((PLAYER_REF, player_feet));
     }
+    // the other players (co-op): their hurt becomes a request the host judges
+    candidates.extend(world::coop::combat_live::remote_candidates(state));
+    world::coop::combat_live::note_blast(state, e.form_id, at, damage, radius, thrower.is_none());
     // A placed mine's own collision is left out of the casts: unresolved,
     // the exploding projectile's removal isn't traced.
     let own = |tri: u32| collider.owner(tri) == reporter.0 && thrower.is_none();

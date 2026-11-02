@@ -1,0 +1,61 @@
+{
+  "name": "live_downed_revive_from_npc",
+  "description": "A bite that would kill the guest downs it; hits while down do nothing; the host revives it; it can be hurt again.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 28,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "coop npchit VCG02Gecko1REF 1 100000"
+      },
+      {
+        "at": 8,
+        "run": "coop npchit VCG02Gecko1REF 1 20"
+      },
+      {
+        "at": 10,
+        "run": "coop revive 1"
+      },
+      {
+        "at": 20,
+        "run": "coop npchit VCG02Gecko1REF 1 5"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "down",
+      "path": "combat.downs",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "later-hit-lands",
+      "path": "combat.hurts_applied",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -63,6 +63,11 @@ pub struct Movies {
     play: bool,
     pub queue: VecDeque<Video>,
     playing: Option<Playing>,
+    /// Co-op: the interrupt key was pressed (a skip vote, not a local stop).
+    pub skip_pressed: bool,
+    /// Co-op: scene time already played when the next movie starts (a late
+    /// joiner or a merge starts that far into the file).
+    pub offset_ms: u32,
 }
 
 impl Movies {
@@ -72,7 +77,23 @@ impl Movies {
             play,
             queue: VecDeque::new(),
             playing: None,
+            skip_pressed: false,
+            offset_ms: 0,
         }
+    }
+
+    /// A movie is on screen or about to be (co-op: the scene layer asks).
+    pub fn busy(&self) -> bool {
+        self.playing.is_some() || (self.play && !self.queue.is_empty())
+    }
+
+    /// Ends the movie on screen and drops the ones waiting (co-op: the
+    /// scene ended or was skipped).
+    pub fn stop(&mut self) {
+        if let Some(p) = self.playing.as_mut() {
+            p.decoded = usize::MAX;
+        }
+        self.queue.clear();
     }
 }
 
@@ -220,6 +241,7 @@ pub fn start_movies(
     let Some(video) = movies.queue.pop_front() else {
         return;
     };
+    let offset_ms = std::mem::take(&mut movies.offset_ms);
     if !movies.play {
         println!(
             "Movie {}: skipped (--no-movies, or a screenshot).",
@@ -385,7 +407,12 @@ pub fn start_movies(
         sprites.push(sprite);
         tiles.push(Tile { image, x, y, w, h });
     }
-    let sound = track.map(|(rate, channels, samples)| {
+    let sound = track.map(|(rate, channels, mut samples)| {
+        // co-op: a movie joined late starts that far into its sound too
+        let skip = ((f64::from(offset_ms) / 1000.0) * rate as f64) as usize * channels as usize;
+        if skip > 0 && skip < samples.len() {
+            samples.drain(..skip);
+        }
         let handle = sounds.add(PcmSound::new(channels, rate, samples));
         commands
             .spawn((AudioPlayer(handle), PlaybackSettings::DESPAWN))
@@ -399,7 +426,9 @@ pub fn start_movies(
         fps,
         decoder: bink::Decoder::new(width, height, revision, flags),
         decoded: 0,
-        started: Instant::now(),
+        started: Instant::now()
+            .checked_sub(std::time::Duration::from_millis(u64::from(offset_ms)))
+            .unwrap_or_else(Instant::now),
         camera,
         sprites,
         tiles,
@@ -424,9 +453,18 @@ pub fn withhold_input(
     };
     // Control 5 (Activate, E) and 28 (Escape) end an interruptible movie.
     let skip = keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::Escape);
+    let mut vote = false;
     if skip && playing.video.interruptable {
-        // Marked as finished; `play_movies` tears it down.
-        playing.decoded = usize::MAX;
+        if crate::coop_live::menus_freeze_time() {
+            // Marked as finished; `play_movies` tears it down.
+            playing.decoded = usize::MAX;
+        } else {
+            // co-op: the party skips together (a vote)
+            vote = true;
+        }
+    }
+    if vote {
+        movies.skip_pressed = true;
     }
     keys.reset_all();
     buttons.reset_all();

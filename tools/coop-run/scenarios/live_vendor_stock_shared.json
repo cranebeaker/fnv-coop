@@ -1,0 +1,69 @@
+{
+  "name": "live_vendor_stock_shared",
+  "description": "Doc Mitchell's stock is one stock for the party: the host puts 5 stimpaks on him, the guest buys 2, then the host buys 1. Both peers end with the same stock (Doc's own starting stock differs between data sets, so it is compared between peers, and the purchases are checked by what each player holds), the guest has 2 and the host 1.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 28,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop give DocMitchellREF Stimpak 5"
+      },
+      {
+        "at": 16,
+        "run": "coop barter DocMitchellREF 0 buy:Stimpak:1"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop barter DocMitchellREF 0 buy:Stimpak:2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-host",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "guest-guest",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-host",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-guest",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "stock-same",
+      "path": "items.DocMitchellREF",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

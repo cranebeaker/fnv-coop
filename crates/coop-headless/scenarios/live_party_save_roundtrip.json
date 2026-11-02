@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "description": "Party save round trip. The host gives itself 3 stimpaks and Doc 9 caps, the guest gets 50 caps of its own, the host saves at 7 s (the guest is ordered to save its own character and keeps a local copy). At 11 s both peers are dropped and started again: the host loads the party folder, the guest rejoins with its persistent id. Every personal and shared fact is back and the shared hashes match. Headless only (the restart needs both processes under the harness's control).",
+  "party": {
+    "key": 4242,
+    "restart_at": 11,
+    "host_loads": true,
+    "guest_same_key": true,
+    "second": {
+      "duration_s": 10
+    }
+  },
+  "expect": [
+    {
+      "id": "guest-caps-back",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "host-stims-back",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "world-fact-back",
+      "path": "items.DocMitchellREF.Caps001",
+      "op": "ge",
+      "value": 9,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Stimpak 3"
+      },
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem Caps001 9"
+      },
+      {
+        "at": 7,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Caps001 50"
+      }
+    ]
+  },
+  "name": "live_party_save_roundtrip"
+}

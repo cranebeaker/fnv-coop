@@ -15,6 +15,7 @@ pub mod codec;
 pub mod envelope;
 pub mod jitter;
 pub mod mixer;
+pub mod pipeline;
 pub mod sim;
 pub mod vad;
 

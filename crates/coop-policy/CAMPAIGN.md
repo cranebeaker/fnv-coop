@@ -1,4 +1,46 @@
-# Campaign gaps that still need engine support in nv-rs
+# Campaign gaps in nv-rs
+
+## Status 2026-11-02: closed in code (see `crates/world/src/coop/campaign/`)
+
+Everything below is implemented in the new `campaign` module of `world` (one field,
+`GameState::coop.campaign`, plus one-line hooks), with unit tests, world tests
+(`crates/world/tests/coop_campaign.rs`, 29 tests), eight headless scenarios with mutation twins
+(`tools/coop-run/scenarios/live_*` and `twin_live_*`: kill_xp_attribution, companion_owner_only,
+personal_storage, collar_per_player, party_condition, downed_respawn, fork_consent, friendly_fire_guard)
+and a coop-sim soak (8 scenarios x 7 chaos profiles x 3 seeds: 168 of 168 pass).
+The old tables further down are kept as the record of what each gap was.
+
+| Gap | Closed by |
+|---|---|
+| G04 kill and hit attribution, guest kills give XP, karma, kill stats | `campaign::attribution` (host adapter feeds `Damaged`/`Died` by slot; XP through the gate ledger per contributor; `experience::on_kill` stays out when attribution is on) |
+| G03, G05 initiator-picks: host scripts run for a player | `dialogue.rs` runs begin and end scripts inside `campaign::producers::as_initiator` (shadow scope, `begin_interaction`, `PolicyGate::acting_origin` gives `Origin::Player(slot)` for companion and shadow-write events; rewards stay host origin) |
+| G33, G34 per-owner followers, owner-only commands, critter vs humanoid caps | `campaign::owners` (owner from shadow teammates, `command_ok`, `recruit`, `dismiss`, `sync_critters`), follower quest variables swapped per player in `campaign::extra` |
+| G35 personal storage | row field `storage` (FortEquipmentConfiscationQuest lists FortWeatherStationStorageRef), container rows swapped per player in `extra`, loot ledger redirect `storage::redirect_op` in `Session::live_loot` |
+| G42, G43 collars, per-player script object variables, hardcore needs, `.fos` stacks | `campaign::extra` (objvars from rows' `shadow.objvars`, owners learned by a hook in `run_reference_script`; `Living` and `inventory_stacks` swapped) |
+| Perk reward strings (`plugin:id`, editor id, hex) | `coop_policy::same_form`; the gate sends `EDID|hex` aliases |
+| G23, G37 party aware conditions | `coop_policy::Reducer` + `campaign::party` (hooked in `Facts::value` while a quest context is set in `Runner::with`) |
+| G25, G26, G27 tether zones, barrier passes, ready checks, votes, interactions | `campaign::producers` and `PolicyGate::{vote,begin_vote,begin_ready,ready_request}` |
+| G08 fork consent | `campaign::consent` (`check`, `vote`, `poll`, one-way once decided) |
+| G41 downed, respawn at checkpoint, late join | `coop_policy::lifecycle` + `campaign::downed` (held joiners via `PolicyGate::hold_joiner`) |
+| G40 friendly fire guard | `EventKind::Hit`, `Reject::FriendlyFire`, `campaign::ffguard` hooked in `hurt_hooked` |
+| hash.shared dead shard | `export::tag::DEAD`: dead actors are in the shared export; a lost kill is repaired once |
+| Guest script variable names | `campaign::names::heal` when game data arrives |
+| 37 dropped tethers, 8 dropped warps | `tools/policy-import/resolve_tethers.py` (31 resolved; the rest have no place by construction: pure scripted scenes, see below) |
+| 115 `default` rows | `tools/policy-import/review_defaults.py`: 19 left, none can be advanced by anyone at tier T3/T4 |
+| DLC rows keyed by the plugin's own index byte | `PolicyGate::set_remap` from `configure_campaign` (gate and shadow plan use load-order ids) |
+
+Host adapters call `campaign::host_frame` each frame; guests call `configure_campaign`.
+
+Remaining by construction, not engine work: 7 tether quests with no objective target and no `MoveTo`
+(BeatrixFX, FistoFX, SantiagoFX, VDialogueCaesar, VGenericTimer, VMQCaesarFail host-run scenes;
+VMS49 spans 16 cells), NVDLC02MQ07 (no interior cell, no editor id), and 5 warps whose quests have no
+`MoveTo` or marker (NVDLC02MQ04, NVDLC02MQ06, NVDLC03MQ03, NVDLC04MQ04, VCG03). The 19 default rows are
+4 synthetic rows, 8 "Systems & misc" T3 quests and 6 side quests the old table never gave an
+initiator rule, plus NVDLC02MQ07.
+Viewer wiring still to do by the viewer owner (not touched here): call `Session::live_loot_ops`, raise
+`consent::check` at the fork message boxes, `downed::revive` from the revive UI.
+
+# Original gap list (history)
 
 `coop-policy` answers "what should happen" for a quest event. It cannot make the engine produce
 those events or honour the answers. This file lists the gaps from the old campaign backlog
@@ -13,6 +55,16 @@ are the `guest_local` field of a row, one list).
 
 How to read the tables: "Policy side" says what `coop-policy` already carries; "Engine side" is
 what is still missing; "Hook" is where it plugs in.
+
+## Row keys (data schema 2)
+
+A row is keyed by `(plugin, local)`: the plugin file name and the quest's id inside that plugin
+(`local`, top byte clear), plus the editor id. `id` is only what the quest has when its plugin
+loads straight after the base game; it is not the runtime id. A session remaps the table to the
+real load order at start (`PolicyTable::remap`, `coop_session::policy_ids`): by `(plugin, local)`,
+then by editor id; rows whose quest is not loaded are dropped and reported
+(`RemapReport::describe`, logged as the `policy_ids` event), never an error. A different DLC
+order, a missing DLC or a store with another order all resolve the same way.
 
 ## 1. Event sources (the policy has nothing to decide until these emit events)
 
@@ -80,3 +132,45 @@ The engine still keeps everything under `PLAYER_REF`.
 
 Everything above is proven only at the policy level (unit and property tests in this crate).
 Nothing here has run inside nv-rs.
+
+## Scenes, movies, control locks and time (G18, G30, G38, G41): wired
+
+`coop-core::scene` (`SceneHost`, `SceneClient`, `SceneMsg`) is the replicated scene state; `world::coop::scene`
+(`SceneBridge`, `SceneFacts`) is the engine side. The host's story opens scenes from three sites: a script's
+`PlayBink`, a script's `DisablePlayerControls` / `EnablePlayerControls` (lock set, scope from `controls.scope`,
+safety limit from `controls.timeout_s`), and a stage of a quest whose row says `host_decision` `cinematic` or
+`ending` (`barrier.before` gives the Together rule; masks give the lock set). Every peer, the host included, plays
+the same movie at the same scene time (start-at lead minus half the round trip; a late joiner or a merge starts
+`elapsed_ms` into it), gets its own lock set (the initiator only, or everyone), and ends with the host or by a
+unanimous skip vote. `late_join.during_scene = wait` holds a joiner (all controls locked) until the scene ends and
+replays it the remaining state; a rejoin is replayed too; the guest drops every scene when the host link is gone.
+Waiting and sleeping are party votes (`VoteKind::Sleep` / `Wait`, everyone present must agree; answered with
+`Intent::Answer`, F8 / F9 in the viewer); the host runs the approved hours once and announces one `TimeSkip` event
+(applied once per event id). The guest's clock follows the host's smoothly (`follow_clock`), and the shared hash
+reads the value the host replicated. Ending commitments (`SceneHost::committed`) travel in the join sync and are
+ready for the party save (`restore_committed`). Tests: `coop-core` scene unit tests, `world/tests/coop_scene.rs`,
+`coop-headless/tests/scene.rs` (scenarios `live_scene_barrier`, `live_scene_late_join`, `live_sleep_vote`,
+`live_sleep_guest_asks`, `live_sleep_refused`, `live_movie_sync`, `live_control_lock_per_player` with
+`twin_*` mutation twins, and a soak over every chaos profile).
+## 6. Player-world interactions (the `coop-core::interact` layer)
+
+How the rows of sections 2 to 4 that concern what a player does in the world are carried now. A guest's
+action is an `Act` the host applies once (exactly-once by `(guest, txn)`), in that player's shadow when
+it is personal; shared state travels in the existing domains or as `Shared` records.
+
+| Gap | How it is carried |
+|---|---|
+| G19 fast travel | consent stays the party vote (`VoteKind::FastTravel`); `Act::Discover` shares a found map marker (the `map_markers` domain), so the unlock is the party's |
+| G33 per-owner followers | `Act::Companion` runs in the commander's shadow: `Recruit` refuses a companion another player already has (`Why::Busy`), commands need the commander's own teammate |
+| G34 plot companions | a companion whose policy row says `owner = party` takes commands from any player and cannot be recruited or dismissed by one (`Why::Policy`) |
+| G35 shared storage | `Act::Steal` (loot, pickpocket, plant) moves items between a body or pack and the acting player's shadow; a storage redirect keyed by slot is still a policy-row matter (no row tags storage) |
+| G09, G17, G20 world objects | doors, locks, terminals and mines no domain carries are `Shared` records: published when an act changes them and by a 200 ms sweep of the host world (scripts, quests, the host player), kept in a log for late joiners; picked-up items, destroyed objects, notes and map markers ride the `disabled`, `destroyed`, `note` and `map_marker` domains |
+| load doors, one-way trips | `Transit`: the leader (host) goes anywhere and the members of the cell group follow, anyone else only into the leader's cell group, one-way trips open a party barrier (`rules` barrier, tag `0x5452xxxx`) |
+| barter, vendor stock | `Act::Barter` runs `barter::accept` in the buyer's shadow; the vendor's stock and caps are the shared `items` rows, so one stock serves the party |
+| crafting, repair, item use, equipment, ammo, hot keys | `Act::Craft`, `Repair`, `Use`, `Equip`, `Ammo`, `Pip(Hotkey)` run in the acting player's shadow: ingredients, skill, health, rads and addiction are theirs |
+| minigames | lockpicking and hacking are played on the acting machine; the outcome is `Act::Lockpick` / `Act::Hack` (pins spent and experience go to that player, the lock or terminal state is shared) |
+
+Not carried by this layer (still policy or engine work): storage redirects per slot (G35 rows), the
+explosion damage of a mine a guest set off (the guest's own viewer resolves its blast; the host only
+retires the mine), and any scripted `OnActivate` whose script needs the activator's *skills* read from a
+player other than the one in the shadow (the shadow is swapped in for the run, so the common case works).

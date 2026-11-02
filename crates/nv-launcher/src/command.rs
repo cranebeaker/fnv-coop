@@ -33,6 +33,10 @@ pub struct Plan {
     pub steam: bool,
     /// Host: the session token, passed as `--coop-token` so the join code matches.
     pub token: Option<[u8; 16]>,
+    /// A save to start from (`--coop-load`): the host's Continue; a guest's own character.
+    pub load: Option<PathBuf>,
+    /// Compatibility override, voice and couch options (see `extras`).
+    pub extras: crate::extras::Extras,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +52,11 @@ pub fn build(p: &Plan) -> Spec {
     match &p.mode {
         Mode::Host { port, new_game } => {
             if *new_game {
+                // the normal opening: Doc Mitchell, name, Vit-o-Matic, tags, traits
                 args.push("--new-game".into());
+            } else if let Some(l) = &p.load {
+                args.push("--coop-load".into());
+                args.push(l.to_string_lossy().into_owned());
             } else {
                 args.push(DEFAULT_CELL.into());
             }
@@ -65,6 +73,11 @@ pub fn build(p: &Plan) -> Spec {
         }
         Mode::JoinFriend => args.push("--coop-steam-friend".into()),
     }
+    // a guest brings only its own character from a save; the host's world is never replaced
+    if let (Some(l), Mode::Join { .. } | Mode::JoinFriend) = (&p.load, &p.mode) {
+        args.push("--coop-load".into());
+        args.push(l.to_string_lossy().into_owned());
+    }
     args.push("--coop-name".into());
     args.push(p.name.clone());
     args.push("--coop-log".into());
@@ -72,6 +85,7 @@ pub fn build(p: &Plan) -> Spec {
     if p.steam && p.mode != Mode::JoinFriend {
         args.push("--coop-steam".into());
     }
+    args.extend(p.extras.args());
     let mut env = Vec::new();
     if p.uncap {
         env.push(("NV_UNCAP".to_string(), "1".to_string()));
@@ -127,6 +141,8 @@ mod tests {
             height: 720,
             steam: false,
             token: None,
+            load: None,
+            extras: Default::default(),
         }
     }
 
@@ -141,10 +157,37 @@ mod tests {
     }
 
     #[test]
-    fn host_continue_uses_cell() {
+    fn host_without_a_save_uses_the_cell() {
         let s = build(&plan(Mode::Host { port: 5000, new_game: false }));
         assert_eq!(s.args[1], DEFAULT_CELL);
         assert!(!s.args.contains(&"--new-game".to_string()));
+    }
+
+    #[test]
+    fn host_continue_loads_the_save() {
+        let mut p = plan(Mode::Host { port: 5000, new_game: false });
+        p.load = Some(PathBuf::from(r"C:\home\savesb\host-ann
+v-rs-quicksave.txt"));
+        let s = build(&p);
+        assert_eq!(&s.args[1..3], ["--coop-load", r"C:\home\savesb\host-ann
+v-rs-quicksave.txt"]);
+        assert_eq!(s.args[3], "--coop-host");
+        assert!(!s.args.contains(&DEFAULT_CELL.to_string()));
+        // a new game never loads
+        let mut n = plan(Mode::Host { port: 5000, new_game: true });
+        n.load = p.load.clone();
+        assert!(!build(&n).args.contains(&"--coop-load".to_string()));
+    }
+
+    #[test]
+    fn a_guest_save_means_own_character() {
+        let mut p = plan(Mode::Join { addr: "NVRS-X".into() });
+        p.load = Some(PathBuf::from("g.txt"));
+        let s = build(&p);
+        let i = s.args.iter().position(|a| a == "--coop-load").expect("flag");
+        assert_eq!(s.args[i + 1], "g.txt");
+        assert!(!s.args.contains(&"--new-game".to_string()));
+        assert!(!s.args.contains(&"--coop-host".to_string()));
     }
 
     #[test]

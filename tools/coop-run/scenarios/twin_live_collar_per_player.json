@@ -1,0 +1,18 @@
+{
+  "name": "twin_live_collar_per_player",
+  "description": "MUTATION TWIN of live_collar_per_player: the variable is written on a script that no row lists, so it is not per player and the guest's own view is empty. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 64,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "guest-on", "path": "campaign.objvars.guest.DocMitchellREF_bcollaron", "op": "eq", "value": 1, "on": "host" },
+    { "id": "guest-timer", "path": "campaign.objvars.guest.DocMitchellREF_ftimer", "op": "eq", "value": 42.5, "on": "host" }
+  ]
+}

@@ -286,3 +286,17 @@ fn detection_takes_the_line_of_sight_and_movement_given() {
         Some(100)
     );
 }
+
+#[test]
+fn a_coop_player_holds_only_what_they_equipped() {
+    let (_data, order) = order("cai-coop-hand");
+    let mut state = state_with_player(&order, [0.0, 1500.0, 0.0]);
+    let machete = FormId(MACHETE);
+    state.equipped.insert(world::dialogue::PLAYER_REF, vec![]);
+    state.set_authority(world::coop::Authority::Host);
+    assert!(combat::weapon_in_hand(&order, &state, world::dialogue::PLAYER_REF).is_none());
+    assert!(combat::weapon_equipped(&order, &state, world::dialogue::PLAYER_REF).is_none());
+    state.equipped.insert(world::dialogue::PLAYER_REF, vec![machete]);
+    assert_eq!(combat::weapon_equipped(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id), Some(machete));
+    assert_eq!(combat::weapon_in_hand(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id), Some(machete));
+}

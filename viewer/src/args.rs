@@ -105,6 +105,17 @@ OPTIONS:
                             so a plain HOST:PORT works through a relay
     --coop-token HEX        host: use this 32 hex digit session token (the
                             launcher makes one so its join code matches)
+    --coop-load DIR         host: continue a campaign from a party save folder
+                            (SAVE.partysave next to a saved game): the world
+                            and the host's character start from it, and
+                            returning guests get their saved characters back
+                            by their player id
+    --coop-character FILE   guest: this player's own character file; it is
+                            written when the host saves (and on F5) and read
+                            on F9 and when joining a campaign that has no
+                            character for this player
+    --coop-player-key HEX   guest: this player's persistent id (16 hex
+                            digits), so a rejoining guest finds its character
     --coop-name NAME        your name in the session
     --coop-log FILE         write the co-op event log (JSON lines) here
     --coop-state-dump FILE  write the shared state (JSON) here every second
@@ -112,6 +123,27 @@ OPTIONS:
     --coop-net PROFILE      for testing: delay and lose this peer's packets
                             as the profile says (perfect, good_wifi,
                             bad_wifi, mobile, congested, flaky, partition)
+    --coop-control PORT     a live control port on 127.0.0.1:PORT (JSON lines:
+                            state, run, bot, keys, screenshot, entities,
+                            quit; tools/coop-run/live.py talks to it)
+    --coop-allow-mismatch   developer override: accept a guest whose plugins,
+                            load order, game version or build differ (the
+                            host's flag decides; protocol and rules still
+                            must match)
+    --coop-voice MODE       voice chat: off, ptt (push to talk, the default)
+                            or vad (voice activity). Needs a viewer built
+                            with --features voice
+    --coop-ptt-key KEY      push-to-talk key (default Backslash; a KeyCode
+                            name or MouseMiddle/MouseBack/MouseForward)
+    --coop-ping-key KEY     ping key (default MouseMiddle); Shift sets the
+                            waypoint, Ctrl clears it
+    --coop-couch SEAT/PLAYERS
+                            split-screen on one PC: this process is local
+                            seat SEAT (0 hosts) of PLAYERS; uses the fixed
+                            local session token (see docs/COOP-COUCH.md)
+    --coop-window X,Y,W,H   place the window (borderless) at this rectangle
+    --coop-gamepad N        the controller this seat uses (recorded and
+                            logged; the launcher routes the input)
     --coop-quit-file FILE   quit cleanly when this file appears
     --coop-quit-after SECONDS
                             quit cleanly this long after the session is
@@ -120,6 +152,9 @@ OPTIONS:
                             behind the others without the focus, and the
                             mouse is never held in it (with --screen-size,
                             at that size)
+    --help-overlay          show the key help at the top of the screen in a
+                            co-op session too (hidden there by default;
+                            F4 turns it on and off)
     --freeze-ai             people and creatures stand where they are and
                             do nothing but their idle, as after the game's
                             console command tai (for lining up with a
@@ -268,6 +303,36 @@ const NEW_GAME_QUEST: &str = "VCG00";
 /// anyway).
 const NEW_GAME_CELL: &str = "GSDocMitchellHouse";
 
+/// What `--coop-help` prints.
+pub const COOP_USAGE: &str = "\
+nv-viewer co-op flags (docs/COOP.md)
+
+  --coop-host [PORT]       host on UDP PORT (default 27961)
+  --coop-join CODE         join with an NVRS- code (UDP or Steam lobby); HOST[:PORT] with --coop-test-token
+  --coop-steam             Steam (Spacewar) transport
+  --coop-steam-friend      join a Steam friend who is hosting, no code
+  --coop-token HEX         host: the session token the join code carries
+  --coop-test-token        test harness: the fixed token
+  --coop-name NAME         your name in the session
+  --coop-log FILE          event log (JSON lines)
+  --coop-state-dump FILE   shared-state JSON once a second (has the start.phase object)
+  --coop-net PROFILE       test: delay and lose packets
+  --coop-quit-file FILE    quit cleanly when the file appears
+  --coop-quit-after SEC    quit cleanly this long after the session is ready
+  --coop-load FILE         host: start from this nv-rs save (the launcher's Continue);
+                           guest: take only your character from it
+  --coop-no-chargen        test harness: a guest skips making its character
+  --coop-help              this list
+
+The start of a game:
+  host   --new-game        the normal opening (Doc Mitchell, name, Vit-o-Matic, tags, traits)
+  host   --coop-load FILE  or --load-fos FILE: play on from a save
+  guest  (nothing)         joins any time; makes its own character with the same menus
+  guest  --new-game        the same, said out loud
+  guest  --load-fos / --coop-load FILE
+                           brings its character from a save; the host's world is never replaced
+";
+
 /// The CELL when `--coop-join` gives the place (the host's).
 pub const COOP_PLACE: &str = "(the host's place)";
 
@@ -292,6 +357,12 @@ pub struct CoopArgs {
     pub host: Option<u16>,
     /// `--coop-join ADDR`: join this host (address or join code).
     pub join: Option<String>,
+    /// `--coop-load PATH`: the host starts from this party save or one of this viewer's own saves.
+    pub load: Option<PathBuf>,
+    /// `--coop-character FILE`: the guest's own character file.
+    pub character: Option<PathBuf>,
+    /// `--coop-player-key HEX`: the guest's persistent player id.
+    pub player_key: Option<u64>,
     /// `--coop-name`.
     pub name: Option<String>,
     /// `--coop-log`.
@@ -300,6 +371,8 @@ pub struct CoopArgs {
     pub state_dump: Option<PathBuf>,
     /// `--coop-net`: chaos profile name.
     pub net: Option<String>,
+    /// `--coop-control`: the live control port (localhost only).
+    pub control: Option<u16>,
     /// `--coop-quit-file`.
     pub quit_file: Option<PathBuf>,
     /// `--coop-quit-after`: seconds after the session is ready.
@@ -312,6 +385,29 @@ pub struct CoopArgs {
     pub test_token: bool,
     /// `--coop-token HEX`: the host's session token, 16 bytes.
     pub token: Option<[u8; 16]>,
+    /// Host: `--new-game` (the opening runs for the host player, at once).
+    pub new_game: bool,
+    /// Guest: `--new-game`, make a new character (the default for a guest).
+    pub own_new_game: bool,
+    /// Guest: `--load-fos FILE` or `--coop-load FILE`, take the character from that save
+    /// (only the name, SPECIAL, tags and perks; the host's world is never replaced).
+    pub own_load: Option<PathBuf>,
+    /// `--coop-no-chargen`: test harness only, a guest skips the character making.
+    pub no_chargen: bool,
+    /// `--coop-allow-mismatch`: accept guests whose game differs (developers).
+    pub allow_mismatch: bool,
+    /// `--coop-voice`: off, ptt or vad.
+    pub voice: Option<String>,
+    /// `--coop-ptt-key`.
+    pub ptt_key: Option<String>,
+    /// `--coop-ping-key`.
+    pub ping_key: Option<String>,
+    /// `--coop-couch SEAT/PLAYERS`.
+    pub couch: Option<(u8, u8)>,
+    /// `--coop-window X,Y,W,H`.
+    pub window: Option<(i32, i32, u32, u32)>,
+    /// `--coop-gamepad N`.
+    pub gamepad: Option<u8>,
 }
 
 /// Parses 32 hex digits into a session token.
@@ -392,6 +488,8 @@ pub struct Args {
     /// opens behind the others without taking the focus, and the mouse
     /// is never held in it.
     pub background: bool,
+    /// `--help-overlay`: keep the key help line on screen in a co-op session.
+    pub help_overlay: bool,
     /// Raise the Pip-Boy once loaded: its menu and page (stats:1).
     pub pipboy: Option<String>,
     /// `--pipboy-keys`: keys to press in the Pip-Boy once it's up.
@@ -511,6 +609,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     let mut weapon = None;
     let mut character = None;
     let mut load_fos = None;
+    let mut coop_load: Option<PathBuf> = None;
     let mut run = Vec::new();
     let mut run_at = Vec::new();
     let mut say = Vec::new();
@@ -527,6 +626,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     let mut answer_boxes = false;
     let mut box_answers = Vec::new();
     let mut background = false;
+    let mut help_overlay = false;
     let mut pipboy = None;
     let mut pipboy_keys = Vec::new();
     let mut pad = false;
@@ -595,6 +695,12 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             "--weapon" => weapon = Some(value("--weapon")?),
             "--character" => character = Some(value("--character")?.into()),
             "--load-fos" => load_fos = Some(value("--load-fos")?.into()),
+            "--coop-load" => coop_load = Some(value("--coop-load")?.into()),
+            "--coop-no-chargen" => coop.no_chargen = true,
+            "--coop-help" => {
+                print!("{COOP_USAGE}");
+                std::process::exit(0);
+            }
             "--coop-host" => {
                 // An optional port after it.
                 let n = iter.clone().next().and_then(|v| v.parse::<u16>().ok());
@@ -626,7 +732,54 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                         .ok_or_else(|| "--coop-token expects 32 hex digits (a 16 byte token)".to_string())?,
                 );
             }
+            "--coop-allow-mismatch" => coop.allow_mismatch = true,
+            "--coop-voice" => {
+                let v = value("--coop-voice")?;
+                if !["off", "ptt", "vad"].contains(&v.as_str()) {
+                    return Err(format!("--coop-voice expects off, ptt or vad, got '{v}'"));
+                }
+                coop.voice = Some(v);
+            }
+            "--coop-ptt-key" => coop.ptt_key = Some(value("--coop-ptt-key")?),
+            "--coop-ping-key" => coop.ping_key = Some(value("--coop-ping-key")?),
+            "--coop-couch" => {
+                let v = value("--coop-couch")?;
+                let seat = v.split_once('/').and_then(|(a, b)| Some((a.trim().parse::<u8>().ok()?, b.trim().parse::<u8>().ok()?)));
+                match seat {
+                    Some((s, n)) if (1..=4).contains(&n) && s < n => {
+                        coop.couch = Some((s, n));
+                        // all seats are on this PC: the fixed local token, no join code
+                        coop.test_token = true;
+                        if s != 0 && coop.voice.is_none() {
+                            coop.voice = Some("off".into());
+                        }
+                    }
+                    _ => return Err(format!("--coop-couch expects SEAT/PLAYERS with SEAT below PLAYERS (1 to 4), got '{v}'")),
+                }
+            }
+            "--coop-window" => {
+                let v = value("--coop-window")?;
+                let p: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if p.len() != 4 || v.split(',').count() != 4 || p[2] < 160 || p[3] < 120 {
+                    return Err(format!("--coop-window expects X,Y,W,H (at least 160x120), got '{v}'"));
+                }
+                coop.window = Some((p[0] as i32, p[1] as i32, p[2] as u32, p[3] as u32));
+            }
+            "--coop-gamepad" => {
+                let v = value("--coop-gamepad")?;
+                coop.gamepad = Some(v.parse::<u8>().map_err(|_| format!("--coop-gamepad expects a controller number, got '{v}'"))?);
+            }
             "--coop-name" => coop.name = Some(value("--coop-name")?),
+            "--coop-character" => coop.character = Some(value("--coop-character")?.into()),
+            "--coop-player-key" => {
+                let v = value("--coop-player-key")?;
+                coop.player_key = Some(
+                    u64::from_str_radix(v.trim(), 16)
+                        .ok()
+                        .filter(|k| *k != 0 && v.trim().len() == 16)
+                        .ok_or_else(|| "--coop-player-key expects 16 hex digits (not all zero)".to_string())?,
+                );
+            }
             "--coop-log" => coop.log = Some(value("--coop-log")?.into()),
             "--coop-state-dump" => coop.state_dump = Some(value("--coop-state-dump")?.into()),
             "--coop-net" => {
@@ -638,6 +791,15 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                     ));
                 }
                 coop.net = Some(v);
+            }
+            "--coop-control" => {
+                let v = value("--coop-control")?;
+                coop.control = Some(
+                    v.parse::<u16>()
+                        .ok()
+                        .filter(|p| *p > 0)
+                        .ok_or_else(|| format!("--coop-control expects a port, got '{v}'"))?,
+                );
             }
             "--coop-quit-file" => coop.quit_file = Some(value("--coop-quit-file")?.into()),
             "--coop-quit-after" => {
@@ -710,6 +872,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                 }
             }
             "--background" => background = true,
+            "--help-overlay" => help_overlay = true,
             "--lockpick" => lockpick = Some(value("--lockpick")?),
             "--pipboy" => {
                 let v = value("--pipboy")?;
@@ -810,26 +973,66 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     if coop.test_token && coop.steam {
         return Err("--coop-test-token is for UDP test runs; it does not apply to Steam".into());
     }
+    if coop.load.is_some() && coop.host.is_none() {
+        return Err("--coop-load continues a party save as the host; use it with --coop-host".into());
+    }
+    if coop.load.is_some() && (new_game || load_fos.is_some() || stage.is_some()) {
+        return Err("--coop-load starts from the party save; leave out --new-game, --load-fos and --stage".into());
+    }
+    if (coop.character.is_some() || coop.player_key.is_some()) && !coop.is_guest() {
+        return Err("--coop-character and --coop-player-key are the guest's; use them with --coop-join".into());
+    }
+    if coop.load.is_some() && positional.len() == 1 {
+        positional.push(FROM_SAVE.to_string());
+    }
     if !coop.active()
         && (coop.name.is_some()
+            || coop.load.is_some()
+            || coop.character.is_some()
+            || coop.player_key.is_some()
             || coop.log.is_some()
             || coop.state_dump.is_some()
             || coop.net.is_some()
             || coop.quit_file.is_some()
+            || coop.control.is_some()
             || coop.quit_after.is_some()
             || coop.steam
-            || coop.test_token)
+            || coop.test_token
+            || coop.no_chargen)
     {
         return Err("the --coop-* options need --coop-host or --coop-join".into());
     }
-    if coop.is_guest() && (new_game || load_fos.is_some()) {
-        return Err(
-            "a guest takes the host's game: leave out --new-game and --load-fos with --coop-join"
-                .into(),
-        );
+    // A guest never replaces the host's game: --new-game, --load-fos and --coop-load mean "my own
+    // character" for it (docs/COOP.md, "The start of a game").
+    if coop.is_guest() {
+        if new_game && (load_fos.is_some() || coop_load.is_some()) {
+            return Err("a guest's own character comes from --new-game or from a save, not both".into());
+        }
+        if load_fos.is_some() && coop_load.is_some() {
+            return Err("give one of --load-fos and --coop-load for a guest's own character".into());
+        }
+        coop.own_new_game = std::mem::take(&mut new_game);
+        coop.own_load = load_fos.take().or_else(|| coop_load.take());
+    } else if coop.host.is_some() {
+        coop.new_game = new_game;
+        if coop_load.is_some() {
+            if new_game || load_fos.is_some() || stage.is_some() {
+                return Err("--coop-load starts from the save; leave out --new-game, --load-fos and --stage".into());
+            }
+            coop.load = coop_load.take();
+        }
+    } else if coop_load.is_some() {
+        return Err("--coop-load needs --coop-host or --coop-join".into());
+    }
+    if coop.no_chargen && !coop.is_guest() {
+        return Err("--coop-no-chargen is for a guest (--coop-join)".into());
     }
     if coop.is_guest() && positional.len() == 1 {
         positional.push(COOP_PLACE.to_string());
+    }
+    // A host started from its own save gets its place from the save.
+    if coop.load.is_some() && positional.len() == 1 {
+        positional.push(FROM_SAVE.to_string());
     }
     // A new game: the opening quest's first stage (its scripts move the
     // player to where the game starts), from Doc Mitchell's house unless
@@ -880,6 +1083,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             cloud_time,
             freeze_ai,
             background,
+            help_overlay,
             movement,
             movement_probe,
             movement_log,
@@ -1171,6 +1375,39 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_party_save_options() {
+        let host = parse(&strings(&["Data", "--coop-host", "--coop-load", "Save.txt.partysave"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(host.coop.load, Some(PathBuf::from("Save.txt.partysave")));
+        assert_eq!(host.cell, FROM_SAVE, "the party save gives the place");
+        let guest = parse(&strings(&[
+            "Data",
+            "--coop-join",
+            "h:1",
+            "--coop-character",
+            "me.char",
+            "--coop-player-key",
+            "00000000000a11ce",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(guest.coop.character, Some(PathBuf::from("me.char")));
+        assert_eq!(guest.coop.player_key, Some(0xa11ce));
+        let err = |a: &[&str]| parse(&strings(a)).unwrap_err();
+        assert!(err(&["Data", "Cell", "--coop-load", "x"]).contains("--coop-host"));
+        assert!(err(&["Data", "--coop-host", "--coop-load", "x", "--new-game"]).contains("party save"));
+        assert!(err(&["Data", "--coop-host", "--coop-load", "x", "--load-fos", "a.fos"]).contains("party save"));
+        assert!(err(&["Data", "Cell", "--coop-host", "--coop-player-key", "00000000000a11ce"]).contains("guest"));
+        assert!(err(&["Data", "--coop-join", "h:1", "--coop-player-key", "abc"]).contains("16 hex"));
+        assert!(err(&["Data", "--coop-join", "h:1", "--coop-player-key", "0000000000000000"]).contains("16 hex"));
+        // an original save can still start a hosted campaign
+        let fos = parse(&strings(&["Data", "--coop-host", "--load-fos", "Save 1.fos"])).unwrap().unwrap();
+        assert_eq!(fos.load_fos, Some(PathBuf::from("Save 1.fos")));
+        assert!(fos.coop.load.is_none());
+    }
+
+    #[test]
     fn parses_the_coop_options() {
         let host = parse(&strings(&[
             "Data",
@@ -1189,6 +1426,8 @@ mod tests {
             "q",
             "--coop-quit-after",
             "30",
+            "--coop-control",
+            "4100",
         ]))
         .unwrap()
         .unwrap()
@@ -1200,6 +1439,7 @@ mod tests {
         assert_eq!(host.net.as_deref(), Some("bad_wifi"));
         assert_eq!(host.quit_file, Some(PathBuf::from("q")));
         assert_eq!(host.quit_after, Some(30.0));
+        assert_eq!(host.control, Some(4100));
         assert!(host.active());
         // no port: the default; the option after it is still read
         let bare = parse(&strings(&["Data", "Cell", "--coop-host", "--no-hud"]))
@@ -1225,16 +1465,46 @@ mod tests {
     }
 
     #[test]
+    fn the_start_flags_mean_own_character_for_a_guest_and_the_normal_start_for_a_host() {
+        let host = parse(&strings(&["D", "--new-game", "--coop-host"])).unwrap().unwrap();
+        assert!(host.coop.new_game);
+        assert_eq!(host.stage, Some(("VCG00".to_string(), 0)), "the opening starts at once");
+        assert_eq!(host.cell, "GSDocMitchellHouse");
+        let guest = parse(&strings(&["D", "--new-game", "--coop-join", "h"])).unwrap().unwrap();
+        assert!(guest.coop.own_new_game && !guest.coop.new_game);
+        assert_eq!(guest.stage, None, "a guest never sets the host's quest");
+        assert_eq!(guest.cell, COOP_PLACE);
+        let g = parse(&strings(&["D", "--load-fos", "a.fos", "--coop-join", "h"])).unwrap().unwrap();
+        assert_eq!(g.coop.own_load, Some(PathBuf::from("a.fos")));
+        assert_eq!(g.load_fos, None, "the host's world is not replaced");
+        let g = parse(&strings(&["D", "--coop-load", "s.txt", "--coop-join", "h", "--coop-no-chargen"])).unwrap().unwrap();
+        assert_eq!(g.coop.own_load, Some(PathBuf::from("s.txt")));
+        assert!(g.coop.no_chargen);
+        let h = parse(&strings(&["D", "--coop-load", "s.txt", "--coop-host"])).unwrap().unwrap();
+        assert_eq!(h.coop.load, Some(PathBuf::from("s.txt")));
+        assert_eq!(h.cell, FROM_SAVE);
+        assert!(parse(&strings(&["D", "C", "--coop-load", "s.txt"])).is_err());
+        assert!(parse(&strings(&["D", "C", "--coop-host", "--coop-load", "s.txt", "--new-game"])).is_err());
+        assert!(parse(&strings(&["D", "C", "--coop-host", "--coop-no-chargen"])).is_err());
+    }
+
+    #[test]
     fn explains_coop_mistakes() {
         let err = |a: &[&str]| parse(&strings(a)).unwrap_err();
         assert!(err(&["D", "C", "--coop-host", "--coop-join", "h"]).contains("different roles"));
         assert!(err(&["D", "C", "--coop-net", "perfect"]).contains("need --coop-host"));
         assert!(err(&["D", "C", "--coop-host", "--coop-net", "weird"]).contains("--coop-net"));
-        assert!(err(&["D", "--coop-join", "h", "--new-game"]).contains("host's game"));
-        assert!(err(&["D", "--coop-join", "h", "--load-fos", "a.fos"]).contains("host's game"));
+        assert!(err(&["D", "--coop-join", "h", "--new-game", "--load-fos", "a.fos"]).contains("not both"));
         assert!(err(&["D", "C", "--coop-host", "0"]).contains("port"));
         assert!(err(&["D", "C", "--coop-quit-after", "soon", "--coop-host"]).contains("seconds"));
         assert!(err(&["D", "C", "--coop-join"]).contains("needs a value"));
+    }
+
+    #[test]
+    fn help_overlay_flag_is_parsed() {
+        let a = parse(&strings(&["Data", "Cell", "--help-overlay"])).unwrap().unwrap();
+        assert!(a.help_overlay);
+        assert!(!parse(&strings(&["Data", "Cell"])).unwrap().unwrap().help_overlay);
     }
 
     #[test]
@@ -1273,7 +1543,7 @@ mod tests {
         assert!(err(&["D", "C", "--coop-host", "--coop-steam", "--coop-test-token"]).contains("UDP test runs"));
         assert!(err(&["D", "C", "--coop-host", "--coop-test-token", "--coop-token", "000102030405060708090a0b0c0d0e0f"])
             .contains("give one"));
-        assert!(err(&["D", "--coop-steam-friend", "--new-game"]).contains("host's game"));
+        assert!(err(&["D", "--coop-steam-friend", "--new-game", "--coop-load", "s.txt"]).contains("not both"));
         assert_eq!(parse_token_hex("zz"), None);
         assert_eq!(parse_token_hex(&"\u{e9}".repeat(16)), None);
     }

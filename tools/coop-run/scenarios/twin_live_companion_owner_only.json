@@ -1,0 +1,21 @@
+{
+  "name": "twin_live_companion_owner_only",
+  "description": "MUTATION TWIN of live_companion_owner_only: nobody recruits the gecko, so there is no owner and no refusal. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 5, "run": "coop command 0 VCG02Gecko1REF wait" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "refused", "path": "campaign.commands_refused", "op": "eq", "value": 1, "on": "host" },
+    { "id": "owner", "path": "campaign.owner.VCG02Gecko1REF", "op": "eq", "value": "guest", "on": "host" },
+    { "id": "guest-followers", "path": "campaign.followers.guest", "op": "eq", "value": 1, "on": "host" }
+  ]
+}

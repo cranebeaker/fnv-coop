@@ -600,7 +600,13 @@ pub fn run_vats(
                     Projection::Perspective(p) => Some(p.fov),
                     _ => None,
                 };
-                virt.pause();
+                // Single player stops the world to plan; in a co-op session
+                // the clock is everyone's, so only this player's view changes.
+                if world::coop::combat_live::world_clock_may_change(state) {
+                    virt.pause();
+                } else {
+                    world::coop::combat_live::note_vats_clock_kept(state);
+                }
                 // The menu is open to the scripts (`MenuMode 1056`,
                 // `0071e420`'s id for `VATSMenu`), whose `MenuMode` blocks
                 // run as it opens (how often the game runs them while it
@@ -658,14 +664,16 @@ pub fn run_vats(
             if vats.phase == Phase::Playback {
                 // Out of the menu: the world runs again (at the shots'
                 // pace, from the next frame).
-                virt.unpause();
+                if world::coop::combat_live::world_clock_may_change(state) {
+                    virt.unpause();
+                }
                 vats.playback = Playback::new();
                 vats.player_clock = 0.0;
                 vats.weapon_ready = 0.0;
                 vats.reloading = None;
                 vats.player_mult = cam.player_time_mult;
                 attack.sped_up = Some(cam.player_time_mult);
-            } else if vats.phase == Phase::Off {
+            } else if vats.phase == Phase::Off && world::coop::combat_live::world_clock_may_change(state) {
                 virt.unpause();
                 virt.set_relative_speed(1.0);
             }
@@ -692,7 +700,8 @@ pub fn run_vats(
                 attack.sped_up = None;
             } else {
                 // The world's pace for the next frame (`00aa4db0`).
-                virt.set_relative_speed(vats.playback.world_mult.max(1e-4));
+                let shared = !world::coop::combat_live::world_clock_may_change(state);
+                virt.set_relative_speed(if shared { 1.0 } else { vats.playback.world_mult.max(1e-4) });
             }
         }
     }

@@ -1,0 +1,48 @@
+{
+  "name": "live_door_follow",
+  "description": "The host (the party leader) walks through Doc Mitchell's front door. The host decides, the guest standing in the same cell is told to follow and arrives on the other side (counted as a followed door), the host counts the transition. Nothing is one-way, so no barrier is needed.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop enter GSDocMitchellHouseIntDoorREF GSDocMitchellHouse 00000001"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-followed",
+      "path": "live.doors_followed",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-told",
+      "path": "interact.follows_in",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "host-led",
+      "path": "interact.transition",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

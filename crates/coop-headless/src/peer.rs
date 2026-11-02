@@ -18,6 +18,9 @@ use crate::data::{Data, Place};
 use crate::json::{n, obj, s, J};
 use crate::scenario::{Action, Side};
 
+/// Seconds of scene time the modelled Bink player takes for any movie.
+const MOVIE_SECONDS: f64 = 6.0;
+
 /// Units a second a held movement key moves the player: the viewer's Always Run default (walk 77 x fMoveRunMult 4); the fake viewer of tools/coop-run uses 150.
 pub const RUN_SPEED: f32 = 308.0;
 
@@ -43,6 +46,8 @@ pub struct Peer {
     pub heading: f32,
     /// Counters for the dump.
     pub counters: LiveCounters,
+    /// Pings, waypoints and voice.
+    pub social: crate::social_bot::SocialBot,
     /// The log, as the viewer would write it.
     pub events: Vec<J>,
     /// Stand-ins this peer used (viewer behaviour it replaces).
@@ -55,6 +60,10 @@ pub struct Peer {
     pub repairs: u32,
     /// Last live view.
     pub view: Option<LiveView>,
+    /// The party directory when the scenario has a `party` object.
+    pub party_dir: Option<std::path::PathBuf>,
+    /// Names of the party events seen, in order.
+    pub party_log: Vec<String>,
     fixed_glue: bool,
     held: Held,
     start_cmds: Vec<String>,
@@ -71,8 +80,10 @@ pub struct Peer {
     next_track: f64,
     spectate: Vec<f64>,
     last_dump: f64,
+    movie_end: Option<f64>,
     seq: u64,
     dump_text: String,
+    menu_left: u32,
 }
 
 fn is_local(l: &str) -> Option<&str> {
@@ -91,12 +102,15 @@ impl Peer {
             pos: place.spawn,
             heading: place.heading,
             counters: LiveCounters::default(),
+            social: Default::default(),
             events: Vec::new(),
             modelled: BTreeSet::new(),
             ready_at: None,
             errors: Vec::new(),
             repairs: 0,
             view: None,
+            party_dir: None,
+            party_log: Vec::new(),
             fixed_glue,
             held: Held::default(),
             start_cmds: Vec::new(),
@@ -113,8 +127,10 @@ impl Peer {
             next_track: 0.0,
             spectate: Vec::new(),
             last_dump: -1.0,
+            movie_end: None,
             seq: 0,
             dump_text: String::new(),
+            menu_left: 0,
         };
         let name = if role == Role::Host { "host" } else { "guest" };
         p.log(0.0, "start", vec![("role", s(name))]);
@@ -139,6 +155,11 @@ impl Peer {
         p
     }
 
+    /// Adds a line to the event log (for the party glue).
+    pub fn log_pub(&mut self, t: f64, ev: &str, f: Vec<(&str, J)>) {
+        self.log(t, ev, f);
+    }
+
     fn log(&mut self, t: f64, ev: &str, f: Vec<(&str, J)>) {
         let mut v = vec![("t", n((t * 1000.0).round() / 1000.0)), ("ev", s(ev))];
         v.extend(f);
@@ -151,7 +172,7 @@ impl Peer {
 
     /// The cell's people the host replicates (the viewer's `actors::track`).
     fn track(&mut self, t: f64, d: &Data, cx: Ctx) {
-        if self.role != Role::Host || t < self.next_track {
+        if t < self.next_track {
             return;
         }
         self.next_track = t + 1.0;
@@ -162,8 +183,9 @@ impl Peer {
             .filter(|r| !self.tracked.contains(r) && world::enabled_now(&d.order, *r, &self.gs.disabled) && self.gs.place(&d.order, *r).is_some_and(|p| Some(p.1) == self.gs.player_cell))
             .collect();
         if !new.is_empty() {
-            self.sess.live_track(cx, &self.gs, &new);
-            self.tracked.extend(new);
+            if self.sess.live_track(cx, &self.gs, &new) {
+                self.tracked.extend(new);
+            }
         }
     }
 
@@ -235,7 +257,7 @@ impl Peer {
         self.gs.player_position = Some(self.pos);
         self.gs.player_heading = self.heading;
         if let Some((q, st)) = self.start_stage.take() {
-            if let Some(qf) = d.order.form_by_editor_id(&q) {
+            if let Some(qf) = d.form(&q) {
                 Runner::new(&d.order, &d.scripts, &mut self.gs).set_stage(qf, st);
             }
         }
@@ -275,6 +297,15 @@ impl Peer {
         self.bot = rest;
         for (_, l) in due {
             self.line(t, &l);
+            if crate::party::line(self, t, &l) {
+                continue;
+            }
+            if crate::social_bot::SocialBot::owns(&l) {
+                let me = self.sess.status().player;
+                let cell = self.gs.player_cell.map_or(0, |c| c.0);
+                self.social.handle(&l, t, me, cell, self.pos, self.heading, &mut self.sess);
+                continue;
+            }
             match bot::run_line(&l, d, &mut self.gs, &mut self.sess, cx) {
                 Out::Teleport(p) => self.pos = p,
                 Out::Unknown(w) => self.errors.push(format!("Co-op bot: unknown line {w} in {l:?}")),
@@ -293,17 +324,96 @@ impl Peer {
         self.gs.player_position = Some(self.pos);
         self.gs.player_heading = self.heading;
         self.counters.hits_sent = u64::from(self.sess.live_hits_sent());
+        self.counters.tracked = self.sess.live_tracked() as u64;
+        self.count_entities(d);
         let view = self.sess.live_frame(&mut self.gs, cx, dt).cloned();
         self.play_lines(t, view.as_ref());
+        self.model_movie(t);
+        self.social.frame(t, dt, &mut self.sess, view.as_ref());
+        self.counters.voice_out = self.social.voice_out;
+        self.counters.voice_in = self.social.voice_in;
+        self.counters.voiced_frames = self.social.voiced_frames;
+        self.counters.pings = self.social.pings;
+        self.counters.speaking_frames = self.social.speaking_frames;
+        self.counters.chat_in = self.social.chat_in;
+        // the viewer moves the player to a placement the host asked for (late join, party warp)
+        if let Some(pl) = view.as_ref().and_then(|v| v.roam.place) {
+            self.gs.player_cell = Some(FormId(pl.cell.0));
+            self.gs.player_world = None;
+            self.pos = pl.pos;
+            self.heading = pl.heading;
+            self.modelled.insert("LiveView.roam.place: the player is moved to the placement (viewer glue to be written)".into());
+        }
         self.view = view;
+        self.character_menus();
+        self.follow_door(d);
         self.after_scripts(d);
         // coop::send
         self.sess.post_frame(&mut self.gs, dt);
+        crate::party::pump(self, t);
         self.events_and_commands(t, d);
         if t - self.last_dump >= 1.0 {
             self.last_dump = t;
             self.dump(t, d);
         }
+    }
+
+    /// A door the party went through: the physical player arrives on the other
+    /// side (the viewer's `coop_live::interact::follow_door`).
+    fn follow_door(&mut self, d: &Data) {
+        let Some(f) = self.gs.coop.interact.follow.take() else { return };
+        if let Some(a) = world::coop::interact::arrival_of(&d.order, &self.gs, esm::FormId(f.door.0)) {
+            self.pos = a.pos;
+            self.heading = a.heading;
+            self.gs.player_cell = Some(a.cell);
+            self.gs.player_world = (!a.interior).then_some(a.space);
+        } else {
+            // a door the data does not know: the cell still changes
+            self.gs.player_cell = Some(esm::FormId(f.to.0));
+        }
+        self.counters.doors_followed += 1;
+    }
+
+    /// The viewer's guest-side character making (`coop::start_menus`): the menus the flow asks for are
+    /// stood in for by setting the rows each one sets when it closes.
+    fn character_menus(&mut self) {
+        if self.role != Role::Guest {
+            return;
+        }
+        self.menu_left = self.menu_left.saturating_sub(1);
+        let Some(step) = self.sess.start_poll(&self.gs, self.menu_left > 0) else { return };
+        self.modelled.insert("character creation: the menus are stood in for (the rows they set are set when they close); a local room is not loaded, the guest stays in the host's cell".into());
+        self.menu_left = 20;
+        let gs = &mut self.gs;
+        match step {
+            coop_session::Step::Name => gs.player_name = Some("Courier Guest".into()),
+            coop_session::Step::Special => {
+                for (i, av) in coop_session::start::SPECIAL.iter().enumerate() {
+                    gs.actor_values.insert((world::dialogue::PLAYER_REF, *av), (3 + i) as f64);
+                }
+            }
+            coop_session::Step::TagSkills => gs.tag_skills = [32u16, 40, 41].into_iter().collect(),
+            coop_session::Step::Traits => {}
+        }
+    }
+
+    /// The Bink player, modelled: a movie the scene layer starts runs for
+    /// `MOVIE_SECONDS` of scene time, a stop ends it, and the world is told
+    /// when it is on screen (the viewer's `Movies` does the real thing).
+    fn model_movie(&mut self, t: f64) {
+        let sc = &mut self.gs.coop.live.scene;
+        if let Some(m) = sc.movie_start.take() {
+            let left = (MOVIE_SECONDS - f64::from(m.offset_ms) / 1000.0).max(0.0);
+            self.movie_end = Some(t + left);
+            self.modelled.insert("movie playback: a timer stands in for the Bink player (live_movie_sync)".into());
+        }
+        if std::mem::take(&mut sc.movie_stop) {
+            self.movie_end = None;
+        }
+        if self.movie_end.is_some_and(|e| t >= e) {
+            self.movie_end = None;
+        }
+        sc.movie_busy = self.movie_end.is_some();
     }
 
     /// Events scripts and the live layer queued: a MoveTo of the player moves
@@ -352,9 +462,33 @@ impl Peer {
         }
     }
 
+    /// The viewer's `actors::count`: the people and creatures that would
+    /// stand in the scene (placed ones of the player's place and the ones
+    /// scripts made), none hidden.
+    fn count_entities(&mut self, d: &Data) {
+        let space = self.gs.player_world.or(self.gs.player_cell);
+        let made: Vec<(FormId, FormId)> = self.gs.more.placed.refs.iter().map(|(r, m)| (*r, m.base)).collect();
+        let (mut npcs, mut creatures) = (0u64, 0u64);
+        for (r, base) in self.people.iter().copied().chain(made) {
+            if !world::enabled_now(&d.order, r, &self.gs.disabled) || self.gs.place(&d.order, r).map(|p| p.0) != space {
+                continue;
+            }
+            if d.order.get(base).is_some_and(|x| x.entry.header.kind.as_bytes() == b"CREA") {
+                creatures += 1;
+            } else {
+                npcs += 1;
+            }
+        }
+        self.counters.npc_entities = npcs;
+        self.counters.npc_entities_visible = npcs;
+        self.counters.creature_entities = creatures;
+        self.counters.creature_entities_visible = creatures;
+    }
+
     /// `intents::play_lines`: count the picked lines; spectators report them done after a reading time.
     fn play_lines(&mut self, t: f64, view: Option<&LiveView>) {
         let Some(v) = view else { return };
+        self.counters.puppet_actions += v.actions.len() as u64;
         let mine = v.dialogue.as_ref().is_some_and(|d| d.mine);
         for _ in &v.lines {
             self.counters.lines_played += 1;
@@ -380,6 +514,13 @@ impl Peer {
                 CoopEvent::Repaired => {
                     self.repairs += 1;
                     self.log(t, "coop_repair", vec![("kind", s("hash")), ("subsystem", s("shared"))]);
+                }
+                CoopEvent::Compat { refused, .. } => {
+                    if refused {
+                        self.counters.compat_refused += 1;
+                    } else {
+                        self.counters.compat_warned += 1;
+                    }
                 }
                 CoopEvent::Connected | CoopEvent::PeerJoined(..) => {
                     let name = if self.role == Role::Host { "host" } else { "guest" };
@@ -431,6 +572,7 @@ impl Peer {
                 eprintln!("trace {:?} t={t:.1} {spec} = {:?}", self.role, self.gs.items.get(&(h, i)));
             }
         }
+        self.counters.start = Some(self.sess.start_info());
         let root = Session::state_root(&self.gs);
         self.dump_text = state_json_full(&self.gs, &d.order, self.role, t, self.seq, root, self.view.as_ref(), &self.counters);
     }

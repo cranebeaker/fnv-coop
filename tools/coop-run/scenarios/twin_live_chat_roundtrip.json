@@ -1,0 +1,37 @@
+{
+  "name": "twin_live_chat_roundtrip",
+  "description": "MUTATION TWIN of live_chat_roundtrip: nobody speaks. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-heard-guest",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-heard-host",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

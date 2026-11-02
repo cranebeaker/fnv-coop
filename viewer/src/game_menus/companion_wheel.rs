@@ -233,9 +233,13 @@ pub fn after(
                 }
                 Request::Variable(name, value) => {
                     world::companions::set_variable(order, scripts, state, who, name, value);
+                    if let Some(act) = world::coop::interact::companion_var_act(who, name, value) {
+                        state.coop_route(act);
+                    }
                 }
                 Request::Stimpak => {
                     if world::companions::heal_with_stimpak(order, state, who) {
+                        state.coop_route(world::coop::interact::companion_stimpak_act(who));
                         println!("Companion wheel: a Stimpak on {who}.");
                         // `Regenerating`, said only (`008d5910(13)`).
                         if let Some(info) = world::companions::say_topic(

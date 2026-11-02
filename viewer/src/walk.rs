@@ -707,6 +707,10 @@ pub fn doors(
                 reference,
                 &mut lockpicking.request,
             ) {
+                // co-op: a guest asks; the swing arrives as a shared fact
+                if state.0.coop_route(world::coop::interact::door_act(reference)) == world::coop::interact::Route::Remote {
+                    return;
+                }
                 let player = world::dialogue::PLAYER_REF;
                 match crate::doors::activate(
                     &game.0.order,
@@ -747,6 +751,14 @@ pub fn doors(
     let Some(cell) = door.cell else {
         return;
     };
+    // co-op: the host decides who goes where (the leader's party follows, the
+    // rest stay in the leader's cell group); a guest waits for the answer
+    {
+        let from = state.0.player_cell.map_or(0, |c| c.0);
+        if state.0.coop_route(world::coop::interact::enter_act(reference, from, cell)) == world::coop::interact::Route::Remote {
+            return;
+        }
+    }
     // Going through a door moves the player: fast travel a script turned
     // off comes back (unless it asked to keep it off).
     world::script_functions::player_moved(&mut state.0);

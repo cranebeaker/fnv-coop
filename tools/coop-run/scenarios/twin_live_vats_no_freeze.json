@@ -1,0 +1,80 @@
+{
+  "name": "twin_live_vats_no_freeze",
+  "description": "MUTATION TWIN of live_vats_no_freeze: the cause is removed. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 8,
+        "key": "w:5"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 7,
+        "run": "coop vatsmark 1"
+      },
+      {
+        "at": 13,
+        "run": "coop vatsmark 0"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "sent",
+      "path": "combat.vats_sent",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "hits",
+      "path": "combat.vats_hits",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "clock",
+      "path": "combat.vats_clock_kept",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "dead-host",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "dead-guest",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

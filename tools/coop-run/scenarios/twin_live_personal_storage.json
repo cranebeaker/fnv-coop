@@ -1,0 +1,21 @@
+{
+  "name": "twin_live_personal_storage",
+  "description": "MUTATION TWIN of live_personal_storage: the caps go into an ordinary container (the doctor's), which is shared, so the per-player expectations cannot hold. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop stash 0 DocMitchellREF Caps001 3" },
+      { "at": 3.5, "run": "coop stash 1 DocMitchellREF Caps001 5" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-own", "path": "campaign.storage.host.DocMitchellREF_Caps001", "op": "eq", "value": 3, "on": "host" },
+    { "id": "guest-own", "path": "campaign.storage.guest.DocMitchellREF_Caps001", "op": "eq", "value": 5, "on": "host" }
+  ]
+}

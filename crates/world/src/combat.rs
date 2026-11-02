@@ -1766,7 +1766,13 @@ pub fn weapon_in_hand(order: &LoadOrder, state: &GameState, who: FormId) -> Opti
     // best_weapon`), from what they carry now or, untouched, what their
     // record gives them (as they're drawn).
     let id = equipped.or_else(|| {
-        if who == PLAYER_REF {
+        if who == PLAYER_REF && state.coop.authority != crate::coop::Authority::Single {
+            // A co-op player holds what they equipped, never "the first
+            // weapon carried" (that put the binoculars in every hand).
+            None
+        } else if crate::coop::facts::player_of(who).is_some() {
+            None // a remote player's puppet: what the avatar says it holds
+        } else if who == PLAYER_REF {
             state
                 .inventory(order, who)
                 .into_iter()
@@ -1790,6 +1796,19 @@ pub fn weapon_in_hand(order: &LoadOrder, state: &GameState, who: FormId) -> Opti
         who,
         Weapon::load(order, id)?,
     ))
+}
+
+/// The weapon someone has equipped, and nothing else (no "first carried"
+/// guess): what a co-op avatar shows and publishes.
+pub fn weapon_equipped(order: &LoadOrder, state: &GameState, who: FormId) -> Option<Weapon> {
+    let id = state
+        .equipped
+        .get(&who)
+        .into_iter()
+        .flatten()
+        .copied()
+        .find(|&i| order.get(i).is_some_and(|r| r.entry.header.kind == WEAP) && !state.dropped.contains(&(who, i)))?;
+    Some(crate::weapon_mods::modded(order, state, who, Weapon::load(order, id)?))
 }
 
 /// How far a projectile carries, as the combat AI measures it

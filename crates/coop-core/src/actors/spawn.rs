@@ -143,6 +143,26 @@ impl SpawnArbiter {
         (SpawnOutcome::Granted { id }, Some((id, rec)))
     }
 
+    /// Records a ref the host itself made under an id of its own (the
+    /// world's `PlaceAtMe` counts up from the same base): the host decided
+    /// it, so it is announced once. False when the id is already known.
+    /// Later grants skip the ids taken.
+    pub fn adopt(&mut self, id: FormId, rec: SpawnRec) -> bool {
+        if self.live.contains_key(&id) {
+            return false;
+        }
+        self.live.insert(id, rec);
+        if id.0 >= self.next && id.0 < u32::MAX {
+            self.next = id.0 + 1;
+        }
+        true
+    }
+
+    /// True while the dynamic ref exists.
+    pub fn is_live(&self, id: FormId) -> bool {
+        self.live.contains_key(&id)
+    }
+
     /// Removes a dynamic ref (dead and cleaned up, or despawned) and starts
     /// its site's respawn timer. Returns true when it existed.
     pub fn despawn(&mut self, id: FormId, now_ms: u64, respawn_ms: u64) -> bool {

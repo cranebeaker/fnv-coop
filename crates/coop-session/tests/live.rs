@@ -184,6 +184,36 @@ mod fighting {
     }
 
     #[test]
+    fn combat_actions_of_one_player_reach_the_other_in_order() {
+        use coop_session::ActionKind;
+        for chaos in [None, Some("bad_wifi"), Some("flaky")] {
+            let (_d, order) = order("sl-actions");
+            let scripts = ScriptCache::default();
+            let mut r = Rig::new(&order, &scripts, CELL, chaos);
+            r.settled();
+            r.frames(60);
+            // the guest swings three times, shoots once, and dies
+            r.guest.gs.coop.live.local_actions.push((ActionKind::Swing, 32));
+            r.guest.gs.coop.live.local_actions.push((ActionKind::Swing, 33));
+            r.guest.gs.coop.live.local_actions.push((ActionKind::Shoot, 40));
+            r.guest.gs.coop.live.local_actions.push((ActionKind::Death, 0));
+            let mut seen: Vec<(ActionKind, u32)> = Vec::new();
+            let ok = r.until(4000, |r| {
+                if let Some(v) = r.host.s.live_view() {
+                    seen.extend(v.actions.iter().filter(|(p, _)| *p == PlayerId(1)).map(|(_, a)| (a.kind, a.arg)));
+                }
+                seen.len() >= 4
+            });
+            assert!(ok, "{chaos:?}: {seen:?}");
+            assert_eq!(
+                seen,
+                vec![(ActionKind::Swing, 32), (ActionKind::Swing, 33), (ActionKind::Shoot, 40), (ActionKind::Death, 0)],
+                "{chaos:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_guest_hit_kills_an_npc_once_on_both() {
         for chaos in [None, Some("bad_wifi")] {
             let (_d, order) = order("sl-kill");

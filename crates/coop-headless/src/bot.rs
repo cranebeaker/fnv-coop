@@ -33,6 +33,11 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
     let f = |i: usize| arg(i).and_then(|w| d.form(w));
     let n = |i: usize| arg(i).and_then(|w| w.parse::<u32>().ok()).unwrap_or(1);
     let order = &d.order;
+    if let Some(v) = arg(1).map(str::to_ascii_lowercase) {
+        if crate::campaign_bot::run(&v, &words, d, gs, cx) {
+            return Out::None;
+        }
+    }
     match arg(1).map(str::to_ascii_lowercase).as_deref() {
         Some("hit") => {
             if let (Some(who), Some(amount)) = (f(2), arg(3).and_then(|w| w.parse::<f64>().ok())) {
@@ -71,6 +76,22 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
                 gs.coop_loot(LootOp::Close(c));
             }
         }
+        Some("give") => {
+            if let (Some(target), Some(item)) = (arg(2), f(3)) {
+                world::coop::interact::bot_give(order, gs, target, item, n(4) as i32, d.form(target));
+            }
+        }
+        Some("givefor") => {
+            let recipe = arg(3).and_then(|w| world::coop::interact::special_form(order, w).or_else(|| d.form(w)));
+            if let (Some(slot), Some(recipe)) = (arg(2), recipe) {
+                world::coop::interact::bot_give_ingredients(order, gs, slot, recipe, n(4));
+            }
+        }
+        Some("attack") => {
+            // `coop attack [KIND] [ARG]`: a combat action the other peers' puppets play
+            let kind = arg(2).and_then(coop_core::avatar::ActionKind::parse).unwrap_or(coop_core::avatar::ActionKind::Swing);
+            gs.coop.live.local_actions.push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
+        }
         Some("say") => s.live_intent(Intent::Say(words[2..].join(" "))),
         Some("travel") => {
             if let Some(m) = f(2) {
@@ -86,13 +107,88 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
         Some("untether") => s.live_tether(cx, gs, None),
         Some("revive") => s.live_intent(Intent::ReviveBegin(PlayerId(n(2) as u8))),
         Some("unrevive") => s.live_intent(Intent::ReviveCancel),
+        // scenes and time (a script's PlayBink, DisablePlayerControls, a stage the
+        // policy marks, the sleep/wait menu); the viewer's bot runs the same verbs
+        Some("movie") => {
+            if let Some(file) = arg(2) {
+                let v = world::scripting::Video { file: file.to_string(), interruptable: arg(3) == Some("1"), mute_audio: true, pause_music: true, letterbox: true };
+                if gs.coop.authority.replicates() {
+                    gs.coop.live.scene.note_video(None, &v);
+                }
+            }
+        }
+        Some("lock") => {
+            let quest = arg(3).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok()).map(FormId);
+            gs.coop_controls_begin();
+            for (i, c) in arg(2).unwrap_or("").chars().take(7).enumerate() {
+                gs.controls_off[i] = c == '1';
+            }
+            gs.coop_controls_end(quest);
+        }
+        Some("unlock") => {
+            gs.coop_controls_begin();
+            gs.controls_off = [false; 7];
+            gs.coop_controls_end(None);
+        }
+        Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
+        Some("vote") => s.live_intent(Intent::Answer(arg(2) != Some("no"))),
+        Some("initiate") => {
+            // a player starts the dialogue or activation of a quest (the policy's initiator)
+            let q = arg(2).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok());
+            if let (Some(q), Some(g)) = (q, gs.coop.gate.as_mut()) {
+                g.begin_interaction(FormId(q), n(3) as u8);
+            }
+        }
+        Some("wait") => world::living::sleep::begin(gs, n(2), false),
+        Some("sleep") => world::living::sleep::begin(gs, n(2), true),
+        Some("cinematic") => gs.coop.live.scene.stage_notes.push((FormId(n(2)), coop_core::scene::SceneKind::Cinematic)),
+        Some("ending") => gs.coop.live.scene.stage_notes.push((FormId(n(2)), coop_core::scene::SceneKind::Ending)),
+        Some("slide") => gs.coop_scene_slide(n(2) as u16),
+        Some("endingdone") => gs.coop_scene_ending_done(),
+        Some("sceneabort") => gs.coop_scene_abort(),
         Some("teleport") => {
             let c = |i: usize| arg(i).and_then(|w| w.parse::<f32>().ok());
             if let (Some(x), Some(y), Some(z)) = (c(2), c(3), c(4)) {
                 return Out::Teleport([x, y, z]);
             }
         }
-        other => return Out::Unknown(format!("{other:?}")),
+        Some("cell") => {
+            // `coop cell CELL`: the player's scene becomes that cell (an editor id or a hex form id;
+            // the cell need not exist: the live layer only sees the id)
+            if let Some(c) = f(2) {
+                gs.player_cell = Some(c);
+                gs.player_world = None;
+            }
+        }
+        Some("ff") => s.live_friendly_fire(n(2) as u8),
+        Some("spawnenc") => {
+            // coop spawnenc BASE|REF N: an encounter of N creatures through the host's arbiter
+            if let (Some(base), Some(cell)) = (f(2), gs.player_cell) {
+                let base = world::more_functions::placed::base_now(order, gs, base).unwrap_or(base);
+                let at = gs.player_position.unwrap_or([0.0; 3]);
+                s.live_spawn_encounter(base, cell, at, n(3), 20);
+            }
+        }
+        _ if world::coop::combat_live::bot_line(order, gs, &words, &|w| d.form(w)) => {}
+        other => {
+            // player-world interactions (barter, doors, locks, crafting ...)
+            let here = (
+                gs.player_cell.map_or(0, |c| c.0),
+                gs.player_position.map_or([0; 3], |p| [p[0] as i32, p[1] as i32, p[2] as i32]),
+            );
+            let Some(act) = world::coop::interact::parse_act(&words[1..], &|w| d.form(w).or_else(|| world::coop::interact::special_form(order, w)), here) else {
+                return Out::Unknown(format!("{other:?}"));
+            };
+            let enter = match &act {
+                coop_session::interact::Act::Transition { door, to, .. } => Some((*door, *to)),
+                _ => None,
+            };
+            gs.coop_do(cx, act);
+            // a bot has no door to walk through: it arrives as a door would
+            if let (Some((door, to)), false) = (enter, gs.coop.authority == world::coop::Authority::Guest) {
+                gs.coop.interact.follow = Some(coop_session::interact::Follow { door, to, leader: PlayerId(0) });
+            }
+        }
     }
     Out::None
 }
@@ -112,6 +208,14 @@ pub fn carry_loot(d: &Data, gs: &mut GameState, s: &mut Session, cx: Ctx) {
                     s.live_register_container(cx, gs, c);
                 }
                 s.live_intent(Intent::LootOpen(c));
+            }
+            // the host's container screen moves the host player's items itself (the stand-in
+            // does what the screen does); a guest's screen only asks
+            LootOp::Take { container, item, n } if host => {
+                gs.move_item(cx.order, container, world::dialogue::PLAYER_REF, item, n as i32);
+            }
+            LootOp::Put { container, item, n } if host => {
+                gs.move_item(cx.order, world::dialogue::PLAYER_REF, container, item, n as i32);
             }
             LootOp::Take { container, item, n } => s.live_intent(Intent::LootTake { container, item, n }),
             LootOp::Put { container, item, n } => s.live_intent(Intent::LootPut { container, item, n }),

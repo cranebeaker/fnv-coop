@@ -1,0 +1,47 @@
+{
+  "name": "twin_live_compat_mismatch_refused",
+  "description": "MUTATION TWIN of live_compat_mismatch_refused: the plugin lists match, so the guest joins and no refusal happens. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "perfect",
+  "seed": 74,
+  "duration_s": 6,
+  "settle_s": 2,
+  "hash_check": false,
+  "expect_refused": true,
+  "host": {
+    "plugins": [
+      "FalloutNV.esm",
+      "DeadMoney.esm"
+    ]
+  },
+  "guest": {
+    "plugins": [
+      "FalloutNV.esm",
+      "DeadMoney.esm"
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-refused",
+      "path": "live.compat_refused",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "host-told",
+      "path": "live.compat_refused",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "nobody-joined",
+      "path": "live.avatars",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    }
+  ],
+  "expect_fail": true
+}

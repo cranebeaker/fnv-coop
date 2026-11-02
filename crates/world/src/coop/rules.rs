@@ -5,7 +5,6 @@
 //! The host runs `RulesHost`; every machine, the host's too, reacts to the
 //! notices its `RulesClient` collects (warp, revive, travel approved).
 
-use coop_core::avatar::dequant_pos;
 use coop_core::ids::PlayerId;
 use coop_core::proto::Msg;
 use coop_core::rules::{Notice, RulesClient, RulesEvent, RulesMsg, VoteKind};
@@ -66,6 +65,10 @@ impl RulesBridge {
     /// Host: starts the story tether at `anchor` (a placed reference).
     pub fn start_tether(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive, anchor: FormId, now_ms: u64) {
         self.anchor = Some(anchor);
+        if let Some((_, c, pos, heading)) = gs.place(cx.order, anchor) {
+            let zone = coop_core::roam::ZoneAnchor { cell: coop_core::ids::CellId(c.0), pos, radius: TETHER_RADIUS, heading };
+            live.roam.model.set_anchor(Some(zone));
+        }
         let party = live.rules.party().to_vec();
         let inside: Vec<PlayerId> = party.iter().copied().filter(|p| self.inside(cx, gs, live, anchor, *p)).collect();
         live.rules.tether.start(now_ms, anchor.0, &party, &inside);
@@ -75,16 +78,17 @@ impl RulesBridge {
     /// Host: the story moment is over.
     pub fn end_tether(&mut self, live: &mut HostLive) {
         self.anchor = None;
+        live.roam.model.set_anchor(None);
         live.rules.tether.end();
         live.rules.tether_votes_fast_travel = false;
     }
 
     fn inside(&self, cx: Ctx, gs: &GameState, live: &HostLive, anchor: FormId, p: PlayerId) -> bool {
-        let Some(s) = live.avatars.state(p) else { return true };
+        let Some(_) = live.avatars.state(p) else { return true };
         let Some((_, cell, pos, _)) = gs.place(cx.order, anchor) else { return true };
-        let here = [dequant_pos(s.pos[0]), dequant_pos(s.pos[1]), dequant_pos(s.pos[2])];
-        let d = ((here[0] - pos[0]).powi(2) + (here[1] - pos[1]).powi(2)).sqrt();
-        s.cell.0 == cell.0 && d <= TETHER_RADIUS
+        // the scene model knows which cells each player has loaded: a grid
+        // neighbour inside the radius is inside, another scene never is
+        live.roam.model.in_zone(p, coop_core::ids::CellId(cell.0), pos, TETHER_RADIUS)
     }
 
     /// Host, every frame: party distance to the tether anchor, combat flag,
@@ -199,7 +203,10 @@ fn apply_vote(f: &mut LiveFacts, kind: VoteKind, param: u32, approved: bool) {
     }
     match kind {
         VoteKind::FastTravel => f.travel_allowed = Some(FormId(param)),
-        VoteKind::Sleep | VoteKind::Wait => f.time_skip_ok = Some(param),
+        VoteKind::Sleep | VoteKind::Wait => {
+            f.time_skip_ok = Some(param);
+            f.scene.time_approved.push((kind == VoteKind::Sleep, param));
+        }
         VoteKind::Fork => f.fork_result = Some((param, true)),
     }
 }

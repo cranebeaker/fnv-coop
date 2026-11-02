@@ -1,0 +1,51 @@
+{
+  "name": "twin_live_two_cells_actor_owner",
+  "description": "MUTATION TWIN of live_two_cells_actor_owner: the guest never leaves the cell. Marked expect_fail.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-owns",
+      "path": "live.roam.owned.host",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-owns-none",
+      "path": "live.roam.owned.guest",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "guest-mirrors-none",
+      "path": "live.roam.remote_actors",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "host-knows-guest-cell",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 13631489,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

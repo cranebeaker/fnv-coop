@@ -92,6 +92,8 @@ def judge(scn, run):
     checks = []
     host = peer_summary("host", run["host"])
     guest = peer_summary("guest", run["guest"])
+    extras = tuple(peer_summary(r, run[r]) for r in ("guest2", "guest3") if run.get(r))
+    everyone = (host, guest) + extras
     relay = run.get("relay")
     cls, reason = None, ""
 
@@ -102,34 +104,34 @@ def judge(scn, run):
 
     if run.get("harness_error"):
         fail("harness", run["harness_error"])
-    for p in (host, guest):
+    for p in everyone:
         if p["launch_error"]:
             fail("launch", "%s: %s" % (p["role"], p["launch_error"]))
     # a peer that died on its own is a crash; one we had to stop is a timeout
-    for p in (host, guest):
+    for p in everyone:
         if p["exit_code"] not in (0, None) and not p["timed_out"]:
             fail("crash", "%s exited with code %s" % (p["role"], p["exit_code"]))
     if run.get("timed_out_run"):
         fail("timeout", "run exceeded timeout_s=%s" % scn["timeout_s"])
-    for p in (host, guest):
+    for p in everyone:
         if p["timed_out"]:
             fail("timeout", "%s did not exit after the quit request" % p["role"])
-    for p in (host, guest):
+    for p in everyone:
         if p["exit_code"] == 0 and p["started"] and not p["shutdown_clean"]:
             fail("crash", "%s has no clean shutdown event" % p["role"])
-    for p in (host, guest):
+    for p in everyone:
         if p["errors"]:
             fail("log", "%s logged error: %s" % (p["role"], p["errors"][0][:120]))
 
     # hollow-pass guards: assert the mode we think we are in
-    for p in (host, guest):
+    for p in everyone:
         if not p["started"]:
             fail("hollow", "%s wrote no start event (log missing or empty)" % p["role"])
         elif not p["ready"]:
             fail("hollow", "%s never reached coop_ready (single player fallback or no join)" % p["role"])
         elif p["state"] is None:
             fail("hollow", "%s wrote no state dump" % p["role"])
-        elif p["state"].get("role") not in (None, p["role"]):
+        elif p["state"].get("role") not in (None, p["role"], p["role"].rstrip("0123456789")):
             fail("hollow", "%s state dump says role %s" % (p["role"], p["state"].get("role")))
     if relay is None:
         fail("hollow", "no relay stats")
@@ -152,15 +154,18 @@ def judge(scn, run):
             break
 
     # state checks (only when both dumps exist)
-    if host["state"] is not None and guest["state"] is not None:
-        res = scn_mod.evaluate(scn["expect"], host["state"], guest["state"])
+    if all(p["state"] is not None for p in everyone):
+        res = scn_mod.evaluate(scn["expect"], host["state"], guest["state"],
+                               {p["role"]: p["state"] for p in extras} or None)
         checks += res
         auto = scn.get("hash_check", True)
         hh = scn_mod.get_path(host["state"], "hash.shared")
-        gh = scn_mod.get_path(guest["state"], "hash.shared")
-        if auto and hh is not scn_mod._MISSING and gh is not scn_mod._MISSING:
-            checks.append({"id": "auto.hash.shared", "ok": hh == gh, "kind": "desync",
-                           "detail": "hash.shared host=%s guest=%s" % (hh, gh)})
+        for p in everyone[1:]:
+            gh = scn_mod.get_path(p["state"], "hash.shared")
+            if auto and hh is not scn_mod._MISSING and gh is not scn_mod._MISSING:
+                checks.append({"id": "auto.hash.shared" if p is guest else "auto.hash.shared#" + p["role"],
+                               "ok": hh == gh, "kind": "desync",
+                               "detail": "hash.shared host=%s %s=%s" % (hh, p["role"], gh)})
         bad = [c for c in checks if not c["ok"]]
         for kind in ("desync", "assert"):
             first = next((c for c in bad if c["kind"] == kind), None)
@@ -169,9 +174,10 @@ def judge(scn, run):
     max_rep = scn["max_repairs"]
     if max_rep is None and scn["network"] == "perfect":
         max_rep = 0
-    if max_rep is not None and host["repairs"] + guest["repairs"] > max_rep:
+    total_rep = sum(p["repairs"] for p in everyone)
+    if max_rep is not None and total_rep > max_rep:
         fail("repair", "%d repairs (host %d, guest %d), allowed %d" %
-             (host["repairs"] + guest["repairs"], host["repairs"], guest["repairs"], max_rep))
+             (total_rep, host["repairs"], guest["repairs"], max_rep))
 
     twin_note = ""
     if scn.get("expect_fail"):
@@ -197,7 +203,7 @@ def judge(scn, run):
         "checks": [{"id": c["id"], "ok": c["ok"], "detail": c["detail"][:160]} for c in checks],
         "relay": _relay_compact(relay),
         "peers": {p["role"]: {k: p[k] for k in ("exit_code", "timed_out", "events", "ready", "shutdown_clean", "repairs")}
-                  for p in (host, guest)},
+                  for p in everyone},
     }
     if cls:
         v["packet"] = build_packet(scn, v, host, guest)

@@ -1,0 +1,72 @@
+{
+  "name": "live_markers_pings",
+  "description": "The guest pings and sets a waypoint, the host sets one: each sees the other's marker; pings are counted when placed.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 73,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop waypoint 150 250"
+      },
+      {
+        "at": 6,
+        "run": "coop ping 400"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop ping 500"
+      },
+      {
+        "at": 5,
+        "run": "coop waypoint 900 100"
+      },
+      {
+        "at": 7,
+        "run": "coop ping 200"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-sees-guest-marker",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-sees-host-marker",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-pings",
+      "path": "live.pings",
+      "op": "ge",
+      "value": 3,
+      "on": "guest"
+    },
+    {
+      "id": "host-pings",
+      "path": "live.pings",
+      "op": "ge",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

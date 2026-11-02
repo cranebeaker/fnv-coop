@@ -389,6 +389,11 @@ pub struct QuestRow {
     pub edid: String,
     #[serde(with = "hex_id")]
     pub id: FormId,
+    /// The quest's id inside its own plugin (top byte clear). With `plugin` this is the
+    /// load-order independent key; `id` is only what the quest has when `plugin` loads
+    /// straight after the base game, so a session remaps rows with `PolicyTable::remap`.
+    #[serde(with = "hex_id")]
+    pub local: FormId,
     /// The id is made up by the importer (no quest record found).
     #[serde(default, skip_serializing_if = "is_default")]
     pub synthetic: bool,
@@ -437,6 +442,10 @@ pub struct QuestRow {
     /// Scripts a guest may run locally (presentation only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guest_local: Vec<String>,
+    /// Containers that hold one inventory per player (gear confiscation, entry strips):
+    /// reference editor ids or `plugin:id`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub storage: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub friendly_fire: Option<FriendlyFire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -454,6 +463,7 @@ impl QuestRow {
         QuestRow {
             edid: String::new(),
             id,
+            local: id & 0x00FF_FFFF,
             synthetic: false,
             plugin: String::new(),
             tier: Tier::T0,
@@ -479,6 +489,7 @@ impl QuestRow {
             perks: None,
             shadow: None,
             guest_local: vec![],
+            storage: vec![],
             friendly_fire: None,
             once: None,
             party_cond: BTreeMap::new(),

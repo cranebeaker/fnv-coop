@@ -121,3 +121,29 @@ fn the_pool_runs_scenarios_across_seeds_and_profiles_and_summarises() {
         assert!(l.contains("replay: coop-sim run kill.json") || l.contains("replay: coop-sim run move.json"), "{l}");
     }
 }
+
+const ATTACK: &str = r#""name":"live_attack_visible","network":"good_wifi","seed":61,
+  "host":{"script":[{"at":1,"run":"coop attack swing 32"},{"at":2,"run":"coop attack shoot 40"},{"at":3,"run":"coop attack swing 32"}]},
+  "guest":{"script":[{"at":1,"run":"coop attack swing 32"},{"at":2,"run":"coop attack reload 90"},{"at":3,"run":"coop attack shoot 40"},{"at":4,"run":"coop attack swing 32"}]},
+  "expect":[
+    {"id":"guest-saw","path":"live.puppet_actions","op":"ge","value":3,"on":"guest"},
+    {"id":"host-saw","path":"live.puppet_actions","op":"ge","value":4,"on":"host"},
+    {"id":"h","path":"hash.shared","on":"equal"}]"#;
+
+#[test]
+fn live_attack_visible_the_other_peer_receives_every_attack_event() {
+    let (_t, d) = data("sim-attack");
+    let r = run(&scn(ATTACK), &d, &RunOpts::default());
+    assert_eq!(r.verdict.result, "pass", "{}", r.verdict.reason);
+    assert!(r.dumps[0].contains("\"puppet_actions\":"), "{}", r.dumps[0]);
+}
+
+#[test]
+fn the_attack_twin_without_attacks_fails_as_expected() {
+    let (_t, d) = data("sim-attack-twin");
+    let quiet = ATTACK
+        .replace(r#""script":[{"at":1,"run":"coop attack swing 32"},{"at":2,"run":"coop attack shoot 40"},{"at":3,"run":"coop attack swing 32"}]"#, r#""script":[]"#)
+        .replace(r#""script":[{"at":1,"run":"coop attack swing 32"},{"at":2,"run":"coop attack reload 90"},{"at":3,"run":"coop attack shoot 40"},{"at":4,"run":"coop attack swing 32"}]"#, r#""script":[]"#);
+    let r = run(&scn(&format!(r#"{quiet},"expect_fail":true"#)), &d, &RunOpts::default());
+    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+}

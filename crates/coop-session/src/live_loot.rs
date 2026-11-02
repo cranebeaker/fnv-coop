@@ -18,6 +18,8 @@ impl Session {
     /// Carries one container action of the local player.
     pub fn live_loot(&mut self, cx: Ctx, gs: &mut GameState, op: LootOp) {
         let host = self.role == Role::Host;
+        // a personal container is this player's own holder in the ledger
+        let op = world::coop::campaign::storage::redirect_op(gs, gs.active_slot(), op);
         match op {
             LootOp::Open(c) => {
                 if host {

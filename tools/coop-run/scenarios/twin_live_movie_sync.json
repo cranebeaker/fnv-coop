@@ -1,0 +1,77 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 12,
+  "settle_s": 8,
+  "name": "twin_live_movie_sync",
+  "description": "Mutation twin of live_movie_sync: the feature is taken away, so the assertions must fail.",
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop movie intro.bik 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "movie-host",
+      "path": "live.scene.movies",
+      "on": "host",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "movie-guest",
+      "path": "live.scene.movies",
+      "on": "guest",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "closed-host",
+      "path": "scene.closed",
+      "on": "host",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "closed-guest",
+      "path": "scene.closed",
+      "on": "guest",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "skipped-host",
+      "path": "scene.last_reason",
+      "on": "host",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "skipped-guest",
+      "path": "scene.last_reason",
+      "on": "guest",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "none-left",
+      "path": "scene.active",
+      "on": "both",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

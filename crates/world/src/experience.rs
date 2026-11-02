@@ -253,7 +253,22 @@ pub fn on_kill(order: &LoadOrder, state: &mut GameState, victim: FormId, killer:
     if victim == PLAYER_REF || (state.teammates.contains(&victim) && killer != PLAYER_REF) {
         return 0.0;
     }
+    // co-op: the campaign layer pays every contributor by slot instead
+    if state.coop.campaign.attributes() {
+        state.kill_share.remove(&victim);
+        return 0.0;
+    }
     let share = state.kill_share.remove(&victim).unwrap_or(0.0);
+    let amount = kill_award(order, state, victim, share);
+    if amount <= 0.0 {
+        return 0.0;
+    }
+    reward(order, state, amount)
+}
+
+/// The experience a kill is worth when `share` points of damage count toward
+/// it (0 below the health threshold). Co-op scaling is applied.
+pub fn kill_award(order: &LoadOrder, state: &GameState, victim: FormId, share: f64) -> f64 {
     if share <= 0.0 {
         return 0.0;
     }
@@ -281,5 +296,5 @@ pub fn on_kill(order: &LoadOrder, state: &mut GameState, victim: FormId, killer:
     if state.coop.authority != crate::coop::Authority::Single {
         amount = crate::coop::facts::xp_scale(state, amount);
     }
-    reward(order, state, amount)
+    amount
 }

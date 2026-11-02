@@ -7,6 +7,10 @@ mod tests;
 mod live;
 #[cfg(test)]
 mod live_more;
+#[cfg(test)]
+mod roam;
+#[cfg(test)]
+mod live_combat;
 
 use crate::hash::ShardHashes;
 use crate::ids::{FormId, PlayerId};
@@ -28,7 +32,7 @@ type Net = ChaosTransport<LoopbackEndpoint>;
 
 /// Identity every well-behaved peer uses.
 pub fn test_hello() -> Hello {
-    Hello { proto: PROTOCOL_VERSION, build_hash: 0xB001, rules_hash: 0x201E5, mods_hash: 0x30D5 }
+    Hello { proto: PROTOCOL_VERSION, build_hash: 0xB001, rules_hash: 0x201E5, mods_hash: 0x30D5, exe: String::new(), volatile_hash: 0, plugins: Vec::new() }
 }
 
 /// One simulated guest.

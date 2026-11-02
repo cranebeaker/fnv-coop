@@ -1,6 +1,6 @@
 {
   "name": "live_loot_sequence",
-  "description": "Corrected live_loot_race for the lease design (one holder at a time). The host adds 50 caps to Doc, opens him at 6 s, takes 20 and closes at 10 s; the guest opens at 11 s and takes 34. Host + guest hold 54 together, nothing is lost or doubled, and Doc's remaining caps and each inventory are the same on both peers (Doc's own starting caps differ between data sets, so the remainder is not asserted as a number).",
+  "description": "Corrected live_loot_race for the lease design (one holder at a time). The host adds 50 caps to Doc, opens him at 6 s, takes 20 and closes at 10 s; the guest opens at 11 s and takes 25 (less than the 30 left whatever Doc's own starting caps are, which differ between data sets). Host + guest hold 45 together, nothing is lost or doubled, and Doc's remaining caps and each inventory are the same on both peers (the remainder is not asserted as a number).",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 54,
@@ -34,7 +34,7 @@
       },
       {
         "at": 12,
-        "run": "coop loottake DocMitchellREF Caps001 34"
+        "run": "coop loottake DocMitchellREF Caps001 25"
       },
       {
         "at": 15,
@@ -56,7 +56,7 @@
         "items.guest.Caps001"
       ],
       "cmp": "eq",
-      "value": 54,
+      "value": 45,
       "on": "both"
     },
     {
@@ -67,10 +67,10 @@
       "on": "both"
     },
     {
-      "id": "guest-got-the-rest",
+      "id": "guest-got-25",
       "path": "items.guest.Caps001",
-      "op": "ge",
-      "value": 34,
+      "op": "eq",
+      "value": 25,
       "on": "both"
     },
     {

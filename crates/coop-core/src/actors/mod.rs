@@ -14,10 +14,12 @@ use crate::ids::{CellId, Epoch, FormId, PlayerId, Seq};
 pub use client::{ActorClient, RemoteActor};
 pub use host::{ActorHost, Out};
 pub use ownership::{OwnerChange, Ownership, PlayerLoc, StateVerdict};
-pub use spawn::{DenyReason, SpawnArbiter, SpawnOutcome, DYN_ID_BASE};
+pub use spawn::{DenyReason, SpawnArbiter, SpawnOutcome, SpawnRec, DYN_ID_BASE};
 
 /// Largest damage in one hit request.
 pub const MAX_HIT: u16 = 5000;
+/// Most actors in one `Track` report.
+pub const MAX_TRACK: usize = 128;
 /// Most hit requests per attacker per second.
 pub const MAX_HITS_PER_SEC: usize = 30;
 
@@ -131,6 +133,12 @@ pub enum ActorMsg {
         /// Position, 1/16 unit fixed point.
         pos: [i32; 3],
     },
+    /// A peer reports actors it has loaded, so the host tracks them too
+    /// (a creature found in a place only that peer has loaded).
+    Track {
+        /// Actor and its state as that peer sees it.
+        actors: Vec<(FormId, ActorState)>,
+    },
     /// Host: a dynamic ref is gone.
     Despawn {
         /// Id.
@@ -170,6 +178,7 @@ impl ActorMsg {
     pub fn is_sane(&self) -> bool {
         match self {
             ActorMsg::Hit { amount, .. } => *amount <= MAX_HIT,
+            ActorMsg::Track { actors } => actors.len() <= MAX_TRACK,
             _ => true,
         }
     }

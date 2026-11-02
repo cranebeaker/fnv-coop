@@ -32,6 +32,8 @@ type Changes = Vec<(FormId, Field)>;
 /// A replica of the host's state.
 pub struct GuestSync {
     hello: Hello,
+    /// The host's identity, when it sent one with a refusal or warning.
+    pub host_identity: Option<Hello>,
     /// This guest's slot (assigned by the transport/host).
     pub player: PlayerId,
     phase: GuestPhase,
@@ -70,6 +72,7 @@ impl GuestSync {
     pub fn new(player: PlayerId, hello: Hello) -> Self {
         GuestSync {
             hello,
+            host_identity: None,
             player,
             phase: GuestPhase::Idle,
             store: StateStore::new(),
@@ -140,6 +143,12 @@ impl GuestSync {
         vec![Msg::Intent { id, epoch, changes }]
     }
 
+    /// Differences between this guest's game and the host's, once the host
+    /// has said (empty until then).
+    pub fn compat_issues(&self) -> Vec<crate::compat::Issue> {
+        self.host_identity.as_ref().map(|h| crate::compat::issues(h, &self.hello)).unwrap_or_default()
+    }
+
     /// Intents not yet acknowledged.
     pub fn unacked_intents(&self) -> usize {
         self.unacked.len()
@@ -159,6 +168,10 @@ impl GuestSync {
                 } else {
                     self.fresh_join(session)
                 }
+            }
+            Msg::Incompat(h) => {
+                self.host_identity = Some(h);
+                vec![]
             }
             Msg::Reject(RejectReason::SessionMismatch) => {
                 self.session = None;
@@ -218,7 +231,7 @@ impl GuestSync {
                 self.apply_repair(r);
                 vec![]
             }
-            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_)) => {
+            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_) | Msg::Scene(_) | Msg::Interact(_) | Msg::Env(_) | Msg::Roam(_) | Msg::Combat(_)) => {
                 if self.phase == GuestPhase::Active {
                     self.live.on_msg(m, self.now_ms)
                 } else {

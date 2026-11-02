@@ -120,8 +120,25 @@ fn main() -> ExitCode {
         };
     }
 
-    let viewer = cli::find_viewer(c.viewer.as_deref(), &exe_dir);
+    let given_viewer = c.viewer.clone().or_else(|| Some(PathBuf::from(&settings.viewer_path)).filter(|p| !p.as_os_str().is_empty()));
+    let viewer = cli::find_viewer(given_viewer.as_deref(), &exe_dir);
+    if c.coop_help {
+        return match std::process::Command::new(&viewer).arg("--coop-help").output() {
+            Ok(o) if o.status.success() => {
+                print!("{}", String::from_utf8_lossy(&o.stdout));
+                ExitCode::SUCCESS
+            }
+            _ => {
+                eprintln!("nv-launcher: could not ask the viewer at {} (--viewer EXE or settings viewer_path). The flags are in docs/COOP.md.", viewer.display());
+                ExitCode::from(1)
+            }
+        };
+    }
     let mut app = App { ui, home, exe_dir, viewer, settings, user };
+    if c.start.is_some() {
+        let code = app.start_from_cli(&c);
+        return ExitCode::from(code.clamp(0, 255) as u8);
+    }
     if c.diagnostics {
         return match app.collect_diagnostics() {
             Ok((dir, files)) => {

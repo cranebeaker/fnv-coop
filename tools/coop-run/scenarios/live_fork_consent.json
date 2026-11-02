@@ -1,0 +1,20 @@
+{
+  "name": "live_fork_consent",
+  "description": "NVDLC01ElijahDialogue puts an irreversible fork to a vote. The host's script asks, both players vote yes, and the fork is taken exactly as approved.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 67,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop fork NVDLC01ElijahDialogue 1" },
+      { "at": 4, "run": "coop vote NVDLC01ElijahDialogue 0 yes" },
+      { "at": 5, "run": "coop vote NVDLC01ElijahDialogue 1 yes" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "approved", "path": "campaign.forks.NVDLC01ElijahDialogue_1", "op": "eq", "value": true, "on": "host" }
+  ]
+}

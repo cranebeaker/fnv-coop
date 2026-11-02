@@ -1,0 +1,56 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 12,
+  "settle_s": 8,
+  "name": "live_sleep_refused",
+  "description": "The host asks to sleep 8 hours; the guest says no. Nobody's clock skips.",
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop sleep 8"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop vote no"
+      },
+      {
+        "at": 5,
+        "run": "coop vote no"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "skips-host",
+      "path": "time.skips",
+      "on": "host",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "skips-guest",
+      "path": "time.skips",
+      "on": "guest",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "clock",
+      "path": "globals.GameHour",
+      "on": "equal",
+      "tol": 0.4
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

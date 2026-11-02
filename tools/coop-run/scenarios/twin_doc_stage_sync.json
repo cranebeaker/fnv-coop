@@ -1,7 +1,7 @@
 {
   "name": "twin_doc_stage_sync",
   "description": "MUTATION TWIN of doc_stage_sync: the host never sets the stage, so the guest must not already have stage 10. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
-  "cell": "GSDocMitchellHouse",
+  "cell": "GSProspectorSaloonInterior",
   "network": "perfect",
   "seed": 11,
   "duration_s": 12,

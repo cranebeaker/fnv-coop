@@ -1,0 +1,12 @@
+{
+  "area": "HARNESS",
+  "rows": [
+    {"id": "harness.verdicts", "area": "HARNESS", "title": "Verdict JSON, ledger, clean runs", "proves": "every run ends in one parseable verdict", "tests": ["cargo:coop-headless"], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.twins", "area": "HARNESS", "title": "Mutation twins", "proves": "every twin fails as expected", "tests": ["scenario:doc_stage_sync"], "twin": true, "source": "08 1.9"},
+    {"id": "harness.fake_engine", "area": "HARNESS", "title": "Headless simulator and fuzzer", "proves": "soak matrix is deterministic", "tests": ["cargo:coop-headless"], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.recorder", "area": "HARNESS", "title": "Flight recorder, diverge, shrink, gentest", "proves": "tools to find the first divergence", "tests": [], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.lab_rooms", "area": "HARNESS", "title": "Lab rooms, animation and pose glitch detectors", "proves": "visual detectors", "tests": [], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.stage_walk", "area": "HARNESS", "title": "Stage walk per quest from data", "proves": "1691 stages walked from the ESMs", "tests": ["questwalk:all"], "source": "08 1.9 / list C"},
+    {"id": "harness.live_control", "area": "HARNESS", "title": "Live control port", "proves": "drive a running viewer", "tests": ["scenario:live_control_port"], "source": "08 1.9"}
+  ]
+}

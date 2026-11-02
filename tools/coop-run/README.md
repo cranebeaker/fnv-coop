@@ -24,8 +24,12 @@ The last output line is `RESULT: PASS ...` or `RESULT: FAIL <class> ...`. Exit c
 | `scenario.py` | scenario load and validation, viewer command lines, end-state assertions |
 | `verdict.py` | log parsing, failure classes, failure packet, scorer self-test |
 | `chaos_relay.py` | seeded UDP relay with the coop-core profiles |
-| `fake_viewer.py` | stand-in viewer with the same flags and logs, used to test the runner |
+| `fake_viewer.py` | stand-in viewer with the same flags and logs, used to test the runner (and the live control port) |
+| `live.py` | live loop: client library and CLI for the viewer's `--coop-control` port; `up`, `state`, `run`, `bot`, `keys`, `shot`, `entities`, `watch`, `down` |
+| `remote/sync_and_build.ps1` | on the test PC: apply a git bundle under `C:\fnv`, fast viewer build, compact errors |
 | `scenarios/*.json` | example scenarios (Doc Mitchell's house) |
+| `fake_viewer.py` | stand-in viewer with the same flags and logs, used to test the runner |
+| `scenarios/*.json` | example scenarios (Doc Mitchell's house). The player-world interaction ones are `live_barter`, `live_door_follow`, `live_pickup_world_item`, `live_lockpick_unlock_shared`, `live_craft_per_player` and `live_vendor_stock_shared`, each with a `twin_` mutation twin; their bot verbs (`coop barter`, `door`, `pickup`, `drop`, `steal`, `craft`, `use`, `equip`, `lockpick`, `hack`, `enter`, `give`, `setlock` ...) are listed in `viewer/src/coop_live/bot.rs`. The dump's `interact` object counts what each machine did (`interact.barter`, `interact.refused`, `interact.follows_in`, ...) and `objects` holds the shared locks, doors, terminals and mines. The same six run on a generated world in `crates/coop-headless/tests/interact.rs` |
 | `remote/*.ps1` | scripts that run ON the test PC |
 | `controller/*.ps1` | scripts that run on the PC you work at and drive the test PC |
 | `test_*.py` | unit and end-to-end tests |
@@ -163,6 +167,21 @@ A guest's `run` lines normally go to the host. Two prefixes change that (both in
   hollow runs and timeouts are never hidden by it. See `AUDIT.md` for what each assertion proves.
 * `max_repairs`: allowed `coop_repair` events across both peers. Default 0 on a `perfect` link, unlimited otherwise.
 
+## More than one guest (3 and 4 peer runs)
+
+`"guests": [ {script, extra_args}, ... ]` (1 to 3 entries) replaces `"guest"`; `guest` stays the
+first entry. The runner starts one host and one viewer per guest, each guest through its own chaos
+relay (seed + 7919 x its number), waits for all of them to be ready and quits all of them. Checks
+may say `"on": "guest2"` or `"guest3"` for a given peer, `"all"` for every peer, and `"equal"` then
+compares the host with every guest (`id#guest2`). The automatic `hash.shared` check covers every
+guest. Roles in the logs and verdict are `host`, `guest`, `guest2`, `guest3`. Guests 2 and 3 get
+`--coop-name "Guest 2"` and `"Guest 3"`. `scenarios/live_four_viewers.json` (and its twin) is the
+real-game four-viewer run for the test PC (four viewers fit in RAM there). The stand-in
+`fake_viewer.py` speaks to one guest only, so the multi-process launch of several guests is proved
+on the test PC; the parsing, command lines, checks and verdict are covered by `test_multi_guest.py`.
+The headless twin runs the same shape in one process (`coop-sim`, `"guests"` too) and reports each
+peer's bandwidth and CPU: `coop-sim budget` (see docs/COOP.md "Budget and four peers").
+
 ## What the verdict says
 
 `verdict.json` per run, in `<out>/<scenario>/<stamp>-<n>/` next to `host.jsonl`, `guest.jsonl`, both state
@@ -258,6 +277,56 @@ un_list.ps1 -Tag <tag>`; it names the first missing scenario file in `done-<tag>
   state dumps are the evidence.
 * This harness never runs ssh by itself; you start `run_remote.ps1`.
 
+## Live loop: control port and `live.py`
+
+For development, not for verdicts: two viewers stay running and a script drives them, so a change is checked in
+seconds instead of a launch per run. See also `docs/FASTDEV.md` (rebuild times, `coop-sim watch`).
+
+`--coop-control PORT` (needs `--coop-host`/`--coop-join`) opens `127.0.0.1:PORT` (never another address) on
+a background thread (`crates/coop-session/src/control.rs`, std only); the viewer answers on its next frame
+(`viewer/src/coop_control.rs`). One JSON object per line in, one per line out, in order. An optional `"id"` is echoed.
+Every reply has `"ok"` and `"cmd"`; a failure has `"error"` and the connection stays open.
+
+| Request | Reply (besides `ok`, `cmd`) |
+|---|---|
+| `{"cmd":"state"}` | `role`, `ready`, `cell`, `fps`, `t`, `npcs`, `npcs_visible`, `puppets`, `puppets_visible`, `counters` (`lines_played`, `chat_in`, `travels`, `hits_sent`), `state` = the whole `--coop-state-dump` document |
+| `{"cmd":"run","line":"SetStage Q 10"}` | host (or `"local":true`, or a `local ` prefix): runs it at once, `how` = `host`/`local`, `flow` = the interpreter's result. Guest: sent to the host, `how` = `sent`. A `coop ...` line goes to the bot |
+| `{"cmd":"bot","line":"teleport 1 2 3"}` | `how:"bot"`; the `coop ` prefix is optional; verbs as in `viewer/src/coop_live/bot.rs` |
+| `{"cmd":"keys","key":"w","hold":2,"delay":0}` | queues the press like `--key-at` (`w`, `space`, `mouse-left`, `mouse-x=40`...); delay is seconds from now |
+| `{"cmd":"screenshot","path":"C:/x/a.png"}` | replies after the PNG is written (the frame as the window shows it; the viewer keeps running) |
+| `{"cmd":"entities"}` | `entities`: `form`, `name`, `kind` (`npc`, `remote` = owned by the other peer, `puppet` = the other player), `player`, `pos`, `heading`, `visible` (a mesh of it is in a camera's view), `anim`, `anim_names`; plus the four counts |
+| `{"cmd":"quit"}` | replies, then leaves cleanly a few frames later (final dump and `shutdown` event as usual) |
+
+`run` before the player is placed fails with `the player is not placed yet`. People are the viewer's `Walker`
+entities; creatures that are not `Walker`s are not listed.
+
+```
+python -I tools/coop-run/live.py up --cell GSDocMitchellHouse [--visible] [--config F]   # host + guest, waits for both
+python -I tools/coop-run/live.py state host [--json | --path items.player]
+python -I tools/coop-run/live.py run guest "player.additem Caps001 5" [--local]
+python -I tools/coop-run/live.py bot host "teleport 2400 1700 7360"
+python -I tools/coop-run/live.py keys guest w --hold 2
+python -I tools/coop-run/live.py shot host C:/tmp/host.png
+python -I tools/coop-run/live.py entities guest --visible
+python -I tools/coop-run/live.py watch tools/coop-run/scenarios/live_loot_sequence.json [--reset guest] [--once]
+python -I tools/coop-run/live.py down
+python -I tools/coop-run/runner.py run SCENARIO.json --attach host:PORT guest:PORT   # one replay, RESULT line, exit code
+```
+
+`up` uses the same config as the runner (`coop-run.local.json`: viewer, data, `background`, ports), joins the guest directly
+(no relay), writes `<out_dir>/live/session.json` (ports, pids, commands, stdout files) and returns when both report
+`ready`. Targets are `host`, `guest` (from that file), a port or `127.0.0.1:PORT`, so any viewer started by hand with
+`--coop-control` works. `down` quits both through the port and only then ends the pids `up` recorded.
+
+`watch` replays the scenario's script lines against the running pair after every save of the scenario file
+(`run`, `stage`, `key` lines at their `at` seconds; startup flags `talk`/`choose`/`say` are skipped with a note),
+then judges `expect` once the last command has gone out: PASS or FAIL per assertion, polling every 0.4 s until all
+pass or `settle_s` runs out. Assertion paths see the state dump plus `live.*` (`live.fps`, `live.npcs_visible`,
+`live.puppets_visible`, `live.counters.chat_in`, ...), so "the guest sees one visible puppet" is
+`{"id":"pup","path":"live.puppets_visible","op":"ge","value":1,"on":"guest"}`. The pair is not restarted between replays:
+the host keeps its state. Write live scenarios with absolute effects (`SetStage`, `set X to V`, a teleport) or `ge` bounds;
+`--reset guest` quits and relaunches the guest first (the reconnect path, slow because it reloads the place).
+
 ## Tests
 
 `cd tools/coop-run && python -I -m unittest` (unittest discovery adds the folder to `sys.path`, which `-I` otherwise
@@ -274,7 +343,9 @@ removes). Covered:
 * the scorer self-test, and source scans: no delete or process-kill calls, remote scripts only mention `C:\fnv`,
   no private identifiers, no emoji, no em dashes.
 
-`fake_viewer.py --fake MODE` modes: `crash hang no_sync double_apply silent no_connect error_event repair bad_exit`.
+`fake_viewer.py --fake MODE` modes: `crash hang no_sync double_apply silent no_connect error_event repair bad_exit`,
+and for the control port `ctl_not_ready ctl_slow ctl_hidden`. With `--coop-control PORT` it speaks the live protocol
+(`test_live.py` runs the client, replay, watch, `up`/`down`/reset and `runner.py --attach` against it).
 It speaks a small resend-until-acked UDP protocol so the chaos profiles genuinely stress it. It supports the script
 lines `SetStage Q N`, `set X to V`, `player.additem ITEM N`, `coop teleport X Y Z` and the `--key-at` keys w a s d
 (150 units a second). Both avatars start at the spawn point [2352, 1603.6, 7360]. `player.setpos` is logged as
@@ -290,6 +361,29 @@ the data it was given is `RESULT: SKIP needs_assets`, never a guess. `compare_he
 agreement with real `verdict.json` files (`python -I tools/coop-run/compare_headless.py <out dir>`, or
 `--known` for the 2026-11-02 test PC results). What is modelled and how far to trust it:
 `crates/coop-headless/CALIBRATION.md`; what it found: `crates/coop-headless/GAPS.md`.
+
+## The start of a game, and the player scripts
+
+`play/Host-Coop.cmd` and `play/Join-Coop.cmd` are templates for people (copy them next to
+`nv-launcher.exe` and edit the `set` lines). They go through the launcher (`nv-launcher --start
+host|join`), so the viewer command line, the save folders, the join code and the log are the
+launcher's. The host starts a NEW GAME by default: the whole normal start (VCG00, Doc Mitchell,
+the name box, the Vit-o-Matic, tags, traits). A guest joins any time and makes its own character.
+Rules and the exact flow: docs/COOP.md, "The start of a game".
+
+Scenarios: `new_game: true` gives both viewers `--new-game` (host: the opening; guest: "make my
+own character", its cell is the host's place). Other scenarios give a guest `--coop-no-chargen`
+unless they set `character_creation: true`, so existing runs are unchanged. The dump has a `start`
+object per peer (`phase`: joining, character_creation, arriving, playing; `venue`, `opening`,
+`sheet_acked`, `step`). `live_new_game_start` asserts the guest reaches `playing` with its own
+`player_quests.guest.VCG00/VCG01` rows while the host is still in `character_creation`;
+`twin_live_new_game_start` (guest `--coop-no-chargen`) must fail. The viewers need
+`--answer-boxes` (the runner passes it): it accepts the name box, answers the tag skills, traits and
+the Vit-o-Matic (spends the spare points on Strength, accepts) and the opening's message boxes.
+coop-sim runs the same flow with the menus stood in for (`crates/coop-headless/tests/start.rs`).
+
+`coop-sim watch [--scenarios DIR] [--seeds 1..5]` rebuilds and re-runs on every save of a `crates/coop-*`/`world`
+source or a scenario file and prints a one-screen pass/fail table with timings (`docs/FASTDEV.md`).
 
 ## Not done here
 

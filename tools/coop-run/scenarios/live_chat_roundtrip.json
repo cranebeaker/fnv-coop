@@ -1,0 +1,46 @@
+{
+  "name": "live_chat_roundtrip",
+  "description": "Each player chats once; the other receives the line through the host.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop say hello from the host"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 5,
+        "run": "coop say hello from the guest"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-heard-guest",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-heard-host",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

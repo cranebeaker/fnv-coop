@@ -115,3 +115,43 @@ pub fn open(game: &Game, path: &Path) -> Result<FosStart, String> {
         outdoors,
     })
 }
+
+/// `--coop-load FILE`: start from one of this viewer's own saves (the launcher's Continue), as F9
+/// opens it (`scripts::load_saved_world`), before the co-op session's first frame. The saved
+/// camera (a seated or scripted view) is not restored; the player starts standing.
+pub fn open_saved(game: &Game, path: &Path) -> Result<FosStart, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    let (state, place) = world::save::load(&text)?;
+    let order = &game.order;
+    let place = place.ok_or_else(|| "the save doesn't say where the player is".to_string())?;
+    println!("Co-op: starting from the save {}.", path.display());
+    let (scene, outdoors) = match place.world {
+        Some(world) => {
+            let grid = world::WorldGrid::load(order, world).map_err(|e| e.to_string())?;
+            let start = ExteriorStart {
+                grid,
+                feet: [place.position[0], place.position[1]],
+                height: Some(place.position[2]),
+                heading: place.heading,
+            };
+            (None, Some(start))
+        }
+        None => {
+            let mut scene = game
+                .load_cell_now(place.cell, &state.disabled)
+                .map_err(|e| e.0)?;
+            let [x, y, z] = place.position;
+            scene.start = cellview::Start {
+                eye: [x, y, z + cellview::EYE_HEIGHT],
+                heading: place.heading,
+                via: "a saved game",
+            };
+            (Some(scene), None)
+        }
+    };
+    Ok(FosStart {
+        state,
+        scene,
+        outdoors,
+    })
+}

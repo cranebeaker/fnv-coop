@@ -430,6 +430,15 @@ fn answer_box(ui: &mut ui::Ui, top: &mut OpenMenu, answers: &mut AnswerBoxes, no
                 println!("--answer-boxes: the name entry accepted.");
             }
         }
+        // The opening's tag skills and traits: Done (tile 6) with the preselected picks.
+        OpenMenu::CharGen(m) if !m.closed => {
+            m.click(ui, 6, None, now);
+            println!("--answer-boxes: the tag skills accepted.");
+        }
+        OpenMenu::Traits(m) if !m.closed => {
+            m.click(ui, 6, None, now);
+            println!("--answer-boxes: the traits accepted (none picked).");
+        }
         _ => {}
     }
 }
@@ -1147,6 +1156,12 @@ pub(crate) fn run_open_menus(
         // `--answer-boxes`: the box on top answered once it's shown.
         if input.answer_boxes.on && shown {
             answer_box(ui, top, &mut input.answer_boxes, now);
+            if let OpenMenu::Vigor(v) = top {
+                if !v.menu.closed {
+                    let played = v.answer(&game.0, &mut state.0);
+                    sounds.0.extend(played);
+                }
+            }
         }
         // `--menu-click`: pressed this frame, let go the next.
         let release = std::mem::take(&mut input.clicks.release);

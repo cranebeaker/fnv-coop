@@ -186,9 +186,18 @@ pub fn map_marker_flags(order: &LoadOrder, marker: FormId) -> Option<u8> {
 
 thread_local! {
     static DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
-    /// How deep `Activate … 1` runs of `OnActivate` blocks are inside each
-    /// other: the game stops at 5 (a per-thread counter, `005b59f0`).
+    /// How deep the `Activate` script command is inside itself: the command
+    /// does nothing once it is more than 5 deep (a per-thread counter,
+    /// `_tls_uActivateDepth` in `005b59f0`).
     static ACTIVATE_DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    /// How many `OnActivate` blocks run inside each other through
+    /// `TESObjectREFR::Activate`: the block runs only while fewer than 5 are
+    /// running (the global counter `g_iActRecursion` of `00573170`, called
+    /// `iActivateRecursion` in the reference). Every path that activates a
+    /// scripted reference without the default-processing action (the
+    /// `Activate … 1` command, `SetOpenState`'s door activation) goes
+    /// through it, so a script that activates itself ends after 5 levels.
+    static ACTIVATE_RECURSION: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
 /// Runs `f` unless already this deep inside itself (a package whose
@@ -1058,7 +1067,7 @@ impl GameState {
         self.globals.get(&order.form_by_editor_id(name)?).copied()
     }
 
-    fn set_global(&mut self, order: &LoadOrder, name: &str, value: f32) {
+    pub(crate) fn set_global(&mut self, order: &LoadOrder, name: &str, value: f32) {
         if let Some(id) = order.form_by_editor_id(name) {
             self.globals.insert(id, value);
             if self.coop.authority.replicates() {
@@ -1542,6 +1551,9 @@ impl GameState {
     /// cell, position, heading). The player's from the state (heading not
     /// kept: 0); others where a script moved them, else as placed.
     pub fn place(&self, order: &LoadOrder, r: FormId) -> Option<(FormId, FormId, [f32; 3], f32)> {
+        if r.0 >= 0xFE00_0000 && r.0 < 0xFE00_0100 {
+            return crate::coop::combat_live::puppet_place(self, r);
+        }
         if r == PLAYER_REF {
             let space = self.player_world.or(self.player_cell)?;
             let cell = self.player_cell.unwrap_or(space);
@@ -1928,6 +1940,12 @@ impl Facts<'_> {
         let sig = script::functions::FUNCTIONS.get(usize::from(function))?;
         let arg = |i: usize| args.get(i).cloned().unwrap_or(Value::Number(0.0));
         let s = self.state;
+        if on == Some(PLAYER_REF) && s.coop.campaign.cond_quest.is_some() {
+            // co-op: a row's party reducer answers for "the player"
+            if let Some(v) = crate::coop::campaign::party::facts_hook(self, sig.name, args) {
+                return Some(v);
+            }
+        }
         Some(match sig.name {
             "GetStage" => f64::from(s.stages.get(&arg(0).form()).copied().unwrap_or(0)),
             "GetStageDone" => flag(
@@ -2425,12 +2443,14 @@ impl Facts<'_> {
         }
         let cone = game_setting(self.order, "fDetectionViewCone").unwrap_or(190.0);
         let player = other == PLAYER_REF;
+        // a remote player's own sneak, motion, skill and level (co-op)
+        let puppet = crate::coop::combat_live::stealth_of(s, other);
         let av = |r: FormId, a: u16| self.current_actor_value(r, a).unwrap_or(0.0) as f32;
         let fighting = s.combat.get(&who).copied();
         let (mut moving, mut running) = if player {
             (s.player_moving, s.player_running)
         } else {
-            motion.unwrap_or((false, false))
+            motion.or(puppet.map(|p| (p.moving, p.running))).unwrap_or((false, false))
         };
         // The one noticed's perks' "Ignore Running During Detection"
         // (entry point 31, Silent Running; `008a0d10`): they never count
@@ -2456,7 +2476,7 @@ impl Facts<'_> {
             in_cone: off.to_degrees() <= cone / 2.0,
             moving,
             running,
-            sneaking: player && s.player_sneaking,
+            sneaking: (player && s.player_sneaking) || puppet.is_some_and(|p| p.sneaking),
             light: 50.0,
             shot_noise: crate::noise::value(s, other) as f32,
             armour_weight: 0.0,
@@ -2466,12 +2486,14 @@ impl Facts<'_> {
             fighting_other: fighting.is_some_and(|t| t != other),
             // A teammate sneaks as well as the player does, if better
             // (`008a0d10`).
-            sneak: if s.teammates.contains(&other) {
+            sneak: if let Some(p) = puppet {
+                p.sneak_skill
+            } else if s.teammates.contains(&other) {
                 av(other, 42).max(av(PLAYER_REF, 42))
             } else {
                 av(other, 42)
             },
-            target_level: f32::from(self.level(other).unwrap_or(1)),
+            target_level: puppet.map_or_else(|| f32::from(self.level(other).unwrap_or(1)), |p| f32::from(p.level)),
             detector_level: f32::from(self.level(who).unwrap_or(1)),
         })
     }
@@ -3112,9 +3134,11 @@ impl<'a> Runner<'a> {
         let saved = (self.this, self.owner);
         self.this = this;
         self.owner = owner;
+        let cond_quest = std::mem::replace(&mut self.state.coop.campaign.cond_quest, owner);
         let mut locals = self.take_locals(owner);
         let out = f(self, &mut locals);
         self.put_locals(owner, locals);
+        self.state.coop.campaign.cond_quest = cond_quest;
         (self.this, self.owner) = saved;
         out
     }
@@ -3313,6 +3337,22 @@ impl<'a> Runner<'a> {
     /// `ontrigger`, `ontriggerleave`, `onload`…) caused by `who`: its
     /// script's blocks of that kind run whose argument is empty or names
     /// `who`, with `who` as the action reference (`IsActionRef`).
+    /// The `OnActivate` block of `reference` as `TESObjectREFR::Activate`
+    /// runs it (Translated from 00573170 (decompiled, FalloutNV.exe
+    /// 1.4.0.525), `TESObjectREFR::Activate` (Xbox PDB); Reference:
+    /// fnv_decomp src/fallout_shared/tesobjectrefr.cpp): only while fewer
+    /// than 5 such blocks are running. Returns whether the block ran.
+    pub fn run_activate_block(&mut self, reference: FormId, who: FormId) -> bool {
+        let depth = ACTIVATE_RECURSION.with(|d| d.get());
+        if depth >= 5 {
+            return false;
+        }
+        ACTIVATE_RECURSION.with(|d| d.set(depth + 1));
+        self.run_event(reference, "onactivate", who);
+        ACTIVATE_RECURSION.with(|d| d.set(depth));
+        true
+    }
+
     pub fn run_event(&mut self, reference: FormId, kind: &str, who: FormId) {
         let order = self.order;
         let names_who = |b: &script::Block| names_who(order, b, who);
@@ -3395,6 +3435,11 @@ impl<'a> Runner<'a> {
             return false;
         }
         let order = self.order;
+        if !self.state.coop.campaign.objvar_wanted.is_empty() {
+            if let Some(s) = script_of(order, reference) {
+                self.state.campaign_note_script(order, reference, s);
+            }
+        }
         let Some(script) = script_of(order, reference).and_then(|s| self.scripts.script(order, s))
         else {
             return false;
@@ -4463,6 +4508,7 @@ impl<'a> Runner<'a> {
             }
             "DisablePlayerControls" | "EnablePlayerControls" => {
                 let enable = name == "EnablePlayerControls";
+                self.state.coop_controls_begin();
                 let defaults = if enable {
                     controls::ENABLE_DEFAULTS
                 } else {
@@ -4475,10 +4521,12 @@ impl<'a> Runner<'a> {
                     }
                 }
                 self.state.events.push(Event::PlayerControls(enable));
+                self.state.coop_controls_end(self.owner);
             }
             // Whether any of the controls asked about (the same defaults as
             // `DisablePlayerControls`) is off.
             "GetPlayerControlsDisabled" => {
+                self.state.coop_controls_begin();
                 let off = controls::DISABLE_DEFAULTS
                     .iter()
                     .enumerate()
@@ -4498,6 +4546,7 @@ impl<'a> Runner<'a> {
                     *p += arg(i + 1).number() as f32;
                 }
                 if what == PLAYER_REF {
+                    self.state.coop_script_moved(to, cell);
                     self.state.player_world = (space != cell).then_some(space);
                     self.state.player_cell = Some(cell);
                     self.state.player_position = Some(position);
@@ -4550,13 +4599,17 @@ impl<'a> Runner<'a> {
                 };
                 let flag =
                     |i: usize, default: bool| args.get(i).map_or(default, |v| v.number() != 0.0);
-                events.push(Event::Video(Video {
+                let video = Video {
                     file,
                     interruptable: flag(1, false),
                     mute_audio: flag(2, true),
                     pause_music: flag(3, true),
                     letterbox: flag(4, true),
-                }));
+                };
+                if self.state.coop.authority.replicates() {
+                    self.state.coop.live.scene.note_video(self.owner, &video);
+                }
+                events.push(Event::Video(video));
             }
             "PlayMusic" => events.push(Event::Music(arg(0).form())),
             // `005d0760`: knocked out (life state 3, `008ace10`) after
@@ -4694,11 +4747,17 @@ impl<'a> Runner<'a> {
                     .and_then(|s| self.scripts.script(self.order, s))
                     .is_some_and(|s| s.blocks.iter().any(|b| b.kind == "onactivate"));
                 if run_block && has_block {
+                    // Translated from 005b59f0 (decompiled, FalloutNV.exe
+                    // 1.4.0.525): the command itself does nothing more than
+                    // 5 deep, and the player never activates from a script.
+                    if what == PLAYER_REF {
+                        return Some(0.0);
+                    }
                     let depth = ACTIVATE_DEPTH.with(|d| d.get());
-                    if depth < 5 {
+                    if depth <= 5 {
                         ACTIVATE_DEPTH.with(|d| d.set(depth + 1));
                         let who = by.filter(|f| f.0 != 0).unwrap_or(what);
-                        self.run_event(what, "onactivate", who);
+                        self.run_activate_block(what, who);
                         ACTIVATE_DEPTH.with(|d| d.set(depth));
                     }
                     return Some(0.0);
@@ -5003,6 +5062,14 @@ impl<'a> Runner<'a> {
     }
 }
 
+impl Runner<'_> {
+    /// Runs one command by name, as a script's call of it would (a co-op
+    /// operation deferred for an unloaded cell, replayed once it loads).
+    pub fn apply_call(&mut self, name: &str, target: Option<FormId>, args: &[Value]) -> Option<f64> {
+        self.change(name, target, args)
+    }
+}
+
 impl Host for Runner<'_> {
     fn call(&mut self, call: &Call, on: Option<u32>, locals: &mut Locals) -> Option<f64> {
         let sig = script::functions::FUNCTIONS.get(usize::from(call.function))?;
@@ -5045,6 +5112,8 @@ impl Host for Runner<'_> {
                 self.state.coop.stats.suppressed_calls += 1;
                 Some(0.0)
             })
+        } else if let Some(v) = crate::coop::roam_ops::defer(self.state, self.order, sig.name, target, &args) {
+            Some(v)
         } else {
             self.change(sig.name, target, &args)
                 .or_else(|| self.facts().value(call.function, target, &args))

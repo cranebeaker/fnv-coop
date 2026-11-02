@@ -17,8 +17,10 @@ mod clutter;
 mod combat;
 mod companions;
 mod coop;
+mod coop_control;
 mod coop_link;
 mod coop_live;
+mod coop_party;
 mod controls;
 mod crosshair;
 mod daylight;
@@ -264,7 +266,12 @@ fn main() {
          crates/script)."
     );
     // `--load-fos`: an original save gives the state and the place.
-    let mut from_save = match args.load_fos.as_deref().map(|p| fos_start::open(&game, p)) {
+    let opened_save = match (args.load_fos.as_deref(), args.coop.load.as_deref()) {
+        (Some(p), _) => Some(fos_start::open(&game, p)),
+        (None, Some(p)) => Some(coop_party::open_start(&game, p)),
+        (None, None) => None,
+    };
+    let mut from_save = match opened_save {
         Some(Ok(start)) => Some(start),
         Some(Err(e)) => {
             eprintln!("error: {e}");
@@ -510,6 +517,7 @@ fn main() {
         .insert_resource(movement)
         .insert_resource(clutter::EngineWorld::new(args.physics))
         .insert_resource(Background(args.background))
+        .insert_resource(HelpShown(args.help_overlay || !args.coop.active()))
         .insert_resource(background::UserWindow(if args.background {
             user_window
         } else {
@@ -3436,13 +3444,24 @@ fn help_text(ev100: f32, speed: f32, walking: bool) -> String {
 fn update_help(
     cameras: Query<(&Exposure, &FlyCamera)>,
     player: Res<walk::Player>,
-    mut help: Query<&mut Text, With<HelpText>>,
+    mut help: Query<(&mut Text, &mut Visibility), With<HelpText>>,
+    mut shown: ResMut<HelpShown>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
+    if keys.just_pressed(KeyCode::F4) {
+        shown.0 = !shown.0;
+    }
+    if shown.is_changed() {
+        let vis = if shown.0 { Visibility::Inherited } else { Visibility::Hidden };
+        for (_, mut v) in &mut help {
+            *v = vis;
+        }
+    }
     let Ok((exposure, camera)) = cameras.single() else {
         return;
     };
     let wanted = help_text(exposure.ev100, camera.speed, player.walking);
-    for mut text in &mut help {
+    for (mut text, _) in &mut help {
         if text.0 != wanted {
             text.0 = wanted.clone();
         }
@@ -3513,6 +3532,11 @@ fn look_around(
 /// `--background`: a test run that leaves the mouse alone.
 #[derive(Resource)]
 struct Background(bool);
+
+/// Whether the key help line is on screen: always in single player, in a
+/// co-op session only after `--help-overlay` or F4.
+#[derive(Resource)]
+struct HelpShown(bool);
 
 /// Walking outside menus the pointer is hidden and held in the window, as
 /// the game holds it for its mouse look; in menus, flying, with the

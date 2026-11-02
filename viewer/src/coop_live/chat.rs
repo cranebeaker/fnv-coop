@@ -135,7 +135,11 @@ pub fn typing(
             player.ready = true;
         }
         let text = std::mem::take(&mut typing.text);
-        if send && !text.trim().is_empty() {
+        if send && text.starts_with('/') {
+            // voice commands (/mute, /unmute, /vol, /voice) stay on this machine
+            let reply = super::voice::command(&text).unwrap_or_else(|| "Unknown command".to_string());
+            log.push(reply, time.elapsed_secs());
+        } else if send && !text.trim().is_empty() {
             log.push(format!("You: {text}"), time.elapsed_secs());
             link.0.live_intent(Intent::Say(text));
         }

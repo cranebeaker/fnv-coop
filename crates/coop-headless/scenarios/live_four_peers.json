@@ -1,0 +1,102 @@
+{
+  "name": "live_four_peers",
+  "description": "Four peers (host and three guests): everyone chats, three talk in turn, some ping; every peer must hear the others and end on one shared state. Run it under every chaos profile with coop-sim suite --soak.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 18,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop say host here"
+      },
+      {
+        "at": 9,
+        "run": "coop waypoint 10 20"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop say guest one here"
+        },
+        {
+          "at": 3,
+          "run": "coop voice 2"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 5,
+          "run": "coop say guest two here"
+        },
+        {
+          "at": 7,
+          "run": "coop voice 2"
+        },
+        {
+          "at": 4,
+          "run": "coop ping 300"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 6,
+          "run": "coop say guest three here"
+        },
+        {
+          "at": 11,
+          "run": "coop voice 2"
+        },
+        {
+          "at": 12,
+          "run": "coop waypoint 40 50"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "chat",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "voice",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "all"
+    },
+    {
+      "id": "avatars",
+      "path": "live.avatars",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "markers",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

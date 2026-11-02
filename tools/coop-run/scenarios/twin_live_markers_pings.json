@@ -1,0 +1,51 @@
+{
+  "name": "twin_live_markers_pings",
+  "description": "MUTATION TWIN of live_markers_pings: nobody places a marker. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 73,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-sees-guest-marker",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-sees-host-marker",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-pings",
+      "path": "live.pings",
+      "op": "ge",
+      "value": 3,
+      "on": "guest"
+    },
+    {
+      "id": "host-pings",
+      "path": "live.pings",
+      "op": "ge",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

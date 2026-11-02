@@ -352,7 +352,9 @@ impl PlayerShadow {
         for (q, names) in &plan.quest_vars {
             if let Some(locals) = gs.variables.get(q) {
                 for n in names {
-                    if let Some(v) = locals.get(n) {
+                    // zero is the default: a machine that has not laid out the quest's
+                    // variables yet must read the same shadow as one that has
+                    if let Some(v) = locals.get(n).filter(|v| v.to_bits() != 0) {
                         s.quest_vars.insert((*q, n.clone()), v.to_bits());
                     }
                 }
@@ -599,6 +601,7 @@ impl GameState {
         next.install(self, &plan);
         self.coop.bank.parked.insert(prev, parked);
         self.coop.bank.active = slot;
+        crate::coop::campaign::extra::swap(self, prev, slot);
     }
 
     /// Runs as player `slot`: until the guard drops (also while unwinding),

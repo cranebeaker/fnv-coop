@@ -1,0 +1,28 @@
+{
+  "name": "live_new_game_start",
+  "description": "The normal start of the game in co-op. The host runs --new-game (VCG00 start, Doc Mitchell's house, his speech, name box, Vit-o-Matic, tags, traits; --answer-boxes accepts each menu) and the guest joins while the host is still in the opening. The guest makes its OWN character with the same menus, local only, and the host stores it in the guest's shadow: VCG00 and VCG01 are per player, so the guest's rows show stage 105 while the host's own VCG01 is still on its way and the shared quest table never holds either. start.phase tells the story per peer: the guest ends in playing, the host is still in character_creation.",
+  "new_game": true,
+  "network": "perfect",
+  "seed": 21,
+  "duration_s": 75,
+  "settle_s": 6,
+  "timeout_s": 420,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {"id": "guest-playing", "path": "start.phase", "op": "eq", "value": "playing", "on": "guest"},
+    {"id": "guest-venue", "path": "start.venue", "op": "eq", "value": "host_place", "on": "guest"},
+    {"id": "host-in-opening", "path": "start.phase", "op": "eq", "value": "character_creation", "on": "host"},
+    {"id": "guest-vcg00", "path": "player_quests.guest.VCG00.stage", "op": "ge", "value": 100, "on": "both"},
+    {"id": "guest-vcg01", "path": "player_quests.guest.VCG01.stage", "op": "ge", "value": 105, "on": "both"},
+    {"id": "host-vcg01-moves", "path": "player_quests.host.VCG01.stage", "op": "ge", "value": 5, "on": "both", "real_only": true},
+    {"id": "host-vcg01-equal", "path": "player_quests.host.VCG01.stage", "on": "equal", "real_only": true},
+    {"id": "not-shared-host", "path": "quests.VCG01", "op": "absent", "on": "host"},
+    {"id": "not-shared-guest", "path": "quests.VCG01", "op": "absent", "on": "guest"},
+    {"id": "shared-hash", "path": "hash.shared", "on": "equal"}
+  ]
+}

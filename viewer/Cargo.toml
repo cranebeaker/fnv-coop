@@ -24,6 +24,8 @@ host = { path = "../crates/host" }
 esm = { path = "../crates/esm" }
 # Co-op: the headless session driver (no Bevy of its own).
 coop-session = { path = "../crates/coop-session" }
+# Co-op voice chat (microphone, speakers): only with the `voice` feature.
+coop-voice = { path = "../crates/coop-voice", optional = true }
 nif = { path = "../crates/nif" }
 preview = { path = "../crates/preview" }
 assets = { path = "../crates/assets" }
@@ -38,6 +40,10 @@ lewton = "0.10"
 # Steam (Spacewar 480) co-op transport: loads steam_api64.dll from next to the exe at run
 # time. Off by default; --coop-steam then falls back to UDP with a transport_fallback event.
 coop-steam = ["coop-session/steam"]
+# Co-op voice chat: cpal microphone and speakers, the built-in ADPCM codec. Off by default.
+voice = ["dep:coop-voice", "coop-voice/capture"]
+# The same with the Opus codec (needs libopus to build).
+voice-opus = ["voice", "coop-voice/opus"]
 
 [dev-dependencies]
 testdata = { path = "../crates/testdata" }
@@ -119,6 +125,32 @@ opt-level = 3
 
 [profile.play-fast.package.host]
 opt-level = 3
+
+# The co-op edit loop (`cargo build --profile play-quick`, exe in target/play-quick/;
+# docs/FASTDEV.md): `play`, with the viewer crate itself and the co-op and world crates at
+# opt-level 1 as well, so a viewer or glue edit recompiles at the quickest code generation.
+# A new profile: release, play, play-fast and play-opt are untouched. Not measured at run time;
+# frame rates are measured on play-opt.
+[profile.play-quick]
+inherits = "play"
+
+[profile.play-quick.package.nv-viewer]
+opt-level = 1
+
+[profile.play-quick.package.world]
+opt-level = 1
+
+[profile.play-quick.package.coop-session]
+opt-level = 1
+
+[profile.play-quick.package.coop-core]
+opt-level = 1
+
+[profile.play-quick.package.coop-net]
+opt-level = 1
+
+[profile.play-quick.package.coop-policy]
+opt-level = 1
 
 # A fully optimised play build (`--profile play-opt`, exe in target/play-opt/; 2026-10-28): every
 # crate at opt-level 3 as in release, without the play profiles' incremental builds (their 256

@@ -1,0 +1,46 @@
+{
+  "name": "twin_live_extra_enemies_scaling",
+  "description": "MUTATION TWIN of live_extra_enemies_scaling: the cause is removed. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "some",
+      "path": "combat.extras_made",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "capped",
+      "path": "combat.extras_made",
+      "op": "le",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

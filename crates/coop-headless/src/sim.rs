@@ -4,16 +4,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use coop_core::ids::PlayerId;
-use coop_core::transport::ChaosProfile;
+use coop_core::transport::{ChaosProfile, VirtualClock};
 use coop_session::{Role, Session, SessionConfig};
 use world::coop::apply::Ctx;
 
 use crate::bot::is_bot_line;
 use crate::data::Data;
 use crate::json::J;
-use crate::net::{advance_clock, set_cut, Link};
+use crate::net::{advance_clock, set_cut, CtlRef, Link};
 use crate::peer::Peer;
-use crate::scenario::{Action, Scenario};
+use crate::scenario::{Action, Scenario, Side};
 use crate::verdict::{judge, Dir, PeerFacts, RelayFacts, RunFacts, Verdict};
 
 /// Options of one run.
@@ -59,15 +59,12 @@ fn fnv(bytes: &[u8]) -> u64 {
 
 /// A reason this scenario cannot run on this data (never guessed around).
 pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
-    if scn.new_game {
-        return Some("new_game needs the opening cell and character generation, which the simulator does not model".into());
-    }
     for side in [&scn.host, &scn.guest] {
         if let Some(a) = side.extra_args.iter().find(|a| a.as_str() != "--walk") {
             return Some(format!("viewer flag {a} has no headless model"));
         }
     }
-    let cell = scn.cell.as_deref().unwrap_or("");
+    let cell = scn.cell.as_deref().unwrap_or(coop_session::start::LOCAL_ROOM);
     if let Err(e) = d.place(cell) {
         return Some(format!("{e} (this folder has {} plugins; run against the full Data folder)", d.order.plugins().len()));
     }
@@ -80,7 +77,7 @@ pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
             if is_bot_line(r) {
                 let verb = words.get(1).map(|w| w.to_ascii_lowercase()).unwrap_or_default();
                 let refs = match verb.as_str() {
-                    "hit" | "talk" | "pick" | "lootopen" | "lootclose" | "travel" | "tether" => 1,
+                    "hit" | "talk" | "pick" | "lootopen" | "lootclose" | "travel" | "tether" | "cell" => 1,
                     "loottake" | "lootput" => 2,
                     _ => 0,
                 };
@@ -97,7 +94,7 @@ pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
 }
 
 /// People the scripts bring into the cell (the host tracks them once they stand there).
-fn add_named_people(p: &mut crate::data::Place, scn: &Scenario, d: &Data) {
+pub(crate) fn add_named_people(p: &mut crate::data::Place, scn: &Scenario, d: &Data) {
     for side in [&scn.host, &scn.guest] {
         for l in &side.script {
             let Action::Run(r) = &l.action else { continue };
@@ -130,8 +127,9 @@ fn dir_of(c: &crate::net::Ctl) -> Dir {
     Dir { inn: c.sent, forwarded: c.stats.released, dropped: c.stats.dropped + c.cut_drops, duplicated: c.stats.duplicated, reordered: c.stats.reordered }
 }
 
-fn cfg(name: &str, t: crate::net::SimLink) -> SessionConfig {
+fn cfg(name: &str, t: crate::net::SimLink, side: &crate::scenario::Side) -> SessionConfig {
     SessionConfig {
+        compat: coop_session::CompatConfig { exe: "1.4.0.525".into(), plugins: side.plugins.clone(), allow_mismatch: side.allow_mismatch, ..Default::default() },
         name: name.into(),
         session_id: 0xC00B,
         transport: Some(Box::new(t)),
@@ -141,8 +139,41 @@ fn cfg(name: &str, t: crate::net::SimLink) -> SessionConfig {
     }
 }
 
+type Built = (Peer, Peer, CtlRef, CtlRef, VirtualClock);
+
+/// A fresh link, two sessions and two peers; the party layer is attached when `party` is a
+/// directory.
+#[allow(clippy::too_many_arguments)]
+fn build_peers(scn: &Scenario, d: &Arc<Data>, place: &crate::data::Place, profile: ChaosProfile, seed: u64, hs: &Side, gsd: &Side, party: Option<&Path>, key: u64, o: &RunOpts) -> Result<Built, String> {
+    let link = Link::new(profile, seed);
+    let Link { host: lh, guest: lg, h2g, g2h, clock } = link;
+    let (mut hsn, mut gsn) = match (Session::host(cfg("Host", lh, hs)), Session::join(cfg("Guest 1", lg, gsd))) {
+        (Ok(h), Ok(g)) => (h, g),
+        (Err(e), _) | (_, Err(e)) => return Err(format!("session: {e}")),
+    };
+    hsn.set_start_config(coop_session::StartConfig { new_game: scn.new_game, ..Default::default() });
+    let own = if scn.new_game || scn.character_creation { coop_session::OwnCharacter::Create } else { coop_session::OwnCharacter::Skip };
+    gsn.set_start_config(coop_session::StartConfig { new_game: false, own });
+    // `host_cell`: the host starts in another cell than the guest (late join into another scene)
+    let mut host_place = place.clone();
+    if let Some(c) = scn.host_cell.as_deref().and_then(|c| d.form(c)) {
+        host_place.cell = c;
+        host_place.actors.clear();
+    }
+    let mut host = Peer::new(Role::Host, hsn, d, &host_place, hs, !o.talk_at_ready, o.fixed_glue);
+    let mut guest = Peer::new(Role::Guest, gsn, d, place, gsd, !o.talk_at_ready, o.fixed_glue);
+    if let Some(dir) = party {
+        crate::party::attach(&mut host, key, dir);
+        crate::party::attach(&mut guest, key, dir);
+    }
+    Ok((host, guest, h2g, g2h, clock))
+}
+
 /// Runs one scenario to a verdict.
 pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
+    if scn.guest_count() > 1 {
+        return crate::multi::run_as_result(scn, d, o);
+    }
     let seed = o.seed.unwrap_or(scn.seed);
     let mut scn = scn.clone();
     if let Some(n) = &o.net {
@@ -171,7 +202,8 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     if prof {
         eprintln!("prof: needs_assets {:.2} s", t_prof.elapsed().as_secs_f64());
     }
-    let place = match d.place(scn.cell.as_deref().unwrap_or("")) {
+    let cell_name = scn.cell.clone().unwrap_or_else(|| coop_session::start::LOCAL_ROOM.to_string());
+    let place = match d.place(&cell_name) {
         Ok(mut p) => {
             add_named_people(&mut p, &scn, d);
             p
@@ -185,17 +217,21 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         eprintln!("prof: place {:.2} s, {} people {:?}", t_prof.elapsed().as_secs_f64(), place.actors.len(), place.actors.iter().map(|a| a.0).collect::<Vec<_>>());
     }
     let profile = ChaosProfile::by_name(&scn.network).unwrap_or(ChaosProfile::PERFECT);
-    let link = Link::new(profile, seed);
-    let Link { host: lh, guest: lg, h2g, g2h, clock } = link;
-    let (hs, gsn) = match (Session::host(cfg("Host", lh)), Session::join(cfg("Guest 1", lg))) {
-        (Ok(h), Ok(g)) => (h, g),
-        (Err(e), _) | (_, Err(e)) => {
-            facts.harness_error = Some(format!("session: {e}"));
+    let party_dir: Option<PathBuf> = scn.party.as_ref().map(|_| {
+        let dir = std::env::temp_dir().join(format!("coop-sim-party-{}-{}-{}", std::process::id(), scn.name, seed));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    });
+    let key = scn.party.as_ref().map_or(0, |p| p.guest_key);
+    let (mut host, mut guest, mut h2g, mut g2h, mut clock) = match build_peers(&scn, d, &place, profile, seed, &scn.host, &scn.guest, party_dir.as_deref(), key, o) {
+        Ok(x) => x,
+        Err(e) => {
+            facts.harness_error = Some(e);
             return finish(facts, [String::new(), String::new()]);
         }
     };
-    let mut host = Peer::new(Role::Host, hs, d, &place, &scn.host, !o.talk_at_ready, o.fixed_glue);
-    let mut guest = Peer::new(Role::Guest, gsn, d, &place, &scn.guest, !o.talk_at_ready, o.fixed_glue);
+    let mut restarted = false;
     let _ = PlayerId::HOST;
     let cx = Ctx { order: &d.order, scripts: &d.scripts };
     let step_ms = (1000 / o.fps.max(1)) as u64;
@@ -232,9 +268,49 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         }
         host.frame(t, dt, d, cx);
         guest.frame(t, dt, d, cx);
-        if end_s.is_none() {
+        if end_s.is_none() && scn.expect_refused && guest.counters.compat_refused > 0 {
+            end_s = Some(t + 2.0 + scn.settle_s);
+        }
+                // "drop everything": both peers are replaced by new ones that start from the party save
+        if let (Some(pc), Some(dir), false) = (&scn.party, &party_dir, restarted) {
+            if let (Some(at), Some(a), Some(b)) = (pc.restart_at, host.ready_at, guest.ready_at) {
+                if t >= a.max(b) + at {
+                    restarted = true;
+                    let key2 = if pc.guest_same_key { pc.guest_key } else { pc.guest_key + 1 };
+                    match build_peers(&scn, d, &place, profile, seed ^ 0x5EC0, &pc.second_host, &pc.second_guest, Some(dir), key2, o) {
+                        Ok((h, g, a2, b2, c2)) => {
+                            (host, guest, h2g, g2h, clock) = (h, g, a2, b2, c2);
+                            if pc.host_loads {
+                                if let Err(e) = crate::party::restore_host(&mut host, d) {
+                                    facts.harness_error = Some(format!("party load: {e}"));
+                                    break;
+                                }
+                            }
+                            if pc.guest_offers_own {
+                                if let Some(f) = crate::party::guest_file(dir) {
+                                    guest.sess.party_guest_offer(f);
+                                }
+                            }
+                            armed_at = None;
+                            end_s = None;
+                            switched = scn.network == "perfect";
+                        }
+                        Err(e) => {
+                            facts.harness_error = Some(e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let restart_pending = scn.party.as_ref().is_some_and(|pc| pc.restart_at.is_some()) && !restarted;
+        if end_s.is_none() && !restart_pending {
             if let (Some(a), Some(b)) = (host.ready_at, guest.ready_at) {
-                end_s = Some(a.max(b) + scn.duration_s + scn.settle_s);
+                let dur = match (&scn.party, restarted) {
+                    (Some(pc), true) => pc.second_duration_s,
+                    _ => scn.duration_s,
+                };
+                end_s = Some(a.max(b) + dur + scn.settle_s);
             }
         }
         now_ms += step_ms;
@@ -251,6 +327,12 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     guest.finish(t, d);
     facts.host = peer_facts(&host, "host");
     facts.guest = peer_facts(&guest, "guest");
+    if scn.expect_refused {
+        // a refusal is the end state: it is logged as an error by the guest, and neither peer reaches ready
+        facts.host.ready = true;
+        facts.guest.ready = true;
+        facts.guest.errors.retain(|e| !e.contains("refused the connection"));
+    }
     facts.relay = RelayFacts {
         profile: scn.network.clone(),
         armed: armed_at.is_some(),
@@ -268,6 +350,9 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         write_out(dir, &scn, &facts, &host, &guest, d);
     }
     let dumps = [host.dump_text().to_string(), guest.dump_text().to_string()];
+    if let Some(dir) = &party_dir {
+        let _ = std::fs::remove_dir_all(dir);
+    }
     let r = finish(facts, dumps);
     if let Some(dir) = &o.out {
         let _ = std::fs::write(run_dir(dir, &scn, seed).join("verdict.json"), r.verdict.json.dump());

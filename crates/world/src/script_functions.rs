@@ -1106,7 +1106,10 @@ fn carry_out(
                     .is_some_and(|s| s.blocks.iter().any(|b| b.kind == "onactivate"));
                 if scripted {
                     let before = runner.state.events.len();
-                    runner.run_event(door, "onactivate", FormId(0));
+                    // `00573170` runs the block only fewer than 5 deep, so a
+                    // door whose own script calls `SetOpenState` on itself
+                    // stops after five levels.
+                    runner.run_activate_block(door, FormId(0));
                     let went_on = runner.state.events[before..]
                         .iter()
                         .any(|e| matches!(e, Event::Activate { what, .. } if *what == door));

@@ -34,6 +34,9 @@ pub mod tag {
     pub const LEVEL: u16 = 8;
     /// Reputation (data: fame f32 bits, infamy f32 bits).
     pub const REPUTATION: u16 = 9;
+    /// A dead actor (not a player): in the shared hash, so a lost kill
+    /// message is noticed and repaired.
+    pub const DEAD: u16 = 10;
     /// Done stages of a quest: `STAGES_BASE + stage / STAGES_CHUNK`.
     pub const STAGES_BASE: u16 = 0x1000;
     /// Stages per chunk (2 bytes each, well under the 512 byte limit).
@@ -122,7 +125,7 @@ pub fn domain_of(k: &Key) -> Domain {
             tag::SAID => Domain::Said,
             tag::TALKED => Domain::TalkedTo,
             tag::NOTE => Domain::Note,
-            tag::DESTROYED => Domain::Destroyed,
+            tag::DESTROYED | tag::DEAD => Domain::Destroyed,
             tag::STOCKED => Domain::Stocked,
             tag::MARKER => Domain::MapMarker,
             tag::PERK => Domain::Perk,
@@ -188,7 +191,7 @@ pub fn export(gs: &GameState) -> Fields {
         }
     }
     for (g, v) in &gs.globals {
-        let v = if gs.coop.clock.contains(g) { quantize_clock(*v) } else { *v };
+        let v = gs.coop_clock_exported(*g, *v).unwrap_or_else(|| if gs.coop.clock.contains(g) { quantize_clock(*v) } else { *v });
         put(*g, Field::global(v));
     }
     for t in &gs.topics {
@@ -205,6 +208,9 @@ pub fn export(gs: &GameState) -> Fields {
         for f in set.iter().filter(|f| !(t == tag::STOCKED && plan.is_some() && **f == PLAYER_REF)) {
             put(*f, custom(t, vec![1]));
         }
+    }
+    for f in gs.dead.iter().filter(|f| **f != PLAYER_REF && super::facts::player_of(**f).is_none()) {
+        put(*f, custom(tag::DEAD, vec![1]));
     }
     for (r, d) in &gs.disabled {
         put(*r, Field::RefDisabled { disabled: *d });

@@ -19,23 +19,30 @@ Test modes, selected with --fake MODE (never passed by the real runner config):
   error_event  log an error event
   repair       log three coop_repair events
   bad_exit     shut down cleanly but exit code 5
+
+With --coop-control PORT it also speaks the live control protocol (viewer/src/coop_control.rs):
+JSON lines on 127.0.0.1, requests handled on the main loop like the real viewer's frame.
+Extra modes for the control port: ctl_not_ready (state says ready:false), ctl_slow (state takes 2 s),
+ctl_hidden (the other player's puppet is not visible).
 """
 import hashlib
 import json
 import os
+import queue
 import re
 import socket
 import sys
+import threading
 import time
 
 FLAGS0 = {"--official", "--keep-root-transforms", "--walk", "--fps", "--talk", "--new-game", "--movies",
-          "--no-movies", "--no-hud", "--answer-boxes", "--background", "--freeze-ai", "--pad", "--coop-test-token"}
+          "--no-movies", "--no-hud", "--answer-boxes", "--background", "--freeze-ai", "--pad", "--coop-test-token", "--coop-no-chargen"}
 FLAGS1 = {"--plugins", "--ini", "--brightness", "--at", "--screenshot", "--wait", "--screen-size", "--choose",
           "--load-fos", "--character", "--weapon", "--weather-region", "--run", "--say", "--pipboy",
           "--pipboy-keys", "--lockpick", "--cloud-time", "--open-menu", "--use", "--menu-pointer",
           "--menu-click", "--menu-keys",
           "--coop-host", "--coop-join", "--coop-log", "--coop-state-dump", "--coop-quit-file",
-          "--coop-quit-after", "--fake"}
+          "--coop-quit-after", "--coop-control", "--fake", "--coop-name"}
 SPAWN = [2352.0, 1603.6, 7360.0, 0.0]
 WALK_SPEED = 150.0  # units a second in the fake; w/s move y, a/d move x
 FLAGS2 = {"--stage", "--run-at", "--key-at"}
@@ -126,6 +133,118 @@ class Fake:
         self.pending_script = sorted(o["run_at"])
         self.pending_keys = sorted(o.get("key_at", []))
         self.next_id = 1
+        self.ctl = queue.Queue()
+        self.ctl_quit = False
+
+    # ---- live control port (the real protocol: crates/coop-session/src/control.rs) ----
+    def ctl_start(self, port):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", port))
+        srv.listen(8)
+
+        def serve_conn(c):
+            f = c.makefile("rwb")
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    req = json.loads(raw.decode("utf-8"))
+                    if not isinstance(req, dict) or any(isinstance(v, (dict, list)) for v in req.values()):
+                        raise ValueError("expected a flat JSON object")
+                except ValueError as e:
+                    f.write((json.dumps({"ok": False, "cmd": "error", "error": str(e)}) + "\n").encode())
+                    f.flush()
+                    continue
+                box = queue.Queue()
+                self.ctl.put((req, box))
+                try:
+                    rep = box.get(timeout=30)
+                except queue.Empty:
+                    rep = {"ok": False, "cmd": req.get("cmd"), "error": "no answer from the viewer"}
+                if "id" in req:
+                    rep = dict({"id": req["id"]}, **rep)
+                f.write((json.dumps(rep) + "\n").encode())
+                f.flush()
+            c.close()
+
+        def accept():
+            while True:
+                try:
+                    c, _ = srv.accept()
+                except OSError:
+                    return
+                threading.Thread(target=serve_conn, args=(c,), daemon=True).start()
+
+        threading.Thread(target=accept, daemon=True).start()
+
+    def ctl_entities(self):
+        rows = [{"form": "000104C0", "name": "DocMitchellREF", "kind": "npc", "player": None, "pos": [2400.0, 1700.0, 7360.0],
+                 "heading": 0.0, "visible": True, "anim": 0, "anim_names": "idle"}]
+        if self.ready:
+            other = "guest" if self.role == "host" else "host"
+            rows.append({"form": "FF000001", "name": other, "kind": "puppet", "player": 1 if other == "guest" else 0,
+                         "pos": self.pos[other][:3], "heading": 0.0, "visible": self.mode != "ctl_hidden", "anim": 0,
+                         "anim_names": "idle"})
+        return rows
+
+    def ctl_counts(self, rows):
+        n = [r for r in rows if r["kind"] != "puppet"]
+        p = [r for r in rows if r["kind"] == "puppet"]
+        return {"npcs": len(n), "npcs_visible": sum(r["visible"] for r in n), "puppets": len(p),
+                "puppets_visible": sum(r["visible"] for r in p)}
+
+    def ctl_handle(self, req):
+        cmd = req.get("cmd")
+        ok = {"ok": True, "cmd": cmd}
+        if cmd == "state":
+            if self.mode == "ctl_slow":
+                time.sleep(2)
+            rows = self.ctl_entities()
+            r = dict(ok, role=self.role, ready=self.ready and self.mode != "ctl_not_ready", cell=self.o["pos"][-1], fps=60.0,
+                     t=round(time.monotonic() - self.t0, 2), counters={"lines_played": 0, "chat_in": 0, "travels": 0, "hits_sent": 0},
+                     state=self.state())
+            r.update(self.ctl_counts(rows))
+            return r
+        if cmd == "entities":
+            rows = self.ctl_entities()
+            return dict(ok, count=len(rows), entities=rows, **self.ctl_counts(rows))
+        if cmd in ("run", "bot"):
+            line = req.get("line")
+            if not line:
+                return {"ok": False, "cmd": cmd, "error": 'missing "line"'}
+            if cmd == "bot":
+                line = line if line.lower().startswith("coop ") else "coop " + line
+                self.run_cmd(line)
+                return dict(ok, how="bot")
+            if line.startswith("local ") or req.get("local") in (True, "true"):
+                self.run_cmd(line[6:] if line.startswith("local ") else line, local=True)
+                return dict(ok, how="local", flow="Done")
+            self.run_cmd(line)
+            if self.role == "host":
+                return dict(ok, how="host", flow="Done")
+            return dict(ok, how="sent")
+        if cmd == "keys":
+            key = req.get("key")
+            if not key:
+                return {"ok": False, "cmd": cmd, "error": 'missing "key"'}
+            el = (time.monotonic() - self.ready_at) if self.ready_at else 0.0
+            self.pending_keys.append((el + float(req.get("delay", 0)), "%s:%s" % (key, req.get("hold", 0.1))))
+            self.pending_keys.sort()
+            return dict(ok, key=key, hold=req.get("hold", 0.1), delay=req.get("delay", 0))
+        if cmd == "screenshot":
+            path = req.get("path")
+            if not path:
+                return {"ok": False, "cmd": cmd, "error": 'missing "path"'}
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(b"\x89PNG\r\n\x1a\n" + b"fake")
+            return dict(ok, path=path)
+        if cmd == "quit":
+            self.ctl_quit = True
+            return ok
+        return {"ok": False, "cmd": cmd, "error": 'unknown cmd "%s"' % cmd}
 
     def ev(self, name, **kw):
         if not self.log:
@@ -136,7 +255,7 @@ class Fake:
         self.log.flush()
 
     # ---- game commands ----
-    def run_cmd(self, cmd, via_intent=False):
+    def run_cmd(self, cmd, via_intent=False, local=False):
         """Apply one script line. On a guest, shared-state lines become intents."""
         self.ev("script", line=cmd)
         if cmd.startswith("local "):
@@ -156,7 +275,7 @@ class Fake:
         if not (m or g or a):
             self.ev("script_unknown", line=cmd)
             return
-        if self.role == "guest" and not via_intent:
+        if self.role == "guest" and not via_intent and not local:
             self.intents.append((self.next_id, cmd))
             self.next_id += 1
             return
@@ -280,12 +399,26 @@ class Fake:
             self.sock.bind(("127.0.0.1", 0))
         if self.mode == "error_event":
             self.ev("error", msg="fake error event")
+        if o.get("coop_control"):
+            self.ctl_start(int(o["coop_control"]))
         quit_after = float(o.get("coop_quit_after", 0)) or None
         next_send = next_dump = 0.0
         reason = None
         while reason is None:
             now = time.monotonic()
             self.pump()
+            while True:
+                try:
+                    req, box = self.ctl.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    box.put(self.ctl_handle(req))
+                except Exception as e:  # a bad request must not kill the fake
+                    box.put({"ok": False, "cmd": req.get("cmd"), "error": str(e)})
+            if self.ctl_quit:
+                reason = "control"
+                time.sleep(0.3)  # let the reply out, as the real viewer waits a few frames
             if now >= next_send:
                 next_send = now + 0.1
                 if self.role == "guest" and not self.ready and self.peer and self.mode != "no_connect":

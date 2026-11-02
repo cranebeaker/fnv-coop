@@ -1,0 +1,51 @@
+{
+  "name": "live_stealth_per_player",
+  "description": "The gecko notices the guest less once the guest sneaks.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 7,
+        "run": "coop probe VCG02Gecko1REF 700"
+      },
+      {
+        "at": 14,
+        "run": "coop probe VCG02Gecko1REF 700"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 10,
+        "run": "coop sneak 1"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "sneak-hides",
+      "path": "combat.probe_drop",
+      "op": "ge",
+      "value": 10,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

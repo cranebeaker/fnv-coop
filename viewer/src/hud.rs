@@ -653,6 +653,9 @@ pub struct HudState<'w, 's> {
     walkers: Query<'w, 's, &'static crate::ai::Walker>,
     /// Through a scope (`viewmodel::Scoped`): HUD mode 0x17.
     scoped: Res<'w, crate::viewmodel::Scoped>,
+    /// Co-op: teammates and pings for the compass (absent in single player).
+    coop_now: Option<Res<'w, crate::coop_live::LiveNow>>,
+    coop_book: Option<Res<'w, crate::coop_live::Book>>,
 }
 
 impl HudState<'_, '_> {
@@ -828,6 +831,10 @@ impl HudState<'_, '_> {
                     || world::factions::attacks_on_sight(order, state, t.reference, PLAYER_REF),
             })
             .collect();
+        let (mut markers, mut actors) = (markers, actors);
+        if let (Some(n), Some(b)) = (self.coop_now.as_deref(), self.coop_book.as_deref()) {
+            crate::coop_live::compass_extra(n, b, state, heading, &mut markers, &mut actors);
+        }
         let dead = state.dead.contains(&PLAYER_REF);
         // The XP meter's levels, from the game's settings as world reads
         // them; "in combat" as IsInCombat answers for the player.

@@ -113,6 +113,8 @@ def build_row(edid, q, meta, note):
     row = OrderedDict()
     row["edid"] = edid
     row["id"] = hexid(meta["id"])
+    # (plugin, local) is the stable key; id is the id the quest has when its plugin loads right after the base game
+    row["local"] = hexid(meta["id"] & 0xFFFFFF)
     if meta["synthetic"]:
         row["synthetic"] = True
     row["plugin"] = meta["plugin"]
@@ -309,7 +311,7 @@ def main():
 
     pol = rules["policy"]
     out = OrderedDict()
-    out["schema"] = 1
+    out["schema"] = 2
     out["policy"] = OrderedDict(
         death=OrderedDict(
             mode=pol["death"]["mode"],

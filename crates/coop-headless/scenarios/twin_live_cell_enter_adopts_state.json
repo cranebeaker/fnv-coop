@@ -1,0 +1,47 @@
+{
+  "name": "twin_live_cell_enter_adopts_state",
+  "description": "MUTATION TWIN of live_cell_enter_adopts_state: the guest never enters the cell. Marked expect_fail.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 18,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop hit TestGeckoRef 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 0,
+        "run": "coop cell D00001"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-adopted-actors",
+      "path": "live.roam.remote_actors",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-owns-none",
+      "path": "live.roam.owned.guest",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

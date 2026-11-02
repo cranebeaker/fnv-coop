@@ -121,6 +121,32 @@ impl Rig {
 }
 
 #[test]
+fn combat_actions_reach_the_other_guest_in_order_under_every_profile() {
+    use crate::avatar::ActionKind;
+    for (n, profile) in all_profiles().into_iter().enumerate() {
+        let name = profile.name;
+        let mut r = Rig::new(profile, 700 + n as u64);
+        r.g(0).live.local = at(1, 0.0);
+        r.g(1).live.local = at(1, 20.0);
+        r.run_ms(1_500);
+        for k in 0..6u32 {
+            let m = r.g(0).live.action(if k % 2 == 0 { ActionKind::Swing } else { ActionKind::Shoot }, k);
+            r.guest_send(0, m);
+            r.run_ms(150);
+        }
+        let mut got = Vec::new();
+        let ok = r.run_until(90_000, |r| {
+            got.extend(r.g(1).live.take_actions());
+            got.len() >= 6
+        });
+        assert!(ok, "{name}: only {} of 6 action events arrived", got.len());
+        let args: Vec<u32> = got.iter().map(|(_, a)| a.arg).collect();
+        assert_eq!(args, vec![0, 1, 2, 3, 4, 5], "{name}: order");
+        assert!(got.iter().all(|(p, _)| *p == G1), "{name}: sender");
+    }
+}
+
+#[test]
 fn actor_handoff_across_cells_under_every_profile() {
     for (n, profile) in all_profiles().into_iter().enumerate() {
         let name = profile.name;

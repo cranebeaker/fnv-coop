@@ -1,0 +1,14 @@
+{
+  "area": "SAVE",
+  "rows": [
+    {"id": "save.party_save", "area": "SAVE", "title": "Party save: campaign id, host world and each guest character saved together", "proves": "Continue loads a matching set", "tests": ["scenario:live_party_save"], "source": "08 1.7"},
+    {"id": "save.guest_character", "area": "SAVE", "title": "Guest's own character persists across sessions", "proves": "the guest's sheet is saved and restored", "tests": ["scenario:live_guest_character_persist"], "source": "08 1.7"},
+    {"id": "save.host_quicksave", "area": "SAVE", "title": "Host quicksave during a session; held during scenes", "proves": "saves are refused while a scene holds them", "tests": ["questwalk:all#policy"], "source": "08 1.7"},
+    {"id": "save.format", "area": "SAVE", "title": "Save format", "proves": "text save round trip", "tests": ["scenario:live_save_roundtrip"], "source": "08 1.7"},
+    {"id": "save.new_game", "area": "SAVE", "title": "New game start flow and character creation per player", "proves": "opening, chargen for each player, guest joins later", "tests": ["scenario:live_new_game_start"], "twin": true, "fidelity": "modelled", "stand_in": "viewer per-frame glue (bot, movement, menus) modelled in coop-headless peer.rs", "source": "08 1.7 / list D"},
+    {"id": "save.continue", "area": "SAVE", "title": "Continue", "proves": "load the last party save", "tests": ["scenario:live_party_continue"], "source": "list D"},
+    {"id": "save.launcher", "area": "SAVE", "title": "Launcher: install detection, host and join, join code, port test, logs without user name", "proves": "the launcher builds the right command lines", "tests": ["cargo:nv-launcher"], "backend": "agnostic", "source": "08 1.7 / list D launcher command lines"},
+    {"id": "save.install_detect", "area": "SAVE", "title": "Install detection Steam, GOG, retail", "proves": "the install is found", "tests": ["cargo:nv-launcher"], "backend": "agnostic", "source": "08 1.7"},
+    {"id": "save.split_screen", "area": "SAVE", "title": "Split-screen on one PC", "proves": "two views in one window", "tests": [], "source": "08 1.7"}
+  ]
+}

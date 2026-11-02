@@ -143,6 +143,13 @@ impl TestKeys {
         }
     }
 
+    /// Queues a press `delay` seconds from `now` (the control port); before the clock has
+    /// started the delay counts from when it does.
+    pub fn press_in(&mut self, now: f32, delay: f32, what: Press, hold: f32) {
+        let at = self.started.map_or(delay, |t| now - t + delay);
+        self.presses.push(TimedPress { at, what, hold });
+    }
+
     /// What to press and release `since` seconds after the start.
     fn step(&mut self, since: f32) -> (Vec<Press>, Vec<Press>) {
         let mut down = Vec::new();

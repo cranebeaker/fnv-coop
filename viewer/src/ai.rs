@@ -3567,6 +3567,20 @@ fn seen(
             seated: state.sitters.contains_key(&walker.reference),
         });
     }
+    // The other players (co-op): real targets at their real places, moving as
+    // they move, whether or not their puppet is on screen.
+    for (reference, position, moving, running) in world::coop::combat_live::remote_seen(state) {
+        if !out.iter().any(|o| o.reference == reference) {
+            out.push(crate::fighting::Seen {
+                reference,
+                position,
+                moving,
+                running,
+                attacking: false,
+                radius: world::combat_ai::PERSON_RADIUS,
+            });
+        }
+    }
     (out, obstacles)
 }
 

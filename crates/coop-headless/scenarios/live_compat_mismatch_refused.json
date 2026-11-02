@@ -1,0 +1,45 @@
+{
+  "name": "live_compat_mismatch_refused",
+  "description": "The guest lacks a plugin the host has: the handshake refuses it with a message naming the plugin; the guest never joins and the host is told.",
+  "cell": "GSDocMitchellHouse",
+  "network": "perfect",
+  "seed": 74,
+  "duration_s": 6,
+  "settle_s": 2,
+  "hash_check": false,
+  "expect_refused": true,
+  "host": {
+    "plugins": [
+      "FalloutNV.esm",
+      "DeadMoney.esm"
+    ]
+  },
+  "guest": {
+    "plugins": [
+      "FalloutNV.esm"
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-refused",
+      "path": "live.compat_refused",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "host-told",
+      "path": "live.compat_refused",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "nobody-joined",
+      "path": "live.avatars",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    }
+  ]
+}

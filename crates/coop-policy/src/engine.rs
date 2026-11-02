@@ -100,6 +100,9 @@ pub enum EventKind {
     Save,
     /// A guest asks to run a script locally. `script` is a form id.
     GuestScript { script: FormId },
+    /// A player hit `victim`, given as aliases joined by `|` (editor id and 8-digit hex);
+    /// `recent` earlier hits by that player fell inside the window.
+    Hit { victim: String, recent: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +190,8 @@ pub enum Reject {
     Declined,
     TimedOut,
     GuestScriptSuppressed,
+    /// A deliberate hit on a protected actor after the allowed number.
+    FriendlyFire,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +216,14 @@ fn reject(r: Reject) -> Decision {
 /// Convenience free function.
 pub fn decide(table: &PolicyTable, event: &Event, state: &State) -> Decision {
     table.decide(event, state)
+}
+
+/// Two form references name the same form: `plugin:id` against 8-digit hex compare by local id.
+pub fn same_form(a: &str, b: &str) -> bool {
+    match (local_id(a), local_id(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => a.eq_ignore_ascii_case(b),
+    }
 }
 
 fn local_id(s: &str) -> Option<u32> {
@@ -271,6 +284,7 @@ impl PolicyTable {
                     Decision::Apply
                 }
             }
+            EventKind::Hit { victim, recent } => self.friendly_fire(row, victim, *recent),
             EventKind::GuestScript { script } => match event.origin {
                 Origin::Host => Decision::Apply,
                 Origin::Player(_) => {
@@ -392,7 +406,7 @@ impl PolicyTable {
             },
             RewardKind::Perk(p) => {
                 let perks = row.perks.as_ref();
-                let hit = |l: &Vec<String>| l.iter().any(|x| x == p);
+                let hit = |l: &Vec<String>| l.iter().any(|x| p.split('|').any(|alias| same_form(x, alias)));
                 match perks {
                     // The recruiter is the player who ran the recruit conversation.
                     Some(pk) if hit(&pk.initiator) || hit(&pk.recruiter) => (initiator_mask, FanOut::Full),
@@ -574,5 +588,30 @@ impl PolicyTable {
             return reject(Reject::TimedOut);
         }
         Decision::DeferToBarrier { barrier: BarrierKind::ReadyCheck, waiting: present.minus(yes), timeout_s: r.timeout_s }
+    }
+
+    fn friendly_fire(&self, row: &QuestRow, victim: &str, recent: u32) -> Decision {
+        match &row.friendly_fire {
+            Some(ff) if ff.actors.iter().any(|a| victim.split('|').any(|al| same_form(a, al))) => {
+                if recent + 1 > ff.deliberate_hits {
+                    reject(Reject::FriendlyFire)
+                } else {
+                    Decision::Apply
+                }
+            }
+            _ => Decision::Apply,
+        }
+    }
+
+    /// Quests whose friendly-fire guard protects `victim`.
+    pub fn guards_for(&self, victim: &str) -> Vec<&QuestRow> {
+        self.rows()
+            .iter()
+            .filter(|r| {
+                r.friendly_fire
+                    .as_ref()
+                    .is_some_and(|ff| ff.actors.iter().any(|a| victim.split('|').any(|al| same_form(a, al))))
+            })
+            .collect()
     }
 }

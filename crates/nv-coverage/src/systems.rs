@@ -1,0 +1,97 @@
+//! Which game system a script function belongs to, by its name. A keyword
+//! heuristic (first rule that matches wins); it only groups the report.
+
+pub const GROUPS: [&str; 11] = [
+    "quests",
+    "dialogue",
+    "combat",
+    "inventory",
+    "UI",
+    "sound",
+    "camera",
+    "world",
+    "actors",
+    "NVSE-only",
+    "other",
+];
+
+const RULES: &[(&str, &[&str])] = &[
+    (
+        "quests",
+        &["stage", "quest", "objective", "journal", "completeallobjectives", "failquest"],
+    ),
+    (
+        "dialogue",
+        &["say", "topic", "dialogue", "greeting", "talk", "conversation", "voice", "info", "lipsync", "forceflee"],
+    ),
+    (
+        "combat",
+        &[
+            "attack", "combat", "weapon", "damage", "hit", "kill", "dead", "explo", "projectile", "aim", "vats",
+            "fire", "shoot", "ammo", "crippled", "limb", "stagger", "knock", "bullet", "melee", "target", "threat",
+            "criticalstage", "disintegrate", "fatal", "swing", "block", "recoil",
+        ],
+    ),
+    (
+        "inventory",
+        &[
+            "item", "inventory", "equip", "weight", "barter", "container", "repair", "drop", "craft", "recipe", "mod",
+            "pickup", "steal", "stock", "cash", "caps", "gold", "ingredient", "armor", "clothes", "outfit",
+        ],
+    ),
+    (
+        "UI",
+        &[
+            "message", "menu", "tutorial", "pipboy", "terminal", "hud", "show", "hack", "lockpick", "tile", "hotkey",
+            "help", "sleep", "rest", "hardcore", "challenge", "perk", "karma", "reputation", "notification", "button",
+            "tag", "levelup", "xp", "experience", "skill", "award",
+        ],
+    ),
+    ("sound", &["sound", "music", "play", "radio", "volume", "audio", "ambient", "lip", "stopsound"]),
+    ("camera", &["camera", "fov", "look", "cinematic", "control", "fade", "shake", "vanity", "firstperson", "freefly", "screen", "image", "imod"]),
+    (
+        "world",
+        &[
+            "enable", "disable", "moveto", "cell", "weather", "door", "placeatme", "position", "angle", "light",
+            "scale", "world", "time", "fast", "marker", "navmesh", "water", "grass", "trigger", "activate", "lock",
+            "region", "reference", "ref", "dist", "sky", "day", "hour", "move", "rotate", "global", "game", "load",
+            "save", "delete", "create", "furniture", "linked", "owner", "script",
+        ],
+    ),
+    (
+        "actors",
+        &[
+            "actor", "package", "ai", "faction", "race", "sex", "level", "companion", "follow", "sandbox", "wait",
+            "npc", "creature", "health", "value", "av", "crime", "bounty", "alarm", "detect", "sneak", "stealth",
+            "mount", "idle", "anim", "play", "dismount", "sit", "sleep", "pursue", "flee", "unconscious", "essential",
+            "protected", "restrained", "paralyze", "teammate", "is", "get", "set", "mod", "force", "reset", "resurrect",
+        ],
+    ),
+];
+
+/// The group of a function (xNVSE and plugin functions are `NVSE-only`).
+pub fn group_of(name: &str, opcode: u16) -> &'static str {
+    if opcode >= script::nvse::FIRST_OPCODE {
+        return "NVSE-only";
+    }
+    let lower = name.to_ascii_lowercase();
+    for (group, keys) in RULES {
+        if keys.iter().any(|k| lower.contains(k)) {
+            return group;
+        }
+    }
+    "other"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn groups_by_name() {
+        assert_eq!(group_of("SetStage", 0x1000), "quests");
+        assert_eq!(group_of("AddItem", 0x1000), "inventory");
+        assert_eq!(group_of("PlaySound", 0x1000), "sound");
+        assert_eq!(group_of("Whatever", 0x1500), "NVSE-only");
+    }
+}

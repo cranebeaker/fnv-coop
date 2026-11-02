@@ -1,0 +1,35 @@
+{
+  "name": "live_late_join_other_cell",
+  "description": "The host starts in another cell than the guest; on joining, the host places the guest where the party is. Headless only: runs on the generated test data (cell TestFightCell) and uses the `coop cell` bot verb, which the viewer bot does not have.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "host_cell": "D00001",
+  "duration_s": 12,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-placed-with-host",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 13631489,
+      "on": "both"
+    },
+    {
+      "id": "views-agree",
+      "path": "live.roam.cells.guest",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

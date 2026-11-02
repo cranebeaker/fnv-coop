@@ -5,6 +5,8 @@
     python -I tools/coop-run/runner.py clean  SCENARIO.json [--n 3] [--vary-seed]
     python -I tools/coop-run/runner.py suite  DIR_OR_FILES... [--n 3]
     python -I tools/coop-run/runner.py selftest
+    python -I tools/coop-run/runner.py run SCENARIO.json --attach host:PORT guest:PORT
+        (replay it on viewers already running with --coop-control; see live.py)
 
 Each run writes <out>/<scenario>/<stamp>-<n>/verdict.json plus the raw logs. The last
 output line is `RESULT: PASS ...` or `RESULT: FAIL <class> ...`. Exit code 0 pass, 1 fail,
@@ -135,67 +137,92 @@ def rerun_hint(scn_path, cfg_path, seed):
 
 
 def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0, log=print):
-    """Run one scenario once. Returns the verdict dict (also written to run_dir/verdict.json)."""
+    """Run one scenario once. Returns the verdict dict (also written to run_dir/verdict.json).
+    A scenario with "guests": [..] runs one host and up to three guests, each guest on its own
+    relay (and so its own seeded chaos stream) to the host."""
     seed = scn["seed"] if seed is None else seed
     os.makedirs(run_dir, exist_ok=True)
     f = lambda n: os.path.join(run_dir, n)  # noqa: E731
     started = time.monotonic()
     deadline = started + scn["timeout_s"]
-    host_port = free_udp_port(cfg["base_port"] + 4 * slot)
-    relay_port = free_udp_port(host_port + 1)
-    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit")} for r in ("host", "guest")}
+    n_guests = len(scn.get("guests") or [1])
+    roles = scn_mod.ROLES[:1 + n_guests]
+    host_port = free_udp_port(cfg["base_port"] + 8 * slot)
+    relay_ports = []
+    nxt = host_port + 1
+    for _ in range(n_guests):
+        rp = free_udp_port(nxt)
+        relay_ports.append(rp)
+        nxt = rp + 1
+    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit")} for r in roles}
     run = {"run_id": os.path.basename(run_dir), "seed": seed, "rerun": rerun_hint(scn_path, cfg_path, seed),
-           "host": {"log": files["host"]["log"], "state": files["host"]["state"]},
-           "guest": {"log": files["guest"]["log"], "state": files["guest"]["state"]},
            "relay": None, "timed_out_run": False, "harness_error": None}
+    for r in roles:
+        run[r] = {"log": files[r]["log"], "state": files[r]["state"]}
     procs = {}
-    relay_proc = None
-    stats_path = f("relay.stats.json")
+    relay_procs = []
+
+    def relay_name(i, ext):
+        return f("relay.%s" % ext) if i == 0 else f("relay%d.%s" % (i + 1, ext))
+
+    stats_path = relay_name(0, "stats.json")
     try:
         sched = scn_mod.relay_schedule(scn)
         with open(f("relay.schedule.json"), "w", encoding="utf-8") as fh:
             json.dump(sched, fh)
-        relay_cmd = [cfg["python"], "-I", os.path.join(HERE, "chaos_relay.py"),
-                     "--listen", str(relay_port), "--target", "127.0.0.1:%d" % host_port,
-                     "--profile", scn["network"], "--seed", str(seed), "--schedule", f("relay.schedule.json"),
-                     "--stats", stats_path, "--log", f("relay.log.jsonl"), "--stop-file", f("relay.stop"),
-                     "--ready-file", f("relay.ready")]
-        relay_proc = Proc("relay", relay_cmd, f("relay.stdout.txt"))
-        if relay_proc.launch_error:
-            raise RuntimeError("relay: " + relay_proc.launch_error)
-        _wait(lambda: os.path.exists(f("relay.ready")) or not relay_proc.alive(), 10)
-        if not os.path.exists(f("relay.ready")):
-            raise RuntimeError("relay did not start: " + relay_proc.tail())
+        for i, rp in enumerate(relay_ports):
+            relay_cmd = [cfg["python"], "-I", os.path.join(HERE, "chaos_relay.py"),
+                         "--listen", str(rp), "--target", "127.0.0.1:%d" % host_port,
+                         "--profile", scn["network"], "--seed", str(seed + 7919 * i), "--schedule", f("relay.schedule.json"),
+                         "--stats", relay_name(i, "stats.json"), "--log", relay_name(i, "log.jsonl"),
+                         "--stop-file", relay_name(i, "stop"), "--ready-file", relay_name(i, "ready")]
+            rproc = Proc("relay", relay_cmd, relay_name(i, "stdout.txt"))
+            relay_procs.append(rproc)
+            if rproc.launch_error:
+                raise RuntimeError("relay: " + rproc.launch_error)
+        for i, rproc in enumerate(relay_procs):
+            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), 10)
+            if not os.path.exists(relay_name(i, "ready")):
+                raise RuntimeError("relay did not start: " + rproc.tail())
 
         # a quit request must outlast the script plus the settle window; the backstop is longer
         script_end = scn["duration_s"] + scn["settle_s"]
         backstop = script_end + cfg["grace_s"] + 30
-        host_args = scn_mod.viewer_args(scn, "host", cfg["data"], {"host": host_port}, files["host"], backstop,
-                                        cfg["background"], cfg["screen_size"])
-        guest_args = scn_mod.viewer_args(scn, "guest", cfg["data"], {"join": "127.0.0.1:%d" % relay_port},
-                                         files["guest"], backstop, cfg["background"], cfg["screen_size"])
-        log("host  port %d, relay port %d, profile %s, seed %d" % (host_port, relay_port, scn["network"], seed))
-        procs["host"] = Proc("host", cfg["viewer"] + host_args, f("host.stdout.txt"))
+        args = {"host": scn_mod.viewer_args(scn, "host", cfg["data"], {"host": host_port}, files["host"], backstop,
+                                            cfg["background"], cfg["screen_size"])}
+        for i, r in enumerate(roles[1:]):
+            args[r] = scn_mod.viewer_args(scn, r, cfg["data"], {"join": "127.0.0.1:%d" % relay_ports[i]},
+                                          files[r], backstop, cfg["background"], cfg["screen_size"])
+        log("host  port %d, relay port(s) %s, profile %s, seed %d, %d guest(s)" %
+            (host_port, ",".join(str(p) for p in relay_ports), scn["network"], seed, n_guests))
+        procs["host"] = Proc("host", cfg["viewer"] + args["host"], f("host.stdout.txt"))
         if not procs["host"].launch_error:
             _wait(lambda: _has_event(files["host"]["log"], "coop_listening") or not procs["host"].alive(),
                   min(cfg["launch_timeout_s"], deadline - time.monotonic()))
         if not procs["host"].launch_error and procs["host"].alive():
-            procs["guest"] = Proc("guest", cfg["viewer"] + guest_args, f("guest.stdout.txt"))
+            for r in roles[1:]:
+                procs[r] = Proc(r, cfg["viewer"] + args[r], f(r + ".stdout.txt"))
+        all_up = all(r in procs and not procs[r].launch_error for r in roles)
+
+        def ready_all():
+            return all(_has_event(files[r]["log"], "coop_ready") for r in roles)
+
+        def all_alive():
+            return all(p.alive() for p in procs.values())
+
         both_ready = False
-        if "guest" in procs and not procs["guest"].launch_error:
-            both_ready = _wait(
-                lambda: (_has_event(files["host"]["log"], "coop_ready") and _has_event(files["guest"]["log"], "coop_ready"))
-                or not (procs["host"].alive() and procs["guest"].alive()),
-                min(cfg["launch_timeout_s"], deadline - time.monotonic()))
-            both_ready = both_ready and _has_event(files["host"]["log"], "coop_ready") and _has_event(files["guest"]["log"], "coop_ready")
+        if all_up:
+            both_ready = _wait(lambda: ready_all() or not all_alive(),
+                               min(cfg["launch_timeout_s"], deadline - time.monotonic()))
+            both_ready = both_ready and ready_all()
         if both_ready:
-            log("both peers ready; running %.0f s + %.0f s settle" % (scn["duration_s"], scn["settle_s"]))
+            log("all %d peers ready; running %.0f s + %.0f s settle" % (len(roles), scn["duration_s"], scn["settle_s"]))
             end = min(time.monotonic() + script_end, deadline)
-            _wait(lambda: not (procs["host"].alive() and procs["guest"].alive()), max(0, end - time.monotonic()))
+            _wait(lambda: not all_alive(), max(0, end - time.monotonic()))
             if time.monotonic() >= deadline:
                 run["timed_out_run"] = True
         # quit request, then wait for our own children to leave
-        for r in ("host", "guest"):
+        for r in roles:
             _touch(files[r]["quit"])
         grace_end = time.monotonic() + cfg["grace_s"]
         _wait(lambda: not any(p.alive() for p in procs.values()), max(0, grace_end - time.monotonic()))
@@ -210,11 +237,12 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             if p.alive():
                 p.timed_out = True
                 p.stop()
-        if relay_proc and not relay_proc.launch_error:
-            _touch(f("relay.stop"))
-            _wait(lambda: not relay_proc.alive(), 5)
-            relay_proc.stop()
-    for r in ("host", "guest"):
+        for i, rproc in enumerate(relay_procs):
+            if not rproc.launch_error:
+                _touch(relay_name(i, "stop"))
+                _wait(lambda: not rproc.alive(), 5)
+                rproc.stop()
+    for r in roles:
         p = procs.get(r)
         if p is not None:
             run[r].update(exit_code=None if p.launch_error else p.p.returncode, timed_out=p.timed_out,
@@ -222,7 +250,7 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
         else:
             run[r].update(exit_code=None, timed_out=False, launch_error=None if run["harness_error"] is None else "not started",
                           stdout_tail="")
-    for p in list(procs.values()) + ([relay_proc] if relay_proc else []):
+    for p in list(procs.values()) + relay_procs:
         p.close()
     run["relay"] = verdict_mod.read_json(stats_path)
     run["duration_s"] = time.monotonic() - started
@@ -287,6 +315,9 @@ def main(argv=None):
         sp.add_argument("--config")
         sp.add_argument("--out")
         sp.add_argument("--seed", type=int)
+        if name == "run":
+            sp.add_argument("--attach", nargs=2, metavar=("HOST:PORT", "GUEST:PORT"),
+                            help="run against viewers already started with --coop-control (no launch, no relay)")
         if name != "run":
             sp.add_argument("--n", type=int, default=3)
             sp.add_argument("--vary-seed", action="store_true")
@@ -299,6 +330,17 @@ def main(argv=None):
             print("SCORER SELFTEST FAIL:", p)
         print("RESULT: %s scorer selftest" % ("FAIL" if probs else "PASS"))
         return 1 if probs else 0
+    if a.cmd == "run" and a.attach:
+        import live
+        try:
+            s = scn_mod.load(a.scenarios[0])
+            host, guest = live.peer_from(a.attach[0]), live.peer_from(a.attach[1])
+        except (scn_mod.ScenarioError, live.LiveError, OSError, ValueError) as e:
+            print("RESULT: FAIL config: %s" % e)
+            return 2
+        res = live.replay(s, host, guest, log=print)
+        live.report(s, res)
+        return 0 if res["passed"] else 1
     try:
         cfg = load_config(a.config)
         files = []
@@ -308,6 +350,10 @@ def main(argv=None):
             else:
                 files.append(s)
         scns = [(p, scn_mod.load(p)) for p in files]
+        for p, s in scns:
+            if s.get("headless_only"):
+                print("SKIP %s: headless-only (it restarts both peers from a party save); run it with coop-sim" % p)
+        scns = [(p, s) for p, s in scns if not s.get("headless_only")]
     except (ConfigError, scn_mod.ScenarioError, OSError, ValueError) as e:
         print("RESULT: FAIL config: %s" % e)
         return 2

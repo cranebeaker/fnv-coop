@@ -19,27 +19,42 @@
 
 #![warn(missing_docs)]
 
+pub mod control;
 pub mod dump;
 pub mod ext;
 pub mod json;
 pub mod link;
 pub mod live;
 mod live_loot;
+mod live_roam;
+mod live_combat;
 pub mod net;
 pub mod out;
+pub mod policy_ids;
+pub mod party;
 #[cfg(feature = "steam")]
 pub mod steam_transport;
 mod session;
+pub mod start;
+pub mod live_extra;
 pub mod target;
 
 pub use coop_core::transport::ChaosProfile;
-pub use coop_core::avatar::{FLAG_DRAWN, FLAG_SNEAK};
+pub use coop_core::avatar::{ActionKind, AvatarAction, FLAG_DRAWN, FLAG_SNEAK};
 pub use coop_core::ids::PlayerId;
-pub use coop_core::rules::VoteKind;
+pub use coop_core::interact;
+pub use coop_core::social::compass;
+pub use coop_core::compat;
+pub use coop_core::rules::{Prompt, VoteKind};
+pub use coop_core::scene::SceneKind;
 pub use ext::{Command, PeerInfo, Place};
 pub use dump::LiveCounters;
-pub use live::{ActorView, ChatView, DialogueView, Intent, LiveFlags, LiveView, MarkerView, RemoteAvatarView};
-pub use session::{Event, Session, SessionConfig, State, Status};
+pub use live_extra::VoiceFrame;
+pub use live_roam::RoamView;
+pub use party::PartyEvent;
+pub use live::{ActorRow, ActorView, SpawnedView, ChatView, DialogueView, Intent, LiveFlags, LiveView, MarkerView, RemoteAvatarView};
+pub use session::{CompatConfig, Event, Session, SessionConfig, State, Status};
+pub use start::{Action as StartAction, OwnCharacter, Opening, Phase, Sheet, StartConfig, StartFlow, StartInfo, Step, Venue};
 pub use target::{JoinTarget, DEFAULT_PORT};
 
 /// Which side of the session this process is.

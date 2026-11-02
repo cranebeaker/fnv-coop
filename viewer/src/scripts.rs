@@ -229,6 +229,10 @@ pub fn door_opens(
             return false;
         }
     }
+    // co-op: a guest runs no scripts; the host runs the door's and decides
+    if state.is_guest() {
+        return true;
+    }
     let has_script = world::scripting::script_of(order, door)
         .and_then(|s| cache.script(order, s))
         .is_some_and(|s| s.blocks.iter().any(|b| b.kind == "onactivate"));
@@ -399,6 +403,12 @@ fn use_object(
         // Its script's `OnAdd` blocks run with the scripted items
         // (`Runner::run_item_scripts`; Caravan cards join the player's
         // cards and leave the inventory).
+        // co-op: first claim wins; a guest asks the host, which gives it to them
+        if state.coop_route(world::coop::interact::pickup_act(r.reference, r.base, r.count.max(1) as u32))
+            == world::coop::interact::Route::Remote
+        {
+            return Some(Used::Taken);
+        }
         state.pick_up(order, r.reference, r.base, r.count);
         if let Some(owner) = owner.filter(|_| !world::crime::may_take(order, state, owner)) {
             // A note (`BGSNote::Activate`, `005e9360`): only the karma.
@@ -657,7 +667,11 @@ pub struct LoadRequest(pub bool);
 
 /// A loaded world cannot retain trigger occupancy or a seat from the world
 /// it replaces, even when the saved player is in the same cell.
-fn restore_script_state(state: &mut GameState, cells: &mut CellScripts, loaded: GameState) {
+fn restore_script_state(state: &mut GameState, cells: &mut CellScripts, mut loaded: GameState) {
+    // A co-op host keeps its session (authority, policy, the guests' parked characters).
+    if state.coop.authority != world::coop::Authority::Single {
+        world::coop::party_char::carry_coop(state, &mut loaded, None);
+    }
     *state = loaded;
     *cells = CellScripts::default();
 }
@@ -756,10 +770,11 @@ pub fn save_and_load(
     mut player_idle: ResMut<crate::player_idle::PlayerIdle>,
     mut cell_scripts: ResMut<CellScripts>,
     mut seats: ResMut<crate::sitting::Seats>,
-    (mut start_pitch, mut request, mut menu_saves): (
+    (mut start_pitch, mut request, mut menu_saves, mut party): (
         ResMut<crate::StartPitch>,
         ResMut<LoadRequest>,
         ResMut<crate::game_menus::start::SaveFiles>,
+        Option<ResMut<crate::coop_party::PartyBridge>>,
     ),
 ) {
     let now = time.elapsed_secs();
@@ -784,6 +799,17 @@ pub fn save_and_load(
         }
         _ => None,
     };
+    // A co-op guest saves and loads only its own character (`coop_party`), never the world.
+    let guest = party.as_ref().is_some_and(|p| p.guest);
+    let (save_to, load_from) = if guest {
+        if let Some(p) = party.as_mut() {
+            p.guest_save |= save_to.is_some();
+            p.guest_load |= load_from.is_some();
+        }
+        (None, None)
+    } else {
+        (save_to, load_from)
+    };
     if let Some(save_to) = save_to {
         let place = cameras.single().ok().and_then(|(t, input)| {
             let eye = game_point(t.translation);
@@ -806,7 +832,12 @@ pub fn save_and_load(
             )
             .and_then(|camera| save_camera(&save_to, &mut state.0, place, camera));
         match result {
-            Ok(()) => say(format!("Saved ({save_to}).")),
+            Ok(()) => {
+                say(format!("Saved ({save_to})."));
+                if let Some(p) = party.as_mut() {
+                    p.host_saved.push(save_to.clone().into());
+                }
+            }
             Err(e) => say(format!("Couldn't save: {e}")),
         }
     }
@@ -827,6 +858,11 @@ pub fn save_and_load(
                 )
             });
         queue_reload_cleanup(&mut commands, &result);
+        if result.is_ok() {
+            if let Some(p) = party.as_mut() {
+                p.host_loaded.push(load_from.clone().into());
+            }
+        }
         match result {
             Ok(true) => say("Loaded.".into()),
             Ok(false) => say("Loaded (the save doesn't say where the player was).".into()),
@@ -1727,7 +1763,10 @@ pub fn run_scripts(
             // Played by `movie::start_movies`, before anything else moves.
             Event::Video(video) => {
                 println!("A script plays the movie {}.", video.file);
-                movies.queue.push_back(video);
+                // co-op: the scene layer starts it on every machine together
+                if !state.coop_scene_owns_movies() {
+                    movies.queue.push_back(video);
+                }
                 None
             }
             // Played by `music::play_music`.

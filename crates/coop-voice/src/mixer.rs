@@ -153,11 +153,14 @@ impl Sender {
             Some(VoicePacket { flags, codec: self.codec.id(), speaker: self.speaker, seq, timestamp: ts, payload })
         } else if self.talking {
             self.talking = false;
+            // the end marker has its own sequence number: the next utterance must not reuse it
+            let seq = self.seq;
+            self.seq = self.seq.wrapping_add(1);
             Some(VoicePacket {
                 flags: FLAG_END_OF_TALK,
                 codec: self.codec.id(),
                 speaker: self.speaker,
-                seq: self.seq,
+                seq,
                 timestamp: ts,
                 payload: Vec::new(),
             })

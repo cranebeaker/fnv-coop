@@ -1,0 +1,56 @@
+{
+  "name": "live_craft_per_player",
+  "description": "The host gives the guest the ingredients for the first recipe in the data that needs no skill (any:noskill, the same on both peers). The guest crafts it twice at a bench. The crafting is the guest's own: the host spends and gains nothing, the guest's pack is the same on both peers, and the verdict is counted. The recipe-specific numbers are covered on a generated world by crates/world/tests/coop_interact_items.rs.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 65,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop givefor 1 any:noskill 2"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 10,
+        "run": "coop craft DocMitchellREF any:noskill 2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "counted",
+      "path": "interact.craft",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "not-refused",
+      "path": "interact.refused",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "guest-items-equal",
+      "path": "items.guest",
+      "on": "equal"
+    },
+    {
+      "id": "host-items-equal",
+      "path": "items.host",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

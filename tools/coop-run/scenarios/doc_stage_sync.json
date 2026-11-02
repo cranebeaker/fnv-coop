@@ -1,7 +1,7 @@
 {
   "name": "doc_stage_sync",
-  "description": "Host sets VCG03 (a shared Prologue quest) to stage 10 in Doc Mitchell's house; the guest must see the same quest stage. Clean link.",
-  "cell": "GSDocMitchellHouse",
+  "description": "Host sets VCG03 (a shared Prologue quest) to stage 10 with both players inside VCG03's tether zone (the Prospector Saloon, so the gate applies it at once); the guest must see the same quest stage. Clean link.",
+  "cell": "GSProspectorSaloonInterior",
   "network": "perfect",
   "seed": 11,
   "duration_s": 12,

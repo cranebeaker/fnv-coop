@@ -105,6 +105,13 @@ pub struct LiveFacts {
     pub downed: bool,
     /// Set while a tether holds the story stage.
     pub stage_held: bool,
+    /// Cells the host has loaded (`None` until the session reports them).
+    /// Script commands that need a live entity wait for these
+    /// ([`super::roam_ops`]).
+    pub host_loaded: Option<std::collections::BTreeSet<u32>>,
+    /// Script commands deferred for an unloaded cell: (reference, cell,
+    /// function, arguments). The session drains them into the host queue.
+    pub deferred_out: Vec<(FormId, FormId, String, Vec<coop_core::roam::DArg>)>,
     /// Dynamic references to create or remove (viewer drains).
     pub spawns: Vec<SpawnNote>,
     /// Sleep or wait approved by the party, in hours.
@@ -123,6 +130,13 @@ pub struct LiveFacts {
     pub local_weapon: u32,
     /// Extra avatar flags (`FLAG_SNEAK`, `FLAG_DRAWN`; the viewer writes them).
     pub local_flags: u16,
+    /// Combat actions the local player did this frame (the viewer pushes,
+    /// the live layer sends them to the others and drains).
+    pub local_actions: Vec<(coop_core::avatar::ActionKind, u32)>,
+    /// Scenes, movies, control locks and time (see [`super::scene`]).
+    pub scene: super::scene::SceneFacts,
+    /// Combat depth: queued notes, remote players' stealth, counters.
+    pub combat: super::combat_live::CombatFacts,
 }
 
 fn player_side(f: FormId) -> bool {
@@ -150,11 +164,20 @@ pub(crate) fn hurt_hooked(
     amount: f64,
     by: FormId,
 ) -> bool {
-    if player_of(who).is_some() {
-        return false; // a remote player's health is theirs
+    if let Some(p) = player_of(who) {
+        // a remote player's health is theirs; the host judges the blow
+        return super::combat_live::puppet_hurt(state, p, amount, by);
     }
     if state.coop.live.replaying {
         return crate::combat::hurt_core(order, state, who, amount, by);
+    }
+    // a player's deliberate hits on a protected ally stop (friendly fire guard)
+    if who != PLAYER_REF {
+        if let Some(slot) = super::campaign::attribution::slot_of(by, state.active_slot()) {
+            if !super::campaign::ffguard::allow_hit(order, state, slot, who) {
+                return false;
+            }
+        }
     }
     let mut amount = scaled_damage(state, who, by, amount);
     if who == PLAYER_REF {
@@ -181,7 +204,15 @@ pub(crate) fn hurt_hooked(
 
 /// Experience for a kill, thinned by the party size.
 pub(crate) fn xp_scale(state: &GameState, amount: f64) -> f64 {
-    state.coop.live.scaling.map_or(amount, |s| (amount * f64::from(s.reward)).floor())
+    state.coop.live.scaling.map_or(amount, |s| {
+        let thinned = (amount * f64::from(s.reward)).floor();
+        // a kill that was worth something never thins to nothing
+        if thinned < 1.0 && amount >= 1.0 {
+            1.0
+        } else {
+            thinned
+        }
+    })
 }
 
 /// Fast travel in a co-op session: unless the party allowed this marker the

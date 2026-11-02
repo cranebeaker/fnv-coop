@@ -1,0 +1,36 @@
+{
+  "name": "twin_live_late_join_other_cell",
+  "description": "MUTATION TWIN of live_late_join_other_cell: the host starts in the same cell, so there is no placement to see. Marked expect_fail.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "host_cell": "TestFightCell",
+  "duration_s": 12,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-placed-with-host",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 13631489,
+      "on": "both"
+    },
+    {
+      "id": "views-agree",
+      "path": "live.roam.cells.guest",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

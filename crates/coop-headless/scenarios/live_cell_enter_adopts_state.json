@@ -1,0 +1,50 @@
+{
+  "name": "live_cell_enter_adopts_state",
+  "description": "The guest starts in another cell, the host damages an actor, then the guest enters the host's cell and adopts the owner and the actor's state. Headless only: runs on the generated test data (cell TestFightCell) and uses the `coop cell` bot verb, which the viewer bot does not have.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 18,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop hit TestGeckoRef 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 0,
+        "run": "coop cell D00001"
+      },
+      {
+        "at": 8,
+        "run": "coop cell TestFightCell"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-adopted-actors",
+      "path": "live.roam.remote_actors",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-owns-none",
+      "path": "live.roam.owned.guest",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

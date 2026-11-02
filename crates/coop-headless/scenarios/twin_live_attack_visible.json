@@ -1,0 +1,17 @@
+{
+  "name": "twin_live_attack_visible",
+  "description": "MUTATION TWIN of live_attack_visible: nobody attacks. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 16,
+  "settle_s": 4,
+  "expect_fail": true,
+  "host": { "script": [] },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "guest-saw-host-attacks", "path": "live.puppet_actions", "op": "ge", "value": 3, "on": "guest" },
+    { "id": "host-saw-guest-attacks", "path": "live.puppet_actions", "op": "ge", "value": 4, "on": "host" },
+    { "id": "h", "path": "hash.shared", "on": "equal" }
+  ]
+}

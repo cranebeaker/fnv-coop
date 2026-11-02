@@ -5,16 +5,9 @@ use crate::proto::{Hello, RejectReason};
 
 /// Checks a guest's hello against the host's identity.
 pub fn check_hello(local: &Hello, remote: &Hello) -> Result<(), RejectReason> {
-    if local.proto != remote.proto {
-        Err(RejectReason::ProtocolMismatch)
-    } else if local.build_hash != remote.build_hash {
-        Err(RejectReason::BuildMismatch)
-    } else if local.rules_hash != remote.rules_hash {
-        Err(RejectReason::RulesMismatch)
-    } else if local.mods_hash != remote.mods_hash {
-        Err(RejectReason::ModsMismatch)
-    } else {
-        Ok(())
+    match crate::compat::decide(local, remote, Default::default()) {
+        crate::compat::Verdict::Refuse(r, _) => Err(r),
+        _ => Ok(()),
     }
 }
 
@@ -76,7 +69,7 @@ mod tests {
     use super::*;
 
     fn hello() -> Hello {
-        Hello { proto: 1, build_hash: 10, rules_hash: 20, mods_hash: 30 }
+        Hello { proto: 1, build_hash: 10, rules_hash: 20, mods_hash: 30, exe: String::new(), volatile_hash: 0, plugins: vec![] }
     }
 
     #[test]

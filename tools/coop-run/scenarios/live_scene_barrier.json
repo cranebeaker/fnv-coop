@@ -1,0 +1,78 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 12,
+  "settle_s": 8,
+  "name": "live_scene_barrier",
+  "description": "The host's story starts the ending. Barrier rule: everyone watches together. The scene opens, every participant is ready, the host releases it, and at the end both peers are in the same playing scene with every control locked.",
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop ending 5555"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "active-host",
+      "path": "scene.active",
+      "on": "host",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "active-guest",
+      "path": "scene.active",
+      "on": "guest",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "playing-host",
+      "path": "scene.phase",
+      "on": "host",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "playing-guest",
+      "path": "scene.phase",
+      "on": "guest",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "kind-guest",
+      "path": "scene.kind",
+      "on": "guest",
+      "op": "eq",
+      "value": 4
+    },
+    {
+      "id": "locked-guest",
+      "path": "scene.locks",
+      "on": "guest",
+      "op": "eq",
+      "value": 127
+    },
+    {
+      "id": "locked-host",
+      "path": "scene.locks",
+      "on": "host",
+      "op": "eq",
+      "value": 127
+    },
+    {
+      "id": "same-scene",
+      "path": "scene.id",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

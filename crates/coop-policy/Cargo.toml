@@ -1,6 +1,6 @@
 [package]
 name = "coop-policy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Campaign policy layer for co-op: per-quest rules as data plus a pure decision engine"
 edition.workspace = true
 license.workspace = true

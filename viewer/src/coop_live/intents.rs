@@ -17,7 +17,7 @@ use crate::scripts::{Notices, Scripts};
 use crate::GameFiles;
 
 /// Seconds an intent waits for the session before it is dropped.
-const WAIT: f32 = 5.0;
+const WAIT: f32 = 20.0;
 /// Seconds a spectator takes to read a line before it reports it done.
 const READ_SECONDS: f32 = 2.5;
 
@@ -89,7 +89,7 @@ pub fn tap_dialogue(
     let d = now.view.as_ref().and_then(|v| v.dialogue.as_ref());
     let Some((intent, since)) = tap.queue.front().cloned() else { return };
     let ready = match &intent {
-        Intent::DialogueOpen(_) => true,
+        Intent::DialogueOpen(_) => link.0.is_ready(),
         Intent::DialoguePick(_) => d.is_some_and(|d| d.mine && d.playing.is_none()),
         Intent::DialogueLineDone => d.is_some_and(|d| d.playing.is_some()),
         _ => d.is_some_and(|d| d.mine),
@@ -148,9 +148,9 @@ pub fn play_lines(
     }
 }
 
-/// A guest goes where the host goes: when the host's place changes and the
-/// guest is not there, the guest's scene is replaced (as a script's
-/// `MoveTo` does, `scripts::move_player`).
+/// A guest starts where the host is: the guest's scene is replaced once, at
+/// the start (as a script's `MoveTo` does, `scripts::move_player`). It does
+/// not follow the host afterwards: players roam free.
 #[allow(clippy::too_many_arguments)]
 pub fn follow_place(
     link: NonSend<CoopLink>,
@@ -164,12 +164,18 @@ pub fn follow_place(
         return;
     }
     let Some(place) = link.0.host_place() else { return };
+    // making its own character in a local room: not yet (`coop_session::start`)
+    if !link.0.start_follow_ok() {
+        return;
+    }
     let gs = &state.0;
     if gs.player_cell.is_none() || pending.0.is_some() || pending_exterior.0.is_some() {
         return;
     }
     let key = (place.cell, place.world);
-    if *last == Some(key) {
+    // free roam (docs/COOP-SCENES.md): the guest joins the host's scene once, at
+    // the start; after that every peer simulates the scene around its own player
+    if last.is_some() {
         return;
     }
     *last = Some(key);

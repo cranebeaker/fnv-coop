@@ -1,0 +1,20 @@
+{
+  "area": "COMBAT",
+  "rows": [
+    {"id": "combat.difficulty", "area": "COMBAT", "title": "Damage scaling by party size", "proves": "toughness, focus and damage to players grow with the party; XP shrinks", "tests": ["builtin:rules_difficulty"], "twin": true, "backend": "agnostic", "source": "08 1.4 / list D difficulty scaling for N players"},
+    {"id": "combat.extra_enemies", "area": "COMBAT", "title": "Extra enemies per enemy, loot thinning, body supplies", "proves": "extra spawns and thinning follow the scaling", "tests": ["scenario:live_extra_enemies"], "source": "08 1.4"},
+    {"id": "combat.mode_choice", "area": "COMBAT", "title": "Host picks Normal or Co-op balanced, friendly fire on/off", "proves": "the choice reaches launcher, save and rules", "tests": ["scenario:live_difficulty_mode"], "source": "08 1.4"},
+    {"id": "combat.vats", "area": "COMBAT", "title": "VATS per player, real time, never disabled", "proves": "VATS runs without pausing the party", "tests": ["scenario:live_vats"], "source": "08 1.4 non-negotiable / list D VATS"},
+    {"id": "combat.explosions", "area": "COMBAT", "title": "Explosions through victims' owners", "proves": "grenades, mines and launchers damage each victim once via its owner", "tests": ["scenario:live_explosion"], "source": "08 1.4 / list D weapons projectiles explosions"},
+    {"id": "combat.projectiles", "area": "COMBAT", "title": "Weapons and projectiles", "proves": "a shot fired on one peer hits the same target on the owner", "tests": ["scenario:live_attack_visible"], "twin": true, "fidelity": "modelled", "stand_in": "viewer per-frame glue (bot, movement, menus) modelled in coop-headless peer.rs", "source": "list D"},
+    {"id": "combat.guest_kill_xp", "area": "COMBAT", "title": "Guest NPC kill XP and karma", "proves": "the killer is paid", "tests": ["scenario:story_kill_xp"], "source": "08 1.4"},
+    {"id": "combat.revive", "area": "COMBAT", "title": "Downed state, party revive, respawn, wipe", "proves": "down, hold to revive, window respawn, wipe", "tests": ["builtin:rules_revive"], "twin": true, "backend": "agnostic", "source": "08 1.4 / list D death revive wipe"},
+    {"id": "combat.revive_live", "area": "COMBAT", "title": "Revive in the live game", "proves": "the local player goes down instead of dying and is revived by a teammate", "tests": ["scenario:live_revive"], "source": "08 1.4"},
+    {"id": "combat.collar", "area": "COMBAT", "title": "Dead Money collar death, per-player collar state", "proves": "a collar death is not revivable; collar timers are per player", "tests": ["scenario:live_collar", "questwalk:line:DLC: Dead Money"], "needs": "dlc:DeadMoney", "source": "08 1.4 G42 / list D collars"},
+    {"id": "combat.npc_ai", "area": "COMBAT", "title": "NPC AI targeting players", "proves": "enemies target players by distance and threat", "tests": ["scenario:live_npc_targets_players"], "source": "list D"},
+    {"id": "combat.stealth", "area": "COMBAT", "title": "Stealth", "proves": "detection uses the best-seen player", "tests": ["scenario:live_stealth"], "source": "list D"},
+    {"id": "combat.crime_witness", "area": "COMBAT", "title": "Crime and witnesses", "proves": "a crime seen by an NPC counts against the party's factions once", "tests": ["scenario:live_crime_witness"], "source": "list D"},
+    {"id": "combat.loot_xp_scaling", "area": "COMBAT", "title": "Loot and XP scaling for N players", "proves": "loot is thinned and XP divided for the party size", "tests": ["builtin:rules_difficulty"], "twin": true, "backend": "agnostic", "source": "list D"},
+    {"id": "combat.hardcore", "area": "COMBAT", "title": "Hardcore needs per player", "proves": "hunger, thirst and sleep are each player's own", "tests": ["scenario:live_hardcore"], "source": "list D"}
+  ]
+}

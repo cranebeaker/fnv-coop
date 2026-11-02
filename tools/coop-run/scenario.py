@@ -9,7 +9,9 @@ from chaos_relay import PROFILES
 
 SCHEMA = 1
 OPS = ("eq", "ne", "ge", "le", "gt", "lt", "near", "present", "absent", "dist_from", "sum")
-ON = ("host", "guest", "both", "equal")
+ON = ("host", "guest", "guest2", "guest3", "all", "both", "equal")
+MAX_GUESTS = 3
+ROLES = ("host", "guest", "guest2", "guest3")
 SCRIPT_KEYS = ("run", "stage", "talk", "choose", "say", "key")
 
 
@@ -46,6 +48,22 @@ def validate(s):
         s.setdefault(role, {})
         s[role].setdefault("script", [])
         s[role].setdefault("extra_args", [])
+    # "guests": [..] lists every guest (1 to 3 entries: a 2 to 4 peer run) and replaces "guest"
+    guests = s.get("guests")
+    if guests is not None:
+        if not (isinstance(guests, list) and 1 <= len(guests) <= MAX_GUESTS and all(isinstance(g, dict) for g in guests)):
+            errs.append("guests must be a list of 1 to %d objects" % MAX_GUESTS)
+            guests = None
+    if guests:
+        s["guests"] = [dict(g) for g in guests]
+        for g in s["guests"]:
+            g.setdefault("script", [])
+            g.setdefault("extra_args", [])
+        s["guest"] = s["guests"][0]
+    else:
+        s["guests"] = [s["guest"]]
+    for i, g in enumerate(s["guests"][1:], start=2):
+        s["guest%d" % i] = g
     if not s.get("name") or not isinstance(s["name"], str):
         errs.append("name is required")
     if not s.get("cell") and not s["new_game"]:
@@ -62,7 +80,9 @@ def validate(s):
     for i, o in enumerate(s["outages"]):
         if o.get("dir", "both") not in ("both", "g2h", "h2g") or "at" not in o or "seconds" not in o:
             errs.append("outages[%d] needs at, seconds and optional dir both|g2h|h2g" % i)
-    for role in ("host", "guest"):
+    for role in ("host", "guest", "guest2", "guest3"):
+        if role not in s:
+            continue
         for i, line in enumerate(s[role]["script"]):
             keys = [k for k in SCRIPT_KEYS if k in line]
             if len(keys) != 1:
@@ -124,6 +144,14 @@ def validate(s):
                 errs.append("expect %s: dist_from needs cmp ge|le|gt|lt" % eid)
             if not isinstance(e.get("value"), (int, float)):
                 errs.append("expect %s: dist_from needs a numeric value (units)" % eid)
+    party = s.get("party")
+    if party is not None:
+        if not isinstance(party, dict) or not isinstance(party.get("key"), int) or party["key"] < 1:
+            errs.append("party.key must be a whole number >= 1")
+        elif party.get("restart_at") is not None and not isinstance(party["restart_at"], (int, float)):
+            errs.append("party.restart_at must be a number")
+        if not s.get("headless_only"):
+            errs.append("party scenarios restart both peers; set headless_only")
     if errs:
         raise ScenarioError("; ".join(errs))
     return s
@@ -182,10 +210,15 @@ def viewer_args(s, role, data, ports, files, quit_after, background=True, screen
     args += ["--no-movies", "--no-hud", "--answer-boxes"]
     if s["new_game"]:
         args.append("--new-game")
+    elif role == "guest" and not s.get("character_creation"):
+        # the harness guests play at once; a guest otherwise makes its own character first
+        args.append("--coop-no-chargen")
     if s.get("character"):
         args += ["--character", s["character"]]
     args += script_args(s[role]["script"])
     args += s[role]["extra_args"]
+    if role in ("guest2", "guest3"):
+        args += ["--coop-name", "Guest %s" % role[5:]]
     if role == "host":
         args += ["--coop-host", str(ports["host"])]
     else:
@@ -265,12 +298,28 @@ def _short(v):
     return t if len(t) <= 80 else t[:77] + "..."
 
 
-def evaluate(expect, host_state, guest_state):
-    """Returns a list of {id, ok, kind, detail}. kind is 'assert' or 'desync' (equal checks)."""
+def evaluate(expect, host_state, guest_state, extra_states=None):
+    """Returns a list of {id, ok, kind, detail}. kind is 'assert' or 'desync' (equal checks).
+    extra_states: {'guest2': state, 'guest3': state} for runs with more than one guest."""
     out = []
     peers = {"host": host_state, "guest": guest_state}
+    peers.update(extra_states or {})
     for e in expect:
         eid, path, op = e["id"], e["path"], e["op"]
+        if e["on"] == "equal" and extra_states:
+            for w, st in peers.items():
+                if w == "host":
+                    continue
+                a, b = get_path(host_state, path), get_path(st, path)
+                if a is _MISSING or b is _MISSING:
+                    ok = False
+                elif "tol" in e:
+                    ok = _near(_dims(a, e), _dims(b, e), e["tol"])
+                else:
+                    ok = a == b
+                out.append({"id": "%s#%s" % (eid, w), "ok": ok, "kind": "desync",
+                            "detail": "%s host=%s %s=%s" % (path, _short(a), w, _short(b))})
+            continue
         if e["on"] == "equal":
             a, b = get_path(host_state, path), get_path(guest_state, path)
             if a is _MISSING or b is _MISSING:
@@ -282,7 +331,10 @@ def evaluate(expect, host_state, guest_state):
             out.append({"id": eid, "ok": ok, "kind": "desync",
                         "detail": "%s host=%s guest=%s" % (path, _short(a), _short(b))})
             continue
-        who = ("host", "guest") if e["on"] == "both" else (e["on"],)
+        who = tuple(peers) if e["on"] in ("both", "all") else (e["on"],)
+        if any(w not in peers for w in who):
+            out.append({"id": eid, "ok": False, "kind": "assert", "detail": "%s needs a peer this run does not have" % e["on"]})
+            continue
         for w in who:
             got = get_path(peers[w], path)
             if op == "sum":

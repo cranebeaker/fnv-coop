@@ -25,6 +25,8 @@ pub enum Audience {
 pub struct InterestMap {
     peer_cell: BTreeMap<PlayerId, CellId>,
     neighbors: BTreeMap<CellId, BTreeSet<CellId>>,
+    /// Cells a peer has loaded besides its own (scene model).
+    reach: BTreeMap<PlayerId, BTreeSet<CellId>>,
 }
 
 impl InterestMap {
@@ -46,6 +48,13 @@ impl InterestMap {
     /// Forgets a peer (disconnect).
     pub fn remove_peer(&mut self, p: PlayerId) {
         self.peer_cell.remove(&p);
+        self.reach.remove(&p);
+    }
+
+    /// Records every cell a peer has loaded (its home and the cells around
+    /// it): it sees things in all of them.
+    pub fn set_peer_reach(&mut self, p: PlayerId, cells: BTreeSet<CellId>) {
+        self.reach.insert(p, cells);
     }
 
     /// Declares `a` and `b` visible to each other (exterior grid neighbours,
@@ -62,7 +71,11 @@ impl InterestMap {
 
     /// Peers that should receive an update for an entity in `cell`.
     pub fn peers_seeing(&self, cell: CellId) -> Vec<PlayerId> {
-        self.peer_cell.iter().filter(|(_, c)| self.visible(**c, cell)).map(|(p, _)| *p).collect()
+        self.peer_cell
+            .iter()
+            .filter(|(p, c)| self.visible(**c, cell) || self.reach.get(p).map_or(false, |r| r.contains(&cell)))
+            .map(|(p, _)| *p)
+            .collect()
     }
 
     /// Same as [`peers_seeing`](Self::peers_seeing) minus `except`.

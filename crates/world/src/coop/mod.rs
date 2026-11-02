@@ -33,17 +33,26 @@ use std::collections::BTreeSet;
 use esm::FormId;
 
 pub mod apply;
+pub mod combat_live;
 pub mod backend;
 pub mod bridge;
+pub mod campaign;
 pub mod export;
 pub mod policy_gate;
 pub mod shadow;
 pub mod dialogue;
+pub mod env;
 pub mod facts;
+pub mod interact;
+pub mod interact_acts;
 pub mod live;
 pub mod loot;
+pub mod party_char;
+pub mod party_save;
 pub mod players;
 pub mod rules;
+pub mod roam_ops;
+pub mod scene;
 
 pub use backend::WorldBackend;
 pub use bridge::{CollectReport, GuestBridge, HostBridge};
@@ -166,6 +175,10 @@ pub struct CoopState {
     pub gate: Option<Box<policy_gate::PolicyGate>>,
     /// Live-layer facts (actors, hits, rules); see [`facts`].
     pub live: facts::LiveFacts,
+    /// Player-world interaction facts; see [`interact`].
+    pub interact: interact::InteractFacts,
+    /// Campaign gaps (attribution, owners, storage, downed ...); see [`campaign`].
+    pub campaign: campaign::Campaign,
 }
 
 /// Longest effect queue before falling back to a full diff.

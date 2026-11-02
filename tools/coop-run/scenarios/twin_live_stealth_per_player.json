@@ -1,0 +1,47 @@
+{
+  "name": "twin_live_stealth_per_player",
+  "description": "MUTATION TWIN of live_stealth_per_player: the cause is removed. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 7,
+        "run": "coop probe VCG02Gecko1REF 700"
+      },
+      {
+        "at": 14,
+        "run": "coop probe VCG02Gecko1REF 700"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "sneak-hides",
+      "path": "combat.probe_drop",
+      "op": "ge",
+      "value": 10,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

@@ -23,12 +23,18 @@
 //! guests too until the line or the conversation ends, which the session
 //! bounds with the dialogue heartbeat. V.A.T.S. slow motion stays local.
 
+mod actions;
 mod actors;
 mod bot;
 mod chat;
 mod frame;
+mod hud_social;
 mod intents;
+mod interact;
 mod puppets;
+mod roam;
+mod vote;
+pub mod voice;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -36,10 +42,14 @@ use bevy::prelude::*;
 use coop_session::{LiveCounters, LiveView, PlayerId};
 
 pub use bot::{is_bot_line, Bot};
+pub use hud_social::{compass_extra, configure, party_points, Book};
 
 use crate::frame_order::ViewerSet;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
+
+/// The game executable version this build supports; quoted in the join handshake.
+pub const EXE_VERSION: &str = "1.4.0.525";
 
 /// False in a co-op session: the local player's menus do not freeze time.
 pub fn menus_freeze_time() -> bool {
@@ -69,6 +79,7 @@ pub struct LivePlugin;
 impl Plugin for LivePlugin {
     fn build(&self, app: &mut App) {
         LIVE.store(true, Ordering::Relaxed);
+        voice::register(app);
         app.init_resource::<LiveNow>()
             .init_resource::<puppets::Puppets>()
             .init_resource::<intents::Tap>()
@@ -76,11 +87,12 @@ impl Plugin for LivePlugin {
             .init_resource::<bot::Bot>()
             .init_resource::<chat::ChatLog>()
             .init_resource::<chat::Typing>()
-            .add_systems(Startup, chat::setup)
+            .init_resource::<hud_social::Book>()
+            .add_systems(Startup, (chat::setup, hud_social::setup))
             .add_systems(
                 Update,
                 (
-                    (bot::run, intents::loot, intents::tap_dialogue)
+                    (bot::run, intents::loot, intents::tap_dialogue, actions::emit)
                         .chain()
                         .in_set(ViewerSet::AfterFrame)
                         .before(frame::run),
@@ -90,15 +102,25 @@ impl Plugin for LivePlugin {
                         puppets::name_tags,
                         actors::track,
                         actors::publish,
+                        actors::adopt_remote,
+                        actors::count,
                         intents::play_lines,
                         intents::follow_place,
+                        roam::register_grid,
+                        roam::apply_place,
                         intents::travel,
+                        interact::follow_door,
+                        interact::results,
                         chat::show,
+                        vote::answer,
                     )
                         .in_set(ViewerSet::AfterFrame)
                         .after(frame::run)
                         .before(crate::coop::send),
                     chat::typing.in_set(ViewerSet::Input),
+                    hud_social::ping_input.in_set(ViewerSet::AfterFrame).before(frame::run),
+                    (hud_social::publish, hud_social::edge_hints).in_set(ViewerSet::AfterFrame).after(frame::run),
+                    hud_social::place_window,
                     (puppets::drive, actors::apply_remote).before(crate::actors::animate_actors),
                 ),
             );

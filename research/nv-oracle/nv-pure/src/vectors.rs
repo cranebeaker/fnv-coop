@@ -393,6 +393,7 @@ pub fn nv_call_ret(ty: Ty) -> &'static str {
         Ty::F32 => "f32_x87",
         Ty::F64 => "f64_x87",
         Ty::U64 => "i64",
+        Ty::Void => "void",
         _ => "u32",
     }
 }
@@ -507,9 +508,9 @@ fn random_bytes(len: usize, r: &mut Rng) -> Vec<u8> {
     (0..len).map(|_| (r.next() >> 56) as u8).collect()
 }
 
-/// Vectors for a function with pointer parameters (phase 1, #193). Buffer
-/// contents per vector: all zero, all 0xff, two seeded random fills, and
-/// "structured" fills where every field the exe reads takes, in turn, each
+/// Vectors for a function with pointer parameters (#193). Buffer contents
+/// per vector: all zero, all 0xff, two seeded random fills, and "structured"
+/// fills where every field the exe reads or stores takes, in turn, each
 /// value of its pool (typed edges and the function's constants), shifted per
 /// field so fields don't move in lockstep. Scalar parameters go through
 /// [`inputs`] as before, each list paired with one of the buffer fills.

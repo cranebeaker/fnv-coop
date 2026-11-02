@@ -1,0 +1,20 @@
+{
+  "name": "twin_live_downed_respawn",
+  "description": "MUTATION TWIN of live_downed_respawn: a teammate revives the guest at once, so it never respawns. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 90,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 8, "run": "coop down 1" },
+      { "at": 10, "run": "coop revive 1" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "respawned", "path": "campaign.respawned", "op": "ge", "value": 1, "on": "host" }
+  ]
+}

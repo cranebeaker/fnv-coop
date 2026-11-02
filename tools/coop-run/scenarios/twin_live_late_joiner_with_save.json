@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "description": "MUTATION TWIN of live_late_joiner_with_save: the guest does not bring its character, so it starts fresh. Marked expect_fail.",
+  "party": {
+    "key": 4242,
+    "restart_at": 11,
+    "host_loads": false,
+    "guest_same_key": true,
+    "guest_offers_own": false,
+    "second": {
+      "duration_s": 10
+    }
+  },
+  "expect": [
+    {
+      "id": "guest-kept-own",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "host-is-fresh",
+      "path": "items.host.Stimpak",
+      "op": "absent",
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Stimpak 3"
+      },
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem Caps001 9"
+      },
+      {
+        "at": 7,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem Caps001 50"
+      }
+    ]
+  },
+  "expect_fail": true,
+  "name": "twin_live_late_joiner_with_save"
+}

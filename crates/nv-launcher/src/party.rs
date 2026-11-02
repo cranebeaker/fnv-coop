@@ -193,6 +193,17 @@ pub fn list_saves(root: &Path) -> Vec<SaveEntry> {
     out
 }
 
+/// The newest save of `campaign` for this role: a host's in any host folder, a guest's in the
+/// folder of `player`. What Continue (host) and a returning guest hand to the viewer's
+/// `--coop-load`.
+pub fn find_save(root: &Path, campaign: &str, role: Role, player: &str) -> Option<PathBuf> {
+    let want = player_folder(role, player);
+    list_saves(root)
+        .into_iter()
+        .find(|s| s.campaign == campaign && s.role == role && (role == Role::Host || s.folder == want))
+        .map(|s| s.path)
+}
+
 /// Host saves, newest first: what Continue offers.
 pub fn host_saves(root: &Path) -> Vec<SaveEntry> {
     list_saves(root).into_iter().filter(|s| s.role == Role::Host).collect()
@@ -239,6 +250,265 @@ pub fn format_time(secs: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", rem / 3600, (rem % 3600) / 60)
+}
+
+// ---- Party folders (`<save>.partysave`, written by the viewer) --------------------------------
+
+/// Folder suffix of a party save next to a world save (`world::coop::party_save::FOLDER_SUFFIX`).
+pub const PARTY_FOLDER_SUFFIX: &str = "partysave";
+/// Newest party format this launcher can describe (`world::coop::party_save::FORMAT_VERSION`).
+pub const PARTY_FORMAT: u32 = 1;
+/// File a guest's character is kept in, inside its player folder.
+pub const CHARACTER_FILE: &str = "character.char";
+
+/// What a party folder's manifest says. The launcher only reads the manifest; the viewer owns
+/// the format (the first lines of `party.txt` are pinned by a test on both sides).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartySaveEntry {
+    pub campaign: String,
+    /// The world save this party folder belongs to (`nv-rs-quicksave.txt`).
+    pub save_file: String,
+    /// The party folder.
+    pub dir: PathBuf,
+    /// The host's player folder name inside the campaign.
+    pub player_folder: String,
+    pub host_name: String,
+    pub seq: u32,
+    /// Seconds since the Unix epoch, as the viewer recorded.
+    pub saved_unix: u64,
+    /// Guests in the save: name and level.
+    pub roster: Vec<(String, u16)>,
+    pub version: u32,
+}
+
+impl PartySaveEntry {
+    /// False for a folder made by a newer build: it is listed but not loaded.
+    pub fn usable(&self) -> bool {
+        self.version >= 1 && self.version <= PARTY_FORMAT
+    }
+}
+
+/// Reads `party.txt` of a party folder. `None` when it is not one.
+pub fn read_party_manifest(dir: &Path) -> Option<PartySaveEntry> {
+    let text = fs::read_to_string(dir.join("party.txt")).ok()?;
+    let mut lines = text.lines();
+    let version: u32 = lines.next()?.strip_prefix("nv-rs party save")?.trim().parse().ok()?;
+    let mut e = PartySaveEntry {
+        campaign: String::new(),
+        save_file: String::new(),
+        dir: dir.to_path_buf(),
+        player_folder: String::new(),
+        host_name: String::new(),
+        seq: 0,
+        saved_unix: 0,
+        roster: Vec::new(),
+        version,
+    };
+    for l in lines {
+        let Some((k, v)) = l.split_once('=') else { continue };
+        match k {
+            "campaign" => e.campaign = v.trim().to_string(),
+            "host" => e.host_name = v.trim().to_string(),
+            "seq" => e.seq = v.trim().parse().unwrap_or(0),
+            "saved" => e.saved_unix = v.trim().parse().unwrap_or(0),
+            // guest=<key> <slot> <level> <from_guest> <len> <hash> <name>
+            "guest" => {
+                let w: Vec<&str> = v.splitn(7, ' ').collect();
+                if w.len() == 7 {
+                    e.roster.push((w[6].to_string(), w[2].parse().unwrap_or(0)));
+                }
+            }
+            _ => {}
+        }
+    }
+    valid_campaign_id(&e.campaign).then_some(e)
+}
+
+/// Every party folder under the saves folder, newest first.
+pub fn list_party_saves(root: &Path) -> Vec<PartySaveEntry> {
+    let mut out = Vec::new();
+    let Ok(cs) = fs::read_dir(root) else { return out };
+    for c in cs.flatten() {
+        let id = c.file_name().to_string_lossy().into_owned();
+        if !valid_campaign_id(&id) || !c.path().is_dir() {
+            continue;
+        }
+        let Ok(ps) = fs::read_dir(c.path()) else { continue };
+        for p in ps.flatten() {
+            let folder = p.file_name().to_string_lossy().into_owned();
+            if !folder.starts_with("host-") || !p.path().is_dir() {
+                continue;
+            }
+            let Ok(fs_) = fs::read_dir(p.path()) else { continue };
+            for f in fs_.flatten() {
+                let name = f.file_name().to_string_lossy().into_owned();
+                let Some(save) = name.strip_suffix(&format!(".{PARTY_FOLDER_SUFFIX}")) else { continue };
+                if !f.path().is_dir() {
+                    continue;
+                }
+                if let Some(mut e) = read_party_manifest(&f.path()) {
+                    e.save_file = save.to_string();
+                    e.player_folder = folder.clone();
+                    if e.campaign == id {
+                        out.push(e);
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| b.saved_unix.cmp(&a.saved_unix).then(a.dir.cmp(&b.dir)));
+    out
+}
+
+/// One line for a menu: campaign, roster and the last save time.
+pub fn describe_party(e: &PartySaveEntry) -> String {
+    let roster = if e.roster.is_empty() {
+        "no guests".to_string()
+    } else {
+        e.roster.iter().map(|(n, l)| format!("{n} L{l}")).collect::<Vec<_>>().join(", ")
+    };
+    let note = if e.usable() { String::new() } else { "  (made by a newer version: not loaded)".to_string() };
+    format!("{}  host {} + {}  last saved {}{}", e.campaign, e.host_name, roster, format_time(e.saved_unix), note)
+}
+
+/// The newest usable party save in one player folder.
+pub fn newest_party_in(player_dir: &Path) -> Option<PartySaveEntry> {
+    let mut best: Option<PartySaveEntry> = None;
+    for f in fs::read_dir(player_dir).ok()?.flatten() {
+        let name = f.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(&format!(".{PARTY_FOLDER_SUFFIX}")) || !f.path().is_dir() {
+            continue;
+        }
+        if let Some(e) = read_party_manifest(&f.path()).filter(PartySaveEntry::usable) {
+            if best.as_ref().is_none_or(|b| e.saved_unix > b.saved_unix) {
+                best = Some(e);
+            }
+        }
+    }
+    best
+}
+
+/// This player's persistent id: read from `home/player-key.txt`, or made from `random` and
+/// written there once. Never zero. A guest passes it to the viewer so a rejoin finds its
+/// character; it is not a secret and never leaves the PC except in the co-op session.
+pub fn load_or_create_player_key(home: &Path, random: [u8; 8]) -> u64 {
+    let path = home.join("player-key.txt");
+    if let Some(k) = fs::read_to_string(&path).ok().and_then(|t| parse_campaign_id(t.trim()).and_then(|s| u64::from_str_radix(&s, 16).ok())) {
+        return k;
+    }
+    let k = u64::from_le_bytes(random).max(1);
+    let _ = fs::create_dir_all(home);
+    let _ = fs::write(&path, format!("{k:016x}\n"));
+    k
+}
+
+/// The viewer flags party saves add to a launch: a continuing host loads its newest party
+/// folder (`--coop-load`), a guest gives its persistent id and its character file.
+pub fn viewer_args(role: Role, new_game: bool, player_dir: &Path, home: &Path, random: [u8; 8]) -> Vec<String> {
+    match role {
+        Role::Host if !new_game => newest_party_in(player_dir)
+            .map(|e| vec!["--coop-load".to_string(), e.dir.to_string_lossy().into_owned()])
+            .unwrap_or_default(),
+        Role::Host => Vec::new(),
+        Role::Guest => vec![
+            "--coop-player-key".to_string(),
+            format!("{:016x}", load_or_create_player_key(home, random)),
+            "--coop-character".to_string(),
+            player_dir.join(CHARACTER_FILE).to_string_lossy().into_owned(),
+        ],
+    }
+}
+
+/// Adds [`viewer_args`] to a built command.
+pub fn extend_spec(spec: &mut crate::command::Spec, role: Role, new_game: bool, home: &Path, random: [u8; 8]) {
+    let extra = viewer_args(role, new_game, &spec.cwd.clone(), home, random);
+    spec.args.extend(extra);
+}
+
+#[cfg(test)]
+mod party_folder_tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("nvl-party-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    const MANIFEST: &str = "nv-rs party save 1\ncampaign=00ab12cd34ef5678\nhost=Ann\nseq=4\nsaved=1700000000\nworld=40 00000000000000aa\n\
+guest=00000000000a11ce 1 7 1 100 00000000000000bb Bo Jones\nguest=0000000000000b0b 2 3 0 90 00000000000000cc Cy\n";
+
+    fn make(root: &Path, id: &str, save: &str, manifest: &str) -> PathBuf {
+        let d = root.join(id).join("host-ann").join(format!("{save}.{PARTY_FOLDER_SUFFIX}"));
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("party.txt"), manifest).unwrap();
+        d
+    }
+
+    #[test]
+    fn manifest_shows_roster_and_time() {
+        let root = tmp("list");
+        let d = make(&root, "00ab12cd34ef5678", "nv-rs-quicksave.txt", MANIFEST);
+        let e = read_party_manifest(&d).unwrap();
+        assert_eq!((e.host_name.as_str(), e.seq, e.saved_unix), ("Ann", 4, 1_700_000_000));
+        assert_eq!(e.roster, vec![("Bo Jones".to_string(), 7), ("Cy".to_string(), 3)]);
+        let all = list_party_saves(&root);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].save_file, "nv-rs-quicksave.txt");
+        assert_eq!(all[0].player_folder, "host-ann");
+        let line = describe_party(&all[0]);
+        assert!(line.contains("host Ann + Bo Jones L7, Cy L3"), "{line}");
+        assert!(line.contains("last saved 2023-11-14"), "{line}");
+    }
+
+    #[test]
+    fn newer_or_foreign_folders_are_listed_but_not_loaded() {
+        let root = tmp("newer");
+        make(&root, "00ab12cd34ef5678", "a.txt", &MANIFEST.replacen("save 1", "save 9", 1));
+        let all = list_party_saves(&root);
+        assert_eq!(all.len(), 1);
+        assert!(!all[0].usable());
+        assert!(describe_party(&all[0]).contains("newer version"));
+        assert!(newest_party_in(&root.join("00ab12cd34ef5678").join("host-ann")).is_none());
+        // not a party folder at all
+        let d = make(&root, "00ab12cd34ef5679", "b.txt", "garbage");
+        assert!(read_party_manifest(&d).is_none());
+        // a folder whose manifest says another campaign than its place is ignored
+        make(&root, "00ab12cd34ef5670", "c.txt", MANIFEST);
+        assert_eq!(list_party_saves(&root).len(), 1);
+    }
+
+    #[test]
+    fn continue_loads_the_newest_party_folder_and_guests_pass_their_id() {
+        let root = tmp("args");
+        make(&root, "00ab12cd34ef5678", "old.txt", &MANIFEST.replace("saved=1700000000", "saved=1600000000"));
+        let newest = make(&root, "00ab12cd34ef5678", "new.txt", MANIFEST);
+        let host_dir = root.join("00ab12cd34ef5678").join("host-ann");
+        let a = viewer_args(Role::Host, false, &host_dir, &root, [1; 8]);
+        assert_eq!(a, vec!["--coop-load".to_string(), newest.to_string_lossy().into_owned()]);
+        assert!(viewer_args(Role::Host, true, &host_dir, &root, [1; 8]).is_empty(), "a new game loads nothing");
+        assert!(viewer_args(Role::Host, false, &root, &root, [1; 8]).is_empty(), "no party save yet");
+        let g = viewer_args(Role::Guest, false, &host_dir, &root, [7, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(g[0], "--coop-player-key");
+        assert_eq!(g[1], "0000000000000007");
+        assert_eq!(g[2], "--coop-character");
+        assert!(g[3].ends_with(CHARACTER_FILE));
+        // the id is made once and then kept
+        let again = viewer_args(Role::Guest, false, &host_dir, &root, [9; 8]);
+        assert_eq!(again[1], "0000000000000007");
+        assert_eq!(load_or_create_player_key(&tmp("zero"), [0; 8]), 1, "never zero");
+    }
+
+    #[test]
+    fn extend_spec_appends_to_the_command() {
+        let root = tmp("spec");
+        let host_dir = root.join("00ab12cd34ef5678").join("host-ann");
+        let d = make(&root, "00ab12cd34ef5678", "q.txt", MANIFEST);
+        let mut spec = crate::command::Spec { program: "v".into(), args: vec!["D".into(), "--coop-host".into()], env: Vec::new(), cwd: host_dir };
+        extend_spec(&mut spec, Role::Host, false, &root, [1; 8]);
+        assert_eq!(spec.args, vec!["D".to_string(), "--coop-host".into(), "--coop-load".into(), d.to_string_lossy().into_owned()]);
+    }
 }
 
 #[cfg(test)]

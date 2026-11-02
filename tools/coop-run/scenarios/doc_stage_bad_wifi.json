@@ -1,7 +1,7 @@
 {
   "name": "doc_stage_bad_wifi",
-  "description": "Quest stage and a guest item pickup under bad_wifi, with a 3 s blackout in both directions. Chaos ends before the settle window, then both peers must converge with exact counts.",
-  "cell": "GSDocMitchellHouse",
+  "description": "Quest stage (VCG03, both players inside its tether zone, the Prospector Saloon) and a guest item pickup under bad_wifi, with a 3 s blackout in both directions. Chaos ends before the settle window, then both peers must converge with exact counts.",
+  "cell": "GSProspectorSaloonInterior",
   "network": "bad_wifi",
   "seed": 21,
   "duration_s": 20,

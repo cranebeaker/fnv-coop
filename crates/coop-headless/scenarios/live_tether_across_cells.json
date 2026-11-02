@@ -1,0 +1,45 @@
+{
+  "name": "live_tether_across_cells",
+  "description": "A tether anchored in the test cell holds the story while the guest stands in another cell, and after the straggler timeout the guest is warped into the anchor's cell. Headless only: runs on the generated test data (cell TestFightCell) and uses the `coop cell` bot verb, which the viewer bot does not have.",
+  "cell": "TestFightCell",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 140,
+  "settle_s": 8,
+  "timeout_s": 400,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop tether TestGeckoRef"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 1,
+        "run": "coop cell D00001"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-left-the-fake-cell",
+      "path": "live.roam.cells.guest",
+      "op": "ne",
+      "value": 13631489,
+      "on": "host"
+    },
+    {
+      "id": "guest-back-in-the-scene",
+      "path": "live.roam.cells.guest",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

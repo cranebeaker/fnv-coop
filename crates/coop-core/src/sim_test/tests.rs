@@ -411,3 +411,53 @@ fn a_stale_rejoin_after_the_host_dropped_the_guest_restarts_the_handshake_not_ki
         assert!(sim.run_until_converged(120_000), "join={stale_join}: guest never came back");
     }
 }
+
+fn listed(plugins: &[&str]) -> crate::proto::Hello {
+    let mut h = test_hello();
+    h.plugins = plugins.iter().map(|s| s.to_string()).collect();
+    h.mods_hash = crate::compat::plugin_list_hash(&h.plugins);
+    h
+}
+
+#[test]
+fn missing_plugin_is_refused_and_the_guest_learns_which() {
+    let mut sim = Sim::new(1, profile("perfect"), 73);
+    sim.host = HostSync::new(HostConfig::new(listed(&["FalloutNV.esm", "DeadMoney.esm"]), 0x5E55));
+    sim.guests[0].sync = GuestSync::new(PlayerId(1), listed(&["FalloutNV.esm"]));
+    sim.start_guest(0);
+    sim.run(40, 0);
+    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Rejected(RejectReason::PluginsMismatch));
+    let found = sim.guests[0].sync.compat_issues();
+    assert_eq!(found, vec![crate::compat::Issue::MissingPlugins(vec!["DeadMoney.esm".into()])]);
+    assert_eq!(sim.host.compat_log.len(), 1);
+    assert!(sim.host.compat_log[0].refused);
+    assert!(sim.host.players().is_empty());
+}
+
+#[test]
+fn override_admits_a_mismatched_guest_with_a_warning() {
+    let mut sim = Sim::new(1, profile("perfect"), 74);
+    let mut cfg = HostConfig::new(listed(&["FalloutNV.esm", "A.esp"]), 0x5E55);
+    cfg.compat.allow_mismatch = true;
+    sim.host = HostSync::new(cfg);
+    sim.guests[0].sync = GuestSync::new(PlayerId(1), listed(&["FalloutNV.esm", "B.esp"]));
+    sim.start_guest(0);
+    sim.run(60, 0);
+    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Active);
+    assert!(!sim.guests[0].sync.compat_issues().is_empty(), "guest is told it joined with differences");
+    assert!(!sim.host.compat_log[0].refused);
+}
+
+#[test]
+fn override_does_not_admit_a_protocol_mismatch() {
+    let mut sim = Sim::new(1, profile("perfect"), 75);
+    let mut cfg = HostConfig::new(test_hello(), 0x5E55);
+    cfg.compat.allow_mismatch = true;
+    sim.host = HostSync::new(cfg);
+    let mut bad = test_hello();
+    bad.proto += 1;
+    sim.guests[0].sync = GuestSync::new(PlayerId(1), bad);
+    sim.start_guest(0);
+    sim.run(40, 0);
+    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Rejected(RejectReason::ProtocolMismatch));
+}

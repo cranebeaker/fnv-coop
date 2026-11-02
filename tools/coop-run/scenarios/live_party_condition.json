@@ -1,0 +1,20 @@
+{
+  "name": "live_party_condition",
+  "description": "NVDLC02DialogueShaman reads GetItemCount as the sum over the party. The host player holds 2 caps and the guest 5; the probe in the quest's context answers 7. Without the guest's caps it would answer 2.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 65,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop give 0 Caps001 2" },
+      { "at": 3.2, "run": "coop give 1 Caps001 5" },
+      { "at": 4, "run": "coop pcond NVDLC02DialogueShaman GetItemCount Caps001" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "sum", "path": "campaign.probes.NVDLC02DialogueShaman_GetItemCount", "op": "eq", "value": 7, "on": "host" }
+  ]
+}

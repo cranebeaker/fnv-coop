@@ -50,7 +50,7 @@
         "items.guest.Caps001"
       ],
       "cmp": "eq",
-      "value": 54,
+      "value": 45,
       "on": "both"
     },
     {
@@ -61,10 +61,10 @@
       "on": "both"
     },
     {
-      "id": "guest-got-the-rest",
+      "id": "guest-got-25",
       "path": "items.guest.Caps001",
-      "op": "ge",
-      "value": 34,
+      "op": "eq",
+      "value": 25,
       "on": "both"
     },
     {

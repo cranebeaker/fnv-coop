@@ -14,11 +14,15 @@ name = "coop-sim"
 path = "src/main.rs"
 
 [dependencies]
-coop-core = { path = "../coop-core" }
+coop-core = { path = "../coop-core", features = ["testkit"] }
 coop-session = { path = "../coop-session" }
+coop-voice = { path = "../coop-voice" }
 coop-policy = { path = "../coop-policy" }
 world = { path = "../world" }
 esm = { path = "../esm" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+script = { path = "../script" }
 
 [dev-dependencies]
 testdata = { path = "../testdata" }

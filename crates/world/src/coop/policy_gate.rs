@@ -52,13 +52,17 @@ pub enum Grant {
 }
 
 impl Grant {
-    fn kind(&self) -> RewardKind {
+    fn kind(&self, order: &LoadOrder) -> RewardKind {
         match self {
             Grant::Caps(_) => RewardKind::Caps,
             Grant::Xp(_) => RewardKind::Xp,
             Grant::Item { .. } => RewardKind::Item,
             Grant::QuestItem { .. } => RewardKind::QuestItem,
-            Grant::Perk(p) => RewardKind::Perk(format!("{:08X}", p.0)),
+            // rows name perks by editor id or `plugin:id`; send both aliases
+            Grant::Perk(p) => {
+                let edid = order.get(*p).and_then(|r| r.editor_id().ok().flatten()).unwrap_or_default();
+                RewardKind::Perk(format!("{edid}|{:08X}", p.0))
+            }
             Grant::Karma(_) => RewardKind::Karma,
             Grant::Payment { .. } => RewardKind::Payment,
         }
@@ -167,6 +171,12 @@ pub struct PolicyGate {
     table: Arc<PolicyTable>,
     /// Players counted for gates (the host is always in).
     pub present: PlayerMask,
+    members: PlayerMask,
+    held: PlayerMask,
+    /// Load-order quest id to the id the table uses (DLC rows keep the
+    /// plugin's own index byte).
+    remap: BTreeMap<u32, u32>,
+    unmap: BTreeMap<u32, u32>,
     /// Tether behaviour.
     pub tether_mode: TetherMode,
     /// Who causes the events now (host scripts by default).
@@ -190,6 +200,10 @@ impl PolicyGate {
         PolicyGate {
             table,
             present: PlayerMask::of(0),
+            members: PlayerMask::of(0),
+            held: PlayerMask::NONE,
+            remap: BTreeMap::new(),
+            unmap: BTreeMap::new(),
             tether_mode: TetherMode::On,
             origin: Origin::Host,
             initiator: None,
@@ -209,13 +223,108 @@ impl PolicyGate {
         &self.table
     }
 
+    /// Installs the load-order to table id map (see `configure_campaign`).
+    pub fn set_remap(&mut self, pairs: impl IntoIterator<Item = (u32, u32)>) {
+        self.remap.clear();
+        self.unmap.clear();
+        for (load, policy) in pairs {
+            self.remap.insert(load, policy);
+            self.unmap.insert(policy, load);
+        }
+    }
+
+    /// The table id of a quest form of the running load order.
+    pub fn pid(&self, quest: FormId) -> u32 {
+        self.remap.get(&quest.0).copied().unwrap_or(quest.0)
+    }
+
+    /// The quest form of the running load order for a table id.
+    pub fn lid(&self, policy: u32) -> FormId {
+        FormId(self.unmap.get(&policy).copied().unwrap_or(policy))
+    }
+
+    /// The row of a quest form of the running load order.
+    pub fn row(&self, quest: FormId) -> Option<&coop_policy::QuestRow> {
+        self.table.row(self.pid(quest))
+    }
+
+    fn mapped(&self, ev: &Event) -> Event {
+        let mut e = ev.clone();
+        e.quest = self.pid(FormId(ev.quest));
+        e
+    }
+
+    /// The shared table.
+    pub fn table_arc(&self) -> Arc<PolicyTable> {
+        self.table.clone()
+    }
+
+    /// Claims a reward id for a slot; false when it was granted before.
+    pub fn claim(&mut self, id: u32, slot: Slot) -> bool {
+        self.ledger.insert((id, slot))
+    }
+
+    /// The initiator of the current run (see [`Self::set_initiator`]).
+    pub fn initiator(&self) -> Option<Slot> {
+        self.initiator
+    }
+
+    /// Players with an open interaction on `quest` (set by `begin_interaction`).
+    pub fn session(&self, quest: FormId) -> Option<&QuestSession> {
+        self.sessions.get(&quest)
+    }
+
+    /// Mutable session facts (producers).
+    pub fn session_mut(&mut self, quest: FormId) -> &mut QuestSession {
+        self.sessions.entry(quest).or_default()
+    }
+
+    /// Quests that have session facts.
+    pub fn session_quests(&self) -> Vec<FormId> {
+        self.sessions.keys().copied().collect()
+    }
+
     /// Sets presence from the session's players (the host is always there).
     pub fn set_present(&mut self, players: impl IntoIterator<Item = PlayerId>) {
         let mut m = PlayerMask::of(0);
         for p in players {
             m = m.or(PlayerMask::of(p.0));
         }
-        self.present = m;
+        self.members = m;
+        // late joiners wait out a running scene (policy.late_join)
+        self.held = self.held.and(m).minus(PlayerMask::of(0));
+        self.present = m.minus(self.held);
+    }
+
+    /// Everyone connected, late joiners included.
+    pub fn members(&self) -> PlayerMask {
+        self.members
+    }
+
+    /// Players held out of `present` until the scene ends.
+    pub fn held(&self) -> PlayerMask {
+        self.held
+    }
+
+    /// Holds a joiner out of the gates (the host is never held).
+    pub fn hold_joiner(&mut self, slot: Slot) {
+        if slot != 0 {
+            self.held = self.held.or(PlayerMask::of(slot));
+            self.present = self.present.minus(self.held);
+        }
+    }
+
+    /// Lets every held joiner in; returns them.
+    pub fn release_joiners(&mut self) -> PlayerMask {
+        let h = self.held;
+        self.held = PlayerMask::NONE;
+        self.present = self.members;
+        h
+    }
+
+    /// Scenes holding fast travel and saves now.
+    pub fn scenes_active(&self) -> bool {
+        !self.scenes.is_empty()
     }
 
     /// Sets the global initiator (used by `as_player`); returns the old one.
@@ -277,7 +386,7 @@ impl PolicyGate {
     /// Facts the engine needs, from the game and the session.
     pub fn state_for(&self, gs: &GameState, quest: FormId) -> State {
         let s = self.sessions.get(&quest).cloned().unwrap_or_default();
-        let row = self.table.row(quest.0);
+        let row = self.row(quest);
         let committed_stages = match row.and_then(|r| r.exclusive.as_ref()) {
             Some(x) => x
                 .stages
@@ -289,10 +398,10 @@ impl PolicyGate {
         };
         let committed_quests = self
             .table
-            .group_rivals(quest.0)
+            .group_rivals(self.pid(quest))
             .into_iter()
             .filter(|r| {
-                let f = FormId(*r);
+                let f = self.lid(*r);
                 gs.stages.contains_key(&f) || gs.completed.contains(&f) || gs.failed.contains(&f)
             })
             .collect();
@@ -331,7 +440,7 @@ impl PolicyGate {
 
     /// Decides an event against the current game.
     pub fn decide(&self, gs: &GameState, ev: &Event) -> Decision {
-        self.table.decide(ev, &self.state_for(gs, FormId(ev.quest)))
+        self.table.decide(&self.mapped(ev), &self.state_for(gs, FormId(ev.quest)))
     }
 
     fn count(&mut self, d: &Decision) {
@@ -348,6 +457,9 @@ impl PolicyGate {
     pub fn stage_check(&mut self, gs: &GameState, quest: FormId, stage: u16) -> bool {
         let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::SetStage { stage: u32::from(stage) } };
         let d = self.decide(gs, &ev);
+        if std::env::var_os("COOP_GATE_DEBUG").is_some() {
+            eprintln!("gate stage_check {:08X} stage {} -> {:?}", quest.0, stage, d);
+        }
         self.count(&d);
         match d {
             Decision::Apply | Decision::Replicate { .. } => true,
@@ -391,7 +503,7 @@ impl PolicyGate {
         let mut out = Vec::new();
         for p in held {
             let ev = Event { quest: p.quest.0, origin: p.origin, kind: EventKind::SetStage { stage: u32::from(p.stage) } };
-            let d = self.table.decide(&ev, &self.state_for(gs, p.quest));
+            let d = self.table.decide(&self.mapped(&ev), &self.state_for(gs, p.quest));
             match d {
                 Decision::Apply | Decision::Replicate { .. } | Decision::PerPlayerShadow { .. } => {
                     self.gathers.retain(|(q, _)| *q != p.quest);
@@ -451,10 +563,98 @@ impl PolicyGate {
     /// A companion event for the live owner of the player rows.
     pub fn companion(&mut self, gs: &GameState, op: CompanionOp, quest: FormId, critter: bool) -> Decision {
         let owner = self.initiator.unwrap_or(gs.active_slot());
-        let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::Companion { op, owner, critter } };
+        // a host script run on behalf of a player acts as that player
+        let ev = Event { quest: quest.0, origin: self.acting_origin(), kind: EventKind::Companion { op, owner, critter } };
         let d = self.decide(gs, &ev);
         self.count(&d);
         d
+    }
+
+    /// The origin of player-attributable events: the player a host script
+    /// runs on behalf of (`GameState::as_player`), else the plain origin.
+    pub fn acting_origin(&self) -> Origin {
+        self.initiator.map(Origin::Player).unwrap_or(self.origin)
+    }
+
+    /// A write to a per-player shadow class, checked against the player the
+    /// script runs for (`NotOwner` when it targets another slot).
+    pub fn shadow_write(
+        &mut self,
+        gs: &GameState,
+        quest: FormId,
+        class: coop_policy::ShadowClass,
+        slot: Slot,
+        var: Option<&str>,
+    ) -> Decision {
+        let ev = Event {
+            quest: quest.0,
+            origin: self.acting_origin(),
+            kind: EventKind::ShadowWrite { class, slot, var: var.map(str::to_string) },
+        };
+        let d = self.decide(gs, &ev);
+        self.count(&d);
+        d
+    }
+
+    /// A companion command from a player (not a script): owner only, except
+    /// plot companions of a party-owned row.
+    pub fn companion_command(&mut self, gs: &GameState, quest: FormId, slot: Slot, owner: Slot, op: CompanionOp) -> Decision {
+        let ev = Event { quest: quest.0, origin: Origin::Player(slot), kind: EventKind::Companion { op, owner, critter: false } };
+        let d = self.decide(gs, &ev);
+        self.count(&d);
+        d
+    }
+
+    /// A hit by `slot` on `victim`: the friendly fire guard.
+    pub fn hit_check(&mut self, gs: &GameState, quest: FormId, slot: Slot, victim: &str, recent: u32) -> Decision {
+        let ev = Event { quest: quest.0, origin: Origin::Player(slot), kind: EventKind::Hit { victim: victim.to_string(), recent } };
+        let d = self.decide(gs, &ev);
+        self.count(&d);
+        d
+    }
+
+    /// A fork put to the party (`Choice`), decided from the votes collected.
+    pub fn choice(&mut self, gs: &GameState, quest: FormId, choice: u32) -> Decision {
+        let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::Choice { choice } };
+        let d = self.decide(gs, &ev);
+        self.count(&d);
+        d
+    }
+
+    /// A ready request raised by an INFO end script.
+    pub fn ready_request(&mut self, gs: &GameState, quest: FormId, info: u32) -> Decision {
+        let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::ReadyRequest { info } };
+        let d = self.decide(gs, &ev);
+        self.count(&d);
+        d
+    }
+
+    /// Records a vote on a fork.
+    pub fn vote(&mut self, quest: FormId, slot: Slot, yes: bool) {
+        let s = self.sessions.entry(quest).or_default();
+        if yes {
+            s.votes_yes = s.votes_yes.or(PlayerMask::of(slot));
+            s.votes_no = s.votes_no.minus(PlayerMask::of(slot));
+        } else {
+            s.votes_no = s.votes_no.or(PlayerMask::of(slot));
+            s.votes_yes = s.votes_yes.minus(PlayerMask::of(slot));
+        }
+    }
+
+    /// Starts a fresh vote clock for `quest`.
+    pub fn begin_vote(&mut self, quest: FormId) {
+        let s = self.sessions.entry(quest).or_default();
+        s.votes_yes = PlayerMask::NONE;
+        s.votes_no = PlayerMask::NONE;
+        s.vote_s = 0.0;
+    }
+
+    /// Starts a fresh ready clock for `quest`.
+    pub fn begin_ready(&mut self, quest: FormId) {
+        let s = self.sessions.entry(quest).or_default();
+        s.ready_yes = PlayerMask::NONE;
+        s.ready_no = PlayerMask::NONE;
+        s.ready_s = 0.0;
     }
 
     /// Routes one reward: decides, then applies it to each recipient's
@@ -467,7 +667,7 @@ impl PolicyGate {
         id: u32,
         grant: Grant,
     ) -> RewardOutcome {
-        let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::Reward { reward_id: id, what: grant.kind() } };
+        let ev = Event { quest: quest.0, origin: self.origin, kind: EventKind::Reward { reward_id: id, what: grant.kind(order) } };
         let d = self.decide(gs, &ev);
         let mut applied = Vec::new();
         match &d {
@@ -548,7 +748,7 @@ impl GameState {
         self.coop.gate = Some(Box::new(PolicyGate::new(table)));
     }
 
-    fn with_gate<R>(&mut self, default: R, f: impl FnOnce(&mut PolicyGate, &GameState) -> R) -> R {
+    pub(crate) fn with_gate<R>(&mut self, default: R, f: impl FnOnce(&mut PolicyGate, &GameState) -> R) -> R {
         let Some(mut gate) = self.coop.gate.take() else { return default };
         let r = f(&mut gate, self);
         self.coop.gate = Some(gate);
@@ -557,7 +757,11 @@ impl GameState {
 
     /// `set_stage` hook: false when the policy holds or refuses the stage.
     pub fn coop_gate_stage(&mut self, quest: FormId, stage: u16) -> bool {
-        self.with_gate(true, |g, gs| g.stage_check(gs, quest, stage))
+        let ok = self.with_gate(true, |g, gs| g.stage_check(gs, quest, stage));
+        if ok {
+            self.coop_scene_stage(quest);
+        }
+        ok
     }
 
     /// Fast travel hook: true when blocked.

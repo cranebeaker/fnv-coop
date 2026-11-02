@@ -162,6 +162,48 @@ mod fighting {
     }
 
     #[test]
+    fn outdoors_the_worldspace_is_the_place_and_the_nearest_player_owns_each_actor() {
+        let (_d, order) = order("live-outdoors");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 41);
+        let world_form = FormId(0x7777);
+        let gecko = FormId(GECKO_REF);
+        // the gecko walks the open world; the players stand in different grid squares of it
+        r.host.spaces.insert(gecko, (world_form, FormId(0x7001)));
+        for (i, g) in std::iter::once(&mut r.host).chain(r.guests.iter_mut()).enumerate() {
+            g.player_world = Some(world_form);
+            g.player_cell = Some(FormId(0x7001 + i as u32));
+            g.player_position = Some([[4000.0, 6000.0, 9000.0][i], 1000.0, 0.0]);
+        }
+        let cx = r.cx();
+        r.ha.track(cx, &r.host, &mut r.sim.host.live, &[gecko]);
+        assert_eq!(world::coop::live::export_actor(&r.host, cx, gecko).cell.0, world_form.0);
+        // the host is nearest to the gecko at x 0? no: x 4000 vs 6000 vs 9000
+        assert!(r.until(30_000, |r| r.sim.host.live.actors.own.get(CForm(GECKO_REF)).is_some_and(|a| a.owner == Some(PlayerId(0)))));
+        // the second guest becomes the nearest, in another grid square: ownership follows
+        r.guests[1].player_position = Some([100.0, 1000.0, 0.0]);
+        assert!(r.until(60_000, |r| r.sim.guests[1].sync.live.owns_actor(CForm(GECKO_REF))), "handoff across grid squares");
+    }
+
+    #[test]
+    fn an_actor_nobody_shares_a_place_with_keeps_running_locally() {
+        let (_d, order) = order("live-dormant");
+        let scripts = ScriptCache::default();
+        let mut r = setup(&order, &scripts, "perfect", 42);
+        let gecko = FormId(GECKO_REF);
+        // somebody owns it for a while, then everyone leaves its place
+        r.run_ms(3_000);
+        assert!(r.guests[0].positions.contains_key(&gecko) || r.until(10_000, |r| r.sim.guests[0].sync.live.actors.get(CForm(GECKO_REF)).is_some()));
+        for g in std::iter::once(&mut r.host).chain(r.guests.iter_mut()) {
+            g.player_cell = Some(FormId(0x7002));
+        }
+        assert!(r.until(10_000, |r| r.sim.guests[0].sync.live.actors.get(CForm(GECKO_REF)).is_some_and(|a| a.owner.is_none())));
+        r.guests[0].positions.insert(gecko, ([555.0, 1000.0, 0.0], 1.0));
+        r.run_ms(3_000);
+        assert_eq!(r.guests[0].positions.get(&gecko).map(|p| p.0[0]), Some(555.0), "a dormant record is not applied over the local copy");
+    }
+
+    #[test]
     fn a_guest_hit_kills_an_npc_exactly_once_on_all_peers() {
         for (profile, seed) in [("perfect", 21u64), ("bad_wifi", 22)] {
             let (_d, order) = order(&format!("live-kill-{profile}"));

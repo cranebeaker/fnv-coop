@@ -1,0 +1,58 @@
+{
+  "name": "twin_live_voice_packets",
+  "description": "MUTATION TWIN of live_voice_packets: nobody talks. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 72,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-heard-packets",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "guest"
+    },
+    {
+      "id": "host-heard-packets",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "host"
+    },
+    {
+      "id": "mixed",
+      "path": "live.voiced_frames",
+      "op": "ge",
+      "value": 40,
+      "on": "both"
+    },
+    {
+      "id": "indicator",
+      "path": "live.speaking_frames",
+      "op": "ge",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "sent",
+      "path": "live.voice_out",
+      "op": "ge",
+      "value": 90,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

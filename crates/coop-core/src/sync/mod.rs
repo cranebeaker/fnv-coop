@@ -12,7 +12,7 @@ mod live;
 
 pub use glive::{ChatLine, GuestLive, RemoteAvatar, CHAT_LOG_CAP};
 pub use guest::{GuestPhase, GuestSync};
-pub use host::{HostConfig, HostSync};
+pub use host::{CompatNote, HostConfig, HostSync};
 pub use live::HostLive;
 
 /// Ticks of silence before the guest restarts a handshake. Hello and Join

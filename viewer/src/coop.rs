@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use coop_session::json::{self, V};
-use coop_session::{ChaosProfile, Command, Event as CoopEvent, Role, Session, SessionConfig};
+use coop_session::{ChaosProfile, Command, Event as CoopEvent, Opening, OwnCharacter, Role, Session, SessionConfig, StartConfig};
 use world::coop::apply::{Ctx, Opts};
 
 use crate::args::{Args, Stance};
@@ -91,6 +91,7 @@ pub struct Run {
 
 /// What `connect` hands to the plugin.
 pub struct Started {
+    control: Option<u16>,
     link: CoopLink,
     held: Held,
     run: Run,
@@ -138,6 +139,7 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
     if !c.active() {
         return Ok(None);
     }
+    crate::coop_live::configure(&c);
     let role = if c.host.is_some() { Role::Host } else { Role::Guest };
     let role_name = if role == Role::Host { "host" } else { "guest" };
     let pid = std::process::id();
@@ -153,6 +155,12 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         build_hash: fnv(env!("CARGO_PKG_VERSION").bytes()),
         mods_hash: fnv(order.plugins().iter().flat_map(|p| p.name.to_ascii_lowercase().into_bytes().into_iter().chain([0]))),
         chaos: c.net.as_deref().and_then(ChaosProfile::by_name).map(|p| (p, 0x5EED ^ pid as u64)),
+        compat: coop_session::CompatConfig {
+            exe: crate::coop_live::EXE_VERSION.into(),
+            volatile_hash: coop_session::compat::volatile_hash(coop_session::compat::VOLATILE_KEYS),
+            plugins: order.plugins().iter().map(|p| p.name.to_string()).collect(),
+            allow_mismatch: c.allow_mismatch,
+        },
         log: c.log.clone(),
         ..SessionConfig::default()
     };
@@ -170,11 +178,36 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         e.to_string()
     })?;
     crate::coop_link::log_notices(&mut session, &notices);
+    // How this process starts (docs/COOP.md, "The start of a game"): a host's --new-game runs the
+    // opening for the host player; a guest makes its own character unless it brings one.
+    let own = if c.no_chargen {
+        OwnCharacter::Skip
+    } else if c.own_load.is_some() {
+        OwnCharacter::Provided
+    } else {
+        OwnCharacter::Create
+    };
+    session.set_start_config(StartConfig { new_game: c.new_game, own });
+    if let Some(path) = c.own_load.as_deref().filter(|_| role == Role::Guest) {
+        match own_sheet(order, path) {
+            Ok(sheet) => session.set_own_sheet(sheet),
+            Err(e) => {
+                failure_log(c.log.as_deref(), role_name, &e);
+                return Err(e);
+            }
+        }
+    }
+    let who = c.name.clone().unwrap_or_else(|| if role == Role::Host { "Host".into() } else { "Guest".into() });
+    if let Err(e) = crate::coop_party::setup(&mut session, role, &c, &who) {
+        failure_log(c.log.as_deref(), role_name, &e);
+        return Err(e);
+    }
     if role == Role::Guest {
         let begun = Instant::now();
         let place = loop {
             session.poll(0.016);
-            if let Some(p) = session.host_place() {
+            // the host's place and how far its own opening is both arrive right after the join
+            if let (Some(p), Some(_)) = (session.host_place(), session.host_opening()) {
                 break p;
             }
             if let Some(why) = session.last_error().map(str::to_string) {
@@ -192,18 +225,27 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
             }
             std::thread::sleep(Duration::from_millis(16));
         };
+        // The host's opening is over and this guest makes its character: it does so in a local
+        // room and is let go to the host's place afterwards (`start_follow_ok`).
+        let local_room = own == OwnCharacter::Create && session.host_opening() == Some(Opening::Over);
         if args.cell == crate::args::COOP_PLACE {
-            args.cell = place.query();
+            args.cell = if local_room { coop_session::start::LOCAL_ROOM.to_string() } else { place.query() };
         }
-        if args.at.is_none() {
+        if args.at.is_none() && !local_room {
             args.at = place.pos.filter(|_| place.outdoors()).map(|p| Stance { feet: p, heading: 0.0, pitch: 0.0 });
         }
-        println!("Co-op: joined; loading the host's place {}.", args.cell);
+        if local_room {
+            println!("Co-op: joined; the host's opening is over, making your character in {} first.", args.cell);
+        } else {
+            println!("Co-op: joined; loading the host's place {}.", args.cell);
+        }
     } else {
         println!("Co-op: hosting on UDP port {}.", c.host.unwrap_or_default());
     }
     let held = Held {
-        stage: args.stage.take(),
+        // a new game's opening starts at once (not when the first guest arrives): its stage stays
+        // in the arguments for the normal start
+        stage: if c.new_game { None } else { args.stage.take() },
         run: std::mem::take(&mut args.run),
         run_at: std::mem::take(&mut args.run_at),
         released: None,
@@ -216,14 +258,50 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         state_dump: c.state_dump.clone(),
         quit_file: c.quit_file.clone(),
         quit_after: c.quit_after,
-        show_text: args.hud,
+        show_text: false,
         seq: 0,
         last_dump: -DUMP_EVERY,
         ready_at: None,
         loaded_logged: false,
         done: false,
     };
-    Ok(Some(Started { link: CoopLink(session), held, run }))
+    Ok(Some(Started { control: c.control, link: CoopLink(session), held, run }))
+}
+
+/// A guest's own character from a save (`--load-fos FILE` or `--coop-load FILE`): the name, SPECIAL,
+/// tags and perks. Nothing else of the save is used.
+fn own_sheet(order: &esm::LoadOrder, path: &Path) -> Result<coop_session::Sheet, String> {
+    let state = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("fos")) {
+        let bytes = std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+        world::fos_import::import(order, &bytes)?.state
+    } else {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+        world::save::load(&text)?.0
+    };
+    Ok(coop_session::Sheet::read(&state))
+}
+
+/// A guest's own character making (`coop_session::start`): the session says which menu is next, the
+/// game's own menu opens for this player only, and its closing is what moves the flow on.
+fn start_menus(link: NonSendMut<CoopLink>, state: Res<DialogueState>, mut menus: ResMut<crate::menus::Menus>) {
+    use coop_session::Step;
+    use world::chargen::CharacterMenu as M;
+    if link.0.role() != Role::Guest || state.0.player_cell.is_none() {
+        return;
+    }
+    let busy = menus.is_open();
+    // `start_poll` needs `&mut Session`; the link is the only holder
+    let mut link = link;
+    if let Some(step) = link.0.start_poll(&state.0, busy) {
+        let m = match step {
+            Step::Name => M::Name,
+            Step::Special => M::Special { points: coop_session::start::SPECIAL_POINTS },
+            Step::TagSkills => M::TagSkills { count: coop_session::start::TAG_COUNT, preselect: true },
+            Step::Traits => M::Traits { max: coop_session::start::TRAIT_MAX },
+        };
+        println!("Co-op: your character, {} menu.", step.name());
+        menus.push(crate::menus::Menu::Character(m));
+    }
 }
 
 /// Registers the co-op systems when `connect` started a session.
@@ -232,14 +310,20 @@ pub struct CoopPlugin;
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
         let Some(started) = STASH.with(|s| s.borrow_mut().take()) else { return };
+        let role = started.run.role;
         app.insert_non_send_resource(started.link)
             .insert_resource(started.held)
             .insert_resource(started.run)
             .add_systems(Startup, setup_text)
             .add_systems(Update, receive.in_set(ViewerSet::Input))
             .add_systems(Update, send.in_set(ViewerSet::AfterFrame))
+            .add_systems(Update, start_menus.in_set(ViewerSet::AfterFrame))
             .add_systems(Last, at_exit)
-            .add_plugins(coop_live::LivePlugin);
+            .add_plugins(coop_live::LivePlugin)
+            .add_plugins(crate::coop_party::PartyPlugin(role));
+        if let Some(port) = started.control {
+            app.add_plugins(crate::coop_control::ControlPlugin(port));
+        }
     }
 }
 
@@ -249,13 +333,13 @@ pub(crate) struct CoopText;
 fn setup_text(mut commands: Commands) {
     commands.spawn((
         Text::new(String::new()),
-        TextFont { font_size: 14.0, ..default() },
-        TextColor(Color::srgb(0.7, 0.95, 0.7)),
+        TextFont { font_size: 11.0, ..default() },
+        TextColor(Color::srgba(0.7, 0.95, 0.7, 0.8)),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(8.0),
-            left: Val::Px(8.0),
-            padding: UiRect::all(Val::Px(4.0)),
+            top: Val::Px(4.0),
+            right: Val::Px(8.0),
+            padding: UiRect::all(Val::Px(2.0)),
             ..default()
         },
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
@@ -279,11 +363,25 @@ fn log_script(s: &mut Session, line: &str) {
     s.log_event("script", &[("line", V::S(line))]);
 }
 
-fn write_dump(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) {
-    let Some(path) = run.state_dump.clone() else { return };
+impl Run {
+    /// This machine hosts.
+    pub(crate) fn is_host(&self) -> bool {
+        self.role == Role::Host
+    }
+
+    /// The session is ready (the host's clock started).
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready_at.is_some()
+    }
+}
+
+/// The state dump text (the next sequence number), as `--coop-state-dump` writes it.
+pub(crate) fn dump_text(s: &Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) -> String {
     run.seq += 1;
     let root = Session::state_root(state);
-    let text = coop_session::dump::state_json_full(
+    let mut counters = live.counters.clone();
+    counters.start = Some(s.start_info());
+    coop_session::dump::state_json_full(
         state,
         &game.0.order,
         run.role,
@@ -291,8 +389,13 @@ fn write_dump(s: &mut Session, run: &mut Run, state: &world::scripting::GameStat
         run.seq,
         root,
         live.view.as_ref(),
-        &live.counters,
-    );
+        &counters,
+    )
+}
+
+fn write_dump(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) {
+    let Some(path) = run.state_dump.clone() else { return };
+    let text = dump_text(s, run, state, game, now, live);
     coop_session::out::write_atomic(&path, &text);
     s.log_event("state_dump", &[("path", V::S(&path.display().to_string())), ("seq", V::U(run.seq))]);
 }
@@ -321,9 +424,14 @@ pub(crate) fn send(
     mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
     (mut bot, live): (ResMut<coop_live::Bot>, Res<LiveNow>),
     scripts: Res<Scripts>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     let now = time.elapsed_secs();
     let s = &mut link.0;
+    // F6 shows or hides the small players-and-ping indicator (off by default)
+    if keys.just_pressed(KeyCode::F6) {
+        run.show_text = !run.show_text;
+    }
     s.post_frame(&mut state.0, time.delta_secs());
     if !run.loaded_logged {
         run.loaded_logged = true;
@@ -408,7 +516,7 @@ pub(crate) fn send(
         finish(s, &mut run, &state.0, &game, now, reason, &live);
         exit.write(AppExit::Success);
     }
-    let line = s.status().line();
+    let line = s.status().compact();
     for (mut text, mut vis) in &mut texts {
         if text.0 != line {
             text.0 = line.clone();

@@ -40,6 +40,8 @@ pub struct DialogueBridge {
     /// time from the session.
     pub native_host: bool,
     native_sessions: BTreeSet<u32>,
+    /// Who picked in each open session (the end script runs as them).
+    initiators: std::collections::BTreeMap<u32, PlayerId>,
 }
 
 impl DialogueBridge {
@@ -109,11 +111,15 @@ impl DialogueBridge {
                         self.native_sessions.insert(session);
                         continue;
                     }
+                    self.initiators.insert(session, initiator);
                     if let Some(info) = Info::load(cx.order, FormId(choice)) {
-                        line_begins(gs, &info, npc);
-                        if menu_runs_begin_script(&info) {
-                            run(cx, gs, info.begin_script.as_deref(), npc);
-                        }
+                        // the host runs the line as the player who picked it
+                        super::campaign::producers::as_initiator(gs, initiator.0, info.quest, |gs| {
+                            line_begins(gs, &info, npc);
+                            if menu_runs_begin_script(&info) {
+                                run(cx, gs, info.begin_script.as_deref(), npc);
+                            }
+                        });
                     }
                     self.begin_runs += 1;
                 }
@@ -123,13 +129,20 @@ impl DialogueBridge {
                         continue;
                     }
                     if let Some(info) = Info::load(cx.order, FormId(choice)) {
-                        if menu_runs_end_script(&info) {
-                            run(cx, gs, info.end_script.as_deref(), npc);
-                        }
+                        let who = self.initiators.get(&session).map_or(0, |p| p.0);
+                        super::campaign::producers::as_initiator(gs, who, info.quest, |gs| {
+                            if menu_runs_end_script(&info) {
+                                run(cx, gs, info.end_script.as_deref(), npc);
+                            }
+                            super::campaign::producers::ready_if_listed(cx, gs, &info);
+                        });
                     }
                     self.end_runs += 1;
                 }
-                DialogueEvent::Closed { session, npc, .. } => self.closed.push((session, FormId(npc.0))),
+                DialogueEvent::Closed { session, npc, .. } => {
+                    self.initiators.remove(&session);
+                    self.closed.push((session, FormId(npc.0)))
+                }
             }
         }
         outs

@@ -90,6 +90,105 @@ pub struct AvatarParts {
     pub appearance: Vec<u8>,
 }
 
+/// Most undelivered action events a receiver keeps per player.
+pub const MAX_PENDING_ACTIONS: usize = 32;
+
+/// What a combat action event says happened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ActionKind {
+    /// The weapon (or fists) came out; `arg` is the weapon form (0 fists).
+    Draw,
+    /// The weapon was put away.
+    Holster,
+    /// A melee swing began; `arg` is the animation group.
+    Swing,
+    /// A shot was fired; `arg` is the animation group.
+    Shoot,
+    /// Looking down the sights began.
+    Aim,
+    /// A reload began; `arg` is the animation group.
+    Reload,
+    /// Blocking began.
+    Block,
+    /// Took a hit; `arg` is the damage in whole points.
+    Hurt,
+    /// Knocked down.
+    Knockdown,
+    /// Died.
+    Death,
+}
+
+impl ActionKind {
+    /// The kind a bot word names (`swing`, `shoot`, `draw`, ...), case
+    /// blind; `attack` is a swing.
+    pub fn parse(word: &str) -> Option<ActionKind> {
+        Some(match word.to_ascii_lowercase().as_str() {
+            "draw" => ActionKind::Draw,
+            "holster" => ActionKind::Holster,
+            "swing" | "attack" => ActionKind::Swing,
+            "shoot" | "fire" => ActionKind::Shoot,
+            "aim" => ActionKind::Aim,
+            "reload" => ActionKind::Reload,
+            "block" => ActionKind::Block,
+            "hurt" => ActionKind::Hurt,
+            "knockdown" => ActionKind::Knockdown,
+            "death" | "die" => ActionKind::Death,
+            _ => return None,
+        })
+    }
+}
+
+/// One combat action event with its per-player sequence number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvatarAction {
+    /// Per-player event number, rising by one per event from 1.
+    pub n: Seq,
+    /// What happened.
+    pub kind: ActionKind,
+    /// Kind-specific argument.
+    pub arg: u32,
+}
+
+/// Receiver side of the action channel: events in order, once each, with
+/// the count of ones that never came (a reliable channel loses none; a
+/// lossy one drops some, and old or repeated ones are ignored).
+#[derive(Clone, Debug, Default)]
+pub struct ActionRx {
+    last: Option<Seq>,
+    pending: std::collections::VecDeque<AvatarAction>,
+    /// Events accepted.
+    pub accepted: u32,
+    /// Numbers skipped over (events that never arrived).
+    pub missed: u32,
+    /// Repeats and stale ones dropped.
+    pub dropped: u32,
+}
+
+impl ActionRx {
+    /// Takes one event; true when it was new.
+    pub fn push(&mut self, a: AvatarAction) -> bool {
+        if let Some(last) = self.last {
+            if !a.n.is_newer_than(last) {
+                self.dropped += 1;
+                return false;
+            }
+            self.missed += a.n.0.wrapping_sub(last.0).saturating_sub(1).min(1000);
+        }
+        self.last = Some(a.n);
+        self.accepted += 1;
+        if self.pending.len() >= MAX_PENDING_ACTIONS {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(a);
+        true
+    }
+
+    /// The events not yet taken, oldest first.
+    pub fn take(&mut self) -> Vec<AvatarAction> {
+        self.pending.drain(..).collect()
+    }
+}
+
 /// Avatar wire messages.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AvatarMsg {
@@ -109,6 +208,14 @@ pub enum AvatarMsg {
         /// The parts.
         parts: AvatarParts,
     },
+    /// Reliable combat action event (added after protocol 2's first
+    /// messages; an old peer cannot decode it, hence the version bump).
+    Action {
+        /// Whose avatar.
+        player: PlayerId,
+        /// The event.
+        action: AvatarAction,
+    },
 }
 
 impl AvatarMsg {
@@ -120,7 +227,7 @@ impl AvatarMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            AvatarMsg::State { .. } => true,
+            AvatarMsg::State { .. } | AvatarMsg::Action { .. } => true,
             AvatarMsg::Parts { parts, .. } => {
                 parts.equipment.len() <= MAX_EQUIP && parts.appearance.len() <= MAX_APPEARANCE
             }
@@ -135,12 +242,13 @@ pub struct AvatarSender {
     seq: Seq,
     next_at: u64,
     parts_rev: u32,
+    action_n: u32,
 }
 
 impl AvatarSender {
     /// A sender for `player`.
     pub fn new(player: PlayerId) -> Self {
-        AvatarSender { player, seq: Seq(0), next_at: 0, parts_rev: 0 }
+        AvatarSender { player, seq: Seq(0), next_at: 0, parts_rev: 0, action_n: 0 }
     }
 
     /// Emits a state message when the interval has elapsed.
@@ -156,6 +264,12 @@ impl AvatarSender {
         };
         self.seq = self.seq.next();
         Some(AvatarMsg::State { player: self.player, seq: self.seq, state: *state })
+    }
+
+    /// A combat action event under the next event number.
+    pub fn action(&mut self, kind: ActionKind, arg: u32) -> AvatarMsg {
+        self.action_n = self.action_n.wrapping_add(1);
+        AvatarMsg::Action { player: self.player, action: AvatarAction { n: Seq(self.action_n), kind, arg } }
     }
 
     /// Publishes new parts under the next revision.
@@ -179,6 +293,7 @@ pub struct Relay {
 pub struct AvatarHub {
     states: BTreeMap<PlayerId, (Seq, AvatarState)>,
     parts: BTreeMap<PlayerId, AvatarParts>,
+    actions: BTreeMap<PlayerId, Seq>,
     /// Messages dropped because the claimed player was not the sender.
     pub forged: u32,
     /// Stale or duplicate messages dropped.
@@ -222,6 +337,19 @@ impl AvatarHub {
                 self.parts.insert(from, parts.clone());
                 Some(Relay { cell: None, msg })
             }
+            AvatarMsg::Action { player, action } => {
+                if *player != from {
+                    self.forged += 1;
+                    return None;
+                }
+                if self.actions.get(&from).is_some_and(|old| !action.n.is_newer_than(*old)) {
+                    self.stale += 1;
+                    return None;
+                }
+                self.actions.insert(from, action.n);
+                // to the ones who can see them; everyone until a position is known
+                Some(Relay { cell: self.states.get(&from).map(|(_, s)| s.cell), msg })
+            }
         }
     }
 
@@ -239,6 +367,7 @@ impl AvatarHub {
     pub fn remove(&mut self, p: PlayerId) {
         self.states.remove(&p);
         self.parts.remove(&p);
+        self.actions.remove(&p);
     }
 
     /// Distance between two avatars; `None` when either is unknown or they
@@ -338,6 +467,62 @@ mod tests {
         assert!(h.on_msg(PlayerId(1), a).is_none(), "older revision after newer");
         assert!(h.on_msg(PlayerId(1), b).is_none(), "duplicate");
         assert_eq!(h.parts_snapshot().len(), 1);
+    }
+
+    fn act(n: u32) -> AvatarAction {
+        AvatarAction { n: Seq(n), kind: ActionKind::Swing, arg: n }
+    }
+
+    #[test]
+    fn action_rx_orders_dedupes_and_counts_the_missing() {
+        let mut rx = ActionRx::default();
+        // arrival order scrambled, with repeats and one event (4) lost
+        for n in [1, 2, 2, 3, 1, 6, 5, 7, 7] {
+            rx.push(act(n));
+        }
+        let got: Vec<u32> = rx.take().iter().map(|a| a.n.0).collect();
+        assert_eq!(got, vec![1, 2, 3, 6, 7], "in order, once each; the late 5 is stale after 6");
+        assert_eq!(rx.accepted, 5);
+        assert_eq!(rx.missed, 2, "4 and 5 never counted in order");
+        assert_eq!(rx.dropped, 4);
+        assert!(rx.take().is_empty());
+    }
+
+    #[test]
+    fn action_rx_survives_a_wrap_and_bounds_its_queue() {
+        let mut rx = ActionRx::default();
+        for n in [u32::MAX - 1, u32::MAX, 0, 1] {
+            assert!(rx.push(act(n)));
+        }
+        assert_eq!(rx.take().len(), 4);
+        for n in 2..2 + 3 * MAX_PENDING_ACTIONS as u32 {
+            rx.push(act(n));
+        }
+        assert_eq!(rx.take().len(), MAX_PENDING_ACTIONS);
+    }
+
+    #[test]
+    fn hub_relays_actions_once_by_cell_and_rejects_forgeries() {
+        let mut h = AvatarHub::new();
+        let mut s = AvatarSender::new(PlayerId(1));
+        h.on_msg(PlayerId(1), AvatarMsg::State { player: PlayerId(1), seq: Seq(1), state: st(5, 0.0) });
+        let a = s.action(ActionKind::Shoot, 7);
+        assert!(a.is_sane() && !a.is_stream());
+        let r = h.on_msg(PlayerId(1), a.clone()).unwrap();
+        assert_eq!(r.cell, Some(CellId(5)));
+        assert!(h.on_msg(PlayerId(1), a.clone()).is_none(), "duplicate");
+        assert!(h.on_msg(PlayerId(2), a).is_none(), "forged");
+        assert_eq!(h.forged, 1);
+        let b = s.action(ActionKind::Death, 0);
+        assert!(matches!(&b, AvatarMsg::Action { action, .. } if action.n == Seq(2)));
+        assert!(h.on_msg(PlayerId(1), b).is_some());
+    }
+
+    #[test]
+    fn action_words_parse() {
+        assert_eq!(ActionKind::parse("Attack"), Some(ActionKind::Swing));
+        assert_eq!(ActionKind::parse("shoot"), Some(ActionKind::Shoot));
+        assert_eq!(ActionKind::parse("nope"), None);
     }
 
     #[test]

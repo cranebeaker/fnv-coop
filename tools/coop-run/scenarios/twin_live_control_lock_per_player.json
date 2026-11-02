@@ -1,0 +1,53 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 10,
+  "settle_s": 8,
+  "name": "twin_live_control_lock_per_player",
+  "description": "Mutation twin of live_control_lock_per_player: the feature is taken away, so the assertions must fail.",
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop lock 1111111 010048FE"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-locked",
+      "path": "scene.locks",
+      "on": "guest",
+      "op": "eq",
+      "value": 127
+    },
+    {
+      "id": "guest-controls",
+      "path": "scene.controls",
+      "on": "guest",
+      "op": "eq",
+      "value": 127
+    },
+    {
+      "id": "host-free",
+      "path": "scene.locks",
+      "on": "host",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "host-controls",
+      "path": "scene.controls",
+      "on": "host",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

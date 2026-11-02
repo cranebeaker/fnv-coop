@@ -1,0 +1,11 @@
+{
+  "area": "SCENES",
+  "rows": [
+    {"id": "scenes.time_clock", "area": "SCENES", "title": "Host clock; wait and sleep by party consent", "proves": "time skips need everyone and are refused in combat", "tests": ["builtin:rules_vote"], "twin": true, "backend": "agnostic", "source": "08 1.6"},
+    {"id": "scenes.tether", "area": "SCENES", "title": "Story tether: 120 s then warp with warning", "proves": "warn, warp, clear", "tests": ["builtin:rules_tether", "scenario:live_tether_warp_long"], "twin": true, "fidelity": "modelled", "stand_in": "viewer per-frame glue (bot, movement, menus) modelled in coop-headless peer.rs", "real": ["live_tether_warp_long"], "source": "08 1.6"},
+    {"id": "scenes.tether_exterior", "area": "SCENES", "title": "Exterior anchor and radius zone membership", "proves": "zone membership by distance", "tests": ["scenario:live_tether_exterior"], "source": "08 1.6"},
+    {"id": "scenes.barrier_ready", "area": "SCENES", "title": "Unanimous barrier and ready check for one-way transitions", "proves": "waits for all, cancels on decline or timeout", "tests": ["builtin:rules_barrier", "questwalk:all#policy"], "twin": true, "backend": "agnostic", "source": "08 1.6 G26 G27"},
+    {"id": "scenes.slideshow", "area": "SCENES", "title": "Ending slideshow for all", "proves": "controls locked, all see it", "tests": ["scenario:live_scene_ending"], "source": "08 1.6 G30"},
+    {"id": "scenes.movies", "area": "SCENES", "title": "Intro movies", "proves": "not co-op specific", "tests": [], "source": "08 1.6", "note": "not co-op specific"}
+  ]
+}

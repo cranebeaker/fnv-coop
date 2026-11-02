@@ -328,6 +328,10 @@ pub fn may_sleep_in(order: &LoadOrder, state: &GameState, bed: FormId) -> Result
 /// The menu's hours accepted (`007c0220`, its button 4): the hours and the
 /// sleeping flag set; a sleep counts in "Times Slept".
 pub fn begin(state: &mut GameState, hours: u32, sleeping: bool) {
+    // In a co-op session the party decides (a vote); the host runs the hours.
+    if state.coop_time_intercept(hours, sleeping) {
+        return;
+    }
     state.living.hours_left = hours as i32;
     state.living.sleeping = sleeping;
     if sleeping {

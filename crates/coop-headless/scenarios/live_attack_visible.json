@@ -1,0 +1,29 @@
+{
+  "name": "live_attack_visible",
+  "description": "Each player swings and shoots (coop attack); the other peer receives every attack event for its puppet.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop attack swing 32" },
+      { "at": 4, "run": "coop attack shoot 40" },
+      { "at": 5, "run": "coop attack swing 32" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 3, "run": "coop attack swing 32" },
+      { "at": 4, "run": "coop attack reload 90" },
+      { "at": 5, "run": "coop attack shoot 40" },
+      { "at": 6, "run": "coop attack swing 32" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-saw-host-attacks", "path": "live.puppet_actions", "op": "ge", "value": 3, "on": "guest" },
+    { "id": "host-saw-guest-attacks", "path": "live.puppet_actions", "op": "ge", "value": 4, "on": "host" },
+    { "id": "h", "path": "hash.shared", "on": "equal" }
+  ]
+}

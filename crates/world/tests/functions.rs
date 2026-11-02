@@ -65,6 +65,23 @@ fn children_by_race_flag_or_body_model() {
     assert_eq!(q("player.IsChild"), 0.0);
 }
 
+/// A door whose script asks the door itself to open from its `OnActivate`
+/// block: the activation (`00573170`) runs the block only while fewer than
+/// 5 are running (`g_iActRecursion`), so the block runs 5 times and the
+/// process survives (the real `VPitPlayerDoorPitAccessOpen` on
+/// `VThornPitAccessSwitchREF` overflowed the stack here before).
+#[test]
+fn a_door_that_opens_itself_from_its_block_stops_after_five() {
+    let (_data, order) = order("fn-selfdoor");
+    let scripts = ScriptCache::default();
+    let mut state = new_game(&order);
+    state.globals.insert(FormId(VALUE), 0.0);
+    run(&order, &scripts, &mut state, "SelfDoorRef.SetOpenState 1");
+    assert_eq!(state.globals[&FormId(VALUE)], 5.0);
+    // The block never reached a real activation, so the door stayed shut.
+    assert_eq!(ask(&order, &scripts, &mut state, "SelfDoorRef.GetOpenState"), 3.0);
+}
+
 #[test]
 fn restraints_doors_and_owners() {
     let (_data, order) = order("fn-doors");

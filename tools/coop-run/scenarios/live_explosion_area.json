@@ -1,0 +1,67 @@
+{
+  "name": "live_explosion_area",
+  "description": "With friendly fire on, the host's blast kills the gecko and hurts the guest.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 4,
+        "run": "coop ff 1"
+      },
+      {
+        "at": 9,
+        "run": "coop explode VCG02Gecko1REF 4000 3000"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "npc-dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "guest"
+    },
+    {
+      "id": "blast-hits",
+      "path": "combat.blast_hits",
+      "op": "ge",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "player-hit",
+      "path": "combat.hurts_applied",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "shown",
+      "path": "combat.blasts_seen",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

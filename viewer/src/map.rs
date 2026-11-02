@@ -49,5 +49,7 @@ pub fn find_markers(
     };
     for m in world::map::discover(&game.0.order, state, &markers.list, feet) {
         println!("Found {} on the map.", m.name);
+        // co-op: a marker one player finds is the party's (fast travel unlock)
+        state.coop_route(world::coop::interact::discover_act(m.reference));
     }
 }

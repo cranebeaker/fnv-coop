@@ -9,6 +9,8 @@
 
 use coop_core::ids::PlayerId;
 
+use crate::start::{Opening, Sheet};
+
 /// First byte of a session-level packet.
 pub const MARK: u8 = 0xFE;
 /// Longest string carried (bytes).
@@ -106,6 +108,14 @@ pub enum Ext {
     },
     /// Host to guests: everyone connected.
     Roster(Vec<PeerInfo>),
+    /// Host to guest: how far the host's own opening is (see `start`).
+    Opening(Opening),
+    /// Guest to host: the guest's character (resent until acknowledged).
+    Character(Sheet),
+    /// Host to guest: the character was stored.
+    SheetAck,
+    /// Party-save traffic (see `crate::party`); the payload is that module's own format.
+    Party(Vec<u8>),
 }
 
 struct W(Vec<u8>);
@@ -206,6 +216,10 @@ impl Ext {
                 w.str(name);
                 w.u32(*rtt_ms);
             }
+            Ext::Party(b) => {
+                w.u8(9);
+                w.0.extend(b);
+            }
             Ext::Roster(list) => {
                 w.u8(5);
                 w.u8(list.len().min(255) as u8);
@@ -215,6 +229,25 @@ impl Ext {
                     w.u32(p.rtt_ms);
                 }
             }
+            Ext::Opening(o) => {
+                w.u8(6);
+                w.u8(o.byte());
+            }
+            Ext::Character(c) => {
+                w.u8(7);
+                w.str(&c.name);
+                w.u8(match c.female {
+                    None => 0,
+                    Some(false) => 1,
+                    Some(true) => 2,
+                });
+                c.special.iter().for_each(|v| w.u8(*v));
+                w.u8(c.tags.len().min(32) as u8);
+                c.tags.iter().take(32).for_each(|t| w.u16(*t));
+                w.u8(c.perks.len().min(64) as u8);
+                c.perks.iter().take(64).for_each(|p| w.u32(*p));
+            }
+            Ext::SheetAck => w.u8(8),
         }
         w.0
     }
@@ -258,6 +291,35 @@ impl Ext {
                 }
                 Ext::Roster(list)
             }
+            6 => Ext::Opening(Opening::from_byte(r.u8()?)?),
+            7 => {
+                let name = r.str()?;
+                let female = match r.u8()? {
+                    0 => None,
+                    1 => Some(false),
+                    2 => Some(true),
+                    _ => return None,
+                };
+                let mut special = [0u8; 7];
+                for v in special.iter_mut() {
+                    *v = r.u8()?;
+                }
+                let mut tags = Vec::new();
+                for _ in 0..r.u8()? {
+                    tags.push(r.u16()?);
+                }
+                let mut perks = Vec::new();
+                for _ in 0..r.u8()? {
+                    perks.push(r.u32()?);
+                }
+                Ext::Character(Sheet { name, female, special, tags, perks })
+            }
+            8 => Ext::SheetAck,
+            9 => {
+                let b = r.0.to_vec();
+                r.0 = &[];
+                Ext::Party(b)
+            }
             _ => return None,
         };
         r.0.is_empty().then_some(e)
@@ -277,10 +339,16 @@ mod tests {
             Ext::Cmd { id: 8, cmd: Command::Stage("VCG01".into(), 20) },
             Ext::CmdAck(7),
             Ext::Info { name: "Ann".into(), rtt_ms: 33 },
+            Ext::Party(vec![1, 2, 3]),
             Ext::Roster(vec![
                 PeerInfo { player: PlayerId(0), name: "Host".into(), rtt_ms: 0 },
                 PeerInfo { player: PlayerId(2), name: "Bo".into(), rtt_ms: 90 },
             ]),
+            Ext::Opening(Opening::InProgress),
+            Ext::Opening(Opening::Over),
+            Ext::Character(Sheet { name: "Bo".into(), female: Some(true), special: [1, 2, 3, 4, 5, 6, 10], tags: vec![32, 41], perks: vec![0x1234, 7] }),
+            Ext::Character(Sheet::default()),
+            Ext::SheetAck,
         ];
         for e in all {
             let b = e.encode();

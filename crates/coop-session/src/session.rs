@@ -74,6 +74,23 @@ pub struct SessionConfig {
     /// With `live`: the host's game runs its own player's dialogue lines
     /// itself (the viewer); the session must not run their scripts again.
     pub native_dialogue: bool,
+    /// Executable version, volatile-key hash, plugin list and the
+    /// `--coop-allow-mismatch` override (see `coop_core::compat`).
+    pub compat: CompatConfig,
+}
+
+/// What a peer tells the handshake about its game, plus the host policy.
+#[derive(Clone, Debug, Default)]
+pub struct CompatConfig {
+    /// Game executable version text (empty: unknown).
+    pub exe: String,
+    /// Hash of the volatile-key set.
+    pub volatile_hash: u64,
+    /// Ordered plugin file names; when given and `mods_hash` is 0 the hash
+    /// is made from them.
+    pub plugins: Vec<String>,
+    /// Developer override: let a mismatched guest in with a warning.
+    pub allow_mismatch: bool,
 }
 
 impl Default for SessionConfig {
@@ -94,6 +111,7 @@ impl Default for SessionConfig {
             policy: None,
             no_policy: false,
             native_dialogue: false,
+            compat: CompatConfig::default(),
         }
     }
 }
@@ -130,6 +148,14 @@ pub enum Event {
     Reconnected,
     /// Guest: the host said no.
     Rejected(RejectReason),
+    /// A handshake found differences: lines for the player (the launcher and
+    /// the HUD show them). `refused` is false when the override let the guest in.
+    Compat {
+        /// Player-facing lines.
+        lines: Vec<String>,
+        /// The guest was turned away.
+        refused: bool,
+    },
     /// Guest: the state hash differed from the host's.
     Desync,
     /// Guest: a repair was applied.
@@ -150,7 +176,8 @@ impl Event {
             Event::Connected => "Connected to the host".into(),
             Event::Lost => "Lost the host, reconnecting".into(),
             Event::Reconnected => "Reconnected to the host".into(),
-            Event::Rejected(r) => format!("The host refused the connection: {r:?}"),
+            Event::Rejected(r) => format!("The host refused the connection: {}", coop_core::compat::reason_text(*r)),
+            Event::Compat { lines, .. } => lines.join(" "),
             Event::Desync => "Co-op state differed from the host, repairing".into(),
             Event::Repaired => "Co-op state repaired".into(),
             Event::PlaceChanged(_) | Event::Ready => return None,
@@ -192,6 +219,24 @@ pub struct Status {
 }
 
 impl Status {
+    /// The small indicator: players and ping, nothing else.
+    pub fn compact(&self) -> String {
+        let warn = if self.desync { " !" } else { "" };
+        match (self.role, self.state) {
+            (Role::Host, _) => {
+                let worst = self.peers.iter().filter(|p| !p.player.is_host()).map(|p| p.rtt_ms).max();
+                let ping = worst.map_or(String::new(), |r| format!(" {r} ms"));
+                format!("{}P{ping}{warn}", self.peers.len() + 1)
+            }
+            (_, State::Connecting | State::Joining | State::Reconnecting) => "...".into(),
+            (_, State::Rejected(_)) => "refused".into(),
+            _ => {
+                let ping = self.rtt_ms.map_or("-".to_string(), |r| format!("{r} ms"));
+                format!("{}P {ping}{warn}", self.peers.len() + 1)
+            }
+        }
+    }
+
     /// One line for the HUD.
     pub fn line(&self) -> String {
         let warn = if self.desync { " | DESYNC" } else { "" };
@@ -206,7 +251,7 @@ impl Status {
             (_, State::Connecting) => "CO-OP guest | connecting".into(),
             (_, State::Joining) => "CO-OP guest | loading the host's world".into(),
             (_, State::Reconnecting) => "CO-OP guest | host lost, reconnecting".into(),
-            (_, State::Rejected(r)) => format!("CO-OP guest | refused: {r:?}"),
+            (_, State::Rejected(r)) => format!("CO-OP guest | refused: {}", coop_core::compat::reason_text(r)),
             _ => {
                 let ping = self.rtt_ms.map_or("-".to_string(), |r| format!("{r} ms"));
                 format!("CO-OP guest | ping {ping} | {} in session{warn}", self.peers.len() + 1)
@@ -284,6 +329,8 @@ pub struct Session {
     pub(crate) ready: bool,
     pub(crate) last_error: Option<String>,
     pub(crate) live: Option<crate::live::Layer>,
+    pub(crate) start: crate::start::StartSide,
+    pub(crate) party: Option<Box<crate::party::PartyLayer>>,
 }
 
 pub(crate) fn send_msg(net: &mut Net, to: PlayerId, m: &Msg) {
@@ -292,11 +339,11 @@ pub(crate) fn send_msg(net: &mut Net, to: PlayerId, m: &Msg) {
     }
 }
 
-fn send_ext(net: &mut Net, to: PlayerId, e: &Ext) {
+pub(crate) fn send_ext(net: &mut Net, to: PlayerId, e: &Ext) {
     net.send(to, Channel::ReliableOrdered, e.encode());
 }
 
-fn made_up_id() -> u64 {
+pub(crate) fn made_up_id() -> u64 {
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
@@ -321,11 +368,26 @@ impl Session {
             None => None,
         };
         let dump = cfg.fields_dump.clone().map(DumpFile::new);
+        // a hello with a name too long or too many names would be refused as malformed: cut to the wire bounds
+        let listed: Vec<String> = cfg
+            .compat
+            .plugins
+            .iter()
+            .take(coop_core::compat::MAX_PLUGINS)
+            .map(|p| p.chars().take(coop_core::compat::MAX_PLUGIN_NAME).collect())
+            .collect();
         let hello = Hello {
             proto: PROTOCOL_VERSION,
             build_hash: cfg.build_hash,
             rules_hash: RULES_HASH,
-            mods_hash: cfg.mods_hash,
+            mods_hash: if cfg.mods_hash == 0 && !listed.is_empty() {
+                coop_core::compat::plugin_list_hash(&listed)
+            } else {
+                cfg.mods_hash
+            },
+            exe: cfg.compat.exe.chars().take(coop_core::compat::MAX_EXE_LEN).collect(),
+            volatile_hash: cfg.compat.volatile_hash,
+            plugins: listed,
         };
         Ok((Net::new(link, cfg.chaos.take()), log, dump, hello, errors))
     }
@@ -353,6 +415,8 @@ impl Session {
             ready: false,
             last_error: None,
             live: None,
+            start: crate::start::StartSide::new(role),
+            party: None,
         }
     }
 
@@ -362,6 +426,7 @@ impl Session {
         let id = if cfg.session_id == 0 { made_up_id() } else { cfg.session_id };
         let mut hc = HostConfig::new(hello, id);
         hc.max_guests = cfg.max_guests;
+        hc.compat.allow_mismatch = cfg.compat.allow_mismatch;
         let mut s = Self::blank(Role::Host, &cfg, net, log, dump);
         s.link_errors = errors;
         s.host = Some(HostSide {
@@ -573,7 +638,7 @@ impl Session {
     pub fn pre_frame_with(&mut self, gs: &mut GameState, opts: Opts) {
         self.ensure_authority(gs);
         self.recv_all();
-        self.live_setup(gs);
+        self.live_setup(gs, opts.ctx.map(|c| c.order));
         let now = self.now_ms;
         let mut drift = None;
         if let Some(g) = &mut self.guest {
@@ -606,6 +671,8 @@ impl Session {
             h.bridge.collect(gs, &mut h.sync);
         }
         self.publish_place(gs);
+        self.host_start_frame(gs);
+        self.party_tick(gs);
         self.drive(dt as f64);
         self.write_outputs(gs);
     }
@@ -661,6 +728,11 @@ impl Session {
         let now = self.now_ms;
         if let Some(h) = &mut self.host {
             let replies = h.sync.on_msg(from, m);
+            for note in std::mem::take(&mut h.sync.compat_log) {
+                let who = format!("Player {}", note.player.0);
+                let lines = coop_core::compat::explain(&note.issues, coop_core::compat::Viewpoint::Host, &who, note.refused);
+                self.events.push(Event::Compat { lines, refused: note.refused });
+            }
             if h.sync.players().contains(&from) {
                 let fresh = !h.peers.contains_key(&from);
                 let p = h.peers.entry(from).or_insert_with(|| Peer {
@@ -703,20 +775,39 @@ impl Session {
             Msg::Welcome { player, .. } => g.sync.player = *player,
             _ => {}
         }
+        let incompat = matches!(m, Msg::Incompat(_));
         let out = g.sync.on_msg(m);
+        if incompat && !matches!(g.sync.phase(), GuestPhase::Rejected(_)) {
+            let lines = coop_core::compat::explain(&g.sync.compat_issues(), coop_core::compat::Viewpoint::Guest, "", false);
+            self.events.push(Event::Compat { lines, refused: false });
+        }
         for r in &out {
             send_msg(&mut self.net, PlayerId::HOST, r);
         }
         if let GuestPhase::Rejected(r) = g.sync.phase() {
             if !g.reported_reject {
                 g.reported_reject = true;
+                let found = g.sync.compat_issues();
+                let lines = if found.is_empty() {
+                    vec![coop_core::compat::reason_text(r)]
+                } else {
+                    coop_core::compat::explain(&found, coop_core::compat::Viewpoint::Guest, "", true)
+                };
                 self.events.push(Event::Rejected(r));
-                self.log_ev("error", &[("msg", V::S(&format!("host refused the connection: {r:?}")))]);
+                self.events.push(Event::Compat { lines: lines.clone(), refused: true });
+                self.log_ev("error", &[("msg", V::S(&format!("host refused the connection: {r:?}: {}", lines.join(" "))))]);
             }
         }
     }
 
     fn on_ext(&mut self, from: PlayerId, e: Ext) {
+        let e = match e {
+            Ext::Party(b) => {
+                self.party_recv(from, &b);
+                return;
+            }
+            other => other,
+        };
         let now = self.now_ms;
         if let Some(h) = &mut self.host {
             let Some(p) = h.peers.get_mut(&from) else { return };
@@ -728,6 +819,10 @@ impl Session {
                         h.roster_dirty = true;
                     }
                     p.rtt_ms = rtt_ms;
+                }
+                Ext::Character(sheet) => {
+                    self.on_sheet(from, sheet);
+                    return;
                 }
                 Ext::Cmd { id, cmd } => {
                     let fresh = p.cmds_seen.insert(id);
@@ -757,6 +852,12 @@ impl Session {
             }
             Ext::CmdAck(id) => {
                 g.outbox.remove(&id);
+            }
+            Ext::Opening(o) => {
+                self.on_opening(o);
+            }
+            Ext::SheetAck => {
+                self.on_sheet_ack();
             }
             Ext::Roster(list) => {
                 let me = g.sync.player;
@@ -850,6 +951,7 @@ impl Session {
     }
 
     fn housekeeping(&mut self) {
+        self.guest_start_tick();
         let now = self.now_ms;
         let mut logs: Vec<(&'static str, Vec<(String, String)>)> = Vec::new();
         if let Some(h) = &mut self.host {
@@ -1006,7 +1108,7 @@ impl Session {
 
     // ---- output ------------------------------------------------------
 
-    fn log_ev(&mut self, ev: &str, fields: &[(&str, V)]) {
+    pub(crate) fn log_ev(&mut self, ev: &str, fields: &[(&str, V)]) {
         if ev == "error" {
             if let Some((_, V::S(m))) = fields.iter().find(|(k, _)| *k == "msg") {
                 self.last_error = Some(m.to_string());

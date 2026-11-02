@@ -1,0 +1,22 @@
+[package]
+name = "nv-coverage"
+version = "0.1.0"
+description = "Measures what is missing from nv-rs single-player: script functions, quest stages, dialogue, cell loads, systems. No Bevy."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "nv_coverage"
+
+[[bin]]
+name = "nv-coverage"
+path = "src/main.rs"
+
+[dependencies]
+esm = { path = "../esm" }
+script = { path = "../script" }
+world = { path = "../world" }
+assets = { path = "../assets" }
+cellview = { path = "../cellview" }
+preview = { path = "../preview" }

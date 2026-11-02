@@ -170,20 +170,33 @@ impl App {
         }
     }
 
-    fn launch(&mut self, li: LaunchInput) {
+    /// Starts the viewer for `li` and waits for it. Returns the launcher's exit code: the
+    /// viewer's own, or 1 when it could not be started.
+    fn launch(&mut self, li: LaunchInput) -> i32 {
         let l = match cli::make_plan(&li) {
             Ok(l) => l,
-            Err(e) => return self.ui.fail(&e),
+            Err(e) => {
+                self.ui.fail(&e);
+                return 2;
+            }
         };
         let now = run::now_secs();
         if let Err(e) = party::ensure_player_dir(&self.saves_root(), &l.campaign, l.role, &l.player, now) {
-            return self.ui.fail(&format!("Could not prepare the save folder: {e}"));
+            self.ui.fail(&format!("Could not prepare the save folder: {e}"));
+            return 1;
         }
-        let spec = command::build(&l.plan);
+        let mut spec = command::build(&l.plan);
+        party::extend_spec(&mut spec, l.role, li.new_game, &self.home, random8());
         let log = self.home.join("logs").join(format!("launcher-{}.log", li.stamp));
         self.ui.line(&format!("Viewer log: {}", self.shown(&log.to_string_lossy())));
-        self.ui.line("Starting the game. This window waits until you quit it.");
-        match run::run_viewer(&spec, &log, self.user.as_deref()) {
+        self.ui.line("Starting the game. This window shows its co-op lines and waits until you quit it.");
+        let user = self.user.clone();
+        let mut shown = |line: &str| {
+            if run::interesting(line) {
+                println!("  | {}", redact(line, user.as_deref()));
+            }
+        };
+        match run::run_viewer(&spec, &log, self.user.as_deref(), &mut shown) {
             Ok(code) => {
                 let n = party::stamp_saves(&l.plan.cwd, &l.campaign, l.role, &l.player, run::now_secs());
                 match code {
@@ -194,9 +207,68 @@ impl App {
                 if n > 0 {
                     self.ui.line(&format!("Party save sidecar written for {n} save(s) of campaign {}.", l.campaign));
                 }
+                // the host may have turned this guest away: say why in plain words
+                if let Some(why) = std::fs::read_to_string(&l.plan.coop_log).ok().and_then(|t| crate::extras::refusal_from_log(&t)) {
+                    self.ui.fail(&why);
+                }
+                code.unwrap_or(1)
             }
-            Err(e) => self.ui.fail(&e),
+            Err(e) => {
+                self.ui.fail(&e);
+                1
+            }
         }
+    }
+
+    /// `--start host|join`: the same launch as the menus, from the command line. Prints the join
+    /// code for a host. Returns the exit code.
+    pub fn start_from_cli(&mut self, c: &cli::Cli) -> i32 {
+        let mode = c.start.clone().unwrap_or_default();
+        if let Some(d) = &c.data {
+            self.settings.data_path = d.clone();
+        }
+        if let Some(n) = &c.name {
+            self.settings.player_name = clean_name(n);
+        }
+        if let Some(p) = c.port {
+            self.settings.port = p;
+        }
+        if c.uncap {
+            self.settings.uncap = true;
+        }
+        if !self.require_setup() {
+            return 2;
+        }
+        let token = coop_net::random_token();
+        let stamp = run::stamp(run::now_secs());
+        let steam = self.transport_steam();
+        let (launch, mut li) = match cli::plan_from_cli(c, &mode, self.settings.clone(), &self.home, &self.exe_dir, random8(), token, stamp, false) {
+            Ok(x) => x,
+            Err(e) => {
+                self.ui.fail(&e);
+                return 2;
+            }
+        };
+        li.steam = li.steam || (mode == "host" && steam);
+        if mode == "host" {
+            let addr = c
+                .address
+                .clone()
+                .or_else(|| Some(self.settings.host_address.clone()).filter(|a| !a.is_empty()))
+                .or_else(|| portcheck::local_address().map(|i| i.to_string()))
+                .unwrap_or_default();
+            match joincode::host_code(&addr, self.settings.port, li.token) {
+                Ok(code) => {
+                    println!("  Join code:   {}", self.ui.bold(&self.ui.good(&code)));
+                    println!("  Campaign id: {}", launch.campaign);
+                }
+                Err(e) => self.ui.note(&format!("No join code: {e}")),
+            }
+            if li.new_game {
+                self.ui.line("New game: the whole opening runs (Doc Mitchell, name, Vit-o-Matic, tags, traits). Guests make their own characters when they join.");
+            }
+        }
+        self.launch(li)
     }
 
     fn base_input(&self, host: bool) -> LaunchInput {
@@ -208,10 +280,12 @@ impl App {
             new_game: false,
             join: None,
             campaign: None,
+            save: None,
             random: random8(),
             steam: false,
             token: coop_net::random_token(),
             stamp: run::stamp(run::now_secs()),
+            extras: Default::default(),
         }
     }
 
@@ -221,16 +295,25 @@ impl App {
             return;
         }
         self.ui.title("Host a game");
-        let (new_game, campaign) = match preset {
-            Some(s) => (false, Some(s.campaign)),
+        let (new_game, campaign, save) = match preset {
+            Some(s) => (false, Some(s.campaign), Some(s.path)),
             None => {
                 let hosts = party::host_saves(&self.saves_root());
                 let mut items = vec!["New game (the opening, from the start)".to_string()];
                 for s in &hosts {
-                    items.push(format!("Continue {} ({}, {})", s.campaign, s.player, party::format_time(s.modified)));
+                    let more = party::list_party_saves(&self.saves_root())
+                        .into_iter()
+                        .find(|p| p.campaign == s.campaign && p.usable())
+                        .map(|p| format!(", {}", party::describe_party(&p)))
+                        .unwrap_or_default();
+                    items.push(format!("Continue {} ({}, {}{})", s.campaign, s.player, party::format_time(s.modified), more));
                 }
                 let Some(i) = self.ui.menu("Which campaign?", &items) else { return };
-                if i == 0 { (true, None) } else { (false, Some(hosts[i - 1].campaign.clone())) }
+                if i == 0 {
+                    (true, None, None)
+                } else {
+                    (false, Some(hosts[i - 1].campaign.clone()), Some(hosts[i - 1].path.clone()))
+                }
             }
         };
         let steam_on = self.transport_steam();
@@ -253,6 +336,7 @@ impl App {
         let mut li = self.base_input(true);
         li.new_game = new_game;
         li.campaign = campaign;
+        li.save = save.clone();
         li.steam = steam_on;
         let l = match cli::make_plan(&li) {
             Ok(l) => l,
@@ -282,8 +366,13 @@ impl App {
             }
             Err(e) => self.ui.note(&format!("No join code: {e}")),
         }
-        if !new_game {
-            self.ui.note("Continuing: once the game is up, press F9 to load this campaign's quicksave.");
+        match (&save, new_game) {
+            (Some(s), false) => self.ui.note(&format!("Continuing from {}.", self.shown(&s.to_string_lossy()))),
+            (None, false) => match party::list_party_saves(&self.saves_root()).into_iter().find(|p| Some(&p.campaign) == li.campaign.as_ref() && p.usable()) {
+                Some(p) => self.ui.note(&format!("Continuing from the party save: {}", party::describe_party(&p))),
+                None => self.ui.note("Continuing: once the game is up, press F9 to load this campaign's quicksave."),
+            },
+            _ => self.ui.note("New game: the whole opening runs for you. Guests make their own characters when they join."),
         }
         if !self.ui.confirm("Start the game now?") {
             return;
@@ -336,8 +425,15 @@ impl App {
         };
         let mut li = self.base_input(false);
         li.join = Some(join);
-        li.campaign = campaign;
         li.steam = steam_ok;
+        let player = clean_name(&self.settings.player_name);
+        li.save = campaign.as_deref().and_then(|c| party::find_save(&self.saves_root(), c, Role::Guest, &player));
+        if li.save.is_some() {
+            self.ui.note("Your saved character from that campaign is used; the host's world is not touched.");
+        } else {
+            self.ui.note("You make your own character with the same menus when you arrive (the host does not wait).");
+        }
+        li.campaign = campaign;
         self.launch(li);
     }
 
@@ -355,6 +451,9 @@ impl App {
                 .iter()
                 .map(|s| format!("{}  {:<5} {:<14} {}  {}  ({} bytes)", s.campaign, s.role.name(), s.player, party::format_time(s.modified), s.file, s.bytes))
                 .collect();
+            for p in party::list_party_saves(&self.saves_root()) {
+                self.ui.line(&format!("party save: {}", party::describe_party(&p)));
+            }
             let Some(i) = self.ui.menu("Pick a save", &items) else { return };
             let s = all[i].clone();
             let acts = if s.role == Role::Host { vec!["Continue as host".to_string(), "Delete".into()] } else { vec!["Delete".to_string()] };

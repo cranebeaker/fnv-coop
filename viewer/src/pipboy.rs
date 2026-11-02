@@ -1520,6 +1520,7 @@ fn pipboy_keys(
                 } else {
                     state.equip(order, PLAYER_REF, item);
                 }
+                state.coop_route(world::coop::interact::equip_act(item, !was_worn));
                 if state.is_equipped(PLAYER_REF, item) != was_worn {
                     println!(
                         "Pip-Boy: {item} {}.",
@@ -1558,6 +1559,7 @@ fn pipboy_keys(
                     // console only).
                     _ => {
                         if let Some(done) = world::items::use_item(order, state, PLAYER_REF, item) {
+                            state.coop_route(world::coop::interact::use_act(item));
                             println!("{done}");
                         }
                     }
@@ -1741,6 +1743,7 @@ fn pipboy_keys(
             // ITEMS (`007b5b40`).
             Action::Repair { chosen, part } => {
                 let to = world::repair::repair_with(order, state, FormId(chosen), FormId(part));
+                state.coop_route(world::coop::interact::repair_part_act(FormId(chosen), FormId(part)));
                 println!("Repaired {chosen:08X} with {part:08X}: {:.0}%.", to * 100.0);
                 let input = ui::pipboy::gather::repair_input(order, state, FormId(chosen));
                 if let Some(b) = pipboy.built.as_mut() {
@@ -1958,11 +1961,14 @@ fn use_hotkey(order: &esm::LoadOrder, state: &mut world::scripting::GameState, n
     let kind = order.get(item).map(|r| *r.entry.header.kind.as_bytes());
     if state.is_equipped(PLAYER_REF, item) {
         state.unequip(PLAYER_REF, item);
+        state.coop_route(world::coop::interact::equip_act(item, false));
         println!("Hot key {}: took off {item}.", n + 1);
     } else if matches!(kind, Some(k) if &k == b"WEAP" || &k == b"ARMO") {
         state.equip(order, PLAYER_REF, item);
+        state.coop_route(world::coop::interact::equip_act(item, true));
         println!("Hot key {}: equipped {item}.", n + 1);
     } else if let Some(done) = world::items::use_item(order, state, PLAYER_REF, item) {
+        state.coop_route(world::coop::interact::use_act(item));
         println!("Hot key {}: {done}", n + 1);
     }
 }
@@ -1989,6 +1995,11 @@ fn drop_items(
     count: i32,
     heading: f32,
 ) {
+    // co-op: the host makes the world item and shows it to everyone
+    if state.coop_drop(order, item, count, heading) {
+        println!("Dropped {count} of {item} (co-op).");
+        return;
+    }
     if let Some(id) = world::more_functions::placed::drop_item(order, state, item, count, heading) {
         rest_on_ground(order, state, collision, id);
         println!("Dropped {count} of {item}.");
@@ -2129,7 +2140,7 @@ fn whereabouts(
             .player_position
             .filter(|_| outdoors)
             .map(|p| (p, heading)),
-        quest: quests.points.clone(),
+        quest: quests.points.iter().copied().chain(crate::coop_live::party_points()).collect(),
     }
 }
 

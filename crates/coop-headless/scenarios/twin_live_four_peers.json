@@ -1,0 +1,59 @@
+{
+  "name": "twin_live_four_peers",
+  "description": "MUTATION TWIN of live_four_peers: nobody says, talks or places anything. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 18,
+  "settle_s": 5,
+  "host": {
+    "script": []
+  },
+  "guests": [
+    {
+      "script": []
+    },
+    {
+      "script": []
+    },
+    {
+      "script": []
+    }
+  ],
+  "expect": [
+    {
+      "id": "chat",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "voice",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "all"
+    },
+    {
+      "id": "avatars",
+      "path": "live.avatars",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "markers",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

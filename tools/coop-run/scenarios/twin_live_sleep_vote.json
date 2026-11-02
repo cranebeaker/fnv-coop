@@ -1,0 +1,68 @@
+{
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 12,
+  "settle_s": 8,
+  "name": "twin_live_sleep_vote",
+  "description": "Mutation twin of live_sleep_vote: the feature is taken away, so the assertions must fail.",
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop sleep 8"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "skips-host",
+      "path": "time.skips",
+      "on": "host",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "skips-guest",
+      "path": "time.skips",
+      "on": "guest",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "hours-host",
+      "path": "time.hours",
+      "on": "host",
+      "op": "eq",
+      "value": 8
+    },
+    {
+      "id": "hours-guest",
+      "path": "time.hours",
+      "on": "guest",
+      "op": "eq",
+      "value": 8
+    },
+    {
+      "id": "clock",
+      "path": "globals.GameHour",
+      "on": "equal",
+      "tol": 0.4
+    },
+    {
+      "id": "days",
+      "path": "globals.GameDaysPassed",
+      "on": "equal",
+      "tol": 0.05
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

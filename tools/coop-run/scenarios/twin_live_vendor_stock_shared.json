@@ -1,0 +1,66 @@
+{
+  "name": "twin_live_vendor_stock_shared",
+  "description": "MUTATION TWIN of live_vendor_stock_shared: the host never buys, so the shared stock stays one higher. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails. ",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 28,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop give DocMitchellREF Stimpak 5"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop barter DocMitchellREF 0 buy:Stimpak:2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-host",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "guest-guest",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-host",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-guest",
+      "path": "items.host.Stimpak",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "stock-same",
+      "path": "items.DocMitchellREF",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

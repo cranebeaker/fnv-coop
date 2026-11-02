@@ -1,0 +1,9 @@
+{
+  "area": "SOCIAL",
+  "rows": [
+    {"id": "social.chat", "area": "SOCIAL", "title": "Chat: rate limit, sanitise, system lines", "proves": "chat reaches everyone", "tests": ["scenario:live_chat"], "source": "08 1.8 / list D chat"},
+    {"id": "social.voice", "area": "SOCIAL", "title": "Voice: positional, push to talk, Opus, jitter", "proves": "voice envelope, VAD, jitter, mixer", "tests": ["cargo:coop-voice"], "backend": "agnostic", "source": "08 1.8 / list D voice"},
+    {"id": "social.markers", "area": "SOCIAL", "title": "Markers: name tag, compass glyphs, Pip-Boy markers, pings", "proves": "pings and markers reach everyone", "tests": ["scenario:live_markers"], "source": "08 1.8 / list D"},
+    {"id": "social.dashboard", "area": "SOCIAL", "title": "Desync dashboard and status line", "proves": "peers, ping and repair lines", "tests": ["scenario:live_status_line"], "source": "08 1.8"}
+  ]
+}

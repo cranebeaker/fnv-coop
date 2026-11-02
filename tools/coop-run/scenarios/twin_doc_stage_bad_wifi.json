@@ -1,7 +1,7 @@
 {
   "name": "twin_doc_stage_bad_wifi",
   "description": "MUTATION TWIN of doc_stage_bad_wifi: the guest picks up no caps and the host sets no stage. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
-  "cell": "GSDocMitchellHouse",
+  "cell": "GSProspectorSaloonInterior",
   "network": "bad_wifi",
   "seed": 21,
   "duration_s": 20,

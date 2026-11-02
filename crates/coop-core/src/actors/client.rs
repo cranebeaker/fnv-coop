@@ -36,8 +36,14 @@ pub struct ActorClient {
     pub leveled: BTreeMap<(FormId, u32), FormId>,
     /// Dynamic refs announced by the host, with their base forms.
     pub spawned: BTreeMap<FormId, FormId>,
+    /// Where and in which cell the announced dynamic refs were made
+    /// (position in 1/16 unit fixed point).
+    pub spawn_at: BTreeMap<FormId, (crate::ids::CellId, [i32; 3])>,
     /// Samples dropped for a stale epoch.
     pub stale_dropped: u32,
+    /// Who hurt which actor, from the host's verdicts (the threat director
+    /// reads and clears it; bounded).
+    pub damage_log: Vec<(FormId, PlayerId, u16)>,
 }
 
 impl ActorClient {
@@ -53,7 +59,9 @@ impl ActorClient {
             spawn_results: BTreeMap::new(),
             leveled: BTreeMap::new(),
             spawned: BTreeMap::new(),
+            spawn_at: BTreeMap::new(),
             stale_dropped: 0,
+            damage_log: Vec::new(),
         }
     }
 
@@ -97,6 +105,15 @@ impl ActorClient {
         let req = self.next_req;
         self.next_req += 1;
         (req, ActorMsg::SpawnReq { req, site, base, cell, pos, health })
+    }
+
+    /// A report of the actors this machine has loaded, for the host to track
+    /// (`None` when there is nothing to report).
+    pub fn report(&self, actors: Vec<(FormId, ActorState)>) -> Option<ActorMsg> {
+        if actors.is_empty() {
+            return None;
+        }
+        Some(ActorMsg::Track { actors })
     }
 
     /// A leveled-pick proposal.
@@ -144,7 +161,10 @@ impl ActorClient {
                     }
                 }
             },
-            ActorMsg::Damaged { actor, health, .. } => {
+            ActorMsg::Damaged { actor, health, by, amount } => {
+                if self.damage_log.len() < 256 {
+                    self.damage_log.push((actor, by, amount));
+                }
                 if let Some(a) = self.actors.get_mut(&actor) {
                     if let Some(s) = a.state.as_mut() {
                         s.health = health;
@@ -159,11 +179,13 @@ impl ActorClient {
             ActorMsg::SpawnReply { req, outcome } => {
                 self.spawn_results.insert(req, outcome);
             }
-            ActorMsg::Spawned { id, base, .. } => {
+            ActorMsg::Spawned { id, base, cell, pos, .. } => {
                 self.spawned.insert(id, base);
+                self.spawn_at.insert(id, (cell, pos));
             }
             ActorMsg::Despawn { id } => {
                 self.spawned.remove(&id);
+                self.spawn_at.remove(&id);
                 self.actors.remove(&id);
                 self.early.remove(&id);
             }
@@ -253,6 +275,19 @@ mod tests {
         assert!(!c.get(A).unwrap().alive);
         c.on_msg(assign(2, 2));
         assert!(!c.get(A).unwrap().alive, "death survives a handoff");
+    }
+
+    #[test]
+    fn spawned_refs_remember_where_and_go_with_despawn() {
+        let mut c = ActorClient::new(PlayerId(1));
+        let id = FormId(0xFF00_0001);
+        c.on_msg(ActorMsg::Spawned { id, base: FormId(7), site: id, cell: crate::ids::CellId(4), pos: [16, 32, 0] });
+        assert_eq!(c.spawned[&id], FormId(7));
+        assert_eq!(c.spawn_at[&id], (crate::ids::CellId(4), [16, 32, 0]));
+        c.on_msg(ActorMsg::Despawn { id });
+        assert!(c.spawned.is_empty() && c.spawn_at.is_empty());
+        assert!(c.report(vec![]).is_none());
+        assert!(matches!(c.report(vec![(A, st(0))]), Some(ActorMsg::Track { .. })));
     }
 
     #[test]

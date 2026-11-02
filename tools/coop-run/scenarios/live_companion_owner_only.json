@@ -1,0 +1,23 @@
+{
+  "name": "live_companion_owner_only",
+  "description": "The guest's slot recruits a gecko as a follower. A command to it from the host player's slot is refused (only the owner commands a companion) and the follower stays on the guest's list, not the host's.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop recruit 1 VCG02Gecko1REF" },
+      { "at": 5, "run": "coop command 0 VCG02Gecko1REF wait" },
+      { "at": 6, "run": "coop command 1 VCG02Gecko1REF follow" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "refused", "path": "campaign.commands_refused", "op": "eq", "value": 1, "on": "host" },
+    { "id": "owner", "path": "campaign.owner.VCG02Gecko1REF", "op": "eq", "value": "guest", "on": "host" },
+    { "id": "guest-followers", "path": "campaign.followers.guest", "op": "eq", "value": 1, "on": "host" },
+    { "id": "host-followers", "path": "campaign.followers.host", "op": "eq", "value": 0, "on": "host" }
+  ]
+}

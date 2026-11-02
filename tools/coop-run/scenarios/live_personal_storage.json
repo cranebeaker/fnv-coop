@@ -1,0 +1,20 @@
+{
+  "name": "live_personal_storage",
+  "description": "FortWeatherStationStorageRef is a personal container (FortEquipmentConfiscationQuest lists it under storage). The host player and the guest each put different caps in it; each sees only their own, the shared rows hold nothing.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 3, "run": "coop stash 0 FortWeatherStationStorageRef Caps001 3" },
+      { "at": 3.5, "run": "coop stash 1 FortWeatherStationStorageRef Caps001 5" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-own", "path": "campaign.storage.host.FortWeatherStationStorageRef_Caps001", "op": "eq", "value": 3, "on": "host" },
+    { "id": "guest-own", "path": "campaign.storage.guest.FortWeatherStationStorageRef_Caps001", "op": "eq", "value": 5, "on": "host" }
+  ]
+}

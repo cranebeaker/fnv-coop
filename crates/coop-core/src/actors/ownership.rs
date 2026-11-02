@@ -2,7 +2,7 @@
 //! actor's cell. Every owner change bumps the epoch in the shared
 //! [`AuthorityTable`], so late writes from a previous owner are rejected.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::ActorState;
 use crate::authority::{AuthorityTable, Authority};
@@ -11,6 +11,9 @@ use crate::ids::{CellId, Epoch, FormId, PlayerId, Seq};
 
 /// A new owner must be this much nearer (world units) before a handoff.
 pub const HYSTERESIS: f32 = 300.0;
+/// Added to the distance of a player that only has the actor's cell loaded,
+/// so a player standing in the cell wins over any loaded-only neighbour.
+pub const RANK_PENALTY: f32 = 1.0e6;
 /// Minimum time between voluntary handoffs of one actor.
 pub const MIN_HOLD_MS: u64 = 1000;
 
@@ -72,6 +75,12 @@ pub struct Ownership {
     actors: BTreeMap<FormId, ActorRec>,
     /// Samples refused for a stale epoch.
     pub stale_rejected: u32,
+    /// Cells each player has loaded besides the one it stands in (set by
+    /// the scene model). A player owns actors there when nobody stands in
+    /// their cell.
+    pub reach: BTreeMap<PlayerId, BTreeSet<CellId>>,
+    /// When an actor went dormant (nobody has its cell loaded).
+    pub dormant_since: BTreeMap<FormId, u64>,
 }
 
 fn dist(state: &ActorState, loc: &PlayerLoc) -> f32 {
@@ -133,10 +142,21 @@ impl Ownership {
     ) -> Vec<OwnerChange> {
         let mut out = Vec::new();
         for (actor, rec) in self.actors.iter_mut() {
+            // rank 0: standing in the actor's cell; rank 1: has the cell loaded
+            // around its own. Same-cell players always beat loaded-only ones.
+            let reach = &self.reach;
             let here: Vec<(PlayerId, f32)> = players
                 .iter()
-                .filter(|(_, l)| l.cell == rec.state.cell)
-                .map(|(p, l)| (*p, dist(&rec.state, l)))
+                .filter_map(|(p, l)| {
+                    let rank = if l.cell == rec.state.cell {
+                        0.0
+                    } else if reach.get(p).map_or(false, |r| r.contains(&rec.state.cell)) {
+                        RANK_PENALTY
+                    } else {
+                        return None;
+                    };
+                    Some((*p, dist(&rec.state, l) + rank))
+                })
                 .collect();
             let best = here.iter().min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0))).map(|b| *b);
             let cur = rec.owner.and_then(|o| here.iter().find(|(p, _)| *p == o).copied());
@@ -161,6 +181,14 @@ impl Ownership {
                 continue;
             }
             let old = rec.owner;
+            match want {
+                Some(_) => {
+                    self.dormant_since.remove(actor);
+                }
+                None => {
+                    self.dormant_since.insert(*actor, now_ms);
+                }
+            }
             rec.owner = want;
             rec.since_ms = now_ms;
             rec.last_seq = Seq(0);

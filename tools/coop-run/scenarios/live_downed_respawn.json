@@ -1,0 +1,19 @@
+{
+  "name": "live_downed_respawn",
+  "description": "The guest's slot is downed and nobody revives it within the policy window (60 s). The host respawns it at the zone checkpoint.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 90,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      { "at": 8, "run": "coop down 1" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "respawned", "path": "campaign.respawned", "op": "ge", "value": 1, "on": "host" },
+    { "id": "up-again", "path": "campaign.down.guest", "op": "eq", "value": false, "on": "host" }
+  ]
+}

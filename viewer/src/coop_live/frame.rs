@@ -36,6 +36,7 @@ pub fn run(
     mut now: ResMut<LiveNow>,
     mut chat: ResMut<ChatLog>,
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
+    mut movies: ResMut<crate::movie::Movies>,
 ) {
     let order = &game.0.order;
     let gs = &mut state.0;
@@ -61,13 +62,45 @@ pub fn run(
     if attack.out {
         flags |= FLAG_DRAWN;
     }
+    if gs.coop.live.combat.bot_sneak == Some(true) {
+        flags |= FLAG_SNEAK;
+    }
     gs.coop.live.local_anim = anim;
     gs.coop.live.local_flags = flags;
-    gs.coop.live.local_weapon = world::combat::weapon_in_hand(order, gs, PLAYER_REF).map_or(0, |w| w.form_id.0);
+    gs.coop.live.local_weapon = world::combat::weapon_equipped(order, gs, PLAYER_REF).map_or(0, |w| w.form_id.0);
     let cx = Ctx { order, scripts: &scripts.0 };
     let view = link.0.live_frame(gs, cx, time.delta_secs()).cloned();
     now.counters.hits_sent = u64::from(link.0.live_hits_sent());
+    now.counters.tracked = link.0.live_tracked() as u64;
+    // scenes: the movie the scene layer starts (at its scene time), stops, and reports done
+    if let Some(m) = gs.coop.live.scene.movie_start.take() {
+        movies.offset_ms = m.offset_ms;
+        movies.queue.push_back(world::scripting::Video {
+            file: m.movie.file,
+            interruptable: m.movie.interruptable,
+            mute_audio: m.movie.mute_audio,
+            pause_music: m.movie.pause_music,
+            letterbox: m.movie.letterbox,
+        });
+    }
+    if std::mem::take(&mut gs.coop.live.scene.movie_stop) {
+        movies.stop();
+    }
+    gs.coop.live.scene.movie_busy = movies.busy();
+    if std::mem::take(&mut movies.skip_pressed) {
+        gs.coop_scene_skip(true);
+    }
+    // a wait or sleep the party agreed to has passed (the host ran the hours once)
+    if let Some(shown) = gs.coop.live.scene.time_shown.take() {
+        let text = if shown.hours == 1 { "1 hour passes.".to_string() } else { format!("{} hours pass.", shown.hours) };
+        if messages.on {
+            messages.queue.push(HudMessage::from(text));
+        } else {
+            notices.push(text, t);
+        }
+    }
     if let Some(v) = &view {
+        now.counters.puppet_actions += v.actions.len() as u64;
         // our own lines are shown when typed
         for c in v.chat.iter().filter(|c| c.from != Some(v.me)) {
             chat.push(format!("{}: {}", c.name, c.text), t);

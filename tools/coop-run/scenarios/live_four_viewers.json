@@ -1,0 +1,84 @@
+{
+  "name": "live_four_viewers",
+  "description": "REAL GAME, four viewers on the test PC (they fit in RAM there): chat, pings and waypoints through the real viewer glue, one host and three guests each on its own chaos relay; every viewer must hear the others and all end on one shared state. Voice is not in this scenario (no microphone on the test PC); live_voice_packets covers it headless.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 18,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop say host here"
+      },
+      {
+        "at": 9,
+        "run": "coop waypoint 10 20"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop say guest one here"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 5,
+          "run": "coop say guest two here"
+        },
+        {
+          "at": 4,
+          "run": "coop ping 300"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 6,
+          "run": "coop say guest three here"
+        },
+        {
+          "at": 12,
+          "run": "coop waypoint 40 50"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "chat",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "avatars",
+      "path": "live.avatars",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "markers",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "timeout_s": 420
+}

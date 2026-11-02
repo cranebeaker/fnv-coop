@@ -1,7 +1,7 @@
 {
   "name": "live_guest_hits_essential",
-  "description": "A guest cannot kill an essential person: Doc Mitchell takes the hits (the host ledger refuses the lethal ones) and stays alive on both peers.",
-  "cell": "GSDocMitchellHouse",
+  "description": "A guest cannot kill an essential person: Pete in the Nellis museum has the essential flag in the ESM (ACBS bit 2; Doc Mitchell does not, so he is not used here). He takes the hits (the host ledger refuses the lethal ones) and stays alive on both peers.",
+  "cell": "NellisMuseum",
   "network": "good_wifi",
   "seed": 53,
   "duration_s": 16,
@@ -10,24 +10,24 @@
     "script": [
       {
         "at": 6,
-        "run": "coop hit DocMitchellREF 100000"
+        "run": "coop hit NellisPeteREF 100000"
       },
       {
         "at": 9,
-        "run": "coop hit DocMitchellREF 100000"
+        "run": "coop hit NellisPeteREF 100000"
       }
     ]
   },
   "expect": [
     {
       "id": "alive-host",
-      "path": "dead.DocMitchellREF",
+      "path": "dead.NellisPeteREF",
       "op": "absent",
       "on": "host"
     },
     {
       "id": "alive-guest",
-      "path": "dead.DocMitchellREF",
+      "path": "dead.NellisPeteREF",
       "op": "absent",
       "on": "guest"
     },

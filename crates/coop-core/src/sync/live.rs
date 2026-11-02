@@ -7,12 +7,15 @@ use std::collections::BTreeMap;
 use crate::actors::{ActorHost, PlayerLoc};
 use crate::authority::AuthorityTable;
 use crate::avatar::{dequant_pos, AvatarHub, AvatarMsg};
+use crate::combat::{Attribution, CombatHost};
 use crate::dialogue::DialogueHost;
 use crate::ids::{PlayerId, Seq};
+use crate::interact::InteractHost;
 use crate::interest::{Audience, InterestMap};
 use crate::loot::LootHost;
 use crate::proto::Msg;
 use crate::rules::{Mode, RulesHost};
+use crate::scene::SceneHost;
 use crate::social::{ChatHost, MarkerTable, SocialMsg, VoiceHub};
 
 type Outs = Vec<(PlayerId, Msg)>;
@@ -31,12 +34,20 @@ pub struct HostLive {
     pub loot: LootHost,
     /// Tether, barrier, votes, revive, difficulty.
     pub rules: RulesHost,
+    /// Scenes, endings and world time.
+    pub scene: SceneHost,
     /// Chat.
     pub chat: ChatHost,
     /// Markers and pings.
     pub markers: MarkerTable,
     /// Voice validation.
     pub voice: VoiceHub,
+    /// Player-world interactions.
+    pub interact: InteractHost,
+    /// Scene model, deferred operations, presence.
+    pub roam: crate::roam::HostRoam,
+    /// Combat depth: player vitals, blasts, VATS, threat, extras.
+    pub combat: CombatHost,
     members: Vec<PlayerId>,
     local_inbox: Vec<Msg>,
 }
@@ -51,9 +62,13 @@ impl HostLive {
             dialogue: DialogueHost::new(),
             loot: LootHost::new(),
             rules: RulesHost::new(mode),
+            scene: SceneHost::new(),
             chat: ChatHost::new(),
             markers: MarkerTable::new(),
             voice: VoiceHub::new(),
+            interact: InteractHost::new(),
+            roam: crate::roam::HostRoam::default(),
+            combat: CombatHost::new(),
             members: vec![PlayerId::HOST],
             local_inbox: Vec::new(),
         };
@@ -94,6 +109,11 @@ impl HostLive {
     pub fn join(&mut self, p: PlayerId, now_ms: u64) -> Outs {
         let mut out = Vec::new();
         if self.members.contains(&p) {
+            // a rejoin: the scenes in progress are replayed to them
+            let clock = self.scene.last_clock();
+            for m in self.scene.resync(p, now_ms, clock) {
+                self.route(m.aud, Msg::Scene(m.msg), &mut out);
+            }
             return out;
         }
         self.members.push(p);
@@ -107,6 +127,16 @@ impl HostLive {
         for m in self.rules.on_join(p, now_ms) {
             self.route(m.aud, Msg::Rules(m.msg), &mut out);
         }
+        for (a, m) in self.roam.on_join(p) {
+            self.route(a, m, &mut out);
+        }
+        let clock = self.scene.last_clock();
+        for m in self.scene.on_join(p, now_ms, clock) {
+            self.route(m.aud, Msg::Scene(m.msg), &mut out);
+        }
+        for o in self.interact.sync_for(p) {
+            self.route(o.aud, Msg::Interact(o.msg), &mut out);
+        }
         out
     }
 
@@ -115,7 +145,7 @@ impl HostLive {
         let mut out = Vec::new();
         self.members.retain(|m| *m != p);
         self.avatars.remove(p);
-        self.interest.remove_peer(p);
+        self.roam.on_leave(&mut self.interest, p);
         for m in self.dialogue.on_disconnect(p) {
             self.route(m.aud, Msg::Dialogue(m.msg), &mut out);
         }
@@ -126,8 +156,12 @@ impl HostLive {
         for m in self.markers.remove_player(p) {
             self.route(m.aud, Msg::Social(m.msg), &mut out);
         }
+        for m in self.scene.on_leave(p, now_ms) {
+            self.route(m.aud, Msg::Scene(m.msg), &mut out);
+        }
         self.chat.remove(p);
         self.voice.remove(p);
+        self.interact.forget(p);
         out
     }
 
@@ -142,9 +176,11 @@ impl HostLive {
             Msg::Actor(m) => {
                 let cell = self.interest.peer_cell(from);
                 for o in self.actors.on_msg(from, m, now_ms, cell, auth) {
+                    note_attribution(&mut self.combat.attributions, &o.msg);
                     self.route(o.aud, Msg::Actor(o.msg), &mut out);
                 }
             }
+            Msg::Combat(m) => self.on_combat(from, m, now_ms, auth, &mut out),
             Msg::Dialogue(m) => {
                 let members = self.members.clone();
                 for o in self.dialogue.on_msg(from, m, now_ms, &members) {
@@ -164,8 +200,54 @@ impl HostLive {
                 }
             }
             Msg::Social(m) => self.on_social(from, m, now_ms, &mut out),
+            Msg::Roam(m) => self.roam.on_msg(from, m),
+            Msg::Scene(m) => {
+                for o in self.scene.on_msg(from, m, now_ms) {
+                    self.route(o.aud, Msg::Scene(o.msg), &mut out);
+                }
+            }
+            Msg::Interact(m) => {
+                for o in self.interact.on_msg(from, m) {
+                    self.route(o.aud, Msg::Interact(o.msg), &mut out);
+                }
+            }
             _ => {}
         }
+        out
+    }
+
+    fn on_combat(&mut self, from: PlayerId, m: crate::combat::CombatMsg, now_ms: u64, auth: &mut AuthorityTable, out: &mut Outs) {
+        let at = self.avatars.state(from).map(|s| [dequant_pos(s.pos[0]), dequant_pos(s.pos[1]), dequant_pos(s.pos[2])]);
+        let cell = self.interest.peer_cell(from);
+        let scaling = self.rules.scaling(now_ms);
+        for o in self.combat.on_msg(from, m, now_ms, at, cell, &scaling) {
+            self.route(o.aud, Msg::Combat(o.msg), out);
+        }
+        // VATS shots that hit go through the one actor ledger
+        for h in std::mem::take(&mut self.combat.vats_hits) {
+            let cell = self.interest.peer_cell(h.from);
+            let msg = crate::actors::ActorMsg::Hit { actor: h.target, hit: h.hit, amount: h.amount };
+            for o in self.actors.on_msg(h.from, msg, now_ms, cell, auth) {
+                note_attribution(&mut self.combat.attributions, &o.msg);
+                self.route(o.aud, Msg::Actor(o.msg), out);
+            }
+        }
+    }
+
+    /// Routes combat messages the host game produced itself (NPC and blast
+    /// damage to players, effects).
+    pub fn route_combat(&mut self, msgs: Vec<crate::combat::CombatMsg>) -> Outs {
+        let mut out = Vec::new();
+        for o in CombatHost::deliver(msgs) {
+            self.route(o.aud, Msg::Combat(o.msg), &mut out);
+        }
+        out
+    }
+
+    /// Routes one combat message to every member (stealth numbers).
+    pub fn route_combat_all(&mut self, m: crate::combat::CombatMsg) -> Outs {
+        let mut out = Vec::new();
+        self.route(Audience::All, Msg::Combat(m), &mut out);
         out
     }
 
@@ -173,12 +255,10 @@ impl HostLive {
         let Some(relay) = self.avatars.on_msg(from, m) else { return };
         let aud = match relay.cell {
             Some(c) => {
-                let old = self.interest.set_peer_cell(from, c);
-                if old != Some(c) {
-                    // entering a cell: learn its owners and dynamic refs
-                    for a in self.actors.snapshot_for_cell(c) {
-                        self.route(Audience::To(from), Msg::Actor(a), out);
-                    }
+                self.interest.set_peer_cell(from, c);
+                let pos = self.avatars.state(from).map_or([0.0; 3], |s| s.pos.map(dequant_pos));
+                for (a, m) in self.roam.on_avatar(&mut self.interest, &self.actors, from, c, pos) {
+                    self.route(a, m, out);
                 }
                 Audience::CellExcept(c, from)
             }
@@ -227,6 +307,10 @@ impl HostLive {
     /// Advances every timer and ownership; returns the sends.
     pub fn tick(&mut self, now_ms: u64, auth: &mut AuthorityTable) -> Outs {
         let mut out = Vec::new();
+        self.roam.model.apply_ownership(&mut self.actors.own);
+        for (a, m) in self.roam.tick(now_ms) {
+            self.route(a, m, &mut out);
+        }
         let locs = self.locations();
         for o in self.actors.tick(now_ms, &locs, auth) {
             self.route(o.aud, Msg::Actor(o.msg), &mut out);
@@ -244,6 +328,19 @@ impl HostLive {
         }
         for o in self.markers.tick(now_ms) {
             self.route(o.aud, Msg::Social(o.msg), &mut out);
+        }
+        for o in self.scene.tick(now_ms) {
+            self.route(o.aud, Msg::Scene(o.msg), &mut out);
+        }
+        out
+    }
+
+    /// Routes scene messages the host game produced (opening a scene, a time
+    /// skip, a slide); the host player's own copy lands in the local inbox.
+    pub fn route_scene(&mut self, outs: Vec<crate::scene::SOut>) -> Vec<(PlayerId, Msg)> {
+        let mut out = Vec::new();
+        for o in outs {
+            self.route(o.aud, Msg::Scene(o.msg), &mut out);
         }
         out
     }
@@ -325,7 +422,7 @@ mod tests {
         let out = l.join(PlayerId(3), 10);
         assert!(out.iter().any(|(to, m)| *to == PlayerId(3) && matches!(m, Msg::Avatar(AvatarMsg::Parts { .. }))));
         assert!(out.iter().any(|(_, m)| matches!(m, Msg::Rules(RulesMsg::ScalingSet { players: 4, .. }))));
-        assert!(l.join(PlayerId(3), 11).is_empty(), "idempotent");
+        assert!(l.join(PlayerId(3), 11).iter().all(|(_, m)| matches!(m, Msg::Scene(_))), "idempotent: a rejoin only replays the scenes");
     }
 
     #[test]
@@ -337,5 +434,17 @@ mod tests {
         assert!(out.iter().any(|(_, m)| matches!(m, Msg::Dialogue(DialogueMsg::Closed { .. }))));
         assert_eq!(l.members().len(), 2);
         assert!(l.interest.peer_cell(PlayerId(1)).is_none());
+    }
+}
+
+fn note_attribution(v: &mut Vec<Attribution>, m: &crate::actors::ActorMsg) {
+    use crate::actors::ActorMsg;
+    match *m {
+        ActorMsg::Damaged { actor, by, amount, .. } => v.push(Attribution { actor, by, amount, killed: false }),
+        ActorMsg::Died { actor, killer: Some(by) } => v.push(Attribution { actor, by, amount: 0, killed: true }),
+        _ => {}
+    }
+    if v.len() > 512 {
+        v.drain(..256);
     }
 }

@@ -1,0 +1,81 @@
+{
+  "name": "live_barter",
+  "description": "The host stocks Doc Mitchell with 5 stimpaks and gives the guest 50 caps. The guest accepts a trade for 2 stimpaks at 30 caps. The host executes it once in the guest's shadow: the guest holds 2 stimpaks and 20 caps, the stock and Doc's caps are the same on both peers (Doc's own starting stock differs between data sets, so only equality is asserted for him), and the verdict is counted.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop give DocMitchellREF Stimpak 5"
+      },
+      {
+        "at": 2,
+        "run": "coop give 1 Caps001 50"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop barter DocMitchellREF -30 buy:Stimpak:2"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "bought-host",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "bought-guest",
+      "path": "items.guest.Stimpak",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "paid-host",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 20,
+      "on": "host"
+    },
+    {
+      "id": "paid-guest",
+      "path": "items.guest.Caps001",
+      "op": "eq",
+      "value": 20,
+      "on": "guest"
+    },
+    {
+      "id": "doc-stock-same",
+      "path": "items.DocMitchellREF",
+      "on": "equal"
+    },
+    {
+      "id": "counted",
+      "path": "interact.barter",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-items-equal",
+      "path": "items.guest",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

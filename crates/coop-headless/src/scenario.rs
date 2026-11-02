@@ -41,6 +41,10 @@ pub struct Side {
     pub script: Vec<Line>,
     /// Extra viewer flags (`--walk` is the only one that matters here).
     pub extra_args: Vec<String>,
+    /// The plugin list this peer quotes in the handshake (empty: not listed).
+    pub plugins: Vec<String>,
+    /// Host only: `--coop-allow-mismatch`.
+    pub allow_mismatch: bool,
 }
 
 /// A scheduled link outage.
@@ -79,17 +83,48 @@ pub struct Expect {
     pub add: Vec<String>,
 }
 
+/// The party-save part of a scenario (headless only): the guest has a persistent player id,
+/// and after `restart_at` seconds both peers are dropped and started again from the party save
+/// the first phase made (`coop psave` on the host).
+#[derive(Clone, Debug)]
+pub struct PartyCfg {
+    /// The guest's persistent player id.
+    pub guest_key: u64,
+    /// Seconds after both peers are ready at which everything is dropped (`None`: no restart).
+    pub restart_at: Option<f64>,
+    /// After the restart the host loads the party save (`false`: it starts a fresh world).
+    pub host_loads: bool,
+    /// After the restart the guest rejoins with its id (`false`: it gets another id, as a
+    /// stranger would).
+    pub guest_same_key: bool,
+    /// Seconds the second phase runs.
+    pub second_duration_s: f64,
+    /// The host's script in the second phase.
+    pub second_host: Side,
+    /// The guest's script in the second phase.
+    pub second_guest: Side,
+    /// After the restart the guest offers the character file it kept locally (a late joiner
+    /// that brings its own saved character).
+    pub guest_offers_own: bool,
+}
+
 /// A loaded scenario.
 #[derive(Clone, Debug)]
 pub struct Scenario {
+    /// Party-save options.
+    pub party: Option<PartyCfg>,
     /// Name.
     pub name: String,
     /// Description.
     pub description: String,
     /// Cell editor id.
     pub cell: Option<String>,
+    /// Cell the host starts in when it is not `cell` (editor id or hex form id).
+    pub host_cell: Option<String>,
     /// Start a new game (needs the opening cell and character generation).
     pub new_game: bool,
+    /// The guest makes its own character (implied by `new_game`).
+    pub character_creation: bool,
     /// Chaos profile.
     pub network: String,
     /// Seed.
@@ -112,10 +147,16 @@ pub struct Scenario {
     pub expect_fail: bool,
     /// Compare `hash.shared` automatically.
     pub hash_check: bool,
+    /// The run ends when the guest is refused at the handshake; a refusal
+    /// counts as the peers' ready state.
+    pub expect_refused: bool,
     /// Host script.
     pub host: Side,
     /// Guest script.
     pub guest: Side,
+    /// `guests: [..]`: every guest's script (2 or 3 entries for a 3 or 4 peer
+    /// run). When present it replaces `guest`, which becomes `guests[0]`.
+    pub guests: Vec<Side>,
 }
 
 impl Scenario {
@@ -149,7 +190,9 @@ impl Scenario {
             name,
             description: j.get("description").and_then(J::as_str).unwrap_or("").to_string(),
             cell,
+            host_cell: j.get("host_cell").and_then(J::as_str).filter(|s| !s.is_empty()).map(str::to_string),
             new_game,
+            character_creation: j.get("character_creation").and_then(J::as_bool).unwrap_or(false),
             network,
             seed: 1,
             duration_s: num("duration_s", 20.0, &mut errs),
@@ -161,8 +204,11 @@ impl Scenario {
             expect: Vec::new(),
             expect_fail: j.get("expect_fail").and_then(J::as_bool).unwrap_or(false),
             hash_check: j.get("hash_check").and_then(J::as_bool).unwrap_or(true),
+            expect_refused: j.get("expect_refused").and_then(J::as_bool).unwrap_or(false),
+            party: None,
             host: Side::default(),
             guest: Side::default(),
+            guests: Vec::new(),
         };
         if s.cell.is_none() && !s.new_game {
             errs.push("cell is required unless new_game is true".into());
@@ -196,21 +242,55 @@ impl Scenario {
         }
         for (role, side) in [("host", &mut s.host), ("guest", &mut s.guest)] {
             if let Some(r) = j.get(role) {
-                side.extra_args = r
-                    .get("extra_args")
-                    .and_then(J::as_arr)
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-                    .unwrap_or_default();
-                for (i, l) in r.get("script").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
-                    match parse_line(l) {
-                        Ok(line) => side.script.push(line),
-                        Err(e) => errs.push(format!("{role}.script[{i}]: {e}")),
+                parse_side(r, role, side, &mut errs);
+            }
+        }
+        if let Some(gs) = j.get("guests") {
+            match gs.as_arr() {
+                Some(a) if !a.is_empty() && a.len() <= MAX_GUESTS => {
+                    for (n, r) in a.iter().enumerate() {
+                        let mut side = Side::default();
+                        parse_side(r, &format!("guests[{n}]"), &mut side, &mut errs);
+                        s.guests.push(side);
                     }
+                    s.guest = s.guests[0].clone();
+                }
+                _ => errs.push(format!("guests must be a list of 1 to {MAX_GUESTS} objects")),
+            }
+        }
+        if let Some(p) = j.get("party") {
+            let key = p.get("key").and_then(J::as_f64).filter(|k| *k >= 1.0 && k.fract() == 0.0);
+            let second = p.get("second");
+            let mut cfg = PartyCfg {
+                guest_key: key.map_or(0, |k| k as u64),
+                restart_at: p.get("restart_at").and_then(J::as_f64).filter(|t| *t >= 0.0),
+                host_loads: p.get("host_loads").and_then(J::as_bool).unwrap_or(true),
+                guest_same_key: p.get("guest_same_key").and_then(J::as_bool).unwrap_or(true),
+                second_duration_s: second.and_then(|x| x.get("duration_s")).and_then(J::as_f64).unwrap_or(12.0),
+                second_host: Side::default(),
+                second_guest: Side::default(),
+                guest_offers_own: p.get("guest_offers_own").and_then(J::as_bool).unwrap_or(false),
+            };
+            if key.is_none() {
+                errs.push("party.key must be a whole number >= 1".into());
+            }
+            if let Some(x) = second {
+                if let Some(h) = x.get("host") {
+                    parse_side(h, "party.second.host", &mut cfg.second_host, &mut errs);
+                }
+                if let Some(g) = x.get("guest") {
+                    parse_side(g, "party.second.guest", &mut cfg.second_guest, &mut errs);
                 }
             }
+            s.party = Some(cfg);
         }
         let mut ids: Vec<String> = Vec::new();
         for (i, e) in j.get("expect").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
+            // "real_only": true marks a check of something the simulator does not run (it
+            // stands in for the viewer's menus and Doc's speech); the real harness keeps it
+            if e.get("real_only").and_then(J::as_bool) == Some(true) {
+                continue;
+            }
             match parse_expect(e, i) {
                 Ok(x) => {
                     if ids.contains(&x.id) {
@@ -229,9 +309,46 @@ impl Scenario {
         }
     }
 
+    /// How many guests this scenario runs (1 unless `guests` says more).
+    pub fn guest_count(&self) -> usize {
+        self.guests.len().max(1)
+    }
+
+    /// Every guest's script, in slot order (guest 1 first).
+    pub fn guest_sides(&self) -> Vec<&Side> {
+        if self.guests.is_empty() {
+            vec![&self.guest]
+        } else {
+            self.guests.iter().collect()
+        }
+    }
+
     /// Seconds of chaos before the link turns perfect.
     pub fn chaos_seconds(&self) -> f64 {
         self.chaos_s.unwrap_or(self.duration_s)
+    }
+}
+
+/// Most guests a scenario may run (a 4 peer session).
+pub const MAX_GUESTS: usize = 3;
+
+fn parse_side(r: &J, role: &str, side: &mut Side, errs: &mut Vec<String>) {
+    side.extra_args = r
+        .get("extra_args")
+        .and_then(J::as_arr)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    side.plugins = r
+        .get("plugins")
+        .and_then(J::as_arr)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    side.allow_mismatch = r.get("allow_mismatch").and_then(J::as_bool).unwrap_or(false);
+    for (i, l) in r.get("script").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
+        match parse_line(l) {
+            Ok(line) => side.script.push(line),
+            Err(e) => errs.push(format!("{role}.script[{i}]: {e}")),
+        }
     }
 }
 
@@ -299,8 +416,8 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
     if !OPS.contains(&op.as_str()) {
         errs.push(format!("expect {id}: op {op:?} not in {OPS:?}"));
     }
-    if !["host", "guest", "both", "equal"].contains(&on.as_str()) {
-        errs.push(format!("expect {id}: on {on:?} not in host/guest/both/equal"));
+    if !["host", "guest", "guest2", "guest3", "all", "both", "equal"].contains(&on.as_str()) {
+        errs.push(format!("expect {id}: on {on:?} not in host/guest/guest2/guest3/all/both/equal"));
     }
     if path.is_empty() {
         errs.push(format!("expect {id}: path is required"));
