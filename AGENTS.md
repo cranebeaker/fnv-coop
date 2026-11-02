@@ -22,6 +22,16 @@ priorities.
   (ADR-0003). This replaces the older reference-doc rule "never copy
   decompiled code into the project". Raw decompiler exports, databases and
   executable bytes are still never committed.
+- Since 2026-11-02, with its authors' permission: the community's matching
+  decompilation `momusdigital/fnv_decomp` may be used for names, types,
+  layouts and logic translated into Rust (ADR-0009). Read it alongside FNV's
+  Ghidra decompilation, not instead of it: the exe stays the reference.
+  Settle every difference in the disassembly; mark what came from it
+  (`, read against fnv_decomp` after a translation marker, `(fnv_decomp)` on a
+  name or layout's first use in a file); never commit its C++; don't adopt
+  its placeholder names (about half its functions still have names made from
+  their addresses, in every folder). Its comments were written by machine:
+  check them against the exe before using them.
 - For behavior investigations, start with FNV's Ghidra decompilation, then
   inspect the associated game data and verify in the original game. The user
   explicitly prefers this order over trial-and-error viewer changes.

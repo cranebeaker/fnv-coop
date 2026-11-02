@@ -1,4 +1,4 @@
-# Handoff: engine port push (updated 2026-11-01)
+# Handoff: engine port push (updated 2026-11-02)
 
 For the next Claude session leading the nv-rs engine port. Read AGENTS.md,
 docs/MILESTONES.md, docs/ENGINE_PORT_PLAN.md, docs/FRAME_SKELETON.md and
@@ -7,7 +7,12 @@ machinery runs.
 
 ## Resume here
 
-### Claude lead, 2026-11-01 (current: read this first, then 2026-10-31 below)
+### Claude lead, 2026-11-02 (fnv_decomp; read this first, then 2026-11-01 below)
+
+- **fnv_decomp may be used (ADR-0009):** the fnvdecomp community published `momusdigital/fnv_decomp`, C++ that its authors report rebuilds every in-scope function of FalloutNV.exe 1.4.0.525 byte for byte (68,657 functions and 1,954 exception-handling tails, Visual C++ 2008 and 2005). Its repository grants no licence; its authors gave the maintainer permission on 2026-11-02 to use all of their own work, credit optional (quoted in LEGAL.md and ADR-0009). Keep a clone outside the repository and never commit its C++. The exe stays the reference: address markers stay, every difference is settled in the disassembly, what comes from it is marked `fnv_decomp`, and its placeholder names (about half its functions, in every folder) are not adopted.
+- **Next with it:** an evaluation is measuring its claims against the exe and how many real translation bugs a comparison finds per 100 functions; then an audit of every translated function against it, in batches through pull requests.
+
+### Claude lead, 2026-11-01 (read after 2026-11-02 above, then 2026-10-31 below)
 
 - **Merged:** #271. This PR: the DirectSound cursors as measured and the weapon idle sound's frame.
 - **DirectSound cursors (`dsound.rs`, `mixer.rs`, `resampler.rs`; docs/SOUND.md):** `SetCurrentPosition` on a playing buffer (the open outdoor stop) is measured and provided. The write cursor is now the input frames the converter has taken: with the second converter (`dsound.dll` `100636a0`) `resampler::AplFrames` repeats `Apl::period`'s index arithmetic in the same `f32` steps without making samples, kept from the first `Play` through `Stop`, the end and `SetFrequency`; the first converter rounds up with the first `Play` 33 frames ahead; at the device's rate there is no lead. A `SetFrequency` to the frequency a buffer already has changes nothing; a non-looping buffer ends in the period its write cursor would reach its length (a stopped buffer is never at its end: the old "Play from the end" stop is gone); a looping buffer turned not looping plays out its lap; when the second converter turns on, every playing buffer's cursors go to its write cursor (`1005713d`, not measured). The ignored `measured_replay` test drives 1,058 measured lines (`scripts/dsound-capture` modes `setpos`, `endphase`, `freqphase`, `endstop`): 1,012 match every read (main: 105); the 42 first-converter lines at 11040/22071 Hz and 4 races inside DirectSound are listed in SOUND.md. The output samples hash is unchanged. Six rounds of two independent reviews.

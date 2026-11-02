@@ -14,3 +14,4 @@ A later decision that changes an earlier one says so and links back.
 | [0006](0006-engine-crate-memory-model.md) | Bulk translation goes into an engine crate on a model of the game's memory | Accepted (lead, 2026-10-09; for maintainer review) |
 | [0007](0007-renderer-translated-on-own-d3d9-layer.md) | The game's renderer is translated and runs on our own Direct3D 9 layer | Accepted (maintainer, 2026-10-17) |
 | [0008](0008-d3d9-layer-forwarded-to-the-real-runtime.md) | On Windows, the Direct3D 9 layer is forwarded to the real d3d9.dll (`NV_D3D9=real`) | Accepted (maintainer, 2026-10-27) |
+| [0009](0009-fnv-decomp.md) | The community's matching decompilation (fnv_decomp) may be used | Accepted (maintainer, 2026-11-02, with the authors' permission) |

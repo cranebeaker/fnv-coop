@@ -688,8 +688,8 @@ been run against `FalloutNV.exe` yet.
 
 ## Decisions after this document
 
-On 2026-10-05 the maintainer changed two of the rules above. The decision
-records take precedence over this document where they differ:
+Since 2026-10-05 the maintainer has changed some of the rules above. The
+decision records take precedence over this document where they differ:
 
 - [ADR-0002](adr/0002-xbox-prototype-symbols.md): the Xbox 360 prototype
   symbols are used in full, with `src:xbox_pdb.<tier>` tags in Ghidra and
@@ -701,7 +701,13 @@ records take precedence over this document where they differ:
   "Don't translate decompiled functions" rule and makes the OS-isolated
   clean-room lanes (step 5, step 7 "Implementer") optional. Oracle tests,
   provenance and regression tests still apply.
-- [ADR-0004](adr/0004-mudcrab-style-layout.md): the repository layout and
-  docs follow Mudcrab's shape; the paths in this document move then.
+- [ADR-0004](adr/0004-mudcrab-style-layout.md) (rejected 2026-10-06): the
+  repository layout and docs were to follow Mudcrab's shape; they do not.
+- [ADR-0009](adr/0009-fnv-decomp.md) (2026-11-02): the community's matching
+  decompilation fnv_decomp may be read alongside the exe and used for names,
+  types, layouts and logic translated into Rust, with its authors'
+  permission. The "Don't" rules against committing decompilation still hold
+  for its C++: none of it is committed. What comes from it is marked
+  `fnv_decomp`.
 
 Leaked SDK and source trees remain outside this methodology.

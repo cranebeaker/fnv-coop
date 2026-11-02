@@ -44,6 +44,21 @@ has also allowed two further sources:
 Both are recorded where they are used, so they can be found and removed if
 required.
 
+Since 2026-11-02 the project may also use
+[fnv_decomp](https://github.com/momusdigital/fnv_decomp), the fnvdecomp
+community's C++ reconstruction of the same program
+([ADR-0009](docs/adr/0009-fnv-decomp.md)). Its repository grants no licence.
+Its authors wrote to the maintainer on 2026-11-02 (spelling
+corrected): "You are fine to use everything however you please, you don't have
+to credit us, that's why we chose to send it out with no license." The
+permission covers their own work, not its `third_party/` folder (zlib, under
+its own licence) and not the game or the libraries linked into it. Rust
+translated from it, and names, types and layouts taken from it, are marked
+where they are used (`fnv_decomp`), like the sources above; no C++ from it is
+committed. Material from it is not covered by the project's licence, like
+anything translated from the game's program (see Licence below). We thank its
+contributors.
+
 ## Licence
 
 Original code in this repository is licensed under the GNU General Public
