@@ -1,174 +1,113 @@
-<p align="center">
-  <img src="docs/media/logo-ranger.png" alt="nv-rs logo: an NCR Ranger in front of a Mojave sunset, inside a gear" width="260">
-</p>
+<h1 align="center">FNV Co-Op</h1>
 
-<h1 align="center">nv-rs</h1>
-
-[![Rust](https://img.shields.io/badge/Rust-2021_edition-orange.svg)](https://www.rust-lang.org/)
-[![Engine](https://img.shields.io/badge/Engine-Bevy_0.16-blue.svg)](https://bevyengine.org/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-purple.svg)](docs/PLAYTESTING.md)
-[![Status](https://img.shields.io/badge/Status-experimental-lightgrey.svg)](docs/MILESTONES.md)
+[![Engine](https://img.shields.io/badge/Engine-nv--rs_(Rust%2C_Bevy_0.16)-orange.svg)](https://github.com/slaterain/nv-rs)
+[![Status](https://img.shields.io/badge/Status-alpha-lightgrey.svg)](docs/PROGRESS.md)
 
-**Fallout: New Vegas, rebuilt in Rust, aiming to play exactly like the
-original.**
+**Play the Fallout: New Vegas story together.** One player hosts, friends join with a join code, and
+everyone is in the same Mojave: the same quests, the same NPCs, the same fights, the same cutscenes.
 
-nv-rs is a new engine for Fallout: New Vegas, written in Rust. It runs the
-game from your own copy's files, and its goal is a faithful 1:1 match, down
-to the original's quirks. Not a remake that feels close: the same game, on a
-modern, open-source engine that can be fixed, ported and extended.
+FNV Co-Op is built on [nv-rs](https://github.com/slaterain/nv-rs) by **slaterain**, a from-scratch
+Fallout: New Vegas engine written in Rust that runs the game from your own copy's files. Co-op needs an
+engine we can change, which is why it lives there. The engine is theirs and is licensed GPL-3.0; the
+co-op layer in this repository is GPL-3.0 as well. This project is not affiliated with Bethesda,
+ZeniMax, Obsidian or Microsoft and contains no game files: you need your own copy of the game
+(see [LEGAL.md](LEGAL.md)).
+
+> [!NOTE]
+> The earlier version of FNV Co-Op, an xNVSE plugin for the original game, lives on the
+> [`legacy-xnvse`](https://github.com/cranebeaker/fnv-coop/tree/legacy-xnvse) branch and in the older
+> releases. `main` is the Rust engine version described here.
 
 <p align="center">
   <img src="docs/media/goodsprings-aerial.jpg" alt="Goodsprings from above, rendered by nv-rs" width="100%">
-  <br><sub><i>Goodsprings, rendered by nv-rs from the game's own files.</i></sub>
 </p>
 
-> [!IMPORTANT]
-> nv-rs is an independent project, not affiliated with or endorsed by
-> Bethesda Softworks, ZeniMax Media, Obsidian Entertainment or Microsoft. It
-> contains no game files; you need your own legally obtained copy of the game.
-> See [LEGAL.md](LEGAL.md).
+## What co-op does
 
----
+- **One shared story.** The host runs the quest scripts. Quest stages, objectives, globals, topics,
+  notes and map markers are the same for everyone. Rewards are given once, to the right players.
+- **Per-player where it should be.** Each player has their own character, inventory, skills, perks
+  and followers. The campaign rules decide which quests are shared and which each player runs on
+  their own (487 quests across the base game and all four story DLCs).
+- **Seeing each other.** Other players appear with name tags and animate: moving, aiming, attacking,
+  reloading, getting hurt, dying. NPCs and creatures are spawned once and die once on every machine.
+- **Playing together.** Kills are decided by the host and counted once. Loot comes out of a container
+  once, with no duplication. Dialogue is a shared session. Barter, doors and cell changes, lockpicking,
+  hacking, crafting, companions, V.A.T.S. (which never freezes the other players), downed and revive,
+  and a friendly-fire guard are covered by the rules.
+- **Cutscenes and time.** Scripted scenes and movies start for everyone, controls lock per player,
+  endings play as a slideshow, and sleeping or waiting is a party vote.
+- **Starting and saving.** The host starts the normal opening; each guest makes their own character.
+  Party saves keep the host's world plus a save per player, so a campaign can be continued.
+- **Staying in sync.** UDP transport with a Steam (Spacewar) option, snapshots on join, rejoin after a
+  lost connection, hash checks that detect and repair drift, and a version and mod-list check at join.
+- **Voice, split-screen and four players.** Optional voice chat, couch split-screen on one PC, and up
+  to four players in a session.
 
-## Why it's different
+## How it is tested
 
-- **Translated from the original, not guessed.** The original game's program
-  is translated into Rust piece by piece, and every piece is checked against
-  the original. Nothing is tuned by eye.
-- **Your game, your files.** nv-rs reads the game's own plugins, meshes,
-  textures, sounds and menus from your installation and never changes them.
-- **Built to last.** Open source and memory-safe, so fixes, new platforms and
-  optional improvements are possible later.
-- **Mods keep working.** Regular `.esp` and `.esm` mods load the way they do
-  in the original.
+Everything is held to a master checklist ([docs/COOP-CHECKLIST.md](docs/COOP-CHECKLIST.md), 709 items,
+plain-language version in [docs/PROGRESS.md](docs/PROGRESS.md)). A feature counts as done when its row is
+green and a mutation twin of the test (the same test with the feature deliberately broken) fails.
 
-## Where it stands
-
-Experimental. Almost all of the original program is translated, and the game's
-own code now runs: it starts a new game, plays the opening in Doc Mitchell's
-house (Doc's speech, character creation, the Vit-o-Matic and his questions),
-and lets you walk around, talk to Doc, use the Pip-Boy and draw, aim and fire
-weapons, with the original graphics and sound.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/media/doc-mitchell.jpg" alt="Doc Mitchell in his chair"></td>
-    <td width="50%"><img src="docs/media/ghost-town-gunfight.jpg" alt="Ghost Town Gunfight"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><i>Waking up in Doc Mitchell's house.</i></sub></td>
-    <td align="center"><sub><i>Ghost Town Gunfight: the Powder Gangers come to town.</i></sub></td>
-  </tr>
-</table>
-
-Not yet: a full playthrough, the open world, script-extender (NVSE) plugins,
-packaged Linux and macOS builds, and VR. Speed is the current focus: the goal
-is to run as fast as the original without changing how it plays (faster, optional
-systems of our own come later).
-
-## Progress
-
-<p align="center">
-  <img src="docs/media/progress.svg" alt="Engine port progress: 100% of the game's code translated" width="100%">
-</p>
-
-Every function of the game's own code is translated. Not counted: 29 pieces of
-Microsoft and Windows code, 13 that our own layer replaces and 16 C runtime
-fragments that can never run. Some translated functions still have small marked gaps,
-mostly error handling; the systems below are where the real work is now.
-
-| | System | Status |
-| :---: | --- | --- |
-| ✅ | **Foundations:** the original program mapped, the engine running in play | Done |
-| 🔨 | **Movement and physics** | Translated; running in the play build, being checked against the original |
-| 🔨 | **Animation and faces** | Translated; running in the play build, being compared with the original |
-| 🔨 | **Audio:** sounds, music and the radio | Translated; the game's own sound plays and matches the original, its timing measured against Windows |
-| 🔨 | **Graphics:** lighting, weather and effects | Translated; the game's own renderer draws on Windows, other platforms later |
-| 🔨 | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated; the opening's dialogue, menus and Pip-Boy run, weapons draw, aim and fire, combat is being checked |
-| 🔨 | **Saves and the open world** | Saves load in Doc's house; outdoors, Goodsprings loads and can be walked through, the rest of the open world is being switched on |
-
-After that come optional bug fixes, script-extender compatibility and more
-platforms. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
-[docs/MILESTONES.md](docs/MILESTONES.md).
-
----
+- The headless simulator (`coop-sim`) runs a real host and guests over a simulated bad network on real
+  game data, and walks every one of the 487 quest rules quest by quest.
+- A second harness (`tools/coop-run`) starts two real game processes and checks the result.
+- At the latest run: **611 of 709 items green, none failing**; the rest are rows still waiting for their
+  test. The checklist file lists which are which and says what each check does and does not cover.
 
 ## Try it
 
-1. Download the latest Windows build from
-   [Releases](https://github.com/slaterain/nv-rs/releases).
-2. Extract it and run `Play.cmd`.
-3. Point it at your own `Fallout New Vegas\Data` folder.
+There is no packaged release of the Rust co-op build yet; the existing releases are the earlier
+xNVSE version. To run it today:
 
-nv-rs needs Fallout: New Vegas version 1.4.0.525 installed. If anything behaves
-differently from the original game, that's a bug worth reporting; tips are in
-[docs/PLAYTESTING.md](docs/PLAYTESTING.md).
-
-### Co-op
-
-The co-op build comes with `nv-launcher.exe` (run `Play-Coop.cmd`): a terminal menu that finds
-your own Fallout: New Vegas install (read only), hosts or joins a session with a join code
-(`NVRS-...`) or `ip:port`, keeps party saves per campaign, tests the UDP port and collects
-shareable logs with your Windows user name removed. `nv-launcher --print-command host` prints
-the exact viewer command without starting it. Package it with `scripts/package-coop.ps1`.
-Details of the session itself are in [docs/COOP.md](docs/COOP.md).
-
-### Build from source
-
-Install stable Rust, then:
+1. Install stable Rust (MSVC toolchain on Windows) and have your own Fallout: New Vegas 1.4.0.525 install.
+2. Build and start the launcher:
 
 ```sh
-cargo build --release && cargo test --workspace
-cd viewer
-cargo run --release -- "<path to Fallout New Vegas\Data>" GSDocMitchellHouse
+cargo build --release
+cd viewer && cargo build --release && cd ..
+target/release/nv-launcher --print-command host     # prints the exact viewer command without starting it
+target/release/nv-launcher                          # the terminal menu: host or join
 ```
 
-The viewer also builds on macOS (Metal) and Linux (Vulkan, Wayland or X11);
-see [docs/PLAYTESTING.md](docs/PLAYTESTING.md) for the packages each needs.
+The launcher finds your install (read only), hosts or joins with a join code (`NVRS-...`) or
+`ip:port`, keeps party saves per campaign, tests the UDP port and collects shareable logs with your
+Windows user name removed. `scripts/package-coop.ps1` bundles a ready-to-share folder with
+`Play-Coop.cmd`. Session details are in [docs/COOP.md](docs/COOP.md).
 
----
+For development, run the checklist and the simulator:
 
-## How it's made
+```sh
+cargo build --release -p coop-headless
+target/release/coop-sim checklist --data "<path to Fallout New Vegas>/Data" --area WORLD
+```
 
-To be upfront: nv-rs is built almost entirely with AI coding agents (mainly
-Claude, with some Codex). The maintainer directs the project: the plan, the
-priorities, playtesting and what gets merged. The agents write nearly all of
-the code.
+Use `--release` for tests on this workspace; it is large.
 
-What keeps it honest is the method. Agents don't get to invent behaviour:
-every piece of logic is translated from the original game's program and
-marked with where it came from, then checked by automated tests, automated
-play-throughs and recordings of the original game. Anything that can't be
-traced to the original doesn't go in. Everything is in the open, so judge it by
-how it plays.
+## Where things are
 
----
+| Path | What |
+| --- | --- |
+| `crates/coop-core` | sync core: deltas, snapshots, hashes, live layer |
+| `crates/coop-net`, `coop-session` | UDP and Steam transport, the session driver |
+| `crates/coop-policy` | the 487 quest rules (`data/policy.json`) |
+| `crates/coop-headless` | `coop-sim`: simulator, scenarios, the checklist |
+| `crates/world/src/coop` | game-logic side: authority, shadows, policy gate, adapters |
+| `crates/coop-voice`, `crates/nv-launcher` | voice chat and the player-facing launcher |
+| `viewer/` | the game client (its own workspace) |
+| `tools/coop-run` | real two-process scenario runner |
+| `docs/COOP*.md` | design and how-to for each co-op part |
 
-## Get involved
+## Credits and licence
 
-Contributions are welcome, from people and their AI agents alike:
+- **slaterain** and the nv-rs contributors for the engine this stands on:
+  [github.com/slaterain/nv-rs](https://github.com/slaterain/nv-rs). Engine documentation, its method
+  (every behaviour translated from the original and checked against it) and its contribution rules are
+  in [docs/](docs/), [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+- Co-op layer: the `cranebeaker` team. This repository is built with AI coding agents under human
+  direction, in the same open way as the engine.
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) (and give [AGENTS.md](AGENTS.md)
-   to your agent).
-2. Open an issue saying what you'd like to work on, and wait for a
-   go-ahead from the maintainer.
-3. Open a small pull request against `main`.
-
-The most useful help right now: testing builds and reporting differences from
-the original, platform support and research into how the original behaves.
-
-**Curious how it works?** Start with
-[docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md) and
-[docs/METHODOLOGY.md](docs/METHODOLOGY.md); every other document is linked
-from [docs/](docs/).
-
-Final decisions rest with the maintainer, **slaterain**
-([docs/GOVERNANCE.md](docs/GOVERNANCE.md)).
-
-## Legal and license
-
-Original code is licensed under the [GNU GPL v3 or later](LICENSE). The
-licence covers only original work. Fallout and Fallout: New Vegas are
-trademarks of their respective owners. Read [LEGAL.md](LEGAL.md) for the full
-notice.
+Licensed under the [GNU GPL v3 or later](LICENSE). Fallout and Fallout: New Vegas are trademarks of
+their respective owners; read [LEGAL.md](LEGAL.md) for the full notice.
