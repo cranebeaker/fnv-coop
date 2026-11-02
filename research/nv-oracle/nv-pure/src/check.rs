@@ -80,11 +80,12 @@ pub enum Kind {
     /// The engine provides those imports, so the two sides cannot be compared past that
     /// call. Inconclusive.
     ExeImport,
-    /// The exe hit an access violation, ran past `--exe-timeout` or ended
-    /// nv-call's process, in a function listed as reading only its buffers at
-    /// known offsets, which by construction neither faults nor loops on: the
-    /// data flow missed a pointer (one walked in a loop, say), so the list,
-    /// not the translation, is wrong.
+    /// In a function listed as reading and storing only its buffers at known
+    /// offsets, the exe hit an access violation, or (when every argument is a
+    /// buffer, so no scalar can drive a loop) ran past `--exe-timeout`,
+    /// overflowed its stack or ended nv-call's process. Neither can happen on
+    /// the buffers alone: the data flow missed a pointer (one walked in a loop,
+    /// say), so the list, not the translation, is wrong.
     DataFlowMiss,
     /// The exe returned a value, but the engine read memory it never maps,
     /// in a function whose exe reads no address computed from its inputs
@@ -255,6 +256,8 @@ fn compare(
         );
     }
     let (exe_text, kind) = match ret {
+        // Nothing returned: the buffers after the call are the result.
+        Ty::Void => ("void".into(), Kind::Match),
         Ty::Bool => {
             let (a, b) = (eax as u8 != 0, r.eax as u8 != 0);
             (
@@ -769,7 +772,11 @@ fn engine_side(
                 Some(Outcome::Fault { name, .. }) if name == "stack_overflow"
             );
             let stuck = overflowed || matches!(unfinished, Some(Kind::ExeTimeout | Kind::ExeCrash));
-            if stuck && !p.bufs.is_empty() {
+            // Only when every input is a buffer: a scalar argument can drive a
+            // loop of its own (00c54550 wraps an angle with `while x > 360`, which
+            // never ends for an infinite x), and then the exe is merely slow on it.
+            let only_buffers = p.params.iter().all(|t| *t == Ty::Ptr);
+            if stuck && !p.bufs.is_empty() && only_buffers {
                 *report.counts.entry(Kind::DataFlowMiss).or_insert(0) += 1;
                 *report.failing_functions.entry(p.addr).or_insert(0) += 1;
                 report.failures.push((
@@ -846,9 +853,29 @@ fn engine_side(
                     Ty::U8 | Ty::I8 => u64::from(*eax as u8),
                     Ty::U16 | Ty::I16 => u64::from(*eax as u16),
                     Ty::U64 => u64::from(*eax) | u64::from(*edx) << 32,
+                    Ty::Void => 0,
                     _ => u64::from(*eax),
                 };
-                distinct.insert(key);
+                // What the exe stored counts as a result too: the bytes it changed
+                // in its buffers (none for a read-only function).
+                let stored = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    if let Some(after) = exe_buffers.get(&id) {
+                        for (name, bytes) in after {
+                            let j: usize =
+                                name.trim_start_matches('b').parse().unwrap_or(usize::MAX);
+                            let before = case.bufs.get(j).map(Vec::as_slice).unwrap_or(&[]);
+                            for (i, b) in bytes.iter().enumerate() {
+                                if before.get(i) != Some(b) {
+                                    (j, i, *b).hash(&mut h);
+                                }
+                            }
+                        }
+                    }
+                    h.finish()
+                };
+                distinct.insert((key, stored));
                 if let (Ty::F32, Some(f), Some(d)) = (p.ret, st0_f32, st0_f64) {
                     let (f, d) = (f32::from_bits(*f), f64::from_bits(*d));
                     if !d.is_nan() && f as f64 != d {

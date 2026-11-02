@@ -33,8 +33,9 @@ A translation is on the list when all of these hold:
   and the like, skipped as `HiddenInput`; hkSystemClock 00dd8e00);
 - its arguments and result are scalars (`u8`..`u64`, `bool`, `f32`, `f64`), and
   neither it nor its callees read through a pointer (so no object has to be built
-  for it); **or** (pointer tier, phase 1 of #193) it takes pointer arguments that
-  are only read, at offsets the data flow pins down (see below). A pointer
+  for it); **or** (pointer tier, #193) it takes pointer arguments that it reads
+  and, in the store tier, stores through, at offsets the data flow pins down
+  (see below). A pointer
   function that reaches itself is skipped as `RecursivePointer`: the callee
   check can't cover a function's own recursive call, which may walk a pointer
   loaded from its buffers (00b15110 recurses on `m_pParent`);
@@ -47,13 +48,16 @@ A translation is on the list when all of these hold:
   with no `RET` (a thunk that tail-jumps) has no checkable convention and is
   skipped as `NoRet`, not listed as a mismatch; one that takes an argument in
   EAX, EBX, ESI, EDI or EBP (from the decompiler's data flow) is skipped as
-  `RegisterInput`, since nv-call passes only ECX and EDX;
+  `RegisterInput`, since nv-call passes only ECX and EDX. With no register read
+  but one (two) words fewer popped than the signature has, the function is called
+  as thiscall (fastcall): a method that ignores `this`, where that changes nothing
+  either way;
 - it doesn't take a leading `f64` in x87 ST0 (`nv-call` can't preset ST0).
 
 `check` also skips a listed function when it or one of its callees is not
 registered in the engine at the time of the run.
 
-### Pointer arguments (phase 1: read only)
+### Pointer arguments (phase 1: read, phase 2: stores)
 
 `NvPurity.java` follows each input (ECX, EDX, each stack argument) through the
 decompiler's data flow (copies, casts, constant offsets, merges) to every LOAD and
@@ -67,16 +71,29 @@ fields that are dereferenced, calls it is passed to and whether it escapes
 `untracked_stores`). A function with pointer parameters is listed when:
 
 - every pointer parameter (mapped to its exe input through the calling convention)
-  is only read, at known offsets: no unknown offset, no dereferenced pointer field
-  (that needs nested buffers), not passed to a callee, not stored;
+  is read and stored only at known offsets: no unknown offset, no dereferenced
+  pointer field (that needs nested buffers), not passed to a callee, the pointer
+  itself not stored (`PointerEscapes`);
 - nothing else is read or stored through a pointer (`untracked_* = 0`), and its
   callees read through no pointer;
-- no parameter the Rust signature types as a scalar is used as a pointer by the exe,
-  and no input that matches no parameter is dereferenced.
+- a parameter the Rust signature types as `u32`/`i32` that the exe dereferences is
+  a pointer (out-parameters are often typed so): it gets a buffer and is listed as
+  `ptr`; a narrower scalar used as a pointer is skipped (`ScalarUsedAsPointer`), as
+  is a function where an input that matches no parameter is dereferenced.
+
+Phase 2 (stores, the "store tier"): a function that is not pure only because it
+stores through pointers (`w_pointer`; no global, implicit or FS stores, no indirect
+or imported calls, every callee pure) is listed too when the data flow puts every
+store on a pointer argument at a known offset (`untracked_stores = 0`, at least one
+store recorded). It may return `void`: its buffers after the call are its result.
+Callees stay strictly pure, so a store can only come from the function itself.
 
 Each pointer parameter gets a buffer (`buffers` in `pure.tsv`:
-`param:size:bias:off.size;...`): big enough for every field read plus slack, with a
-bias for negative offsets. Both sides place the buffers in nv-call's arena at
+`param:size:bias:off.size;...`): big enough for every field read or stored plus
+slack, with a bias for negative offsets. Stored fields get the same fills as read
+ones, so a store that is missing, too narrow, too wide or at the wrong offset leaves
+bytes that differ (`BufferMismatch`). For "varying" (below), the bytes the exe
+changed in its buffers count as part of its result. Both sides place the buffers in nv-call's arena at
 0x30000000, 16-byte aligned in order, the engine with `Mem::map`; before and after
 every vector the engine heap's top must be below the arena, and nv-call's header
 must report its arena there, or the run stops with an error.
@@ -135,10 +152,10 @@ float stores" rule.
 | `FaultMismatch` | Both failed, but at different addresses (inside the engine's mapped data) or in different ways. | yes |
 | `Convention` | The exe popped a different number of bytes than the listed convention: the list is wrong, not the translation. | yes |
 | `BufferMismatch` | Same result, but a buffer differs after the call (one side stored where the other didn't). | yes |
-| `DataFlowMiss` | The exe hit an access violation, ran past `--exe-timeout` or ended nv-call's process, in a pointer-tier function, which only reads its buffers at known offsets and so can neither fault nor loop on them: the data flow missed a pointer (one walked in a loop), and the list is wrong, not the translation. | yes |
-| `ExeTimeout` | The exe did not finish the vector within `--exe-timeout` (default 10 s; typically a loop over a count taken from a fuzzed scalar; in a pointer-tier function it is a `DataFlowMiss`). nv-call is stopped and restarted after it; not run on the engine side. | no |
+| `DataFlowMiss` | In a pointer-tier function, which only reads and stores its buffers at known offsets: the exe hit an access violation, or (when every argument is a buffer, so no scalar can drive a loop) ran past `--exe-timeout`, overflowed its stack or ended nv-call's process. Neither can happen on the buffers alone: the data flow missed a pointer (one walked in a loop), and the list is wrong, not the translation. | yes |
+| `ExeTimeout` | The exe did not finish the vector within `--exe-timeout` (default 10 s; typically a loop over a count taken from a fuzzed scalar; in a pointer-tier function whose arguments are all buffers it is a `DataFlowMiss`). nv-call is stopped and restarted after it; not run on the engine side. | no |
 | `ExeSlow` | The exe took over `--slow-ms` (default 1000 ms); not run on the engine side, where a correct translation may take much longer. | no |
-| `ExeCrash` | nv-call's process ended on the vector (an exception outside the harness's reach); restarted after it. In a pointer-tier function it is a `DataFlowMiss`. | no |
+| `ExeCrash` | nv-call's process ended on the vector (an exception outside the harness's reach); restarted after it. In a pointer-tier function whose arguments are all buffers it is a `DataFlowMiss`. | no |
 
 All three are listed in `coverage.tsv`. The engine side runs on a worker thread under
 a watchdog: one vector running past `--rust-timeout` (default 120 s) on a vector the
@@ -209,6 +226,20 @@ folder.
   | arguments swapped | `this->+0xC & mask` → `(mask)->+0xC & this` (00448a60) | yes (`RustStrayRead`, 79 of 79 vectors) |
   | scalar argument dereferenced | `(key >> 4) % 1001` → `(*key >> 4) % 1001` (0043c530, scalar tier) | yes (`RustStrayRead`, 64 of 64) |
   | field value dereferenced | `this->+0x78` → `*(this->+0x78)` (00407820) | yes (16 `RustStrayRead`, 1 `Mismatch`) |
+
+- **Store mutation test** (phase 2), seven bugs planted in functions that store
+  through their arguments, each against a clean run of the same functions (all
+  nineteen genres planted at once, all caught):
+
+  | Genre | Planted bug | Failing vectors |
+  | --- | --- | --- |
+  | wrong offset | `this+4 = word` → `this+8` (0040e980) | 18 |
+  | store too wide | `set_u8` → `set_u32` (0044a8c0) | 3 |
+  | store too narrow | `set_u16` → `set_u8` (004d9fc0) | 32 |
+  | store dropped | 12 bytes copied → 8 (00413fc0) | 21 |
+  | wrong target | `answer[i] =` → `other[i] =` (00532ec0) | 31 |
+  | inverted condition | `visible` → `!visible` (0044de40) | 33 |
+  | wrong value | `height` → `height as i32 as f32` (00586110) | 69 (1 in the clean run) |
 
 - **Fault injection** for the safety paths, with a stand-in for nv-call (through
   `NV_CALL`) and a planted translation:
