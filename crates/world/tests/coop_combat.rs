@@ -697,6 +697,44 @@ fn area_blasts_hit_players_and_npcs_and_show_on_the_other_machines() {
     );
 }
 
+/// A blast that puts its thrower down still hurts the player beside the
+/// thrower: the thrower was up when the blast went off.
+#[test]
+fn a_blast_that_downs_its_thrower_still_hurts_the_player_beside_it() {
+    let (_d, order) = order("cc-blast-down");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 9);
+    r.stand([900.0, 960.0, 9000.0]);
+    r.host
+        .actor_values
+        .insert((PLAYER_REF, world::combat::av::HEALTH), 200.0);
+    r.settled();
+    r.sim.host.live.combat.vitals.friendly = FriendlyFire::On;
+    r.host
+        .coop
+        .live
+        .combat
+        .set_next(coop_core::combat::DamageKind::Explosion, 1);
+    let f = |w: &str| form(&order, w);
+    // radius 400, damage 4000
+    let words = ["coop", "explode", "B03", "400", "4000"];
+    assert!(bot_line(&order, &mut r.host, &words, &f));
+    assert!(
+        r.until(10_000, |r| r.host.coop.live.downed),
+        "the blast puts the thrower down: lost {} health {:?} dead {}",
+        lost(&r.host),
+        world::combat::health(&order, &r.host, PLAYER_REF),
+        r.host.dead.contains(&PLAYER_REF)
+    );
+    assert!(
+        r.until(30_000, |r| lost(&r.guests[0]) > 0.0),
+        "guest 1 is in the blast (refused blows: {})",
+        r.sim.host.live.combat.vitals.stats.refused
+    );
+    r.run_ms(3_000);
+    assert_eq!(lost(&r.guests[1]), 0.0, "guest 2 is far away");
+}
+
 #[test]
 fn vats_is_real_time_for_everyone_else_and_resolves_on_the_host() {
     let (_d, order) = order("cc-vats");

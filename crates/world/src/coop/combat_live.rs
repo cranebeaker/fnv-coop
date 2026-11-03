@@ -1145,6 +1145,25 @@ impl CombatBridge {
         live.combat
             .vitals
             .track(PlayerId::HOST, host_hp, max_hp(order, gs));
+        // the host player's blows on other players since the last frame go
+        // first: the host was up when it dealt them (a blast that puts its
+        // thrower down still hurts the players beside the thrower)
+        let mut msgs: Vec<CombatMsg> = Vec::new();
+        {
+            let f = &mut gs.coop.live.combat;
+            for n in std::mem::take(&mut f.pvp_hits) {
+                f.stats.pvp_sent += 1;
+                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
+                msgs.extend(live.combat.vitals.player_vs_player(
+                    now_ms,
+                    PlayerId::HOST,
+                    n.victim,
+                    pts,
+                    n.kind,
+                    n.limb,
+                ));
+            }
+        }
         live.combat.vitals.report(
             PlayerId::HOST,
             now_ms,
@@ -1165,7 +1184,6 @@ impl CombatBridge {
             }
         }
         // the host player's own notes
-        let mut msgs: Vec<CombatMsg> = Vec::new();
         {
             let f = &mut gs.coop.live.combat;
             let mut by: BTreeMap<(FormId, PlayerId, u8, u8), (f64, DamageKind)> = BTreeMap::new();
@@ -1186,18 +1204,6 @@ impl CombatBridge {
                     kind,
                     limb,
                     &scaling,
-                ));
-            }
-            for n in std::mem::take(&mut f.pvp_hits) {
-                f.stats.pvp_sent += 1;
-                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
-                msgs.extend(live.combat.vitals.player_vs_player(
-                    now_ms,
-                    PlayerId::HOST,
-                    n.victim,
-                    pts,
-                    n.kind,
-                    n.limb,
                 ));
             }
         }
