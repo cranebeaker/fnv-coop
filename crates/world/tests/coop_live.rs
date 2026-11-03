@@ -384,6 +384,48 @@ mod fighting {
         assert_eq!(r.host.coop.live.combat.stats.crimes, 1);
     }
 
+    /// A host script raises an actor's health (`ForceActorValue Health`) just after the host
+    /// starts to track the actor, before the host's own copy of the ledger has it. The ledger
+    /// must still take the raise. Found in `live_npc_targets_players`: gecko 2 kept its base
+    /// health in the ledger and died to one 400-point hit.
+    #[test]
+    fn a_health_raise_right_after_the_host_tracks_an_actor_reaches_the_ledger() {
+        let (_d, order) = order("live-raise-new");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 51);
+        r.stand(CELL, [900.0, 900.0, 5000.0]);
+        r.run_ms(1_000);
+        let gecko = FormId(GECKO_REF);
+        let cx = r.cx();
+        r.ha.track(cx, &r.host, &mut r.sim.host.live, &[gecko]);
+        r.host
+            .actor_values
+            .insert((gecko, world::combat::av::HEALTH), 5000.0);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(5000.0));
+        r.run_ms(2_000);
+        let ledger = r
+            .sim
+            .host
+            .live
+            .actors
+            .own
+            .get(CForm(GECKO_REF))
+            .map(|a| a.state.health);
+        assert_eq!(ledger, Some(5000), "the ledger took the raise");
+        // each guest's copy of the ledger has it too (a guest's world shows at most the
+        // creature's own full health)
+        for g in &r.sim.guests {
+            let copy = g
+                .sync
+                .live
+                .actors
+                .get(CForm(GECKO_REF))
+                .and_then(|a| a.state)
+                .map(|s| s.health);
+            assert_eq!(copy, Some(5000));
+        }
+    }
+
     #[test]
     fn a_host_hit_goes_through_the_same_ledger() {
         let (_d, order) = order("live-host-kill");

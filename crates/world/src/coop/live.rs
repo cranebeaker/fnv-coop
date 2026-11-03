@@ -473,6 +473,10 @@ impl LiveHostAdapter {
             }
             if self.tracked.insert(a) {
                 live.actors.register(cf(a), export_actor(gs, cx, a));
+                // the baseline for `raises`: a raise before the next frame still counts
+                if let Some(h) = crate::combat::health(cx.order, gs, a) {
+                    self.last_health.insert(a, h);
+                }
                 let essential = crate::more_functions::is_essential(cx.order, gs, a);
                 live.actors.set_protected(cf(a), essential);
             }
@@ -574,9 +578,15 @@ impl LiveHostAdapter {
         dealt: &BTreeMap<FormId, f64>,
     ) -> Outs {
         let mut outs = Vec::new();
-        for (id, rec) in self.own.actors.iter() {
-            let a = wf(*id);
-            if !rec.alive || gs.dead.contains(&a) || super::facts::player_of(a).is_some() {
+        // every tracked actor in the ledger: the host's copy gets a new actor
+        // only with its first `Assign`, and a raise before that was lost
+        for &a in &self.tracked {
+            let id = cf(a);
+            if live.actors.own.get(id).is_none()
+                || live.actors.is_dead(id)
+                || gs.dead.contains(&a)
+                || super::facts::player_of(a).is_some()
+            {
                 continue;
             }
             let (Some(now), Some(&last)) = (
@@ -596,7 +606,7 @@ impl LiveHostAdapter {
                 continue;
             }
             *carry -= points;
-            for o in live.actors.heal(*id, points as u16) {
+            for o in live.actors.heal(id, points as u16) {
                 outs.extend(live.route_extern(o.aud, Msg::Actor(o.msg)));
             }
         }
@@ -719,10 +729,10 @@ impl LiveHostAdapter {
         }
         self.pump.apply(cx, gs, &self.own.actors, PlayerId::HOST);
         self.last_health = self
-            .own
-            .actors
+            .tracked
             .iter()
-            .filter_map(|(id, _)| Some((wf(*id), crate::combat::health(cx.order, gs, wf(*id))?)))
+            .filter(|a| live.actors.own.get(cf(**a)).is_some())
+            .filter_map(|a| Some((*a, crate::combat::health(cx.order, gs, *a)?)))
             .collect();
         self.dialogue.poll_lines(gs, &self.own.dialogue);
         self.dialogue
