@@ -480,6 +480,10 @@ pub(crate) struct StartSide {
     pub applied: BTreeMap<PlayerId, Sheet>,
     /// The last phase logged.
     pub logged: Option<Phase>,
+    /// Both roles: the character names chosen in the name box, per player (host: gathered; guest: told).
+    pub char_names: BTreeMap<PlayerId, String>,
+    /// Host: the names each peer was last told.
+    pub names_told: BTreeMap<PlayerId, BTreeMap<PlayerId, String>>,
 }
 
 impl StartSide {
@@ -496,6 +500,8 @@ impl StartSide {
             pending: Vec::new(),
             applied: BTreeMap::new(),
             logged: None,
+            char_names: BTreeMap::new(),
+            names_told: BTreeMap::new(),
         }
     }
 }
@@ -673,18 +679,34 @@ impl Session {
             .map(|h| h.peers.keys().copied().collect())
             .unwrap_or_default();
         self.start.told.retain(|p, _| peers.contains(p));
+        self.start.names_told.retain(|p, _| peers.contains(p));
+        let peers_now = peers.clone();
         for p in peers {
             if self.start.told.get(&p) != Some(&o) {
                 self.start.told.insert(p, o);
                 send_ext(&mut self.net, p, &Ext::Opening(o));
             }
         }
+        match gs.player_name.as_deref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                self.start.char_names.insert(PlayerId::HOST, n.to_string());
+            }
+            None => {
+                self.start.char_names.remove(&PlayerId::HOST);
+            }
+        }
+        self.start
+            .char_names
+            .retain(|p, _| p.is_host() || peers_now.contains(p));
         for (from, sheet) in std::mem::take(&mut self.start.pending) {
             if from.is_host() {
                 continue;
             }
             let slot = from.0;
             let name = sheet.name.clone();
+            if !name.is_empty() {
+                self.start.char_names.insert(from, name.clone());
+            }
             if gs.coop.bank.enabled() {
                 gs.register_player(slot);
                 gs.with_player(slot, |g| sheet.apply(g));
@@ -698,6 +720,27 @@ impl Session {
             );
             self.start.applied.insert(from, sheet);
         }
+        let names = self.start.char_names.clone();
+        for p in peers_now {
+            if self.start.names_told.get(&p) != Some(&names) {
+                self.start.names_told.insert(p, names.clone());
+                let list: Vec<(PlayerId, String)> =
+                    names.iter().map(|(k, v)| (*k, v.clone())).collect();
+                send_ext(&mut self.net, p, &Ext::CharNames(list));
+            }
+        }
+    }
+
+    /// Guest: the host told the character names.
+    pub(crate) fn on_char_names(&mut self, list: Vec<(PlayerId, String)>) {
+        if self.role == Role::Guest {
+            self.start.char_names = list.into_iter().filter(|(_, n)| !n.is_empty()).collect();
+        }
+    }
+
+    /// The in-game character name a player chose, when known.
+    pub fn character_name(&self, p: PlayerId) -> Option<&str> {
+        self.start.char_names.get(&p).map(String::as_str)
     }
 
     /// Guest, once per tick: resends an unacknowledged sheet.

@@ -1102,6 +1102,9 @@ impl Session {
             Ext::SheetAck => {
                 self.on_sheet_ack();
             }
+            Ext::CharNames(list) => {
+                self.on_char_names(list);
+            }
             Ext::Roster(list) => {
                 let me = g.sync.player;
                 let old: Vec<PeerInfo> = g.roster.clone();

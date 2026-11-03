@@ -351,6 +351,22 @@ impl Layer {
     }
 }
 
+/// The launcher names with each other player's chosen character name over them
+/// (never over `me`: the local name is already its own).
+pub(crate) fn with_character_names(
+    names: &BTreeMap<PlayerId, String>,
+    chars: &BTreeMap<PlayerId, String>,
+    me: PlayerId,
+) -> BTreeMap<PlayerId, String> {
+    let mut out = names.clone();
+    for (p, n) in chars {
+        if *p != me && !n.is_empty() {
+            out.insert(*p, n.clone());
+        }
+    }
+    out
+}
+
 fn chat_name(names: &BTreeMap<PlayerId, String>, p: PlayerId) -> String {
     names
         .get(&p)
@@ -669,6 +685,8 @@ impl Session {
             }
             names.insert(me, me_name);
         }
+        // avatars carry the character name chosen in the name box once it is known
+        let avatar_names = with_character_names(&names, &self.start.char_names, me);
         self.live_setup(gs, Some(cx.order));
         self.flush_queued();
         let asked_time = gs.coop.live.scene.time_asks.len();
@@ -712,7 +730,7 @@ impl Session {
             run_released(cx, gs);
             outs.extend(l.x.host_env(cx, gs, &members, now));
             view.members = members;
-            collect_remote(&mut view, &mut ad.own, &names, now);
+            collect_remote(&mut view, &mut ad.own, &avatar_names, now);
             crate::live_roam::host_frame(cx, gs, live, &mut view, now);
         } else if let (Some(g), Some((_, ad))) = (&mut self.guest, l.guest.as_mut()) {
             g.sync.live.scene.set_rtt(g.rtt_ms.unwrap_or(0));
@@ -729,7 +747,7 @@ impl Session {
             members.dedup();
             view.members = members;
             view.hour = l.x.guest_env(cx, gs, &mut g.sync.live, now);
-            collect_remote(&mut view, &mut g.sync.live, &names, now);
+            collect_remote(&mut view, &mut g.sync.live, &avatar_names, now);
             crate::live_roam::guest_frame(gs, &mut g.sync.live, &mut view);
         }
         if asked_time > 0 {
@@ -948,5 +966,27 @@ fn run_released(cx: Ctx, gs: &mut GameState) {
         gs.with_player(r.slot, |g| {
             Runner::new(cx.order, cx.scripts, g).set_stage(r.quest, r.stage);
         });
+    }
+}
+
+#[cfg(test)]
+mod character_name_tests {
+    use super::*;
+
+    #[test]
+    fn character_name_replaces_launcher_name_when_known() {
+        let mut names = BTreeMap::new();
+        names.insert(PlayerId::HOST, "Host".to_string());
+        names.insert(PlayerId(1), "Guest".to_string());
+        let mut chars = BTreeMap::new();
+        chars.insert(PlayerId::HOST, "Courier".to_string());
+        let out = with_character_names(&names, &chars, PlayerId(1));
+        assert_eq!(out[&PlayerId::HOST], "Courier");
+        assert_eq!(out[&PlayerId(1)], "Guest");
+        chars.insert(PlayerId(1), "Other".to_string());
+        assert_eq!(
+            with_character_names(&names, &chars, PlayerId(1))[&PlayerId(1)],
+            "Guest"
+        );
     }
 }

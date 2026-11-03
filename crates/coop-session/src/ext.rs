@@ -116,6 +116,8 @@ pub enum Ext {
     SheetAck,
     /// Party-save traffic (see `crate::party`); the payload is that module's own format.
     Party(Vec<u8>),
+    /// Host to guests: the in-game character name each player chose (the Vit-o-Matic name box).
+    CharNames(Vec<(PlayerId, String)>),
 }
 
 struct W(Vec<u8>);
@@ -249,6 +251,14 @@ impl Ext {
                 c.perks.iter().take(64).for_each(|p| w.u32(*p));
             }
             Ext::SheetAck => w.u8(8),
+            Ext::CharNames(list) => {
+                w.u8(10);
+                w.u8(list.len().min(255) as u8);
+                for (p, n) in list.iter().take(255) {
+                    w.u8(p.0);
+                    w.str(n);
+                }
+            }
         }
         w.0
     }
@@ -329,6 +339,14 @@ impl Ext {
                 })
             }
             8 => Ext::SheetAck,
+            10 => {
+                let n = r.u8()?;
+                let mut list = Vec::new();
+                for _ in 0..n {
+                    list.push((PlayerId(r.u8()?), r.str()?));
+                }
+                Ext::CharNames(list)
+            }
             9 => {
                 let b = r.0.to_vec();
                 r.0 = &[];
@@ -394,6 +412,10 @@ mod tests {
             }),
             Ext::Character(Sheet::default()),
             Ext::SheetAck,
+            Ext::CharNames(vec![
+                (PlayerId(0), "Courier".into()),
+                (PlayerId(2), "Bo".into()),
+            ]),
         ];
         for e in all {
             let b = e.encode();
