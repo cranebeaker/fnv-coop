@@ -268,7 +268,16 @@ impl ActorHost {
         let Some(rec) = self.own.get(actor) else {
             return reject(self);
         };
-        if self.dead.contains(&actor) || attacker_cell != Some(rec.state.cell) {
+        // the sender stands in the victim's cell or has that cell loaded: a
+        // peer owns the actors there too (an NPC's blow in that cell, or a
+        // shot into the next exterior cell)
+        let near = attacker_cell == Some(rec.state.cell)
+            || self
+                .own
+                .reach
+                .get(&from)
+                .is_some_and(|r| r.contains(&rec.state.cell));
+        if self.dead.contains(&actor) || !near {
             return reject(self);
         }
         times.push_back(now_ms);
@@ -543,6 +552,42 @@ mod tests {
             1,
             "a 100 point hit does not kill a 5000 point actor"
         );
+    }
+
+    #[test]
+    fn a_hit_from_a_loaded_cell_next_to_the_victim_counts() {
+        let (mut h, mut auth) = setup();
+        let from_next = |h: &mut ActorHost, auth: &mut AuthorityTable, id, npc| {
+            h.on_msg(
+                PlayerId(1),
+                ActorMsg::Hit {
+                    actor: A,
+                    hit: id,
+                    amount: 5,
+                    npc,
+                },
+                0,
+                Some(CellId(2)),
+                auth,
+            )
+        };
+        assert!(
+            from_next(&mut h, &mut auth, 1, true).is_empty(),
+            "the sender does not have the victim's cell loaded"
+        );
+        // player 1 has the victim's cell loaded next to its own
+        h.own.reach.insert(PlayerId(1), [C].into_iter().collect());
+        assert_eq!(
+            from_next(&mut h, &mut auth, 2, true).len(),
+            1,
+            "an NPC's blow"
+        );
+        assert_eq!(
+            from_next(&mut h, &mut auth, 3, false).len(),
+            1,
+            "a player's shot"
+        );
+        assert_eq!(h.own.get(A).unwrap().state.health, 90);
     }
 
     #[test]

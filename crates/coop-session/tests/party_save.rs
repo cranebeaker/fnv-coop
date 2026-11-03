@@ -398,6 +398,57 @@ fn a_saved_characters_health_comes_back_on_rejoin_and_on_f9() {
     );
 }
 
+/// A player whose key already has a slot (a frozen game) joins again under another slot. Its
+/// character moves to the new slot, and the health that the guest last reported comes too.
+#[test]
+fn a_returning_key_on_another_slot_keeps_its_health() {
+    let (_d, order) = order("sess-moved");
+    let scripts = ScriptCache::default();
+    let dir = tmp("moved");
+    let mut rig = Rig::new(
+        &order,
+        &scripts,
+        None,
+        &[("Ann", KEY_A, 1), ("Ann again", KEY_A, 2)],
+        &dir,
+    );
+    // Ann's second game does not run yet
+    rig.guests[1].alive = false;
+    assert!(
+        rig.until(12000, |r| r.guests[0].s.is_connected()
+            && r.guests[0].s.is_ready()
+            && r.host.s.is_ready()),
+        "never connected"
+    );
+    assert!(rig.until(6000, |r| r.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::Campaign { .. }))));
+    // Ann is hurt on her machine: the host's copy of her character learns it
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 7.5);
+    assert!(
+        rig.until(400, |r| r.host.gs.shadow_of(1).and_then(|s| s.damage)
+            == Some(7.5)),
+        "the host never heard Ann's health"
+    );
+    // Ann's game freezes; she starts again and joins under slot 2 with full health
+    rig.guests[0].alive = false;
+    rig.guests[1].alive = true;
+    assert!(
+        rig.until(12000, |r| r.guests[1]
+            .events
+            .iter()
+            .any(|e| matches!(e, PartyEvent::Campaign { matched: true, .. }))),
+        "Ann's key was not matched"
+    );
+    rig.frames(100);
+    assert_eq!(
+        rig.guests[1].gs.damage.get(&PLAYER_REF),
+        Some(&7.5),
+        "the moved character keeps its health"
+    );
+}
+
 #[test]
 fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     let (_d, order) = order("sess-silent");
@@ -412,8 +463,11 @@ fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     );
     rig.settled();
     make_character(&mut rig.host.gs, 2, 33, 6);
+    // Bo was hurt on his own machine: the host's copy of his character learns it
+    rig.guests[1].gs.damage.insert(PLAYER_REF, 9.0);
     rig.frames(300);
     let bo = core(rig.host.gs.shadow_of(2).unwrap());
+    assert_eq!(bo.damage, Some(9.0), "the host's copy has Bo's health");
     // Bo's game freezes; the link stays up long enough for the order to be sent
     rig.guests[1].alive = false;
     let save_dir = dir.join("s.txt.partysave");
@@ -452,6 +506,11 @@ fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     let sc = l.guest(KEY_B).unwrap();
     assert!(!sc.from_guest);
     assert_eq!(core(sc.shadow().unwrap()), bo);
+    assert_eq!(
+        sc.shadow().unwrap().damage,
+        Some(9.0),
+        "the save keeps Bo's health from before he froze"
+    );
     assert!(l.guest(KEY_A).unwrap().from_guest);
 }
 

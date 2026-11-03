@@ -48,6 +48,8 @@ pub const ORDER_WAIT_MS: u64 = 4000;
 pub const GUEST_SAVE_WAIT_MS: u64 = 20_000;
 /// Time between a guest's hello messages.
 const HELLO_EVERY_MS: u64 = 1000;
+/// A guest sends its changed health to the host at most this often.
+const HEALTH_EVERY_MS: u64 = 500;
 /// Largest character accepted from a guest.
 const MAX_CHARACTER: usize = 1 << 20;
 
@@ -148,9 +150,12 @@ enum Msg {
     Reloaded {
         campaign: u64,
     },
-    /// Host to one guest: the host installed a saved character for that guest's slot.
-    /// The replicated shadow leaves the health damage out (each machine keeps its own
-    /// player's health), so the saved health comes with this message.
+    /// The health damage of a guest's player. The replicated shadow leaves it out (each
+    /// machine keeps its own player's health), so it goes by this message.
+    /// Host to one guest: the host installed a saved character for that guest's slot, and
+    /// this is the saved health. Guest to the host: the guest's health now (sent when it
+    /// changes). The host keeps it on its copy of the guest's character, for a save that
+    /// the guest does not answer and for a rejoin under another slot.
     Health {
         damage: Option<f64>,
     },
@@ -332,8 +337,12 @@ impl Msg {
             9 => {
                 let has = r.u8()? != 0;
                 let d = f64::from_bits(r.u64()?);
+                // a damage that is not a number is a bad message, not a full heal
+                if has && !d.is_finite() {
+                    return None;
+                }
                 Msg::Health {
-                    damage: (has && d.is_finite()).then_some(d),
+                    damage: has.then_some(d),
                 }
             }
             8 => Msg::OfferResult {
@@ -426,6 +435,9 @@ pub(crate) struct PartyLayer {
     order: Option<GuestOrder>,
     outgoing: Vec<Msg>,
     offer_seq: u32,
+    /// The health damage last sent to the host (`None`: nothing sent since the link came up).
+    sent_damage: Option<Option<f64>>,
+    sent_damage_ms: u64,
 }
 
 impl PartyLayer {
@@ -454,6 +466,8 @@ impl PartyLayer {
             order: None,
             outgoing: Vec::new(),
             offer_seq: 0,
+            sent_damage: None,
+            sent_damage_ms: 0,
         }
     }
 }
@@ -771,6 +785,12 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                     host_character(s, l, gs, from, kind, seq, &bytes);
                 }
             }
+            Msg::Health { damage } => {
+                // a local field of the shadow: it stays out of the shared hash
+                if let Some(sh) = gs.coop.bank.parked.get_mut(&from.0) {
+                    sh.damage = damage;
+                }
+            }
             Msg::Refused { seq, why } => {
                 if let Some(p) = l.pending.as_mut().filter(|p| p.seq == seq) {
                     p.fallback.insert(from);
@@ -847,7 +867,7 @@ fn host_hello(
             // the same player again, maybe under another slot: its character follows it
             if old != from {
                 if let Some(sh) = gs.coop.bank.parked.remove(&old.0) {
-                    party_char::install_for_slot(gs, from.0, sh);
+                    restore_slot(s, gs, from, sh);
                     gs.coop.bank.dirty.insert(old.0);
                 }
                 l.claimed.insert(key, from);
@@ -1150,6 +1170,7 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     if !connected {
         // a lost host: say hello again once back
         l.acked = false;
+        l.sent_damage = None;
         return;
     }
     if l.key != 0
@@ -1190,6 +1211,16 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     }
     for m in std::mem::take(&mut l.outgoing) {
         send(s, PlayerId::HOST, &m);
+    }
+    // the host keeps this player's health on its copy of the character
+    let damage = gs.damage.get(&world::dialogue::PLAYER_REF).copied();
+    if l.acked
+        && l.sent_damage != Some(damage)
+        && now.saturating_sub(l.sent_damage_ms) >= HEALTH_EVERY_MS
+    {
+        l.sent_damage = Some(damage);
+        l.sent_damage_ms = now;
+        send(s, PlayerId::HOST, &Msg::Health { damage });
     }
 }
 
@@ -1282,6 +1313,10 @@ mod tests {
         }
         assert_eq!(Msg::decode(&[]), None);
         assert_eq!(Msg::decode(&[99]), None);
+        for bad in [f64::NAN, f64::INFINITY] {
+            let m = Msg::Health { damage: Some(bad) }.encode();
+            assert_eq!(Msg::decode(&m), None, "a damage of {bad} is refused");
+        }
         assert_eq!(Msg::decode(&[6, 1, 0, 0, 0, 1, 9]), None, "trailing bytes");
         assert_eq!(
             Msg::decode(

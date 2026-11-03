@@ -293,6 +293,49 @@ fn an_npc_blow_moves_the_health_but_credits_no_player() {
     }
 }
 
+/// A frame on guest 1's machine with an NPC's blow and the player's killing blow on the
+/// same gecko: the player gets the kill. The guest sends the NPC blows first, as the host
+/// does. Before, the player's blow went first and left the gecko alive, and the NPC's blow
+/// then killed it for nobody.
+#[test]
+fn a_players_killing_blow_after_an_npcs_blow_in_one_frame_gets_the_kill() {
+    let (_d, order) = order("cc-killorder");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    r.stand([4000.0, 900.0, 5000.0]);
+    assert!(
+        r.until(30_000, |r| r.sim.guests[0]
+            .sync
+            .live
+            .actors
+            .owns(coop_core::ids::FormId(GECKO_REF))),
+        "guest 1 never took the gecko"
+    );
+    let full = world::combat::health(&order, &r.guests[0], gecko).unwrap();
+    // the guard leaves the gecko 3 points, then guest 1's player hits it for 10 (5 after
+    // the party scaling)
+    world::combat::hurt(
+        &order,
+        &mut r.guests[0],
+        gecko,
+        full - 3.0,
+        FormId(GUARD_REF),
+    );
+    world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, PLAYER_REF);
+    assert!(
+        r.until(5_000, |r| r.host.dead.contains(&gecko)),
+        "the gecko never died on the host"
+    );
+    r.run_ms(500);
+    assert_eq!(
+        r.host.coop.campaign.killers.get(&gecko),
+        Some(&G1.0),
+        "guest 1's player killed the gecko"
+    );
+}
+
 #[test]
 fn a_flood_of_npc_blows_is_coalesced_and_bounded() {
     let (_d, order) = order("cc-flood");

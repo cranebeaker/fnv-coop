@@ -899,11 +899,13 @@ impl LiveGuestAdapter {
             .filter(|h| guest_sends(gs, &live.actors, h))
             .collect();
         // the blows of its player and followers are this player's; the others
-        // (by or on an actor this guest owns) are NPC blows that credit nobody
+        // (by or on an actor this guest owns) are NPC blows that credit nobody.
+        // NPC blows go first, as on the host: a player's blow in the same frame
+        // then gets the kill
         let (mine, npcs): (Vec<_>, Vec<_>) = pending
             .into_iter()
             .partition(|h| h.by == PLAYER_REF || gs.teammates.contains(&h.by));
-        for (npc, hits) in [(false, mine), (true, npcs)] {
+        for (npc, hits) in [(true, npcs), (false, mine)] {
             // the part points of a player's blows and of NPC blows are kept apart
             let carry = if npc {
                 &mut self.npc_carry
