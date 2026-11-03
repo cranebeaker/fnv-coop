@@ -75,6 +75,8 @@ pub mod ids {
     pub const WANDER_WIDE: u32 = 0x1148;
     pub const WANDER_TRIGGER: u32 = 0x1149;
     pub const WANDER_IN_CELL: u32 = 0x114A;
+    /// Type 15: the player, distance 256, while in `CELL` (`PLD2` kind 1).
+    pub const CELL_WAIT_PACKAGE: u32 = 0x114B;
     // Objects (bases).
     pub const CHAIR: u32 = 0x1150;
     /// An activator, bounds 40 × 40 × 40.
@@ -254,6 +256,18 @@ pub fn world(tag: &str) -> TempData {
             pkdt(15),
             sub(b"PLDT", &pldt(3, 0, 0)),
             sub(b"PLD2", &pldt(0, TRIGGER_REF, 0)),
+            any_time.clone(),
+            ptdt(PLAYER_REF, 256),
+            pkdd(0, false),
+        ],
+    ));
+    packages.extend(package(
+        CELL_WAIT_PACKAGE,
+        "TestTalkInCell",
+        &[
+            pkdt(15),
+            sub(b"PLDT", &pldt(3, 0, 0)),
+            sub(b"PLD2", &pldt(1, CELL, 0)),
             any_time.clone(),
             ptdt(PLAYER_REF, 256),
             pkdd(0, false),

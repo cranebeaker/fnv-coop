@@ -400,6 +400,8 @@ pub struct GameState {
     pub weather: crate::weather::WeatherState,
     /// Map markers scripts revealed (`ShowMap`).
     pub map_markers: HashSet<FormId>,
+    /// Map markers scripts made fast-travel destinations (`ShowMap … 1`).
+    pub map_marker_travel: HashSet<FormId>,
     /// Image space modifiers (`IMAD`) scripts applied, oldest first.
     pub modifiers: Vec<FormId>,
     /// The button the player pressed in the last message box (the box's
@@ -2142,10 +2144,23 @@ impl Facts<'_> {
             }
             "GetMapMarkerVisible" => {
                 let marker = on?;
-                flag(
-                    s.map_markers.contains(&marker)
-                        || map_marker_flags(self.order, marker)? & 1 != 0,
-                )
+                // FalloutNV.exe 1.4.0.525, `005daac0` calls `005a51e0`:
+                // 0 is hidden, 1 is visible, and 2 is visible and fast-travelable.
+                let flags = map_marker_flags(self.order, marker)?;
+                let visible = flags & 1 != 0
+                    || s.map_markers.contains(&marker)
+                    || s.discovered.contains(&marker);
+                let travel = visible
+                    && (flags & 2 != 0
+                        || s.map_marker_travel.contains(&marker)
+                        || s.discovered.contains(&marker));
+                f64::from(if travel {
+                    2
+                } else if visible {
+                    1
+                } else {
+                    0
+                })
             }
             "GetIsCurrentPackage" => {
                 let wanted = arg(0).form();
@@ -4513,7 +4528,13 @@ impl<'a> Runner<'a> {
                 self.state.scales.insert(target?, arg(0).number() as f32);
             }
             "ShowMap" => {
-                self.state.map_markers.insert(arg(0).form());
+                // `005c8620` sets the visible bit (`0044de40`); a nonzero
+                // second argument also sets the fast-travel bit (`0044de80`).
+                let marker = arg(0).form();
+                self.state.map_markers.insert(marker);
+                if arg(1).number() != 0.0 {
+                    self.state.map_marker_travel.insert(marker);
+                }
             }
             // Always the player's, whoever it's called on (`005d5140`).
             "RewardXP" => {

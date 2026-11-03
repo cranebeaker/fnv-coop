@@ -109,6 +109,32 @@ fn dialogue_packages_walk_up_to_the_player_and_talk() {
 }
 
 #[test]
+fn dialogue_package_cell_second_location_waits_for_the_player_in_that_cell() {
+    let (_data, order) = order("ai-dialogue-cell");
+    let who = FormId(WAITER_REF);
+    let mut state = with_player(&order, [600.0, -90.0, 0.0]);
+    state.script_packages.insert(who, FormId(CELL_WAIT_PACKAGE));
+    let package = ai::current_package(&order, &state, who).unwrap();
+    let location = ai::second_location(&order, package.form_id).unwrap();
+    assert_eq!((location.kind, location.form), (1, FormId(CELL)));
+    assert_eq!(
+        ai::dialogue_step(&order, &state, who, &package, true, 20.25),
+        Some(DialogueStep::Talk)
+    );
+
+    // Keep the actor and player together in another cell so this checks the
+    // package's cell requirement, rather than the ordinary same-cell wait.
+    let elsewhere = FormId(0x1162);
+    state.player_cell = Some(elsewhere);
+    state.player_world = Some(elsewhere);
+    state.spaces.insert(who, (elsewhere, elsewhere));
+    assert_eq!(
+        ai::dialogue_step(&order, &state, who, &package, true, 20.25),
+        Some(DialogueStep::Wait)
+    );
+}
+
+#[test]
 fn travel_radii_follow_what_is_there() {
     let (_data, order) = order("ai-radii");
     let mut state = with_player(&order, [0.0; 3]);

@@ -62,6 +62,9 @@ machine. Gameplay has not been compared against the original on Linux, and no
 packaged Linux build is provided. **Next action:** run and compare a gameplay
 acceptance route on Linux.
 
+The rebased ED-E route passed its Linux viewer run through log two; quest
+completion remains untested. See [ED_E_MY_LOVE_ROUTE.md](ED_E_MY_LOVE_ROUTE.md).
+
 ## Rules that hold throughout
 
 - Nothing is invented or tuned by eye. Behaviour comes from the exe, its

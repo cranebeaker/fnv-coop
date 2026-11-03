@@ -413,6 +413,7 @@ fn main() {
             ready_at: None,
         })
         .insert_resource(dialogue::AutoSay(args.say.iter().cloned().collect()))
+        .insert_resource(dialogue::AutoSayId(args.say_ids.iter().copied().collect()))
         .insert_resource(test_keys::TestKeys::new(key_presses))
         .insert_resource(viewmodel::StartWeapon(args.weapon.clone()))
         .insert_resource(lockpick::StartLock(args.lockpick.clone()))
@@ -516,7 +517,10 @@ fn main() {
             at: args.menu_clicks.clone(),
             release: false,
         })
-        .insert_resource(game_menus::FixedKeys(args.menu_keys.clone()))
+        .insert_resource(game_menus::FixedKeys::new(
+            args.menu_keys.clone(),
+            args.menu_keys_player_clock,
+        ))
         .insert_resource(game_menus::AnswerBoxes::new(
             args.answer_boxes,
             args.box_answers.clone(),

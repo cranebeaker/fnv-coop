@@ -65,6 +65,39 @@ fn map_markers_are_found_nearby_and_travelled_to() {
     let mut state = GameState::new(&order);
     assert!(!world::map::shown(&state, well));
     assert!(!world::map::can_travel(&state, well));
+    // A script can reveal a marker whose plugin flags have neither bit set,
+    // and separately make that revealed marker travelable.
+    let mut scripted_marker = well.clone();
+    scripted_marker.flags = 0;
+    let mut scripted_state = GameState::new(&order);
+    scripted_state.map_markers.insert(scripted_marker.reference);
+    assert!(!world::map::can_travel(&scripted_state, &scripted_marker));
+    scripted_state
+        .map_marker_travel
+        .insert(scripted_marker.reference);
+    assert!(world::map::shown(&scripted_state, &scripted_marker));
+    assert!(world::map::can_travel(&scripted_state, &scripted_marker));
+    // ShowMap with travel enabled has already set both bits: entering the
+    // radius must not produce a discovery, stat, HUD message, or XP.
+    let mut shown_by_script = GameState::new(&order);
+    let scripts = world::scripting::ScriptCache::default();
+    world::scripting::Runner::new(&order, &scripts, &mut shown_by_script).run_source(
+        "ShowMap 00000C04 1",
+        None,
+        None,
+    );
+    assert!(world::map::shown(&shown_by_script, well));
+    assert!(world::map::can_travel(&shown_by_script, well));
+    let before_events = shown_by_script.events.len();
+    assert!(world::map::discover(&order, &mut shown_by_script, &markers, well.position).is_empty());
+    assert_eq!(world::experience::xp(&shown_by_script), 0.0);
+    assert_eq!(
+        shown_by_script
+            .misc_stats
+            .get(&world::stats::LOCATIONS_DISCOVERED),
+        None
+    );
+    assert_eq!(shown_by_script.events.len(), before_events);
     // 600 units away: not yet; 400 across but 900 up (measured in 3D, as
     // the game does): not yet; exactly on the radius (400 across, 300 up):
     // not yet (it must be inside); 400 across and 200 up: found.
@@ -131,6 +164,28 @@ fn map_markers_are_found_nearby_and_travelled_to() {
     );
     assert_eq!(state.player_world, Some(FormId(0xC00)));
     assert_eq!(state.player_position, Some([5000.0, 2000.0, 1256.0]));
+}
+
+#[test]
+fn exterior_cell_second_location_is_not_an_automatic_cell_match() {
+    use world::scripting::GameState;
+    let (_data, order) = order("exterior-second-location");
+    let mut state = GameState::new(&order);
+    state.player_world = Some(FormId(0xC00));
+    state.player_cell = Some(FormId(0xC10));
+    state.player_position = Some([0.0; 3]);
+    let location = world::ai::Location {
+        kind: 1,
+        form: FormId(0xC10),
+        radius: 0,
+    };
+    assert!(!world::ai::at_second_location(
+        &order,
+        &state,
+        &location,
+        world::dialogue::PLAYER_REF,
+        20.0
+    ));
 }
 
 #[test]

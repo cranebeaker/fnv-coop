@@ -6,7 +6,7 @@ them (CONTRIBUTING.md).
 
 .DESCRIPTION
 Routes (commands and success lines documented in docs/GOODSPRINGS_ROUTE.md,
-docs/PATHING.md and docs/VANCE_GUN_ROUTE.md):
+docs/PATHING.md, docs/VANCE_GUN_ROUTE.md and docs/ED_E_MY_LOVE_ROUTE.md):
   doc    Doc Mitchell walks the west rooms to his chair spot and talks
          (GSDocMitchellHouse, VCG01 stage 110).
   vcg02  Back in the Saddle: Sunny's walks, wells, reward (the quest's own
@@ -16,6 +16,13 @@ docs/PATHING.md and docs/VANCE_GUN_ROUTE.md):
          die, stage 100.
   vance  Vance's Gun: investigate the missing museum gun and get the Wins'
          safe unlocked through the quest's own activation/dialogue scripts.
+  ede    ED-E My Love's Primm start: repair the disabled ED-E in Nash's
+         residence, recruit it through its dialogue, then hear Old Lady
+         Gibson's greeting reach stage 10 and start the first audio log through
+         quest scripts. Wait through the natural five-day gate, follow Ignacio's
+         ARCHIMEDES dialogue, and hear the second log. Later progression is not
+         yet covered
+         (docs/ED_E_MY_LOVE_ROUTE.md).
 A route passes when every one of its success lines appears in the
 viewer's output and no panic does.
 Every route runs with the viewer's --answer-boxes test aid, which answers
@@ -23,10 +30,11 @@ the prompts the game opens as a player would, by rule, as soon as each is
 shown: a message box with one button (OK) with it; a box with more buttons
 with the next of --box-answers (button numbers in the box's own order, 0
 the first); a tutorial box closed; the name entry accepted with Enter (the
-name in it). The routes give --box-answers 2: VCG01's "Before you venture
+name in it). Most routes give --box-answers 2: VCG01's "Before you venture
 deeper into the wasteland, you may revise your character." box answered
 "Finished - Travel Onward" (buttons: Edit Name, Rebuild Character,
-Finished - Travel Onward). With the DLCs installed their start-up quests
+Finished - Travel Onward). ED-E gives 1,1,1 to follow its repair menus. With
+the DLCs installed their start-up quests
 also open message boxes on a new game (Dead Money's signal, the pre-order
 packs' "items added", the level-cap notices, ...), as the game does; left
 open, a prompt holds the AI and the input and the route never finishes.
@@ -42,7 +50,7 @@ powershell -File scripts\acceptance.ps1 -Background
 param(
     # The game's Data folder (or set NV_DATA).
     [string]$Data = $env:NV_DATA,
-    # Which routes to run, comma-separated (doc, vcg02, vms16, vance).
+    # Which routes to run, comma-separated (doc, vcg02, vms16, vance, ede).
     [string]$Routes = 'doc,vcg02,vms16',
     # Where logs and screenshots go (default: %USERPROFILE%\nv-re\acceptance\<time>).
     [string]$Out,
@@ -80,6 +88,27 @@ function Run-Line([string[]]$lines) {
     $a
 }
 function Run-At([int]$at, [string]$line) { @('--run-at', "$at", $line) }
+function Wait-GameDays([int[]]$at) {
+    # Open the wait menu and advance six 23-hour periods: 23 Right inputs each.
+    # These are menu inputs, not changes to GameDaysPassed or quest state.
+    $a = @()
+    $menuKeys = @()
+    foreach ($start in $at) {
+        $a += @('--key-at', "$start", 't')
+        for ($i = 0; $i -lt 23; $i++) {
+            $seconds = $start + 0.8 + ($i * 0.3)
+            $menuKeys += [string]::Format(
+                [Globalization.CultureInfo]::InvariantCulture,
+                '{0:F2}:right', $seconds)
+        }
+        $seconds = $start + 7.9
+        $menuKeys += [string]::Format(
+            [Globalization.CultureInfo]::InvariantCulture,
+            '{0:F2}:w', $seconds)
+    }
+    $a += @('--menu-keys-player-clock', '--menu-keys', ($menuKeys -join ','))
+    $a
+}
 
 $routeArgs = @{
     doc   = @{
@@ -147,11 +176,48 @@ $routeArgs = @{
             "The gun's in the safe. The combination's 05-23-34.",
             'result script: SammySafeREF.setownership / SammySafeREF.unlock / set nVPrimmVanceGun.VanceGunCase to 3 / set nVPrimmVanceGun.SammyPauline to 2')
     }
+    ede   = @{
+        # ED-E My Love (issue #13): activate the disabled robot, answer its
+        # Repair 35 path, and select the real follower-hire topic from ED-E's
+        # own greeting. Log Off closes the normal follower dialogue. The repair
+        # script starts the quest; Gibson's greeting result script sets stage
+        # 10 and the quest script starts log one. After six natural 23-hour
+        # wait-menu advances, the route follows Ignacio's dialogue through the
+        # ARCHIMEDES INFO; the quest script then starts log two. The three Log
+        # Playback::End choices close the first-log replay and both log sessions.
+        # MoveTo and StartConversation are test inputs to reach and speak to
+        # Gibson and Ignacio; no quest state is forced.
+        Args    = @('PrimmNashResidence', '--run', 'player.ModAV Repair 100',
+            '--use', 'NVCompanionEDEDisabledREF',
+            '--say', 'Companion Protocol::Begin', '--say', 'Log Off',
+            '--say', 'Goodbye.', '--say', 'Log Playback::End',
+            '--say', 'Log Playback::End', '--say', 'scientific',
+            '--say', 'keep the peace', '--say', 'what more is there',
+            '--say', 'Log Playback::End',
+            '--say-id', '000E35FF', '--say-id', '000E4B49') +
+            (Run-At 20 'player.MoveTo OldLadyGibsonRef') +
+            (Run-At 24 'OldLadyGibsonRef.StartConversation player') +
+            (Wait-GameDays @(90, 125, 160, 195, 230, 300)) +
+            (Run-At 340 'player.MoveTo IgnacioRivasREF') +
+            (Run-At 360 'IgnacioRivasREF.StartConversation player') +
+            @('--wait', '500')
+        BoxAnswers = '1,1,1'
+        Success = @('--use: using NVCompanionEDEDisabledREF.',
+            'Quest added: ED-E My Love',
+            'Hi there. I''m Old Lady Gibson, or so they tell me.',
+            'result script: setStage vDialogueEDE 10',
+            'Subject E: Diagnosis complete. Begin Recording.',
+            'result script: set vDialogueEDE.iLogsPlayed to 1',
+            'result script: set VMS03.bDiscussedWeaponWithIgnacio to 1 / setStage vDialogueEDE 10',
+            'ED-E My Love: Two EDE logs heard',
+            'Download Complete. Begin Recording.',
+            'result script: set vDialogueEDE.iLogsPlayed to 2 / addtopic EDELog2')
+    }
 }
 
 $chosen = @($Routes.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($r in $chosen) {
-    if (-not $routeArgs.ContainsKey($r)) { throw "Unknown route '$r' (doc, vcg02, vms16, vance)." }
+    if (-not $routeArgs.ContainsKey($r)) { throw "Unknown route '$r' (doc, vcg02, vms16, vance, ede)." }
 }
 
 $results = @()
@@ -159,10 +225,10 @@ foreach ($r in $chosen) {
     $spec = $routeArgs[$r]
     $log = Join-Path $Out "$r.log"
     $shot = Join-Path $Out "$r.png"
-    # --answer-boxes: prompts answered as they appear, as a player would
-    # (see the header); --box-answers 2: VCG01's "revise your character"
-    # box answered "Finished - Travel Onward" (its third button).
-    $a = @($Data) + $spec.Args + @('--answer-boxes', '--box-answers', '2', '--screenshot', $shot)
+    # Most routes use --box-answers 2 for VCG01's "Finished - Travel
+    # Onward" choice; ED-E supplies 1,1,1 for the three repair message choices.
+    $boxAnswers = if ($spec.ContainsKey('BoxAnswers')) { $spec.BoxAnswers } else { '2' }
+    $a = @($Data) + $spec.Args + @('--answer-boxes', '--box-answers', $boxAnswers, '--screenshot', $shot)
     if ($Background) { $a += '--background' }
     # Each route is its own viewer run: a new game, so the DLC start
     # messages show again in every route that starts outside Doc's house.

@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use esm::FormId;
+
 pub const USAGE: &str = "\
 nv-viewer - walk around a Fallout: New Vegas cell
 
@@ -81,6 +83,8 @@ OPTIONS:
                             topics, choose the first whose text contains
                             TEXT (ignoring case); each --say is used once,
                             in order
+    --say-id FORM           for testing: choose the offered dialogue line
+                            with this INFO form ID; each is used once
     --no-hud                leave out the game's HUD (health, compass,
                             crosshair, messages); screenshots then show
                             the scene alone
@@ -150,6 +154,9 @@ OPTIONS:
                             left, right, up, down, enter) into the top menu at
                             S seconds after starting; tab leaves the
                             hacking and terminal menus, as Tab does
+    --menu-keys-player-clock
+                            time --menu-keys from player readiness, like
+                            --key-at, rather than application startup
     --answer-boxes          for testing (the acceptance routes): answer the
                             prompts on top by rule as soon as they're shown,
                             as a player would: a message box with one button
@@ -272,6 +279,8 @@ pub struct Args {
     pub run_at: Vec<(f32, String)>,
     /// `--say`: topics to choose in the dialogue menu, in order.
     pub say: Vec<String>,
+    /// `--say-id`: INFO records to choose in the dialogue menu, in order.
+    pub say_ids: Vec<FormId>,
     /// The player's weather region to start with.
     pub weather_region: Option<String>,
     /// Draw the game's HUD.
@@ -312,6 +321,8 @@ pub struct Args {
     /// `--menu-keys`: keys typed into the menus (seconds after starting,
     /// the key).
     pub menu_keys: Vec<(f64, String)>,
+    /// Use the player-ready `--key-at` clock for `--menu-keys`.
+    pub menu_keys_player_clock: bool,
     /// `--answer-boxes`: message boxes answered with their first button,
     /// tutorial boxes closed, once shown (a test aid).
     pub answer_boxes: bool,
@@ -408,6 +419,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     let mut run = Vec::new();
     let mut run_at = Vec::new();
     let mut say = Vec::new();
+    let mut say_ids = Vec::new();
     let mut weather_region = None;
     let mut hud = true;
     let mut vats = None;
@@ -433,6 +445,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     let mut movies = None;
     let mut menu_clicks = Vec::new();
     let mut menu_keys = Vec::new();
+    let mut menu_keys_player_clock = false;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let mut value = |flag: &str| {
@@ -509,6 +522,17 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                 key_at.push((at, value("--key-at")?));
             }
             "--say" => say.push(value("--say")?),
+            "--say-id" => {
+                let v = value("--say-id")?;
+                let digits = v
+                    .strip_prefix("0x")
+                    .or_else(|| v.strip_prefix("0X"))
+                    .unwrap_or(&v);
+                let id = u32::from_str_radix(digits, 16).map_err(|_| {
+                    format!("--say-id expects a hexadecimal INFO form ID, got '{v}'")
+                })?;
+                say_ids.push(FormId(id));
+            }
             "--weather-region" => weather_region = Some(value("--weather-region")?),
             "--no-hud" => hud = false,
             "--movies" => movies = Some(true),
@@ -606,6 +630,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                     menu_keys.push((at, key));
                 }
             }
+            "--menu-keys-player-clock" => menu_keys_player_clock = true,
             "--menu-click" => {
                 let v = value("--menu-click")?;
                 for n in v.split(',') {
@@ -677,6 +702,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             run,
             run_at,
             say,
+            say_ids,
             weather_region,
             hud,
             vats,
@@ -700,6 +726,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             movies,
             menu_clicks,
             menu_keys,
+            menu_keys_player_clock,
             answer_boxes,
             box_answers,
         })),
@@ -760,6 +787,17 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(choosing.box_answers, vec![1, 0]);
+        let menu_clock = parse(&strings(&[
+            "Data",
+            "Cell",
+            "--menu-keys-player-clock",
+            "--menu-keys",
+            "2:right",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert!(menu_clock.menu_keys_player_clock);
+        assert_eq!(menu_clock.menu_keys, [(2.0, "right".to_string())]);
         assert!(parse(&strings(&["Data", "Cell", "--box-answers", "no"])).is_err());
         let character = parse(&strings(&["Data", "Cell", "--character", "c.txt"]))
             .unwrap()
@@ -794,6 +832,13 @@ mod tests {
             ]
         );
         assert_eq!(args.say, ["I'm in", "Sure"]);
+        let by_id = parse(&strings(&["Data", "Cell", "--say-id", "00144BAF"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(by_id.say_ids, [FormId(0x0014_4BAF)]);
+        assert!(parse(&strings(&["Data", "Cell", "--say-id", "not-a-form"]))
+            .unwrap_err()
+            .contains("--say-id"));
         assert!(parse(&strings(&["Data", "Cell", "--run-at", "soon", "x"]))
             .unwrap_err()
             .contains("--run-at"));

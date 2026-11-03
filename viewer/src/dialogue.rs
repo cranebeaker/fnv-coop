@@ -78,6 +78,19 @@ impl AutoSay {
     }
 }
 
+/// `--say-id`: choose a specific INFO record when it is an offered topic.
+#[derive(Resource, Default)]
+pub struct AutoSayId(pub std::collections::VecDeque<FormId>);
+
+impl AutoSayId {
+    pub fn pick(&mut self, offered: &[FormId]) -> Option<usize> {
+        let wanted = *self.0.front()?;
+        let i = offered.iter().position(|id| *id == wanted)?;
+        self.0.pop_front();
+        Some(i)
+    }
+}
+
 /// The person looked at, and their name.
 #[derive(Resource, Default)]
 pub struct TalkTarget(pub Option<(Talker, String)>);
@@ -346,6 +359,7 @@ type TalkExtras<'w, 's> = (
     ResMut<'w, crate::game_menus::GameMenus>,
     ResMut<'w, DialogueView>,
     ResMut<'w, AutoSay>,
+    ResMut<'w, AutoSayId>,
     ResMut<'w, crate::chatter::Lines>,
 );
 
@@ -369,6 +383,7 @@ pub fn talk(
         mut game_menus,
         mut view,
         mut auto_say,
+        mut auto_say_id,
         mut lines,
     ): TalkExtras<'_, '_>,
     mut conversation: ResMut<Conversation>,
@@ -577,12 +592,19 @@ pub fn talk(
                 _ => digits.iter().position(|k| keys.just_pressed(*k)),
             };
             // `--say` (testing).
-            let picked = picked.or_else(|| {
-                let offered: Vec<&str> = list.iter().map(|c| c.label.as_str()).collect();
-                let i = auto_say.pick(&offered)?;
-                println!("--say: {} (of {})", offered[i], offered.join(" | "));
-                Some(i)
-            });
+            let picked = picked
+                .or_else(|| {
+                    let offered: Vec<&str> = list.iter().map(|c| c.label.as_str()).collect();
+                    let i = auto_say.pick(&offered)?;
+                    println!("--say: {} (of {})", offered[i], offered.join(" | "));
+                    Some(i)
+                })
+                .or_else(|| {
+                    let offered: Vec<FormId> = list.iter().map(|c| c.info.form_id).collect();
+                    let i = auto_say_id.pick(&offered)?;
+                    println!("--say-id: {:08X}", offered[i].0);
+                    Some(i)
+                });
             match picked {
                 Some(i) if i < list.len() => {
                     let info = list[i].info.clone();
@@ -1187,6 +1209,15 @@ mod tests {
         assert_eq!(say.pick(&offered), None);
         assert_eq!(say.pick(&["No.", "Sure, I'll come with you."]), Some(1));
         assert!(say.0.is_empty());
+    }
+
+    #[test]
+    fn say_id_picks_the_named_info_once() {
+        let mut say = AutoSayId([FormId(12), FormId(34)].into());
+        assert_eq!(say.pick(&[FormId(56)]), None);
+        assert_eq!(say.pick(&[FormId(12), FormId(56)]), Some(0));
+        assert_eq!(say.pick(&[FormId(12), FormId(34)]), Some(1));
+        assert_eq!(say.pick(&[FormId(12), FormId(34)]), None);
     }
 
     /// `00762950`: a clicked-away voice plays on for 500 ms; `008a20d0`: a

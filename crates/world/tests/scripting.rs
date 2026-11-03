@@ -1839,27 +1839,35 @@ fn scripts_know_where_things_are_markers_regions_and_packages() {
         state.place(&order, FormId(DOOR_REF)).map(|p| p.2),
         Some([0.0, 100.0, 0.0])
     );
-    let mut q = |expr: &str| ask(&order, &scripts, &mut state, expr);
-    assert_eq!(q("player.GetInCell TestCell"), 1.0);
-    assert_eq!(q("player.GetInSameCell DocRef"), 1.0);
-    assert_eq!(q("player.GetDistance DocRef"), 10.0);
-    assert_eq!(q("DoorRef.GetDistance ChestRef"), 0.0);
-    // The cell lists the region.
-    assert_eq!(q("IsPlayerInRegion TestRegion"), 1.0);
-    // Map markers: shown from the start by their flag, or by ShowMap.
-    assert_eq!(q("MarkerRef.GetMapMarkerVisible"), 1.0);
-    assert_eq!(q("HiddenMarkerRef.GetMapMarkerVisible"), 0.0);
-    q("ShowMap HiddenMarkerRef");
-    assert_eq!(q("HiddenMarkerRef.GetMapMarkerVisible"), 1.0);
-    // The doctor's travel package applies from stage 10.
-    assert_eq!(q("DocRef.GetIsCurrentPackage TestTravelPackage"), 0.0);
-    q("SetStage TestQuest 10");
-    assert_eq!(q("DocRef.GetIsCurrentPackage TestTravelPackage"), 1.0);
-    // Nobody's hurt: body parts are whole.
-    assert_eq!(q("player.GetAV PerceptionCondition"), 100.0);
-    q("SetQuestDelay TestQuest 0.5");
+    {
+        let mut q = |expr: &str| ask(&order, &scripts, &mut state, expr);
+        assert_eq!(q("player.GetInCell TestCell"), 1.0);
+        assert_eq!(q("player.GetInSameCell DocRef"), 1.0);
+        assert_eq!(q("player.GetDistance DocRef"), 10.0);
+        assert_eq!(q("DoorRef.GetDistance ChestRef"), 0.0);
+        // The cell lists the region.
+        assert_eq!(q("IsPlayerInRegion TestRegion"), 1.0);
+        // Map markers return 0 when hidden, 1 when shown, and 2 when travelable.
+        assert_eq!(q("MarkerRef.GetMapMarkerVisible"), 1.0);
+        assert_eq!(q("HiddenMarkerRef.GetMapMarkerVisible"), 0.0);
+        q("ShowMap HiddenMarkerRef");
+        assert_eq!(q("HiddenMarkerRef.GetMapMarkerVisible"), 1.0);
+        q("ShowMap HiddenMarkerRef 1");
+        assert_eq!(q("HiddenMarkerRef.GetMapMarkerVisible"), 2.0);
+        // The doctor's travel package applies from stage 10.
+        assert_eq!(q("DocRef.GetIsCurrentPackage TestTravelPackage"), 0.0);
+        q("SetStage TestQuest 10");
+        assert_eq!(q("DocRef.GetIsCurrentPackage TestTravelPackage"), 1.0);
+        // Nobody's hurt: body parts are whole.
+        assert_eq!(q("player.GetAV PerceptionCondition"), 100.0);
+        q("SetQuestDelay TestQuest 0.5");
+    }
     assert_eq!(state.quest_delays.get(&FormId(QUEST)), Some(&0.5));
     assert!(state.unhandled.is_empty(), "{:?}", state.unhandled_first);
+    let (saved, _) = world::save::load(&world::save::save(&state, None)).unwrap();
+    assert!(saved
+        .map_marker_travel
+        .contains(&FormId(testdata::quest_ids::HIDDEN_MARKER)));
 }
 
 #[test]

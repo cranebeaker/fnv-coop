@@ -143,6 +143,17 @@ impl TestKeys {
         }
     }
 
+    fn start_when_ready(&mut self, now: f32, ready: bool) {
+        if self.started.is_none() && ready {
+            self.started = Some(now);
+        }
+    }
+
+    /// Time on the same player-ready clock used by `--key-at`.
+    pub(crate) fn elapsed_since_ready(&self, now: f32) -> Option<f64> {
+        self.started.map(|start| f64::from(now - start))
+    }
+
     /// What to press and release `since` seconds after the start.
     fn step(&mut self, since: f32) -> (Vec<Press>, Vec<Press>) {
         let mut down = Vec::new();
@@ -180,16 +191,14 @@ pub fn press_test_keys(
     mut motion: ResMut<bevy::input::mouse::AccumulatedMouseMotion>,
     mut scroll: ResMut<bevy::input::mouse::AccumulatedMouseScroll>,
 ) {
-    if tests.presses.is_empty() && tests.held.is_empty() {
-        return;
-    }
     let now = time.elapsed_secs();
-    if tests.started.is_none() && player.is_some_and(|p| p.ready) {
-        tests.started = Some(now);
-    }
+    tests.start_when_ready(now, player.is_some_and(|p| p.ready));
     let Some(start) = tests.started else {
         return;
     };
+    if tests.presses.is_empty() && tests.held.is_empty() {
+        return;
+    }
     let (down, up) = tests.step(now - start);
     for p in down {
         match p {
@@ -221,6 +230,16 @@ pub fn press_test_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_player_ready_clock_starts_once_even_without_key_presses() {
+        let mut keys = TestKeys::default();
+        keys.start_when_ready(15.0, false);
+        assert_eq!(keys.elapsed_since_ready(20.0), None);
+        keys.start_when_ready(20.0, true);
+        keys.start_when_ready(30.0, true);
+        assert_eq!(keys.elapsed_since_ready(32.5), Some(12.5));
+    }
 
     #[test]
     fn presses_parse_and_come_due_then_release() {

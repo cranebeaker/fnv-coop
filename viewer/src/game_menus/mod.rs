@@ -450,7 +450,26 @@ pub struct FixedClicks {
 /// `--menu-keys S:K,...`: keys typed into the top menu at these seconds
 /// (a character, or left, right, up, down), for testing.
 #[derive(Resource, Default)]
-pub struct FixedKeys(pub Vec<(f64, String)>);
+pub struct FixedKeys {
+    keys: Vec<(f64, String)>,
+    player_clock: bool,
+}
+
+impl FixedKeys {
+    pub fn new(keys: Vec<(f64, String)>, player_clock: bool) -> Self {
+        Self { keys, player_clock }
+    }
+
+    fn pop_due(&mut self, app_time: f64, player_time: Option<f64>) -> Option<String> {
+        let now = if self.player_clock {
+            player_time?
+        } else {
+            app_time
+        };
+        let index = self.keys.iter().position(|(at, _)| *at <= now)?;
+        Some(self.keys.remove(index).1)
+    }
+}
 
 /// `--answer-boxes` (a test aid for scripted routes, `scripts/acceptance.ps1`):
 /// the prompts on top, once shown, answered by rule as a player would. A
@@ -1006,9 +1025,11 @@ pub struct MenuInput<'w, 's> {
     keys: ResMut<'w, ButtonInput<KeyCode>>,
     typed: EventReader<'w, 's, KeyboardInput>,
     time: Res<'w, Time<bevy::time::Real>>,
+    game_time: Res<'w, Time>,
     fixed: Res<'w, FixedPointer>,
     clicks: ResMut<'w, FixedClicks>,
     fixed_keys: ResMut<'w, FixedKeys>,
+    test_keys: Option<Res<'w, crate::test_keys::TestKeys>>,
     answer_boxes: ResMut<'w, AnswerBoxes>,
     pads: Query<'w, 's, &'static Gamepad>,
     /// Terminals drawn on the terminal's screen: the pointer goes through
@@ -1353,8 +1374,11 @@ pub(crate) fn run_open_menus(
             }
         }
         // `--menu-keys`: the ones due (`mDX/DY` moves the mouse).
-        while let Some(i) = input.fixed_keys.0.iter().position(|(t, _)| *t <= now) {
-            let (_, k) = input.fixed_keys.0.remove(i);
+        let player_time = input
+            .test_keys
+            .as_ref()
+            .and_then(|keys| keys.elapsed_since_ready(input.game_time.elapsed_secs()));
+        while let Some(k) = input.fixed_keys.pop_due(now, player_time) {
             if let Some((dx, dy)) = k
                 .strip_prefix('m')
                 .and_then(|m| m.split_once('/'))
@@ -1815,6 +1839,16 @@ mod tests {
     use super::*;
     use ui::fade::State;
     use ui::menus::message::MessageMenu;
+
+    #[test]
+    fn menu_keys_can_use_the_player_ready_clock() {
+        let mut keys = FixedKeys::new(vec![(2.0, "right".into())], true);
+        assert_eq!(keys.pop_due(100.0, None), None);
+        assert_eq!(keys.pop_due(102.0, Some(1.9)), None);
+        assert_eq!(keys.pop_due(102.0, Some(2.0)).as_deref(), Some("right"));
+        let mut startup_keys = FixedKeys::new(vec![(2.0, "enter".into())], false);
+        assert_eq!(startup_keys.pop_due(2.0, None).as_deref(), Some("enter"));
+    }
 
     /// The menus with no game files: a 1920 × 1080 screen.
     fn bare() -> Screen {

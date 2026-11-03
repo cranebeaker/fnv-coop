@@ -241,6 +241,7 @@ pub fn save(state: &GameState, player: Option<PlayerPlace>) -> String {
     for (word, set) in [
         ("unconscious", &state.unconscious),
         ("marker", &state.map_markers),
+        ("markertravel", &state.map_marker_travel),
         ("found", &state.discovered),
         ("announced", &state.quests_announced),
         ("teammate", &state.teammates),
@@ -653,6 +654,9 @@ pub fn load(text: &str) -> Result<(GameState, Option<PlayerPlace>), String> {
             }
             "marker" => {
                 state.map_markers.insert(form(1)?);
+            }
+            "markertravel" => {
+                state.map_marker_travel.insert(form(1)?);
             }
             "found" => {
                 state.discovered.insert(form(1)?);
