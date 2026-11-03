@@ -120,6 +120,56 @@ fn friendly_fire_rule() {
 }
 
 #[test]
+fn pvp_kill_credit_and_down_rules() {
+    let mut v = VitalsHost::new();
+    v.friendly = FriendlyFire::On;
+    v.track(A, 100, 100);
+    v.track(B, 100, 100);
+    // a hit that does not put B down credits nothing
+    assert!(!v
+        .player_vs_player(1_000, A, B, 30, DamageKind::Bullet, 1)
+        .is_empty());
+    assert!(v.take_downs().is_empty());
+    // B's own machine reports the fall within the window: A gets the credit
+    v.report(B, 2_000, 1, true, false);
+    assert_eq!(
+        v.take_downs(),
+        vec![PvpDown {
+            attacker: A,
+            victim: B,
+            at_ms: 2_000
+        }]
+    );
+    assert_eq!(v.stats.pvp_downs, 1);
+    // the downed take no more blows and a downed player deals none
+    assert!(v
+        .player_vs_player(3_000, A, B, 30, DamageKind::Bullet, 1)
+        .is_empty());
+    assert!(v
+        .player_vs_player(3_000, B, A, 30, DamageKind::Bullet, 1)
+        .is_empty());
+    assert_eq!(v.get(A).unwrap().hp, 100);
+    // a fall long after the last hit is nobody's doing
+    let _ = v.revived(4_000, B, 30);
+    assert!(!v
+        .player_vs_player(5_000, A, B, 10, DamageKind::Bullet, 1)
+        .is_empty());
+    v.report(B, 20_000, 1, true, false);
+    assert!(v.take_downs().is_empty());
+    // a blow that empties the host's mirror credits at once
+    let _ = v.revived(30_000, B, 100);
+    let _ = v.player_vs_player(31_000, A, B, 200, DamageKind::Bullet, 1);
+    assert_eq!(v.take_downs().len(), 1);
+    // with the rule off nothing is credited
+    v.friendly = FriendlyFire::Off;
+    let _ = v.revived(40_000, B, 100);
+    assert!(v
+        .player_vs_player(41_000, A, B, 200, DamageKind::Bullet, 1)
+        .is_empty());
+    assert!(v.take_downs().is_empty());
+}
+
+#[test]
 fn limbs_cripple_and_cure_clears() {
     let mut v = VitalsHost::new();
     v.track(A, 500, 500);

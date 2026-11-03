@@ -826,7 +826,9 @@ fn npc_frame(
     rig.weapon_kind = weapon
         .as_ref()
         .map(|w| world::animation::groups::weapon_kind(w.animation));
-    if let Some(w) = &weapon {
+    // A co-op puppet's attack group comes with its swing event (power
+    // attacks, unarmed specials), not from the weapon's default.
+    if let (Some(w), None) = (&weapon, world::coop::facts::player_of(me)) {
         rig.attack_group = match w.attack_animation {
             g @ 26..=0xa8 => g,
             _ => group::ATTACK_RIGHT,

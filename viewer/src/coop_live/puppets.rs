@@ -27,6 +27,8 @@ const RESPAWN_AFTER: f32 = 4.0;
 /// Units a second above which a puppet walks, and runs.
 const WALK_SPEED: f32 = 5.0;
 const RUN_SPEED: f32 = 220.0;
+/// Seconds a drawn player's picker may take to draw before it is forced.
+const RAISE_GRACE: f32 = 0.5;
 /// Units per metre (for the name tags).
 const UNITS_PER_METRE: f32 = 70.0;
 
@@ -189,6 +191,7 @@ pub fn drive(
     now: Res<LiveNow>,
     mut motion: Local<Motion>,
     mut dressed: Local<HashMap<PlayerId, (u32, u32)>>,
+    mut raising: Local<HashMap<PlayerId, f32>>,
     mut puppets: Query<(&CoopPuppet, &mut Walker, &mut ActorRig, &mut Transform)>,
 ) {
     let Some(view) = &now.view else { return };
@@ -249,6 +252,20 @@ pub fn drive(
             );
         }
         let weapon = world::combat::weapon_equipped(order, gs, me);
+        // Bare fists have no equip animation to bring the picker to
+        // "drawn": a player with the fists up that the picker still has
+        // down (after the grace for a real equip) gets them up, else its
+        // attacks are dropped and the stance stays the holstered one.
+        let now_s = time.elapsed_secs();
+        if a.drawn && weapon.is_none() && !rig.picker.drawn && rig.picker.action.is_none() {
+            let since = *raising.entry(p).or_insert(now_s);
+            if now_s - since > RAISE_GRACE {
+                rig.picker.drawn = true;
+                rig.want_drawn = true;
+            }
+        } else {
+            raising.remove(&p);
+        }
         rig.character = true;
         rig.still = rig.ragdoll.is_some();
         rig.walking = speed > WALK_SPEED;

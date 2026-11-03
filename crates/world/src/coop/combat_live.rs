@@ -158,6 +158,8 @@ pub struct CombatStats {
     pub npc_hits_sent: u32,
     /// Player on player blows sent.
     pub pvp_sent: u32,
+    /// Players the host saw another player put down.
+    pub pvp_downs: u32,
     /// Hurts applied to the local player.
     pub hurts_applied: u32,
     /// Points of those.
@@ -1117,6 +1119,15 @@ impl CombatBridge {
             }
         }
         outs.extend(live.route_combat(msgs));
+        // a player put down by another player's hit (credit only: no
+        // experience, karma or crime is paid for it)
+        for d in live.combat.vitals.take_downs() {
+            gs.coop.live.combat.stats.pvp_downs += 1;
+            println!(
+                "Co-op: player {} put player {} down.",
+                d.attacker.0, d.victim.0
+            );
+        }
         let mut local: Vec<CombatMsg> = Vec::new();
         let ap = Self::claim_ap(order, gs);
         self.local_notes(gs, &mut own.combat, ap, |m| local.push(m));

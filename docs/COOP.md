@@ -92,6 +92,7 @@ Launcher: `nv-launcher --start host` (new game by default; `--continue ID` for a
 | `--coop-no-chargen` | test only: a guest skips making its character |
 | `--coop-help` | list the co-op flags |
 | `--coop-name NAME` | name shown to the others |
+| `--coop-difficulty normal\|balanced`, `--coop-friendly-fire on\|off` | host: the campaign rules (launcher: `--difficulty`, `--friendly-fire`); friendly fire is player versus player damage, see "Player versus player" |
 | `--coop-log FILE` | JSONL event log, flushed per line |
 | `--coop-state-dump FILE` | shared-state JSON, atomic, about once a second and at exit |
 | `--coop-net PROFILE` | test only: delay/lose this peer's packets (`perfect good_wifi bad_wifi mobile congested flaky partition`) |
@@ -171,6 +172,38 @@ and reports it done after a reading time.
 Containers. The host opens containers natively and the loot bridge follows the world. A guest's move is a
 request (`LootOp::Take` / `Put`); the confirmed result reaches its `items`. The open container menu of a
 guest does not redraw until its next action.
+
+## Combat: hits on people and player versus player
+
+Everything about damage is decided on the host.
+
+* A guest's blow on an NPC is a request (`ActorMsg::Hit`, whole points; fractions of a point
+  carry over to the next blow so a fist does the same damage every frame). The host's actor
+  ledger applies it, sends `Damaged` (health afterwards) and, once, `Died`; every machine
+  writes the ledger's health into its own copy of the NPC. A hit on someone the ledger does not
+  know, in another cell, or past the rate limit is refused.
+* The person under the crosshair is shown below it with a name, a bar and points
+  (`coop_live/enemy_health.rs`; the game's own enemy meter is not drawn by this viewer).
+* Remote players' attack animations: the swing or shot is an action event (`ActionKind::Swing`
+  / `Shoot`, with the attack group); bare fists have no equip animation, so the puppet's
+  picker is told they are up (`coop_live/actions.rs`, `puppets::drive`), otherwise it drops the
+  attack and the puppet stands with its arms down.
+
+**Player versus player** is off by default: a blow of one player on another is refused and
+counted (`friendly_blocked`). The host turns it on with `--coop-friendly-fire on` (launcher:
+`--friendly-fire on`; it is kept in the party save), or in a running host with the bot line
+`coop ff 1` (full damage; `2` half damage, `0` off). With it on:
+
+* a hit of any player on another, melee or ranged, goes to the host (`PlayerHit`; the host
+  player's go straight to the vitals) and is applied by `VitalsHost::player_vs_player` at full
+  damage, in the host's ledger of every player's health; only the victim's machine changes the
+  victim's health (`PlayerHurt`);
+* someone who is down or dead cannot hurt anyone and cannot be hurt (they wait for a revive,
+  same rules as against NPCs); a player's own grenade always hurts them;
+* the blow that puts a player down is credited to the last player who hit them within five
+  seconds (`PvpDown`, logged as `player A put player B down`, counted `pvp_downs`). No
+  experience, karma or crime is paid for it;
+* revives work as ever (30 percent health, ailments cured).
 
 ## Voice chat
 
