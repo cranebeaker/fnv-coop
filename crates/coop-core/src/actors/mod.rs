@@ -77,7 +77,9 @@ pub enum ActorMsg {
         actor: FormId,
         /// Per-attacker hit id (deduplicated).
         hit: u32,
-        /// Damage points.
+        /// Damage points. 0: a player's blow under one point (the sender
+        /// keeps the part points). The host's friendly-fire guard counts it,
+        /// and the ledger takes no health for it.
         amount: u16,
         /// An NPC's blow (Doc Mitchell on a gecko): no player and no follower
         /// struck it. The host applies it but credits no player.

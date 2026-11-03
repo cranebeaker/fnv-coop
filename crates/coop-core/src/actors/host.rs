@@ -252,7 +252,11 @@ impl ActorHost {
             s.hits_rejected += 1;
             vec![]
         };
-        if amount == 0 || amount > MAX_HIT || self.seen_hits.contains(&(from, hit)) {
+        // a blow under a point: the guard counted it, nothing to apply
+        if amount == 0 {
+            return vec![];
+        }
+        if amount > MAX_HIT || self.seen_hits.contains(&(from, hit)) {
             return reject(self);
         }
         let times = self.hit_times.entry(from).or_default();

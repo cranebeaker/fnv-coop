@@ -928,6 +928,12 @@ impl LiveGuestAdapter {
                 }
                 let left = crate::combat::health(cx.order, gs, who);
                 let Some(pts) = carry.take(who, amount, left) else {
+                    // a player's blow under a point still goes, with 0 points:
+                    // the host's friendly-fire guard counts blows, not points
+                    if !npc {
+                        self.stats.hits_sent += 1;
+                        out.push(Msg::Actor(live.actors.hit(cf(who), 0)));
+                    }
                     continue;
                 };
                 self.stats.hits_sent += 1;
