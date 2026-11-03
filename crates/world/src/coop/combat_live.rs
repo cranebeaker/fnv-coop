@@ -412,10 +412,7 @@ fn remote_space(order: Option<&LoadOrder>, gs: &GameState, cell: FormId) -> Form
     if gs.player_cell == Some(cell) || cell == world {
         return world;
     }
-    let same = order.is_some_and(|o| {
-        o.get(cell)
-            .is_some_and(|rr| o.world_of(&rr) == Some(world))
-    });
+    let same = order.is_some_and(|o| o.get(cell).is_some_and(|rr| o.world_of(&rr) == Some(world)));
     if same {
         world
     } else {
