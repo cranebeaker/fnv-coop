@@ -160,7 +160,7 @@ impl DialogueHost {
                 if self
                     .sessions
                     .get(&session)
-                    .map_or(false, |s| s.initiator == from)
+                    .is_some_and(|s| s.initiator == from)
                 {
                     self.close(session, CloseReason::Finished)
                 } else {
@@ -262,7 +262,7 @@ impl DialogueHost {
         let Some(s) = self.sessions.get_mut(&session) else {
             return vec![];
         };
-        let done = s.playing.as_ref().map_or(false, |p| p.waiting.is_empty());
+        let done = s.playing.as_ref().is_some_and(|p| p.waiting.is_empty());
         if !done {
             return vec![];
         }
@@ -595,7 +595,7 @@ mod tests {
             }
         ));
         let ev = h.take_events();
-        let kinds: Vec<_> = ev.iter().map(|e| std::mem::discriminant(e)).collect();
+        let kinds: Vec<_> = ev.iter().map(std::mem::discriminant).collect();
         assert_eq!(kinds.len(), 3, "{ev:?}");
         assert!(matches!(ev[1], DialogueEvent::RunEnd { .. }));
         assert_eq!(h.open_sessions(), 0);

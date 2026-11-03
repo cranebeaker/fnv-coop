@@ -357,7 +357,7 @@ impl AvatarHub {
                     self.forged += 1;
                     return None;
                 }
-                if self.parts.get(&from).map_or(false, |p| parts.rev <= p.rev) {
+                if self.parts.get(&from).is_some_and(|p| parts.rev <= p.rev) {
                     self.stale += 1;
                     return None;
                 }

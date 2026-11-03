@@ -86,6 +86,7 @@ pub fn load_dir(p: &Path) -> Result<Vec<(String, Scenario)>, String> {
 }
 
 /// Runs the jobs on `threads` worker threads, in job order of results.
+#[allow(clippy::too_many_arguments)]
 pub fn run_jobs(
     d: &Arc<Data>,
     jobs: Vec<Job>,
@@ -194,6 +195,7 @@ pub fn plan(
 }
 
 /// A table of pass rates per scenario (and per profile in a soak) and the first failing seed of each cell.
+#[allow(clippy::type_complexity)]
 pub fn summary(done: &[Done], soak: bool) -> Vec<String> {
     let mut cells: BTreeMap<(String, String), (u32, u32, u32, Option<&Done>)> = BTreeMap::new();
     for d in done {

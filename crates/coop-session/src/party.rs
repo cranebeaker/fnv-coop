@@ -1078,7 +1078,7 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 }
             }
             Msg::Order { seq, .. } => {
-                if l.seen_orders.insert(seq) && l.order.as_ref().is_none_or(|o| o.seq < seq) {
+                if l.seen_orders.insert(seq) && l.order.as_ref().map_or(true, |o| o.seq < seq) {
                     l.order = Some(GuestOrder { seq, since_ms: now });
                 }
             }
@@ -1114,7 +1114,7 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     if l.key != 0
         && !l.acked
         && l.last_hello_ms
-            .is_none_or(|t| now.saturating_sub(t) >= HELLO_EVERY_MS)
+            .map_or(true, |t| now.saturating_sub(t) >= HELLO_EVERY_MS)
     {
         l.last_hello_ms = Some(now);
         send(

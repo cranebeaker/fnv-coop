@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn decisions() {
         let dll = PathBuf::from("steam_api64.dll");
-        assert!(status(None, Some("--coop-steam")).available() == false);
+        assert!(!status(None, Some("--coop-steam")).available());
         assert!(status(Some(&dll), Some("usage --coop-steam")).available());
         let s = status(Some(&dll), Some("usage --coop-host"));
         assert!(matches!(s, Status::Unavailable(ref m) if m.contains("no Steam transport")));
@@ -75,9 +75,9 @@ mod tests {
     fn dll_search() {
         let d = std::env::temp_dir().join(format!("nvl-steam-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
-        assert!(find_dll(&[d.clone()]).is_none());
+        assert!(find_dll(std::slice::from_ref(&d)).is_none());
         std::fs::write(d.join(DLL), b"x").unwrap();
-        assert_eq!(find_dll(&[d.clone()]), Some(d.join(DLL)));
+        assert_eq!(find_dll(std::slice::from_ref(&d)), Some(d.join(DLL)));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

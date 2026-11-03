@@ -1,7 +1,7 @@
 //! Party saves through `Session`: a host and two guests over the loopback transport, driven only
 //! through the frame calls the viewer makes. Saves go to temp folders.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use coop_core::ids::PlayerId;
 use coop_core::transport::{ChaosProfile, LoopbackNet};
@@ -63,7 +63,7 @@ impl<'a> Rig<'a> {
         scripts: &'a ScriptCache,
         chaos: Option<&str>,
         guests: &[(&str, u64, u8)],
-        dir: &PathBuf,
+        dir: &Path,
     ) -> Rig<'a> {
         let net = LoopbackNet::new();
         let mut host = Session::host(cfg(

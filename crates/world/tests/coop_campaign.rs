@@ -543,10 +543,10 @@ mod storage_and_vars {
             );
         });
         assert_eq!(r.host.living.clocks, [0.0, 0.0, 0.0]);
-        assert!(r.host.inventory_stacks.get(&PLAYER_REF).is_none());
+        assert!(!r.host.inventory_stacks.contains_key(&PLAYER_REF));
         r.host.with_player(1, |g| {
             assert_eq!(g.living.clocks, [10.0, 20.0, 30.0]);
-            assert!(g.inventory_stacks.get(&PLAYER_REF).is_some());
+            assert!(g.inventory_stacks.contains_key(&PLAYER_REF));
         });
     }
 }

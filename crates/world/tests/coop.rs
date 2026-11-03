@@ -237,7 +237,7 @@ fn coop_guest_host_trait_refuses_script_writes() {
     assert!(r.set_var("", "TestGlobal", 99.0, &mut locals));
     let (i, _) = script::function("setstage").unwrap();
     let call = script::Call {
-        function: i as u16,
+        function: i,
         on: None,
         args: vec![
             script::Arg::Word("TestQuest".into()),
@@ -389,9 +389,8 @@ fn coop_removals_replicate_as_tombstones() {
     rig.host.items.remove(&(FormId(0x50), FormId(CAPS)));
     rig.host.destroyed.clear();
     assert!(rig.settle(&[0]));
-    assert!(rig.guests[0]
+    assert!(!rig.guests[0]
         .items
-        .get(&(FormId(0x50), FormId(CAPS)))
-        .is_none());
+        .contains_key(&(FormId(0x50), FormId(CAPS))));
     assert!(rig.guests[0].destroyed.is_empty());
 }

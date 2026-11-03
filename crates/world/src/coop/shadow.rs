@@ -1055,24 +1055,30 @@ fn chunks_of(slot: u8, blob: &[u8]) -> Vec<(Key, Field)> {
 }
 
 /// The shadow as it is replicated and hashed: without the per-frame
-/// transients (cell, worldspace, feet position, heading). Each peer owns its
-/// own copy of those (the live layer's avatars carry them), so they must not
-/// enter the shared hash or one moving avatar would desync every peer.
+/// transients (cell, worldspace, feet position, heading) and the health
+/// damage. Each peer owns its own copy of those (the live layer's avatars
+/// carry them), so they must not enter the shared hash or one moving avatar
+/// would desync every peer. A player's health changes on that player's own
+/// machine (`apply_hurt`, its own enemies' blows); the host's mirror of it is
+/// `coop_core::combat::Vitals`, fed from the avatar.
 fn replicated(s: &PlayerShadow) -> PlayerShadow {
     let mut r = s.clone();
     r.cell = None;
     r.world = None;
     r.position = None;
     r.heading = 0;
+    r.damage = None;
     r
 }
 
-/// Keeps `from`'s transients in `to`.
+/// Keeps `from`'s transients and health damage in `to` (see [`replicated`]):
+/// a shadow from the store must not heal or hurt the player it installs on.
 fn keep_transients(to: &mut PlayerShadow, from: &PlayerShadow) {
     to.cell = from.cell;
     to.world = from.world;
     to.position = from.position;
     to.heading = from.heading;
+    to.damage = from.damage;
 }
 
 /// Adds every slot's shadow to `m` (the host and guests produce the same

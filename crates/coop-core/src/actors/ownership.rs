@@ -153,7 +153,7 @@ impl Ownership {
                 .filter_map(|(p, l)| {
                     let rank = if l.cell == rec.state.cell {
                         0.0
-                    } else if reach.get(p).map_or(false, |r| r.contains(&rec.state.cell)) {
+                    } else if reach.get(p).is_some_and(|r| r.contains(&rec.state.cell)) {
                         RANK_PENALTY
                     } else {
                         return None;
@@ -164,7 +164,7 @@ impl Ownership {
             let best = here
                 .iter()
                 .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
-                .map(|b| *b);
+                .copied();
             let cur = rec
                 .owner
                 .and_then(|o| here.iter().find(|(p, _)| *p == o).copied());

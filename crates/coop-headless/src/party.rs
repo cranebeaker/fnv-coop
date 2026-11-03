@@ -140,7 +140,7 @@ pub fn restore_host(host: &mut Peer, d: &Data) -> Result<(), String> {
     let (mut state, _) = world::save::load(&loaded.save.world_text)?;
     state.player_cell = host.gs.player_cell;
     state.player_world = host.gs.player_world;
-    let mut old: GameState = std::mem::replace(&mut host.gs, GameState::default());
+    let mut old: GameState = std::mem::take(&mut host.gs);
     carry_coop(&mut old, &mut state, Some(&d.order));
     host.gs = state;
     host.sess.party_host_load(&loaded.save);

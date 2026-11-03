@@ -1027,10 +1027,7 @@ fn a_late_joiner_to_shared_world_state_is_covered_by_apply_and_sync() {
     );
     assert!(g.more.mines.gone.contains(&f(MINE)));
     assert_eq!(g.coop.interact.placed.len(), 1, "announced once");
-    assert_eq!(
-        g.coop.interact.counters_json().contains("\"placed\":1"),
-        true
-    );
+    assert!(g.coop.interact.counters_json().contains("\"placed\":1"));
 }
 
 #[test]

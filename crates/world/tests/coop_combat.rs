@@ -228,7 +228,7 @@ fn an_npc_hurts_remote_players_and_only_the_victim_feels_it() {
         }
         assert_eq!(r.host.coop.live.combat.stats.hurts_applied, 1, "{profile}");
         // nothing was applied to the puppets locally
-        assert!(r.guests[0].damage.get(&puppet_of(G2)).is_none());
+        assert!(!r.guests[0].damage.contains_key(&puppet_of(G2)));
         assert!(
             r.sim.host.live.combat.vitals.stats.applied >= 3,
             "{profile}"

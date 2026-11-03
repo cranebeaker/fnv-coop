@@ -119,6 +119,8 @@ pub fn open(game: &Game, path: &Path) -> Result<FosStart, String> {
 /// `--coop-load FILE`: start from one of this viewer's own saves (the launcher's Continue), as F9
 /// opens it (`scripts::load_saved_world`), before the co-op session's first frame. The saved
 /// camera (a seated or scripted view) is not restored; the player starts standing.
+// not called yet: the f71db09 feature merge left it unwired
+#[allow(dead_code)]
 pub fn open_saved(game: &Game, path: &Path) -> Result<FosStart, String> {
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;

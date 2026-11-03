@@ -28,6 +28,8 @@ const RESPAWN_AFTER: f32 = 4.0;
 const WALK_SPEED: f32 = 5.0;
 const RUN_SPEED: f32 = 220.0;
 /// Units per metre (for the name tags).
+// not read yet: the name tags do not show the distance (the f71db09 feature merge)
+#[allow(dead_code)]
 const UNITS_PER_METRE: f32 = 70.0;
 
 /// What the glue tracks about the puppets.
@@ -278,7 +280,6 @@ pub fn name_tags(
     let Ok((camera, camera_at)) = cameras.single() else {
         return;
     };
-    let me = state.0.player_position.unwrap_or([0.0; 3]);
     let wanted: HashSet<PlayerId> = view
         .avatars
         .iter()

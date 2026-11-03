@@ -188,11 +188,11 @@ pub fn screen(r: &Report) -> String {
         let (spq, spf) = sp_summary(r);
         let _ = writeln!(s, "SP-GAP: {spq} quests hit {} unsupported single-player script functions (not co-op failures)", spf.len());
     }
-    let mut shown = 0;
-    for o in r
+    for (shown, o) in r
         .outcomes
         .iter()
         .filter(|o| matches!(o.status, Status::Fail(_)))
+        .enumerate()
     {
         if shown == 12 {
             let _ = writeln!(
@@ -205,7 +205,6 @@ pub fn screen(r: &Report) -> String {
         if let Status::Fail(m) = &o.status {
             let _ = writeln!(s, "FAIL {}: {}", o.row.id, clip(m, 150));
         }
-        shown += 1;
     }
     let _ = writeln!(s, "{}", verdict_line(&total));
     s

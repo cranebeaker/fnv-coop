@@ -272,10 +272,8 @@ impl Peer {
                         .is_some_and(|p| Some(p.0) == space && (!outdoors || near(p.2)))
             })
             .collect();
-        if !new.is_empty() {
-            if self.sess.live_track(cx, &self.gs, &new) {
-                self.tracked.extend(new);
-            }
+        if !new.is_empty() && self.sess.live_track(cx, &self.gs, &new) {
+            self.tracked.extend(new);
         }
     }
 

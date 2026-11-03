@@ -672,9 +672,7 @@ impl Session {
         let asked_time = gs.coop.live.scene.time_asks.len();
         let mut outs: Vec<(PlayerId, Msg)> = Vec::new();
         let mut to_host: Vec<Msg> = Vec::new();
-        let Some(l) = self.live.as_mut() else {
-            return None;
-        };
+        let l = self.live.as_mut()?;
         let mut view = LiveView {
             now_ms: now,
             me,

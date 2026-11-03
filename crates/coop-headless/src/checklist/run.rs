@@ -263,8 +263,8 @@ pub fn read_real(dir: &Path) -> BTreeMap<String, (String, bool)> {
         } else {
             "undated".into()
         };
-        let key = format!("{stamp}");
-        if best.get(name).is_none_or(|(k, _, _)| key > *k) {
+        let key = stamp.to_string();
+        if best.get(name).map_or(true, |(k, _, _)| key > *k) {
             best.insert(name.to_string(), (key, date, res == "pass"));
         }
     }
@@ -644,7 +644,7 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
                         } else if sel.is_empty() {
                             rs.push(T::Pending(format!("no quests for scope {name}")));
                         } else {
-                            let failed: Vec<&&QuestResult> = sel.iter().filter(|q| q.status == QStatus::Fail && inv.is_none_or(|i| q.fails.iter().any(|f| questwalk::fail_kind(f) == i))).collect();
+                            let failed: Vec<&&QuestResult> = sel.iter().filter(|q| q.status == QStatus::Fail && inv.map_or(true, |i| q.fails.iter().any(|f| questwalk::fail_kind(f) == i))).collect();
                             if failed.is_empty() {
                                 let po = sel.iter().filter(|q| q.depth == Depth::PolicyOnly).count();
                                 rs.push(T::Pass(format!("{} quests walked ({po} policy-only)", sel.len())));
@@ -697,9 +697,9 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
 
     // ---- one outcome per quest (items of the checklist)
     let area_ok = |a: &str| {
-        opts.area
-            .as_ref()
-            .is_none_or(|x| a.to_ascii_lowercase().starts_with(&x.to_ascii_lowercase()))
+        opts.area.as_ref().map_or(true, |x| {
+            a.to_ascii_lowercase().starts_with(&x.to_ascii_lowercase())
+        })
     };
     for q in &quests {
         let area = group_of(q);

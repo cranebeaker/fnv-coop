@@ -28,6 +28,7 @@ const RUN_SPEED: f32 = 220.0;
 
 /// Starts replicating the people and creatures on screen, once each (the
 /// host registers them; a guest reports them to the host).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn track(
     time: Res<Time>,
     mut link: NonSendMut<CoopLink>,
@@ -95,7 +96,7 @@ pub fn publish(
 
 /// Before the animations: the local copy of an actor another peer owns
 /// stands where the owner says, and the AI leaves it alone.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn apply_remote(
     time: Res<Time>,
     now: Res<LiveNow>,
@@ -227,6 +228,7 @@ pub fn adopt_remote(
 /// Counts the spawned people and creatures in the scene, and how many are
 /// not hidden, for the state dump (so a run on a real machine can assert
 /// that the people are there).
+#[allow(clippy::type_complexity)]
 pub fn count(
     time: Res<Time>,
     mut now: ResMut<LiveNow>,

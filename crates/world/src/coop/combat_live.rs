@@ -304,7 +304,13 @@ pub struct CombatFacts {
     pub extras: BTreeSet<FormId>,
     /// Counters.
     pub stats: CombatStats,
+    /// Debug: the threat director's first choice for each enemy and each
+    /// switch, with its inputs (newest last, at most [`THREAT_LOG_MAX`]).
+    pub threat_log: Vec<String>,
 }
+
+/// Lines kept in [`CombatFacts::threat_log`].
+pub const THREAT_LOG_MAX: usize = 16;
 
 impl CombatFacts {
     /// The kind and limb for the next blow on a puppet.
@@ -447,7 +453,7 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
         .puppets
         .iter()
         .filter(|(f, _)| {
-            player_of(**f).map_or(false, |p| {
+            player_of(**f).is_some_and(|p| {
                 !state
                     .coop
                     .live
@@ -665,6 +671,7 @@ fn hear_shot(order: &LoadOrder, gs: &mut GameState, f: &FireEvent) {
 /// candidate within the radius takes the falloff share. People are hurt
 /// through `combat::hurt` (a guest's NPC hits become requests, a puppet's
 /// hurt becomes a player blow for the host to judge). Returns the hits.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_blast(
     order: &LoadOrder,
     gs: &mut GameState,
@@ -934,11 +941,38 @@ impl CombatBridge {
                     .unwrap_or_default();
                 consider(*p, *form, s.downed, s.dead, gs);
             }
+            let first = self.threat.current(cf(enemy)).is_none();
             let Some(Threat { target, switched }) =
                 self.threat.choose(cf(enemy), now_ms, focus, &inputs)
             else {
                 continue;
             };
+            if first || switched {
+                let seen: Vec<String> = inputs
+                    .iter()
+                    .map(|i| {
+                        format!(
+                            "{}:{:.0}:{}{}{}",
+                            i.player.0,
+                            i.dist,
+                            if i.seen { "seen" } else { "unseen" },
+                            if i.same_cell { "" } else { ":away" },
+                            if i.downed || i.dead { ":down" } else { "" }
+                        )
+                    })
+                    .collect();
+                let log = &mut gs.coop.live.combat.threat_log;
+                log.push(format!(
+                    "{now_ms} {:08X} was {:08X} pick {} switched {switched} [{}]",
+                    enemy.0,
+                    cur.0,
+                    target.0,
+                    seen.join(" ")
+                ));
+                if log.len() > THREAT_LOG_MAX {
+                    log.remove(0);
+                }
+            }
             if switched {
                 if let Some(form) = forms.get(&target) {
                     if *form != cur {

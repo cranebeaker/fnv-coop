@@ -468,7 +468,7 @@ pub fn newest_party_in(player_dir: &Path) -> Option<PartySaveEntry> {
             continue;
         }
         if let Some(e) = read_party_manifest(&f.path()).filter(PartySaveEntry::usable) {
-            if best.as_ref().is_none_or(|b| e.saved_unix > b.saved_unix) {
+            if best.as_ref().map_or(true, |b| e.saved_unix > b.saved_unix) {
                 best = Some(e);
             }
         }

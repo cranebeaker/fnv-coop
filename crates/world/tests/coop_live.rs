@@ -414,7 +414,7 @@ mod fighting {
             .coop
             .live
             .scaling
-            .map_or(false, |s| s.toughness > 1.9)));
+            .is_some_and(|s| s.toughness > 1.9)));
         world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, PLAYER_REF);
         assert!(
             r.until(10_000, |r| world::combat::health(&order, &r.host, gecko)
@@ -478,13 +478,13 @@ mod fighting {
                 .live
                 .loot
                 .view(CForm(chest.0))
-                .map_or(false, |v| v.visible().len() == 1);
+                .is_some_and(|v| v.visible().len() == 1);
             let b = r.sim.guests[1]
                 .sync
                 .live
                 .loot
                 .view(CForm(chest.0))
-                .map_or(false, |v| v.visible().len() == 1);
+                .is_some_and(|v| v.visible().len() == 1);
             a != b
                 || r.sim.guests[0].sync.live.loot.busy.len()
                     + r.sim.guests[1].sync.live.loot.busy.len()
@@ -512,7 +512,7 @@ mod fighting {
         assert!(
             r.until(10_000, |r| r.guests[winner].items.get(&(PLAYER_REF, item))
                 == Some(&5)
-                && r.host.items.get(&(chest, item)).is_none())
+                && !r.host.items.contains_key(&(chest, item)))
         );
         assert_eq!(
             r.ha.registry
@@ -522,7 +522,7 @@ mod fighting {
             5
         );
         // the other guest has none, and its late attempt is refused or empty
-        assert!(r.guests[loser].items.get(&(PLAYER_REF, item)).is_none());
+        assert!(!r.guests[loser].items.contains_key(&(PLAYER_REF, item)));
         let none = {
             let (g, a) = (&mut r.sim.guests[loser].sync.live.loot, &mut r.gas[loser]);
             a.loot.take(g, chest, item, 1)

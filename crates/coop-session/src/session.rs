@@ -433,6 +433,7 @@ pub(crate) fn made_up_id() -> u64 {
 }
 
 impl Session {
+    #[allow(clippy::type_complexity)]
     fn common(
         role: Role,
         cfg: &mut SessionConfig,
@@ -565,7 +566,7 @@ impl Session {
             ],
         );
         if let Ok(port) = parse_host_port(&cfg.addr) {
-            if cfg.addr.trim().len() > 0 {
+            if !cfg.addr.trim().is_empty() {
                 s.log_ev("coop_listening", &[("port", V::U(port as u64))]);
             }
         }

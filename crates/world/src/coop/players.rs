@@ -86,7 +86,7 @@ impl PlayerRegistry {
         for p in live.members().to_vec() {
             self.join(p, "");
             if let Some(s) = live.avatars.state(p) {
-                self.store(p, &s);
+                self.store(p, s);
             }
         }
         let gone: Vec<PlayerId> = self

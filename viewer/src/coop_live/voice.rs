@@ -15,6 +15,9 @@ use std::sync::Mutex;
 
 /// Per-player settings shared between the chat commands and the audio system,
 /// by player name (lower case).
+// `self_muted`, `deafened`, `is_muted` and `volume_of` are not read yet: the f71db09 feature
+// merge left the voice controls unwired
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct Controls {
     muted: Vec<String>,
@@ -27,6 +30,7 @@ pub struct Controls {
     pub deafened: bool,
 }
 
+#[allow(dead_code)]
 impl Controls {
     /// True when `name` is muted.
     pub fn is_muted(&self, name: &str) -> bool {

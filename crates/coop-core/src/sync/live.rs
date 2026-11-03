@@ -403,6 +403,33 @@ impl HostLive {
     }
 }
 
+fn note_attribution(v: &mut Vec<Attribution>, m: &crate::actors::ActorMsg) {
+    use crate::actors::ActorMsg;
+    match *m {
+        ActorMsg::Damaged {
+            actor, by, amount, ..
+        } => v.push(Attribution {
+            actor,
+            by,
+            amount,
+            killed: false,
+        }),
+        ActorMsg::Died {
+            actor,
+            killer: Some(by),
+        } => v.push(Attribution {
+            actor,
+            by,
+            amount: 0,
+            killed: true,
+        }),
+        _ => {}
+    }
+    if v.len() > 512 {
+        v.drain(..256);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,32 +563,5 @@ mod tests {
             .any(|(_, m)| matches!(m, Msg::Dialogue(DialogueMsg::Closed { .. }))));
         assert_eq!(l.members().len(), 2);
         assert!(l.interest.peer_cell(PlayerId(1)).is_none());
-    }
-}
-
-fn note_attribution(v: &mut Vec<Attribution>, m: &crate::actors::ActorMsg) {
-    use crate::actors::ActorMsg;
-    match *m {
-        ActorMsg::Damaged {
-            actor, by, amount, ..
-        } => v.push(Attribution {
-            actor,
-            by,
-            amount,
-            killed: false,
-        }),
-        ActorMsg::Died {
-            actor,
-            killer: Some(by),
-        } => v.push(Attribution {
-            actor,
-            by,
-            amount: 0,
-            killed: true,
-        }),
-        _ => {}
-    }
-    if v.len() > 512 {
-        v.drain(..256);
     }
 }

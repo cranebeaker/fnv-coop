@@ -79,7 +79,7 @@ impl ActorClient {
     pub fn owns(&self, actor: FormId) -> bool {
         self.actors
             .get(&actor)
-            .map_or(false, |a| a.owner == Some(self.me))
+            .is_some_and(|a| a.owner == Some(self.me))
     }
 
     /// Actors this machine owns.
@@ -169,7 +169,7 @@ impl ActorClient {
                 epoch,
                 seed,
             } => {
-                if self.actors.get(&actor).map_or(false, |a| a.epoch > epoch) {
+                if self.actors.get(&actor).is_some_and(|a| a.epoch > epoch) {
                     return; // an older assignment arriving late
                 }
                 let alive = self.actors.get(&actor).map_or(true, |a| a.alive);

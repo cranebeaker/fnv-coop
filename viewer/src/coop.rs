@@ -223,10 +223,8 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         ..SessionConfig::default()
     };
     // Transport: UDP or Steam, random per-session token (see coop_link, coop_session::link).
-    let notices = crate::coop_link::open(&c, role, &mut cfg).map_err(|e| {
-        failure_log(c.log.as_deref(), role_name, &e);
-        e
-    })?;
+    let notices = crate::coop_link::open(&c, role, &mut cfg)
+        .inspect_err(|e| failure_log(c.log.as_deref(), role_name, e))?;
     let started = match role {
         Role::Host => Session::host(cfg),
         Role::Guest => Session::join(cfg),

@@ -658,7 +658,7 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
             m.frame_us
                 .push(t0.elapsed().as_micros().min(u128::from(u32::MAX)) as u32);
             let st = m.stats.borrow();
-            let bin = (t.floor() as u64).max(0);
+            let bin = t.floor() as u64;
             *m.up_bins.entry(bin).or_default() += st.up_bytes - m.last.0;
             *m.down_bins.entry(bin).or_default() += st.down_bytes - m.last.1;
             m.last = (st.up_bytes, st.down_bytes);

@@ -253,7 +253,7 @@ impl ActorHost {
         let times = self.hit_times.entry(from).or_default();
         while times
             .front()
-            .map_or(false, |t| now_ms.saturating_sub(*t) >= 1000)
+            .is_some_and(|t| now_ms.saturating_sub(*t) >= 1000)
         {
             times.pop_front();
         }

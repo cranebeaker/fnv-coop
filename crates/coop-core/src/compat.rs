@@ -232,9 +232,13 @@ pub fn decide(host: &Hello, guest: &Hello, policy: CompatPolicy) -> Verdict {
     if found.is_empty() {
         return Verdict::Accept;
     }
-    let blocking = found
-        .iter()
-        .find(|i| policy.allow_mismatch.then(|| i.is_hard()).unwrap_or(true));
+    let blocking = found.iter().find(|i| {
+        if policy.allow_mismatch {
+            i.is_hard()
+        } else {
+            true
+        }
+    });
     match blocking {
         Some(i) => Verdict::Refuse(i.reason(), found.clone()),
         None => Verdict::Warn(found),
