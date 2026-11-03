@@ -412,7 +412,10 @@ mod tests {
             }),
             Ext::Character(Sheet::default()),
             Ext::SheetAck,
-            Ext::CharNames(vec![(PlayerId(0), "Courier".into()), (PlayerId(2), "Bo".into())]),
+            Ext::CharNames(vec![
+                (PlayerId(0), "Courier".into()),
+                (PlayerId(2), "Bo".into()),
+            ]),
         ];
         for e in all {
             let b = e.encode();

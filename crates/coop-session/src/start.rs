@@ -695,7 +695,9 @@ impl Session {
                 self.start.char_names.remove(&PlayerId::HOST);
             }
         }
-        self.start.char_names.retain(|p, _| p.is_host() || peers_now.contains(p));
+        self.start
+            .char_names
+            .retain(|p, _| p.is_host() || peers_now.contains(p));
         for (from, sheet) in std::mem::take(&mut self.start.pending) {
             if from.is_host() {
                 continue;

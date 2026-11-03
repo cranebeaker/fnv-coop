@@ -102,10 +102,7 @@ pub fn spawn_bar(commands: &mut Commands) -> Entity {
 
 /// Applies each bar's fraction and position to its nodes.
 pub fn render_bars(
-    mut roots: Query<
-        (&HealthBar, &mut Node, &mut Visibility, &Children),
-        Without<BarFill>,
-    >,
+    mut roots: Query<(&HealthBar, &mut Node, &mut Visibility, &Children), Without<BarFill>>,
     mut fills: Query<(&mut Node, &mut BackgroundColor), (With<BarFill>, Without<HealthBar>)>,
 ) {
     for (bar, mut node, mut vis, kids) in &mut roots {
@@ -188,7 +185,10 @@ pub fn npc_bars(
                     w.position[2] + HEAD * w.scale.max(0.1),
                 ]));
                 if let Ok(at) = camera.world_to_viewport(camera_at, head) {
-                    place = Some((Vec2::new(at.x - BAR_W / 2.0, at.y - BAR_H), bar_fraction(hp, max)));
+                    place = Some((
+                        Vec2::new(at.x - BAR_W / 2.0, at.y - BAR_H),
+                        bar_fraction(hp, max),
+                    ));
                 }
             }
         }

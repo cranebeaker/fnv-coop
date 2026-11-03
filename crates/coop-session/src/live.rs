@@ -981,6 +981,9 @@ mod character_name_tests {
         assert_eq!(out[&PlayerId::HOST], "Courier");
         assert_eq!(out[&PlayerId(1)], "Guest");
         chars.insert(PlayerId(1), "Other".to_string());
-        assert_eq!(with_character_names(&names, &chars, PlayerId(1))[&PlayerId(1)], "Guest");
+        assert_eq!(
+            with_character_names(&names, &chars, PlayerId(1))[&PlayerId(1)],
+            "Guest"
+        );
     }
 }
