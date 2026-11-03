@@ -49,9 +49,6 @@ pub struct Campaign {
     pub attribution_on: bool,
     /// Damage per victim and slot.
     pub tally: BTreeMap<FormId, BTreeMap<u8, f64>>,
-    /// Host, this frame: the ledger hits an NPC dealt (victim, points). They
-    /// keep the ledger's health right but pay no player.
-    pub unattributed: Vec<(FormId, u16)>,
     /// Victims whose last ledger hit came from an NPC: their death has no killer.
     pub npc_blow: BTreeSet<FormId>,
     /// Kills already settled.

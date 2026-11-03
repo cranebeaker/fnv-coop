@@ -251,6 +251,7 @@ impl HostLive {
                 actor: h.target,
                 hit: h.hit,
                 amount: h.amount,
+                npc: false,
             };
             for o in self.actors.on_msg(h.from, msg, now_ms, cell, auth) {
                 note_attribution(&mut self.combat.attributions, &o.msg);
@@ -407,7 +408,10 @@ fn note_attribution(v: &mut Vec<Attribution>, m: &crate::actors::ActorMsg) {
     use crate::actors::ActorMsg;
     match *m {
         ActorMsg::Damaged {
-            actor, by, amount, ..
+            actor,
+            by: Some(by),
+            amount,
+            ..
         } => v.push(Attribution {
             actor,
             by,

@@ -112,7 +112,24 @@ impl ActorClient {
     pub fn hit(&mut self, actor: FormId, amount: u16) -> ActorMsg {
         let hit = self.next_hit;
         self.next_hit += 1;
-        ActorMsg::Hit { actor, hit, amount }
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: false,
+        }
+    }
+
+    /// A hit request for an NPC's blow with a fresh id (see `ActorMsg::Hit::npc`).
+    pub fn npc_hit(&mut self, actor: FormId, amount: u16) -> ActorMsg {
+        let hit = self.next_hit;
+        self.next_hit += 1;
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: true,
+        }
     }
 
     /// A spawn request; returns its id and the message.
@@ -224,7 +241,8 @@ impl ActorClient {
                 by,
                 amount,
             } => {
-                if self.damage_log.len() < 256 {
+                // an NPC's blow credits nobody
+                if let Some(by) = by.filter(|_| self.damage_log.len() < 256) {
                     self.damage_log.push((actor, by, amount));
                 }
                 if let Some(a) = self.actors.get_mut(&actor) {
@@ -371,11 +389,21 @@ mod tests {
         c.on_msg(assign(1, 1));
         c.on_msg(ActorMsg::Damaged {
             actor: A,
-            by: PlayerId(1),
+            by: Some(PlayerId(1)),
             amount: 4,
             health: 6,
         });
         assert_eq!(c.get(A).unwrap().state.unwrap().health, 6);
+        assert_eq!(c.damage_log, vec![(A, PlayerId(1), 4)]);
+        // an NPC's blow moves the health but credits no player
+        c.on_msg(ActorMsg::Damaged {
+            actor: A,
+            by: None,
+            amount: 1,
+            health: 5,
+        });
+        assert_eq!(c.get(A).unwrap().state.unwrap().health, 5);
+        assert_eq!(c.damage_log.len(), 1);
         c.on_msg(ActorMsg::Died {
             actor: A,
             killer: None,

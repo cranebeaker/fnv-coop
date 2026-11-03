@@ -94,6 +94,15 @@ impl ThreatDirector {
         self.mem.values().filter(|m| m.current == Some(p)).count()
     }
 
+    /// The damage that `p` dealt to `enemy`, as the director counts it.
+    pub fn damage_by(&self, enemy: FormId, p: PlayerId) -> f32 {
+        self.mem
+            .get(&enemy)
+            .and_then(|m| m.damage.get(&p))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
     /// The current target of an enemy.
     pub fn current(&self, enemy: FormId) -> Option<PlayerId> {
         self.mem.get(&enemy).and_then(|m| m.current)

@@ -103,9 +103,12 @@ impl ActorHost {
                     },
                 )]
             }
-            ActorMsg::Hit { actor, hit, amount } => {
-                self.on_hit(from, actor, hit, amount, now_ms, attacker_cell)
-            }
+            ActorMsg::Hit {
+                actor,
+                hit,
+                amount,
+                npc,
+            } => self.on_hit(from, actor, hit, amount, now_ms, attacker_cell, npc),
             ActorMsg::SpawnReq {
                 req,
                 site,
@@ -234,6 +237,7 @@ impl ActorHost {
             .unwrap_or_default()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn on_hit(
         &mut self,
         from: PlayerId,
@@ -242,6 +246,7 @@ impl ActorHost {
         amount: u16,
         now_ms: u64,
         attacker_cell: Option<CellId>,
+        npc: bool,
     ) -> Vec<Out> {
         let reject = |s: &mut Self| {
             s.hits_rejected += 1;
@@ -279,7 +284,8 @@ impl ActorHost {
         } else {
             0
         };
-        self.apply_damage(actor, Some(from), amount, floor)
+        // an NPC's blow keeps the health but credits nobody
+        self.apply_damage(actor, (!npc).then_some(from), amount, floor, true)
     }
 
     /// The host's world raised an actor's health by `amount` (a script's
@@ -303,12 +309,15 @@ impl ActorHost {
         )]
     }
 
+    /// `announce`: tell the cell with `Damaged` (a story kill without a killer
+    /// sends only `Died`).
     fn apply_damage(
         &mut self,
         actor: FormId,
         by: Option<PlayerId>,
         amount: u16,
         floor: u16,
+        announce: bool,
     ) -> Vec<Out> {
         let rec = self.own.get_mut(actor).expect("checked");
         let cell = rec.state.cell;
@@ -320,7 +329,7 @@ impl ActorHost {
         rec.state.health = health;
         self.hits_applied += 1;
         let mut v = Vec::new();
-        if let Some(by) = by {
+        if announce {
             v.push(out(
                 Audience::Cell(cell),
                 ActorMsg::Damaged {
@@ -346,7 +355,7 @@ impl ActorHost {
             return vec![];
         }
         let h = self.own.get(actor).map_or(0, |r| r.state.health);
-        self.apply_damage(actor, killer, h.max(1), 0)
+        self.apply_damage(actor, killer, h.max(1), 0, killer.is_some())
     }
 
     /// Re-evaluates ownership; announces every change to the actor's cell.
@@ -450,6 +459,7 @@ mod tests {
                 actor: A,
                 hit: id,
                 amount: amt,
+                npc: false,
             },
             now,
             Some(C),
@@ -536,6 +546,45 @@ mod tests {
     }
 
     #[test]
+    fn an_npc_blow_keeps_the_health_and_credits_nobody() {
+        let (mut h, mut auth) = setup();
+        let npc = |h: &mut ActorHost, auth: &mut AuthorityTable, id, amount| {
+            h.on_msg(
+                PlayerId(0),
+                ActorMsg::Hit {
+                    actor: A,
+                    hit: id,
+                    amount,
+                    npc: true,
+                },
+                0,
+                Some(C),
+                auth,
+            )
+        };
+        let o = npc(&mut h, &mut auth, 1, 30);
+        assert_eq!(
+            o[0].msg,
+            ActorMsg::Damaged {
+                actor: A,
+                by: None,
+                amount: 30,
+                health: 70
+            }
+        );
+        let o = npc(&mut h, &mut auth, 2, 70);
+        assert!(h.is_dead(A));
+        assert!(
+            o.iter().any(|o| o.msg
+                == ActorMsg::Died {
+                    actor: A,
+                    killer: None
+                }),
+            "{o:?}"
+        );
+    }
+
+    #[test]
     fn a_guest_cannot_heal_and_the_dead_stay_dead() {
         let (mut h, mut auth) = setup();
         let healed = ActorMsg::Healed {
@@ -599,6 +648,7 @@ mod tests {
                 actor: A,
                 hit: 1,
                 amount: 5,
+                npc: false,
             },
             0,
             Some(CellId(2)),
@@ -738,6 +788,7 @@ mod tests {
                     actor: id,
                     hit: n,
                     amount: 100,
+                    npc: false,
                 },
                 0,
                 Some(C),

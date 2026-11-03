@@ -79,13 +79,17 @@ pub enum ActorMsg {
         hit: u32,
         /// Damage points.
         amount: u16,
+        /// An NPC's blow (Doc Mitchell on a gecko): no player and no follower
+        /// struck it. The host applies it but credits no player.
+        npc: bool,
     },
     /// Host: damage applied.
     Damaged {
         /// Victim.
         actor: FormId,
-        /// Attacker.
-        by: PlayerId,
+        /// The player who struck. `None`: an NPC's blow, which pays no player
+        /// and adds no threat to anyone.
+        by: Option<PlayerId>,
         /// Points applied.
         amount: u16,
         /// Health afterwards.

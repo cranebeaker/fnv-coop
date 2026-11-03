@@ -1000,6 +1000,11 @@ impl CombatBridge {
         }
     }
 
+    /// The damage that the threat director counts for `p` on `enemy`.
+    pub fn threat_damage(&self, enemy: FormId, p: PlayerId) -> f32 {
+        self.threat.damage_by(cf(enemy), p)
+    }
+
     /// Feeds the director the damage the host announced (`Damaged`).
     fn feed_threat(&mut self, client: &mut coop_core::actors::ActorClient) {
         for (actor, by, amount) in std::mem::take(&mut client.damage_log) {

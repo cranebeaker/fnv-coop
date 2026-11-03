@@ -631,12 +631,10 @@ impl LiveHostAdapter {
                 || super::campaign::owners::owner_of(gs, h.by) == Some(me)
         });
         // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
-        // pays no player; sent first, so a same-size player hit still counts
+        // credits no player: no XP and no threat for the host
         for (who, amount) in coalesce(npcs) {
-            let pts = hit_points(amount);
-            let m = self.own.actors.hit(cf(who), pts);
+            let m = self.own.actors.npc_hit(cf(who), hit_points(amount));
             self.stats.hits_sent += 1;
-            gs.coop.campaign.unattributed.push((who, pts));
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
         for (who, amount) in coalesce(mine) {
@@ -686,8 +684,6 @@ impl LiveHostAdapter {
             super::campaign::attribution::observe(cx, gs, &m);
             self.own.on_msg(m, now_ms);
         }
-        // NPC blows the ledger did not apply (a dead or unknown victim) expire
-        gs.coop.campaign.unattributed.clear();
         self.pump.apply(cx, gs, &self.own.actors, PlayerId::HOST);
         self.last_health = self
             .own
@@ -865,12 +861,25 @@ impl LiveGuestAdapter {
             .into_iter()
             .filter(|h| guest_sends(gs, &live.actors, h))
             .collect();
-        for (who, amount) in coalesce(pending) {
-            if who == PLAYER_REF || puppet_of(self.me) == who {
-                continue;
+        // the blows of its player and followers are this player's; the others
+        // (by or on an actor this guest owns) are NPC blows that credit nobody
+        let (mine, npcs): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .partition(|h| h.by == PLAYER_REF || gs.teammates.contains(&h.by));
+        for (npc, hits) in [(false, mine), (true, npcs)] {
+            for (who, amount) in coalesce(hits) {
+                if who == PLAYER_REF || puppet_of(self.me) == who {
+                    continue;
+                }
+                self.stats.hits_sent += 1;
+                let pts = hit_points(amount);
+                let m = if npc {
+                    live.actors.npc_hit(cf(who), pts)
+                } else {
+                    live.actors.hit(cf(who), pts)
+                };
+                out.push(Msg::Actor(m));
             }
-            self.stats.hits_sent += 1;
-            out.push(Msg::Actor(live.actors.hit(cf(who), hit_points(amount))));
         }
         self.pump.take_over(cx, gs, &live.actors, self.me);
         out.extend(

@@ -236,6 +236,63 @@ fn an_npc_hurts_remote_players_and_only_the_victim_feels_it() {
     }
 }
 
+/// An NPC's blow (the guard on the gecko) moves the gecko's health on every machine but
+/// credits no player: no XP tally, and no threat on any machine. Before, the host sent its
+/// world's NPC blows as the host player's hits, and a guest sent the blows on an actor that
+/// it owns as its own hits (`live_npc_targets_players`: Doc Mitchell's blows on gecko 1 made
+/// the guest's threat director keep the gecko on the host).
+#[test]
+fn an_npc_blow_moves_the_health_but_credits_no_player() {
+    let (_d, order) = order("cc-npcblow");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let hp = |g: &GameState| world::combat::health(&order, g, gecko).unwrap();
+    let full = hp(&r.host);
+    let all_at = |r: &Rig, want: f64| {
+        std::iter::once(&r.host)
+            .chain(r.guests.iter())
+            .all(|g| (hp(g) - want).abs() < 1.0)
+    };
+    // the guard bites the gecko on the host's world
+    world::combat::hurt(&order, &mut r.host, gecko, 10.0, FormId(GUARD_REF));
+    r.run_ms(2_000);
+    assert!(all_at(&r, full - 10.0), "host bite: {}", hp(&r.guests[0]));
+    // guest 1 stands nearest, so its machine runs the gecko: the guard bites it there
+    r.stand([4000.0, 900.0, 5000.0]);
+    assert!(
+        r.until(30_000, |r| r.sim.guests[0]
+            .sync
+            .live
+            .actors
+            .owns(coop_core::ids::FormId(GECKO_REF))),
+        "guest 1 never took the gecko"
+    );
+    world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, FormId(GUARD_REF));
+    r.run_ms(2_000);
+    assert!(all_at(&r, full - 20.0), "guest bite: {}", hp(&r.host));
+    assert_eq!(
+        r.host.coop.campaign.tally.get(&gecko),
+        None,
+        "no player struck the gecko"
+    );
+    for p in [PlayerId::HOST, G1, G2] {
+        assert_eq!(
+            r.ha.combat.threat_damage(gecko, p),
+            0.0,
+            "host director, {p:?}"
+        );
+        for (i, ga) in r.gas.iter().enumerate() {
+            assert_eq!(
+                ga.combat.threat_damage(gecko, p),
+                0.0,
+                "guest {i} director, {p:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_flood_of_npc_blows_is_coalesced_and_bounded() {
     let (_d, order) = order("cc-flood");
