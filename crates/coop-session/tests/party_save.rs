@@ -333,6 +333,71 @@ fn a_host_save_orders_every_guest_to_save_and_the_party_comes_back_by_key() {
     }
 }
 
+/// The replicated shadow leaves a player's health damage out (each machine keeps its own
+/// player's health). A saved character's health must still come back on a rejoin by key and
+/// on a guest's F9, and ordinary host writes must not heal the guest.
+#[test]
+fn a_saved_characters_health_comes_back_on_rejoin_and_on_f9() {
+    let (_d, order) = order("sess-health");
+    let scripts = ScriptCache::default();
+    let dir = tmp("health");
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    rig.settled();
+    // Ann was hurt on her own machine
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 12.5);
+    rig.frames(100);
+    let save_dir = party_dir_for(&dir.join("Save 1.txt"));
+    let text = world::save::save(&rig.host.gs, None);
+    rig.host
+        .s
+        .party_begin_save(&rig.host.gs, save_dir.clone(), text, 1_700_000_000)
+        .unwrap();
+    assert!(rig.until(4000, |r| r
+        .host
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::HostSaved { .. }))));
+    rig.frames(80);
+    // Ann heals before the F9: the file still holds the saved health
+    rig.guests[0].gs.damage.remove(&PLAYER_REF);
+    rig.guests[0].s.party_guest_load_local().unwrap();
+    assert!(rig.until(4000, |r| r.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::OfferAnswered { ok: true, .. }))));
+    rig.frames(100);
+    assert_eq!(
+        rig.guests[0].gs.damage.get(&PLAYER_REF),
+        Some(&12.5),
+        "F9 brings the saved health back"
+    );
+    // an ordinary host write to Ann's character keeps her health
+    make_character(&mut rig.host.gs, 1, 3, 2);
+    rig.frames(200);
+    assert_eq!(caps_of(&rig.guests[0].gs, 1), caps_of(&rig.host.gs, 1));
+    assert_eq!(rig.guests[0].gs.damage.get(&PLAYER_REF), Some(&12.5));
+    drop(rig);
+
+    // a new host loads the party save, Ann rejoins by key with full health
+    let loaded = load_party(&save_dir).unwrap();
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    let (mut state, _) = world::save::load(&loaded.save.world_text).unwrap();
+    carry_coop(&mut rig.host.gs, &mut state, Some(&order));
+    rig.host.gs = state;
+    rig.host.s.party_host_load(&loaded.save);
+    rig.settled();
+    rig.frames(400);
+    assert!(rig.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::Campaign { matched: true, .. })));
+    assert_eq!(
+        rig.guests[0].gs.damage.get(&PLAYER_REF),
+        Some(&12.5),
+        "the rejoin brings the saved health back"
+    );
+}
+
 #[test]
 fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     let (_d, order) = order("sess-silent");

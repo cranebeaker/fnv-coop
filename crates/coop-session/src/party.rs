@@ -148,6 +148,12 @@ enum Msg {
     Reloaded {
         campaign: u64,
     },
+    /// Host to one guest: the host installed a saved character for that guest's slot.
+    /// The replicated shadow leaves the health damage out (each machine keeps its own
+    /// player's health), so the saved health comes with this message.
+    Health {
+        damage: Option<f64>,
+    },
     OfferResult {
         seq: u32,
         ok: bool,
@@ -257,6 +263,11 @@ impl Msg {
                 w.0.push(7);
                 w.0.extend(campaign.to_le_bytes());
             }
+            Msg::Health { damage } => {
+                w.0.push(9);
+                w.0.push(u8::from(damage.is_some()));
+                w.0.extend(damage.unwrap_or(0.0).to_bits().to_le_bytes());
+            }
             Msg::OfferResult {
                 seq,
                 ok,
@@ -318,6 +329,13 @@ impl Msg {
                 ok: r.u8()? != 0,
             },
             7 => Msg::Reloaded { campaign: r.u64()? },
+            9 => {
+                let has = r.u8()? != 0;
+                let d = f64::from_bits(r.u64()?);
+                Msg::Health {
+                    damage: (has && d.is_finite()).then_some(d),
+                }
+            }
             8 => Msg::OfferResult {
                 seq: r.u32()?,
                 ok: r.u8()? != 0,
@@ -688,6 +706,22 @@ fn send(s: &mut Session, to: PlayerId, m: &Msg) {
     send_ext(&mut s.net, to, &Ext::Party(m.encode()));
 }
 
+/// Host: installs a saved character for `slot` and sends that guest the saved health
+/// (see [`Msg::Health`]). Returns false as `install_for_slot` does.
+fn restore_slot(
+    s: &mut Session,
+    gs: &mut GameState,
+    slot: PlayerId,
+    sh: world::coop::shadow::PlayerShadow,
+) -> bool {
+    let damage = sh.damage;
+    let ok = party_char::install_for_slot(gs, slot.0, sh);
+    if ok {
+        send(s, slot, &Msg::Health { damage });
+    }
+    ok
+}
+
 // ---- host --------------------------------------------------------------
 
 fn name_of(s: &Session, slot: PlayerId) -> String {
@@ -768,7 +802,7 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                             .clone()
                             .unwrap_or_else(world::coop::ShadowPlan::all);
                         let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
-                        party_char::install_for_slot(gs, slot.0, sh);
+                        restore_slot(s, gs, slot, sh);
                         l.claimed.insert(key, slot);
                         l.eligible.remove(&key);
                     }
@@ -830,7 +864,7 @@ fn host_hello(
                         .clone()
                         .unwrap_or_else(world::coop::ShadowPlan::all);
                     let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
-                    matched = party_char::install_for_slot(gs, from.0, sh);
+                    matched = restore_slot(s, gs, from, sh);
                 }
             }
             l.claimed.insert(key, from);
@@ -935,7 +969,7 @@ fn host_character(
     let (sh, rep) =
         party_char::sanitize_offer(shadow, &plan, kind == 2 && file.campaign == l.campaign);
     let conflicts = party_char::baseline_diff(&file.baseline, gs).len() as u32;
-    let ok = party_char::install_for_slot(gs, from.0, sh);
+    let ok = restore_slot(s, gs, from, sh);
     if ok {
         l.eligible.remove(&key);
     }
@@ -1089,6 +1123,13 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 }
                 l.events.push(PartyEvent::CharacterRestored);
             }
+            Msg::Health { damage } => {
+                let me = world::dialogue::PLAYER_REF;
+                match damage {
+                    Some(d) => gs.damage.insert(me, d),
+                    None => gs.damage.remove(&me),
+                };
+            }
             Msg::OfferResult {
                 ok,
                 conflicts,
@@ -1226,6 +1267,8 @@ mod tests {
             },
             Msg::Stored { seq: 3, ok: true },
             Msg::Reloaded { campaign: 77 },
+            Msg::Health { damage: Some(12.5) },
+            Msg::Health { damage: None },
             Msg::OfferResult {
                 seq: 1,
                 ok: false,
