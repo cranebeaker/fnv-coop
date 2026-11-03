@@ -33,6 +33,8 @@ pub struct Sample {
     pub health: u16,
     /// Flags.
     pub flags: u16,
+    /// Furniture in use (0: none).
+    pub seat: u32,
     /// True when the position is a prediction beyond the newest data.
     pub extrapolated: bool,
     /// True exactly once after a teleport: snap, do not blend.
@@ -183,6 +185,7 @@ fn make(a: &AvatarState, b: &AvatarState, alpha: f32, extrap_ms: i64, teleported
         weapon: a.weapon,
         health: a.health,
         flags: a.flags,
+        seat: a.seat,
         extrapolated: extrap_ms > 0,
         teleported,
     }
@@ -224,6 +227,21 @@ mod tests {
                 s.pos[0]
             );
         }
+    }
+
+    #[test]
+    fn the_furniture_in_use_reaches_the_sample() {
+        let mut b = InterpBuffer::new();
+        for q in 1..6u32 {
+            let mut s = st(0.0, 0.0);
+            s.seat = 0x00_1234;
+            b.push(q as u64 * 50, Seq(q), s);
+        }
+        assert_eq!(b.sample(400).unwrap().seat, 0x1234);
+        let mut up = st(0.0, 0.0);
+        up.seat = 0;
+        b.push(300, Seq(6), up);
+        assert_eq!(b.sample(300 + DELAY_MS as u64 + 400).unwrap().seat, 0);
     }
 
     #[test]

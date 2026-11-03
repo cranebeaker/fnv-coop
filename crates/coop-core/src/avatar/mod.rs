@@ -77,6 +77,10 @@ pub struct AvatarState {
     pub health: u16,
     /// `FLAG_*` bits.
     pub flags: u16,
+    /// The furniture reference the avatar is using (sitting down, seated or
+    /// getting up; 0 = none), so the other machines pose it in the seat and
+    /// mark the furniture's marker as taken.
+    pub seat: u32,
 }
 
 /// Rarely-changing avatar data, versioned by `rev`.

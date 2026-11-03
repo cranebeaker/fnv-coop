@@ -86,6 +86,8 @@ pub struct RemoteAvatarView {
     pub sneaking: bool,
     /// Weapon drawn.
     pub drawn: bool,
+    /// Furniture reference in use (sitting down, seated, getting up; 0: none).
+    pub seat: u32,
     /// The sample jumped (cell change or warp): do not blend.
     pub teleported: bool,
     /// Worn equipment (slot, item form).
@@ -829,6 +831,7 @@ fn collect_remote(
             dead: s.flags & FLAG_DEAD != 0,
             sneaking: s.flags & FLAG_SNEAK != 0,
             drawn: s.flags & FLAG_DRAWN != 0,
+            seat: s.seat,
             teleported: s.teleported,
             equipment: parts
                 .as_ref()

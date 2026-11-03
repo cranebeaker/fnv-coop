@@ -75,6 +75,7 @@ pub fn avatar_of(gs: &GameState, cx: Ctx) -> AvatarState {
         flags,
         anim: gs.coop.live.local_anim,
         weapon: gs.coop.live.local_weapon,
+        seat: gs.furniture.get(&PLAYER_REF).map_or(0, |f| f.0),
         ..Default::default()
     }
 }

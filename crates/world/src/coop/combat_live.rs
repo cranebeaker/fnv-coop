@@ -402,6 +402,27 @@ pub fn note_impact(
     }
 }
 
+/// The space (interior cell or worldspace) a remote player in `cell` is in,
+/// as the local machine files it: the local worldspace for the local cell and
+/// for any exterior cell of that worldspace.
+fn remote_space(order: Option<&LoadOrder>, gs: &GameState, cell: FormId) -> FormId {
+    let Some(world) = gs.player_world else {
+        return cell;
+    };
+    if gs.player_cell == Some(cell) || cell == world {
+        return world;
+    }
+    let same = order.is_some_and(|o| {
+        o.get(cell)
+            .is_some_and(|rr| o.world_of(&rr) == Some(world))
+    });
+    if same {
+        world
+    } else {
+        cell
+    }
+}
+
 /// Where a puppet stands (`GameState::place` asks for synthetic forms).
 pub(crate) fn puppet_place(
     state: &GameState,
@@ -731,6 +752,20 @@ impl CombatBridge {
     /// Puts the puppets where the remote players are and refreshes their
     /// stealth state.
     pub fn sync_remotes(&mut self, gs: &mut GameState, me: PlayerId, remotes: &[Remote]) {
+        self.sync_remotes_in(None, gs, me, remotes);
+    }
+
+    /// [`Self::sync_remotes`] that also knows the load order, so a player in
+    /// another exterior cell of the worldspace the local player is in is
+    /// filed under that worldspace (not under their own grid cell, which
+    /// would make the AI treat them as being somewhere else).
+    pub fn sync_remotes_in(
+        &mut self,
+        order: Option<&LoadOrder>,
+        gs: &mut GameState,
+        me: PlayerId,
+        remotes: &[Remote],
+    ) {
         let mut seen = BTreeSet::new();
         for r in remotes {
             if r.player == me {
@@ -739,11 +774,7 @@ impl CombatBridge {
             let form = puppet_of(r.player);
             seen.insert(form);
             let cell = FormId(r.cell);
-            let space = if gs.player_cell == Some(cell) {
-                gs.player_world.unwrap_or(cell)
-            } else {
-                cell
-            };
+            let space = remote_space(order, gs, cell);
             gs.coop.live.combat.puppets.insert(
                 form,
                 PuppetPlace {
@@ -1046,7 +1077,7 @@ impl CombatBridge {
                 }
             }
         }
-        self.sync_remotes(gs, PlayerId::HOST, &remotes);
+        self.sync_remotes_in(Some(order), gs, PlayerId::HOST, &remotes);
         // vitals mirror
         let scaling = live.rules.scaling(now_ms);
         let max_hp = |order: &LoadOrder, gs: &GameState| {
@@ -1340,7 +1371,7 @@ impl CombatBridge {
             }
         }
         self.skills = live.combat.stealth.clone();
-        self.sync_remotes(gs, me, &remotes);
+        self.sync_remotes_in(Some(order), gs, me, &remotes);
         let mut out = Vec::new();
         let ap = Self::claim_ap(order, gs);
         self.local_notes(gs, &mut live.combat, ap, |m| out.push(Msg::Combat(m)));

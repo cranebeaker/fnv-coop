@@ -120,6 +120,7 @@ pub fn sync(
         gs.equipped.remove(&form);
         gs.more.alerted.remove(&form);
         gs.more.forced_sneak.remove(&form);
+        gs.stand(form);
     }
     // new ones
     for (p, a) in &shown {
@@ -142,7 +143,12 @@ pub fn sync(
         println!("Co-op: {} ({}) comes into view.", a.name, a.puppet);
         let scene = game.0.made_scene(vec![placement]);
         let lighting = spawner.place_lighting.get();
-        spawner.spawn_with(&scene, lighting);
+        // Marked at once: a frame as an unmarked actor would let the AI park
+        // and hide it (beyond the attached cells while the squares load), and
+        // nothing would ever bring it back.
+        for e in spawner.spawn_with(&scene, lighting) {
+            commands.entity(e).insert(CoopPuppet(Some(*p)));
+        }
         puppets.asked.insert(*p, t);
     }
 }
@@ -189,13 +195,22 @@ pub fn drive(
     now: Res<LiveNow>,
     mut motion: Local<Motion>,
     mut dressed: Local<HashMap<PlayerId, (u32, u32)>>,
-    mut puppets: Query<(&CoopPuppet, &mut Walker, &mut ActorRig, &mut Transform)>,
+    mut seats: ResMut<crate::sitting::Seats>,
+    moves: Res<crate::ai::Moves>,
+    mut puppets: Query<(
+        &CoopPuppet,
+        &mut Walker,
+        &mut crate::sitting::Life,
+        &mut ActorRig,
+        &mut Transform,
+        &mut Visibility,
+    )>,
 ) {
     let Some(view) = &now.view else { return };
     let order = &game.0.order;
     let gs = &mut state.0;
     let dt = time.delta_secs();
-    for (mark, mut walker, mut rig, mut transform) in &mut puppets {
+    for (mark, mut walker, mut life, mut rig, mut transform, mut visibility) in &mut puppets {
         let Some(p) = mark.0 else { continue };
         let Some(a) = view.avatars.iter().find(|a| a.player == p) else {
             continue;
@@ -260,7 +275,48 @@ pub fn drive(
         rig.weapon_kind = weapon
             .as_ref()
             .map(|w| world::animation::groups::weapon_kind(w.animation));
+        // In furniture the other machine says it is using: the seat's marker
+        // is theirs here too, and the puppet takes the seated pose, sits
+        // down and gets up through the same procedure everyone else uses.
+        let seat = FormId(a.seat);
+        let wants = a.seat != 0 && !a.dead && !a.downed;
+        if wants && gs.furniture.get(&me) != Some(&seat) {
+            gs.stand(me);
+            gs.furniture.insert(me, seat);
+        } else if wants {
+            if let Some(s) = gs.sitters.get_mut(&me) {
+                s.stand_requested = false;
+            }
+        } else if let Some(s) = gs.sitters.get_mut(&me) {
+            s.stand_up();
+        } else {
+            gs.stand(me);
+        }
+        if gs.furniture.contains_key(&me) || gs.sitters.contains_key(&me) {
+            let mesh = world::ai::NavMesh::default();
+            let mut ctx = crate::sitting::Ctx {
+                game: &game.0,
+                state: &mut *gs,
+                seats: &mut seats,
+                mesh: &mesh,
+                moves: &moves.settings,
+                now: time.elapsed_secs(),
+                dt,
+                fighting: false,
+                talking: false,
+            };
+            if crate::sitting::furniture_frame(&mut ctx, &mut walker, &mut life, &mut rig) {
+                rig.walking = false;
+                rig.running = false;
+                rig.speed = 0.0;
+            }
+        }
         *transform = placed(&walker);
+        // whether it is shown is `in_view`'s call (`sync`), never the AI's
+        walker.parked = false;
+        if *visibility == Visibility::Hidden {
+            *visibility = Visibility::Inherited;
+        }
     }
 }
 
