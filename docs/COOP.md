@@ -50,6 +50,16 @@ character, local menus only (in a session no menu stops anyone's world):
 | in progress | `host_place` | loads the host's place (Doc's house) and runs the menus there |
 | over | `local_room` | loads `GSDocMitchellHouse` alone, runs the menus, then follows the host (`follow_place` is held until the menus are done) |
 
+Watching first: while the host's opening is in progress the guest does not open its first menu
+until nothing is playing on its screen (the host's intro movie reaches it as a scene, a late joiner is
+replayed it from the point the host is at) and the host's own opening has reached its name box
+(`VCG01` stage 10, `start::NAME_STAGE`, read from the host's shadow row; with no opening quest rows
+visible the guest is not held). Between menus a running scene holds the next one too.
+
+While the menus run the host's copy of the guest's own shadow does not replace the guest's live rows
+(`ShadowBank::hold_own`, set by the session from `StartFlow::holds_own_rows`); the host acknowledges
+the sheet only after it is applied, and the hold ends with that acknowledgement.
+
 The menus, in order: name box, Vit-o-Matic (40 points), tag skills (3), traits (at most 2), each
 the single-player menu, opened by `start_menus` when no other box is up. Then the guest sends its
 character (`Sheet`: name, sex, SPECIAL, tags, perks) to the host, resent until acknowledged. The
