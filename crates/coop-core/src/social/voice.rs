@@ -32,7 +32,12 @@ impl VoiceHub {
 
     /// Validates a packet received from transport peer `from`. Returns who to
     /// relay it to (everyone but the sender) or `None` if dropped.
-    pub fn on_packet(&mut self, from: PlayerId, pkt: &VoicePacket, now_ms: u64) -> Option<Audience> {
+    pub fn on_packet(
+        &mut self,
+        from: PlayerId,
+        pkt: &VoicePacket,
+        now_ms: u64,
+    ) -> Option<Audience> {
         if pkt.speaker != from {
             self.forged += 1;
             return None;
@@ -41,7 +46,10 @@ impl VoiceHub {
             return None;
         }
         let w = self.window.entry(from).or_default();
-        while w.front().map_or(false, |(t, _)| now_ms.saturating_sub(*t) >= 1000) {
+        while w
+            .front()
+            .map_or(false, |(t, _)| now_ms.saturating_sub(*t) >= 1000)
+        {
             w.pop_front();
         }
         let bytes: usize = w.iter().map(|(_, b)| *b).sum();
@@ -105,13 +113,20 @@ mod tests {
     const A: PlayerId = PlayerId(1);
 
     fn pk(speaker: PlayerId, seq: u16, n: usize) -> VoicePacket {
-        VoicePacket { speaker, seq, payload: vec![7; n] }
+        VoicePacket {
+            speaker,
+            seq,
+            payload: vec![7; n],
+        }
     }
 
     #[test]
     fn relays_to_all_but_sender_and_rejects_forgery() {
         let mut h = VoiceHub::new();
-        assert_eq!(h.on_packet(A, &pk(A, 1, 60), 0), Some(Audience::AllExcept(A)));
+        assert_eq!(
+            h.on_packet(A, &pk(A, 1, 60), 0),
+            Some(Audience::AllExcept(A))
+        );
         assert_eq!(h.on_packet(A, &pk(PlayerId(2), 2, 60), 0), None);
         assert_eq!((h.forged, h.relayed), (1, 1));
     }
@@ -120,22 +135,31 @@ mod tests {
     fn empty_and_oversized_are_dropped() {
         let mut h = VoiceHub::new();
         assert!(h.on_packet(A, &pk(A, 1, 0), 0).is_none());
-        assert!(h.on_packet(A, &pk(A, 1, MAX_VOICE_PAYLOAD + 1), 0).is_none());
+        assert!(h
+            .on_packet(A, &pk(A, 1, MAX_VOICE_PAYLOAD + 1), 0)
+            .is_none());
     }
 
     #[test]
     fn packet_rate_limit() {
         let mut h = VoiceHub::new();
-        let ok = (0..200u16).filter(|i| h.on_packet(A, &pk(A, *i, 10), 500).is_some()).count();
+        let ok = (0..200u16)
+            .filter(|i| h.on_packet(A, &pk(A, *i, 10), 500).is_some())
+            .count();
         assert_eq!(ok, MAX_PACKETS_PER_SEC);
-        assert!(h.on_packet(A, &pk(A, 999, 10), 1500).is_some(), "window slides");
+        assert!(
+            h.on_packet(A, &pk(A, 999, 10), 1500).is_some(),
+            "window slides"
+        );
         assert_eq!(h.limited, 120);
     }
 
     #[test]
     fn byte_rate_limit() {
         let mut h = VoiceHub::new();
-        let ok = (0..70u16).filter(|i| h.on_packet(A, &pk(A, *i, 480), 0).is_some()).count();
+        let ok = (0..70u16)
+            .filter(|i| h.on_packet(A, &pk(A, *i, 480), 0).is_some())
+            .count();
         assert_eq!(ok, MAX_BYTES_PER_SEC / 480);
     }
 

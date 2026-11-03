@@ -19,6 +19,6 @@
     {"id": "companion.arcade_owb", "area": "COMPANIONS", "title": "Companion: Arcade in Old World Blues", "proves": "recruit, dismiss, caps and dialogue follow the recruiter's rows (quest NVDLC03DialogueArcade)", "tests": ["questwalk:edid:NVDLC03DialogueArcade"], "needs": "dlc:OldWorldBlues", "source": "list D companions by editor id"},
     {"id": "companion.ede_lr", "area": "COMPANIONS", "title": "Companion: ED-E in Lonesome Road", "proves": "recruit, dismiss, caps and dialogue follow the recruiter's rows (quest NVDLC04DialogueEDE)", "tests": ["questwalk:edid:NVDLC04DialogueEDE"], "needs": "dlc:LonesomeRoad", "source": "list D companions by editor id"},
     {"id": "companion.owner_rules", "area": "COMPANIONS", "title": "Companion ownership and caps", "proves": "owner-only commands, follower and party caps", "tests": ["questwalk:line:Systems: companion_system", "questwalk:line:Systems: companion_dialogue"], "source": "08 1.3"},
-    {"id": "companion.live", "area": "COMPANIONS", "title": "Companions in the live game", "proves": "a companion follows its owner across cells", "tests": ["scenario:live_companion_follow"], "source": "list D"}
+    {"id": "companion.live", "area": "COMPANIONS", "title": "Companions in the live game", "proves": "a companion follows its owner across cells", "tests": ["scenario:live_companion_follow"], "source": "list D", "twin": true}
   ]
 }

@@ -31,8 +31,17 @@ impl Plugin for ControlPlugin {
         match control::serve(self.0) {
             Ok((rx, addr)) => {
                 println!("Co-op control: listening on {addr}");
-                app.insert_non_send_resource(Control { rx, fps: 0.0, quit_in: None })
-                    .add_systems(Update, answer.in_set(ViewerSet::AfterFrame).before(crate::coop::send));
+                app.insert_non_send_resource(Control {
+                    rx,
+                    fps: 0.0,
+                    quit_in: None,
+                })
+                .add_systems(
+                    Update,
+                    answer
+                        .in_set(ViewerSet::AfterFrame)
+                        .before(crate::coop::send),
+                );
             }
             Err(e) => eprintln!("Co-op control: {e}"),
         }
@@ -57,9 +66,16 @@ fn editor_name(order: &esm::LoadOrder, f: FormId) -> String {
 }
 
 /// Any mesh under `e` in a camera's view this frame.
-fn in_view(e: Entity, views: &Query<(Option<&ViewVisibility>, Option<&Children>)>, depth: u8) -> bool {
-    let Ok((v, kids)) = views.get(e) else { return false };
-    v.is_some_and(|v| v.get()) || (depth < 12 && kids.is_some_and(|k| k.iter().any(|c| in_view(c, views, depth + 1))))
+fn in_view(
+    e: Entity,
+    views: &Query<(Option<&ViewVisibility>, Option<&Children>)>,
+    depth: u8,
+) -> bool {
+    let Ok((v, kids)) = views.get(e) else {
+        return false;
+    };
+    v.is_some_and(|v| v.get())
+        || (depth < 12 && kids.is_some_and(|k| k.iter().any(|c| in_view(c, views, depth + 1))))
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -82,7 +98,11 @@ fn answer(
 ) {
     let now = time.elapsed_secs();
     let inst = 1.0 / real.delta_secs().max(1e-4);
-    control.fps = if control.fps == 0.0 { inst } else { control.fps * 0.95 + inst * 0.05 };
+    control.fps = if control.fps == 0.0 {
+        inst
+    } else {
+        control.fps * 0.95 + inst * 0.05
+    };
     if let Some(n) = control.quit_in {
         if n == 0 {
             exit.write(AppExit::Success);
@@ -99,7 +119,12 @@ fn answer(
                     Some(CoopPuppet(None)) => ("remote", None),
                     None => ("npc", None),
                 };
-                let anim = rig.map_or(0, |r| u16::from(r.walking) | u16::from(r.running) << 1 | u16::from(r.sneaking) << 2 | u16::from(r.fighting) << 3);
+                let anim = rig.map_or(0, |r| {
+                    u16::from(r.walking)
+                        | u16::from(r.running) << 1
+                        | u16::from(r.sneaking) << 2
+                        | u16::from(r.fighting) << 3
+                });
                 EntityRow {
                     form: w.reference.0,
                     name: editor_name(order, w.reference),
@@ -118,7 +143,10 @@ fn answer(
         let out = match cmd {
             Cmd::State => {
                 let dump = crate::coop::dump_text(&link.0, &mut run, &state.0, &game, now, &live);
-                let cell = state.0.player_cell.map_or(String::new(), |c| editor_name(order, c));
+                let cell = state
+                    .0
+                    .player_cell
+                    .map_or(String::new(), |c| editor_name(order, c));
                 let c = &live.counters;
                 let stats = LiveStats {
                     cell,
@@ -149,17 +177,31 @@ fn answer(
                     let mut runner = world::scripting::Runner::new(order, &scripts.0, &mut state.0);
                     let flow = runner.run_source(&line, None, None);
                     runner.run_item_scripts();
-                    control::ok(name, &format!("\"how\":\"{}\",\"flow\":\"{}\"", if run.is_host() { "host" } else { "local" }, coop_session::json::esc(&format!("{flow:?}"))))
+                    control::ok(
+                        name,
+                        &format!(
+                            "\"how\":\"{}\",\"flow\":\"{}\"",
+                            if run.is_host() { "host" } else { "local" },
+                            coop_session::json::esc(&format!("{flow:?}"))
+                        ),
+                    )
                 } else {
                     link.0.log_event("script", &[("line", V::S(&line))]);
                     link.0.send_command(Command::Line(line));
                     control::ok(name, "\"how\":\"sent\"")
                 }
             }
-            Cmd::Keys { key, hold, delay } => match test_keys::parse(0.0, &format!("{key}:{hold}")) {
+            Cmd::Keys { key, hold, delay } => match test_keys::parse(0.0, &format!("{key}:{hold}"))
+            {
                 Ok(p) => {
                     keys.press_in(now, delay, p.what, p.hold);
-                    control::ok(name, &format!("\"key\":\"{}\",\"hold\":{hold},\"delay\":{delay}", coop_session::json::esc(&key)))
+                    control::ok(
+                        name,
+                        &format!(
+                            "\"key\":\"{}\",\"hold\":{hold},\"delay\":{delay}",
+                            coop_session::json::esc(&key)
+                        ),
+                    )
                 }
                 Err(e) => control::fail(name, &e),
             },
@@ -170,9 +212,13 @@ fn answer(
                 }
                 let shown = coop_session::json::esc(&path);
                 // the reply goes out once the file is written (the observers run in order)
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(p)).observe(move |_: Trigger<ScreenshotCaptured>| {
-                    let _ = reply.send(control::ok("screenshot", &format!("\"path\":\"{shown}\"")));
-                });
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(p))
+                    .observe(move |_: Trigger<ScreenshotCaptured>| {
+                        let _ =
+                            reply.send(control::ok("screenshot", &format!("\"path\":\"{shown}\"")));
+                    });
                 continue;
             }
             Cmd::Quit => {

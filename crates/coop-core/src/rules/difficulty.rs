@@ -116,7 +116,13 @@ impl Ramp {
     /// A ramp already settled at `players`.
     pub fn new(mode: Mode, players: u32) -> Self {
         let s = Scaling::for_party(players, mode);
-        Ramp { mode, players, from: s, to: s, start_ms: 0 }
+        Ramp {
+            mode,
+            players,
+            from: s,
+            to: s,
+            start_ms: 0,
+        }
     }
 
     /// Party size now in force (target).
@@ -200,8 +206,14 @@ mod tests {
         assert_eq!(r.current(5000), Scaling::for_party(1, Mode::CoopBalanced));
         let mid = r.current(5000 + RAMP_MS / 2);
         assert!(close(mid.focus, (1.0 + 2.4) / 2.0));
-        assert_eq!(r.current(5000 + RAMP_MS), Scaling::for_party(3, Mode::CoopBalanced));
-        assert_eq!(r.current(1_000_000), Scaling::for_party(3, Mode::CoopBalanced));
+        assert_eq!(
+            r.current(5000 + RAMP_MS),
+            Scaling::for_party(3, Mode::CoopBalanced)
+        );
+        assert_eq!(
+            r.current(1_000_000),
+            Scaling::for_party(3, Mode::CoopBalanced)
+        );
     }
 
     #[test]
@@ -236,7 +248,10 @@ mod tests {
     #[test]
     fn extras_roll_matches_rate() {
         let s = Scaling::for_party(4, Mode::CoopBalanced);
-        let n = (0..5000u32).filter(|i| s.spawns_extra(FormId(0x0200_0000 + i))).count() as f32 / 5000.0;
+        let n = (0..5000u32)
+            .filter(|i| s.spawns_extra(FormId(0x0200_0000 + i)))
+            .count() as f32
+            / 5000.0;
         assert!((n - s.extras).abs() < 0.04, "{n}");
     }
 }

@@ -410,7 +410,14 @@ pub fn update_local_map(
         }
         map.quests = (active, points);
     }
-    let quests: Vec<[f32; 2]> = map.quests.1.iter().copied().chain(crate::coop_live::party_points()).map(|q| to_map(q)).collect();
+    let quests: Vec<[f32; 2]> = map
+        .quests
+        .1
+        .iter()
+        .copied()
+        .chain(crate::coop_live::party_points())
+        .map(|q| to_map(q))
+        .collect();
     let custom = state
         .0
         .custom_marker

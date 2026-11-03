@@ -20,7 +20,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use coop_core::avatar::{dequant_heading, dequant_pos, FLAG_DEAD, FLAG_DOWNED, FLAG_DRAWN, FLAG_SNEAK};
+use coop_core::avatar::{
+    dequant_heading, dequant_pos, FLAG_DEAD, FLAG_DOWNED, FLAG_DRAWN, FLAG_SNEAK,
+};
 use coop_core::ids::{FormId as CForm, PlayerId};
 use coop_core::proto::Msg;
 use coop_core::rules::VoteKind;
@@ -319,7 +321,12 @@ pub struct Layer {
 }
 
 impl Layer {
-    pub(crate) fn new(role: Role, policy: Option<Arc<PolicyTable>>, no_policy: bool, native: bool) -> Layer {
+    pub(crate) fn new(
+        role: Role,
+        policy: Option<Arc<PolicyTable>>,
+        no_policy: bool,
+        native: bool,
+    ) -> Layer {
         let mut host = (role == Role::Host).then(LiveHostAdapter::new);
         if let Some(h) = host.as_mut() {
             h.dialogue.native_host = native;
@@ -343,7 +350,10 @@ impl Layer {
 }
 
 fn chat_name(names: &BTreeMap<PlayerId, String>, p: PlayerId) -> String {
-    names.get(&p).cloned().unwrap_or_else(|| format!("player {}", p.0))
+    names
+        .get(&p)
+        .cloned()
+        .unwrap_or_else(|| format!("player {}", p.0))
 }
 
 impl Session {
@@ -360,7 +370,11 @@ impl Session {
     /// Hit requests sent so far (diagnostics and tests).
     pub fn live_hits_sent(&self) -> u32 {
         let Some(l) = &self.live else { return 0 };
-        l.host.as_ref().map(|h| h.stats.hits_sent).or_else(|| l.guest.as_ref().map(|g| g.1.stats.hits_sent)).unwrap_or(0)
+        l.host
+            .as_ref()
+            .map(|h| h.stats.hits_sent)
+            .or_else(|| l.guest.as_ref().map(|g| g.1.stats.hits_sent))
+            .unwrap_or(0)
     }
 
     /// Start of the frame (called by `pre_frame_with`): turns on the shadows
@@ -436,7 +450,9 @@ impl Session {
     /// reports its own to the host. False when the layer cannot take them
     /// yet (ask again).
     pub fn live_track(&mut self, cx: Ctx, gs: &GameState, actors: &[FormId]) -> bool {
-        let Some(l) = self.live.as_mut() else { return false };
+        let Some(l) = self.live.as_mut() else {
+            return false;
+        };
         if let (Some(h), Some(ad)) = (&mut self.host, l.host.as_mut()) {
             ad.track(cx, gs, &mut h.sync.live, actors);
             true
@@ -453,14 +469,27 @@ impl Session {
     /// Actors the host replicates (host) or this guest has reported.
     pub fn live_tracked(&self) -> usize {
         let Some(l) = &self.live else { return 0 };
-        l.host.as_ref().map(|h| h.tracked_count()).or_else(|| l.guest.as_ref().map(|g| g.1.tracked_count())).unwrap_or(0)
+        l.host
+            .as_ref()
+            .map(|h| h.tracked_count())
+            .or_else(|| l.guest.as_ref().map(|g| g.1.tracked_count()))
+            .unwrap_or(0)
     }
 
     /// Host: registers a container for shared looting. False when it was
     /// registered before (or the layer is off).
-    pub fn live_register_container(&mut self, cx: Ctx, gs: &mut GameState, container: FormId) -> bool {
-        let (Some(h), Some(l)) = (&mut self.host, self.live.as_mut()) else { return false };
-        let Some(ad) = l.host.as_mut() else { return false };
+    pub fn live_register_container(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        container: FormId,
+    ) -> bool {
+        let (Some(h), Some(l)) = (&mut self.host, self.live.as_mut()) else {
+            return false;
+        };
+        let Some(ad) = l.host.as_mut() else {
+            return false;
+        };
         ad.loot.register(cx, gs, &mut h.sync.live, container)
     }
 
@@ -476,7 +505,9 @@ impl Session {
     /// Host: starts (`Some`) or ends (`None`) the story tether at an anchor.
     pub fn live_tether(&mut self, cx: Ctx, gs: &GameState, anchor: Option<FormId>) {
         let now = self.now_ms;
-        let (Some(h), Some(l)) = (&mut self.host, self.live.as_mut()) else { return };
+        let (Some(h), Some(l)) = (&mut self.host, self.live.as_mut()) else {
+            return;
+        };
         let Some(ad) = l.host.as_mut() else { return };
         match anchor {
             Some(a) => ad.rules.start_tether(cx, gs, &mut h.sync.live, a, now),
@@ -508,7 +539,9 @@ impl Session {
         let Some(l) = &self.live else { return false };
         match (&self.host, &self.guest) {
             (Some(_), _) => l.host.is_some(),
-            (_, Some(g)) => l.guest.is_some() && g.sync.phase() == coop_core::sync::GuestPhase::Active,
+            (_, Some(g)) => {
+                l.guest.is_some() && g.sync.phase() == coop_core::sync::GuestPhase::Active
+            }
             _ => false,
         }
     }
@@ -557,13 +590,17 @@ impl Session {
             match intent {
                 Intent::DialogueOpen(n) => msgs.push(ad.dialogue.open(&mut ad.own.dialogue, n)),
                 Intent::DialoguePick(i) => msgs.extend(ad.dialogue.pick(&mut ad.own.dialogue, i)),
-                Intent::DialogueLineDone => msgs.extend(ad.dialogue.line_done(&mut ad.own.dialogue)),
+                Intent::DialogueLineDone => {
+                    msgs.extend(ad.dialogue.line_done(&mut ad.own.dialogue))
+                }
                 Intent::DialogueClose => msgs.extend(ad.dialogue.close(&mut ad.own.dialogue)),
                 Intent::LootOpen(c) => msgs.push(ad.loot.host_open(c)),
                 Intent::LootClose(c) => msgs.extend(ad.own.loot.close(cf(c)).map(Msg::Loot)),
                 // the host edits the world itself; `reconcile` follows it
                 Intent::LootTake { .. } | Intent::LootPut { .. } => {}
-                Intent::ClaimDrop(d) => msgs.push(coop_core::proto::Msg::Loot(coop_core::loot::LootMsg::ClaimDrop { drop: cf(d) })),
+                Intent::ClaimDrop(d) => msgs.push(coop_core::proto::Msg::Loot(
+                    coop_core::loot::LootMsg::ClaimDrop { drop: cf(d) },
+                )),
                 Intent::Say(t) => msgs.push(ad.own.say(ChatChannel::All, &t)),
                 Intent::Vote(k, p) => msgs.push(ad.rules.request_vote(k, p)),
                 Intent::ReviveBegin(p) => msgs.push(ad.rules.revive_begin(p)),
@@ -585,8 +622,12 @@ impl Session {
                 Intent::DialogueLineDone => msgs.extend(ad.dialogue.line_done(&mut live.dialogue)),
                 Intent::DialogueClose => msgs.extend(ad.dialogue.close(&mut live.dialogue)),
                 Intent::LootOpen(c) => msgs.push(ad.loot.open(&live.loot, c)),
-                Intent::LootTake { container, item, n } => msgs.extend(ad.loot.take(&mut live.loot, container, item, n)),
-                Intent::LootPut { container, item, n } => msgs.extend(ad.loot.put(&mut live.loot, container, item, n)),
+                Intent::LootTake { container, item, n } => {
+                    msgs.extend(ad.loot.take(&mut live.loot, container, item, n))
+                }
+                Intent::LootPut { container, item, n } => {
+                    msgs.extend(ad.loot.put(&mut live.loot, container, item, n))
+                }
                 Intent::LootClose(c) => msgs.extend(ad.loot.close(&mut live.loot, c)),
                 Intent::ClaimDrop(d) => msgs.push(ad.loot.claim(d)),
                 Intent::Say(t) => msgs.push(live.say(ChatChannel::All, &t)),
@@ -613,7 +654,10 @@ impl Session {
         if let Some(h) = &self.host {
             names.insert(PlayerId::HOST, me_name.clone());
             for (id, p) in &h.peers {
-                names.insert(*id, p.name.clone().unwrap_or_else(|| format!("player {}", id.0)));
+                names.insert(
+                    *id,
+                    p.name.clone().unwrap_or_else(|| format!("player {}", id.0)),
+                );
             }
         }
         if let Some(g) = &self.guest {
@@ -628,8 +672,14 @@ impl Session {
         let asked_time = gs.coop.live.scene.time_asks.len();
         let mut outs: Vec<(PlayerId, Msg)> = Vec::new();
         let mut to_host: Vec<Msg> = Vec::new();
-        let Some(l) = self.live.as_mut() else { return None };
-        let mut view = LiveView { now_ms: now, me, ..LiveView::default() };
+        let Some(l) = self.live.as_mut() else {
+            return None;
+        };
+        let mut view = LiveView {
+            now_ms: now,
+            me,
+            ..LiveView::default()
+        };
         if let (Some(h), Some(ad)) = (&mut self.host, l.host.as_mut()) {
             let live = &mut h.sync.live;
             for (id, n) in &names {
@@ -642,7 +692,12 @@ impl Session {
                     gs.register_player(p.0);
                 }
             }
-            let gone: Vec<PlayerId> = l.registered.iter().copied().filter(|p| !members.contains(p)).collect();
+            let gone: Vec<PlayerId> = l
+                .registered
+                .iter()
+                .copied()
+                .filter(|p| !members.contains(p))
+                .collect();
             for p in gone {
                 l.registered.remove(&p);
                 gs.forget_player(p.0);
@@ -659,7 +714,9 @@ impl Session {
             crate::live_roam::host_frame(cx, gs, live, &mut view, now);
         } else if let (Some(g), Some((_, ad))) = (&mut self.guest, l.guest.as_mut()) {
             g.sync.live.scene.set_rtt(g.rtt_ms.unwrap_or(0));
-            if g.sync.phase() != coop_core::sync::GuestPhase::Active && g.sync.live.scene.count() > 0 {
+            if g.sync.phase() != coop_core::sync::GuestPhase::Active
+                && g.sync.live.scene.count() > 0
+            {
                 // the link to the host is down: no scene outlives it (a rejoin is replayed the scenes)
                 g.sync.live.scene.abort_all();
             }
@@ -674,13 +731,17 @@ impl Session {
             crate::live_roam::guest_frame(gs, &mut g.sync.live, &mut view);
         }
         if asked_time > 0 {
-            view.notices.push("Asking the party to pass the time".to_string());
+            view.notices
+                .push("Asking the party to pass the time".to_string());
         }
         view.scene = gs.coop.live.scene.view.clone();
         // fast travel the party must agree to
         let requests = std::mem::take(&mut gs.coop.live.travel_requests);
         for m in requests {
-            let due = l.asked_travel.get(&m).map_or(true, |t| now.saturating_sub(*t) > 10_000);
+            let due = l
+                .asked_travel
+                .get(&m)
+                .map_or(true, |t| now.saturating_sub(*t) > 10_000);
             if due {
                 l.asked_travel.insert(m, now);
                 let msg = world::coop::rules::RulesBridge::new().request_travel(m);
@@ -716,7 +777,8 @@ impl Session {
             view.notices.push("The whole party went down".to_string());
         }
         if f.stage_held && !l.was_held {
-            view.notices.push("The story waits for the whole party".to_string());
+            view.notices
+                .push("The story waits for the whole party".to_string());
         }
         l.was_wiped = f.wiped;
         l.was_held = f.stage_held;
@@ -732,15 +794,26 @@ impl Session {
 }
 
 /// Fills avatars, actors, dialogue, chat and markers from a client view.
-fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<PlayerId, String>, now: u64) {
-    view.actions.extend(live.take_actions().into_iter().filter(|(p, _)| view.members.is_empty() || view.members.contains(p)));
+fn collect_remote(
+    view: &mut LiveView,
+    live: &mut GuestLive,
+    names: &BTreeMap<PlayerId, String>,
+    now: u64,
+) {
+    view.actions.extend(
+        live.take_actions()
+            .into_iter()
+            .filter(|(p, _)| view.members.is_empty() || view.members.contains(p)),
+    );
     let ids: Vec<PlayerId> = live.remote.keys().copied().collect();
     for p in ids {
         if !view.members.contains(&p) && !view.members.is_empty() {
             continue;
         }
         let parts = live.remote.get(&p).and_then(|r| r.parts.clone());
-        let Some(s) = live.sample(p, now) else { continue };
+        let Some(s) = live.sample(p, now) else {
+            continue;
+        };
         view.avatars.push(RemoteAvatarView {
             player: p,
             name: chat_name(names, p),
@@ -757,7 +830,10 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
             sneaking: s.flags & FLAG_SNEAK != 0,
             drawn: s.flags & FLAG_DRAWN != 0,
             teleported: s.teleported,
-            equipment: parts.as_ref().map(|x| x.equipment.iter().map(|(s, f)| (*s, wf(*f))).collect()).unwrap_or_default(),
+            equipment: parts
+                .as_ref()
+                .map(|x| x.equipment.iter().map(|(s, f)| (*s, wf(*f))).collect())
+                .unwrap_or_default(),
             parts_rev: parts.map_or(0, |x| x.rev),
         });
     }
@@ -775,7 +851,11 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
         view.remote_actors.push(ActorView {
             id: wf(*id),
             cell: st.cell.0,
-            pos: [dequant_pos(st.pos[0]), dequant_pos(st.pos[1]), dequant_pos(st.pos[2])],
+            pos: [
+                dequant_pos(st.pos[0]),
+                dequant_pos(st.pos[1]),
+                dequant_pos(st.pos[2]),
+            ],
             heading: dequant_heading(st.heading),
             anim: st.anim,
             health: st.health,
@@ -787,7 +867,11 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
     view.actor_table = live
         .actors
         .iter()
-        .map(|(id, rec)| ActorRow { id: wf(*id), owner: rec.owner, alive: rec.alive })
+        .map(|(id, rec)| ActorRow {
+            id: wf(*id),
+            owner: rec.owner,
+            alive: rec.alive,
+        })
         .collect();
     view.spawned = live
         .actors
@@ -799,7 +883,11 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
                 id: wf(*id),
                 base: wf(base),
                 cell: cell.0,
-                pos: [dequant_pos(pos[0]), dequant_pos(pos[1]), dequant_pos(pos[2])],
+                pos: [
+                    dequant_pos(pos[0]),
+                    dequant_pos(pos[1]),
+                    dequant_pos(pos[2]),
+                ],
             })
         })
         .collect();
@@ -813,7 +901,11 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
         });
     }
     for c in live.chat_log.drain(..) {
-        view.chat.push(ChatView { from: c.from, name: c.name, text: c.text });
+        view.chat.push(ChatView {
+            from: c.from,
+            name: c.name,
+            text: c.text,
+        });
     }
     for id in std::mem::take(&mut live.chat_rejected) {
         view.notices.push(format!("Message {id} was refused"));
@@ -824,7 +916,11 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
             owner: *owner,
             kind: m.kind,
             cell: m.cell.0,
-            pos: [dequant_pos(m.pos[0]), dequant_pos(m.pos[1]), dequant_pos(m.pos[2])],
+            pos: [
+                dequant_pos(m.pos[0]),
+                dequant_pos(m.pos[1]),
+                dequant_pos(m.pos[2]),
+            ],
             label: m.label.clone(),
         });
     }
@@ -833,7 +929,9 @@ fn collect_remote(view: &mut LiveView, live: &mut GuestLive, names: &BTreeMap<Pl
 /// Re-runs the stages the gate released, and those it sent to one player's
 /// shadow.
 fn run_released(cx: Ctx, gs: &mut GameState) {
-    let Some(mut gate) = gs.coop.gate.take() else { return };
+    let Some(mut gate) = gs.coop.gate.take() else {
+        return;
+    };
     let released = gate.poll(gs);
     let redirects = gate.take_redirects();
     gs.coop.gate = Some(gate);

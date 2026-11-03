@@ -67,7 +67,10 @@ pub struct Liveness {
 impl Liveness {
     /// Starts counting at `now`.
     pub fn new(now: u64) -> Self {
-        Liveness { last_rx: now, last_keepalive: now }
+        Liveness {
+            last_rx: now,
+            last_keepalive: now,
+        }
     }
     /// Anything arrived from the peer.
     pub fn on_rx(&mut self, now: u64) {

@@ -1,0 +1,44 @@
+{
+    "name": "twin_live_dialogue_dlc_real",
+    "description": "Twin of live_dialogue_dlc without the intercom's Say lines. No talk note exists, so the host says no line and no peer plays one. The run must fail. Real-game copy: the intercom's own trigger says the first say-once line when the host loads the cell, before the guest joins. The script's first Say gives the second line, and the guest hears that one. The script's second Say finds no line left.",
+    "expect_fail": true,
+    "cell": "NVDLC01PoliceStation",
+    "network": "good_wifi",
+    "seed": 90,
+    "duration_s": 20,
+    "settle_s": 6,
+    "host": {
+        "script": []
+    },
+    "guest": {
+        "script": []
+    },
+    "expect": [
+        {
+            "id": "host-said-lines",
+            "path": "scene.talk.lines",
+            "op": "eq",
+            "value": 2,
+            "on": "host"
+        },
+        {
+            "id": "lines-host",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 2,
+            "on": "host"
+        },
+        {
+            "id": "lines-guest",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 1,
+            "on": "guest"
+        },
+        {
+            "id": "shared-hash",
+            "path": "hash.shared",
+            "on": "equal"
+        }
+    ]
+}

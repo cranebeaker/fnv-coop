@@ -10,7 +10,9 @@
 
 use std::collections::BTreeMap;
 
-use coop_policy::lifecycle::{down_outcome, is_wipe, join_plan, wipe_outcome, DownOutcome, JoinPlan};
+use coop_policy::lifecycle::{
+    down_outcome, is_wipe, join_plan, wipe_outcome, DownOutcome, JoinPlan,
+};
 use coop_policy::{AllDown, Decision, Event, EventKind, Origin, PlayerMask};
 use esm::{FormId, LoadOrder};
 
@@ -56,7 +58,15 @@ pub struct DownTracker {
     pub warped: Vec<u8>,
     /// Joiners refused while a scene played.
     pub refused: Vec<u8>,
+    /// Downs of other players the host decided (a script run as that player):
+    /// (slot, revivable). The host adapter reports them to the live rules.
+    pub to_live: Vec<(u8, bool)>,
+    /// How many of the live rules' events [`mirror_rules`] has read.
+    pub rules_seen: usize,
 }
+
+/// The host's own slot.
+const HOST_SLOT: u8 = 0;
 
 fn table(gs: &GameState) -> Option<std::sync::Arc<coop_policy::PolicyTable>> {
     gs.coop.gate.as_ref().map(|g| g.table_arc())
@@ -70,20 +80,53 @@ pub fn player_down(gs: &mut GameState, slot: u8, quest: Option<FormId>) -> Optio
     let out = down_outcome(&t, row);
     // the gate counts the event and tells which class the down belongs to
     if let Some(g) = gs.coop.gate.take() {
-        let ev = Event { quest: quest.map_or(0, |q| q.0), origin: Origin::Host, kind: EventKind::PlayerDown { slot } };
+        let ev = Event {
+            quest: quest.map_or(0, |q| q.0),
+            origin: Origin::Host,
+            kind: EventKind::PlayerDown { slot },
+        };
         let d = g.decide(gs, &ev);
         let _ = matches!(d, Decision::PerPlayerShadow { .. });
         gs.coop.gate = Some(g);
     }
-    gs.coop.campaign.down.down.insert(slot, DownInfo { since_s: 0.0, outcome: out.clone(), quest });
+    gs.coop.campaign.down.down.insert(
+        slot,
+        DownInfo {
+            since_s: 0.0,
+            outcome: out.clone(),
+            quest,
+        },
+    );
     if out == DownOutcome::Respawn {
         respawn(gs, slot);
     }
     Some(out)
 }
 
-/// A teammate revived `slot`.
+/// A teammate revived `slot`. A down the policy holds until a checkpoint (a
+/// Dead Money collar death) cannot be revived: false, and nothing changes.
 pub fn revive(gs: &mut GameState, slot: u8) -> bool {
+    if held(gs, slot) {
+        return false;
+    }
+    stand_up(gs, slot)
+}
+
+/// True when `slot` is down until the party reaches a checkpoint.
+pub fn held(gs: &GameState, slot: u8) -> bool {
+    matches!(
+        gs.coop.campaign.down.down.get(&slot).map(|d| &d.outcome),
+        Some(DownOutcome::UntilCheckpoint { .. })
+    )
+}
+
+/// False when `slot` is down and no teammate may revive it.
+pub fn revivable(gs: &GameState, slot: u8) -> bool {
+    !held(gs, slot)
+}
+
+/// `slot` stands up where it lies (a revive, or a checkpoint reached).
+fn stand_up(gs: &mut GameState, slot: u8) -> bool {
     let was = gs.coop.campaign.down.down.remove(&slot).is_some();
     if was {
         gs.coop.campaign.down.revived.push(slot);
@@ -91,8 +134,83 @@ pub fn revive(gs: &mut GameState, slot: u8) -> bool {
             g.damage.remove(&crate::dialogue::PLAYER_REF);
             g.dead.remove(&crate::dialogue::PLAYER_REF);
         });
+        if slot == HOST_SLOT && gs.coop.authority == crate::coop::Authority::Host {
+            gs.coop.live.downed = false;
+        }
     }
     was
+}
+
+/// The local player's health ran out (a hit, a script's `KillActor`). On the
+/// host inside another player's scope (a script run as that player) it is
+/// that player's down, decided here. Otherwise the local player goes down and
+/// the quest whose script did it decides how (the rules bridge reports it).
+pub fn health_out(gs: &mut GameState) {
+    let quest = gs.coop.campaign.cond_quest;
+    let slot = gs.active_slot();
+    if gs.coop.authority == crate::coop::Authority::Host
+        && slot != HOST_SLOT
+        && gs.coop.bank.enabled()
+    {
+        script_down(gs, slot, quest);
+        return;
+    }
+    gs.coop.live.down_pending = true;
+    gs.coop.campaign.down_quest = quest;
+}
+
+/// Host: a script run as `slot` (a collar's explosion, a `KillActor` on that
+/// player) put it down, under `quest`'s row if any. The campaign rules decide
+/// the outcome, and the live rules hear of the down (revivable or not).
+pub fn script_down(gs: &mut GameState, slot: u8, quest: Option<FormId>) -> Option<DownOutcome> {
+    if slot == HOST_SLOT {
+        gs.coop.live.down_pending = true;
+        gs.coop.campaign.down_quest = quest;
+        return None;
+    }
+    if gs.coop.campaign.down.down.contains_key(&slot) {
+        return None;
+    }
+    let out = player_down(gs, slot, quest)?;
+    match out {
+        DownOutcome::Downed { .. } => gs.coop.campaign.down.to_live.push((slot, true)),
+        DownOutcome::UntilCheckpoint { .. } => gs.coop.campaign.down.to_live.push((slot, false)),
+        DownOutcome::Die | DownOutcome::Respawn => {}
+    }
+    Some(out)
+}
+
+/// Host: the live rules' revive events (a teammate's hold to revive, the
+/// window's respawn, a guest's own report of a down) reach the campaign
+/// tracker for every slot. `events` is the rules bridge's list. The host's
+/// own downs are mirrored from its down flags in [`super::host_frame`].
+pub fn mirror_rules(gs: &mut GameState, events: &[coop_core::rules::RulesEvent]) {
+    use coop_core::rules::{ReviveEvent, RulesEvent};
+    let seen = gs.coop.campaign.down.rules_seen;
+    let from = if seen > events.len() { 0 } else { seen };
+    gs.coop.campaign.down.rules_seen = events.len();
+    for e in &events[from..] {
+        let RulesEvent::Revive(r) = e else {
+            continue;
+        };
+        match *r {
+            ReviveEvent::Downed(p)
+                if p.0 != HOST_SLOT && !gs.coop.campaign.down.down.contains_key(&p.0) =>
+            {
+                player_down(gs, p.0, None);
+            }
+            ReviveEvent::Revived { player, .. } => {
+                revive(gs, player.0);
+            }
+            // the live window ran out; a down held until a checkpoint stays down
+            ReviveEvent::Respawn(p)
+                if gs.coop.campaign.down.down.contains_key(&p.0) && !held(gs, p.0) =>
+            {
+                respawn(gs, p.0);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Puts `slot` back at the checkpoint with its health.
@@ -112,12 +230,19 @@ pub fn respawn(gs: &mut GameState, slot: u8) {
 }
 
 fn downed_mask(gs: &GameState) -> PlayerMask {
-    gs.coop.campaign.down.down.keys().fold(PlayerMask::NONE, |m, s| m.or(PlayerMask::of(*s)))
+    gs.coop
+        .campaign
+        .down
+        .down
+        .keys()
+        .fold(PlayerMask::NONE, |m, s| m.or(PlayerMask::of(*s)))
 }
 
 /// Records the checkpoint whenever the whole party stands in one cell.
 fn note_checkpoint(gs: &mut GameState) {
-    let Some(g) = gs.coop.gate.as_ref() else { return };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return;
+    };
     let present = g.present;
     let mut cell: Option<FormId> = None;
     for s in 0..8u8 {
@@ -131,12 +256,18 @@ fn note_checkpoint(gs: &mut GameState) {
             _ => return,
         }
     }
-    let (Some(cell), Some(host)) = (cell, gs.shadow_of(0)) else { return };
+    let (Some(cell), Some(host)) = (cell, gs.shadow_of(0)) else {
+        return;
+    };
     if let Some(p) = host.position {
         gs.coop.campaign.down.checkpoint = Some(Checkpoint {
             cell,
             world: host.world,
-            pos: [f32::from_bits(p[0]), f32::from_bits(p[1]), f32::from_bits(p[2])],
+            pos: [
+                f32::from_bits(p[0]),
+                f32::from_bits(p[1]),
+                f32::from_bits(p[2]),
+            ],
         });
     }
 }
@@ -163,8 +294,12 @@ pub fn frame(order: &LoadOrder, gs: &mut GameState, dt: f32) {
         .collect();
     for (slot, cps) in waiting {
         let here = gs.shadow_of(slot).and_then(|s| s.cell);
-        if cps.iter().filter_map(|c| resolve(order, c)).any(|c| Some(c) == here) {
-            revive(gs, slot);
+        if cps
+            .iter()
+            .filter_map(|c| resolve(order, c))
+            .any(|c| Some(c) == here)
+        {
+            stand_up(gs, slot);
         }
     }
     // revive window ran out: back at the checkpoint
@@ -178,7 +313,11 @@ pub fn frame(order: &LoadOrder, gs: &mut GameState, dt: f32) {
         .map(|(s, _)| *s)
         .collect();
     // a wipe is decided before individual expiries
-    let present = gs.coop.gate.as_ref().map_or(PlayerMask::NONE, |g| g.present);
+    let present = gs
+        .coop
+        .gate
+        .as_ref()
+        .map_or(PlayerMask::NONE, |g| g.present);
     if is_wipe(present, downed_mask(gs)) {
         match wipe_outcome(&t) {
             AllDown::ReloadHostSave => {
@@ -231,12 +370,19 @@ fn warp_to_checkpoint(gs: &mut GameState, slot: u8) {
 }
 
 fn late_joiners(gs: &mut GameState, t: &coop_policy::PolicyTable) {
-    let Some(g) = gs.coop.gate.as_ref() else { return };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return;
+    };
     if g.held().is_empty() || g.scenes_active() {
         return;
     }
     let warp = join_plan(t, false) == JoinPlan::WarpToZone;
-    let released = gs.coop.gate.as_mut().map(|g| g.release_joiners()).unwrap_or(PlayerMask::NONE);
+    let released = gs
+        .coop
+        .gate
+        .as_mut()
+        .map(|g| g.release_joiners())
+        .unwrap_or(PlayerMask::NONE);
     if warp {
         for s in 0..8u8 {
             if released.contains(s) {

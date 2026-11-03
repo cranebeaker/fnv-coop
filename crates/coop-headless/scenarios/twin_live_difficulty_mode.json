@@ -1,0 +1,99 @@
+{
+  "name": "twin_live_difficulty_mode",
+  "description": "MUTATION TWIN of live_difficulty_mode: the host passes no rules flags, so the session runs Co-op balanced with friendly fire off, and the party save keeps that. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 85,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "party": {
+    "key": 4343,
+    "restart_at": 12,
+    "host_loads": true,
+    "guest_same_key": true,
+    "second": {
+      "duration_s": 16,
+      "host": {
+        "script": [
+          {
+            "at": 2,
+            "run": "VCG02Gecko1REF.Enable"
+          },
+          {
+            "at": 2.5,
+            "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+          },
+          {
+            "at": 10,
+            "run": "coop spawnenc VCG02Gecko1REF 40"
+          },
+          {
+            "at": 12,
+            "run": "coop pvp 1 20"
+          }
+        ]
+      }
+    }
+  },
+  "host": {
+    "extra_args": [],
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 5,
+        "run": "coop spawnenc VCG02Gecko1REF 40"
+      },
+      {
+        "at": 7,
+        "run": "coop pvp 1 20"
+      },
+      {
+        "at": 9,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "mode",
+      "path": "rules.mode",
+      "op": "eq",
+      "value": "normal",
+      "on": "both"
+    },
+    {
+      "id": "ff",
+      "path": "rules.friendly_fire",
+      "op": "eq",
+      "value": "on",
+      "on": "both"
+    },
+    {
+      "id": "no-extras",
+      "path": "combat.extras_made",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "guest-hurt",
+      "path": "combat.hurts_applied",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    }
+  ],
+  "expect_fail": true
+}

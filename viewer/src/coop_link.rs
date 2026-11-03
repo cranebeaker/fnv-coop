@@ -42,7 +42,11 @@ pub fn open(c: &CoopArgs, role: Role, cfg: &mut SessionConfig) -> Result<Vec<Not
 /// Writes the notices into the session log.
 pub fn log_notices(session: &mut Session, notices: &[Notice]) {
     for n in notices {
-        let fields: Vec<(&str, V)> = n.fields.iter().map(|(k, v)| (*k, V::S(v.as_str()))).collect();
+        let fields: Vec<(&str, V)> = n
+            .fields
+            .iter()
+            .map(|(k, v)| (*k, V::S(v.as_str())))
+            .collect();
         session.log_event(n.ev, &fields);
     }
 }

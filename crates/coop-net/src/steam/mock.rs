@@ -115,8 +115,18 @@ impl MockUniverse {
     pub fn user(&self, number: u64, name: &str) -> MockSteam {
         let id = 76_561_197_960_265_728 + number;
         let mut u = self.0.lock().unwrap();
-        u.users.insert(id, User { name: name.into(), playing_app: Some(480), ..Default::default() });
-        MockSteam { uni: self.clone(), me: id }
+        u.users.insert(
+            id,
+            User {
+                name: name.into(),
+                playing_app: Some(480),
+                ..Default::default()
+            },
+        );
+        MockSteam {
+            uni: self.clone(),
+            me: id,
+        }
     }
 
     /// Makes two users mutual friends.
@@ -156,7 +166,9 @@ impl Universe {
     }
 
     fn remove_member(&mut self, lobby: LobbyId, who: SteamId, flag: u32) {
-        let Some(l) = self.lobbies.get_mut(&lobby) else { return };
+        let Some(l) = self.lobbies.get_mut(&lobby) else {
+            return;
+        };
         l.members.retain(|m| *m != who);
         let remaining = l.members.clone();
         if l.owner == who {
@@ -171,7 +183,15 @@ impl Universe {
             u.lobby = None;
         }
         for m in remaining {
-            self.push(m, SteamEvent::LobbyChatUpdate { lobby, user_changed: who, making_change: who, state: flag });
+            self.push(
+                m,
+                SteamEvent::LobbyChatUpdate {
+                    lobby,
+                    user_changed: who,
+                    making_change: who,
+                    state: flag,
+                },
+            );
         }
     }
 }
@@ -185,22 +205,39 @@ pub struct MockSteam {
 impl MockSteam {
     /// Another handle onto the same user (for crash simulation in tests).
     pub fn clone_handle(&self) -> MockSteam {
-        MockSteam { uni: self.uni.clone(), me: self.me }
+        MockSteam {
+            uni: self.uni.clone(),
+            me: self.me,
+        }
     }
 
     /// Sets the AppID this user shows as playing (default 480).
     pub fn set_playing_app(&self, app: Option<u32>) {
-        self.uni.0.lock().unwrap().users.get_mut(&self.me).unwrap().playing_app = app;
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .users
+            .get_mut(&self.me)
+            .unwrap()
+            .playing_app = app;
     }
 
     /// Fakes an accepted invite or Join Game click (callback 333).
     pub fn fake_join_request(&self, lobby: LobbyId, friend: SteamId) {
-        self.uni.0.lock().unwrap().push(self.me, SteamEvent::JoinRequested { lobby, friend });
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .push(self.me, SteamEvent::JoinRequested { lobby, friend });
     }
 
     /// Rich presence value this user set.
     pub fn rich_presence(&self, key: &str) -> Option<String> {
-        self.uni.0.lock().unwrap().users[&self.me].rich.get(key).cloned()
+        self.uni.0.lock().unwrap().users[&self.me]
+            .rich
+            .get(key)
+            .cloned()
     }
 }
 
@@ -212,7 +249,13 @@ impl SteamApi for MockSteam {
     fn run_frame(&mut self) -> Vec<SteamEvent> {
         let mut u = self.uni.0.lock().unwrap();
         let rev = u.faults.reverse_event_order;
-        let mut v: Vec<_> = u.users.get_mut(&self.me).unwrap().events.drain(..).collect();
+        let mut v: Vec<_> = u
+            .users
+            .get_mut(&self.me)
+            .unwrap()
+            .events
+            .drain(..)
+            .collect();
         if rev {
             v.reverse();
         }
@@ -225,15 +268,40 @@ impl SteamApi for MockSteam {
         u.next_lobby += 1;
         u.lobbies.insert(
             id,
-            Lobby { owner: self.me, max: max_members, members: vec![self.me], data: HashMap::new(), joinable: true, invited: HashSet::new() },
+            Lobby {
+                owner: self.me,
+                max: max_members,
+                members: vec![self.me],
+                data: HashMap::new(),
+                joinable: true,
+                invited: HashSet::new(),
+            },
         );
         u.users.get_mut(&self.me).unwrap().lobby = Some(id);
         let double = u.faults.double_lobby_created;
-        u.push(self.me, SteamEvent::LobbyCreated { result: 1, lobby: id });
+        u.push(
+            self.me,
+            SteamEvent::LobbyCreated {
+                result: 1,
+                lobby: id,
+            },
+        );
         if double {
-            u.push(self.me, SteamEvent::LobbyCreated { result: 1, lobby: id });
+            u.push(
+                self.me,
+                SteamEvent::LobbyCreated {
+                    result: 1,
+                    lobby: id,
+                },
+            );
         }
-        u.push(self.me, SteamEvent::LobbyEnter { lobby: id, response: 1 });
+        u.push(
+            self.me,
+            SteamEvent::LobbyEnter {
+                lobby: id,
+                response: 1,
+            },
+        );
     }
 
     fn join_lobby(&mut self, lobby: LobbyId) {
@@ -260,7 +328,15 @@ impl SteamApi for MockSteam {
                 let others: Vec<_> = l.members.iter().copied().filter(|m| *m != me).collect();
                 u.users.get_mut(&me).unwrap().lobby = Some(lobby);
                 for m in others {
-                    u.push(m, SteamEvent::LobbyChatUpdate { lobby, user_changed: me, making_change: me, state: CHAT_ENTERED });
+                    u.push(
+                        m,
+                        SteamEvent::LobbyChatUpdate {
+                            lobby,
+                            user_changed: me,
+                            making_change: me,
+                            state: CHAT_ENTERED,
+                        },
+                    );
                 }
             }
         }
@@ -268,7 +344,11 @@ impl SteamApi for MockSteam {
     }
 
     fn leave_lobby(&mut self, lobby: LobbyId) {
-        self.uni.0.lock().unwrap().remove_member(lobby, self.me, CHAT_LEFT);
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .remove_member(lobby, self.me, CHAT_LEFT);
     }
 
     fn set_lobby_data(&mut self, lobby: LobbyId, key: &str, value: &str) -> bool {
@@ -284,7 +364,10 @@ impl SteamApi for MockSteam {
 
     fn get_lobby_data(&self, lobby: LobbyId, key: &str) -> Option<String> {
         let u = self.uni.0.lock().unwrap();
-        u.lobbies.get(&lobby).and_then(|l| l.data.get(key).cloned()).filter(|s| !s.is_empty())
+        u.lobbies
+            .get(&lobby)
+            .and_then(|l| l.data.get(key).cloned())
+            .filter(|s| !s.is_empty())
     }
 
     fn set_lobby_joinable(&mut self, lobby: LobbyId, joinable: bool) {
@@ -296,17 +379,33 @@ impl SteamApi for MockSteam {
     }
 
     fn lobby_owner(&self, lobby: LobbyId) -> SteamId {
-        self.uni.0.lock().unwrap().lobbies.get(&lobby).map_or(0, |l| l.owner)
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .lobbies
+            .get(&lobby)
+            .map_or(0, |l| l.owner)
     }
 
     fn lobby_members(&self, lobby: LobbyId) -> Vec<SteamId> {
-        self.uni.0.lock().unwrap().lobbies.get(&lobby).map(|l| l.members.clone()).unwrap_or_default()
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .lobbies
+            .get(&lobby)
+            .map(|l| l.members.clone())
+            .unwrap_or_default()
     }
 
     fn invite_user(&mut self, lobby: LobbyId, friend: SteamId) -> bool {
         let mut u = self.uni.0.lock().unwrap();
         let me = self.me;
-        let ok = u.users[&me].friends.contains(&friend) && u.lobbies.get(&lobby).is_some_and(|l| l.members.contains(&me));
+        let ok = u.users[&me].friends.contains(&friend)
+            && u.lobbies
+                .get(&lobby)
+                .is_some_and(|l| l.members.contains(&me));
         if ok {
             u.lobbies.get_mut(&lobby).unwrap().invited.insert(friend);
             u.push(friend, SteamEvent::LobbyInvite { inviter: me, lobby });
@@ -315,11 +414,27 @@ impl SteamApi for MockSteam {
     }
 
     fn set_rich_presence(&mut self, key: &str, value: &str) {
-        self.uni.0.lock().unwrap().users.get_mut(&self.me).unwrap().rich.insert(key.into(), value.into());
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .users
+            .get_mut(&self.me)
+            .unwrap()
+            .rich
+            .insert(key.into(), value.into());
     }
 
     fn clear_rich_presence(&mut self) {
-        self.uni.0.lock().unwrap().users.get_mut(&self.me).unwrap().rich.clear();
+        self.uni
+            .0
+            .lock()
+            .unwrap()
+            .users
+            .get_mut(&self.me)
+            .unwrap()
+            .rich
+            .clear();
     }
 
     fn open_invite_overlay(&mut self, _lobby: LobbyId) {}
@@ -331,7 +446,13 @@ impl SteamApi for MockSteam {
             .iter()
             .filter_map(|f| {
                 let fu = u.users.get(f)?;
-                Some(Friend { id: *f, name: fu.name.clone(), online: true, playing_app: fu.playing_app, lobby: fu.lobby.unwrap_or(0) })
+                Some(Friend {
+                    id: *f,
+                    name: fu.name.clone(),
+                    online: true,
+                    playing_app: fu.playing_app,
+                    lobby: fu.lobby.unwrap_or(0),
+                })
             })
             .collect();
         v.sort_by_key(|f| f.id);
@@ -367,10 +488,23 @@ impl SteamApi for MockSteam {
         }
         let accepted = u.users[&to].accepted.contains(&me);
         if accepted {
-            u.users.get_mut(&to).unwrap().inbox.entry(channel).or_default().push_back(RecvMsg { from: me, data: data.to_vec() });
+            u.users
+                .get_mut(&to)
+                .unwrap()
+                .inbox
+                .entry(channel)
+                .or_default()
+                .push_back(RecvMsg {
+                    from: me,
+                    data: data.to_vec(),
+                });
         } else {
             let first = u.users.get_mut(&to).unwrap().requested.insert(me);
-            u.users.get_mut(&to).unwrap().held.push((me, channel, data.to_vec()));
+            u.users
+                .get_mut(&to)
+                .unwrap()
+                .held
+                .push((me, channel, data.to_vec()));
             if first {
                 u.session_requests.push((to, me));
                 u.push(to, SteamEvent::SessionRequest { from: me });
@@ -381,7 +515,13 @@ impl SteamApi for MockSteam {
 
     fn receive_messages(&mut self, channel: i32, max: usize) -> Vec<RecvMsg> {
         let mut u = self.uni.0.lock().unwrap();
-        let q = u.users.get_mut(&self.me).unwrap().inbox.entry(channel).or_default();
+        let q = u
+            .users
+            .get_mut(&self.me)
+            .unwrap()
+            .inbox
+            .entry(channel)
+            .or_default();
         let n = q.len().min(max);
         q.drain(..n).collect()
     }
@@ -393,7 +533,10 @@ impl SteamApi for MockSteam {
         let held = std::mem::take(&mut me.held);
         for (f, ch, d) in held {
             if f == from {
-                me.inbox.entry(ch).or_default().push_back(RecvMsg { from: f, data: d });
+                me.inbox
+                    .entry(ch)
+                    .or_default()
+                    .push_back(RecvMsg { from: f, data: d });
             } else {
                 me.held.push((f, ch, d));
             }
@@ -427,21 +570,46 @@ mod tests {
         let (_u, mut a, _b, _c) = trio();
         a.create_lobby(4);
         let ev = a.run_frame();
-        assert_eq!(ev.iter().filter(|e| matches!(e, SteamEvent::LobbyCreated { .. })).count(), 2);
+        assert_eq!(
+            ev.iter()
+                .filter(|e| matches!(e, SteamEvent::LobbyCreated { .. }))
+                .count(),
+            2
+        );
     }
 
     #[test]
     fn friends_only_join_and_invite() {
         let (_u, mut a, mut b, mut c) = trio();
         a.create_lobby(4);
-        let lobby = a.run_frame().into_iter().find_map(|e| if let SteamEvent::LobbyCreated { lobby, .. } = e { Some(lobby) } else { None }).unwrap();
+        let lobby = a
+            .run_frame()
+            .into_iter()
+            .find_map(|e| {
+                if let SteamEvent::LobbyCreated { lobby, .. } = e {
+                    Some(lobby)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
         c.join_lobby(lobby);
-        assert!(c.run_frame().contains(&SteamEvent::LobbyEnter { lobby, response: 3 }));
+        assert!(c
+            .run_frame()
+            .contains(&SteamEvent::LobbyEnter { lobby, response: 3 }));
         // Invite opens the door for a non-friend... only friends can be invited.
         assert!(!a.invite_user(lobby, c.self_id()));
         b.join_lobby(lobby);
-        assert!(b.run_frame().contains(&SteamEvent::LobbyEnter { lobby, response: 1 }));
-        assert!(a.run_frame().iter().any(|e| matches!(e, SteamEvent::LobbyChatUpdate { state: CHAT_ENTERED, .. })));
+        assert!(b
+            .run_frame()
+            .contains(&SteamEvent::LobbyEnter { lobby, response: 1 }));
+        assert!(a.run_frame().iter().any(|e| matches!(
+            e,
+            SteamEvent::LobbyChatUpdate {
+                state: CHAT_ENTERED,
+                ..
+            }
+        )));
     }
 
     #[test]
@@ -449,13 +617,19 @@ mod tests {
         let (u, mut a, mut b, _c) = trio();
         a.send_message(b.self_id(), 0, SEND_RELIABLE | SEND_NO_NAGLE, b"hi");
         assert!(b.receive_messages(0, 8).is_empty());
-        assert_eq!(b.run_frame(), vec![SteamEvent::SessionRequest { from: a.self_id() }]);
+        assert_eq!(
+            b.run_frame(),
+            vec![SteamEvent::SessionRequest { from: a.self_id() }]
+        );
         // A second message does not raise a second request.
         a.send_message(b.self_id(), 0, SEND_RELIABLE, b"again");
         assert!(b.run_frame().is_empty());
         b.accept_session(a.self_id());
         let got = b.receive_messages(0, 8);
-        assert_eq!(got.iter().map(|m| m.data.clone()).collect::<Vec<_>>(), vec![b"hi".to_vec(), b"again".to_vec()]);
+        assert_eq!(
+            got.iter().map(|m| m.data.clone()).collect::<Vec<_>>(),
+            vec![b"hi".to_vec(), b"again".to_vec()]
+        );
         // Replies to a session we opened need no accept.
         b.send_message(a.self_id(), 0, SEND_RELIABLE, b"yo");
         assert_eq!(a.receive_messages(0, 8).len(), 1);
@@ -469,14 +643,25 @@ mod tests {
             f.buffer_full.insert(a.self_id(), 2);
             f.reverse_event_order = true;
         });
-        assert_eq!(a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"), SendResult::BufferFull);
-        assert_eq!(a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"), SendResult::BufferFull);
-        assert_eq!(a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"), SendResult::Ok);
+        assert_eq!(
+            a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"),
+            SendResult::BufferFull
+        );
+        assert_eq!(
+            a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"),
+            SendResult::BufferFull
+        );
+        assert_eq!(
+            a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x"),
+            SendResult::Ok
+        );
         u.faults(|f| {
             f.session_failed.insert(b.self_id());
         });
         a.send_message(b.self_id(), 0, SEND_RELIABLE, b"x");
-        assert!(a.run_frame().contains(&SteamEvent::SessionFailed { from: b.self_id() }));
+        assert!(a
+            .run_frame()
+            .contains(&SteamEvent::SessionFailed { from: b.self_id() }));
         let _ = b.run_frame();
     }
 
@@ -484,11 +669,27 @@ mod tests {
     fn owner_migrates_and_crash_flags() {
         let (u, mut a, mut b, _c) = trio();
         a.create_lobby(4);
-        let lobby = a.run_frame().into_iter().find_map(|e| if let SteamEvent::LobbyCreated { lobby, .. } = e { Some(lobby) } else { None }).unwrap();
+        let lobby = a
+            .run_frame()
+            .into_iter()
+            .find_map(|e| {
+                if let SteamEvent::LobbyCreated { lobby, .. } = e {
+                    Some(lobby)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
         b.join_lobby(lobby);
         b.run_frame();
         u.crash(&a);
         assert_eq!(b.lobby_owner(lobby), b.self_id());
-        assert!(b.run_frame().iter().any(|e| matches!(e, SteamEvent::LobbyChatUpdate { state: CHAT_DISCONNECTED, .. })));
+        assert!(b.run_frame().iter().any(|e| matches!(
+            e,
+            SteamEvent::LobbyChatUpdate {
+                state: CHAT_DISCONNECTED,
+                ..
+            }
+        )));
     }
 }

@@ -1,0 +1,57 @@
+{
+  "name": "live_companion_follow",
+  "description": "The guest's slot recruits the gecko as a follower. The guest then moves into another cell (D00001) while the host stays. The follower goes with its owner, not with the host: on every peer the gecko's cell is the guest's cell. Headless only: it uses the coop cell verb. The host moves a guest's follower when the guest changes place (world::coop::campaign::owners::follow_owners, the move of companions::come_along). The dump's actors.REF.cell is the cell each peer has the actor in.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 3,
+        "run": "coop recruit 1 VCG02Gecko1REF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop cell D00001"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "owner",
+      "path": "campaign.owner.VCG02Gecko1REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "host"
+    },
+    {
+      "id": "guest-moved",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 13631489,
+      "on": "host"
+    },
+    {
+      "id": "follower-with-owner",
+      "path": "actors.VCG02Gecko1REF.cell",
+      "op": "eq",
+      "value": 13631489,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -1,8 +1,14 @@
 //! Named network condition profiles for [`super::ChaosTransport`].
 
 /// The six named profiles.
-pub const PROFILE_NAMES: [&str; 6] =
-    ["good_wifi", "bad_wifi", "mobile", "congested", "flaky", "partition"];
+pub const PROFILE_NAMES: [&str; 6] = [
+    "good_wifi",
+    "bad_wifi",
+    "mobile",
+    "congested",
+    "flaky",
+    "partition",
+];
 
 /// Parameters of one simulated link direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -131,7 +137,9 @@ impl ChaosProfile {
         }
         let phase = now % self.partition_period_ms;
         // the outage is the tail of each period
-        let start = self.partition_period_ms.saturating_sub(self.partition_len_ms);
+        let start = self
+            .partition_period_ms
+            .saturating_sub(self.partition_len_ms);
         (phase >= start).then(|| now - phase + self.partition_period_ms)
     }
 }

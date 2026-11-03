@@ -30,6 +30,8 @@ Usage:
         output to the launcher log and exits with the viewer's exit code.
   nv-launcher --coop-help          list the viewer's co-op flags (asks the viewer)
         --allow-mismatch   developer override: let a guest with other plugins or game version in
+        --difficulty MODE (normal|balanced)  --friendly-fire on|off
+                           host: campaign rules (default balanced, off), kept in the party save
         --voice MODE (off|ptt|vad)  --ptt-key KEY  --ping-key KEY
         --couch SEAT/PLAYERS  --window X,Y,W,H  --gamepad N   split-screen on one PC (docs/COOP-COUCH.md)
   nv-launcher --diagnostics        collect shareable logs into a folder and print its path
@@ -68,13 +70,20 @@ pub struct Cli {
 
 fn take(args: &[String], i: &mut usize, name: &str) -> Result<String, String> {
     *i += 1;
-    args.get(*i).cloned().ok_or_else(|| format!("{name} needs a value"))
+    args.get(*i)
+        .cloned()
+        .ok_or_else(|| format!("{name} needs a value"))
 }
 
 pub fn parse(args: &[String]) -> Result<Cli, String> {
     let mut c = Cli::default();
     let mut i = 0;
-    let port_of = |s: &str| -> Result<u16, String> { s.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(|| format!("'{s}' is not a port number")) };
+    let port_of = |s: &str| -> Result<u16, String> {
+        s.parse::<u16>()
+            .ok()
+            .filter(|p| *p != 0)
+            .ok_or_else(|| format!("'{s}' is not a port number"))
+    };
     while i < args.len() {
         let a = args[i].as_str();
         match a {
@@ -94,12 +103,31 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
             "--address" => c.address = Some(take(args, &mut i, a)?),
             "--save" => c.save = Some(take(args, &mut i, a)?.into()),
             "--allow-mismatch" => c.extras.allow_mismatch = true,
-            "--voice" => c.extras.voice = Some(crate::extras::VoiceMode::parse(&take(args, &mut i, a)?)?),
+            "--difficulty" => {
+                c.extras.difficulty =
+                    Some(crate::extras::Difficulty::parse(&take(args, &mut i, a)?)?)
+            }
+            "--friendly-fire" => {
+                c.extras.friendly_fire = Some(crate::extras::parse_switch(&take(args, &mut i, a)?)?)
+            }
+            "--voice" => {
+                c.extras.voice = Some(crate::extras::VoiceMode::parse(&take(args, &mut i, a)?)?)
+            }
             "--ptt-key" => c.extras.ptt_key = Some(take(args, &mut i, a)?),
             "--ping-key" => c.extras.ping_key = Some(take(args, &mut i, a)?),
-            "--couch" => c.extras.couch = Some(crate::extras::Couch::parse(&take(args, &mut i, a)?)?),
-            "--window" => c.extras.window = Some(crate::extras::Rect::parse(&take(args, &mut i, a)?)?),
-            "--gamepad" => c.extras.gamepad = Some(take(args, &mut i, a)?.parse().map_err(|_| "--gamepad takes a controller number".to_string())?),
+            "--couch" => {
+                c.extras.couch = Some(crate::extras::Couch::parse(&take(args, &mut i, a)?)?)
+            }
+            "--window" => {
+                c.extras.window = Some(crate::extras::Rect::parse(&take(args, &mut i, a)?)?)
+            }
+            "--gamepad" => {
+                c.extras.gamepad = Some(
+                    take(args, &mut i, a)?
+                        .parse()
+                        .map_err(|_| "--gamepad takes a controller number".to_string())?,
+                )
+            }
             "--print-command" => {
                 let m = take(args, &mut i, "--print-command")?;
                 if m != "host" && m != "join" {
@@ -116,7 +144,11 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
                     }
                     None => None,
                 };
-                if a == "--port-check" { c.port_check = Some(p) } else { c.port_listen = Some(p) }
+                if a == "--port-check" {
+                    c.port_check = Some(p)
+                } else {
+                    c.port_listen = Some(p)
+                }
             }
             "--port-probe" => c.port_probe = Some(take(args, &mut i, a)?),
             "--home" => c.home = Some(take(args, &mut i, a)?.into()),
@@ -176,34 +208,56 @@ pub fn make_plan(i: &LaunchInput) -> Result<Launch, String> {
     let player = clean_name(&s.player_name);
     let (role, mode, campaign) = if i.host {
         let campaign = match (&i.campaign, i.new_game) {
-            (Some(c), _) => party::parse_campaign_id(c).ok_or("The campaign id must be 16 hex digits.")?,
+            (Some(c), _) => {
+                party::parse_campaign_id(c).ok_or("The campaign id must be 16 hex digits.")?
+            }
             (None, true) => party::new_campaign_id(i.random),
             (None, false) => return Err("Continue needs a campaign id (--continue ID).".into()),
         };
         if !i.new_game && i.save.is_none() {
             return Err("No save was found for that campaign. Start a new game, or play it once and save (F5) first.".into());
         }
-        (Role::Host, Mode::Host { port: s.port, new_game: i.new_game }, campaign)
+        (
+            Role::Host,
+            Mode::Host {
+                port: s.port,
+                new_game: i.new_game,
+            },
+            campaign,
+        )
     } else {
         let j = i.join.as_ref().ok_or("Join needs a join code.")?;
         let mode = match j {
-            JoinInput::Addr(_) => {
-                return Err("A plain address has no session token. Ask the host for the join code (NVRS-...).".into())
-            }
-            JoinInput::Code { target: coop_net::JoinTarget::SteamLobby(_), .. } if !i.steam => {
+            JoinInput::Addr(_) => return Err(
+                "A plain address has no session token. Ask the host for the join code (NVRS-...)."
+                    .into(),
+            ),
+            JoinInput::Code {
+                target: coop_net::JoinTarget::SteamLobby(_),
+                ..
+            } if !i.steam => {
                 return Err(STEAM_NEEDED.into());
             }
             JoinInput::SteamFriend if !i.steam => return Err(STEAM_NEEDED.into()),
             JoinInput::SteamFriend => Mode::JoinFriend,
-            JoinInput::Code { .. } => Mode::Join { addr: j.viewer_arg().to_string() },
+            // a short code the viewer resolves itself (the join service named by NVRS_JOIN_SERVICE)
+            JoinInput::Code { .. } | JoinInput::Short(_) => Mode::Join {
+                addr: j.viewer_arg().to_string(),
+            },
         };
         let campaign = match &i.campaign {
-            Some(c) => party::parse_campaign_id(c).ok_or("The campaign id must be 16 hex digits.")?,
+            Some(c) => {
+                party::parse_campaign_id(c).ok_or("The campaign id must be 16 hex digits.")?
+            }
             None => party::new_campaign_id(i.random),
         };
         (Role::Guest, mode, campaign)
     };
-    let cwd = i.home.join("saves").join(&campaign).join(party::player_folder(role, &player));
+    let cwd = i
+        .home
+        .join("saves")
+        .join(&campaign)
+        .join(party::player_folder(role, &player));
     let plan = Plan {
         viewer: i.viewer.clone(),
         data: PathBuf::from(&s.data_path),
@@ -217,10 +271,19 @@ pub fn make_plan(i: &LaunchInput) -> Result<Launch, String> {
         height: s.height,
         steam: i.steam,
         token: if i.host { Some(i.token) } else { None },
-        load: if i.host && i.new_game { None } else { i.save.clone() },
+        load: if i.host && i.new_game {
+            None
+        } else {
+            i.save.clone()
+        },
         extras: i.extras.clone(),
     };
-    Ok(Launch { plan, campaign, role, player })
+    Ok(Launch {
+        plan,
+        campaign,
+        role,
+        player,
+    })
 }
 
 /// The viewer to run: the given path, else `app\nv-viewer.exe` or `nv-viewer.exe` beside the launcher.
@@ -228,7 +291,10 @@ pub fn find_viewer(given: Option<&Path>, exe_dir: &Path) -> PathBuf {
     if let Some(g) = given {
         return g.to_path_buf();
     }
-    for rel in [Path::new("app").join("nv-viewer.exe"), PathBuf::from("nv-viewer.exe")] {
+    for rel in [
+        Path::new("app").join("nv-viewer.exe"),
+        PathBuf::from("nv-viewer.exe"),
+    ] {
         let p = exe_dir.join(rel);
         if p.is_file() {
             return p;
@@ -238,13 +304,35 @@ pub fn find_viewer(given: Option<&Path>, exe_dir: &Path) -> PathBuf {
 }
 
 /// Builds the `--print-command` text from the flags and loaded settings.
-pub fn print_command(c: &Cli, settings: Settings, home: &Path, exe_dir: &Path, random: [u8; 8]) -> Result<String, String> {
+pub fn print_command(
+    c: &Cli,
+    settings: Settings,
+    home: &Path,
+    exe_dir: &Path,
+    random: [u8; 8],
+) -> Result<String, String> {
     let mode = c.print_command.clone().ok_or("no mode")?;
-    let (launch, _) = plan_from_cli(c, &mode, settings, home, exe_dir, random, joincode::token_from_seed(random), "dryrun".into(), true)?;
+    let (launch, _) = plan_from_cli(
+        c,
+        &mode,
+        settings,
+        home,
+        exe_dir,
+        random,
+        joincode::token_from_seed(random),
+        "dryrun".into(),
+        true,
+    )?;
     let mut spec = command::build(&launch.plan);
     // a dry run writes nothing, so a guest's id file is not made here
     if launch.role == Role::Host {
-        party::extend_spec(&mut spec, launch.role, c.continue_id.is_none(), home, random);
+        party::extend_spec(
+            &mut spec,
+            launch.role,
+            c.continue_id.is_none(),
+            home,
+            random,
+        );
     }
     Ok(command::render(&spec))
 }
@@ -281,16 +369,32 @@ pub fn plan_from_cli(
         (None, false) => return Err("join mode needs --join".into()),
         _ => None,
     };
-    let viewer_given = c.viewer.clone().or_else(|| Some(PathBuf::from(&settings.viewer_path)).filter(|p| !p.as_os_str().is_empty()));
+    let viewer_given = c.viewer.clone().or_else(|| {
+        Some(PathBuf::from(&settings.viewer_path)).filter(|p| !p.as_os_str().is_empty())
+    });
     let new_game = host && c.continue_id.is_none();
-    let campaign = if host { c.continue_id.clone() } else { c.campaign.clone() };
+    let campaign = if host {
+        c.continue_id.clone()
+    } else {
+        c.campaign.clone()
+    };
     let player = clean_name(&settings.player_name);
     let root = home.join("saves");
     let role = if host { Role::Host } else { Role::Guest };
-    let save = match (&c.save, new_game, campaign.as_deref().and_then(party::parse_campaign_id)) {
+    let save = match (
+        &c.save,
+        new_game,
+        campaign.as_deref().and_then(party::parse_campaign_id),
+    ) {
         (Some(s), false, _) => Some(s.clone()),
         (None, false, Some(id)) => party::find_save(&root, &id, role, &player).or_else(|| {
-            nominal_save.then(|| root.join(&id).join(party::player_folder(role, &player)).join("nv-rs-quicksave.txt")).filter(|_| host)
+            nominal_save
+                .then(|| {
+                    root.join(&id)
+                        .join(party::player_folder(role, &player))
+                        .join("nv-rs-quicksave.txt")
+                })
+                .filter(|_| host)
         }),
         _ => None,
     };
@@ -304,7 +408,13 @@ pub fn plan_from_cli(
         campaign,
         random,
         // A dry run of a Steam join shows the Steam flags.
-        steam: matches!(&join, Some(JoinInput::Code { target: coop_net::JoinTarget::SteamLobby(_), .. })),
+        steam: matches!(
+            &join,
+            Some(JoinInput::Code {
+                target: coop_net::JoinTarget::SteamLobby(_),
+                ..
+            })
+        ),
         save,
         token,
         stamp,
@@ -323,32 +433,72 @@ mod tests {
 
     #[test]
     fn parses_flags() {
-        let c = parse(&v(&["--print-command", "join", "--join", "1.2.3.4", "--uncap", "--port", "4000"])).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "join",
+            "--join",
+            "1.2.3.4",
+            "--uncap",
+            "--port",
+            "4000",
+        ]))
+        .unwrap();
         assert_eq!(c.print_command.as_deref(), Some("join"));
         assert_eq!(c.port, Some(4000));
         assert!(c.uncap);
         assert_eq!(parse(&v(&["--port-check"])).unwrap().port_check, Some(None));
-        assert_eq!(parse(&v(&["--port-check", "5000", "--selftest"])).unwrap().port_check, Some(Some(5000)));
+        assert_eq!(
+            parse(&v(&["--port-check", "5000", "--selftest"]))
+                .unwrap()
+                .port_check,
+            Some(Some(5000))
+        );
         assert!(parse(&v(&["--selftest"])).unwrap().selftest);
     }
 
     #[test]
     fn rejects_bad_flags() {
-        for bad in [v(&["--nope"]), v(&["--port", "0"]), v(&["--port"]), v(&["--print-command", "fly"]), v(&["--port-check", "99999"])] {
+        for bad in [
+            v(&["--nope"]),
+            v(&["--port", "0"]),
+            v(&["--port"]),
+            v(&["--print-command", "fly"]),
+            v(&["--port-check", "99999"]),
+        ] {
             assert!(parse(&bad).is_err(), "{bad:?}");
         }
     }
 
     fn settings() -> Settings {
-        Settings { data_path: r"D:\FNV\Data".into(), player_name: "Ann".into(), ..Settings::default() }
+        Settings {
+            data_path: r"D:\FNV\Data".into(),
+            player_name: "Ann".into(),
+            ..Settings::default()
+        }
     }
 
     #[test]
     fn dry_run_host_new_game() {
-        let c = parse(&v(&["--print-command", "host", "--viewer", r"C:\nv\nv-viewer.exe", "--uncap"])).unwrap();
-        let t = print_command(&c, settings(), Path::new(r"C:\home"), Path::new(r"C:\nv"), [1; 8]).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "host",
+            "--viewer",
+            r"C:\nv\nv-viewer.exe",
+            "--uncap",
+        ]))
+        .unwrap();
+        let t = print_command(
+            &c,
+            settings(),
+            Path::new(r"C:\home"),
+            Path::new(r"C:\nv"),
+            [1; 8],
+        )
+        .unwrap();
         assert!(t.contains("env: NV_UNCAP=1"));
-        assert!(t.contains(r#"cmd: C:\nv\nv-viewer.exe D:\FNV\Data --new-game --coop-host 27961 --coop-token "#));
+        assert!(t.contains(
+            r#"cmd: C:\nv\nv-viewer.exe D:\FNV\Data --new-game --coop-host 27961 --coop-token "#
+        ));
         assert!(t.contains("--coop-name Ann --coop-log"));
         assert!(!t.contains("--coop-test-token"));
         assert!(t.contains(r"cwd: C:\home\saves\0101010101010101\host-ann"));
@@ -356,12 +506,30 @@ mod tests {
 
     #[test]
     fn dry_run_continue_and_join() {
-        let c = parse(&v(&["--print-command", "host", "--continue", "00AB12CD34EF5678", "--viewer", "v.exe"])).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "host",
+            "--continue",
+            "00AB12CD34EF5678",
+            "--viewer",
+            "v.exe",
+        ]))
+        .unwrap();
         let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [1; 8]).unwrap();
         assert!(t.contains("--coop-load") && t.contains("--coop-host"));
         assert!(t.contains("00ab12cd34ef5678"));
         let code = joincode::host_code("192.168.1.20", 27961, [7; 16]).unwrap();
-        let c = parse(&v(&["--print-command", "join", "--join", &code, "--viewer", "v.exe", "--name", "Bo"])).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "join",
+            "--join",
+            &code,
+            "--viewer",
+            "v.exe",
+            "--name",
+            "Bo",
+        ]))
+        .unwrap();
         let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
         assert!(t.contains(&format!("--coop-join {code} --coop-name Bo")));
         assert!(!t.contains("--new-game"));
@@ -370,12 +538,32 @@ mod tests {
 
     #[test]
     fn plain_address_join_is_refused_and_steam_codes_need_steam() {
-        let c = parse(&v(&["--print-command", "join", "--join", "1.2.3.4:27961", "--viewer", "v.exe"])).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "join",
+            "--join",
+            "1.2.3.4:27961",
+            "--viewer",
+            "v.exe",
+        ]))
+        .unwrap();
         let e = print_command(&c, settings(), Path::new("h"), Path::new("."), [1; 8]).unwrap_err();
         assert!(e.contains("join code"), "{e}");
-        let steam = coop_net::JoinCode::new(coop_net::JoinTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
+        let steam = coop_net::JoinCode::new(
+            coop_net::JoinTarget::SteamLobby(109_775_241_000_000_001),
+            [3; 16],
+        )
+        .to_string();
         // dry run shows the Steam flags
-        let c = parse(&v(&["--print-command", "join", "--join", &steam, "--viewer", "v.exe"])).unwrap();
+        let c = parse(&v(&[
+            "--print-command",
+            "join",
+            "--join",
+            &steam,
+            "--viewer",
+            "v.exe",
+        ]))
+        .unwrap();
         let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
         assert!(t.contains("--coop-steam"), "{t}");
         // a real launch without Steam is refused with the reason
@@ -416,46 +604,112 @@ mod tests {
         };
         // host, new game: the whole opening
         let t = run(&["--print-command", "host"]).unwrap();
-        assert!(t.contains("--new-game --coop-host 27961 --coop-token ") && !t.contains("--coop-load"), "{t}");
+        assert!(
+            t.contains("--new-game --coop-host 27961 --coop-token ") && !t.contains("--coop-load"),
+            "{t}"
+        );
         // host, continue with no save yet: the dry run shows the path
         let t = run(&["--print-command", "host", "--continue", "00AB12CD34EF5678"]).unwrap();
-        assert!(t.contains("--coop-load") && t.contains("nv-rs-quicksave.txt") && t.contains("--coop-host"), "{t}");
-        assert!(!t.contains("--new-game") && !t.contains("GSDocMitchellHouse"), "{t}");
+        assert!(
+            t.contains("--coop-load")
+                && t.contains("nv-rs-quicksave.txt")
+                && t.contains("--coop-host"),
+            "{t}"
+        );
+        assert!(
+            !t.contains("--new-game") && !t.contains("GSDocMitchellHouse"),
+            "{t}"
+        );
         // host, continue with a real save: the newest one
         let dir = home.join("saves").join("00ab12cd34ef5678").join("host-ann");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("nv-rs-quicksave.txt"), "x").unwrap();
-        let t = run(&["--print-command", "host", "--continue", "00AB12CD34EF5678", "--port", "5000", "--uncap"]).unwrap();
-        assert!(t.contains("--coop-host 5000") && t.contains("env: NV_UNCAP=1"), "{t}");
+        let t = run(&[
+            "--print-command",
+            "host",
+            "--continue",
+            "00AB12CD34EF5678",
+            "--port",
+            "5000",
+            "--uncap",
+        ])
+        .unwrap();
+        assert!(
+            t.contains("--coop-host 5000") && t.contains("env: NV_UNCAP=1"),
+            "{t}"
+        );
         // an explicit save wins
-        let t = run(&["--print-command", "host", "--continue", "00AB12CD34EF5678", "--save", "my.txt"]).unwrap();
+        let t = run(&[
+            "--print-command",
+            "host",
+            "--continue",
+            "00AB12CD34EF5678",
+            "--save",
+            "my.txt",
+        ])
+        .unwrap();
         assert!(t.contains("--coop-load my.txt"), "{t}");
         // guest: a join code, no save, the host's place and opening decide the rest
         let t = run(&["--print-command", "join", "--join", &code]).unwrap();
-        assert!(t.contains("--coop-join") && !t.contains("--coop-load") && !t.contains("--new-game"), "{t}");
+        assert!(
+            t.contains("--coop-join") && !t.contains("--coop-load") && !t.contains("--new-game"),
+            "{t}"
+        );
         // guest returning to a campaign with its own saved character
-        let gdir = home.join("saves").join("00ab12cd34ef5678").join("guest-ann");
+        let gdir = home
+            .join("saves")
+            .join("00ab12cd34ef5678")
+            .join("guest-ann");
         std::fs::create_dir_all(&gdir).unwrap();
         std::fs::write(gdir.join("nv-rs-quicksave.txt"), "x").unwrap();
-        let t = run(&["--print-command", "join", "--join", &code, "--campaign", "00ab12cd34ef5678"]).unwrap();
-        assert!(t.contains("--coop-join") && t.contains("--coop-load") && t.contains("guest-ann"), "{t}");
+        let t = run(&[
+            "--print-command",
+            "join",
+            "--join",
+            &code,
+            "--campaign",
+            "00ab12cd34ef5678",
+        ])
+        .unwrap();
+        assert!(
+            t.contains("--coop-join") && t.contains("--coop-load") && t.contains("guest-ann"),
+            "{t}"
+        );
         // a settings viewer path is used when --viewer is not given
         let mut s = settings();
         s.viewer_path = r"E:
 v
-v-viewer.exe".into();
+v-viewer.exe"
+            .into();
         let c = parse(&["--print-command".to_string(), "host".to_string()]).unwrap();
         let t = print_command(&c, s, &home, Path::new("."), [1; 8]).unwrap();
-        assert!(t.contains(r"cmd: E:\nv\nv-viewer.exe") || t.contains(r"cmd: E:
+        assert!(
+            t.contains(r"cmd: E:\nv\nv-viewer.exe")
+                || t.contains(
+                    r"cmd: E:
 v
-v-viewer.exe"), "{t}");
+v-viewer.exe"
+                ),
+            "{t}"
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
     fn start_and_help_flags_parse() {
-        let c = parse(&["--start".into(), "host".into(), "--address".into(), "1.2.3.4".into(), "--save".into(), "s.txt".into()]).unwrap();
-        assert_eq!((c.start.as_deref(), c.address.as_deref(), c.save.as_deref()), (Some("host"), Some("1.2.3.4"), Some(Path::new("s.txt"))));
+        let c = parse(&[
+            "--start".into(),
+            "host".into(),
+            "--address".into(),
+            "1.2.3.4".into(),
+            "--save".into(),
+            "s.txt".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            (c.start.as_deref(), c.address.as_deref(), c.save.as_deref()),
+            (Some("host"), Some("1.2.3.4"), Some(Path::new("s.txt")))
+        );
         assert!(parse(&["--coop-help".into()]).unwrap().coop_help);
         assert!(parse(&["--start".into(), "fly".into()]).is_err());
         assert!(HELP.contains("--coop-help") && HELP.contains("--start"));
@@ -464,18 +718,66 @@ v-viewer.exe"), "{t}");
     #[test]
     fn extras_flags_reach_the_viewer_command() {
         let c = parse(&v(&[
-            "--print-command", "host", "--viewer", "v.exe", "--allow-mismatch", "--couch", "1/2", "--window", "0,540,1920,540",
-            "--gamepad", "1", "--ping-key", "MouseMiddle",
+            "--print-command",
+            "host",
+            "--viewer",
+            "v.exe",
+            "--allow-mismatch",
+            "--couch",
+            "1/2",
+            "--window",
+            "0,540,1920,540",
+            "--gamepad",
+            "1",
+            "--ping-key",
+            "MouseMiddle",
         ]))
         .unwrap();
         let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
-        for want in ["--coop-allow-mismatch", "--coop-couch 1/2", "--coop-window 0,540,1920,540", "--coop-gamepad 1", "--coop-voice off", "--coop-ping-key MouseMiddle"] {
+        for want in [
+            "--coop-allow-mismatch",
+            "--coop-couch 1/2",
+            "--coop-window 0,540,1920,540",
+            "--coop-gamepad 1",
+            "--coop-voice off",
+            "--coop-ping-key MouseMiddle",
+        ] {
             assert!(t.contains(want), "{want} in {t}");
         }
         assert!(parse(&v(&["--couch", "2/2"])).is_err());
         assert!(parse(&v(&["--voice", "loud"])).is_err());
-        let plain = print_command(&parse(&v(&["--print-command", "host", "--viewer", "v.exe"])).unwrap(), settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
+        let plain = print_command(
+            &parse(&v(&["--print-command", "host", "--viewer", "v.exe"])).unwrap(),
+            settings(),
+            Path::new("h"),
+            Path::new("."),
+            [2; 8],
+        )
+        .unwrap();
         assert!(!plain.contains("--coop-allow-mismatch") && !plain.contains("--coop-couch"));
+        assert!(!plain.contains("--coop-difficulty") && !plain.contains("--coop-friendly-fire"));
+    }
+
+    #[test]
+    fn the_host_rules_reach_the_viewer_command() {
+        let c = parse(&v(&[
+            "--print-command",
+            "host",
+            "--viewer",
+            "v.exe",
+            "--difficulty",
+            "normal",
+            "--friendly-fire",
+            "on",
+        ]))
+        .unwrap();
+        let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
+        assert!(
+            t.contains("--coop-difficulty normal --coop-friendly-fire on"),
+            "{t}"
+        );
+        assert!(parse(&v(&["--difficulty", "hard"])).is_err());
+        assert!(parse(&v(&["--friendly-fire", "maybe"])).is_err());
     }
 
     #[test]
@@ -483,7 +785,15 @@ v-viewer.exe"), "{t}");
         let c = parse(&v(&["--print-command", "join"])).unwrap();
         assert!(print_command(&c, settings(), Path::new("h"), Path::new("."), [1; 8]).is_err());
         let c = parse(&v(&["--print-command", "host"])).unwrap();
-        assert!(print_command(&c, Settings::default(), Path::new("h"), Path::new("."), [1; 8]).unwrap_err().contains("Setup"));
+        assert!(print_command(
+            &c,
+            Settings::default(),
+            Path::new("h"),
+            Path::new("."),
+            [1; 8]
+        )
+        .unwrap_err()
+        .contains("Setup"));
         let c = parse(&v(&["--print-command", "host", "--continue", "xyz"])).unwrap();
         assert!(print_command(&c, settings(), Path::new("h"), Path::new("."), [1; 8]).is_err());
     }

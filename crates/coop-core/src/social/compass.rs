@@ -142,7 +142,11 @@ pub fn compass(l: &Listener, pins: &[Pin]) -> Vec<CompassEntry> {
         } else {
             (-1.0, Edge::Left)
         };
-        let alpha = if p.kind == KIND_TEAMMATE { fade(d) } else { 1.0 };
+        let alpha = if p.kind == KIND_TEAMMATE {
+            fade(d)
+        } else {
+            1.0
+        };
         out.push(CompassEntry {
             owner: p.owner,
             kind: p.kind,
@@ -154,7 +158,11 @@ pub fn compass(l: &Listener, pins: &[Pin]) -> Vec<CompassEntry> {
             label: p.label.clone(),
         });
     }
-    out.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.distance
+            .partial_cmp(&b.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 
@@ -189,7 +197,14 @@ pub struct MapGlyph {
 pub fn map_glyphs(pins: &[Pin], on_map_cell: impl Fn(u32) -> bool) -> Vec<MapGlyph> {
     pins.iter()
         .filter(|p| on_map_cell(p.cell))
-        .map(|p| MapGlyph { owner: p.owner, kind: p.kind, cell: p.cell, pos: p.pos, label: p.label.clone(), color: color_slot(p.owner) })
+        .map(|p| MapGlyph {
+            owner: p.owner,
+            kind: p.kind,
+            cell: p.cell,
+            pos: p.pos,
+            label: p.label.clone(),
+            color: color_slot(p.owner),
+        })
         .collect()
 }
 
@@ -254,9 +269,17 @@ pub fn name_tag(l: &Listener, p: &Pin, speaking: bool) -> Option<NameTag> {
 
 /// Where a ping lands: the first thing the view ray hit, else far along it.
 pub fn ping_point(eye: [f32; 3], dir: [f32; 3], hit_distance: Option<f32>) -> [f32; 3] {
-    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(1e-6);
-    let t = hit_distance.unwrap_or(PING_MAX_RANGE).clamp(0.0, PING_MAX_RANGE);
-    [eye[0] + dir[0] / len * t, eye[1] + dir[1] / len * t, eye[2] + dir[2] / len * t]
+    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
+        .sqrt()
+        .max(1e-6);
+    let t = hit_distance
+        .unwrap_or(PING_MAX_RANGE)
+        .clamp(0.0, PING_MAX_RANGE);
+    [
+        eye[0] + dir[0] / len * t,
+        eye[1] + dir[1] / len * t,
+        eye[2] + dir[2] / len * t,
+    ]
 }
 
 fn fix(v: f32) -> i32 {
@@ -286,15 +309,30 @@ impl PingBook {
 
     /// Places a ping. `None` while the cooldown runs; otherwise the message
     /// for the host. The oldest ping is cleared when too many are out.
-    pub fn ping(&mut self, me: PlayerId, cell: u32, pos: [f32; 3], label: &str, now_ms: u64) -> Option<Vec<SocialMsg>> {
-        if self.last_ping_ms.map_or(false, |t| now_ms.saturating_sub(t) < PING_COOLDOWN_MS) {
+    pub fn ping(
+        &mut self,
+        me: PlayerId,
+        cell: u32,
+        pos: [f32; 3],
+        label: &str,
+        now_ms: u64,
+    ) -> Option<Vec<SocialMsg>> {
+        if self
+            .last_ping_ms
+            .map_or(false, |t| now_ms.saturating_sub(t) < PING_COOLDOWN_MS)
+        {
             self.refused += 1;
             return None;
         }
         self.last_ping_ms = Some(now_ms);
         self.pings += 1;
         let mut msgs = Vec::new();
-        let kept: Vec<u16> = self.order.iter().copied().filter(|i| *i >= PING_ID_BASE).collect();
+        let kept: Vec<u16> = self
+            .order
+            .iter()
+            .copied()
+            .filter(|i| *i >= PING_ID_BASE)
+            .collect();
         if kept.len() >= PINGS_KEPT {
             let old = kept[0];
             self.mine.remove(&old);
@@ -309,36 +347,79 @@ impl PingBook {
         self.mine.insert(
             id,
             (
-                Pin { owner: me, kind: KIND_PING, cell, pos, label: label.to_string(), health: None, downed: false },
+                Pin {
+                    owner: me,
+                    kind: KIND_PING,
+                    cell,
+                    pos,
+                    label: label.to_string(),
+                    health: None,
+                    downed: false,
+                },
                 Some(now_ms + u64::from(PING_TTL_MS)),
             ),
         );
         msgs.push(SocialMsg::MarkerSet {
-            marker: Marker { id, kind: KIND_PING, cell: CellId(cell), pos: [fix(pos[0]), fix(pos[1]), fix(pos[2])], label: label.to_string(), ttl_ms: PING_TTL_MS },
+            marker: Marker {
+                id,
+                kind: KIND_PING,
+                cell: CellId(cell),
+                pos: [fix(pos[0]), fix(pos[1]), fix(pos[2])],
+                label: label.to_string(),
+                ttl_ms: PING_TTL_MS,
+            },
         });
         Some(msgs)
     }
 
     /// Sets (or moves) the single waypoint, which lasts until cleared.
     pub fn waypoint(&mut self, me: PlayerId, cell: u32, pos: [f32; 3], label: &str) -> SocialMsg {
-        self.mine.insert(1, (Pin { owner: me, kind: KIND_WAYPOINT, cell, pos, label: label.to_string(), health: None, downed: false }, None));
+        self.mine.insert(
+            1,
+            (
+                Pin {
+                    owner: me,
+                    kind: KIND_WAYPOINT,
+                    cell,
+                    pos,
+                    label: label.to_string(),
+                    health: None,
+                    downed: false,
+                },
+                None,
+            ),
+        );
         if !self.order.contains(&1) {
             self.order.push(1);
         }
         SocialMsg::MarkerSet {
-            marker: Marker { id: 1, kind: KIND_WAYPOINT, cell: CellId(cell), pos: [fix(pos[0]), fix(pos[1]), fix(pos[2])], label: label.to_string(), ttl_ms: 0 },
+            marker: Marker {
+                id: 1,
+                kind: KIND_WAYPOINT,
+                cell: CellId(cell),
+                pos: [fix(pos[0]), fix(pos[1]), fix(pos[2])],
+                label: label.to_string(),
+                ttl_ms: 0,
+            },
         }
     }
 
     /// Clears the waypoint.
     pub fn clear_waypoint(&mut self) -> Option<SocialMsg> {
         self.order.retain(|i| *i != 1);
-        self.mine.remove(&1).map(|_| SocialMsg::MarkerClear { id: 1 })
+        self.mine
+            .remove(&1)
+            .map(|_| SocialMsg::MarkerClear { id: 1 })
     }
 
     /// Drops expired pings.
     pub fn tick(&mut self, now_ms: u64) {
-        let gone: Vec<u16> = self.mine.iter().filter(|(_, (_, e))| e.map_or(false, |e| now_ms >= e)).map(|(i, _)| *i).collect();
+        let gone: Vec<u16> = self
+            .mine
+            .iter()
+            .filter(|(_, (_, e))| e.map_or(false, |e| now_ms >= e))
+            .map(|(i, _)| *i)
+            .collect();
         for i in gone {
             self.mine.remove(&i);
             self.order.retain(|x| *x != i);
@@ -360,9 +441,29 @@ pub fn collect_pins(
 ) -> Vec<Pin> {
     let mut v: Vec<Pin> = teammates
         .into_iter()
-        .map(|(owner, name, cell, pos, health, downed)| Pin { owner, kind: KIND_TEAMMATE, cell, pos, label: name, health: Some(health), downed })
+        .map(|(owner, name, cell, pos, health, downed)| Pin {
+            owner,
+            kind: KIND_TEAMMATE,
+            cell,
+            pos,
+            label: name,
+            health: Some(health),
+            downed,
+        })
         .collect();
-    v.extend(markers.into_iter().map(|(owner, kind, cell, pos, label)| Pin { owner, kind, cell, pos, label, health: None, downed: false }));
+    v.extend(
+        markers
+            .into_iter()
+            .map(|(owner, kind, cell, pos, label)| Pin {
+                owner,
+                kind,
+                cell,
+                pos,
+                label,
+                health: None,
+                downed: false,
+            }),
+    );
     v.extend(own.iter().cloned());
     v
 }
@@ -375,11 +476,23 @@ mod tests {
     const ANN: PlayerId = PlayerId(1);
 
     fn at(h: f32) -> Listener {
-        Listener { cell: 7, pos: [0.0, 0.0, 0.0], heading: h }
+        Listener {
+            cell: 7,
+            pos: [0.0, 0.0, 0.0],
+            heading: h,
+        }
     }
 
     fn pin(kind: u8, pos: [f32; 3]) -> Pin {
-        Pin { owner: ANN, kind, cell: 7, pos, label: "Ann".into(), health: Some(1.0), downed: false }
+        Pin {
+            owner: ANN,
+            kind,
+            cell: 7,
+            pos,
+            label: "Ann".into(),
+            health: Some(1.0),
+            downed: false,
+        }
     }
 
     #[test]
@@ -389,7 +502,10 @@ mod tests {
         let (b, _) = bearing(&at(0.0), [100.0, 0.0, 0.0]);
         assert!((b - PI / 2.0).abs() < 1e-5, "east is right of north: {b}");
         let (b, _) = bearing(&at(PI / 2.0), [0.0, 100.0, 0.0]);
-        assert!((b + PI / 2.0).abs() < 1e-5, "facing east, north is left: {b}");
+        assert!(
+            (b + PI / 2.0).abs() < 1e-5,
+            "facing east, north is left: {b}"
+        );
         let (b, _) = bearing(&at(0.0), [0.0, -100.0, 0.0]);
         assert!((b.abs() - PI).abs() < 1e-5, "behind");
     }
@@ -406,12 +522,20 @@ mod tests {
         let ahead = c.iter().find(|e| e.kind == KIND_TEAMMATE).unwrap();
         assert!(ahead.x.abs() < 1e-5 && ahead.edge == Edge::None);
         let east = c.iter().find(|e| e.kind == KIND_PING && e.x > 0.9).unwrap();
-        assert_eq!(east.edge, Edge::None, "exactly 90 degrees is on the strip's end");
+        assert_eq!(
+            east.edge,
+            Edge::None,
+            "exactly 90 degrees is on the strip's end"
+        );
         assert!((east.dz - 30.0).abs() < 1e-5);
         let back = c.iter().find(|e| e.x < -0.9).unwrap();
         assert!(back.x <= -0.99);
         let behind = compass(&at(0.0), &[pin(KIND_PING, [10.0, -500.0, 0.0])]);
-        assert_eq!(behind[0].edge, Edge::Right, "a bit east of straight behind sticks right");
+        assert_eq!(
+            behind[0].edge,
+            Edge::Right,
+            "a bit east of straight behind sticks right"
+        );
         let behind = compass(&at(0.0), &[pin(KIND_PING, [-10.0, -500.0, 0.0])]);
         assert_eq!(behind[0].edge, Edge::Left);
     }
@@ -429,7 +553,13 @@ mod tests {
 
     #[test]
     fn teammates_fade_with_distance_and_sort_nearest_first() {
-        let c = compass(&at(0.0), &[pin(KIND_TEAMMATE, [0.0, 8000.0, 0.0]), pin(KIND_TEAMMATE, [0.0, 100.0, 0.0])]);
+        let c = compass(
+            &at(0.0),
+            &[
+                pin(KIND_TEAMMATE, [0.0, 8000.0, 0.0]),
+                pin(KIND_TEAMMATE, [0.0, 100.0, 0.0]),
+            ],
+        );
         assert!(c[0].distance < c[1].distance);
         assert_eq!(c[0].alpha, 1.0);
         assert!(c[1].alpha > 0.0 && c[1].alpha < 1.0);
@@ -455,7 +585,13 @@ mod tests {
 
     #[test]
     fn map_glyphs_follow_the_map_cell() {
-        let pins = vec![pin(KIND_TEAMMATE, [1.0, 2.0, 3.0]), Pin { cell: 9, ..pin(KIND_PING, [0.0; 3]) }];
+        let pins = vec![
+            pin(KIND_TEAMMATE, [1.0, 2.0, 3.0]),
+            Pin {
+                cell: 9,
+                ..pin(KIND_PING, [0.0; 3])
+            },
+        ];
         let g = map_glyphs(&pins, |c| c == 7);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].color, color_slot(ANN));
@@ -476,15 +612,21 @@ mod tests {
     fn pings_have_a_cooldown_a_lifetime_and_a_cap() {
         let mut b = PingBook::new();
         let m = b.ping(ME, 7, [1.0, 2.0, 3.0], "ping", 1000).unwrap();
-        assert!(matches!(&m[0], SocialMsg::MarkerSet { marker } if marker.ttl_ms == PING_TTL_MS && marker.kind == KIND_PING));
+        assert!(
+            matches!(&m[0], SocialMsg::MarkerSet { marker } if marker.ttl_ms == PING_TTL_MS && marker.kind == KIND_PING)
+        );
         assert!(b.ping(ME, 7, [0.0; 3], "ping", 1300).is_none(), "cooldown");
         assert_eq!(b.refused, 1);
         for i in 0..3u64 {
-            b.ping(ME, 7, [i as f32, 0.0, 0.0], "ping", 2000 + i * 1000).unwrap();
+            b.ping(ME, 7, [i as f32, 0.0, 0.0], "ping", 2000 + i * 1000)
+                .unwrap();
         }
         assert_eq!(b.pins().len(), PINGS_KEPT, "oldest cleared");
         let last = b.ping(ME, 7, [9.0, 0.0, 0.0], "ping", 6000).unwrap();
-        assert!(matches!(last[0], SocialMsg::MarkerClear { .. }), "the cap clears the oldest first");
+        assert!(
+            matches!(last[0], SocialMsg::MarkerClear { .. }),
+            "the cap clears the oldest first"
+        );
         b.tick(6000 + u64::from(PING_TTL_MS) + 1);
         assert!(b.pins().is_empty(), "expired");
     }

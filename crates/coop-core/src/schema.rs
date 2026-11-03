@@ -129,7 +129,10 @@ impl Field {
 
     /// Builds a `ScriptVar` from an f64.
     pub fn script_var(index: u16, v: f64) -> Field {
-        Field::ScriptVar { index, bits: v.to_bits() }
+        Field::ScriptVar {
+            index,
+            bits: v.to_bits(),
+        }
     }
 
     /// Stable discriminant used in [`Key`].
@@ -166,7 +169,11 @@ impl Field {
 
     /// The slot key of this field on `form`.
     pub fn key(&self, form: FormId) -> Key {
-        Key { form, kind: self.kind(), sub: self.sub() }
+        Key {
+            form,
+            kind: self.kind(),
+            sub: self.sub(),
+        }
     }
 
     /// Write permission class.
@@ -201,21 +208,46 @@ mod tests {
         assert_ne!(a, b);
         let c = Field::Objective { index: 1, state: 9 }.key(f);
         assert_eq!(a, c);
-        assert_ne!(Field::QuestStage { stage: 1 }.key(f), Field::QuestFlags { flags: 1 }.key(f));
+        assert_ne!(
+            Field::QuestStage { stage: 1 }.key(f),
+            Field::QuestFlags { flags: 1 }.key(f)
+        );
     }
 
     #[test]
     fn classes() {
         assert_eq!(Field::QuestStage { stage: 1 }.class(), WriteClass::Story);
         assert_eq!(Field::Karma { value: 1 }.class(), WriteClass::Story);
-        assert_eq!(Field::ItemCount { item: FormId(2), count: 1 }.class(), WriteClass::Entity);
-        assert_eq!(Field::Custom { tag: 1, data: vec![] }.class(), WriteClass::Story);
+        assert_eq!(
+            Field::ItemCount {
+                item: FormId(2),
+                count: 1
+            }
+            .class(),
+            WriteClass::Entity
+        );
+        assert_eq!(
+            Field::Custom {
+                tag: 1,
+                data: vec![]
+            }
+            .class(),
+            WriteClass::Story
+        );
     }
 
     #[test]
     fn custom_size_limit() {
-        assert!(Field::Custom { tag: 0, data: vec![0; MAX_CUSTOM_BYTES] }.is_sane());
-        assert!(!Field::Custom { tag: 0, data: vec![0; MAX_CUSTOM_BYTES + 1] }.is_sane());
+        assert!(Field::Custom {
+            tag: 0,
+            data: vec![0; MAX_CUSTOM_BYTES]
+        }
+        .is_sane());
+        assert!(!Field::Custom {
+            tag: 0,
+            data: vec![0; MAX_CUSTOM_BYTES + 1]
+        }
+        .is_sane());
     }
 
     #[test]

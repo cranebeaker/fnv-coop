@@ -113,7 +113,10 @@ fn fnv(hash: &mut u64, bytes: &[u8]) {
 pub fn state_hash(state: &GameState) -> u64 {
     let mut hash = 0xCBF2_9CE4_8422_2325u64;
     fnv(&mut hash, save::save(state, None).as_bytes());
-    fnv(&mut hash, format!("cell:{:?}\n", state.player_cell).as_bytes());
+    fnv(
+        &mut hash,
+        format!("cell:{:?}\n", state.player_cell).as_bytes(),
+    );
     for e in &state.events {
         fnv(&mut hash, format!("event:{e:?}\n").as_bytes());
     }

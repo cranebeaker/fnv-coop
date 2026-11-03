@@ -1,0 +1,60 @@
+{
+  "name": "twin_story_map_markers",
+  "description": "MUTATION TWIN of story_map_markers: nobody finds a marker and the host's script reveals none. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-find-shown",
+      "path": "map_markers.PrimmMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "host-find-travel",
+      "path": "map_markers.PrimmMapMarker.travel",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-find-shown",
+      "path": "map_markers.GoodspringsCemeteryMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-find-travel",
+      "path": "map_markers.GoodspringsCemeteryMapMarker.travel",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "reveal-shown",
+      "path": "map_markers.NovacMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "reveal-not-found",
+      "path": "map_markers.NovacMapMarker.found",
+      "op": "eq",
+      "value": false,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

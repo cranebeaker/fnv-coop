@@ -328,7 +328,9 @@ pub fn after(
                     if mode == 1 && state.is_guest() {
                         let (container, n) = (reference, count.max(0) as u32);
                         state.coop_loot(match from {
-                            Side::Container => world::coop::facts::LootOp::Take { container, item, n },
+                            Side::Container => {
+                                world::coop::facts::LootOp::Take { container, item, n }
+                            }
                             Side::Player => world::coop::facts::LootOp::Put { container, item, n },
                         });
                         continue;

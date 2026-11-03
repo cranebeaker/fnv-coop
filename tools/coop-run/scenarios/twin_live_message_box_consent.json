@@ -1,0 +1,157 @@
+{
+  "name": "twin_live_message_box_consent",
+  "description": "MUTATION TWIN of live_message_box_consent: the host's script shows NVDLC04TempleLaunchMSG, a box that no consent row lists. The box opens no vote: the script gets the button at once, nothing is held and the guest gets no prompt. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "ShowMessage NVDLC04TempleLaunchMSG"
+      },
+      {
+        "at": 4,
+        "run": "coop button 1"
+      },
+      {
+        "at": 5,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 6,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 7,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 8,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 9,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 10,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 11,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 12,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 13,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 14,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 15,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 16,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 17,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 18,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 19,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      },
+      {
+        "at": 20,
+        "run": "if GetButtonPressed == 1\nset CG03TestValue to 3\nendif"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 12,
+        "run": "coop vote yes"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "party-box",
+      "path": "campaign.boxes.party",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "vote-opened-host",
+      "path": "campaign.boxes.votes",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "vote-opened-guest",
+      "path": "campaign.boxes.votes",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "held-before-vote",
+      "path": "campaign.boxes.held",
+      "op": "ge",
+      "value": 3,
+      "on": "host"
+    },
+    {
+      "id": "guest-cast-reached-gate",
+      "path": "campaign.boxes.casts",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "released-once",
+      "path": "campaign.boxes.released",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "button-applied",
+      "path": "globals.CG03TestValue",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "fork-approved",
+      "path": "campaign.forks.NVDLC04MQ03b_1",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

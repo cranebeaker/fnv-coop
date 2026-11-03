@@ -35,15 +35,26 @@ pub fn build(order: &esm::LoadOrder, sources: &[Source], funcs: &FuncReport) -> 
                 (Some(on), _) => Some(on.clone()),
                 _ => None,
             };
-            let stage = c.args.iter().find_map(|a| if let script::Arg::Number(n) = a { Some(*n as u16) } else { None });
+            let stage = c.args.iter().find_map(|a| {
+                if let script::Arg::Number(n) = a {
+                    Some(*n as u16)
+                } else {
+                    None
+                }
+            });
             if let (Some(q), Some(st)) = (quest, stage) {
-                g.setters.entry((q.to_ascii_lowercase(), st)).or_default().insert(s.kind);
+                g.setters
+                    .entry((q.to_ascii_lowercase(), st))
+                    .or_default()
+                    .insert(s.kind);
             }
         }
     }
     let mut main: BTreeSet<String> = BTreeSet::new();
     for (id, editor, plugin) in crate::data::quests(order) {
-        let Some(line) = line_of(&plugin, &editor) else { continue };
+        let Some(line) = line_of(&plugin, &editor) else {
+            continue;
+        };
         main.insert(editor.clone());
         if let Some(rr) = order.get(id) {
             if let Ok(r) = rr.record() {
@@ -57,7 +68,10 @@ pub fn build(order: &esm::LoadOrder, sources: &[Source], funcs: &FuncReport) -> 
                 let lowest = list.first().copied();
                 for st in &list {
                     // The first stage is how a quest starts (often StartQuest or START_GAME_ENABLED).
-                    if Some(*st) != lowest && !g.setters.contains_key(&(editor.to_ascii_lowercase(), *st)) && line != Line::Vms {
+                    if Some(*st) != lowest
+                        && !g.setters.contains_key(&(editor.to_ascii_lowercase(), *st))
+                        && line != Line::Vms
+                    {
                         g.never_set.push((editor.clone(), *st));
                     }
                 }
@@ -65,7 +79,11 @@ pub fn build(order: &esm::LoadOrder, sources: &[Source], funcs: &FuncReport) -> 
             }
         }
     }
-    for s in funcs.stats.iter().filter(|s| !s.handled && !s.quests.is_empty()) {
+    for s in funcs
+        .stats
+        .iter()
+        .filter(|s| !s.handled && !s.quests.is_empty())
+    {
         for q in &s.quests {
             g.deps.entry(q.clone()).or_default().insert(s.name.clone());
         }

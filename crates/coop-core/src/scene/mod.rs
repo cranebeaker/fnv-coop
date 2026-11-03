@@ -40,7 +40,9 @@ pub const MAX_SLIDES: usize = 256;
 pub const CLOCK_EVERY_MS: u64 = 1_000;
 
 /// A set of player slots (bit n is slot n; slots 0 to 7).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Mask(pub u8);
 
 impl Mask {
@@ -93,14 +95,19 @@ impl Mask {
 
     /// The players, ascending.
     pub fn players(self) -> Vec<PlayerId> {
-        (0..8u8).filter(|s| self.0 & (1 << s) != 0).map(PlayerId).collect()
+        (0..8u8)
+            .filter(|s| self.0 & (1 << s) != 0)
+            .map(PlayerId)
+            .collect()
     }
 }
 
 /// The player controls a scene can take away; bit n is the n-th control of
 /// `DisablePlayerControls` (movement, Pip-Boy and menus, fighting, view
 /// switch, looking, rollover, sneaking).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Locks(pub u8);
 
 impl Locks {
@@ -125,7 +132,11 @@ impl Locks {
 
     /// From the seven flags of a game state (`controls_off`).
     pub fn from_flags(f: &[bool; 7]) -> Locks {
-        Locks(f.iter().enumerate().fold(0u8, |m, (i, on)| if *on { m | (1 << i) } else { m }))
+        Locks(
+            f.iter()
+                .enumerate()
+                .fold(0u8, |m, (i, on)| if *on { m | (1 << i) } else { m }),
+        )
     }
 
     /// The seven flags.
@@ -267,7 +278,10 @@ impl SceneSpec {
     }
 
     fn is_sane(&self) -> bool {
-        self.movie.as_ref().map_or(true, |m| m.file.len() <= MAX_NAME) && usize::from(self.slides) <= MAX_SLIDES
+        self.movie
+            .as_ref()
+            .map_or(true, |m| m.file.len() <= MAX_NAME)
+            && usize::from(self.slides) <= MAX_SLIDES
     }
 }
 
@@ -348,6 +362,32 @@ impl ClockSnap {
     pub fn scale_f(&self) -> f32 {
         f32::from_bits(self.scale)
     }
+}
+
+/// Most image space modifiers the host keeps on for late joiners.
+pub const MAX_IMODS: usize = 32;
+
+/// What a host script shows or plays, for every other player to see and
+/// hear (G39): the host's game showed it already.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Cue {
+    /// An image space modifier (a fade, a flash, a blur) on or off.
+    ImageSpace {
+        /// The modifier (`IMAD` form id).
+        form: u32,
+        /// On (applied) or off (removed).
+        on: bool,
+    },
+    /// A sound (`SOUN` form id).
+    Sound {
+        /// The sound.
+        form: u32,
+    },
+    /// A music track (`MUSC` form id).
+    Music {
+        /// The track.
+        form: u32,
+    },
 }
 
 /// Scene and time messages (all reliable and ordered).
@@ -438,6 +478,14 @@ pub enum SceneMsg {
         /// Scene id.
         id: u32,
     },
+    /// Host: a host script's presentation. A peer shows each event once;
+    /// event 0 replays a modifier that stays on (a late joiner, a rejoin).
+    Present {
+        /// Event id (0: a replay of a standing modifier).
+        event: u32,
+        /// What to show or play.
+        cue: Cue,
+    },
 }
 
 impl SceneMsg {
@@ -446,7 +494,9 @@ impl SceneMsg {
         match self {
             SceneMsg::Open { scene } => scene.spec.is_sane(),
             SceneMsg::Sync { scenes, committed } => {
-                scenes.len() <= MAX_SCENES && committed.len() <= 256 && scenes.iter().all(|s| s.spec.is_sane())
+                scenes.len() <= MAX_SCENES
+                    && committed.len() <= 256
+                    && scenes.iter().all(|s| s.spec.is_sane())
             }
             _ => true,
         }
@@ -460,27 +510,85 @@ mod tests {
 
     fn info() -> SceneInfo {
         let mut spec = SceneSpec::new(SceneKind::Movie, 7);
-        spec.movie = Some(Movie { file: "a.bik".into(), interruptable: true, mute_audio: true, pause_music: false, letterbox: true });
-        SceneInfo { id: 3, participants: Mask(5), waiting: Mask(2), locks: Locks::ALL, phase: Phase::Playing, elapsed_ms: 1234, slide: 2, spec }
+        spec.movie = Some(Movie {
+            file: "a.bik".into(),
+            interruptable: true,
+            mute_audio: true,
+            pause_music: false,
+            letterbox: true,
+        });
+        SceneInfo {
+            id: 3,
+            participants: Mask(5),
+            waiting: Mask(2),
+            locks: Locks::ALL,
+            phase: Phase::Playing,
+            elapsed_ms: 1234,
+            slide: 2,
+            spec,
+        }
     }
 
     #[test]
     fn every_message_survives_the_wire() {
-        let clock = ClockSnap { hour: 9.5f32.to_bits(), days_passed: 3.25f32.to_bits(), year: 2281, month: 9, day: 19, scale: 30.0f32.to_bits(), weather: 0x1234 };
+        let clock = ClockSnap {
+            hour: 9.5f32.to_bits(),
+            days_passed: 3.25f32.to_bits(),
+            year: 2281,
+            month: 9,
+            day: 19,
+            scale: 30.0f32.to_bits(),
+            weather: 0x1234,
+        };
         let msgs = vec![
             SceneMsg::Open { scene: info() },
-            SceneMsg::Go { id: 3, start_in_ms: 300 },
-            SceneMsg::Merged { id: 3, player: PlayerId(2) },
-            SceneMsg::Lock { id: 3, locks: Locks(5) },
+            SceneMsg::Go {
+                id: 3,
+                start_in_ms: 300,
+            },
+            SceneMsg::Merged {
+                id: 3,
+                player: PlayerId(2),
+            },
+            SceneMsg::Lock {
+                id: 3,
+                locks: Locks(5),
+            },
             SceneMsg::Slide { id: 3, index: 4 },
-            SceneMsg::Close { id: 3, reason: EndReason::Skipped },
-            SceneMsg::Sync { scenes: vec![info()], committed: vec![1, 2] },
-            SceneMsg::TimeSkip { event: 9, hours: 8, sleeping: true, clock },
+            SceneMsg::Close {
+                id: 3,
+                reason: EndReason::Skipped,
+            },
+            SceneMsg::Sync {
+                scenes: vec![info()],
+                committed: vec![1, 2],
+            },
+            SceneMsg::TimeSkip {
+                event: 9,
+                hours: 8,
+                sleeping: true,
+                clock,
+            },
             SceneMsg::Clock { clock },
             SceneMsg::Ready { id: 3 },
             SceneMsg::Done { id: 3 },
             SceneMsg::SkipVote { id: 3, yes: true },
             SceneMsg::Join { id: 3 },
+            SceneMsg::Present {
+                event: 4,
+                cue: Cue::ImageSpace {
+                    form: 0x174411,
+                    on: true,
+                },
+            },
+            SceneMsg::Present {
+                event: 5,
+                cue: Cue::Sound { form: 0x177F9E },
+            },
+            SceneMsg::Present {
+                event: 6,
+                cue: Cue::Music { form: 0x171B4A },
+            },
         ];
         for m in msgs {
             let msg = Msg::Scene(m);
@@ -496,7 +604,10 @@ mod tests {
         i.spec.movie.as_mut().unwrap().file = "x".repeat(MAX_NAME + 1);
         let bytes = postcard::to_allocvec(&Msg::Scene(SceneMsg::Open { scene: i })).unwrap();
         assert!(decode(Channel::ReliableOrdered, &bytes).is_err());
-        let many = SceneMsg::Sync { scenes: vec![info(); MAX_SCENES + 1], committed: vec![] };
+        let many = SceneMsg::Sync {
+            scenes: vec![info(); MAX_SCENES + 1],
+            committed: vec![],
+        };
         let bytes = postcard::to_allocvec(&Msg::Scene(many)).unwrap();
         assert!(decode(Channel::ReliableOrdered, &bytes).is_err());
     }
@@ -505,7 +616,13 @@ mod tests {
     fn locks_and_masks_round_trip_their_flags() {
         let f = [true, false, true, false, true, false, true];
         assert_eq!(Locks::from_flags(&f).flags(), f);
-        assert_eq!(Mask::from_players(&[PlayerId(0), PlayerId(3)]).players(), vec![PlayerId(0), PlayerId(3)]);
-        assert!(!Mask::of(PlayerId(9)).contains(PlayerId(9)), "slots past 7 do not exist");
+        assert_eq!(
+            Mask::from_players(&[PlayerId(0), PlayerId(3)]).players(),
+            vec![PlayerId(0), PlayerId(3)]
+        );
+        assert!(
+            !Mask::of(PlayerId(9)).contains(PlayerId(9)),
+            "slots past 7 do not exist"
+        );
     }
 }

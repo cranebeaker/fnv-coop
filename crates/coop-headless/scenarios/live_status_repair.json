@@ -1,0 +1,44 @@
+{
+  "name": "live_status_repair",
+  "description": "One record of the guest's replicated store is garbled (the bot's fault injection coop desync: same revision, wrong value). The hash exchange finds the mismatch and the host repairs it. The status object shows the desync and the repair on the guest (the HUD line shows the repair count), and the repair sent on the host.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 78,
+  "duration_s": 16,
+  "settle_s": 6,
+  "max_repairs": 5,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop desync"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-desync",
+      "path": "status.desyncs",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-repair",
+      "path": "status.repairs",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "host-repair",
+      "path": "status.repairs",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    }
+  ]
+}

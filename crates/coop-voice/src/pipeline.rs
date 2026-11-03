@@ -53,7 +53,9 @@ pub fn codec_for(id: u8) -> Option<Box<dyn Codec>> {
     match id {
         CODEC_ADPCM => Some(Box::new(AdpcmCodec::new(ADPCM_RATE, ADPCM_FRAME))),
         #[cfg(feature = "opus")]
-        crate::codec::CODEC_OPUS => crate::opus_codec::OpusCodec::new().ok().map(|c| Box::new(c) as Box<dyn Codec>),
+        crate::codec::CODEC_OPUS => crate::opus_codec::OpusCodec::new()
+            .ok()
+            .map(|c| Box::new(c) as Box<dyn Codec>),
         _ => None,
     }
 }
@@ -80,7 +82,12 @@ pub struct Resampler {
 impl Resampler {
     /// From `from` Hz to `to` Hz.
     pub fn new(from: u32, to: u32) -> Self {
-        Self { from: from.max(1), to: to.max(1), pos: 0.0, last: 0.0 }
+        Self {
+            from: from.max(1),
+            to: to.max(1),
+            pos: 0.0,
+            last: 0.0,
+        }
     }
 
     /// Resamples a chunk of the stream.
@@ -95,8 +102,16 @@ impl Resampler {
         while self.pos < input.len() as f64 {
             let i = self.pos.floor();
             let frac = (self.pos - i) as f32;
-            let a = if i < 0.0 { self.last } else { input[i as usize] };
-            let b = if (i + 1.0) < input.len() as f64 { input[(i + 1.0) as usize] } else { *input.last().unwrap_or(&a) };
+            let a = if i < 0.0 {
+                self.last
+            } else {
+                input[i as usize]
+            };
+            let b = if (i + 1.0) < input.len() as f64 {
+                input[(i + 1.0) as usize]
+            } else {
+                *input.last().unwrap_or(&a)
+            };
             out.push(a + (b - a) * frac);
             self.pos += step;
         }
@@ -198,7 +213,11 @@ impl VoiceTx {
         let mut out = Vec::new();
         while self.pending.len() >= self.frame {
             self.ready.clear();
-            self.ready.extend(self.pending.drain(..self.frame).map(|s| (s.clamp(-1.0, 1.0) * 32767.0) as i16));
+            self.ready.extend(
+                self.pending
+                    .drain(..self.frame)
+                    .map(|s| (s.clamp(-1.0, 1.0) * 32767.0) as i16),
+            );
             if self.muted {
                 // keep the gate's end-of-talk edge: a muted open mic ends the utterance
                 self.sender.gate.set_ptt(false);
@@ -263,7 +282,11 @@ impl Positions {
         let d = (dx * dx + dy * dy).sqrt();
         // right-hand component of the direction, from the heading
         let (rx, ry) = (h.cos(), -h.sin());
-        let pan = if d > 1.0 { ((dx * rx + dy * ry) / d).clamp(-1.0, 1.0) } else { 0.0 };
+        let pan = if d > 1.0 {
+            ((dx * rx + dy * ry) / d).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         // sources very close pan less
         let pan = pan * (d / NEAR).min(1.0);
         Some((d, pan))
@@ -283,7 +306,10 @@ impl Spatializer for Spatial<'_> {
             return 0.0;
         }
         let v = self.volume.get(&s).copied().unwrap_or(1.0);
-        let g = self.pos.geometry(s).map_or(OTHER_CELL_GAIN, |(d, _)| Positions::distance_gain(d));
+        let g = self
+            .pos
+            .geometry(s)
+            .map_or(OTHER_CELL_GAIN, |(d, _)| Positions::distance_gain(d));
         (g * v * self.master).clamp(0.0, 1.0)
     }
 
@@ -411,7 +437,12 @@ impl VoiceRx {
 
     /// One 20 ms stereo frame of `frame_samples` per channel (interleaved).
     pub fn mix(&mut self, frame_samples: usize, out: &mut Vec<f32>) -> usize {
-        let sp = Spatial { pos: &self.positions, volume: &self.volume, muted: &self.muted, master: self.master };
+        let sp = Spatial {
+            pos: &self.positions,
+            volume: &self.volume,
+            muted: &self.muted,
+            master: self.master,
+        };
         let n = self.mixer.mix_frame(frame_samples, &sp, out);
         if n > 0 {
             self.stats.mixed += 1;
@@ -421,7 +452,11 @@ impl VoiceRx {
 
     /// Slots heard within [`SPEAKING_HOLD_MS`] of `now_ms`.
     pub fn speaking(&self, now_ms: u64) -> Vec<u8> {
-        self.last_heard.iter().filter(|(_, t)| now_ms.saturating_sub(**t) <= SPEAKING_HOLD_MS).map(|(s, _)| *s).collect()
+        self.last_heard
+            .iter()
+            .filter(|(_, t)| now_ms.saturating_sub(**t) <= SPEAKING_HOLD_MS)
+            .map(|(s, _)| *s)
+            .collect()
     }
 }
 
@@ -430,7 +465,9 @@ mod tests {
     use super::*;
 
     fn tone(n: usize, rate: u32, amp: f32) -> Vec<f32> {
-        (0..n).map(|i| (i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * amp).collect()
+        (0..n)
+            .map(|i| (i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * amp)
+            .collect()
     }
 
     fn talk(tx: &mut VoiceTx, ms: u32, mic_rate: u32) -> Vec<Vec<u8>> {
@@ -466,7 +503,10 @@ mod tests {
         tx.set_ptt(true);
         let open = talk(&mut tx, 200, 48_000);
         assert!(open.len() >= 9, "{}", open.len());
-        assert!(open.iter().all(|b| b.len() <= 480 + 12 + 12), "fits one voice message");
+        assert!(
+            open.iter().all(|b| b.len() <= 480 + 12 + 12),
+            "fits one voice message"
+        );
         tx.set_ptt(false);
         let tail = talk(&mut tx, 100, 48_000);
         assert!(VoicePacket::decode(&tail[0]).unwrap().is_end_of_talk());
@@ -531,10 +571,16 @@ mod tests {
             let (l, r) = energy(&b);
             eb = (eb.0 + l, eb.1 + r);
         }
-        assert!(ea.1 > ea.0 * 3.0, "speaker to the east is in the right ear: {ea:?}");
+        assert!(
+            ea.1 > ea.0 * 3.0,
+            "speaker to the east is in the right ear: {ea:?}"
+        );
         let centre = (eb.0 - eb.1).abs() / (eb.0 + eb.1);
         assert!(centre < 0.1, "straight ahead is centred: {eb:?}");
-        assert!(eb.0 + eb.1 < (ea.0 + ea.1) * 0.7, "far is quieter: {ea:?} {eb:?}");
+        assert!(
+            eb.0 + eb.1 < (ea.0 + ea.1) * 0.7,
+            "far is quieter: {ea:?} {eb:?}"
+        );
     }
 
     #[test]
@@ -552,7 +598,12 @@ mod tests {
         p.listener = ([0.0; 3], 0.0, 1);
         p.speakers.insert(1, ([0.0; 3], 2));
         assert!(p.geometry(1).is_none());
-        let sp = Spatial { pos: &p, volume: &BTreeMap::new(), muted: &BTreeMap::new(), master: 1.0 };
+        let sp = Spatial {
+            pos: &p,
+            volume: &BTreeMap::new(),
+            muted: &BTreeMap::new(),
+            master: 1.0,
+        };
         assert_eq!(sp.gain(1), OTHER_CELL_GAIN);
         assert_eq!(sp.gain(9), OTHER_CELL_GAIN);
     }

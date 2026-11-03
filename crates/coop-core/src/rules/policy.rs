@@ -35,7 +35,10 @@ pub struct PolicyTable {
 impl PolicyTable {
     /// A table where unlisted stats follow `default`.
     pub fn new(default: StatPolicy) -> Self {
-        PolicyTable { map: BTreeMap::new(), default }
+        PolicyTable {
+            map: BTreeMap::new(),
+            default,
+        }
     }
 
     /// Sets the policy of one stat.
@@ -51,7 +54,12 @@ impl PolicyTable {
     /// Players who must apply a change that `origin` caused, given everyone
     /// in the party. For [`StatPolicy::Shared`] the host applies it once and
     /// mirrors, so the answer is "all"; the caller distinguishes by policy.
-    pub fn recipients(&self, kind: StatKind, origin: PlayerId, party: &[PlayerId]) -> Vec<PlayerId> {
+    pub fn recipients(
+        &self,
+        kind: StatKind,
+        origin: PlayerId,
+        party: &[PlayerId],
+    ) -> Vec<PlayerId> {
         match self.policy(kind) {
             StatPolicy::Shared | StatPolicy::FullToAll => party.to_vec(),
             StatPolicy::PerPlayer | StatPolicy::Initiator => {
@@ -88,7 +96,11 @@ impl RewardLedger {
 
     /// Rewards `p` has not received yet.
     pub fn missing_for(&self, p: PlayerId) -> Vec<u32> {
-        self.granted.iter().filter(|(_, s)| !s.contains(&p)).map(|(r, _)| *r).collect()
+        self.granted
+            .iter()
+            .filter(|(_, s)| !s.contains(&p))
+            .map(|(r, _)| *r)
+            .collect()
     }
 
     /// True when `p` already holds `reward`.
@@ -123,8 +135,15 @@ mod tests {
         let t = table();
         assert_eq!(t.recipients(KARMA, PlayerId(1), &PARTY).len(), 3);
         assert_eq!(t.recipients(XP, PlayerId(2), &PARTY).len(), 3);
-        assert_eq!(t.recipients(IMPLANT, PlayerId(1), &PARTY), vec![PlayerId(1)], "default per player");
-        assert!(t.recipients(IMPLANT, PlayerId(9), &PARTY).is_empty(), "origin not in party");
+        assert_eq!(
+            t.recipients(IMPLANT, PlayerId(1), &PARTY),
+            vec![PlayerId(1)],
+            "default per player"
+        );
+        assert!(
+            t.recipients(IMPLANT, PlayerId(9), &PARTY).is_empty(),
+            "origin not in party"
+        );
         assert_eq!(t.policy(StatKind(99)), StatPolicy::PerPlayer);
     }
 

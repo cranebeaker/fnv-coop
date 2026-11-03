@@ -1,5 +1,8 @@
 //! Steam (Spacewar, AppID 480) backend. Off by default (`steam` feature).
 //!
+//! The feature `steam-mock` compiles [`api`], [`backend`] and [`mock`] only.
+//! The feature `steam` adds `flat` and `real` (the DLL loader).
+//!
 //! * [`api`]: the safe [`SteamApi`] trait the rest of the code talks to.
 //! * [`flat`]: the Steam flat C API loaded at runtime with `libloading`:
 //!   export names, `repr(C)` structs with size asserts, callback ids and pure
@@ -27,11 +30,14 @@
 
 pub mod api;
 pub mod backend;
+#[cfg(feature = "steam")]
 pub mod flat;
 pub mod mock;
+#[cfg(feature = "steam")]
 pub mod real;
 
 pub use api::{Friend, RecvMsg, SendResult, SteamApi, SteamError, SteamEvent};
 pub use backend::{Invite, SteamBackend, SteamOptions, SteamPhase, MARKER_KEY};
 pub use mock::{Faults, MockSteam, MockUniverse};
+#[cfg(feature = "steam")]
 pub use real::{try_init, RealSteam};

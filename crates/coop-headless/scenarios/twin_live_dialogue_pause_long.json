@@ -1,0 +1,24 @@
+{
+  "name": "twin_live_dialogue_pause_long",
+  "description": "Twin of live_dialogue_pause_long without the host's conversation. The guest watches no session and the host's clock never stops. The run must fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 88,
+  "duration_s": 52,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 0, "run": "coop clock on" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "guest-watched-hold", "path": "scene.talk.watched_ms", "op": "ge", "value": 37000, "on": "guest" },
+    { "id": "guest-frames-ran", "path": "scene.talk.watched_frames", "op": "ge", "value": 800, "on": "guest" },
+    { "id": "clock-ran-under-menu", "path": "scene.talk.watched_clock_ms", "op": "ge", "value": 15000, "on": "guest" },
+    { "id": "host-dialogue-held-time", "path": "scene.talk.clock_lag_ms", "op": "ge", "value": 8000, "on": "guest" },
+    { "id": "held-within-heartbeat", "path": "scene.talk.clock_lag_ms", "op": "le", "value": 18000, "on": "guest" },
+    { "id": "same-clock", "path": "globals.GameHour", "on": "equal", "tol": 0.05 }
+  ]
+}

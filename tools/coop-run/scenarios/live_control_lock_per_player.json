@@ -5,16 +5,16 @@
   "duration_s": 10,
   "settle_s": 8,
   "name": "live_control_lock_per_player",
-  "description": "A quest whose policy says the control lock belongs to the initiator (Old World Blues AutoDoc timer). The guest starts it; the host's script disables the controls. Only the guest is locked.",
+  "description": "A quest whose policy says the control lock belongs to the initiator (the Old World Blues Auto-Doc, a policy row that has the same id in every load order). The guest starts it; the host's script disables the controls. Only the guest is locked.",
   "host": {
     "script": [
       {
         "at": 1,
-        "run": "coop initiate 010048FE 1"
+        "run": "coop initiate NVDLC03AutoDoc 1"
       },
       {
         "at": 2,
-        "run": "coop lock 1111111 010048FE"
+        "run": "coop lock 1111111 NVDLC03AutoDoc"
       }
     ]
   },

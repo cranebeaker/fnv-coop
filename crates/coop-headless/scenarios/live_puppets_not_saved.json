@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "live_puppets_not_saved",
+  "description": "Puppets are never saved. The host puts world rows on synthetic forms with the test-setup verb `coop give`: 7 caps on FE000001 (the guest's puppet, slot 1) and 3 caps on FC000001 (a shadow carrier). It also puts 5 caps on FE000100, the first form past the 256 puppet slots, and 9 caps on Doc Mitchell. The host saves the party at 7 s. At 11 s both peers restart, the host loads the party folder and the guest rejoins. The puppet and shadow rows must be gone on both peers, while the FE000100 row and Doc's caps (4 of his own plus 9) must be back. So the save drops exactly the synthetic block. Headless only (the restart needs both processes under the harness's control).",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "party": { "key": 4242, "restart_at": 11, "host_loads": true, "guest_same_key": true, "second": { "duration_s": 10 } },
+  "host": { "script": [
+    {"at": 1, "run": "coop give FE000001 Caps001 7"},
+    {"at": 1.2, "run": "coop give FC000001 Caps001 3"},
+    {"at": 1.4, "run": "coop give FE000100 Caps001 5"},
+    {"at": 2, "run": "DocMitchellREF.AddItem Caps001 9"},
+    {"at": 7, "run": "coop psave"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "puppet-row-not-saved", "path": "items.FE000001", "op": "absent", "on": "both"},
+    {"id": "shadow-row-not-saved", "path": "items.FC000001", "op": "absent", "on": "both"},
+    {"id": "row-past-the-block-kept", "path": "items.FE000100.Caps001", "op": "eq", "value": 5, "on": "both"},
+    {"id": "world-fact-back", "path": "items.DocMitchellREF.Caps001", "op": "eq", "value": 13, "on": "both"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

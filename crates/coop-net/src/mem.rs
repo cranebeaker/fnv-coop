@@ -36,7 +36,11 @@ impl MemNet {
         let mut n = self.0.lock().unwrap();
         n.inbox.entry(0).or_default();
         n.next = n.next.max(1);
-        MemBackend { net: self.clone(), id: 0, is_guest: false }
+        MemBackend {
+            net: self.clone(),
+            id: 0,
+            is_guest: false,
+        }
     }
     /// A new guest node.
     pub fn guest(&self) -> MemBackend {
@@ -44,7 +48,11 @@ impl MemNet {
         let id = n.next.max(1);
         n.next = id + 1;
         n.inbox.entry(id).or_default();
-        MemBackend { net: self.clone(), id, is_guest: true }
+        MemBackend {
+            net: self.clone(),
+            id,
+            is_guest: true,
+        }
     }
     /// Makes node `id` stop sending (it still receives).
     pub fn silence(&self, id: PeerKey, on: bool) {
@@ -72,7 +80,11 @@ impl Backend for MemBackend {
         }
         match n.inbox.get_mut(&peer) {
             Some(q) => {
-                q.push_back(BackendEvent::Frame { peer: self.id, lane, data: data.to_vec() });
+                q.push_back(BackendEvent::Frame {
+                    peer: self.id,
+                    lane,
+                    data: data.to_vec(),
+                });
                 Ok(())
             }
             None => Err(BackendError::UnknownPeer(peer)),
@@ -81,7 +93,10 @@ impl Backend for MemBackend {
 
     fn poll(&mut self, _now_ms: u64) -> Vec<BackendEvent> {
         let mut n = self.net.0.lock().unwrap();
-        n.inbox.get_mut(&self.id).map(|q| q.drain(..).collect()).unwrap_or_default()
+        n.inbox
+            .get_mut(&self.id)
+            .map(|q| q.drain(..).collect())
+            .unwrap_or_default()
     }
 
     fn host_peer(&self) -> Option<PeerKey> {

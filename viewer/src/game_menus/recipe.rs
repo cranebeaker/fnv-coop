@@ -233,7 +233,11 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<Str
         if let (Some(n), Some(line)) = (answer, r.making.take()) {
             if let Some(recipe) = r.recipes.get(line) {
                 if let Some(made) = crafting::make(order, state, r.actor, recipe, n.max(0) as u32) {
-                    state.coop_route(world::coop::interact::craft_act(esm::FormId(0), recipe.form_id, n.max(0) as u32));
+                    state.coop_route(world::coop::interact::craft_act(
+                        esm::FormId(0),
+                        recipe.form_id,
+                        n.max(0) as u32,
+                    ));
                     println!("Crafted {} x{n}.", recipe.name);
                     notices.extend(made.notices);
                 }

@@ -248,6 +248,7 @@ pub fn steal(order: &LoadOrder, state: &mut GameState, from: FormId, owner: Form
     // none left: the victim raises the alarm (the AI's).
     if warned_before {
         state.steal_warnings += 1;
+        state.emit(crate::coop::Domain::Crime, PLAYER_REF);
     }
     true
 }
@@ -282,6 +283,7 @@ pub fn witnessed(
         let counts = state.faction_crimes.entry(faction).or_insert((0, 0));
         counts.0 += minor;
         counts.1 += major;
+        state.emit(crate::coop::Domain::Crime, faction);
         let rep = order
             .get(faction)
             .and_then(|r| r.record().ok().map(|rec| (r, rec)))
@@ -316,6 +318,7 @@ pub fn set_factions_that_care(
     for f in crate::factions::factions_of(order, state, who) {
         if tracks_crime(order, f) && crate::living::trespass::in_faction(order, state, victim, f) {
             state.crime_enemies.insert(f);
+            state.emit(crate::coop::Domain::Crime, f);
             any = true;
         }
     }
@@ -488,6 +491,7 @@ pub fn assault_crime(order: &LoadOrder, state: &mut GameState, victim: FormId) {
     }
     // The crime's know list holds the victim, so it always counts here.
     state.player_crimes.1 += 1;
+    state.emit(crate::coop::Domain::Crime, PLAYER_REF);
     witnessed(order, state, victim, 0, 1, "", 0.0);
 }
 
@@ -530,6 +534,7 @@ pub fn murder(order: &LoadOrder, state: &mut GameState, victim: FormId, killer: 
     if killer == PLAYER_REF && !crate::living::trespass::evil(order, victim) {
         state.player_murderer = true;
     }
+    state.emit(crate::coop::Domain::Crime, PLAYER_REF);
 }
 
 fn crime_victim_is_creature(order: &LoadOrder, who: FormId) -> bool {

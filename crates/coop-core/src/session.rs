@@ -69,46 +69,127 @@ mod tests {
     use super::*;
 
     fn hello() -> Hello {
-        Hello { proto: 1, build_hash: 10, rules_hash: 20, mods_hash: 30, exe: String::new(), volatile_hash: 0, plugins: vec![] }
+        Hello {
+            proto: 1,
+            build_hash: 10,
+            rules_hash: 20,
+            mods_hash: 30,
+            exe: String::new(),
+            volatile_hash: 0,
+            plugins: vec![],
+        }
     }
 
     #[test]
     fn hello_checks_each_field() {
         let l = hello();
         assert_eq!(check_hello(&l, &hello()), Ok(()));
-        assert_eq!(check_hello(&l, &Hello { proto: 2, ..hello() }), Err(RejectReason::ProtocolMismatch));
-        assert_eq!(check_hello(&l, &Hello { build_hash: 0, ..hello() }), Err(RejectReason::BuildMismatch));
-        assert_eq!(check_hello(&l, &Hello { rules_hash: 0, ..hello() }), Err(RejectReason::RulesMismatch));
-        assert_eq!(check_hello(&l, &Hello { mods_hash: 0, ..hello() }), Err(RejectReason::ModsMismatch));
+        assert_eq!(
+            check_hello(
+                &l,
+                &Hello {
+                    proto: 2,
+                    ..hello()
+                }
+            ),
+            Err(RejectReason::ProtocolMismatch)
+        );
+        assert_eq!(
+            check_hello(
+                &l,
+                &Hello {
+                    build_hash: 0,
+                    ..hello()
+                }
+            ),
+            Err(RejectReason::BuildMismatch)
+        );
+        assert_eq!(
+            check_hello(
+                &l,
+                &Hello {
+                    rules_hash: 0,
+                    ..hello()
+                }
+            ),
+            Err(RejectReason::RulesMismatch)
+        );
+        assert_eq!(
+            check_hello(
+                &l,
+                &Hello {
+                    mods_hash: 0,
+                    ..hello()
+                }
+            ),
+            Err(RejectReason::ModsMismatch)
+        );
     }
 
     fn cursor() -> HostCursor {
-        HostCursor { session: 7, rev: Rev(100), min_resume: Rev(10), last_seq: Seq(50) }
+        HostCursor {
+            session: 7,
+            rev: Rev(100),
+            min_resume: Rev(10),
+            last_seq: Seq(50),
+        }
     }
 
     #[test]
     fn rejoin_cases() {
-        let ok = RejoinRequest { session: 7, last_seq: Seq(40), have_rev: Rev(80) };
-        assert_eq!(decide_rejoin(&cursor(), &ok), RejoinDecision::Resume { base: Rev(80) });
+        let ok = RejoinRequest {
+            session: 7,
+            last_seq: Seq(40),
+            have_rev: Rev(80),
+        };
+        assert_eq!(
+            decide_rejoin(&cursor(), &ok),
+            RejoinDecision::Resume { base: Rev(80) }
+        );
         assert_eq!(
             decide_rejoin(&cursor(), &RejoinRequest { session: 8, ..ok }),
             RejoinDecision::Reject(RejectReason::SessionMismatch)
         );
         assert_eq!(
-            decide_rejoin(&cursor(), &RejoinRequest { have_rev: Rev(101), ..ok }),
+            decide_rejoin(
+                &cursor(),
+                &RejoinRequest {
+                    have_rev: Rev(101),
+                    ..ok
+                }
+            ),
             RejoinDecision::FullSnapshot
         );
         assert_eq!(
-            decide_rejoin(&cursor(), &RejoinRequest { last_seq: Seq(51), ..ok }),
+            decide_rejoin(
+                &cursor(),
+                &RejoinRequest {
+                    last_seq: Seq(51),
+                    ..ok
+                }
+            ),
             RejoinDecision::FullSnapshot
         );
         assert_eq!(
-            decide_rejoin(&cursor(), &RejoinRequest { have_rev: Rev(5), ..ok }),
+            decide_rejoin(
+                &cursor(),
+                &RejoinRequest {
+                    have_rev: Rev(5),
+                    ..ok
+                }
+            ),
             RejoinDecision::FullSnapshot
         );
         // boundary values resume
         assert_eq!(
-            decide_rejoin(&cursor(), &RejoinRequest { have_rev: Rev(100), last_seq: Seq(50), session: 7 }),
+            decide_rejoin(
+                &cursor(),
+                &RejoinRequest {
+                    have_rev: Rev(100),
+                    last_seq: Seq(50),
+                    session: 7
+                }
+            ),
             RejoinDecision::Resume { base: Rev(100) }
         );
     }

@@ -1,0 +1,72 @@
+{
+    "name": "twin_live_scene_forced_dialogue",
+    "description": "Twin of live_scene_forced_dialogue without the StartConversation line. No talk note exists, so no dialogue scene opens and no line plays. The run must fail. The host still moves next to Doc first (player.MoveTo DocMitchellREF), as in the scenario. Before the talk the host runs set VCG01.bGiveTest to 1: without it Doc's greeting is the goodbye line 00107222 (We can chat later...), and the game closes the menu after it. With it Doc says 00107220 (Welcome back...) and the menu stays open on its topics.",
+    "expect_fail": true,
+    "cell": "GSDocMitchellHouse",
+    "network": "good_wifi",
+    "seed": 84,
+    "duration_s": 16,
+    "settle_s": 6,
+    "host": {
+        "script": [
+            {
+                "at": 1,
+                "run": "set VCG01.bGiveTest to 1"
+            },
+            {
+                "at": 2,
+                "run": "player.MoveTo DocMitchellREF"
+            }
+        ]
+    },
+    "guest": {
+        "script": []
+    },
+    "expect": [
+        {
+            "id": "dialogue-kind",
+            "path": "scene.kind",
+            "op": "eq",
+            "value": 5,
+            "on": "both"
+        },
+        {
+            "id": "scene-open",
+            "path": "scene.id",
+            "op": "ge",
+            "value": 1,
+            "on": "both"
+        },
+        {
+            "id": "same-scene",
+            "path": "scene.id",
+            "on": "equal"
+        },
+        {
+            "id": "host-opened-it",
+            "path": "scene.talk.scenes",
+            "op": "eq",
+            "value": 1,
+            "on": "host"
+        },
+        {
+            "id": "lines-host",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 1,
+            "on": "host"
+        },
+        {
+            "id": "lines-guest",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 1,
+            "on": "guest"
+        },
+        {
+            "id": "shared-hash",
+            "path": "hash.shared",
+            "on": "equal"
+        }
+    ]
+}

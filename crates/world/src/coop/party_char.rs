@@ -65,7 +65,10 @@ impl std::fmt::Display for CharError {
         match self {
             CharError::Io(e) => write!(f, "character file: {e}"),
             CharError::Corrupt => write!(f, "character file is damaged"),
-            CharError::Version(v) => write!(f, "character file is format {v}, this build reads {VERSION}"),
+            CharError::Version(v) => write!(
+                f,
+                "character file is format {v}, this build reads {VERSION}"
+            ),
         }
     }
 }
@@ -74,10 +77,30 @@ impl std::error::Error for CharError {}
 
 impl CharacterFile {
     /// Builds a file from a character and the current shared stages.
-    pub fn new(key: u64, name: &str, campaign: u64, seq: u32, now: u64, s: &PlayerShadow, baseline: Vec<(u32, u16)>) -> Self {
+    pub fn new(
+        key: u64,
+        name: &str,
+        campaign: u64,
+        seq: u32,
+        now: u64,
+        s: &PlayerShadow,
+        baseline: Vec<(u32, u16)>,
+    ) -> Self {
         let mut name = name.to_string();
-        name.truncate(name.char_indices().nth(MAX_NAME).map_or(name.len(), |(i, _)| i));
-        CharacterFile { key, name, campaign, seq, saved_unix: now, baseline, blob: encode(s) }
+        name.truncate(
+            name.char_indices()
+                .nth(MAX_NAME)
+                .map_or(name.len(), |(i, _)| i),
+        );
+        CharacterFile {
+            key,
+            name,
+            campaign,
+            seq,
+            saved_unix: now,
+            baseline,
+            blob: encode(s),
+        }
     }
 
     /// The character, `None` when the blob does not parse.
@@ -128,21 +151,33 @@ impl CharacterFile {
         let seq = r.u32().ok_or(CharError::Corrupt)?;
         let saved_unix = r.u64().ok_or(CharError::Corrupt)?;
         let nl = r.u16().ok_or(CharError::Corrupt)? as usize;
-        let name = String::from_utf8(r.take(nl).ok_or(CharError::Corrupt)?.to_vec()).map_err(|_| CharError::Corrupt)?;
+        let name = String::from_utf8(r.take(nl).ok_or(CharError::Corrupt)?.to_vec())
+            .map_err(|_| CharError::Corrupt)?;
         let n = r.u32().ok_or(CharError::Corrupt)? as usize;
         if n > MAX_BASELINE {
             return Err(CharError::Corrupt);
         }
         let mut baseline = Vec::with_capacity(n);
         for _ in 0..n {
-            baseline.push((r.u32().ok_or(CharError::Corrupt)?, r.u16().ok_or(CharError::Corrupt)?));
+            baseline.push((
+                r.u32().ok_or(CharError::Corrupt)?,
+                r.u16().ok_or(CharError::Corrupt)?,
+            ));
         }
         let bl = r.u32().ok_or(CharError::Corrupt)? as usize;
         let blob = r.take(bl).ok_or(CharError::Corrupt)?.to_vec();
         if !r.b.is_empty() || decode(&blob).is_none() {
             return Err(CharError::Corrupt);
         }
-        Ok(CharacterFile { key, name, campaign, seq, saved_unix, baseline, blob })
+        Ok(CharacterFile {
+            key,
+            name,
+            campaign,
+            seq,
+            saved_unix,
+            baseline,
+            blob,
+        })
     }
 }
 
@@ -163,17 +198,22 @@ impl Rd<'_> {
         self.take(2).map(|x| u16::from_le_bytes([x[0], x[1]]))
     }
     fn u32(&mut self) -> Option<u32> {
-        self.take(4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
+        self.take(4)
+            .map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
     }
     fn u64(&mut self) -> Option<u64> {
-        self.take(8).map(|x| u64::from_le_bytes(x.try_into().unwrap_or([0; 8])))
+        self.take(8)
+            .map(|x| u64::from_le_bytes(x.try_into().unwrap_or([0; 8])))
     }
 }
 
 /// Writes a character file atomically (temporary sibling, then rename).
 pub fn write_character(path: &Path, f: &CharacterFile) -> io::Result<()> {
     use std::io::Write;
-    let mut tmp = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut tmp = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     tmp.push(format!(".{}.tmp", std::process::id()));
     let tmp = path.with_file_name(tmp);
     if let Some(p) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -231,7 +271,11 @@ pub fn baseline_diff(file: &[(u32, u16)], host: &GameState) -> Vec<Conflict> {
     for (q, st) in &theirs {
         let h = host.stages.get(&FormId(*q)).copied().unwrap_or(0);
         if h != *st {
-            out.push(Conflict { quest: *q, theirs: *st, host: h });
+            out.push(Conflict {
+                quest: *q,
+                theirs: *st,
+                host: h,
+            });
         }
     }
     out.sort_by_key(|c| c.quest);
@@ -250,16 +294,37 @@ pub struct Sanitized {
 /// Makes a character that came from outside fit this campaign: shared state wins, personal
 /// state is kept. `keep_place` keeps the cell and position (a rejoin of the same campaign);
 /// `false` clears them (a late joiner is placed by the host).
-pub fn sanitize_offer(mut s: PlayerShadow, plan: &ShadowPlan, keep_place: bool) -> (PlayerShadow, Sanitized) {
-    let mut r = Sanitized { synthetic: scrub_shadow(&mut s), ..Sanitized::default() };
+pub fn sanitize_offer(
+    mut s: PlayerShadow,
+    plan: &ShadowPlan,
+    keep_place: bool,
+) -> (PlayerShadow, Sanitized) {
+    let mut r = Sanitized {
+        synthetic: scrub_shadow(&mut s),
+        ..Sanitized::default()
+    };
     let mine = |q: &FormId| plan.quests.contains(q);
-    let b = s.quest_stage.len() + s.quest_flags.len() + s.stages_done.len() + s.objectives.len() + s.quest_vars.len();
+    let b = s.quest_stage.len()
+        + s.quest_flags.len()
+        + s.stages_done.len()
+        + s.objectives.len()
+        + s.quest_vars.len();
     s.quest_stage.retain(|q, _| mine(q));
     s.quest_flags.retain(|q, _| mine(q));
     s.stages_done.retain(|(q, _)| mine(q));
     s.objectives.retain(|(q, _), _| mine(q));
-    s.quest_vars.retain(|(q, name), _| mine(q) && plan.quest_vars.get(q).is_some_and(|v| v.contains(&name.to_ascii_lowercase())));
-    let a = s.quest_stage.len() + s.quest_flags.len() + s.stages_done.len() + s.objectives.len() + s.quest_vars.len();
+    s.quest_vars.retain(|(q, name), _| {
+        mine(q)
+            && plan
+                .quest_vars
+                .get(q)
+                .is_some_and(|v| v.contains(&name.to_ascii_lowercase()))
+    });
+    let a = s.quest_stage.len()
+        + s.quest_flags.len()
+        + s.stages_done.len()
+        + s.objectives.len()
+        + s.quest_vars.len();
     r.shared_quest_rows = b - a;
     if !keep_place {
         s.cell = None;
@@ -321,11 +386,23 @@ mod tests {
 
     #[test]
     fn file_round_trips_and_detects_damage() {
-        let f = CharacterFile::new(9, "Ann", 0xAB, 4, 1_700_000_000, &shadow(), vec![(1, 2), (3, 4)]);
+        let f = CharacterFile::new(
+            9,
+            "Ann",
+            0xAB,
+            4,
+            1_700_000_000,
+            &shadow(),
+            vec![(1, 2), (3, 4)],
+        );
         let b = f.to_bytes();
         assert_eq!(CharacterFile::from_bytes(&b).unwrap(), f);
         for cut in [0, 3, 10, b.len() - 1] {
-            assert_eq!(CharacterFile::from_bytes(&b[..cut]), Err(CharError::Corrupt), "{cut}");
+            assert_eq!(
+                CharacterFile::from_bytes(&b[..cut]),
+                Err(CharError::Corrupt),
+                "{cut}"
+            );
         }
         let mut c = b.clone();
         c[20] ^= 1;
@@ -345,7 +422,10 @@ mod tests {
         write_character(&p, &f).unwrap();
         assert_eq!(read_character(&p).unwrap(), f);
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
-        assert!(matches!(read_character(&d.join("none")), Err(CharError::Io(_))));
+        assert!(matches!(
+            read_character(&d.join("none")),
+            Err(CharError::Io(_))
+        ));
     }
 
     #[test]
@@ -358,10 +438,23 @@ mod tests {
         assert_eq!(out.items.get(&FormId(0xF)), Some(&120));
         assert!(out.perks.contains(&FormId(0x77)));
         assert_eq!(out.level, 6);
-        assert_eq!(out.quest_stage.get(&FormId(0xA1)), Some(&20), "a per-player quest stays");
-        assert!(!out.quest_stage.contains_key(&FormId(0xB2)), "a shared quest is the host's");
+        assert_eq!(
+            out.quest_stage.get(&FormId(0xA1)),
+            Some(&20),
+            "a per-player quest stays"
+        );
+        assert!(
+            !out.quest_stage.contains_key(&FormId(0xB2)),
+            "a shared quest is the host's"
+        );
         assert!(out.cell.is_none());
-        assert_eq!(r, Sanitized { synthetic: 1, shared_quest_rows: 1 });
+        assert_eq!(
+            r,
+            Sanitized {
+                synthetic: 1,
+                shared_quest_rows: 1
+            }
+        );
         assert!(!out.items.keys().any(|f| is_synthetic(*f)));
         let (kept, _) = sanitize_offer(shadow(), &plan, true);
         assert_eq!(kept.cell, Some(FormId(0x100)));
@@ -375,7 +468,18 @@ mod tests {
         let d = baseline_diff(&[(1, 40), (2, 10), (3, 5)], &gs);
         assert_eq!(
             d,
-            vec![Conflict { quest: 1, theirs: 40, host: 50 }, Conflict { quest: 3, theirs: 5, host: 0 }]
+            vec![
+                Conflict {
+                    quest: 1,
+                    theirs: 40,
+                    host: 50
+                },
+                Conflict {
+                    quest: 3,
+                    theirs: 5,
+                    host: 0
+                }
+            ]
         );
         let b = baseline_of(&gs);
         assert_eq!(b, vec![(1, 50), (2, 10)]);
@@ -394,7 +498,10 @@ mod tests {
         assert!(new.coop.bank.dirty.contains(&1));
         assert!(new.coop.bank.enabled());
         assert!(install_for_slot(&mut new, 1, shadow()));
-        assert!(!install_for_slot(&mut new, 0, shadow()), "the live slot is not a guest's");
+        assert!(
+            !install_for_slot(&mut new, 0, shadow()),
+            "the live slot is not a guest's"
+        );
         assert_eq!(new.coop.bank.parked[&1].level, 6);
     }
 }

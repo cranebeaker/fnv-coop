@@ -88,7 +88,9 @@ pub struct GameStateBackend {
 impl GameStateBackend {
     /// With the bundled policy table.
     pub fn new() -> Result<GameStateBackend, String> {
-        Ok(GameStateBackend { table: Arc::new(PolicyTable::bundled().map_err(|e| format!("{e:?}"))?) })
+        Ok(GameStateBackend {
+            table: Arc::new(PolicyTable::bundled().map_err(|e| format!("{e:?}"))?),
+        })
     }
 }
 
@@ -105,11 +107,15 @@ impl WPeer<'_> {
 
 impl BackendPeer for WPeer<'_> {
     fn set_stage(&mut self, quest: &str, stage: u16) -> bool {
-        let Some(q) = self.id(quest) else { return false };
+        let Some(q) = self.id(quest) else {
+            return false;
+        };
         Runner::new(&self.d.order, &self.d.scripts, &mut self.gs).set_stage(q, stage)
     }
     fn set_stage_as(&mut self, slot: u8, quest: &str, stage: u16) -> bool {
-        let Some(q) = self.id(quest) else { return false };
+        let Some(q) = self.id(quest) else {
+            return false;
+        };
         let mut g = self.gs.as_player(slot);
         Runner::new(&self.d.order, &self.d.scripts, &mut g).set_stage(q, stage)
     }
@@ -121,7 +127,9 @@ impl BackendPeer for WPeer<'_> {
         self.gs.shadow_of(slot)?.quest_stage.get(&q).copied()
     }
     fn set_global(&mut self, global: &str, v: f32) -> bool {
-        let Some(g) = self.id(global) else { return false };
+        let Some(g) = self.id(global) else {
+            return false;
+        };
         self.gs.globals.insert(g, v);
         self.gs.emit(world::coop::Domain::Global, g);
         true
@@ -136,12 +144,24 @@ impl BackendPeer for WPeer<'_> {
         WorldBackend::shard_hashes(&self.gs)
     }
     fn apply_snapshot(&mut self, entries: &[SnapEntry]) -> (u32, u32) {
-        let opts = Opts { present: false, ctx: Some(Ctx { order: &self.d.order, scripts: &self.d.scripts }) };
+        let opts = Opts {
+            present: false,
+            ctx: Some(Ctx {
+                order: &self.d.order,
+                scripts: &self.d.scripts,
+            }),
+        };
         let r = self.gs.apply_snapshot(entries, opts);
         (r.set, r.cleared)
     }
     fn apply_delta(&mut self, d: &Delta) -> (u32, u32) {
-        let opts = Opts { present: true, ctx: Some(Ctx { order: &self.d.order, scripts: &self.d.scripts }) };
+        let opts = Opts {
+            present: true,
+            ctx: Some(Ctx {
+                order: &self.d.order,
+                scripts: &self.d.scripts,
+            }),
+        };
         let r = self.gs.apply_delta(d, opts);
         (r.set, r.cleared)
     }
@@ -177,7 +197,15 @@ impl CoopBackend for GameStateBackend {
 
 /// Snapshot entries of a peer's shared state.
 pub fn snapshot_of(p: &dyn BackendPeer) -> Vec<SnapEntry> {
-    p.export().into_iter().enumerate().map(|(i, (form, field))| SnapEntry { form, field, rev: Rev(i as u64 + 1) }).collect()
+    p.export()
+        .into_iter()
+        .enumerate()
+        .map(|(i, (form, field))| SnapEntry {
+            form,
+            field,
+            rev: Rev(i as u64 + 1),
+        })
+        .collect()
 }
 
 /// A delta that sets the given fields.
@@ -187,13 +215,27 @@ pub fn delta_of(fields: Vec<(CForm, Field)>, base: u64) -> Delta {
         tick: Tick(1),
         base_rev: Rev(base),
         rev: Rev(base + n),
-        changes: fields.into_iter().enumerate().map(|(i, (form, field))| Change { form, field, rev_off: i as u64 + 1 }).collect(),
+        changes: fields
+            .into_iter()
+            .enumerate()
+            .map(|(i, (form, field))| Change {
+                form,
+                field,
+                rev_off: i as u64 + 1,
+            })
+            .collect(),
         complete: true,
     }
 }
 
 fn need<T>(r: Result<T, String>) -> Result<T, Verdict> {
-    r.map_err(|e| if e.starts_with("PENDING") { Verdict::Pending(e) } else { Verdict::Fail(e) })
+    r.map_err(|e| {
+        if e.starts_with("PENDING") {
+            Verdict::Pending(e)
+        } else {
+            Verdict::Fail(e)
+        }
+    })
 }
 
 /// A shared quest the tests drive (a Prologue quest every copy has).
@@ -220,7 +262,10 @@ fn snapshot_carries_stage(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result
     }
     guest.apply_snapshot(&snap);
     if guest.stage(SHARED_QUEST) != Some(STAGE) {
-        return Err(bad(format!("guest stage {:?}, want {STAGE}", guest.stage(SHARED_QUEST))));
+        return Err(bad(format!(
+            "guest stage {:?}, want {STAGE}",
+            guest.stage(SHARED_QUEST)
+        )));
     }
     if guest.shard_hashes() != host.shard_hashes() {
         return Err(bad("shard hashes differ after the snapshot"));
@@ -232,10 +277,14 @@ fn delta_carries_change(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(
     let mut host = need(b.peer(d, true))?;
     let mut guest = need(b.peer(d, false))?;
     guest.apply_snapshot(&snapshot_of(&*host));
-    let before: std::collections::BTreeSet<String> = host.export().iter().map(|x| format!("{x:?}")).collect();
+    let before: std::collections::BTreeSet<String> =
+        host.export().iter().map(|x| format!("{x:?}")).collect();
     host.set_stage(SHARED_QUEST, STAGE);
     let after = host.export();
-    let changed: Vec<(CForm, Field)> = after.into_iter().filter(|x| !before.contains(&format!("{x:?}"))).collect();
+    let changed: Vec<(CForm, Field)> = after
+        .into_iter()
+        .filter(|x| !before.contains(&format!("{x:?}")))
+        .collect();
     if changed.is_empty() {
         return Err(bad("SetStage changed no shared field"));
     }
@@ -259,7 +308,9 @@ fn snapshot_is_idempotent(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result
     }
     let (set, cleared) = guest.apply_snapshot(&snap);
     if (set, cleared) != (0, 0) {
-        return Err(bad(format!("a second identical snapshot changed {set} slots and cleared {cleared}")));
+        return Err(bad(format!(
+            "a second identical snapshot changed {set} slots and cleared {cleared}"
+        )));
     }
     Ok(())
 }
@@ -281,7 +332,10 @@ fn per_player_stays_private(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Resu
         return Err(bad("the host refused player 1's stage"));
     }
     if host.player_stage(1, PLAYER_QUEST) != Some(STAGE) {
-        return Err(bad(format!("player 1 has stage {:?}", host.player_stage(1, PLAYER_QUEST))));
+        return Err(bad(format!(
+            "player 1 has stage {:?}",
+            host.player_stage(1, PLAYER_QUEST)
+        )));
     }
     if host.player_stage(2, PLAYER_QUEST).is_some() {
         return Err(bad("player 2's quest moved with player 1's"));
@@ -303,7 +357,9 @@ fn shadow_rows_reach_guest(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Resul
     }
     guest.apply_snapshot(&snap);
     if guest.shard_hashes() != host.shard_hashes() {
-        return Err(bad("guest shard hashes differ: per-player rows are not replicated"));
+        return Err(bad(
+            "guest shard hashes differ: per-player rows are not replicated",
+        ));
     }
     Ok(())
 }
@@ -315,12 +371,18 @@ fn global_replicates(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), 
     if !host.set_global("GameDaysPassed", 12.0) && !host.set_global("TimeScale", 12.0) {
         return Err(bad("no clock global to set in this data"));
     }
-    let name = if host.global("GameDaysPassed").is_some() { "GameDaysPassed" } else { "TimeScale" };
+    let name = if host.global("GameDaysPassed").is_some() {
+        "GameDaysPassed"
+    } else {
+        "TimeScale"
+    };
     let snap = snapshot_of(&*host);
     if !mutate {
         guest.apply_snapshot(&snap);
     }
-    if guest.global(name).map(|v| (v * 64.0).floor()) != host.global(name).map(|v| (v * 64.0).floor()) {
+    if guest.global(name).map(|v| (v * 64.0).floor())
+        != host.global(name).map(|v| (v * 64.0).floor())
+    {
         return Err(bad("a changed global did not reach the guest"));
     }
     Ok(())

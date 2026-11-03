@@ -88,7 +88,11 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<For
             match request {
                 Request::Repair { form, cost } => {
                     world::repair::repair_by(order, state, vendor, FormId(form), cost);
-                    state.coop_route(world::coop::interact::repair_vendor_act(FormId(form), vendor, cost));
+                    state.coop_route(world::coop::interact::repair_vendor_act(
+                        FormId(form),
+                        vendor,
+                        cost,
+                    ));
                     println!("Repair services: mended {form:08X} for {cost} caps.");
                     changed = true;
                 }
@@ -97,7 +101,11 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<For
                         world::repair::repair_by(order, state, vendor, FormId(*form), 0);
                         // the caps of the whole job go with the first item
                         let share = if n == 0 { total } else { 0 };
-                        state.coop_route(world::coop::interact::repair_vendor_act(FormId(*form), vendor, share));
+                        state.coop_route(world::coop::interact::repair_vendor_act(
+                            FormId(*form),
+                            vendor,
+                            share,
+                        ));
                     }
                     world::repair::pay(order, state, vendor, total);
                     println!(

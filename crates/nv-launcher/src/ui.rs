@@ -31,10 +31,16 @@ pub fn enable_ansi() -> bool {
 
 impl Ui {
     pub fn new(no_color_env: bool) -> Ui {
-        Ui { color: !no_color_env && enable_ansi() }
+        Ui {
+            color: !no_color_env && enable_ansi(),
+        }
     }
     fn paint(&self, code: &str, s: &str) -> String {
-        if self.color { format!("\x1b[{code}m{s}\x1b[0m") } else { s.to_string() }
+        if self.color {
+            format!("\x1b[{code}m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
     pub fn bold(&self, s: &str) -> String {
         self.paint("1", s)
@@ -56,7 +62,11 @@ impl Ui {
     }
 
     pub fn title(&self, s: &str) {
-        println!("\n{}\n{}", self.bold(&self.accent(s)), self.dim(&"-".repeat(s.chars().count())));
+        println!(
+            "\n{}\n{}",
+            self.bold(&self.accent(s)),
+            self.dim(&"-".repeat(s.chars().count()))
+        );
     }
     pub fn ok(&self, s: &str) {
         println!("  {} {s}", self.good("[ok]"));
@@ -84,12 +94,22 @@ impl Ui {
 
     /// Asks with a default shown in brackets; empty input keeps it.
     pub fn ask_default(&self, q: &str, default: &str) -> Option<String> {
-        let a = self.ask(&if default.is_empty() { q.to_string() } else { format!("{q} [{default}]") })?;
+        let a = self.ask(&if default.is_empty() {
+            q.to_string()
+        } else {
+            format!("{q} [{default}]")
+        })?;
         Some(if a.is_empty() { default.to_string() } else { a })
     }
 
     pub fn confirm(&self, q: &str) -> bool {
-        matches!(self.ask(&format!("{q} (y/n)")).as_deref().map(str::to_ascii_lowercase).as_deref(), Some("y") | Some("yes"))
+        matches!(
+            self.ask(&format!("{q} (y/n)"))
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("y") | Some("yes")
+        )
     }
 
     /// Shows numbered `items` and returns the 0-based choice; "0" or end of input is None (back).

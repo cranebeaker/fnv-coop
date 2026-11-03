@@ -1,0 +1,26 @@
+{
+  "name": "twin_live_npcs_present",
+  "description": "MUTATION TWIN of live_npcs_present: at 1 s the host disables Doc Mitchell (DocMitchellREF.Disable), so no person of the house is on screen on either peer. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 5,
+  "duration_s": 16,
+  "settle_s": 6,
+  "host": { "script": [
+    {"at": 1, "run": "DocMitchellREF.Disable"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "doc-alive-host", "path": "actors.DocMitchellREF.alive", "op": "eq", "value": true, "on": "host" },
+    { "id": "doc-alive-guest", "path": "actors.DocMitchellREF.alive", "op": "eq", "value": true, "on": "guest" },
+    { "id": "doc-not-dead-host", "path": "dead.DocMitchellREF", "op": "absent", "on": "host" },
+    { "id": "doc-not-dead-guest", "path": "dead.DocMitchellREF", "op": "absent", "on": "guest" },
+    { "id": "nobody-dormant-host", "path": "live.actors_dormant", "op": "eq", "value": 0, "on": "host" },
+    { "id": "nobody-dormant-guest", "path": "live.actors_dormant", "op": "eq", "value": 0, "on": "guest" },
+    { "id": "host-tracks", "path": "live.actors_tracked", "op": "ge", "value": 1, "on": "host" },
+    { "id": "guest-reports", "path": "live.actors_tracked", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "people-on-screen-host", "path": "live.npc_entities_visible", "op": "ge", "value": 1, "on": "host" },
+    { "id": "people-on-screen-guest", "path": "live.npc_entities_visible", "op": "ge", "value": 1, "on": "guest" }
+  ]
+}

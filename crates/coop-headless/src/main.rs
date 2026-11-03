@@ -1,5 +1,5 @@
 // `coop-sim`: run tools/coop-run scenarios headlessly.
-// 
+//
 // ```text
 // coop-sim run   SCENARIO.json [--seed N] [--net PROFILE] [--data DIR] [--out DIR] [--twice]
 // coop-sim suite DIR [--seeds 1..50] [--jobs N] [--net PROFILE] [--soak] [--data DIR] [--out DIR] [--twice] [--rows]
@@ -10,6 +10,11 @@
 //     rebuild and re-run when a crates/coop-* or world source or a scenario file changes (docs/FASTDEV.md)
 // --talk-at-ready: `--talk` waits for coop_ready (default: first frame, as the viewer's does once its scene is loaded)
 // --glue-fixed: container actions use Session::live_loot_ops (default: mirror the viewer's intents::loot)
+// --record: the flight recorder (every peer's dump and shared hash per virtual second; flight.jsonl with --out)
+// coop-sim diverge RUN [RUN2] [--seed N] [--seed2 N] [--net P] [--lag S] [--data DIR]
+//     RUN is a scenario or a flight.jsonl; one RUN: host against each guest, two: run against run
+// coop-sim shrink SCENARIO [--seed N] [--net P] [--out FILE] [--data DIR]
+// coop-sim gentest [--seed N] [--count K] [--out DIR] [--run] [--data DIR]
 // ```
 // Exit code 0 pass, 1 fail, 2 usage or data error, 3 only skips (`needs_assets`).
 // The last line is `RESULT: PASS|FAIL|SKIP ...`, in the format of `runner.py`.
@@ -37,6 +42,7 @@ struct Args {
     fps: u32,
     talk_at_ready: bool,
     fixed_glue: bool,
+    record: bool,
     rows: bool,
     guests: Option<usize>,
     all_profiles: bool,
@@ -44,9 +50,30 @@ struct Args {
 }
 
 fn parse(mut a: impl Iterator<Item = String>) -> Result<Args, String> {
-    let cmd = a.next().ok_or("usage: coop-sim run|suite TARGET [options]")?;
+    let cmd = a
+        .next()
+        .ok_or("usage: coop-sim run|suite TARGET [options]")?;
     let target = a.next().ok_or("missing scenario file or folder")?;
-    let mut r = Args { cmd, target, seed: None, seeds: None, net: None, data: None, out: None, jobs: 0, soak: false, twice: false, fps: 40, talk_at_ready: false, fixed_glue: false, rows: false, guests: None, all_profiles: false, gate_cpu: false };
+    let mut r = Args {
+        cmd,
+        target,
+        seed: None,
+        seeds: None,
+        net: None,
+        data: None,
+        out: None,
+        jobs: 0,
+        soak: false,
+        twice: false,
+        fps: 40,
+        talk_at_ready: false,
+        fixed_glue: false,
+        record: false,
+        rows: false,
+        guests: None,
+        all_profiles: false,
+        gate_cpu: false,
+    };
     while let Some(f) = a.next() {
         let mut val = |name: &str| a.next().ok_or(format!("{name} needs a value"));
         match f.as_str() {
@@ -61,8 +88,17 @@ fn parse(mut a: impl Iterator<Item = String>) -> Result<Args, String> {
             "--twice" => r.twice = true,
             "--talk-at-ready" => r.talk_at_ready = true,
             "--glue-fixed" => r.fixed_glue = true,
+            "--record" => r.record = true,
             "--rows" => r.rows = true,
-            "--guests" => r.guests = Some(val("--guests")?.parse().ok().filter(|n| (1..=coop_headless::scenario::MAX_GUESTS).contains(n)).ok_or("--guests takes 1 to 3")?),
+            "--guests" => {
+                r.guests = Some(
+                    val("--guests")?
+                        .parse()
+                        .ok()
+                        .filter(|n| (1..=coop_headless::scenario::MAX_GUESTS).contains(n))
+                        .ok_or("--guests takes 1 to 3")?,
+                )
+            }
             "--all-profiles" => r.all_profiles = true,
             "--gate-cpu" => r.gate_cpu = true,
             other => return Err(format!("unknown option {other}")),
@@ -70,7 +106,10 @@ fn parse(mut a: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if let Some(n) = &r.net {
         if !coop_headless::scenario::PROFILES.contains(&n.as_str()) {
-            return Err(format!("--net {n}: not a profile ({})", coop_headless::scenario::PROFILES.join(", ")));
+            return Err(format!(
+                "--net {n}: not a profile ({})",
+                coop_headless::scenario::PROFILES.join(", ")
+            ));
         }
     }
     Ok(r)
@@ -90,7 +129,12 @@ fn real_main() -> i32 {
             }
         };
     }
-    if let Some(c) = std::env::args().nth(1).filter(|c| c == "checklist" || c == "questwalk") {
+    if let Some(c) = std::env::args().nth(1).filter(|c| {
+        matches!(
+            c.as_str(),
+            "checklist" | "questwalk" | "diverge" | "shrink" | "gentest"
+        )
+    }) {
         return coop_headless::cli::run(&c, std::env::args().skip(2).collect());
     }
     let args = match parse(std::env::args().skip(1)) {
@@ -103,7 +147,12 @@ fn real_main() -> i32 {
     let t_open = std::time::Instant::now();
     let data = match Data::locate(args.data.as_deref()).and_then(|d| Data::open(&d)) {
         Ok(d) => {
-            println!("data: {} plugins, meshes {}, opened in {:.2} s", d.order.plugins().len(), if d.has_meshes { "present" } else { "absent" }, t_open.elapsed().as_secs_f64());
+            println!(
+                "data: {} plugins, meshes {}, opened in {:.2} s",
+                d.order.plugins().len(),
+                if d.has_meshes { "present" } else { "absent" },
+                t_open.elapsed().as_secs_f64()
+            );
             Arc::new(d)
         }
         Err(e) => {
@@ -138,11 +187,35 @@ fn one(a: &Args, d: &Arc<Data>) -> i32 {
             return 2;
         }
     };
-    let o = RunOpts { seed: a.seed, net: a.net.clone(), fps: a.fps, out: a.out.clone(), path: a.target.clone(), data_arg: a.data.clone(), talk_at_ready: a.talk_at_ready, fixed_glue: a.fixed_glue };
+    let o = RunOpts {
+        seed: a.seed,
+        net: a.net.clone(),
+        fps: a.fps,
+        out: a.out.clone(),
+        path: a.target.clone(),
+        data_arg: a.data.clone(),
+        talk_at_ready: a.talk_at_ready,
+        fixed_glue: a.fixed_glue,
+        record: a.record,
+    };
     let t0 = std::time::Instant::now();
     let r = run(&scn, d, &o);
-    println!("ran {:.1} virtual seconds in {:.2} s", r.verdict.json.get("duration_s").and_then(|v| v.as_f64()).unwrap_or(0.0), t0.elapsed().as_secs_f64());
-    if let Some(m) = r.verdict.json.get("modelled").and_then(|m| m.as_arr()).filter(|m| !m.is_empty()) {
+    println!(
+        "ran {:.1} virtual seconds in {:.2} s",
+        r.verdict
+            .json
+            .get("duration_s")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        t0.elapsed().as_secs_f64()
+    );
+    if let Some(m) = r
+        .verdict
+        .json
+        .get("modelled")
+        .and_then(|m| m.as_arr())
+        .filter(|m| !m.is_empty())
+    {
         for x in m {
             println!("modelled: {}", x.as_str().unwrap_or(""));
         }
@@ -151,9 +224,19 @@ fn one(a: &Args, d: &Arc<Data>) -> i32 {
     if a.twice {
         let r2 = run(&scn, d, &RunOpts { out: None, ..o });
         let same = r2.hash == r.hash;
-        println!("determinism: {}", if same { "same seed twice gave identical dumps" } else { "DIFFERENT dumps for the same seed" });
+        println!(
+            "determinism: {}",
+            if same {
+                "same seed twice gave identical dumps"
+            } else {
+                "DIFFERENT dumps for the same seed"
+            }
+        );
         if !same {
-            println!("RESULT: FAIL harness: {} is not deterministic for this seed", scn.name);
+            println!(
+                "RESULT: FAIL harness: {} is not deterministic for this seed",
+                scn.name
+            );
             return 1;
         }
     }
@@ -178,14 +261,28 @@ fn budget(a: &Args, d: &Arc<Data>) -> i32 {
         }
     }
     let nets: Vec<Option<String>> = if a.all_profiles {
-        coop_headless::scenario::PROFILES.iter().filter(|p| **p != "partition").map(|p| Some(p.to_string())).collect()
+        coop_headless::scenario::PROFILES
+            .iter()
+            .filter(|p| **p != "partition")
+            .map(|p| Some(p.to_string()))
+            .collect()
     } else {
         vec![a.net.clone()]
     };
     let lim = Limits::default();
     let (mut bad, mut skipped) = (0, 0);
     for net in nets {
-        let o = RunOpts { seed: a.seed, net: net.clone(), fps: a.fps, out: None, path: a.target.clone(), data_arg: a.data.clone(), talk_at_ready: a.talk_at_ready, fixed_glue: a.fixed_glue };
+        let o = RunOpts {
+            seed: a.seed,
+            net: net.clone(),
+            fps: a.fps,
+            out: None,
+            path: a.target.clone(),
+            data_arg: a.data.clone(),
+            talk_at_ready: a.talk_at_ready,
+            fixed_glue: a.fixed_glue,
+            record: false,
+        };
         let r = run_multi(&scn, d, &MultiOpts { run: o });
         if r.verdict.result == "skip" {
             println!("RESULT: SKIP needs_assets {}", r.verdict.reason);
@@ -223,14 +320,30 @@ fn suite(a: &Args, d: &Arc<Data>) -> i32 {
             return 2;
         }
     };
-    let threads = if a.jobs > 0 { a.jobs } else { std::thread::available_parallelism().map_or(2, |n| n.get().min(8)) };
+    let threads = if a.jobs > 0 {
+        a.jobs
+    } else {
+        std::thread::available_parallelism().map_or(2, |n| n.get().min(8))
+    };
     let jobs = plan(&scns, a.seeds.as_deref(), a.soak, a.net.as_deref());
     let t0 = std::time::Instant::now();
-    let done = run_jobs(d, jobs, threads, a.out.clone(), a.twice, a.data.clone(), a.talk_at_ready, a.fixed_glue);
+    let done = run_jobs(
+        d,
+        jobs,
+        threads,
+        a.out.clone(),
+        a.twice,
+        a.data.clone(),
+        a.talk_at_ready,
+        a.fixed_glue,
+    );
     let (mut pass, mut skip, mut nondet) = (0, 0, 0);
     for x in &done {
         if a.rows {
-            println!("ROW\t{}\t{}\t{}\t{}\t{:.3}\t{}", x.scenario, x.seed, x.result, x.class, x.wall_s, x.rerun);
+            println!(
+                "ROW\t{}\t{}\t{}\t{}\t{:.3}\t{}",
+                x.scenario, x.seed, x.result, x.class, x.wall_s, x.rerun
+            );
         }
         if !a.soak && a.seeds.as_ref().is_none_or(|s| s.len() <= 3) {
             println!("{}", x.line);
@@ -242,7 +355,10 @@ fn suite(a: &Args, d: &Arc<Data>) -> i32 {
         }
         if x.hash2.is_some_and(|h| h != x.hash) {
             nondet += 1;
-            println!("NONDETERMINISTIC: {} seed {} ({}): {}", x.scenario, x.seed, x.net, x.rerun);
+            println!(
+                "NONDETERMINISTIC: {} seed {} ({}): {}",
+                x.scenario, x.seed, x.net, x.rerun
+            );
         }
     }
     for l in summary(&done, a.soak) {
@@ -257,7 +373,16 @@ fn suite(a: &Args, d: &Arc<Data>) -> i32 {
         if a.twice { format!("; {nondet} nondeterministic") } else { String::new() }
     );
     let bad = fail > 0 || nondet > 0;
-    println!("RESULT: {}", if bad { "FAIL" } else if pass == 0 && skip > 0 { "SKIP" } else { "PASS" });
+    println!(
+        "RESULT: {}",
+        if bad {
+            "FAIL"
+        } else if pass == 0 && skip > 0 {
+            "SKIP"
+        } else {
+            "PASS"
+        }
+    );
     if bad {
         1
     } else if pass == 0 && skip > 0 {

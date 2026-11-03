@@ -1743,7 +1743,10 @@ fn pipboy_keys(
             // ITEMS (`007b5b40`).
             Action::Repair { chosen, part } => {
                 let to = world::repair::repair_with(order, state, FormId(chosen), FormId(part));
-                state.coop_route(world::coop::interact::repair_part_act(FormId(chosen), FormId(part)));
+                state.coop_route(world::coop::interact::repair_part_act(
+                    FormId(chosen),
+                    FormId(part),
+                ));
                 println!("Repaired {chosen:08X} with {part:08X}: {:.0}%.", to * 100.0);
                 let input = ui::pipboy::gather::repair_input(order, state, FormId(chosen));
                 if let Some(b) = pipboy.built.as_mut() {
@@ -2140,7 +2143,12 @@ fn whereabouts(
             .player_position
             .filter(|_| outdoors)
             .map(|p| (p, heading)),
-        quest: quests.points.iter().copied().chain(crate::coop_live::party_points()).collect(),
+        quest: quests
+            .points
+            .iter()
+            .copied()
+            .chain(crate::coop_live::party_points())
+            .collect(),
     }
 }
 

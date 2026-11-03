@@ -1,0 +1,25 @@
+{
+  "name": "live_dialogue_pause",
+  "description": "The host's clock runs (coop clock on: the host's Runner::update clock step, gated as the viewer's scripts gate it). A host script starts a conversation with Doc Mitchell, and the host's menu holds it open for 15 s, then closes it. The guest watches the host's session the whole time. The guest's frames run on through the hold, the host's dialogue stops the guest's world clock for at most one dialogue heartbeat (15 s, GameState::coop_conversation_stops_time) plus a tolerance, and the clock runs again on the guest after the hold.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 87,
+  "duration_s": 30,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 0, "run": "coop clock on" },
+      { "at": 4, "run": "DocMitchellREF.StartConversation player" },
+      { "at": 19, "run": "coop close" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "guest-watched-hold", "path": "scene.talk.watched_ms", "op": "ge", "value": 13000, "on": "guest" },
+    { "id": "guest-frames-ran", "path": "scene.talk.watched_frames", "op": "ge", "value": 300, "on": "guest" },
+    { "id": "host-dialogue-held-time", "path": "scene.talk.clock_lag_ms", "op": "ge", "value": 8000, "on": "guest" },
+    { "id": "held-within-heartbeat", "path": "scene.talk.clock_lag_ms", "op": "le", "value": 18000, "on": "guest" },
+    { "id": "guest-clock-ran", "path": "scene.talk.clock_ms", "op": "ge", "value": 5000, "on": "guest" },
+    { "id": "same-clock", "path": "globals.GameHour", "on": "equal", "tol": 0.05 }
+  ]
+}

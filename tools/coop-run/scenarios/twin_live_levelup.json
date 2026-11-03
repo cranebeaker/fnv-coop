@@ -1,0 +1,77 @@
+{
+  "name": "twin_live_levelup",
+  "description": "MUTATION TWIN of live_levelup: the guest earns the XP but never closes its level-up menu (no coop levelup), so it stays at level 1 with no perk and no points. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 2,
+        "run": "RewardXP 300"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-level-2",
+      "path": "campaign.level.guest",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "guest-perk",
+      "path": "campaign.perks.guest",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "guest-points",
+      "path": "campaign.skill_points.guest",
+      "op": "eq",
+      "value": 10,
+      "on": "both"
+    },
+    {
+      "id": "host-stays-level-1",
+      "path": "campaign.level.guest",
+      "op": "sum",
+      "add": [
+        "campaign.level.host"
+      ],
+      "cmp": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "host-no-perk",
+      "path": "campaign.perks.guest",
+      "op": "sum",
+      "add": [
+        "campaign.perks.host"
+      ],
+      "cmp": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "host-no-points",
+      "path": "campaign.skill_points.guest",
+      "op": "sum",
+      "add": [
+        "campaign.skill_points.host"
+      ],
+      "cmp": "eq",
+      "value": 10,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

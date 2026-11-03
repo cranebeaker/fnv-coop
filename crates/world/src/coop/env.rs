@@ -135,7 +135,8 @@ pub fn apply_sky(w: &mut WeatherState, s: &SkyShot, hour: f32) -> Applied {
 pub fn read_clock(order: &esm::LoadOrder, gs: &crate::scripting::GameState) -> (f32, f32, f32) {
     (
         gs.global(order, "GameDaysPassed").unwrap_or(0.0),
-        gs.global(order, "GameHour").unwrap_or(crate::weather::DEFAULT_HOUR),
+        gs.global(order, "GameHour")
+            .unwrap_or(crate::weather::DEFAULT_HOUR),
         gs.global(order, "TimeScale").unwrap_or(30.0),
     )
 }
@@ -143,7 +144,11 @@ pub fn read_clock(order: &esm::LoadOrder, gs: &crate::scripting::GameState) -> (
 /// Writes the guest's smoothed absolute hours into the clock globals the
 /// sky reads (`GameHour`, `GameDaysPassed`). Presentation only: the shared
 /// state still carries the host's quantized values.
-pub fn write_clock(order: &esm::LoadOrder, gs: &mut crate::scripting::GameState, absolute_hours: f64) {
+pub fn write_clock(
+    order: &esm::LoadOrder,
+    gs: &mut crate::scripting::GameState,
+    absolute_hours: f64,
+) {
     let days = (absolute_hours / 24.0).floor();
     let hour = (absolute_hours - days * 24.0) as f32;
     if let Some(id) = order.form_by_editor_id("GameHour") {

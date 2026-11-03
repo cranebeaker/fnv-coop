@@ -248,7 +248,13 @@ pub struct AvatarSender {
 impl AvatarSender {
     /// A sender for `player`.
     pub fn new(player: PlayerId) -> Self {
-        AvatarSender { player, seq: Seq(0), next_at: 0, parts_rev: 0, action_n: 0 }
+        AvatarSender {
+            player,
+            seq: Seq(0),
+            next_at: 0,
+            parts_rev: 0,
+            action_n: 0,
+        }
     }
 
     /// Emits a state message when the interval has elapsed.
@@ -263,19 +269,37 @@ impl AvatarSender {
             self.next_at + SEND_INTERVAL_MS
         };
         self.seq = self.seq.next();
-        Some(AvatarMsg::State { player: self.player, seq: self.seq, state: *state })
+        Some(AvatarMsg::State {
+            player: self.player,
+            seq: self.seq,
+            state: *state,
+        })
     }
 
     /// A combat action event under the next event number.
     pub fn action(&mut self, kind: ActionKind, arg: u32) -> AvatarMsg {
         self.action_n = self.action_n.wrapping_add(1);
-        AvatarMsg::Action { player: self.player, action: AvatarAction { n: Seq(self.action_n), kind, arg } }
+        AvatarMsg::Action {
+            player: self.player,
+            action: AvatarAction {
+                n: Seq(self.action_n),
+                kind,
+                arg,
+            },
+        }
     }
 
     /// Publishes new parts under the next revision.
     pub fn set_parts(&mut self, equipment: Vec<(u8, FormId)>, appearance: Vec<u8>) -> AvatarMsg {
         self.parts_rev += 1;
-        AvatarMsg::Parts { player: self.player, parts: AvatarParts { rev: self.parts_rev, equipment, appearance } }
+        AvatarMsg::Parts {
+            player: self.player,
+            parts: AvatarParts {
+                rev: self.parts_rev,
+                equipment,
+                appearance,
+            },
+        }
     }
 }
 
@@ -323,7 +347,10 @@ impl AvatarHub {
                     }
                 }
                 self.states.insert(from, (*seq, *state));
-                Some(Relay { cell: Some(state.cell), msg })
+                Some(Relay {
+                    cell: Some(state.cell),
+                    msg,
+                })
             }
             AvatarMsg::Parts { player, parts } => {
                 if *player != from {
@@ -342,13 +369,20 @@ impl AvatarHub {
                     self.forged += 1;
                     return None;
                 }
-                if self.actions.get(&from).is_some_and(|old| !action.n.is_newer_than(*old)) {
+                if self
+                    .actions
+                    .get(&from)
+                    .is_some_and(|old| !action.n.is_newer_than(*old))
+                {
                     self.stale += 1;
                     return None;
                 }
                 self.actions.insert(from, action.n);
                 // to the ones who can see them; everyone until a position is known
-                Some(Relay { cell: self.states.get(&from).map(|(_, s)| s.cell), msg })
+                Some(Relay {
+                    cell: self.states.get(&from).map(|(_, s)| s.cell),
+                    msg,
+                })
             }
         }
     }
@@ -360,7 +394,13 @@ impl AvatarHub {
 
     /// Parts messages for everyone known, for a peer that just joined.
     pub fn parts_snapshot(&self) -> Vec<AvatarMsg> {
-        self.parts.iter().map(|(p, parts)| AvatarMsg::Parts { player: *p, parts: parts.clone() }).collect()
+        self.parts
+            .iter()
+            .map(|(p, parts)| AvatarMsg::Parts {
+                player: *p,
+                parts: parts.clone(),
+            })
+            .collect()
     }
 
     /// Forgets a player.
@@ -375,7 +415,9 @@ impl AvatarHub {
     pub fn distance(&self, a: PlayerId, b: PlayerId) -> Option<f32> {
         let (sa, sb) = (self.state(a)?, self.state(b)?);
         (sa.cell == sb.cell).then(|| {
-            let d: f32 = (0..3).map(|i| dequant_pos(sa.pos[i] - sb.pos[i]).powi(2)).sum();
+            let d: f32 = (0..3)
+                .map(|i| dequant_pos(sa.pos[i] - sb.pos[i]).powi(2))
+                .sum();
             d.sqrt()
         })
     }
@@ -387,7 +429,11 @@ mod tests {
     use proptest::prelude::*;
 
     fn st(cell: u32, x: f32) -> AvatarState {
-        AvatarState { cell: CellId(cell), pos: [quant_pos(x), 0, 0], ..Default::default() }
+        AvatarState {
+            cell: CellId(cell),
+            pos: [quant_pos(x), 0, 0],
+            ..Default::default()
+        }
     }
 
     proptest! {
@@ -423,7 +469,9 @@ mod tests {
             }
         }
         assert_eq!(seqs.len(), 20);
-        assert!(seqs.windows(2).all(|w| w[1].1 == w[0].1.next() && w[1].0 - w[0].0 == 50));
+        assert!(seqs
+            .windows(2)
+            .all(|w| w[1].1 == w[0].1.next() && w[1].0 - w[0].0 == 50));
     }
 
     #[test]
@@ -437,7 +485,11 @@ mod tests {
     #[test]
     fn hub_rejects_forged_stale_and_relays_by_cell() {
         let mut h = AvatarHub::new();
-        let m = |p: u8, q: u32, c: u32| AvatarMsg::State { player: PlayerId(p), seq: Seq(q), state: st(c, 1.0) };
+        let m = |p: u8, q: u32, c: u32| AvatarMsg::State {
+            player: PlayerId(p),
+            seq: Seq(q),
+            state: st(c, 1.0),
+        };
         assert!(h.on_msg(PlayerId(1), m(2, 1, 5)).is_none());
         assert_eq!(h.forged, 1);
         let r = h.on_msg(PlayerId(1), m(1, 3, 5)).unwrap();
@@ -451,7 +503,11 @@ mod tests {
     #[test]
     fn hub_accepts_restarted_sender() {
         let mut h = AvatarHub::new();
-        let m = |q: u32| AvatarMsg::State { player: PlayerId(1), seq: Seq(q), state: st(1, 0.0) };
+        let m = |q: u32| AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(q),
+            state: st(1, 0.0),
+        };
         assert!(h.on_msg(PlayerId(1), m(50_000)).is_some());
         assert!(h.on_msg(PlayerId(1), m(1)).is_some());
         assert!(h.on_msg(PlayerId(1), m(2)).is_some());
@@ -464,13 +520,20 @@ mod tests {
         let a = s.set_parts(vec![(0, FormId(5))], vec![1, 2]);
         let b = s.set_parts(vec![(0, FormId(6))], vec![1, 2]);
         assert!(h.on_msg(PlayerId(1), b.clone()).is_some());
-        assert!(h.on_msg(PlayerId(1), a).is_none(), "older revision after newer");
+        assert!(
+            h.on_msg(PlayerId(1), a).is_none(),
+            "older revision after newer"
+        );
         assert!(h.on_msg(PlayerId(1), b).is_none(), "duplicate");
         assert_eq!(h.parts_snapshot().len(), 1);
     }
 
     fn act(n: u32) -> AvatarAction {
-        AvatarAction { n: Seq(n), kind: ActionKind::Swing, arg: n }
+        AvatarAction {
+            n: Seq(n),
+            kind: ActionKind::Swing,
+            arg: n,
+        }
     }
 
     #[test]
@@ -481,7 +544,11 @@ mod tests {
             rx.push(act(n));
         }
         let got: Vec<u32> = rx.take().iter().map(|a| a.n.0).collect();
-        assert_eq!(got, vec![1, 2, 3, 6, 7], "in order, once each; the late 5 is stale after 6");
+        assert_eq!(
+            got,
+            vec![1, 2, 3, 6, 7],
+            "in order, once each; the late 5 is stale after 6"
+        );
         assert_eq!(rx.accepted, 5);
         assert_eq!(rx.missed, 2, "4 and 5 never counted in order");
         assert_eq!(rx.dropped, 4);
@@ -505,7 +572,14 @@ mod tests {
     fn hub_relays_actions_once_by_cell_and_rejects_forgeries() {
         let mut h = AvatarHub::new();
         let mut s = AvatarSender::new(PlayerId(1));
-        h.on_msg(PlayerId(1), AvatarMsg::State { player: PlayerId(1), seq: Seq(1), state: st(5, 0.0) });
+        h.on_msg(
+            PlayerId(1),
+            AvatarMsg::State {
+                player: PlayerId(1),
+                seq: Seq(1),
+                state: st(5, 0.0),
+            },
+        );
         let a = s.action(ActionKind::Shoot, 7);
         assert!(a.is_sane() && !a.is_stream());
         let r = h.on_msg(PlayerId(1), a.clone()).unwrap();
@@ -529,7 +603,14 @@ mod tests {
     fn distance_requires_same_cell() {
         let mut h = AvatarHub::new();
         for (p, c, x) in [(1u8, 1u32, 0.0f32), (2, 1, 30.0), (3, 2, 30.0)] {
-            h.on_msg(PlayerId(p), AvatarMsg::State { player: PlayerId(p), seq: Seq(1), state: st(c, x) });
+            h.on_msg(
+                PlayerId(p),
+                AvatarMsg::State {
+                    player: PlayerId(p),
+                    seq: Seq(1),
+                    state: st(c, x),
+                },
+            );
         }
         assert!((h.distance(PlayerId(1), PlayerId(2)).unwrap() - 30.0).abs() < 0.1);
         assert_eq!(h.distance(PlayerId(1), PlayerId(3)), None);
@@ -540,7 +621,11 @@ mod tests {
     fn sanity_bounds() {
         let big = AvatarMsg::Parts {
             player: PlayerId(1),
-            parts: AvatarParts { rev: 1, equipment: vec![], appearance: vec![0; MAX_APPEARANCE + 1] },
+            parts: AvatarParts {
+                rev: 1,
+                equipment: vec![],
+                appearance: vec![0; MAX_APPEARANCE + 1],
+            },
         };
         assert!(!big.is_sane());
     }

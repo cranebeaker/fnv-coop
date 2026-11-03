@@ -156,5 +156,7 @@ pub enum RulesMsg {
         /// Campaign mode; clients derive the factors with
         /// [`Scaling::for_party`].
         mode: Mode,
+        /// The host's friendly-fire choice (the combat vitals apply it).
+        friendly_fire: bool,
     },
 }

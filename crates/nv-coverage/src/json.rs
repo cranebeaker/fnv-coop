@@ -21,7 +21,12 @@ impl J {
         J::Num(v)
     }
     pub fn obj(fields: Vec<(&str, J)>) -> J {
-        J::Obj(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        J::Obj(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
     }
     pub fn arr(items: impl IntoIterator<Item = J>) -> J {
         J::Arr(items.into_iter().collect())

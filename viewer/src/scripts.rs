@@ -404,8 +404,11 @@ fn use_object(
         // (`Runner::run_item_scripts`; Caravan cards join the player's
         // cards and leave the inventory).
         // co-op: first claim wins; a guest asks the host, which gives it to them
-        if state.coop_route(world::coop::interact::pickup_act(r.reference, r.base, r.count.max(1) as u32))
-            == world::coop::interact::Route::Remote
+        if state.coop_route(world::coop::interact::pickup_act(
+            r.reference,
+            r.base,
+            r.count.max(1) as u32,
+        )) == world::coop::interact::Route::Remote
         {
             return Some(Used::Taken);
         }
@@ -574,13 +577,15 @@ fn move_player(
     game: &cellview::Game,
     state: &world::scripting::GameState,
     to: FormId,
+    at: Option<[f32; 3]>,
     pending: &mut crate::PendingScene,
     pending_exterior: &mut crate::exterior::PendingExterior,
 ) -> Result<(), String> {
     let order = &game.order;
-    let (space, _, position, heading) = state
+    let (space, _, spot, heading) = state
         .place(order, to)
         .ok_or_else(|| format!("{to} isn't a placed object"))?;
+    let position = at.unwrap_or(spot);
     let interior = order
         .get(space)
         .is_some_and(|r| r.entry.header.kind == esm::sig::CELL);
@@ -1273,9 +1278,14 @@ pub fn run_scripts(
         cell_scripts.refs = cell_scripts.scheduler.refs().to_vec();
     }
     // Time stands still in the dialogue menu (not while a line is said)
-    // and in the other menus.
+    // and in the other menus. A co-op host's menu stops everyone's time for
+    // one dialogue heartbeat after its last pick at most
+    // (`GameState::coop_conversation_stops_time`).
     let dt = time.delta_secs();
-    if conversation.0.as_ref().is_none_or(|t| t.is_line_only())
+    if conversation
+        .0
+        .as_ref()
+        .is_none_or(|t| t.is_line_only() || !state.coop_conversation_stops_time())
         && (!waiting.is_open() || !crate::coop_live::menus_freeze_time())
     {
         let warner = state.living.trespass.as_ref().map(|w| w.warner);
@@ -1735,9 +1745,10 @@ pub fn run_scripts(
                 );
                 None
             }
-            Event::MoveTo { what, to } if what == PLAYER_REF => {
+            Event::MoveTo { what, to, at } if what == PLAYER_REF => {
                 println!("A script moves the player to {}.", name(to));
-                if let Err(e) = move_player(&game.0, state, to, &mut pending, &mut pending_exterior)
+                if let Err(e) =
+                    move_player(&game.0, state, to, at, &mut pending, &mut pending_exterior)
                 {
                     println!("  couldn't: {e}");
                 }
@@ -1746,7 +1757,7 @@ pub fn run_scripts(
             // Someone loaded here goes to the marker (or out of sight, if
             // it's elsewhere); someone moved in from elsewhere shows up
             // only once the place is loaded again.
-            Event::MoveTo { what, to } => {
+            Event::MoveTo { what, to, .. } => {
                 println!("A script moved {} to {}.", name(what), name(to));
                 moved.0.push(what);
                 None

@@ -1,0 +1,106 @@
+{
+  "name": "story_party_conditions",
+  "description": "Party-aware conditions read every present player, each by its quest row's reducer, from where the players are now. NVDLC02MQ00 reads IsKiller as any player: only the guest killed the gecko, so the probe answers 1. Followers reads GetDistance as the minimum over the party: the host walks far from Doc Mitchell and the guest walks to him, so the probe answers the guest's new distance. VMQYesMan01a reads GetInCell as any player: only the guest moved into cell D00001, so the probe answers 1. VMS35 reads GetItemCount as any player: only the guest holds caps, so the probe answers 1. Headless only: it uses the coop cell verb.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 28,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "DocMitchellREF.MoveTo DocMitchellCouchREF"
+      },
+      {
+        "at": 2.2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "coop give 1 Caps001 5"
+      },
+      {
+        "at": 17,
+        "run": "coop pcond NVDLC02MQ00 IsKiller VCG02Gecko1REF"
+      },
+      {
+        "at": 18,
+        "run": "coop teleport 6000.0 1603.6 7360.0"
+      },
+      {
+        "at": 21,
+        "run": "coop pcond Followers GetDistance DocMitchellREF"
+      },
+      {
+        "at": 25,
+        "run": "coop pcond VMQYesMan01a GetInCell D00001"
+      },
+      {
+        "at": 25.2,
+        "run": "coop pcond VMS35 GetItemCount Caps001"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit VCG02Gecko1REF 3"
+      },
+      {
+        "at": 13,
+        "run": "coop hit VCG02Gecko1REF 100000"
+      },
+      {
+        "at": 18,
+        "run": "coop teleport 1298.0 1850.0 7396.0"
+      },
+      {
+        "at": 22,
+        "run": "coop cell D00001"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "itemcount-any",
+      "path": "campaign.probes.VMS35_GetItemCount",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "distance-min",
+      "path": "campaign.probes.Followers_GetDistance",
+      "op": "lt",
+      "value": 300,
+      "on": "host"
+    },
+    {
+      "id": "gecko-dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "iskiller-any",
+      "path": "campaign.probes.NVDLC02MQ00_IsKiller",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "incell-any",
+      "path": "campaign.probes.VMQYesMan01a_GetInCell",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    }
+  ]
+}

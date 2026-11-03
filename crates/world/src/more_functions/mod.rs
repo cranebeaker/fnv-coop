@@ -1012,7 +1012,9 @@ fn stop_combat_alarm(runner: &mut Runner, actor: FormId) {
         }
         for who in nearby {
             for f in crate::factions::factions_of(order, state, who) {
-                state.crime_enemies.remove(&f);
+                if state.crime_enemies.remove(&f) {
+                    state.emit(crate::coop::Domain::Crime, f);
+                }
             }
         }
     }

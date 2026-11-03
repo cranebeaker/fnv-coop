@@ -39,60 +39,67 @@ pub const VISIBLE: u8 = 0x01;
 /// The map markers among a cell's references (a worldspace's persistent
 /// cell holds its markers), by name.
 pub fn markers(order: &LoadOrder, cell: FormId) -> Vec<MapMarker> {
-    let mut out = Vec::new();
-    for rr in order.references_in_cell(cell) {
-        let Ok(record) = rr.record() else { continue };
-        if record.get(XMRK).is_none() {
-            continue;
-        }
-        let mut flags = 0;
-        let mut seen = false;
-        for sub in &record.subrecords {
-            if sub.kind == XMRK {
-                seen = true;
-            } else if seen && sub.kind.as_bytes() == b"FNAM" {
-                flags = sub.data.first().copied().unwrap_or(0);
-                break;
-            }
-        }
-        let data = record.get(esm::sig::DATA).filter(|s| s.data.len() >= 12);
-        let Some(data) = data else { continue };
-        let f = |kind: &[u8; 4]| {
-            record
-                .get(FourCC::new(kind))
-                .filter(|s| s.data.len() >= 4)
-                .map(|s| le_f32(&s.data, 0))
-        };
-        let arrival = record
-            .get(FourCC::new(b"XLKR"))
-            .filter(|s| s.data.len() >= 4)
-            .map(|s| {
-                let at = if s.data.len() >= 8 { 4 } else { 0 };
-                rr.plugin.to_global(FormId(le_u32(&s.data, at)))
-            })
-            .filter(|f| f.0 != 0);
-        out.push(MapMarker {
-            reference: rr.form_id,
-            name: record
-                .full_name()
-                .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| rr.form_id.to_string()),
-            position: [
-                le_f32(&data.data, 0),
-                le_f32(&data.data, 4),
-                le_f32(&data.data, 8),
-            ],
-            radius: f(b"XRDS").unwrap_or(0.0),
-            flags,
-            kind: record
-                .get(FourCC::new(b"TNAM"))
-                .and_then(|s| s.data.first().copied())
-                .unwrap_or(0),
-            arrival,
-        });
-    }
+    let mut out: Vec<MapMarker> = order
+        .references_in_cell(cell)
+        .iter()
+        .filter_map(parse_marker)
+        .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+/// One map marker by its reference (`None` when it is not one).
+pub fn marker(order: &LoadOrder, reference: FormId) -> Option<MapMarker> {
+    parse_marker(&order.get(reference)?)
+}
+
+fn parse_marker(rr: &esm::RecordRef<'_>) -> Option<MapMarker> {
+    let record = rr.record().ok()?;
+    record.get(XMRK)?;
+    let mut flags = 0;
+    let mut seen = false;
+    for sub in &record.subrecords {
+        if sub.kind == XMRK {
+            seen = true;
+        } else if seen && sub.kind.as_bytes() == b"FNAM" {
+            flags = sub.data.first().copied().unwrap_or(0);
+            break;
+        }
+    }
+    let data = record.get(esm::sig::DATA).filter(|s| s.data.len() >= 12)?;
+    let f = |kind: &[u8; 4]| {
+        record
+            .get(FourCC::new(kind))
+            .filter(|s| s.data.len() >= 4)
+            .map(|s| le_f32(&s.data, 0))
+    };
+    let arrival = record
+        .get(FourCC::new(b"XLKR"))
+        .filter(|s| s.data.len() >= 4)
+        .map(|s| {
+            let at = if s.data.len() >= 8 { 4 } else { 0 };
+            rr.plugin.to_global(FormId(le_u32(&s.data, at)))
+        })
+        .filter(|f| f.0 != 0);
+    Some(MapMarker {
+        reference: rr.form_id,
+        name: record
+            .full_name()
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| rr.form_id.to_string()),
+        position: [
+            le_f32(&data.data, 0),
+            le_f32(&data.data, 4),
+            le_f32(&data.data, 8),
+        ],
+        radius: f(b"XRDS").unwrap_or(0.0),
+        flags,
+        kind: record
+            .get(FourCC::new(b"TNAM"))
+            .and_then(|s| s.data.first().copied())
+            .unwrap_or(0),
+        arrival,
+    })
 }
 
 /// Markers the player now finds, standing at `feet` (`00779070`): those
@@ -113,8 +120,14 @@ pub fn discover(
     }
     let reveal =
         crate::scripting::game_setting(order, "iMapMarkerRevealDistance").unwrap_or(1000.0);
+    // co-op: a guest's find goes to the host (the caller routes the act) and
+    // comes back as the party's; until then it is kept here so it is found once
+    let guest = state.coop.authority.is_guest();
     for m in markers {
-        if state.discovered.contains(&m.reference) || m.flags & 0x03 == 0x03 {
+        if state.discovered.contains(&m.reference)
+            || m.flags & 0x03 == 0x03
+            || (guest && state.coop.interact.found.contains(&m.reference))
+        {
             continue;
         }
         let radius = if m.radius > 0.0 { m.radius } else { reveal };
@@ -124,7 +137,12 @@ pub fn discover(
             .sqrt();
         // Strictly inside.
         if d < radius {
-            state.discovered.insert(m.reference);
+            if guest {
+                state.coop.interact.found.insert(m.reference);
+            } else {
+                state.discovered.insert(m.reference);
+                state.emit(crate::coop::Domain::MapMarker, m.reference);
+            }
             found.push(m.clone());
             crate::stats::bump(state, crate::stats::LOCATIONS_DISCOVERED, 1);
             // The HUD's quest text: `sDiscoveredText` over the place's
@@ -286,6 +304,7 @@ pub fn travel(order: &LoadOrder, state: &mut GameState, m: &MapMarker) -> Result
     state.events.push(crate::scripting::Event::MoveTo {
         what: crate::dialogue::PLAYER_REF,
         to,
+        at: None,
     });
     Ok(to)
 }

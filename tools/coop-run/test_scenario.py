@@ -201,5 +201,39 @@ class Evaluate(unittest.TestCase):
         self.assertEqual(sc.get_path(self.H, "positions.host.0"), 100.0)
 
 
+
+class HashMatch(unittest.TestCase):
+    HOST = {"hash": {"shared": "c", "rev": 12, "recent": [[12, "c"], [11, "b"], [10, "a"]]}}
+
+    def test_equal_hashes_match(self):
+        ok, _ = sc.hash_match({"hash": {"shared": "a"}}, {"hash": {"shared": "a"}})
+        self.assertTrue(ok)
+
+    def test_guest_behind_matches_the_host_root_at_its_revision(self):
+        ok, detail = sc.hash_match(self.HOST, {"hash": {"shared": "a", "rev": 10}})
+        self.assertTrue(ok, detail)
+        self.assertIn("2 revisions behind", detail)
+
+    def test_guest_behind_with_a_wrong_hash_fails(self):
+        ok, _ = sc.hash_match(self.HOST, {"hash": {"shared": "z", "rev": 10}})
+        self.assertFalse(ok)
+
+    def test_guest_too_far_behind_fails(self):
+        ok, detail = sc.hash_match(self.HOST, {"hash": {"shared": "a", "rev": 3}})
+        self.assertFalse(ok)
+        self.assertIn("no host root", detail)
+
+    def test_no_revision_fails_on_a_difference(self):
+        ok, _ = sc.hash_match(self.HOST, {"hash": {"shared": "a"}})
+        self.assertFalse(ok)
+
+    def test_equal_expect_on_hash_uses_the_revision(self):
+        e = [{"id": "h", "path": "hash.shared", "on": "equal", "op": "eq"}]
+        r = sc.evaluate(e, self.HOST, {"hash": {"shared": "b", "rev": 11}})
+        self.assertTrue(r[0]["ok"], r)
+        r = sc.evaluate(e, self.HOST, {"hash": {"shared": "a", "rev": 11}})
+        self.assertFalse(r[0]["ok"], r)
+
+
 if __name__ == "__main__":
     unittest.main()

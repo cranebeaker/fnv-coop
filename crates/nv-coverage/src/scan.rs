@@ -83,7 +83,9 @@ pub fn sources(order: &LoadOrder) -> Vec<Source> {
                         let d = order.get(t)?.record().ok()?;
                         let q = d.get(QSTI)?;
                         let raw = q.data.get(..4)?;
-                        Some(rr.plugin.to_global(FormId(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))))
+                        Some(rr.plugin.to_global(FormId(u32::from_le_bytes([
+                            raw[0], raw[1], raw[2], raw[3],
+                        ]))))
                     })
                 })
             } else {
@@ -95,7 +97,10 @@ pub fn sources(order: &LoadOrder) -> Vec<Source> {
                 if sub.kind == INDX && sub.data.len() >= 2 {
                     stage = Some(i16::from_le_bytes([sub.data[0], sub.data[1]]));
                 } else if sub.kind == SCHR {
-                    schr_type = sub.data.get(12..14).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+                    schr_type = sub
+                        .data
+                        .get(12..14)
+                        .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
                 } else if sub.kind == SCTX {
                     let text = esm::text::decode_cp1252(&sub.data);
                     let (k, quest) = match kind.as_bytes() {
@@ -115,7 +120,11 @@ pub fn sources(order: &LoadOrder) -> Vec<Source> {
                         form: rr.form_id,
                         editor: editor.clone(),
                         quest,
-                        stage: if kind.as_bytes() == b"QUST" { stage } else { None },
+                        stage: if kind.as_bytes() == b"QUST" {
+                            stage
+                        } else {
+                            None
+                        },
                         plugin: rr.plugin.name.clone(),
                         parsed: script::parse(&text).map_err(|e| e.to_string()),
                         text,
@@ -141,7 +150,10 @@ pub fn all_calls(s: &script::Script) -> Vec<&script::Call> {
             match st {
                 script::Stmt::Set { value, .. } => expr(value, out),
                 script::Stmt::Call(c) => out.push(c),
-                script::Stmt::If { branches, otherwise } => {
+                script::Stmt::If {
+                    branches,
+                    otherwise,
+                } => {
                     for (c, b) in branches {
                         expr(c, out);
                         walk(b, out);
@@ -187,7 +199,10 @@ mod tests {
 
     #[test]
     fn collects_calls_from_nested_statements() {
-        let s = script::parse("ScriptName T\nBegin GameMode\nif GetStage VMQ01 > 5\nSetStage VMQ01 10\nendif\nEnd\n").unwrap();
+        let s = script::parse(
+            "ScriptName T\nBegin GameMode\nif GetStage VMQ01 > 5\nSetStage VMQ01 10\nendif\nEnd\n",
+        )
+        .unwrap();
         let calls = calls_of(&s);
         assert_eq!(calls.len(), 2);
         assert_eq!(script::function_name(calls[0]), "GetStage");

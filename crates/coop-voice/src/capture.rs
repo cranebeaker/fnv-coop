@@ -44,7 +44,13 @@ impl Capture {
     }
 }
 
-fn push_mono<T: Copy>(q: &SampleQueue, data: &[T], channels: usize, rate: u32, to_f32: impl Fn(T) -> f32) {
+fn push_mono<T: Copy>(
+    q: &SampleQueue,
+    data: &[T],
+    channels: usize,
+    rate: u32,
+    to_f32: impl Fn(T) -> f32,
+) {
     let mut g = lock(q);
     for fr in data.chunks(channels.max(1)) {
         g.push_back(fr.iter().map(|s| to_f32(*s)).sum::<f32>() / fr.len() as f32);
@@ -69,9 +75,12 @@ pub fn start() -> Result<Capture, String> {
     let err = |e: cpal::StreamError| eprintln!("co-op voice capture error: {e}");
     let conf: cpal::StreamConfig = cfg.into();
     let stream = match format {
-        cpal::SampleFormat::F32 => {
-            dev.build_input_stream(&conf, move |d: &[f32], _| push_mono(&q, d, channels, device_rate, |s| s), err, None)
-        }
+        cpal::SampleFormat::F32 => dev.build_input_stream(
+            &conf,
+            move |d: &[f32], _| push_mono(&q, d, channels, device_rate, |s| s),
+            err,
+            None,
+        ),
         cpal::SampleFormat::I16 => dev.build_input_stream(
             &conf,
             move |d: &[i16], _| push_mono(&q, d, channels, device_rate, |s| f32::from(s) / 32768.0),
@@ -80,7 +89,11 @@ pub fn start() -> Result<Capture, String> {
         ),
         cpal::SampleFormat::U16 => dev.build_input_stream(
             &conf,
-            move |d: &[u16], _| push_mono(&q, d, channels, device_rate, |s| (f32::from(s) - 32768.0) / 32768.0),
+            move |d: &[u16], _| {
+                push_mono(&q, d, channels, device_rate, |s| {
+                    (f32::from(s) - 32768.0) / 32768.0
+                })
+            },
             err,
             None,
         ),
@@ -88,7 +101,11 @@ pub fn start() -> Result<Capture, String> {
     }
     .map_err(|e| e.to_string())?;
     stream.play().map_err(|e| e.to_string())?;
-    Ok(Capture { _stream: stream, queue, device_rate })
+    Ok(Capture {
+        _stream: stream,
+        queue,
+        device_rate,
+    })
 }
 
 /// The speakers.
@@ -134,7 +151,13 @@ impl Playback {
     }
 }
 
-fn fill<T: Copy>(q: &SampleQueue, out: &mut [T], channels: usize, from_f32: impl Fn(f32) -> T, silence: T) {
+fn fill<T: Copy>(
+    q: &SampleQueue,
+    out: &mut [T],
+    channels: usize,
+    from_f32: impl Fn(f32) -> T,
+    silence: T,
+) {
     let mut g = lock(q);
     for fr in out.chunks_mut(channels.max(1)) {
         let (l, r) = match (g.pop_front(), g.pop_front()) {
@@ -168,18 +191,37 @@ pub fn start_playback() -> Result<Playback, String> {
     let err = |e: cpal::StreamError| eprintln!("co-op voice playback error: {e}");
     let conf: cpal::StreamConfig = cfg.into();
     let stream = match format {
-        cpal::SampleFormat::F32 => {
-            dev.build_output_stream(&conf, move |d: &mut [f32], _| fill(&q, d, channels, |s| s, 0.0), err, None)
-        }
+        cpal::SampleFormat::F32 => dev.build_output_stream(
+            &conf,
+            move |d: &mut [f32], _| fill(&q, d, channels, |s| s, 0.0),
+            err,
+            None,
+        ),
         cpal::SampleFormat::I16 => dev.build_output_stream(
             &conf,
-            move |d: &mut [i16], _| fill(&q, d, channels, |s| (s.clamp(-1.0, 1.0) * 32767.0) as i16, 0),
+            move |d: &mut [i16], _| {
+                fill(
+                    &q,
+                    d,
+                    channels,
+                    |s| (s.clamp(-1.0, 1.0) * 32767.0) as i16,
+                    0,
+                )
+            },
             err,
             None,
         ),
         cpal::SampleFormat::U16 => dev.build_output_stream(
             &conf,
-            move |d: &mut [u16], _| fill(&q, d, channels, |s| ((s.clamp(-1.0, 1.0) * 32767.0) + 32768.0) as u16, 32768),
+            move |d: &mut [u16], _| {
+                fill(
+                    &q,
+                    d,
+                    channels,
+                    |s| ((s.clamp(-1.0, 1.0) * 32767.0) + 32768.0) as u16,
+                    32768,
+                )
+            },
             err,
             None,
         ),

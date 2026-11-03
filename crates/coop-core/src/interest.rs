@@ -66,14 +66,20 @@ impl InterestMap {
 
     /// True when a peer standing in `peer_cell` should see things in `cell`.
     pub fn visible(&self, peer_cell: CellId, cell: CellId) -> bool {
-        peer_cell == cell || self.neighbors.get(&peer_cell).map_or(false, |n| n.contains(&cell))
+        peer_cell == cell
+            || self
+                .neighbors
+                .get(&peer_cell)
+                .map_or(false, |n| n.contains(&cell))
     }
 
     /// Peers that should receive an update for an entity in `cell`.
     pub fn peers_seeing(&self, cell: CellId) -> Vec<PlayerId> {
         self.peer_cell
             .iter()
-            .filter(|(p, c)| self.visible(**c, cell) || self.reach.get(p).map_or(false, |r| r.contains(&cell)))
+            .filter(|(p, c)| {
+                self.visible(**c, cell) || self.reach.get(p).map_or(false, |r| r.contains(&cell))
+            })
             .map(|(p, _)| *p)
             .collect()
     }
@@ -91,10 +97,16 @@ impl InterestMap {
     pub fn resolve(&self, aud: Audience, members: &[PlayerId]) -> Vec<PlayerId> {
         match aud {
             Audience::To(p) => members.iter().copied().filter(|m| *m == p).collect(),
-            Audience::Cell(c) => self.peers_seeing(c).into_iter().filter(|p| members.contains(p)).collect(),
-            Audience::CellExcept(c, x) => {
-                self.peers_seeing_except(c, x).into_iter().filter(|p| members.contains(p)).collect()
-            }
+            Audience::Cell(c) => self
+                .peers_seeing(c)
+                .into_iter()
+                .filter(|p| members.contains(p))
+                .collect(),
+            Audience::CellExcept(c, x) => self
+                .peers_seeing_except(c, x)
+                .into_iter()
+                .filter(|p| members.contains(p))
+                .collect(),
             Audience::All => members.to_vec(),
             Audience::AllExcept(x) => members.iter().copied().filter(|m| *m != x).collect(),
         }
@@ -132,7 +144,13 @@ impl PriorityAccumulator {
     /// weight and keeps the accumulated priority.
     pub fn touch(&mut self, entity: FormId, weight: f32) {
         let w = weight.max(0.001);
-        self.items.entry(entity).and_modify(|i| i.weight = w).or_insert(Item { weight: w, acc: 0.0 });
+        self.items
+            .entry(entity)
+            .and_modify(|i| i.weight = w)
+            .or_insert(Item {
+                weight: w,
+                acc: 0.0,
+            });
     }
 
     /// Stops tracking an entity (despawn, left interest).
@@ -149,12 +167,20 @@ impl PriorityAccumulator {
     /// within `budget` bytes, highest priority first. `size_of` gives the
     /// encoded size of an entity's update. The first pick is always allowed so
     /// an oversized update cannot block forever.
-    pub fn drain(&mut self, budget: usize, mut size_of: impl FnMut(FormId) -> usize) -> Vec<FormId> {
+    pub fn drain(
+        &mut self,
+        budget: usize,
+        mut size_of: impl FnMut(FormId) -> usize,
+    ) -> Vec<FormId> {
         for i in self.items.values_mut() {
             i.acc += i.weight;
         }
         let mut order: Vec<(FormId, f32)> = self.items.iter().map(|(f, i)| (*f, i.acc)).collect();
-        order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+        order.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
         let mut spent = 0usize;
         let mut sent = Vec::new();
         for (f, _) in order {
@@ -204,11 +230,20 @@ mod tests {
         m.set_peer_cell(p(1), CellId(1));
         m.set_peer_cell(p(2), CellId(2));
         let members = [p(0), p(1), p(2)];
-        assert_eq!(m.resolve(Audience::Cell(CellId(1)), &members), vec![p(0), p(1)]);
-        assert_eq!(m.resolve(Audience::CellExcept(CellId(1), p(0)), &members), vec![p(1)]);
+        assert_eq!(
+            m.resolve(Audience::Cell(CellId(1)), &members),
+            vec![p(0), p(1)]
+        );
+        assert_eq!(
+            m.resolve(Audience::CellExcept(CellId(1), p(0)), &members),
+            vec![p(1)]
+        );
         assert_eq!(m.resolve(Audience::To(p(2)), &members), vec![p(2)]);
         assert!(m.resolve(Audience::To(p(9)), &members).is_empty());
-        assert_eq!(m.resolve(Audience::AllExcept(p(1)), &members), vec![p(0), p(2)]);
+        assert_eq!(
+            m.resolve(Audience::AllExcept(p(1)), &members),
+            vec![p(0), p(2)]
+        );
         assert_eq!(m.resolve(Audience::All, &members).len(), 3);
         assert_eq!(m.resolve(Audience::Cell(CellId(1)), &[p(1)]), vec![p(1)]);
     }

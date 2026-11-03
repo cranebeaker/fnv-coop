@@ -1,6 +1,6 @@
 {
   "name": "twin_doc_stage_sync",
-  "description": "MUTATION TWIN of doc_stage_sync: the host never sets the stage, so the guest must not already have stage 10. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "description": "MUTATION TWIN of doc_stage_sync: the host never sets the stage, so the guest must not already have stage 10. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails. In the real game Sunny Smiles greets the host when the guest loads slowly, and the host's console lines (the stage too) wait while her dialogue is open. The host leaves it by picking the Goodbye. topic (coop topic Goodbye.), which waits until a dialogue offers topics.",
   "cell": "GSProspectorSaloonInterior",
   "network": "perfect",
   "seed": 11,
@@ -8,7 +8,12 @@
   "settle_s": 4,
   "timeout_s": 240,
   "host": {
-    "script": []
+    "script": [
+      {
+        "at": 0,
+        "run": "coop topic Goodbye."
+      }
+    ]
   },
   "guest": {
     "script": []

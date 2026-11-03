@@ -1,0 +1,40 @@
+{
+  "name": "twin_live_status_repair",
+  "description": "MUTATION TWIN of live_status_repair: nothing garbles the guest's store. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 78,
+  "duration_s": 16,
+  "settle_s": 6,
+  "max_repairs": 5,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-desync",
+      "path": "status.desyncs",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-repair",
+      "path": "status.repairs",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "host-repair",
+      "path": "status.repairs",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    }
+  ],
+  "expect_fail": true
+}

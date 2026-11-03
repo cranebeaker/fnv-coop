@@ -41,7 +41,11 @@ pub struct HostBridge {
 
 impl Default for HostBridge {
     fn default() -> Self {
-        HostBridge { backstop_every: 20, calls: 0, uncovered_total: BTreeMap::new() }
+        HostBridge {
+            backstop_every: 20,
+            calls: 0,
+            uncovered_total: BTreeMap::new(),
+        }
     }
 }
 
@@ -81,7 +85,10 @@ impl HostBridge {
             let seen: std::collections::HashSet<Effect> = effects.into_iter().collect();
             for k in touched {
                 let d = domain_of(&k);
-                if !seen.contains(&Effect { domain: d, form: wf(k.form) }) {
+                if !seen.contains(&Effect {
+                    domain: d,
+                    form: wf(k.form),
+                }) {
                     *rep.uncovered.entry(d).or_default() += 1;
                     *self.uncovered_total.entry(d).or_default() += 1;
                 }
@@ -119,13 +126,29 @@ impl GuestBridge {
         }
         // The first non-empty store is the join snapshot: no announcements.
         let first = self.last.map_or(true, |(r, _)| r == Rev::ZERO);
-        let rep = gs.apply_store(store, if first { Opts { present: false, ..opts } } else { opts });
+        let rep = gs.apply_store(
+            store,
+            if first {
+                Opts {
+                    present: false,
+                    ..opts
+                }
+            } else {
+                opts
+            },
+        );
         if self.last == Some(stamp) && rep.set + rep.cleared > 0 {
             self.drift_repairs += 1;
         }
         self.last = Some(stamp);
         self.applies += 1;
         Some(rep)
+    }
+
+    /// The store revision last applied to the game state, when the store
+    /// then held every revision up to it (no gaps).
+    pub fn applied_rev(&self) -> Option<Rev> {
+        self.last.filter(|(r, b)| r == b).map(|(r, _)| r)
     }
 
     /// Forget what was applied (after a reload of the guest state).

@@ -1,0 +1,67 @@
+{
+  "name": "twin_live_casino",
+  "description": "MUTATION TWIN of live_casino: the guest closes no casino game (no coop casino on the guest), so the guest keeps 100 chips and has no Tops ledger. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 83,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "player.AddItem TheTopsChip 50"
+      },
+      {
+        "at": 1.5,
+        "run": "coop give 1 TheTopsChip 100"
+      },
+      {
+        "at": 9,
+        "run": "coop casino TheTopsCasinoData 20 -30"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-chips",
+      "path": "items.guest.TheTopsChip",
+      "op": "eq",
+      "value": 120,
+      "on": "both"
+    },
+    {
+      "id": "party-chips",
+      "path": "items.guest.TheTopsChip",
+      "op": "sum",
+      "add": [
+        "items.host.TheTopsChip"
+      ],
+      "cmp": "eq",
+      "value": 140,
+      "on": "both"
+    },
+    {
+      "id": "guest-ledger",
+      "path": "campaign.casino.guest.TheTopsCasinoData",
+      "op": "eq",
+      "value": 20,
+      "on": "host"
+    },
+    {
+      "id": "own-ledgers",
+      "path": "campaign.casino.guest.TheTopsCasinoData",
+      "op": "sum",
+      "add": [
+        "campaign.casino.host.TheTopsCasinoData"
+      ],
+      "cmp": "eq",
+      "value": -10,
+      "on": "host"
+    }
+  ],
+  "expect_fail": true
+}

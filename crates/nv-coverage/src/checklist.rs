@@ -34,8 +34,18 @@ pub struct Item {
     pub note: &'static str,
 }
 
-const fn it(system: &'static str, status: Status, files: &'static [&'static str], note: &'static str) -> Item {
-    Item { system, status, files, note }
+const fn it(
+    system: &'static str,
+    status: Status,
+    files: &'static [&'static str],
+    note: &'static str,
+) -> Item {
+    Item {
+        system,
+        status,
+        files,
+        note,
+    }
 }
 
 use Status::{Absent as A, Partial as P, Present as Y};
@@ -107,7 +117,10 @@ pub fn repo_root() -> Option<PathBuf> {
 
 /// Files of an item that exist (true) or do not (false), when the repository is known.
 pub fn file_state(root: Option<&Path>, item: &Item) -> Vec<(&'static str, Option<bool>)> {
-    item.files.iter().map(|f| (*f, root.map(|r| r.join(f).exists()))).collect()
+    item.files
+        .iter()
+        .map(|f| (*f, root.map(|r| r.join(f).exists())))
+        .collect()
 }
 
 /// Event block kinds (`gamemode`, `onactivate`, ...) the runtime reacts to,
@@ -119,11 +132,21 @@ pub fn events_handled(root: &Path, kinds: &[String]) -> Vec<(String, bool)> {
         collect(&root.join(sub), &mut text, 0);
     }
     let lower = text.to_ascii_lowercase();
-    kinds.iter().map(|k| (k.clone(), lower.contains(&format!("\"{}\"", k.to_ascii_lowercase())))).collect()
+    kinds
+        .iter()
+        .map(|k| {
+            (
+                k.clone(),
+                lower.contains(&format!("\"{}\"", k.to_ascii_lowercase())),
+            )
+        })
+        .collect()
 }
 
 fn collect(dir: &Path, out: &mut String, depth: usize) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() && depth < 4 {
@@ -150,7 +173,11 @@ mod tests {
 
     #[test]
     fn events_found_in_source_text() {
-        let dir = std::env::temp_dir().join("nv_cov_events_test").join("crates").join("world").join("src");
+        let dir = std::env::temp_dir()
+            .join("nv_cov_events_test")
+            .join("crates")
+            .join("world")
+            .join("src");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.rs"), "fn f() { run(\"onactivate\"); }").unwrap();
         let root = std::env::temp_dir().join("nv_cov_events_test");

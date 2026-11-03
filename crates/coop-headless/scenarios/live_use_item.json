@@ -1,0 +1,27 @@
+{
+  "name": "live_use_item",
+  "description": "The host gives each player 3 stimpaks. The guest uses one from its Pip-Boy. The host uses it in the guest's rows only: the guest holds 2 and the host still holds 3, on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 85,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "coop give 0 Stimpak 3" },
+      { "at": 1, "run": "coop give 1 Stimpak 3" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 8, "run": "coop use Stimpak" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-used-host", "path": "items.guest.Stimpak", "op": "eq", "value": 2, "on": "host" },
+    { "id": "guest-used-guest", "path": "items.guest.Stimpak", "op": "eq", "value": 2, "on": "guest" },
+    { "id": "host-kept", "path": "items.host.Stimpak", "op": "eq", "value": 3, "on": "both" },
+    { "id": "counted", "path": "interact.use", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

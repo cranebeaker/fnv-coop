@@ -45,7 +45,10 @@ fn value(v: &V) -> String {
 
 /// One flat object on one line.
 pub fn object(fields: &[(&str, V)]) -> String {
-    let body: Vec<String> = fields.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), value(v))).collect();
+    let body: Vec<String> = fields
+        .iter()
+        .map(|(k, v)| format!("\"{}\":{}", esc(k), value(v)))
+        .collect();
     format!("{{{}}}", body.join(","))
 }
 
@@ -79,9 +82,14 @@ pub fn parse_flat(text: &str) -> Result<Vec<(String, String)>, String> {
                         'r' => o.push('\r'),
                         't' => o.push('\t'),
                         'u' => {
-                            let hex: String = c.get(*i..*i + 4).ok_or("short unicode escape")?.iter().collect();
+                            let hex: String = c
+                                .get(*i..*i + 4)
+                                .ok_or("short unicode escape")?
+                                .iter()
+                                .collect();
                             *i += 4;
-                            let n = u32::from_str_radix(&hex, 16).map_err(|_| "bad unicode escape")?;
+                            let n =
+                                u32::from_str_radix(&hex, 16).map_err(|_| "bad unicode escape")?;
                             o.push(char::from_u32(n).unwrap_or('?'));
                         }
                         other => o.push(other),
@@ -147,7 +155,10 @@ mod tests {
 
     #[test]
     fn parses_flat_requests() {
-        let kv = parse_flat(r#" {"cmd":"run","line":"SetStage \"Q\" 10","local":true,"n":-2.5,"x":null} "#).unwrap();
+        let kv = parse_flat(
+            r#" {"cmd":"run","line":"SetStage \"Q\" 10","local":true,"n":-2.5,"x":null} "#,
+        )
+        .unwrap();
         let get = |k: &str| kv.iter().find(|(a, _)| a == k).map(|(_, v)| v.as_str());
         assert_eq!(get("cmd"), Some("run"));
         assert_eq!(get("line"), Some("SetStage \"Q\" 10"));
@@ -161,7 +172,12 @@ mod tests {
 
     #[test]
     fn escapes_and_formats() {
-        let s = object(&[("a", V::S("x\"y\n")), ("n", V::U(3)), ("b", V::B(true)), ("i", V::I(-2))]);
+        let s = object(&[
+            ("a", V::S("x\"y\n")),
+            ("n", V::U(3)),
+            ("b", V::B(true)),
+            ("i", V::I(-2)),
+        ]);
         assert_eq!(s, "{\"a\":\"x\\\"y\\n\",\"n\":3,\"b\":true,\"i\":-2}");
     }
 }

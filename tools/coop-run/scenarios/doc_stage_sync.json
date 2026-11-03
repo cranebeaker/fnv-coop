@@ -1,17 +1,43 @@
 {
   "name": "doc_stage_sync",
-  "description": "Host sets VCG03 (a shared Prologue quest) to stage 10 with both players inside VCG03's tether zone (the Prospector Saloon, so the gate applies it at once); the guest must see the same quest stage. Clean link.",
+  "description": "Host sets VCG03 (a shared Prologue quest) to stage 10 with both players inside VCG03's tether zone (the Prospector Saloon, so the gate applies it at once); the guest must see the same quest stage. Clean link. In the real game Sunny Smiles greets the host when the guest loads slowly, and the host's console lines (the stage too) wait while her dialogue is open. The host leaves it by picking the Goodbye. topic (coop topic Goodbye.), which waits until a dialogue offers topics.",
   "cell": "GSProspectorSaloonInterior",
   "network": "perfect",
   "seed": 11,
   "duration_s": 12,
   "settle_s": 4,
   "timeout_s": 240,
-  "host": { "script": [ { "stage": "VCG03 10" } ] },
-  "guest": { "script": [] },
+  "host": {
+    "script": [
+      {
+        "at": 0,
+        "run": "coop topic Goodbye."
+      },
+      {
+        "stage": "VCG03 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
   "expect": [
-    { "id": "stage", "path": "quests.VCG03.stage", "op": "ge", "value": 10, "on": "both" },
-    { "id": "stage-equal", "path": "quests.VCG03.stage", "on": "equal" },
-    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+    {
+      "id": "stage",
+      "path": "quests.VCG03.stage",
+      "op": "ge",
+      "value": 10,
+      "on": "both"
+    },
+    {
+      "id": "stage-equal",
+      "path": "quests.VCG03.stage",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
   ]
 }

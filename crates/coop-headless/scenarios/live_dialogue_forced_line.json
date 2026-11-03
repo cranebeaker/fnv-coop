@@ -1,0 +1,22 @@
+{
+  "name": "live_dialogue_forced_line",
+  "description": "Host scripts make Doc Mitchell say two lines with no menu: DocMitchellREF.SayTo player GREETING, then DocMitchellREF.Say GREETING. The SayTo and Say hooks (GameState::coop_talk) give the host talk notes. DialogueBridge::forced_frame opens a host session on Doc, picks his line, reports the host's own play done and closes the session when the step ends. The host said two lines for everyone, and both peers played both lines.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 85,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 3, "run": "DocMitchellREF.SayTo player GREETING" },
+      { "at": 11, "run": "DocMitchellREF.Say GREETING" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-said-two", "path": "scene.talk.lines", "op": "eq", "value": 2, "on": "host" },
+    { "id": "lines-host", "path": "live.lines_played", "op": "ge", "value": 2, "on": "host" },
+    { "id": "lines-guest", "path": "live.lines_played", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

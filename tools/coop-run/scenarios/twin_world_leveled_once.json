@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "name": "twin_world_leveled_once",
+  "description": "MUTATION TWIN of world_leveled_once: the host never adds the leveled list, so nothing is rolled and Doc's inventory never changes on either peer. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 3,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "rolled",
+      "path": "items.DocMitchellREF",
+      "op": "present",
+      "on": "both"
+    },
+    {
+      "id": "same-pick",
+      "path": "items.DocMitchellREF",
+      "on": "equal"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

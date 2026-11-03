@@ -46,7 +46,9 @@ pub fn worker(order: &LoadOrder, handled: &HashSet<String>, from: usize, out: &m
     std::panic::set_hook(Box::new(|_| {}));
     for kind in [b"REFR", b"ACHR", b"ACRE"] {
         for rr in order.records_of_type(FourCC::new(kind)) {
-            let Some(script_id) = script_of(order, rr.form_id) else { continue };
+            let Some(script_id) = script_of(order, rr.form_id) else {
+                continue;
+            };
             refs += 1;
             if !seen.insert(script_id) {
                 continue;
@@ -55,10 +57,18 @@ pub fn worker(order: &LoadOrder, handled: &HashSet<String>, from: usize, out: &m
             if ordinal <= from {
                 continue;
             }
-            let Some(parsed) = cache.script(order, script_id) else { continue };
-            let editor = order.get(script_id).and_then(|r| r.editor_id().ok().flatten()).unwrap_or_default();
-            let events: Vec<(&str, Option<esm::FormId>)> =
-                parsed.blocks.iter().map(|b| (b.kind.as_str(), Some(world::dialogue::PLAYER_REF))).collect();
+            let Some(parsed) = cache.script(order, script_id) else {
+                continue;
+            };
+            let editor = order
+                .get(script_id)
+                .and_then(|r| r.editor_id().ok().flatten())
+                .unwrap_or_default();
+            let events: Vec<(&str, Option<esm::FormId>)> = parsed
+                .blocks
+                .iter()
+                .map(|b| (b.kind.as_str(), Some(world::dialogue::PLAYER_REF)))
+                .collect();
             // Debugging aid: `NV_OBJ_ONLY=<editor id>` runs only that script.
             if let Ok(only) = std::env::var("NV_OBJ_ONLY") {
                 if !only.eq_ignore_ascii_case(&editor) {
@@ -69,11 +79,16 @@ pub fn worker(order: &LoadOrder, handled: &HashSet<String>, from: usize, out: &m
             let _ = out.flush();
             let before = state.unhandled.clone();
             let ran = catch_unwind(AssertUnwindSafe(|| {
-                Runner::new(order, &cache, &mut state).run_reference_script(rr.form_id, &events, None);
+                Runner::new(order, &cache, &mut state)
+                    .run_reference_script(rr.form_id, &events, None);
             }));
             match ran {
                 Err(p) => {
-                    let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                    let msg = p
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_default();
                     let _ = writeln!(out, "P\t{}", msg.replace(['\n', '\t'], " "));
                 }
                 Ok(()) => {
@@ -87,7 +102,12 @@ pub fn worker(order: &LoadOrder, handled: &HashSet<String>, from: usize, out: &m
                             }
                         }
                     }
-                    let _ = writeln!(out, "E\t{}\t{}", names(missing.into_iter()), names(stub.into_iter()));
+                    let _ = writeln!(
+                        out,
+                        "E\t{}\t{}",
+                        names(missing.into_iter()),
+                        names(stub.into_iter())
+                    );
                 }
             }
             let _ = out.flush();
@@ -124,12 +144,19 @@ pub fn walk(exe: &Path, dir: &Path) -> ObjectReport {
         for line in text.lines() {
             let f: Vec<&str> = line.split('\t').collect();
             match f.as_slice() {
-                ["B", n, editor, r] => open = Some((n.parse().unwrap_or(0), editor.to_string(), r.to_string())),
+                ["B", n, editor, r] => {
+                    open = Some((n.parse().unwrap_or(0), editor.to_string(), r.to_string()))
+                }
                 ["E", missing, stub] => {
                     if let Some((n, _, _)) = open.take() {
                         from = from.max(n);
                     }
-                    let split = |s: &str| s.split(',').filter(|x| !x.is_empty()).map(str::to_string).collect::<Vec<_>>();
+                    let split = |s: &str| {
+                        s.split(',')
+                            .filter(|x| !x.is_empty())
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    };
                     let (m, s) = (split(missing), split(stub));
                     for x in &m {
                         *rep.unhandled.entry(x.clone()).or_default() += 1;

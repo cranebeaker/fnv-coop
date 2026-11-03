@@ -57,7 +57,11 @@ pub(crate) fn social_msg(intent: Intent, me: PlayerId) -> Option<Msg> {
                 return None;
             }
             let seq = u16::from_le_bytes([bytes[4], bytes[5]]);
-            Some(Msg::Social(SocialMsg::Voice(VoicePacket { speaker: me, seq, payload: bytes })))
+            Some(Msg::Social(SocialMsg::Voice(VoicePacket {
+                speaker: me,
+                seq,
+                payload: bytes,
+            })))
         }
         Intent::Social(m) => Some(Msg::Social(m)),
         _ => None,
@@ -66,8 +70,15 @@ pub(crate) fn social_msg(intent: Intent, me: PlayerId) -> Option<Msg> {
 
 impl Extra {
     /// Host: the sky and clock to publish this frame, addressed to every guest.
-    pub(crate) fn host_env(&mut self, cx: Ctx, gs: &GameState, members: &[PlayerId], now_ms: u64) -> Vec<(PlayerId, Msg)> {
-        let now_set: BTreeSet<PlayerId> = members.iter().copied().filter(|p| !p.is_host()).collect();
+    pub(crate) fn host_env(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        members: &[PlayerId],
+        now_ms: u64,
+    ) -> Vec<(PlayerId, Msg)> {
+        let now_set: BTreeSet<PlayerId> =
+            members.iter().copied().filter(|p| !p.is_host()).collect();
         if now_set.difference(&self.seen).next().is_some() {
             self.env.resend();
         }
@@ -85,7 +96,10 @@ impl Extra {
             started_centi: shot.started_centi,
         };
         let mut out = Vec::new();
-        for m in self.env.tick(now_ms, sky, TimeState::from_game(days, hour, scale)) {
+        for m in self
+            .env
+            .tick(now_ms, sky, TimeState::from_game(days, hour, scale))
+        {
             self.env_sent += 1;
             for p in &now_set {
                 out.push((*p, Msg::Env(m)));
@@ -95,9 +109,18 @@ impl Extra {
     }
 
     /// Guest: applies the host's sky and returns the smoothed absolute hours.
-    pub(crate) fn guest_env(&mut self, cx: Ctx, gs: &mut GameState, live: &mut GuestLive, now_ms: u64) -> Option<f64> {
+    pub(crate) fn guest_env(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut GuestLive,
+        now_ms: u64,
+    ) -> Option<f64> {
         let hours = live.env.clock.sample(now_ms);
-        if let Some(h) = hours {
+        // The scene layer's clock follower (`world::coop::scene::follow_clock`) owns the guest's
+        // clock once the host's clock has arrived: it keeps `GameDaysPassed` continuous, as the
+        // game does. Writing the whole days here as well set the day back every frame.
+        if let Some(h) = hours.filter(|_| !gs.coop.live.scene.follow) {
             write_clock(cx.order, gs, h);
         }
         if let Some(s) = live.env.take_sky() {
@@ -108,7 +131,8 @@ impl Extra {
                 fade_milli: s.fade_milli,
                 started_centi: s.started_centi,
             };
-            let hour = hours.map_or_else(|| read_clock(cx.order, gs).1, |h| h.rem_euclid(24.0) as f32);
+            let hour =
+                hours.map_or_else(|| read_clock(cx.order, gs).1, |h| h.rem_euclid(24.0) as f32);
             apply_sky(&mut gs.weather, &shot, hour);
             self.skies_applied += 1;
             self.last_shot = Some(shot);
@@ -116,7 +140,8 @@ impl Extra {
             // the game's own weather step (a new climate, a script) may have dropped the host's
             // override; the host owns the sky, so put it back at once
             if gs.weather.forced != Some(esm::FormId(shot.current)) {
-                let hour = hours.map_or_else(|| read_clock(cx.order, gs).1, |h| h.rem_euclid(24.0) as f32);
+                let hour =
+                    hours.map_or_else(|| read_clock(cx.order, gs).1, |h| h.rem_euclid(24.0) as f32);
                 apply_sky(&mut gs.weather, &shot, hour);
             }
         }
@@ -127,7 +152,10 @@ impl Extra {
 /// Moves the voice frames the guest layer accepted into the view.
 pub(crate) fn drain_voice(view: &mut LiveView, live: &mut GuestLive) {
     for v in live.voice_in.drain(..) {
-        view.voice.push(VoiceFrame { speaker: v.speaker, bytes: v.payload });
+        view.voice.push(VoiceFrame {
+            speaker: v.speaker,
+            bytes: v.payload,
+        });
     }
     let n = view.voice.len();
     if n > MAX_VOICE_PER_FRAME {

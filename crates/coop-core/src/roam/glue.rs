@@ -44,7 +44,10 @@ pub fn cell_snapshot(actors: &ActorHost, cell: CellId) -> Vec<ActorMsg> {
     let mut v = actors.snapshot_for_cell(cell);
     for (id, rec) in actors.own.iter() {
         if rec.state.cell == cell && actors.is_dead(*id) {
-            v.push(ActorMsg::Died { actor: *id, killer: None });
+            v.push(ActorMsg::Died {
+                actor: *id,
+                killer: None,
+            });
         }
     }
     v
@@ -63,7 +66,8 @@ impl HostRoam {
         pos: [f32; 3],
     ) -> Vec<(Audience, Msg)> {
         let d: CellDelta = self.model.update_peer(from, cell, pos);
-        if !d.moved_home {
+        // outdoors a new grid square changes the loaded set, not the home
+        if d.is_empty() {
             return vec![];
         }
         self.model.apply_interest(interest);
@@ -93,7 +97,10 @@ impl HostRoam {
 
     /// Moves players: one `Place` per player.
     pub fn place_msgs(&self, moves: &[(PlayerId, Placement)]) -> Vec<(Audience, Msg)> {
-        moves.iter().map(|(p, pl)| (Audience::To(*p), Msg::Roam(RoamMsg::place(*pl)))).collect()
+        moves
+            .iter()
+            .map(|(p, pl)| (Audience::To(*p), Msg::Roam(RoamMsg::place(*pl))))
+            .collect()
     }
 
     /// Per tick: presence for players who share no scene, and the deferred
@@ -123,7 +130,13 @@ impl HostRoam {
         }
         let model = &self.model;
         let fwd = self.forward_to_guests;
-        let ready = self.deferred.drain_loaded(|c| if fwd { model.is_loaded_by_any(c) } else { model.is_loaded_by(PlayerId::HOST, c) });
+        let ready = self.deferred.drain_loaded(|c| {
+            if fwd {
+                model.is_loaded_by_any(c)
+            } else {
+                model.is_loaded_by(PlayerId::HOST, c)
+            }
+        });
         for op in ready {
             let loaders = self.model.peers_loading(op.cell);
             if loaders.contains(&PlayerId::HOST) {
@@ -133,7 +146,13 @@ impl HostRoam {
                 self.forwarded += 1;
                 out.push((
                     Audience::To(owner),
-                    Msg::Roam(RoamMsg::RefOp { op: op.id, target: op.target, cell: op.cell, func: op.func, args: op.args }),
+                    Msg::Roam(RoamMsg::RefOp {
+                        op: op.id,
+                        target: op.target,
+                        cell: op.cell,
+                        func: op.func,
+                        args: op.args,
+                    }),
                 ));
             }
         }
@@ -185,15 +204,43 @@ impl GuestRoam {
     /// Applies one scene message from the host.
     pub fn on_msg(&mut self, me: PlayerId, m: RoamMsg) {
         match m {
-            RoamMsg::Presence { player, cell, pos, seq } if player != me => {
-                let newer = self.places.get(&player).map_or(true, |o| seq.is_newer_than(o.seq));
+            RoamMsg::Presence {
+                player,
+                cell,
+                pos,
+                seq,
+            } if player != me => {
+                let newer = self
+                    .places
+                    .get(&player)
+                    .map_or(true, |o| seq.is_newer_than(o.seq));
                 if newer {
-                    self.places.insert(player, RemotePlace { cell, pos: pos.map(dequant_pos), seq });
+                    self.places.insert(
+                        player,
+                        RemotePlace {
+                            cell,
+                            pos: pos.map(dequant_pos),
+                            seq,
+                        },
+                    );
                 }
             }
             RoamMsg::Place { .. } => self.place = m.as_placement(),
-            RoamMsg::RefOp { op, target, cell, func, args } => {
-                self.ref_ops.push(DeferredOp { id: op, target, cell, func, args, queued_ms: 0 });
+            RoamMsg::RefOp {
+                op,
+                target,
+                cell,
+                func,
+                args,
+            } => {
+                self.ref_ops.push(DeferredOp {
+                    id: op,
+                    target,
+                    cell,
+                    func,
+                    args,
+                    queued_ms: 0,
+                });
             }
             _ => {}
         }
@@ -234,9 +281,18 @@ mod tests {
         hs.on_avatar(&mut im, &a, p(1), CellId(1), [0.0; 3]);
         hs.on_avatar(&mut im, &a, p(2), CellId(9), [0.0; 3]);
         let out = hs.tick(0);
-        let to_p2: Vec<_> = out.iter().filter(|(au, _)| *au == Audience::To(p(2))).collect();
+        let to_p2: Vec<_> = out
+            .iter()
+            .filter(|(au, _)| *au == Audience::To(p(2)))
+            .collect();
         assert_eq!(to_p2.len(), 2, "p2 hears of p0 and p1");
-        assert_eq!(out.iter().filter(|(au, _)| *au == Audience::To(p(1))).count(), 1, "p1 shares a scene with p0 only");
+        assert_eq!(
+            out.iter()
+                .filter(|(au, _)| *au == Audience::To(p(1)))
+                .count(),
+            1,
+            "p1 shares a scene with p0 only"
+        );
         assert!(hs.tick(100).is_empty(), "rate limited");
     }
 
@@ -247,33 +303,63 @@ mod tests {
         hs.model.graph.register_exterior(CellId(11), 1, 1, 0);
         let mut im = InterestMap::new();
         let mut a = ActorHost::new();
-        let st = ActorState { cell: CellId(11), health: 50, ..Default::default() };
+        let st = ActorState {
+            cell: CellId(11),
+            health: 50,
+            ..Default::default()
+        };
         a.register(FormId(0x100), st);
         let mut auth = crate::authority::AuthorityTable::new();
-        let locs: BTreeMap<_, _> = [(p(0), crate::actors::PlayerLoc { cell: CellId(11), pos: [0.0; 3] })].into();
+        let locs: BTreeMap<_, _> = [(
+            p(0),
+            crate::actors::PlayerLoc {
+                cell: CellId(11),
+                pos: [0.0; 3],
+            },
+        )]
+        .into();
         a.tick(0, &locs, &mut auth);
         let out = hs.on_avatar(&mut im, &a, p(1), CellId(10), [0.0; 3]);
         assert!(
-            out.iter().any(|(_, m)| matches!(m, Msg::Actor(ActorMsg::Assign { owner: Some(PlayerId(0)), .. }))),
+            out.iter().any(|(_, m)| matches!(
+                m,
+                Msg::Actor(ActorMsg::Assign {
+                    owner: Some(PlayerId(0)),
+                    ..
+                })
+            )),
             "the neighbour cell's owner is announced although the peer stands in cell 10"
         );
-        assert!(hs.on_avatar(&mut im, &a, p(1), CellId(10), [5.0; 3]).is_empty());
+        assert!(hs
+            .on_avatar(&mut im, &a, p(1), CellId(10), [5.0; 3])
+            .is_empty());
     }
 
     #[test]
     fn deferred_ops_wait_then_go_to_the_host_or_the_loading_guest() {
-        let mut hs = HostRoam { forward_to_guests: true, ..Default::default() };
+        let mut hs = HostRoam {
+            forward_to_guests: true,
+            ..Default::default()
+        };
         let mut im = InterestMap::new();
         let a = ActorHost::new();
-        hs.deferred.queue(FormId(5), CellId(7), "Activate", vec![], 0);
-        hs.deferred.queue(FormId(6), CellId(8), "Activate", vec![], 0);
+        hs.deferred
+            .queue(FormId(5), CellId(7), "Activate", vec![], 0);
+        hs.deferred
+            .queue(FormId(6), CellId(8), "Activate", vec![], 0);
         hs.on_avatar(&mut im, &a, p(0), CellId(1), [0.0; 3]);
-        assert!(hs.tick(0).iter().all(|(_, m)| !matches!(m, Msg::Roam(RoamMsg::RefOp { .. }))));
+        assert!(hs
+            .tick(0)
+            .iter()
+            .all(|(_, m)| !matches!(m, Msg::Roam(RoamMsg::RefOp { .. }))));
         hs.on_avatar(&mut im, &a, p(0), CellId(7), [0.0; 3]);
         hs.on_avatar(&mut im, &a, p(1), CellId(8), [0.0; 3]);
         let out = hs.tick(1000);
         assert_eq!(hs.take_ready_local().len(), 1, "the host loaded cell 7");
-        let ops: Vec<_> = out.iter().filter(|(_, m)| matches!(m, Msg::Roam(RoamMsg::RefOp { .. }))).collect();
+        let ops: Vec<_> = out
+            .iter()
+            .filter(|(_, m)| matches!(m, Msg::Roam(RoamMsg::RefOp { .. })))
+            .collect();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].0, Audience::To(p(1)));
         hs.on_msg(p(1), RoamMsg::RefOpDone { op: 2 });
@@ -283,13 +369,33 @@ mod tests {
     #[test]
     fn guest_keeps_the_newest_presence_and_a_placement() {
         let mut g = GuestRoam::default();
-        let pr = |seq, x| RoamMsg::Presence { player: p(2), cell: CellId(3), pos: [x, 0, 0], seq: Seq(seq) };
+        let pr = |seq, x| RoamMsg::Presence {
+            player: p(2),
+            cell: CellId(3),
+            pos: [x, 0, 0],
+            seq: Seq(seq),
+        };
         g.on_msg(p(1), pr(5, 16));
         g.on_msg(p(1), pr(4, 32));
         assert_eq!(g.places[&p(2)].pos[0], 1.0);
-        g.on_msg(p(1), RoamMsg::Presence { player: p(1), cell: CellId(3), pos: [0; 3], seq: Seq(9) });
+        g.on_msg(
+            p(1),
+            RoamMsg::Presence {
+                player: p(1),
+                cell: CellId(3),
+                pos: [0; 3],
+                seq: Seq(9),
+            },
+        );
         assert_eq!(g.places.len(), 1, "own presence ignored");
-        g.on_msg(p(1), RoamMsg::place(Placement { cell: CellId(4), pos: [1.0, 2.0, 3.0], heading: 0.0 }));
+        g.on_msg(
+            p(1),
+            RoamMsg::place(Placement {
+                cell: CellId(4),
+                pos: [1.0, 2.0, 3.0],
+                heading: 0.0,
+            }),
+        );
         assert_eq!(g.place.unwrap().cell, CellId(4));
     }
 }
@@ -304,10 +410,14 @@ mod forward_tests {
         let mut hs = HostRoam::default();
         let mut im = InterestMap::new();
         let a = ActorHost::new();
-        hs.deferred.queue(FormId(5), CellId(8), "Activate", vec![], 0);
+        hs.deferred
+            .queue(FormId(5), CellId(8), "Activate", vec![], 0);
         hs.on_avatar(&mut im, &a, PlayerId(0), CellId(1), [0.0; 3]);
         hs.on_avatar(&mut im, &a, PlayerId(1), CellId(8), [0.0; 3]);
-        assert!(hs.tick(1000).iter().all(|(_, m)| !matches!(m, Msg::Roam(RoamMsg::RefOp { .. }))));
+        assert!(hs
+            .tick(1000)
+            .iter()
+            .all(|(_, m)| !matches!(m, Msg::Roam(RoamMsg::RefOp { .. }))));
         assert_eq!(hs.deferred.pending(), 1, "still waiting");
         hs.on_avatar(&mut im, &a, PlayerId(0), CellId(8), [0.0; 3]);
         hs.tick(2000);

@@ -48,7 +48,9 @@ pub fn follow_door(
     if pending.0.is_some() || pending_exterior.0.is_some() || gs.player_cell.is_none() {
         return;
     }
-    let Some(f) = gs.coop.interact.follow.take() else { return };
+    let Some(f) = gs.coop.interact.follow.take() else {
+        return;
+    };
     let order = &game.0.order;
     let Some(a) = arrival_of(order, gs, FormId(f.door.0)) else {
         println!("Co-op: can't find where door {} leads.", f.door.0);

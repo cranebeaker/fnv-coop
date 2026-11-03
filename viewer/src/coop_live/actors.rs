@@ -43,11 +43,18 @@ pub fn track(
         return;
     }
     *last = t;
-    let new: Vec<FormId> = walkers.iter().map(|w| w.reference).filter(|r| !known.contains(r)).collect();
+    let new: Vec<FormId> = walkers
+        .iter()
+        .map(|w| w.reference)
+        .filter(|r| !known.contains(r))
+        .collect();
     if new.is_empty() {
         return;
     }
-    let cx = Ctx { order: &game.0.order, scripts: &scripts.0 };
+    let cx = Ctx {
+        order: &game.0.order,
+        scripts: &scripts.0,
+    };
     // false: the layer cannot take them yet (a guest still joining)
     if link.0.live_track(cx, &state.0, &new) {
         known.extend(new);
@@ -55,7 +62,11 @@ pub fn track(
 }
 
 /// Owners publish what their actors are doing (the animation id).
-pub fn publish(now: Res<LiveNow>, mut state: ResMut<DialogueState>, rigs: Query<(&Walker, &ActorRig), Without<CoopPuppet>>) {
+pub fn publish(
+    now: Res<LiveNow>,
+    mut state: ResMut<DialogueState>,
+    rigs: Query<(&Walker, &ActorRig), Without<CoopPuppet>>,
+) {
     let Some(view) = &now.view else { return };
     if view.owned_actors.is_empty() {
         return;
@@ -91,10 +102,17 @@ pub fn apply_remote(
     state: Res<DialogueState>,
     mut commands: Commands,
     mut seen: Local<HashMap<FormId, ([f32; 3], [f32; 3])>>,
-    mut people: Query<(Entity, &mut Walker, &mut ActorRig, &mut Transform, Option<&CoopPuppet>)>,
+    mut people: Query<(
+        Entity,
+        &mut Walker,
+        &mut ActorRig,
+        &mut Transform,
+        Option<&CoopPuppet>,
+    )>,
 ) {
     let Some(view) = &now.view else { return };
-    let remote: HashMap<FormId, &ActorView> = view.remote_actors.iter().map(|a| (a.id, a)).collect();
+    let remote: HashMap<FormId, &ActorView> =
+        view.remote_actors.iter().map(|a| (a.id, a)).collect();
     let dt = time.delta_secs().max(1e-3);
     for (e, mut walker, mut rig, mut transform, mark) in &mut people {
         if mark.is_some_and(|m| m.0.is_some()) {
@@ -163,18 +181,24 @@ pub fn adopt_remote(
     *last = t;
     let Some(view) = &now.view else { return };
     let gs = &state.0;
-    let Some(space) = gs.player_world.or(gs.player_cell) else { return };
+    let Some(space) = gs.player_world.or(gs.player_cell) else {
+        return;
+    };
     let shown: HashSet<FormId> = walkers.iter().map(|w| w.reference).collect();
     let mut new: Vec<FormId> = Vec::new();
     for a in &view.remote_actors {
         if a.dead || a.cell != space.0 || shown.contains(&a.id) || gs.dead.contains(&a.id) {
             continue;
         }
-        if gs.more.placed.refs.contains_key(&a.id) || asked.get(&a.id).is_some_and(|at| t - at < ASK_AGAIN) {
+        if gs.more.placed.refs.contains_key(&a.id)
+            || asked.get(&a.id).is_some_and(|at| t - at < ASK_AGAIN)
+        {
             continue;
         }
         let far = gs.player_world.is_some()
-            && gs.player_position.is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) > REACH);
+            && gs
+                .player_position
+                .is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) > REACH);
         if far {
             continue;
         }
@@ -186,7 +210,10 @@ pub fn adopt_remote(
     }
     let scene = game.0.actors_scene(&new);
     for a in &scene.actors {
-        println!("Co-op: {} comes into view (shared actor).", FormId(a.reference));
+        println!(
+            "Co-op: {} comes into view (shared actor).",
+            FormId(a.reference)
+        );
     }
     for a in &scene.actors {
         if !talkers.0.iter().any(|x| x.reference.0 == a.reference) {
@@ -203,7 +230,14 @@ pub fn adopt_remote(
 pub fn count(
     time: Res<Time>,
     mut now: ResMut<LiveNow>,
-    actors: Query<(&Visibility, Option<&CoopPuppet>, Option<&crate::dress::Dressed>), With<Walker>>,
+    actors: Query<
+        (
+            &Visibility,
+            Option<&CoopPuppet>,
+            Option<&crate::dress::Dressed>,
+        ),
+        With<Walker>,
+    >,
     mut last: Local<f32>,
 ) {
     let t = time.elapsed_secs();
@@ -212,7 +246,12 @@ pub fn count(
     }
     *last = t;
     let c = &mut now.counters;
-    (c.npc_entities, c.npc_entities_visible, c.creature_entities, c.creature_entities_visible) = (0, 0, 0, 0);
+    (
+        c.npc_entities,
+        c.npc_entities_visible,
+        c.creature_entities,
+        c.creature_entities_visible,
+    ) = (0, 0, 0, 0);
     for (vis, mark, person) in &actors {
         // remote players' puppets are not NPCs
         if mark.is_some_and(|m| m.0.is_some()) {

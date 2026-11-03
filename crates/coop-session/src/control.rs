@@ -92,18 +92,30 @@ pub struct Request {
 pub fn id_of(line: &str) -> Option<String> {
     let kv = json::parse_flat(line).ok()?;
     let (_, v) = kv.into_iter().find(|(k, _)| k == "id")?;
-    Some(if v.parse::<f64>().is_ok() { v } else { format!("\"{}\"", esc(&v)) })
+    Some(if v.parse::<f64>().is_ok() {
+        v
+    } else {
+        format!("\"{}\"", esc(&v))
+    })
 }
 
 /// Parses a request line into its command and the raw `"id"` (as JSON text).
 pub fn parse(line: &str) -> Result<(Cmd, Option<String>), String> {
     let kv = json::parse_flat(line)?;
     let get = |k: &str| kv.iter().find(|(a, _)| a == k).map(|(_, v)| v.as_str());
-    let need = |k: &str| get(k).filter(|v| !v.is_empty()).ok_or_else(|| format!("missing \"{k}\""));
+    let need = |k: &str| {
+        get(k)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("missing \"{k}\""))
+    };
     let num = |k: &str, default: f32| -> Result<f32, String> {
         match get(k) {
             None => Ok(default),
-            Some(v) => v.parse::<f32>().ok().filter(|n| n.is_finite() && *n >= 0.0).ok_or_else(|| format!("\"{k}\" must be a number of seconds, got {v}")),
+            Some(v) => v
+                .parse::<f32>()
+                .ok()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .ok_or_else(|| format!("\"{k}\" must be a number of seconds, got {v}")),
         }
     };
     let id = id_of(line);
@@ -111,17 +123,32 @@ pub fn parse(line: &str) -> Result<(Cmd, Option<String>), String> {
         "state" => Cmd::State,
         "entities" => Cmd::Entities,
         "quit" => Cmd::Quit,
-        "run" => Cmd::Run { line: need("line")?.trim().to_string(), local: get("local") == Some("true") },
+        "run" => Cmd::Run {
+            line: need("line")?.trim().to_string(),
+            local: get("local") == Some("true"),
+        },
         "bot" => {
             let l = need("line")?.trim();
-            let bare = l.strip_prefix("coop ").or_else(|| l.strip_prefix("COOP ")).unwrap_or(l).trim();
+            let bare = l
+                .strip_prefix("coop ")
+                .or_else(|| l.strip_prefix("COOP "))
+                .unwrap_or(l)
+                .trim();
             if bare.is_empty() {
                 return Err("empty bot line".into());
             }
-            Cmd::Bot { line: format!("coop {bare}") }
+            Cmd::Bot {
+                line: format!("coop {bare}"),
+            }
         }
-        "keys" => Cmd::Keys { key: need("key")?.to_string(), hold: num("hold", 0.1)?, delay: num("delay", 0.0)? },
-        "screenshot" => Cmd::Screenshot { path: need("path")?.to_string() },
+        "keys" => Cmd::Keys {
+            key: need("key")?.to_string(),
+            hold: num("hold", 0.1)?,
+            delay: num("delay", 0.0)?,
+        },
+        "screenshot" => Cmd::Screenshot {
+            path: need("path")?.to_string(),
+        },
         other => return Err(format!("unknown cmd \"{other}\"")),
     };
     Ok((cmd, id))
@@ -139,7 +166,11 @@ pub fn ok(cmd: &str, fields: &str) -> String {
 
 /// A failure reply.
 pub fn fail(cmd: &str, msg: &str) -> String {
-    format!("{{\"ok\":false,\"cmd\":\"{}\",\"error\":\"{}\"}}", esc(cmd), esc(msg))
+    format!(
+        "{{\"ok\":false,\"cmd\":\"{}\",\"error\":\"{}\"}}",
+        esc(cmd),
+        esc(msg)
+    )
 }
 
 /// Puts `"id":ID` first in a reply object.
@@ -176,7 +207,12 @@ pub struct EntityRow {
 /// `idle` for none.
 pub fn anim_names(anim: u16) -> String {
     let mut v = Vec::new();
-    for (bit, name) in [(1, "moving"), (2, "running"), (4, "sneaking"), (8, "fighting")] {
+    for (bit, name) in [
+        (1, "moving"),
+        (2, "running"),
+        (4, "sneaking"),
+        (8, "fighting"),
+    ] {
         if anim & bit != 0 {
             v.push(name);
         }
@@ -192,7 +228,12 @@ pub fn anim_names(anim: u16) -> String {
 pub fn counts(rows: &[EntityRow]) -> (usize, usize, usize, usize) {
     let p = rows.iter().filter(|r| r.kind == "puppet");
     let n = rows.iter().filter(|r| r.kind != "puppet");
-    (n.clone().count(), n.filter(|r| r.visible).count(), p.clone().count(), p.filter(|r| r.visible).count())
+    (
+        n.clone().count(),
+        n.filter(|r| r.visible).count(),
+        p.clone().count(),
+        p.filter(|r| r.visible).count(),
+    )
 }
 
 /// The `entities` reply.
@@ -261,7 +302,8 @@ pub fn state_reply(dump: &str, s: &LiveStats) -> String {
 /// Starts the server on 127.0.0.1:`port` (0: any free port). Requests come
 /// out of the receiver; the address says where it listens.
 pub fn serve(port: u16) -> Result<(Receiver<Request>, SocketAddr), String> {
-    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("control port {port}: {e}"))?;
+    let listener =
+        TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("control port {port}: {e}"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     let (tx, rx) = mpsc::channel::<Request>();
     std::thread::Builder::new()
@@ -269,7 +311,9 @@ pub fn serve(port: u16) -> Result<(Receiver<Request>, SocketAddr), String> {
         .spawn(move || {
             for conn in listener.incoming().flatten() {
                 let tx = tx.clone();
-                let _ = std::thread::Builder::new().name("coop-control-conn".into()).spawn(move || connection(conn, tx));
+                let _ = std::thread::Builder::new()
+                    .name("coop-control-conn".into())
+                    .spawn(move || connection(conn, tx));
             }
         })
         .map_err(|e| e.to_string())?;
@@ -278,7 +322,9 @@ pub fn serve(port: u16) -> Result<(Receiver<Request>, SocketAddr), String> {
 
 fn connection(conn: TcpStream, tx: Sender<Request>) {
     let _ = conn.set_nodelay(true);
-    let Ok(mut out) = conn.try_clone() else { return };
+    let Ok(mut out) = conn.try_clone() else {
+        return;
+    };
     for line in BufReader::new(conn).lines() {
         let Ok(line) = line else { return };
         if line.trim().is_empty() {
@@ -292,7 +338,8 @@ fn connection(conn: TcpStream, tx: Sender<Request>) {
                 let r = if tx.send(Request { cmd, reply: rtx }).is_err() {
                     fail(name, "the viewer is gone")
                 } else {
-                    rrx.recv_timeout(REPLY_WAIT).unwrap_or_else(|_| fail(name, "no answer from the viewer"))
+                    rrx.recv_timeout(REPLY_WAIT)
+                        .unwrap_or_else(|_| fail(name, "no answer from the viewer"))
                 };
                 with_id(&r, id.as_deref())
             }
@@ -311,12 +358,40 @@ mod tests {
     fn parses_every_command() {
         assert_eq!(parse(r#"{"cmd":"state"}"#).unwrap().0, Cmd::State);
         let (c, id) = parse(r#"{"cmd":"run","line":"SetStage Q 10","local":true,"id":7}"#).unwrap();
-        assert_eq!(c, Cmd::Run { line: "SetStage Q 10".into(), local: true });
+        assert_eq!(
+            c,
+            Cmd::Run {
+                line: "SetStage Q 10".into(),
+                local: true
+            }
+        );
         assert_eq!(id.as_deref(), Some("7"));
-        assert_eq!(parse(r#"{"cmd":"bot","line":"teleport 1 2 3"}"#).unwrap().0, Cmd::Bot { line: "coop teleport 1 2 3".into() });
-        assert_eq!(parse(r#"{"cmd":"bot","line":"coop say hi"}"#).unwrap().0, Cmd::Bot { line: "coop say hi".into() });
-        assert_eq!(parse(r#"{"cmd":"keys","key":"w","hold":2}"#).unwrap().0, Cmd::Keys { key: "w".into(), hold: 2.0, delay: 0.0 });
-        assert_eq!(parse(r#"{"cmd":"screenshot","path":"a.png"}"#).unwrap().0, Cmd::Screenshot { path: "a.png".into() });
+        assert_eq!(
+            parse(r#"{"cmd":"bot","line":"teleport 1 2 3"}"#).unwrap().0,
+            Cmd::Bot {
+                line: "coop teleport 1 2 3".into()
+            }
+        );
+        assert_eq!(
+            parse(r#"{"cmd":"bot","line":"coop say hi"}"#).unwrap().0,
+            Cmd::Bot {
+                line: "coop say hi".into()
+            }
+        );
+        assert_eq!(
+            parse(r#"{"cmd":"keys","key":"w","hold":2}"#).unwrap().0,
+            Cmd::Keys {
+                key: "w".into(),
+                hold: 2.0,
+                delay: 0.0
+            }
+        );
+        assert_eq!(
+            parse(r#"{"cmd":"screenshot","path":"a.png"}"#).unwrap().0,
+            Cmd::Screenshot {
+                path: "a.png".into()
+            }
+        );
         assert!(parse(r#"{"cmd":"run"}"#).is_err());
         assert!(parse(r#"{"cmd":"nope"}"#).unwrap_err().contains("unknown"));
         assert!(parse(r#"{"cmd":"keys","key":"w","hold":-1}"#).is_err());
@@ -326,17 +401,58 @@ mod tests {
     #[test]
     fn replies_are_exact() {
         assert_eq!(ok("quit", ""), r#"{"ok":true,"cmd":"quit"}"#);
-        assert_eq!(fail("run", "a \"b\""), r#"{"ok":false,"cmd":"run","error":"a \"b\""}"#);
-        assert_eq!(with_id(&ok("quit", ""), Some("\"x\"")), r#"{"id":"x","ok":true,"cmd":"quit"}"#);
+        assert_eq!(
+            fail("run", "a \"b\""),
+            r#"{"ok":false,"cmd":"run","error":"a \"b\""}"#
+        );
+        assert_eq!(
+            with_id(&ok("quit", ""), Some("\"x\"")),
+            r#"{"id":"x","ok":true,"cmd":"quit"}"#
+        );
         let rows = vec![
-            EntityRow { form: 0x104C0, name: "Doc".into(), pos: [1.0, 2.0, 3.0], heading: 0.5, visible: true, anim: 3, kind: "npc", player: None },
-            EntityRow { form: 0xFF000001, name: "Guest".into(), pos: [0.0; 3], heading: 0.0, visible: false, anim: 0, kind: "puppet", player: Some(1) },
+            EntityRow {
+                form: 0x104C0,
+                name: "Doc".into(),
+                pos: [1.0, 2.0, 3.0],
+                heading: 0.5,
+                visible: true,
+                anim: 3,
+                kind: "npc",
+                player: None,
+            },
+            EntityRow {
+                form: 0xFF000001,
+                name: "Guest".into(),
+                pos: [0.0; 3],
+                heading: 0.0,
+                visible: false,
+                anim: 0,
+                kind: "puppet",
+                player: Some(1),
+            },
         ];
         assert_eq!(counts(&rows), (1, 1, 1, 0));
         let e = entities_reply(&rows);
-        assert!(e.contains("\"anim_names\":\"moving+running\"") && e.contains("\"player\":1") && e.contains("\"npcs_visible\":1"), "{e}");
-        let s = state_reply("{\"seq\":1}\n", &LiveStats { cell: "DocHouse".into(), host: true, rows, ..Default::default() });
-        assert!(s.starts_with("{\"ok\":true,\"cmd\":\"state\",\"role\":\"host\"") && s.ends_with(",\"state\":{\"seq\":1}}"), "{s}");
+        assert!(
+            e.contains("\"anim_names\":\"moving+running\"")
+                && e.contains("\"player\":1")
+                && e.contains("\"npcs_visible\":1"),
+            "{e}"
+        );
+        let s = state_reply(
+            "{\"seq\":1}\n",
+            &LiveStats {
+                cell: "DocHouse".into(),
+                host: true,
+                rows,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.starts_with("{\"ok\":true,\"cmd\":\"state\",\"role\":\"host\"")
+                && s.ends_with(",\"state\":{\"seq\":1}}"),
+            "{s}"
+        );
         // the replies are the flat shape parse_flat cannot read, so just check balance
         assert_eq!(s.matches('{').count(), s.matches('}').count());
     }
@@ -354,14 +470,21 @@ mod tests {
         });
         let mut c = TcpStream::connect(addr).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        writeln!(c, "{{\"cmd\":\"state\",\"id\":\"a\"}}\nnot json\n{{\"cmd\":\"quit\"}}").unwrap();
+        writeln!(
+            c,
+            "{{\"cmd\":\"state\",\"id\":\"a\"}}\nnot json\n{{\"cmd\":\"quit\"}}"
+        )
+        .unwrap();
         let mut r = BufReader::new(c);
         let mut line = String::new();
         r.read_line(&mut line).unwrap();
         assert_eq!(line.trim(), r#"{"id":"a","ok":true,"cmd":"state","n":1}"#);
         line.clear();
         r.read_line(&mut line).unwrap();
-        assert!(line.starts_with("{\"ok\":false,\"cmd\":\"error\""), "{line}");
+        assert!(
+            line.starts_with("{\"ok\":false,\"cmd\":\"error\""),
+            "{line}"
+        );
         line.clear();
         r.read_line(&mut line).unwrap();
         assert_eq!(line.trim(), r#"{"ok":true,"cmd":"quit","n":1}"#);

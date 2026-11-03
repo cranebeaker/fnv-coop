@@ -6,10 +6,13 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
 
 use coop_core::ids::PlayerId;
-use coop_net::{Backend, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, NetEvent, UdpBackend, UdpConfig};
 use coop_core::proto::Channel;
 use coop_core::transport::{
     ChaosProfile, ChaosTransport, Packet, Transport, TransportError, VirtualClock,
+};
+use coop_net::{
+    Backend, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, NetEvent, UdpBackend,
+    UdpConfig,
 };
 
 use crate::{Error, Role};
@@ -21,7 +24,12 @@ impl Transport for DynLink {
     fn local(&self) -> PlayerId {
         self.0.local()
     }
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         self.0.send(to, channel, data)
     }
     fn recv(&mut self) -> Option<Packet> {
@@ -44,7 +52,10 @@ impl Net {
             None => Net::Plain(DynLink(link)),
             Some((profile, seed)) => {
                 let clock = VirtualClock::new();
-                Net::Chaos(ChaosTransport::new(DynLink(link), clock.clone(), profile, seed), clock)
+                Net::Chaos(
+                    ChaosTransport::new(DynLink(link), clock.clone(), profile, seed),
+                    clock,
+                )
             }
         }
     }
@@ -115,12 +126,17 @@ impl<B: Backend> Link<B> {
             match ev {
                 NetEvent::JoinFailed(m) => {
                     self.errors.borrow_mut().push(format!("join failed: {m}"));
-                    self.retry_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+                    self.retry_at =
+                        Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
                 }
                 NetEvent::PeerLeft { player, .. } if self.guest && player.is_host() => {
-                    self.retry_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+                    self.retry_at =
+                        Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
                 }
-                NetEvent::Rejected(c) => self.errors.borrow_mut().push(format!("host refused the join: {c:?}")),
+                NetEvent::Rejected(c) => self
+                    .errors
+                    .borrow_mut()
+                    .push(format!("host refused the join: {c:?}")),
                 NetEvent::SendError(m) => self.errors.borrow_mut().push(format!("send error: {m}")),
                 _ => {}
             }
@@ -138,7 +154,12 @@ impl<B: Backend> Transport for Link<B> {
     fn local(&self) -> PlayerId {
         self.ep.local()
     }
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         self.ep.send(to, channel, data)
     }
     fn recv(&mut self) -> Option<Packet> {
@@ -159,7 +180,10 @@ fn resolve(addr: &str) -> Result<SocketAddr, Error> {
 /// (`HOST:PORT` or an `NVRS-` join code).
 pub fn open(role: Role, name: &str, addr: &str) -> Result<(Box<dyn Transport>, LinkErrors), Error> {
     let errors: LinkErrors = Rc::default();
-    let cfg = EndpointConfig { name: name.to_string(), ..EndpointConfig::default() };
+    let cfg = EndpointConfig {
+        name: name.to_string(),
+        ..EndpointConfig::default()
+    };
     let io = |e: std::io::Error| Error::Io(format!("{addr}: {e}"));
     let ep = match role {
         Role::Host => {
@@ -169,25 +193,42 @@ pub fn open(role: Role, name: &str, addr: &str) -> Result<(Box<dyn Transport>, L
             Endpoint::host(b, DIRECT_TOKEN, cfg)
         }
         Role::Guest => {
-            let (target, token) = match crate::target::JoinTarget::parse(addr).map_err(Error::Target)? {
-                crate::target::JoinTarget::Addr(a) => (resolve(&a)?, DIRECT_TOKEN),
-                crate::target::JoinTarget::Packed(c) => {
-                    let code: JoinCode = c.parse().map_err(|e| Error::Target(format!("{e}")))?;
-                    match code.target {
-                        NetTarget::Direct(a) => (a, code.token),
-                        _ => return Err(Error::Target("this join code names a Steam lobby; this build joins by address".into())),
+            let (target, token) =
+                match crate::target::JoinTarget::parse(addr).map_err(Error::Target)? {
+                    crate::target::JoinTarget::Addr(a) => (resolve(&a)?, DIRECT_TOKEN),
+                    crate::target::JoinTarget::Packed(c) => {
+                        let code: JoinCode =
+                            c.parse().map_err(|e| Error::Target(format!("{e}")))?;
+                        match code.target {
+                            NetTarget::Direct(a) => (a, code.token),
+                            _ => return Err(Error::Target(
+                                "this join code names a Steam lobby; this build joins by address"
+                                    .into(),
+                            )),
+                        }
                     }
-                }
-                crate::target::JoinTarget::Code(_) => {
-                    return Err(Error::Target(
-                        "short join codes need the join service, which this build does not call; use HOST:PORT or an NVRS- code".into(),
-                    ))
-                }
-            };
+                    crate::target::JoinTarget::Code(c) => {
+                        // the join service the environment names resolves it to an NVRS- code
+                        let req = crate::link::LinkRequest::new(role, name, addr);
+                        let code = crate::link::resolve_short_code(&req, &c)?;
+                        match code.target {
+                            NetTarget::Direct(a) => (a, code.token),
+                            _ => return Err(Error::Target(
+                                "this join code names a Steam lobby; this build joins by address"
+                                    .into(),
+                            )),
+                        }
+                    }
+                };
             let b = UdpBackend::guest(target, token, UdpConfig::default()).map_err(io)?;
             Endpoint::guest(b, token, cfg)
         }
     };
-    let link = Link { ep, guest: role == Role::Guest, errors: errors.clone(), retry_at: None };
+    let link = Link {
+        ep,
+        guest: role == Role::Guest,
+        errors: errors.clone(),
+        retry_at: None,
+    };
     Ok((Box::new(link), errors))
 }

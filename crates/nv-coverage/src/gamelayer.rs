@@ -45,8 +45,18 @@ pub fn quests(order: &LoadOrder) -> Vec<QuestInfo> {
             .collect();
         stages.sort_unstable();
         stages.dedup();
-        let script = r.get(FourCC::new(b"SCRI")).and_then(|s| s.data.get(..4).map(|b| rr.plugin.to_global(FormId(u32::from_le_bytes([b[0], b[1], b[2], b[3]])))));
-        let (flags, priority) = r.get(FourCC::new(b"DATA")).map_or((0, 0), |d| (d.data.first().copied().unwrap_or(0), d.data.get(1).copied().unwrap_or(0)));
+        let script = r.get(FourCC::new(b"SCRI")).and_then(|s| {
+            s.data.get(..4).map(|b| {
+                rr.plugin
+                    .to_global(FormId(u32::from_le_bytes([b[0], b[1], b[2], b[3]])))
+            })
+        });
+        let (flags, priority) = r.get(FourCC::new(b"DATA")).map_or((0, 0), |d| {
+            (
+                d.data.first().copied().unwrap_or(0),
+                d.data.get(1).copied().unwrap_or(0),
+            )
+        });
         let objectives = r.get_all(FourCC::new(b"QOBJ")).count();
         out.push(QuestInfo {
             id: rr.form_id,
@@ -80,8 +90,14 @@ pub struct Evidence {
 /// word (`SetStage 20`) belongs to the quest that owns the script or result.
 pub fn evidence(order: &LoadOrder, sources: &[Source], list: &[QuestInfo]) -> Evidence {
     let set_stage = script::function("SetStage").map(|(i, _)| i);
-    let by_edid: HashMap<String, &QuestInfo> = list.iter().map(|q| (q.edid.to_ascii_lowercase(), q)).collect();
-    let script_owner: HashMap<FormId, &QuestInfo> = list.iter().filter_map(|q| q.script.map(|s| (s, q))).collect();
+    let by_edid: HashMap<String, &QuestInfo> = list
+        .iter()
+        .map(|q| (q.edid.to_ascii_lowercase(), q))
+        .collect();
+    let script_owner: HashMap<FormId, &QuestInfo> = list
+        .iter()
+        .filter_map(|q| q.script.map(|s| (s, q)))
+        .collect();
     let id_to_edid: HashMap<FormId, &str> = list.iter().map(|q| (q.id, q.edid.as_str())).collect();
     let mut ev = Evidence::default();
     for q in list {
@@ -92,7 +108,10 @@ pub fn evidence(order: &LoadOrder, sources: &[Source], list: &[QuestInfo]) -> Ev
     for s in sources {
         // Mentions: identifier tokens of the text that name a quest.
         let mut seen: BTreeSet<String> = BTreeSet::new();
-        for tok in s.text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+        for tok in s
+            .text
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        {
             if tok.len() < 3 {
                 continue;
             }
@@ -100,24 +119,45 @@ pub fn evidence(order: &LoadOrder, sources: &[Source], list: &[QuestInfo]) -> Ev
             if by_edid.contains_key(&k) && seen.insert(k.clone()) {
                 let v = ev.mentions.entry(k).or_default();
                 if v.len() < 8 {
-                    v.push((s.kind, if s.editor.is_empty() { s.form.to_string() } else { s.editor.clone() }));
+                    v.push((
+                        s.kind,
+                        if s.editor.is_empty() {
+                            s.form.to_string()
+                        } else {
+                            s.editor.clone()
+                        },
+                    ));
                 }
             }
         }
         let Ok(p) = &s.parsed else { continue };
         let owner: Option<&str> = match s.kind {
             Kind::QuestScript => script_owner.get(&s.form).map(|q| q.edid.as_str()),
-            Kind::StageResult | Kind::DialogueResult => s.quest.and_then(|q| id_to_edid.get(&q).copied()),
+            Kind::StageResult | Kind::DialogueResult => {
+                s.quest.and_then(|q| id_to_edid.get(&q).copied())
+            }
             _ => None,
         };
         for c in all_calls(p) {
             if Some(c.function) != set_stage {
                 continue;
             }
-            let stage_lit = c.args.iter().find_map(|a| if let script::Arg::Number(n) = a { Some(*n as u16) } else { None });
+            let stage_lit = c.args.iter().find_map(|a| {
+                if let script::Arg::Number(n) = a {
+                    Some(*n as u16)
+                } else {
+                    None
+                }
+            });
             let quest: Option<String> = match (&c.on, c.args.first()) {
-                (_, Some(script::Arg::Word(w))) if by_edid.contains_key(&w.to_ascii_lowercase()) => Some(w.to_ascii_lowercase()),
-                (Some(on), _) if by_edid.contains_key(&on.to_ascii_lowercase()) => Some(on.to_ascii_lowercase()),
+                (_, Some(script::Arg::Word(w)))
+                    if by_edid.contains_key(&w.to_ascii_lowercase()) =>
+                {
+                    Some(w.to_ascii_lowercase())
+                }
+                (Some(on), _) if by_edid.contains_key(&on.to_ascii_lowercase()) => {
+                    Some(on.to_ascii_lowercase())
+                }
                 (None, Some(script::Arg::Number(_))) => owner.map(|o| o.to_ascii_lowercase()),
                 _ => None,
             };
@@ -161,7 +201,11 @@ pub struct StageRun {
 
 /// Runs every stage of the quests whose editor id (lowercase) is in `only` (all when `None`),
 /// with the world's `Runner`, one game state per plugin. Panics are findings.
-pub fn walk(order: &LoadOrder, list: &[QuestInfo], only: Option<&HashSet<String>>) -> BTreeMap<String, Vec<StageRun>> {
+pub fn walk(
+    order: &LoadOrder,
+    list: &[QuestInfo],
+    only: Option<&HashSet<String>>,
+) -> BTreeMap<String, Vec<StageRun>> {
     let handled = handled_set();
     let scripts = ScriptCache::default();
     let mut out: BTreeMap<String, Vec<StageRun>> = BTreeMap::new();
@@ -172,19 +216,37 @@ pub fn walk(order: &LoadOrder, list: &[QuestInfo], only: Option<&HashSet<String>
         if only.is_some_and(|o| !o.contains(&q.edid.to_ascii_lowercase())) {
             continue;
         }
-        let state = states.entry(q.plugin.clone()).or_insert_with(|| GameState::new(order));
+        let state = states
+            .entry(q.plugin.clone())
+            .or_insert_with(|| GameState::new(order));
         let runs = out.entry(q.edid.to_ascii_lowercase()).or_default();
-        let Some(quest) = catch_unwind(AssertUnwindSafe(|| scripts.quest(order, q.id))).ok().flatten() else {
+        let Some(quest) = catch_unwind(AssertUnwindSafe(|| scripts.quest(order, q.id)))
+            .ok()
+            .flatten()
+        else {
             for st in &q.stages {
-                runs.push(StageRun { stage: *st, has_script: false, verdict: Verdict::Panic("quest record did not load".into()) });
+                runs.push(StageRun {
+                    stage: *st,
+                    has_script: false,
+                    verdict: Verdict::Panic("quest record did not load".into()),
+                });
             }
             continue;
         };
         for st in &q.stages {
-            let Some(stage) = quest.stage(*st) else { continue };
+            let Some(stage) = quest.stage(*st) else {
+                continue;
+            };
             let has_script = stage.entries.iter().any(|e| e.script.is_some());
-            let verdict = catch_unwind(AssertUnwindSafe(|| stage_verdict(order, &scripts, state, q.id, *st, stage, &handled))).unwrap_or_else(|p| Verdict::Panic(panic_text(p)));
-            runs.push(StageRun { stage: *st, has_script, verdict });
+            let verdict = catch_unwind(AssertUnwindSafe(|| {
+                stage_verdict(order, &scripts, state, q.id, *st, stage, &handled)
+            }))
+            .unwrap_or_else(|p| Verdict::Panic(panic_text(p)));
+            runs.push(StageRun {
+                stage: *st,
+                has_script,
+                verdict,
+            });
         }
     }
     std::panic::set_hook(hook);
@@ -199,7 +261,10 @@ pub fn place_of(edid: &str) -> String {
         if ch.is_ascii_digit() || ch == '_' || ch == ' ' || ch == '-' {
             break;
         }
-        if i > 0 && ch.is_ascii_uppercase() && word.chars().last().is_some_and(|l| l.is_ascii_lowercase()) {
+        if i > 0
+            && ch.is_ascii_uppercase()
+            && word.chars().last().is_some_and(|l| l.is_ascii_lowercase())
+        {
             break;
         }
         word.push(ch);

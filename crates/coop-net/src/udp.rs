@@ -91,7 +91,14 @@ pub struct UdpConfig {
 
 impl Default for UdpConfig {
     fn default() -> Self {
-        UdpConfig { chaos: None, min_rto_ms: 50, max_peers: 16, window: 64, seg_payload: 1000, close_grace_ms: 2000 }
+        UdpConfig {
+            chaos: None,
+            min_rto_ms: 50,
+            max_peers: 16,
+            window: 64,
+            seg_payload: 1000,
+            close_grace_ms: 2000,
+        }
     }
 }
 
@@ -167,7 +174,10 @@ impl Conn {
 
 enum Role {
     Host,
-    Guest { host_key: PeerKey, host_addr: SocketAddr },
+    Guest {
+        host_key: PeerKey,
+        host_addr: SocketAddr,
+    },
 }
 
 /// UDP [`Backend`].
@@ -196,8 +206,20 @@ impl UdpBackend {
 
     /// Guest: binds an ephemeral port and targets the host at `host`.
     pub fn guest(host: SocketAddr, token: Token, cfg: UdpConfig) -> std::io::Result<Self> {
-        let bind: SocketAddr = if host.is_ipv4() { "0.0.0.0:0".parse().unwrap() } else { "[::]:0".parse().unwrap() };
-        let mut b = Self::new(bind, Role::Guest { host_key: 1, host_addr: host }, token, cfg)?;
+        let bind: SocketAddr = if host.is_ipv4() {
+            "0.0.0.0:0".parse().unwrap()
+        } else {
+            "[::]:0".parse().unwrap()
+        };
+        let mut b = Self::new(
+            bind,
+            Role::Guest {
+                host_key: 1,
+                host_addr: host,
+            },
+            token,
+            cfg,
+        )?;
         let nonce = b.fresh_nonce();
         b.conns.insert(1, Conn::new(1, host, nonce, false));
         b.addr_key.insert(host, 1);
@@ -263,10 +285,14 @@ impl UdpBackend {
     }
 
     fn send_ack(&mut self, key: PeerKey) {
-        let Some(c) = self.conns.get(&key) else { return };
+        let Some(c) = self.conns.get(&key) else {
+            return;
+        };
         let mut bm = 0u32;
         for i in 0..32u32 {
-            if c.held.contains_key(&c.next_expected.wrapping_add(1).wrapping_add(i)) {
+            if c.held
+                .contains_key(&c.next_expected.wrapping_add(1).wrapping_add(i))
+            {
                 bm |= 1 << i;
             }
         }
@@ -288,7 +314,9 @@ impl UdpBackend {
 
     fn on_datagram(&mut self, addr: SocketAddr, d: &[u8]) {
         self.stats.received += 1;
-        let Some((&kind, body)) = d.split_first() else { return };
+        let Some((&kind, body)) = d.split_first() else {
+            return;
+        };
         let is_host = matches!(self.role, Role::Host);
         if kind == K_OPEN {
             if !is_host || body.len() < TOKEN_LEN + 4 || body[..TOKEN_LEN] != self.token {
@@ -313,7 +341,9 @@ impl UdpBackend {
             self.raw_send(addr, vec![K_OPENACK]);
             return;
         }
-        let Some(&key) = self.addr_key.get(&addr) else { return };
+        let Some(&key) = self.addr_key.get(&addr) else {
+            return;
+        };
         match kind {
             K_OPENACK => {
                 if let Some(c) = self.conns.get_mut(&key) {
@@ -328,7 +358,11 @@ impl UdpBackend {
                 if let Some(c) = self.conns.get_mut(&key) {
                     c.open = true;
                     if c.closing.is_none() {
-                        self.events.push(BackendEvent::Frame { peer: key, lane: Lane::Unreliable, data: body.to_vec() });
+                        self.events.push(BackendEvent::Frame {
+                            peer: key,
+                            lane: Lane::Unreliable,
+                            data: body.to_vec(),
+                        });
                     }
                 }
             }
@@ -345,7 +379,9 @@ impl UdpBackend {
         let ne = u32::from_le_bytes(body[0..4].try_into().unwrap());
         let bm = u32::from_le_bytes(body[4..8].try_into().unwrap());
         let now = self.now;
-        let Some(c) = self.conns.get_mut(&key) else { return };
+        let Some(c) = self.conns.get_mut(&key) else {
+            return;
+        };
         c.open = true;
         let n = ne.wrapping_sub(c.base) as usize;
         if n > c.segs.len() {
@@ -374,11 +410,15 @@ impl UdpBackend {
         }
         let seq = u32::from_le_bytes(body[0..4].try_into().unwrap());
         let last = body[4] & 1 != 0;
-        let Some(c) = self.conns.get_mut(&key) else { return };
+        let Some(c) = self.conns.get_mut(&key) else {
+            return;
+        };
         c.open = true;
         let d = seq.wrapping_sub(c.next_expected);
         if d < RECV_WINDOW {
-            c.held.entry(seq).or_insert_with(|| (last, body[5..].to_vec()));
+            c.held
+                .entry(seq)
+                .or_insert_with(|| (last, body[5..].to_vec()));
             let mut overflow = false;
             let mut out = Vec::new();
             while let Some((l, p)) = c.held.remove(&c.next_expected) {
@@ -401,7 +441,11 @@ impl UdpBackend {
                 for m in out {
                     if let Some((&lane, rest)) = m.split_first() {
                         if let Some(lane @ (Lane::Reliable | Lane::Control)) = Lane::from_u8(lane) {
-                            self.events.push(BackendEvent::Frame { peer: key, lane, data: rest.to_vec() });
+                            self.events.push(BackendEvent::Frame {
+                                peer: key,
+                                lane,
+                                data: rest.to_vec(),
+                            });
                         }
                     }
                 }
@@ -420,7 +464,9 @@ impl UdpBackend {
         let mut retrans = 0;
         if let Some(c) = self.conns.get_mut(&key) {
             if !c.open {
-                if matches!(self.role, Role::Guest { .. }) && c.last_open.map_or(true, |t| now.saturating_sub(t) >= 200) {
+                if matches!(self.role, Role::Guest { .. })
+                    && c.last_open.map_or(true, |t| now.saturating_sub(t) >= 200)
+                {
                     c.last_open = Some(now);
                     let mut p = vec![K_OPEN];
                     p.extend_from_slice(&self.token);
@@ -434,7 +480,8 @@ impl UdpBackend {
                     if s.acked {
                         continue;
                     }
-                    let due = s.tries == 0 || now.saturating_sub(s.sent_at) >= rtos[(s.tries as usize).min(8)];
+                    let due = s.tries == 0
+                        || now.saturating_sub(s.sent_at) >= rtos[(s.tries as usize).min(8)];
                     if due {
                         if s.tries > 0 {
                             retrans += 1;
@@ -462,22 +509,32 @@ impl Backend for UdpBackend {
     fn send(&mut self, peer: PeerKey, lane: Lane, data: &[u8]) -> Result<(), BackendError> {
         let seg_payload = self.cfg.seg_payload;
         let now = self.now;
-        if let Role::Guest { host_key, host_addr } = self.role {
+        if let Role::Guest {
+            host_key,
+            host_addr,
+        } = self.role
+        {
             // A guest that left (or was closed on) reopens lazily on its next send.
             if peer == host_key && !self.conns.contains_key(&peer) {
                 let nonce = self.fresh_nonce();
-                self.conns.insert(peer, Conn::new(peer, host_addr, nonce, false));
+                self.conns
+                    .insert(peer, Conn::new(peer, host_addr, nonce, false));
                 self.addr_key.insert(host_addr, peer);
             }
         }
-        let Some(c) = self.conns.get_mut(&peer) else { return Err(BackendError::UnknownPeer(peer)) };
+        let Some(c) = self.conns.get_mut(&peer) else {
+            return Err(BackendError::UnknownPeer(peer));
+        };
         if c.closing.is_some() {
             return Err(BackendError::UnknownPeer(peer));
         }
         match lane {
             Lane::Unreliable => {
                 if data.len() > 1200 {
-                    return Err(BackendError::TooLarge { len: data.len(), max: 1200 });
+                    return Err(BackendError::TooLarge {
+                        len: data.len(),
+                        max: 1200,
+                    });
                 }
                 if c.open {
                     let addr = c.addr;
@@ -496,7 +553,14 @@ impl Backend for UdpBackend {
                     return Err(BackendError::Failed("udp send queue full".into()));
                 }
                 for (i, chunk) in msg.chunks(seg_payload).enumerate() {
-                    c.segs.push_back(Seg { seq: c.next_seq, last: i + 1 == nsegs, payload: chunk.to_vec(), sent_at: 0, tries: 0, acked: false });
+                    c.segs.push_back(Seg {
+                        seq: c.next_seq,
+                        last: i + 1 == nsegs,
+                        payload: chunk.to_vec(),
+                        sent_at: 0,
+                        tries: 0,
+                        acked: false,
+                    });
                     c.next_seq = c.next_seq.wrapping_add(1);
                 }
                 self.transmit(peer, now);
@@ -523,7 +587,10 @@ impl Backend for UdpBackend {
         let keys: Vec<PeerKey> = self.conns.keys().copied().collect();
         for k in keys {
             self.transmit(k, now);
-            let done = self.conns.get(&k).and_then(|c| c.closing.map(|dl| (c.segs.is_empty(), dl)));
+            let done = self
+                .conns
+                .get(&k)
+                .and_then(|c| c.closing.map(|dl| (c.segs.is_empty(), dl)));
             if let Some((empty, deadline)) = done {
                 if empty || now >= deadline {
                     let addr = self.conns[&k].addr;
@@ -548,7 +615,9 @@ impl Backend for UdpBackend {
     fn disconnect(&mut self, peer: PeerKey) {
         let grace = self.cfg.close_grace_ms;
         let now = self.now;
-        let Some(c) = self.conns.get_mut(&peer) else { return };
+        let Some(c) = self.conns.get_mut(&peer) else {
+            return;
+        };
         if c.open && c.segs.iter().any(|s| !s.acked) {
             c.closing = Some(now + grace);
         } else {
@@ -558,8 +627,14 @@ impl Backend for UdpBackend {
         }
     }
 
+    /// The smoothed round trip, rounded up to a whole millisecond and at
+    /// least 1. The status line uses 0 for "no sample yet", so a measured
+    /// sub-millisecond trip on a local link must not read as 0.
     fn rtt_ms(&self, peer: PeerKey) -> Option<u32> {
-        self.conns.get(&peer).and_then(|c| c.srtt).map(|s| s as u32)
+        self.conns
+            .get(&peer)
+            .and_then(|c| c.srtt)
+            .map(|s| (s.ceil() as u32).max(1))
     }
 }
 
@@ -569,14 +644,23 @@ mod tests {
 
     fn pair(chaos: Option<ChaosCfg>) -> (UdpBackend, UdpBackend) {
         let token = [3u8; 16];
-        let cfg = UdpConfig { chaos, min_rto_ms: 10, ..Default::default() };
+        let cfg = UdpConfig {
+            chaos,
+            min_rto_ms: 10,
+            ..Default::default()
+        };
         let h = UdpBackend::host("127.0.0.1:0".parse().unwrap(), token, cfg.clone()).unwrap();
         let addr = h.local_addr().unwrap();
         let g = UdpBackend::guest(addr, token, cfg).unwrap();
         (h, g)
     }
 
-    fn run_until(h: &mut UdpBackend, g: &mut UdpBackend, ms: u64, mut f: impl FnMut(&mut UdpBackend, &mut UdpBackend, &[BackendEvent], &[BackendEvent]) -> bool) -> bool {
+    fn run_until(
+        h: &mut UdpBackend,
+        g: &mut UdpBackend,
+        ms: u64,
+        mut f: impl FnMut(&mut UdpBackend, &mut UdpBackend, &[BackendEvent], &[BackendEvent]) -> bool,
+    ) -> bool {
         let t0 = std::time::Instant::now();
         loop {
             let now = t0.elapsed().as_millis() as u64;
@@ -612,13 +696,35 @@ mod tests {
         let mut back = None;
         assert!(run_until(&mut h, &mut g, 2000, |_, _, _, ge| {
             for e in ge {
-                if let BackendEvent::Frame { lane: Lane::Reliable, data, .. } = e {
+                if let BackendEvent::Frame {
+                    lane: Lane::Reliable,
+                    data,
+                    ..
+                } = e
+                {
                     back = Some(data.clone());
                 }
             }
             back.is_some()
         }));
         assert_eq!(back.unwrap(), vec![9u8; 5000]);
+    }
+
+    #[test]
+    fn a_measured_round_trip_never_reads_as_zero() {
+        let (mut h, mut g) = pair(None);
+        g.send(1, Lane::Control, b"hello").unwrap();
+        assert!(run_until(&mut h, &mut g, 2000, |_, g, _, _| !g
+            .conns
+            .is_empty()));
+        let k = *g.conns.keys().next().unwrap();
+        g.conns.get_mut(&k).unwrap().srtt = None;
+        assert_eq!(g.rtt_ms(k), None, "no sample yet");
+        // a local link: the smoothed trip is below one millisecond
+        g.conns.get_mut(&k).unwrap().srtt = Some(0.3);
+        assert_eq!(g.rtt_ms(k), Some(1));
+        g.conns.get_mut(&k).unwrap().srtt = Some(16.2);
+        assert_eq!(g.rtt_ms(k), Some(17));
     }
 
     #[test]
@@ -634,7 +740,12 @@ mod tests {
 
     #[test]
     fn chaos_is_seeded() {
-        let c = ChaosCfg { seed: 5, drop: 0.5, dup: 0.0, reorder: 0.0 };
+        let c = ChaosCfg {
+            seed: 5,
+            drop: 0.5,
+            dup: 0.0,
+            reorder: 0.0,
+        };
         let run = || {
             let (mut h, _g) = pair(Some(c));
             let a: SocketAddr = "127.0.0.1:9".parse().unwrap();
@@ -652,6 +763,9 @@ mod tests {
         let (mut h, mut g) = pair(None);
         g.send(1, Lane::Control, b"x").unwrap();
         run_until(&mut h, &mut g, 1000, |_, _, he, _| !he.is_empty());
-        assert!(matches!(g.send(1, Lane::Unreliable, &[0; 1201]), Err(BackendError::TooLarge { .. })));
+        assert!(matches!(
+            g.send(1, Lane::Unreliable, &[0; 1201]),
+            Err(BackendError::TooLarge { .. })
+        ));
     }
 }

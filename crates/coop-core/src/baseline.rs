@@ -42,7 +42,10 @@ pub struct BaselineRing {
 impl BaselineRing {
     /// A ring remembering `cap` sends per client (at least 1).
     pub fn new(cap: usize) -> Self {
-        BaselineRing { cap: cap.max(1), clients: BTreeMap::new() }
+        BaselineRing {
+            cap: cap.max(1),
+            clients: BTreeMap::new(),
+        }
     }
 
     /// Forgets the baseline of `p` (new join). The sequence counter keeps
@@ -77,7 +80,9 @@ impl BaselineRing {
 
     /// The most recent sequence number handed out to `p` (zero if none).
     pub fn last_seq(&self, p: PlayerId) -> Seq {
-        self.clients.get(&p).map_or(Seq(0), |c| Seq(c.next_seq.0.wrapping_sub(1)))
+        self.clients
+            .get(&p)
+            .map_or(Seq(0), |c| Seq(c.next_seq.0.wrapping_sub(1)))
     }
 
     /// The acked baseline of `p`, if any.
@@ -98,8 +103,12 @@ impl BaselineRing {
     /// Processes an ack. Returns true when it matched a remembered send.
     /// Older remembered sends are dropped; the baseline never moves backwards.
     pub fn on_ack(&mut self, p: PlayerId, seq: Seq) -> bool {
-        let Some(c) = self.clients.get_mut(&p) else { return false };
-        let Some(pos) = c.sent.iter().position(|(s, _)| *s == seq) else { return false };
+        let Some(c) = self.clients.get_mut(&p) else {
+            return false;
+        };
+        let Some(pos) = c.sent.iter().position(|(s, _)| *s == seq) else {
+            return false;
+        };
         let rev = c.sent[pos].1;
         c.sent.drain(..=pos);
         if c.acked_rev.map_or(true, |a| rev > a) {

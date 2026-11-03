@@ -1,0 +1,48 @@
+{
+  "name": "twin_live_status_line",
+  "description": "MUTATION TWIN of live_status_line: the second guest does not join (one guest only). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 73,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guests": [
+    {
+      "script": []
+    }
+  ],
+  "expect": [
+    {
+      "id": "players",
+      "path": "status.players",
+      "op": "eq",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "host-lists-guest2",
+      "path": "status.peers.guest2.rtt_ms",
+      "op": "gt",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "guest-lists-guest2",
+      "path": "status.peers.guest2.name",
+      "op": "eq",
+      "value": "Guest 2",
+      "on": "guest"
+    },
+    {
+      "id": "guest2-ping",
+      "path": "status.rtt_ms",
+      "op": "gt",
+      "value": 0,
+      "on": "guest2"
+    }
+  ],
+  "expect_fail": true
+}

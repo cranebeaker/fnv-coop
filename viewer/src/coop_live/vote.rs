@@ -23,7 +23,9 @@ pub fn answer(
         return;
     };
     let text = match &prompt {
-        Prompt::Vote { kind, param, .. } => format!("The party votes: {kind:?} ({param}). F8 yes, F9 no."),
+        Prompt::Vote { kind, param, .. } => {
+            format!("The party votes: {kind:?} ({param}). F8 yes, F9 no.")
+        }
         Prompt::Barrier { .. } => "The party moves on together. F8 yes, F9 no.".to_string(),
     };
     if shown.as_deref() != Some(text.as_str()) {

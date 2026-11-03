@@ -8,7 +8,8 @@ use std::rc::Rc;
 use coop_core::ids::PlayerId;
 use coop_core::proto::Channel;
 use coop_core::transport::{
-    ChaosProfile, ChaosStats, ChaosTransport, LoopbackEndpoint, LoopbackNet, Packet, Transport, TransportError, VirtualClock,
+    ChaosProfile, ChaosStats, ChaosTransport, LoopbackEndpoint, LoopbackNet, Packet, Transport,
+    TransportError, VirtualClock,
 };
 
 /// Shared control of one direction of the link.
@@ -60,7 +61,12 @@ impl Transport for SimLink {
         self.chaos.local()
     }
 
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         self.sync();
         let cut = {
             let mut c = self.ctl.borrow_mut();
@@ -120,7 +126,13 @@ impl Link {
         };
         let (host, h2g) = mk(PlayerId::HOST, seed ^ 0x6A09_E667);
         let (guest, g2h) = mk(PlayerId(1), seed.wrapping_mul(0x9E37_79B9) ^ 0xBB67_AE85);
-        Link { host, guest, h2g, g2h, clock }
+        Link {
+            host,
+            guest,
+            h2g,
+            g2h,
+            clock,
+        }
     }
 
     /// Moves the virtual clock to `ms`.
@@ -152,14 +164,21 @@ mod tests {
     fn an_outage_drops_datagrams_and_holds_the_reliable_stream() {
         let mut l = Link::new(ChaosProfile::PERFECT, 1);
         set_cut(&l.h2g, &l.g2h, "both", true);
-        l.host.send(PlayerId(1), Channel::Unreliable, vec![1]).unwrap();
-        l.host.send(PlayerId(1), Channel::ReliableOrdered, vec![2]).unwrap();
+        l.host
+            .send(PlayerId(1), Channel::Unreliable, vec![1])
+            .unwrap();
+        l.host
+            .send(PlayerId(1), Channel::ReliableOrdered, vec![2])
+            .unwrap();
         l.advance_to(50);
         assert!(l.guest.recv().is_none());
         set_cut(&l.h2g, &l.g2h, "both", false);
         l.host.recv();
         l.advance_to(100);
-        let p = l.guest.recv().expect("the held message arrives after the heal");
+        let p = l
+            .guest
+            .recv()
+            .expect("the held message arrives after the heal");
         assert_eq!(p.data, vec![2]);
         assert!(l.guest.recv().is_none(), "the datagram is gone");
         assert_eq!(l.h2g.borrow().cut_drops, 1);
@@ -170,7 +189,9 @@ mod tests {
         let mut l = Link::new(ChaosProfile::FLAKY, 3);
         l.h2g.borrow_mut().new_profile = Some(ChaosProfile::PERFECT);
         for i in 0..200u8 {
-            l.host.send(PlayerId(1), Channel::Unreliable, vec![i]).unwrap();
+            l.host
+                .send(PlayerId(1), Channel::Unreliable, vec![i])
+                .unwrap();
         }
         l.advance_to(10);
         l.host.recv();

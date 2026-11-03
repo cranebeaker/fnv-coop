@@ -54,7 +54,9 @@ fn in_view(gs: &GameState, a: &RemoteAvatarView) -> bool {
     }
     a.cell != 0
         && gs.player_world.is_some()
-        && gs.player_position.is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) <= REACH)
+        && gs
+            .player_position
+            .is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) <= REACH)
 }
 
 /// What the puppet wears: the avatar's equipment and its weapon.
@@ -82,11 +84,17 @@ pub fn sync(
     let t = time.elapsed_secs();
     let order = &game.0.order;
     let gs = &mut state.0;
-    let shown: HashMap<PlayerId, &RemoteAvatarView> =
-        view.avatars.iter().filter(|a| in_view(gs, a)).map(|a| (a.player, a)).collect();
+    let shown: HashMap<PlayerId, &RemoteAvatarView> = view
+        .avatars
+        .iter()
+        .filter(|a| in_view(gs, a))
+        .map(|a| (a.player, a))
+        .collect();
     // spawned puppets: mark them so the AI leaves them alone
     for (e, w, mark) in &walkers {
-        let Some(p) = player_of(w.reference) else { continue };
+        let Some(p) = player_of(w.reference) else {
+            continue;
+        };
         if mark.is_none() {
             commands.entity(e).insert(CoopPuppet(Some(p)));
         }
@@ -115,12 +123,19 @@ pub fn sync(
     }
     // new ones
     for (p, a) in &shown {
-        if puppets.entities.contains_key(p) || puppets.asked.get(p).is_some_and(|at| t - at < RESPAWN_AFTER) {
+        if puppets.entities.contains_key(p)
+            || puppets
+                .asked
+                .get(p)
+                .is_some_and(|at| t - at < RESPAWN_AFTER)
+        {
             continue;
         }
         gs.positions.insert(a.puppet, (a.pos, a.heading));
         gs.equipped.insert(a.puppet, worn(a));
-        let Some(placement) = world::made_placement(order, a.puppet, PLAYER_BASE, a.pos, [0.0, 0.0, a.heading]) else {
+        let Some(placement) =
+            world::made_placement(order, a.puppet, PLAYER_BASE, a.pos, [0.0, 0.0, a.heading])
+        else {
             puppets.asked.insert(*p, t);
             continue;
         };
@@ -136,10 +151,24 @@ pub fn sync(
 type Motion = HashMap<PlayerId, ([f32; 3], [f32; 3])>;
 
 /// Smoothed velocity of something that moved from `last` to `now` in `dt`.
-pub fn velocity(motion: &mut Motion, key: PlayerId, now: [f32; 3], dt: f32, jumped: bool) -> [f32; 3] {
+pub fn velocity(
+    motion: &mut Motion,
+    key: PlayerId,
+    now: [f32; 3],
+    dt: f32,
+    jumped: bool,
+) -> [f32; 3] {
     let dt = dt.max(1e-3);
     let entry = motion.entry(key).or_insert((now, [0.0; 3]));
-    let raw = if jumped { [0.0; 3] } else { [(now[0] - entry.0[0]) / dt, (now[1] - entry.0[1]) / dt, (now[2] - entry.0[2]) / dt] };
+    let raw = if jumped {
+        [0.0; 3]
+    } else {
+        [
+            (now[0] - entry.0[0]) / dt,
+            (now[1] - entry.0[1]) / dt,
+            (now[2] - entry.0[2]) / dt,
+        ]
+    };
     let v = [0, 1, 2].map(|i| entry.1[i] * 0.6 + raw[i] * 0.4);
     *entry = (now, v);
     v
@@ -168,7 +197,9 @@ pub fn drive(
     let dt = time.delta_secs();
     for (mark, mut walker, mut rig, mut transform) in &mut puppets {
         let Some(p) = mark.0 else { continue };
-        let Some(a) = view.avatars.iter().find(|a| a.player == p) else { continue };
+        let Some(a) = view.avatars.iter().find(|a| a.player == p) else {
+            continue;
+        };
         let v = velocity(&mut motion, p, a.pos, dt, a.teleported);
         let speed = v[0].hypot(v[1]);
         walker.position = a.pos;
@@ -194,12 +225,28 @@ pub fn drive(
         }
         // combat events of that player, then the dead lie where they fell
         for (_, ev) in view.actions.iter().filter(|(q, _)| *q == p) {
-            super::actions::play(&mut rig, &walker, gs, me, time.elapsed_secs(), ev.kind, ev.arg);
+            super::actions::play(
+                &mut rig,
+                &walker,
+                gs,
+                me,
+                time.elapsed_secs(),
+                ev.kind,
+                ev.arg,
+            );
         }
         if !a.dead && rig.ragdoll.is_some() {
             rig.ragdoll = None;
         } else if a.dead && rig.ragdoll.is_none() {
-            super::actions::play(&mut rig, &walker, gs, me, time.elapsed_secs(), coop_session::ActionKind::Death, 0);
+            super::actions::play(
+                &mut rig,
+                &walker,
+                gs,
+                me,
+                time.elapsed_secs(),
+                coop_session::ActionKind::Death,
+                0,
+            );
         }
         let weapon = world::combat::weapon_equipped(order, gs, me);
         rig.character = true;
@@ -210,7 +257,9 @@ pub fn drive(
         rig.speed = speed;
         rig.fighting = a.drawn;
         rig.held_weapon = Some(weapon.as_ref().map(|w| w.form_id));
-        rig.weapon_kind = weapon.as_ref().map(|w| world::animation::groups::weapon_kind(w.animation));
+        rig.weapon_kind = weapon
+            .as_ref()
+            .map(|w| world::animation::groups::weapon_kind(w.animation));
         *transform = placed(&walker);
     }
 }
@@ -226,24 +275,43 @@ pub fn name_tags(
     mut tags: Query<(&mut Node, &mut Text, &mut Visibility, &mut TextColor), With<NameTag>>,
 ) {
     let Some(view) = &now.view else { return };
-    let Ok((camera, camera_at)) = cameras.single() else { return };
+    let Ok((camera, camera_at)) = cameras.single() else {
+        return;
+    };
     let me = state.0.player_position.unwrap_or([0.0; 3]);
-    let wanted: HashSet<PlayerId> = view.avatars.iter().filter(|a| puppets.entities.contains_key(&a.player)).map(|a| a.player).collect();
-    let stale: Vec<PlayerId> = puppets.tags.keys().filter(|p| !wanted.contains(p)).copied().collect();
+    let wanted: HashSet<PlayerId> = view
+        .avatars
+        .iter()
+        .filter(|a| puppets.entities.contains_key(&a.player))
+        .map(|a| a.player)
+        .collect();
+    let stale: Vec<PlayerId> = puppets
+        .tags
+        .keys()
+        .filter(|p| !wanted.contains(p))
+        .copied()
+        .collect();
     for p in stale {
         if let Some(e) = puppets.tags.remove(&p) {
             commands.entity(e).despawn();
         }
     }
     for a in view.avatars.iter().filter(|a| wanted.contains(&a.player)) {
-        let (label, color) = super::hud_social::tag_text(&now, &state.0, a, super::voice::is_speaking(a.player.0));
+        let (label, color) =
+            super::hud_social::tag_text(&now, &state.0, a, super::voice::is_speaking(a.player.0));
         let Some(tag) = puppets.tags.get(&a.player).copied() else {
             let e = commands
                 .spawn((
                     Text::new(label),
-                    TextFont { font_size: 14.0, ..default() },
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.9, 0.95, 0.7)),
-                    Node { position_type: PositionType::Absolute, ..default() },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        ..default()
+                    },
                     Visibility::Hidden,
                     NameTag,
                 ))
@@ -251,7 +319,9 @@ pub fn name_tags(
             puppets.tags.insert(a.player, e);
             continue;
         };
-        let Ok((mut node, mut text, mut vis, mut tint)) = tags.get_mut(tag) else { continue };
+        let Ok((mut node, mut text, mut vis, mut tint)) = tags.get_mut(tag) else {
+            continue;
+        };
         if tint.0 != color {
             tint.0 = color;
         }

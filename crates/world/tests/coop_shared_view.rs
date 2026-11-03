@@ -37,7 +37,11 @@ fn shared_export_and_hash_exclude_per_player_quests_on_every_peer() {
     host.enable_coop_policy(t.clone(), 0);
     host.register_player(1);
     host.with_player(1, |g| g.stock(&order, PLAYER_REF));
-    host.coop.gate.as_mut().unwrap().set_present((0..=1).map(PlayerId));
+    host.coop
+        .gate
+        .as_mut()
+        .unwrap()
+        .set_present((0..=1).map(PlayerId));
     let mut guest = GameState::new(&order);
     guest.set_authority(Authority::Guest);
     guest.enable_shadows(plan.clone(), 1);
@@ -72,7 +76,13 @@ fn shared_export_and_hash_exclude_per_player_quests_on_every_peer() {
         hb.collect(&mut host, &mut sim.host);
         sim.step();
         if sim.guests[0].sync.phase() == GuestPhase::Active {
-            let opts = Opts { present: true, ctx: Some(Ctx { order: &order, scripts: &scripts }) };
+            let opts = Opts {
+                present: true,
+                ctx: Some(Ctx {
+                    order: &order,
+                    scripts: &scripts,
+                }),
+            };
             gb.sync(&mut guest, &sim.guests[0].sync.store, false, opts);
         }
         if sim.guests[0].sync.phase() == GuestPhase::Active
@@ -86,14 +96,25 @@ fn shared_export_and_hash_exclude_per_player_quests_on_every_peer() {
     assert!(ok, "host and guest hashes never agreed");
     assert_eq!(host.shard_hashes().root(), guest.shard_hashes().root());
     host.player_position = Some([11.0, 21.0, 31.0]);
-    assert_eq!(host.shard_hashes(), guest.shard_hashes(), "moving does not change the hash");
-    assert_eq!(guest.player_position, Some([-4.0, 8.5, 0.25]), "guest keeps its own position");
+    assert_eq!(
+        host.shard_hashes(),
+        guest.shard_hashes(),
+        "moving does not change the hash"
+    );
+    assert_eq!(
+        guest.player_position,
+        Some([-4.0, 8.5, 0.25]),
+        "guest keeps its own position"
+    );
 
     // No per-player quest row in either shared export.
     for gs in [&host, &guest] {
         for (form, _) in gs.export_fields() {
             let w = FormId(form.0);
-            assert!(!plan.quests.contains(&w), "per-player quest {w:?} in the shared export");
+            assert!(
+                !plan.quests.contains(&w),
+                "per-player quest {w:?} in the shared export"
+            );
         }
     }
     // Shared quests reached the guest.
@@ -101,9 +122,15 @@ fn shared_export_and_hash_exclude_per_player_quests_on_every_peer() {
     assert!(guest.running.contains(&FormId(VMQ01)));
     // Each player's own rows live where they belong.
     assert_eq!(guest.stages.get(&FormId(VMS30)), Some(&5));
-    assert!(!guest.stages.contains_key(&FormId(VCG01)), "host player's quest stays out of the guest's live rows");
+    assert!(
+        !guest.stages.contains_key(&FormId(VCG01)),
+        "host player's quest stays out of the guest's live rows"
+    );
     let hs = guest.shadow_of(0).expect("host shadow mirrored");
-    assert!(hs.quest_flags.contains_key(&FormId(VCG01)), "host rows round-trip through the shadow blob");
+    assert!(
+        hs.quest_flags.contains_key(&FormId(VCG01)),
+        "host rows round-trip through the shadow blob"
+    );
     assert_eq!(hs.quest_stage.get(&FormId(VCG01)), Some(&0));
     let gs1 = host.shadow_of(1).expect("guest shadow on host");
     assert_eq!(gs1.quest_stage.get(&FormId(VMS30)), Some(&5));

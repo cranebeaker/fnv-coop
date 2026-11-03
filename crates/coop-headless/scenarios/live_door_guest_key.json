@@ -1,0 +1,29 @@
+{
+  "name": "live_door_guest_key",
+  "description": "The guest activates the locked REPCON storage room door (lock 25, key DavisonKey) as a guest intent. Without the key the host refuses it. The host then gives the guest the key. The guest activates the door again. The host applies the activation with the guest's key: the lock reads unlocked (-1) and the door reads open, on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 86,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 9, "run": "coop give 1 DavisonKey 1" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 5, "run": "coop door REPCONStorageRoomDoor" },
+      { "at": 13, "run": "coop door REPCONStorageRoomDoor" }
+    ]
+  },
+  "expect": [
+    { "id": "unlocked-host", "path": "objects.locks.REPCONStorageRoomDoor", "op": "eq", "value": -1, "on": "host" },
+    { "id": "unlocked-guest", "path": "objects.locks.REPCONStorageRoomDoor", "op": "eq", "value": -1, "on": "guest" },
+    { "id": "open-host", "path": "objects.open.REPCONStorageRoomDoor", "op": "eq", "value": true, "on": "host" },
+    { "id": "open-guest", "path": "objects.open.REPCONStorageRoomDoor", "op": "eq", "value": true, "on": "guest" },
+    { "id": "opened", "path": "interact.door", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "refused-without-key", "path": "interact.refused", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

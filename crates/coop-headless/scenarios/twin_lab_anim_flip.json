@@ -1,0 +1,40 @@
+{
+  "name": "twin_lab_anim_flip",
+  "description": "MUTATION TWIN of lab_anim_flip: the host never taps the key (no planted glitch). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 83,
+  "duration_s": 14,
+  "settle_s": 4,
+  "expect_fail": true,
+  "host": {
+    "script": [],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-flip",
+      "path": "live.glitch.flips",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-no-pop",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

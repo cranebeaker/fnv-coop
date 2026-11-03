@@ -14,7 +14,9 @@ pub struct OnceMap<K: Ord, V: Clone> {
 impl<K: Ord, V: Clone> OnceMap<K, V> {
     /// Empty table.
     pub fn new() -> Self {
-        OnceMap { map: BTreeMap::new() }
+        OnceMap {
+            map: BTreeMap::new(),
+        }
     }
 
     /// Returns the stored value, or stores `v` and returns it. The boolean is

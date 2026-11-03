@@ -1,0 +1,24 @@
+{
+  "name": "twin_live_creature_spawn_shared",
+  "description": "MUTATION TWIN of live_creature_spawn_shared: the host makes no gecko, so there is no spawn and nothing for the guest to kill. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 11,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [] },
+  "guest": { "script": [
+    {"at": 7, "run": "coop hit FF000001 100000"}
+  ] },
+  "expect": [
+    {"id": "spawned-once-host", "path": "live.spawned", "op": "eq", "value": 1, "on": "host"},
+    {"id": "spawned-once-guest", "path": "live.spawned", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "one-creature-host", "path": "live.creature_entities", "op": "eq", "value": 1, "on": "host"},
+    {"id": "one-creature-guest", "path": "live.creature_entities", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "same-id-on-guest", "path": "actors.FF000001.creature", "op": "eq", "value": true, "on": "guest"},
+    {"id": "dead-host", "path": "dead.FF000001", "op": "eq", "value": true, "on": "host"},
+    {"id": "dead-guest", "path": "dead.FF000001", "op": "eq", "value": true, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

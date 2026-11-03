@@ -63,7 +63,13 @@ impl DArg {
 pub fn last_wins(func: &str) -> bool {
     matches!(
         func.to_ascii_lowercase().as_str(),
-        "look" | "stoplook" | "evaluatepackage" | "setrestrained" | "setalert" | "setunconscious" | "setignorefriendlyhits"
+        "look"
+            | "stoplook"
+            | "evaluatepackage"
+            | "setrestrained"
+            | "setalert"
+            | "setunconscious"
+            | "setignorefriendlyhits"
     )
 }
 
@@ -89,7 +95,14 @@ impl DeferredQueue {
     }
 
     /// Queues a command; returns its id.
-    pub fn queue(&mut self, target: FormId, cell: CellId, func: &str, args: Vec<DArg>, now_ms: u64) -> u32 {
+    pub fn queue(
+        &mut self,
+        target: FormId,
+        cell: CellId,
+        func: &str,
+        args: Vec<DArg>,
+        now_ms: u64,
+    ) -> u32 {
         self.next_id += 1;
         let id = self.next_id;
         let q = self.by_cell.entry(cell).or_default();
@@ -98,7 +111,14 @@ impl DeferredQueue {
             q.retain(|o| !(o.target == target && o.func.eq_ignore_ascii_case(func)));
             self.superseded += (before - q.len()) as u32;
         }
-        q.push_back(DeferredOp { id, target, cell, func: func.to_string(), args, queued_ms: now_ms });
+        q.push_back(DeferredOp {
+            id,
+            target,
+            cell,
+            func: func.to_string(),
+            args,
+            queued_ms: now_ms,
+        });
         self.queued += 1;
         if q.len() > MAX_PER_CELL {
             q.pop_front();
@@ -106,7 +126,14 @@ impl DeferredQueue {
         }
         while self.pending() > MAX_TOTAL {
             // drop the oldest of the longest queue
-            let Some(c) = self.by_cell.iter().max_by_key(|(_, q)| q.len()).map(|(c, _)| *c) else { break };
+            let Some(c) = self
+                .by_cell
+                .iter()
+                .max_by_key(|(_, q)| q.len())
+                .map(|(c, _)| *c)
+            else {
+                break;
+            };
             if let Some(q) = self.by_cell.get_mut(&c) {
                 q.pop_front();
                 self.dropped += 1;
@@ -127,12 +154,20 @@ impl DeferredQueue {
 
     /// Cells with waiting operations.
     pub fn cells(&self) -> Vec<CellId> {
-        self.by_cell.iter().filter(|(_, q)| !q.is_empty()).map(|(c, _)| *c).collect()
+        self.by_cell
+            .iter()
+            .filter(|(_, q)| !q.is_empty())
+            .map(|(c, _)| *c)
+            .collect()
     }
 
     /// A cell was loaded: its operations, oldest first, leave the queue.
     pub fn take_for_cell(&mut self, cell: CellId) -> Vec<DeferredOp> {
-        let v: Vec<DeferredOp> = self.by_cell.remove(&cell).map(Vec::from).unwrap_or_default();
+        let v: Vec<DeferredOp> = self
+            .by_cell
+            .remove(&cell)
+            .map(Vec::from)
+            .unwrap_or_default();
         self.replayed += v.len() as u32;
         v
     }
@@ -140,7 +175,10 @@ impl DeferredQueue {
     /// Every operation whose cell `loaded` says is loaded now, in id order.
     pub fn drain_loaded(&mut self, loaded: impl Fn(CellId) -> bool) -> Vec<DeferredOp> {
         let cells: Vec<CellId> = self.cells().into_iter().filter(|c| loaded(*c)).collect();
-        let mut v: Vec<DeferredOp> = cells.into_iter().flat_map(|c| self.take_for_cell(c)).collect();
+        let mut v: Vec<DeferredOp> = cells
+            .into_iter()
+            .flat_map(|c| self.take_for_cell(c))
+            .collect();
         v.sort_by_key(|o| o.id);
         v
     }
@@ -155,13 +193,22 @@ mod tests {
     #[test]
     fn ops_wait_for_their_cell_and_replay_in_order() {
         let mut q = DeferredQueue::new();
-        q.queue(R, CellId(1), "PlayGroup", vec![DArg::Text("Idle".into())], 0);
+        q.queue(
+            R,
+            CellId(1),
+            "PlayGroup",
+            vec![DArg::Text("Idle".into())],
+            0,
+        );
         q.queue(R, CellId(2), "StartCombat", vec![DArg::Form(5)], 1);
         q.queue(R, CellId(1), "Activate", vec![], 2);
         assert_eq!(q.pending(), 3);
         assert!(q.take_for_cell(CellId(9)).is_empty());
         let got = q.take_for_cell(CellId(1));
-        assert_eq!(got.iter().map(|o| o.func.as_str()).collect::<Vec<_>>(), vec!["PlayGroup", "Activate"]);
+        assert_eq!(
+            got.iter().map(|o| o.func.as_str()).collect::<Vec<_>>(),
+            vec!["PlayGroup", "Activate"]
+        );
         assert_eq!((q.pending(), q.replayed), (1, 2));
         assert_eq!(q.take_for_cell(CellId(1)).len(), 0, "replayed once");
     }
@@ -177,7 +224,13 @@ mod tests {
         let got = q.take_for_cell(CellId(1));
         assert_eq!(got.len(), 4, "two Looks (different refs) and two Activates");
         assert_eq!(q.superseded, 1);
-        assert_eq!(got.iter().find(|o| o.target == R && o.func == "Look").unwrap().args, vec![DArg::Form(2)]);
+        assert_eq!(
+            got.iter()
+                .find(|o| o.target == R && o.func == "Look")
+                .unwrap()
+                .args,
+            vec![DArg::Form(2)]
+        );
     }
 
     #[test]
@@ -203,7 +256,10 @@ mod tests {
         q.queue(R, CellId(1), "B", vec![], 0);
         q.queue(R, CellId(3), "C", vec![], 0);
         let got = q.drain_loaded(|c| c != CellId(3));
-        assert_eq!(got.iter().map(|o| o.func.as_str()).collect::<Vec<_>>(), vec!["A", "B"]);
+        assert_eq!(
+            got.iter().map(|o| o.func.as_str()).collect::<Vec<_>>(),
+            vec!["A", "B"]
+        );
         assert_eq!(q.pending(), 1);
     }
 }

@@ -31,14 +31,24 @@ pub struct RawCodec {
 
 impl RawCodec {
     pub fn new(rate: u32, frame: usize) -> Self {
-        Self { rate, frame, last: vec![0; frame] }
+        Self {
+            rate,
+            frame,
+            last: vec![0; frame],
+        }
     }
 }
 
 impl Codec for RawCodec {
-    fn id(&self) -> u8 { CODEC_RAW }
-    fn sample_rate(&self) -> u32 { self.rate }
-    fn frame_samples(&self) -> usize { self.frame }
+    fn id(&self) -> u8 {
+        CODEC_RAW
+    }
+    fn sample_rate(&self) -> u32 {
+        self.rate
+    }
+    fn frame_samples(&self) -> usize {
+        self.frame
+    }
     fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) {
         for s in pcm.iter().take(self.frame) {
             out.extend_from_slice(&s.to_le_bytes());
@@ -50,7 +60,10 @@ impl Codec for RawCodec {
                 if d.len() != self.frame * 2 {
                     return Err(CodecError::BadFrame);
                 }
-                self.last = d.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect();
+                self.last = d
+                    .chunks_exact(2)
+                    .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                    .collect();
             }
             None => conceal(&mut self.last),
         }
@@ -91,11 +104,19 @@ impl AdpcmState {
             diff = -diff;
         }
         let mut temp = step;
-        if diff >= temp { code |= 4; diff -= temp; }
+        if diff >= temp {
+            code |= 4;
+            diff -= temp;
+        }
         temp >>= 1;
-        if diff >= temp { code |= 2; diff -= temp; }
+        if diff >= temp {
+            code |= 2;
+            diff -= temp;
+        }
         temp >>= 1;
-        if diff >= temp { code |= 1; }
+        if diff >= temp {
+            code |= 1;
+        }
         self.apply(code);
         code
     }
@@ -103,10 +124,20 @@ impl AdpcmState {
     fn apply(&mut self, code: u8) -> i16 {
         let step = STEP[self.index as usize];
         let mut diff = step >> 3;
-        if code & 4 != 0 { diff += step; }
-        if code & 2 != 0 { diff += step >> 1; }
-        if code & 1 != 0 { diff += step >> 2; }
-        if code & 8 != 0 { self.pred -= diff } else { self.pred += diff }
+        if code & 4 != 0 {
+            diff += step;
+        }
+        if code & 2 != 0 {
+            diff += step >> 1;
+        }
+        if code & 1 != 0 {
+            diff += step >> 2;
+        }
+        if code & 8 != 0 {
+            self.pred -= diff
+        } else {
+            self.pred += diff
+        }
         self.pred = self.pred.clamp(-32768, 32767);
         self.index = (self.index + INDEX_ADJ[(code & 7) as usize]).clamp(0, 88);
         self.pred as i16
@@ -126,14 +157,25 @@ pub struct AdpcmCodec {
 impl AdpcmCodec {
     pub fn new(rate: u32, frame: usize) -> Self {
         assert!(frame % 2 == 0, "frame size must be even");
-        Self { rate, frame, enc: AdpcmState::default(), last: vec![0; frame] }
+        Self {
+            rate,
+            frame,
+            enc: AdpcmState::default(),
+            last: vec![0; frame],
+        }
     }
 }
 
 impl Codec for AdpcmCodec {
-    fn id(&self) -> u8 { CODEC_ADPCM }
-    fn sample_rate(&self) -> u32 { self.rate }
-    fn frame_samples(&self) -> usize { self.frame }
+    fn id(&self) -> u8 {
+        CODEC_ADPCM
+    }
+    fn sample_rate(&self) -> u32 {
+        self.rate
+    }
+    fn frame_samples(&self) -> usize {
+        self.frame
+    }
 
     fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) {
         let first = pcm.first().copied().unwrap_or(0);
@@ -155,7 +197,10 @@ impl Codec for AdpcmCodec {
                 if d.len() != 3 + self.frame / 2 || d[2] > 88 {
                     return Err(CodecError::BadFrame);
                 }
-                let mut st = AdpcmState { pred: i16::from_le_bytes([d[0], d[1]]) as i32, index: d[2] as i32 };
+                let mut st = AdpcmState {
+                    pred: i16::from_le_bytes([d[0], d[1]]) as i32,
+                    index: d[2] as i32,
+                };
                 self.last.clear();
                 for b in &d[3..] {
                     self.last.push(st.apply(b & 15));
@@ -174,7 +219,9 @@ mod tests {
     use super::*;
 
     fn sine(n: usize, ph: usize) -> Vec<i16> {
-        (0..n).map(|i| (((i + ph) as f32 * 0.1).sin() * 8000.0) as i16).collect()
+        (0..n)
+            .map(|i| (((i + ph) as f32 * 0.1).sin() * 8000.0) as i16)
+            .collect()
     }
 
     #[test]
@@ -197,7 +244,12 @@ mod tests {
         assert_eq!(b.len(), 163);
         let mut o = vec![];
         c.decode(Some(&b), &mut o).unwrap();
-        let err: i64 = pcm.iter().zip(&o).map(|(a, b)| (*a as i64 - *b as i64).abs()).sum::<i64>() / 320;
+        let err: i64 = pcm
+            .iter()
+            .zip(&o)
+            .map(|(a, b)| (*a as i64 - *b as i64).abs())
+            .sum::<i64>()
+            / 320;
         assert!(err < 600, "mean abs err {err}");
     }
 
@@ -219,6 +271,9 @@ mod tests {
     #[test]
     fn bad_frame_rejected() {
         let mut c = AdpcmCodec::new(16000, 320);
-        assert_eq!(c.decode(Some(&[1, 2]), &mut vec![]), Err(CodecError::BadFrame));
+        assert_eq!(
+            c.decode(Some(&[1, 2]), &mut vec![]),
+            Err(CodecError::BadFrame)
+        );
     }
 }

@@ -61,14 +61,27 @@ impl LootHost {
     /// Registers a container's contents. The first call per container wins
     /// (leveled loot is rolled once; later calls, for example from another
     /// machine's roll, change nothing). Returns true when this call won.
-    pub fn register(&mut self, container: FormId, cell: CellId, roll: impl FnOnce() -> Vec<(FormId, u32)>) -> bool {
+    pub fn register(
+        &mut self,
+        container: FormId,
+        cell: CellId,
+        roll: impl FnOnce() -> Vec<(FormId, u32)>,
+    ) -> bool {
         let (_, won) = self.contents.resolve(container, ());
         if won {
             let mut items = BTreeMap::new();
             for (f, c) in roll() {
                 *items.entry(f).or_insert(0u32) += c;
             }
-            self.containers.insert(container, Container { cell, items, rev: 1, lease: None });
+            self.containers.insert(
+                container,
+                Container {
+                    cell,
+                    items,
+                    rev: 1,
+                    lease: None,
+                },
+            );
         }
         won
     }
@@ -80,7 +93,9 @@ impl LootHost {
 
     /// Current lease holder.
     pub fn holder(&self, container: FormId) -> Option<PlayerId> {
-        self.containers.get(&container).and_then(|c| c.lease.map(|(p, _)| p))
+        self.containers
+            .get(&container)
+            .and_then(|c| c.lease.map(|(p, _)| p))
     }
 
     /// Registers a dropped item that players may claim.
@@ -93,54 +108,129 @@ impl LootHost {
     /// Host-side edit (script or world change). Every interested peer,
     /// including the lease holder, is told.
     pub fn host_set(&mut self, container: FormId, item: FormId, count: u32) -> Vec<LootOut> {
-        let Some(c) = self.containers.get_mut(&container) else { return vec![] };
+        let Some(c) = self.containers.get_mut(&container) else {
+            return vec![];
+        };
         c.items.insert(item, count);
         c.rev += 1;
-        vec![out(Audience::Cell(c.cell), LootMsg::Changed { container, rev: c.rev, item, new_count: count })]
+        vec![out(
+            Audience::Cell(c.cell),
+            LootMsg::Changed {
+                container,
+                rev: c.rev,
+                item,
+                new_count: count,
+            },
+        )]
     }
 
     /// Handles one message from `from`.
     pub fn on_msg(&mut self, from: PlayerId, msg: LootMsg, now_ms: u64) -> Vec<LootOut> {
         match msg {
             LootMsg::Open { container } => self.open(from, container, now_ms),
-            LootMsg::Take { container, txn, item, count } => self.txn(from, container, txn, item, count, true, now_ms),
-            LootMsg::Put { container, txn, item, count } => self.txn(from, container, txn, item, count, false, now_ms),
-            LootMsg::Close { container, digest: theirs } => self.close(from, container, theirs),
+            LootMsg::Take {
+                container,
+                txn,
+                item,
+                count,
+            } => self.txn(from, container, txn, item, count, true, now_ms),
+            LootMsg::Put {
+                container,
+                txn,
+                item,
+                count,
+            } => self.txn(from, container, txn, item, count, false, now_ms),
+            LootMsg::Close {
+                container,
+                digest: theirs,
+            } => self.close(from, container, theirs),
             LootMsg::ClaimDrop { drop } => self.claim(from, drop),
             _ => vec![],
         }
     }
 
     fn open(&mut self, from: PlayerId, container: FormId, now_ms: u64) -> Vec<LootOut> {
-        let Some(c) = self.containers.get_mut(&container) else { return vec![] };
+        let Some(c) = self.containers.get_mut(&container) else {
+            return vec![];
+        };
         match c.lease {
             Some((h, _)) if h != from => {
-                vec![out(Audience::To(from), LootMsg::Busy { container, holder: h })]
+                vec![out(
+                    Audience::To(from),
+                    LootMsg::Busy {
+                        container,
+                        holder: h,
+                    },
+                )]
             }
             _ => {
                 c.lease = Some((from, now_ms));
-                let items = c.items.iter().filter(|(_, n)| **n > 0).map(|(f, n)| (*f, *n)).collect();
-                vec![out(Audience::To(from), LootMsg::Opened { container, rev: c.rev, items })]
+                let items = c
+                    .items
+                    .iter()
+                    .filter(|(_, n)| **n > 0)
+                    .map(|(f, n)| (*f, *n))
+                    .collect();
+                vec![out(
+                    Audience::To(from),
+                    LootMsg::Opened {
+                        container,
+                        rev: c.rev,
+                        items,
+                    },
+                )]
             }
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn txn(&mut self, from: PlayerId, container: FormId, txn: u32, item: FormId, count: u32, take: bool, now_ms: u64) -> Vec<LootOut> {
+    fn txn(
+        &mut self,
+        from: PlayerId,
+        container: FormId,
+        txn: u32,
+        item: FormId,
+        count: u32,
+        take: bool,
+        now_ms: u64,
+    ) -> Vec<LootOut> {
         let containers = &mut self.containers;
         let res = self.ledger.once(from, txn, || {
-            let fail = |why, rev| LootMsg::TxnResult { container, txn, fail: Some(why), rev, item, new_count: 0 };
-            let Some(c) = containers.get_mut(&container) else { return fail(TxnFail::Invalid, 0) };
+            let fail = |why, rev| LootMsg::TxnResult {
+                container,
+                txn,
+                fail: Some(why),
+                rev,
+                item,
+                new_count: 0,
+            };
+            let Some(c) = containers.get_mut(&container) else {
+                return fail(TxnFail::Invalid, 0);
+            };
             let have = c.items.get(&item).copied().unwrap_or(0);
             if count == 0 {
                 return fail(TxnFail::Invalid, c.rev);
             }
             if c.lease.map(|(p, _)| p) != Some(from) {
-                return LootMsg::TxnResult { container, txn, fail: Some(TxnFail::NoLease), rev: c.rev, item, new_count: have };
+                return LootMsg::TxnResult {
+                    container,
+                    txn,
+                    fail: Some(TxnFail::NoLease),
+                    rev: c.rev,
+                    item,
+                    new_count: have,
+                };
             }
             let new_count = if take {
                 if have < count {
-                    return LootMsg::TxnResult { container, txn, fail: Some(TxnFail::Insufficient), rev: c.rev, item, new_count: have };
+                    return LootMsg::TxnResult {
+                        container,
+                        txn,
+                        fail: Some(TxnFail::Insufficient),
+                        rev: c.rev,
+                        item,
+                        new_count: have,
+                    };
                 }
                 have - count
             } else {
@@ -149,15 +239,38 @@ impl LootHost {
             c.items.insert(item, new_count);
             c.rev += 1;
             c.lease = Some((from, now_ms));
-            LootMsg::TxnResult { container, txn, fail: None, rev: c.rev, item, new_count }
+            LootMsg::TxnResult {
+                container,
+                txn,
+                fail: None,
+                rev: c.rev,
+                item,
+                new_count,
+            }
         });
-        let Some((reply, fresh)) = res else { return vec![] };
+        let Some((reply, fresh)) = res else {
+            return vec![];
+        };
         let mut v = vec![out(Audience::To(from), reply.clone())];
-        if let (true, LootMsg::TxnResult { fail: None, rev, new_count, .. }) = (fresh, &reply) {
+        if let (
+            true,
+            LootMsg::TxnResult {
+                fail: None,
+                rev,
+                new_count,
+                ..
+            },
+        ) = (fresh, &reply)
+        {
             if let Some(c) = self.containers.get(&container) {
                 v.push(out(
                     Audience::CellExcept(c.cell, from),
-                    LootMsg::Changed { container, rev: *rev, item, new_count: *new_count },
+                    LootMsg::Changed {
+                        container,
+                        rev: *rev,
+                        item,
+                        new_count: *new_count,
+                    },
                 ));
             }
         }
@@ -165,21 +278,38 @@ impl LootHost {
     }
 
     fn close(&mut self, from: PlayerId, container: FormId, theirs: u64) -> Vec<LootOut> {
-        let Some(c) = self.containers.get_mut(&container) else { return vec![] };
+        let Some(c) = self.containers.get_mut(&container) else {
+            return vec![];
+        };
         if c.lease.map(|(p, _)| p) != Some(from) {
             return vec![];
         }
         c.lease = None;
         if digest(&c.items) != theirs {
-            let items = c.items.iter().filter(|(_, n)| **n > 0).map(|(f, n)| (*f, *n)).collect();
-            return vec![out(Audience::To(from), LootMsg::Resync { container, rev: c.rev, items })];
+            let items = c
+                .items
+                .iter()
+                .filter(|(_, n)| **n > 0)
+                .map(|(f, n)| (*f, *n))
+                .collect();
+            return vec![out(
+                Audience::To(from),
+                LootMsg::Resync {
+                    container,
+                    rev: c.rev,
+                    items,
+                },
+            )];
         }
         vec![]
     }
 
     fn claim(&mut self, from: PlayerId, drop: FormId) -> Vec<LootOut> {
         match self.drops.get(&drop).copied() {
-            None => vec![out(Audience::To(from), LootMsg::DropResult { drop, won: false })],
+            None => vec![out(
+                Audience::To(from),
+                LootMsg::DropResult { drop, won: false },
+            )],
             Some((cell, None)) => {
                 self.drops.insert(drop, (cell, Some(from)));
                 self.taken.insert(drop);
@@ -188,7 +318,13 @@ impl LootHost {
                     out(Audience::CellExcept(cell, from), LootMsg::DropGone { drop }),
                 ]
             }
-            Some((_, Some(w))) => vec![out(Audience::To(from), LootMsg::DropResult { drop, won: w == from })],
+            Some((_, Some(w))) => vec![out(
+                Audience::To(from),
+                LootMsg::DropResult {
+                    drop,
+                    won: w == from,
+                },
+            )],
         }
     }
 
@@ -233,7 +369,16 @@ mod tests {
         h
     }
     fn take(h: &mut LootHost, who: PlayerId, txn: u32, n: u32, now: u64) -> Vec<LootOut> {
-        h.on_msg(who, LootMsg::Take { container: BOX, txn, item: CAPS, count: n }, now)
+        h.on_msg(
+            who,
+            LootMsg::Take {
+                container: BOX,
+                txn,
+                item: CAPS,
+                count: n,
+            },
+            now,
+        )
     }
     fn fail_of(o: &[LootOut]) -> Option<TxnFail> {
         match o[0].msg {
@@ -252,11 +397,33 @@ mod tests {
     #[test]
     fn one_lease_holder_busy_for_others() {
         let mut h = host();
-        assert!(matches!(h.on_msg(A, LootMsg::Open { container: BOX }, 0)[0].msg, LootMsg::Opened { .. }));
-        assert!(matches!(h.on_msg(B, LootMsg::Open { container: BOX }, 1)[0].msg, LootMsg::Busy { holder: A, .. }));
-        assert!(matches!(h.on_msg(A, LootMsg::Open { container: BOX }, 2)[0].msg, LootMsg::Opened { .. }), "reopen is idempotent");
-        h.on_msg(A, LootMsg::Close { container: BOX, digest: digest(h.items(BOX).unwrap()) }, 3);
-        assert!(matches!(h.on_msg(B, LootMsg::Open { container: BOX }, 4)[0].msg, LootMsg::Opened { .. }));
+        assert!(matches!(
+            h.on_msg(A, LootMsg::Open { container: BOX }, 0)[0].msg,
+            LootMsg::Opened { .. }
+        ));
+        assert!(matches!(
+            h.on_msg(B, LootMsg::Open { container: BOX }, 1)[0].msg,
+            LootMsg::Busy { holder: A, .. }
+        ));
+        assert!(
+            matches!(
+                h.on_msg(A, LootMsg::Open { container: BOX }, 2)[0].msg,
+                LootMsg::Opened { .. }
+            ),
+            "reopen is idempotent"
+        );
+        h.on_msg(
+            A,
+            LootMsg::Close {
+                container: BOX,
+                digest: digest(h.items(BOX).unwrap()),
+            },
+            3,
+        );
+        assert!(matches!(
+            h.on_msg(B, LootMsg::Open { container: BOX }, 4)[0].msg,
+            LootMsg::Opened { .. }
+        ));
     }
 
     #[test]
@@ -264,7 +431,10 @@ mod tests {
         let mut h = host();
         assert_eq!(fail_of(&take(&mut h, A, 1, 1, 0)), Some(TxnFail::NoLease));
         h.on_msg(A, LootMsg::Open { container: BOX }, 0);
-        assert_eq!(fail_of(&take(&mut h, A, 2, 11, 1)), Some(TxnFail::Insufficient));
+        assert_eq!(
+            fail_of(&take(&mut h, A, 2, 11, 1)),
+            Some(TxnFail::Insufficient)
+        );
         assert_eq!(fail_of(&take(&mut h, A, 3, 4, 2)), None);
         assert_eq!(h.items(BOX).unwrap()[&CAPS], 6);
         assert_eq!(fail_of(&take(&mut h, A, 4, 0, 2)), Some(TxnFail::Invalid));
@@ -286,7 +456,16 @@ mod tests {
     fn put_adds_items() {
         let mut h = host();
         h.on_msg(A, LootMsg::Open { container: BOX }, 0);
-        h.on_msg(A, LootMsg::Put { container: BOX, txn: 1, item: FormId(9), count: 3 }, 1);
+        h.on_msg(
+            A,
+            LootMsg::Put {
+                container: BOX,
+                txn: 1,
+                item: FormId(9),
+                count: 3,
+            },
+            1,
+        );
         assert_eq!(h.items(BOX).unwrap()[&FormId(9)], 3);
     }
 
@@ -294,10 +473,28 @@ mod tests {
     fn digest_mismatch_resyncs_on_close() {
         let mut h = host();
         h.on_msg(A, LootMsg::Open { container: BOX }, 0);
-        let o = h.on_msg(A, LootMsg::Close { container: BOX, digest: 12345 }, 1);
+        let o = h.on_msg(
+            A,
+            LootMsg::Close {
+                container: BOX,
+                digest: 12345,
+            },
+            1,
+        );
         assert!(matches!(o[0].msg, LootMsg::Resync { rev: 1, .. }));
         assert!(h.holder(BOX).is_none());
-        assert!(h.on_msg(B, LootMsg::Close { container: BOX, digest: 0 }, 1).is_empty(), "non-holder close ignored");
+        assert!(
+            h.on_msg(
+                B,
+                LootMsg::Close {
+                    container: BOX,
+                    digest: 0
+                },
+                1
+            )
+            .is_empty(),
+            "non-holder close ignored"
+        );
     }
 
     #[test]
@@ -305,7 +502,10 @@ mod tests {
         let mut h = host();
         h.on_msg(A, LootMsg::Open { container: BOX }, 0);
         assert!(h.tick(LEASE_IDLE_MS - 1).is_empty());
-        assert!(matches!(h.tick(LEASE_IDLE_MS)[0].msg, LootMsg::Released { .. }));
+        assert!(matches!(
+            h.tick(LEASE_IDLE_MS)[0].msg,
+            LootMsg::Released { .. }
+        ));
         h.on_msg(B, LootMsg::Open { container: BOX }, LEASE_IDLE_MS);
         h.on_disconnect(B);
         assert!(h.holder(BOX).is_none());
@@ -315,7 +515,14 @@ mod tests {
     fn host_edit_bumps_revision() {
         let mut h = host();
         let o = h.host_set(BOX, CAPS, 0);
-        assert!(matches!(o[0].msg, LootMsg::Changed { rev: 2, new_count: 0, .. }));
+        assert!(matches!(
+            o[0].msg,
+            LootMsg::Changed {
+                rev: 2,
+                new_count: 0,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -328,8 +535,14 @@ mod tests {
         assert!(matches!(a[0].msg, LootMsg::DropResult { won: true, .. }));
         assert!(matches!(a[1].msg, LootMsg::DropGone { .. }));
         assert!(matches!(b[0].msg, LootMsg::DropResult { won: false, .. }));
-        assert!(matches!(h.on_msg(A, LootMsg::ClaimDrop { drop: d }, 1)[0].msg, LootMsg::DropResult { won: true, .. }));
+        assert!(matches!(
+            h.on_msg(A, LootMsg::ClaimDrop { drop: d }, 1)[0].msg,
+            LootMsg::DropResult { won: true, .. }
+        ));
         h.register_drop(d, C);
-        assert!(matches!(h.on_msg(B, LootMsg::ClaimDrop { drop: d }, 2)[0].msg, LootMsg::DropResult { won: false, .. }));
+        assert!(matches!(
+            h.on_msg(B, LootMsg::ClaimDrop { drop: d }, 2)[0].msg,
+            LootMsg::DropResult { won: false, .. }
+        ));
     }
 }

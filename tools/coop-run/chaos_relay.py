@@ -125,7 +125,8 @@ class Impairment:
 
 
 def new_dir_stats():
-    return {"in": 0, "bytes_in": 0, "forwarded": 0, "dropped": 0, "drop_reasons": {},
+    # chaos_in counts the datagrams that met the starting profile (before a schedule change)
+    return {"in": 0, "chaos_in": 0, "bytes_in": 0, "forwarded": 0, "dropped": 0, "drop_reasons": {},
             "duplicated": 0, "reordered": 0}
 
 
@@ -208,6 +209,8 @@ class ChaosRelay:
         self._apply_schedule()
         st = self.stats[direction]
         st["in"] += 1
+        if self.profile_name == self.stats["profile"]:
+            st["chaos_in"] += 1
         st["bytes_in"] += len(data)
         v = self.imp[direction].decide(self.now_ms())
         if v.dropped:

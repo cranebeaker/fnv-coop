@@ -166,6 +166,14 @@ pub enum ActorMsg {
         /// Winning pick.
         pick: FormId,
     },
+    /// Host: something on the host's world raised the actor's health (a
+    /// script's `ForceActorValue Health`, a heal). Only the host sends it.
+    Healed {
+        /// Actor.
+        actor: FormId,
+        /// Health afterwards.
+        health: u16,
+    },
 }
 
 impl ActorMsg {

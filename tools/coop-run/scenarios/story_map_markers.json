@@ -1,0 +1,73 @@
+{
+  "name": "story_map_markers",
+  "description": "The host finds the Primm map marker and the guest finds the Goodsprings Cemetery marker (the discover act the viewer routes when a player comes near a marker; a guest's find goes to the host). The host's script reveals Novac (ShowMap). Each peer reads its own Pip-Boy map rules (world::map::shown and can_travel): both found markers are shown and unlock fast travel on every peer, also on the peer that did not find them. The markers' own flags do not allow travel, so only the shared found bit can unlock it. The revealed marker is shown on every peer but is not found.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop discover PrimmMapMarker"
+      },
+      {
+        "at": 3,
+        "run": "ShowMap NovacMapMarker"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop discover GoodspringsCemeteryMapMarker"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-find-shown",
+      "path": "map_markers.PrimmMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "host-find-travel",
+      "path": "map_markers.PrimmMapMarker.travel",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-find-shown",
+      "path": "map_markers.GoodspringsCemeteryMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-find-travel",
+      "path": "map_markers.GoodspringsCemeteryMapMarker.travel",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "reveal-shown",
+      "path": "map_markers.NovacMapMarker.shown",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "reveal-not-found",
+      "path": "map_markers.NovacMapMarker.found",
+      "op": "eq",
+      "value": false,
+      "on": "both"
+    }
+  ]
+}

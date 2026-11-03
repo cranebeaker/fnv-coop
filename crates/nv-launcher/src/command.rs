@@ -66,6 +66,8 @@ pub fn build(p: &Plan) -> Spec {
                 args.push("--coop-token".into());
                 args.push(crate::joincode::token_hex(t));
             }
+            // the campaign rules (the party save keeps them)
+            args.extend(p.extras.host_args());
         }
         Mode::Join { addr } => {
             args.push("--coop-join".into());
@@ -93,9 +95,17 @@ pub fn build(p: &Plan) -> Spec {
     // Reserved for the viewer's window options; builds that do not read them ignore them.
     if p.windowed {
         env.push(("NV_WINDOWED".to_string(), "1".to_string()));
-        env.push(("NV_RESOLUTION".to_string(), format!("{}x{}", p.width, p.height)));
+        env.push((
+            "NV_RESOLUTION".to_string(),
+            format!("{}x{}", p.width, p.height),
+        ));
     }
-    Spec { program: p.viewer.clone(), args, env, cwd: p.cwd.clone() }
+    Spec {
+        program: p.viewer.clone(),
+        args,
+        env,
+        cwd: p.cwd.clone(),
+    }
 }
 
 fn quote(a: &str) -> String {
@@ -148,43 +158,78 @@ mod tests {
 
     #[test]
     fn host_new_game() {
-        let s = build(&plan(Mode::Host { port: 27961, new_game: true }));
+        let s = build(&plan(Mode::Host {
+            port: 27961,
+            new_game: true,
+        }));
         assert_eq!(
             s.args,
-            vec![r"D:\Games\Fallout New Vegas\Data", "--new-game", "--coop-host", "27961", "--coop-name", "Ann", "--coop-log", r"C:\logs\coop.jsonl"]
+            vec![
+                r"D:\Games\Fallout New Vegas\Data",
+                "--new-game",
+                "--coop-host",
+                "27961",
+                "--coop-name",
+                "Ann",
+                "--coop-log",
+                r"C:\logs\coop.jsonl"
+            ]
         );
         assert!(s.env.is_empty());
     }
 
     #[test]
     fn host_without_a_save_uses_the_cell() {
-        let s = build(&plan(Mode::Host { port: 5000, new_game: false }));
+        let s = build(&plan(Mode::Host {
+            port: 5000,
+            new_game: false,
+        }));
         assert_eq!(s.args[1], DEFAULT_CELL);
         assert!(!s.args.contains(&"--new-game".to_string()));
     }
 
     #[test]
     fn host_continue_loads_the_save() {
-        let mut p = plan(Mode::Host { port: 5000, new_game: false });
-        p.load = Some(PathBuf::from(r"C:\home\savesb\host-ann
-v-rs-quicksave.txt"));
+        let mut p = plan(Mode::Host {
+            port: 5000,
+            new_game: false,
+        });
+        p.load = Some(PathBuf::from(
+            r"C:\home\savesb\host-ann
+v-rs-quicksave.txt",
+        ));
         let s = build(&p);
-        assert_eq!(&s.args[1..3], ["--coop-load", r"C:\home\savesb\host-ann
-v-rs-quicksave.txt"]);
+        assert_eq!(
+            &s.args[1..3],
+            [
+                "--coop-load",
+                r"C:\home\savesb\host-ann
+v-rs-quicksave.txt"
+            ]
+        );
         assert_eq!(s.args[3], "--coop-host");
         assert!(!s.args.contains(&DEFAULT_CELL.to_string()));
         // a new game never loads
-        let mut n = plan(Mode::Host { port: 5000, new_game: true });
+        let mut n = plan(Mode::Host {
+            port: 5000,
+            new_game: true,
+        });
         n.load = p.load.clone();
         assert!(!build(&n).args.contains(&"--coop-load".to_string()));
     }
 
     #[test]
     fn a_guest_save_means_own_character() {
-        let mut p = plan(Mode::Join { addr: "NVRS-X".into() });
+        let mut p = plan(Mode::Join {
+            addr: "NVRS-X".into(),
+        });
         p.load = Some(PathBuf::from("g.txt"));
         let s = build(&p);
-        let i = s.args.iter().position(|a| a == "--coop-load").expect("flag");
+        let i = s
+            .args
+            .iter()
+            .position(|a| a == "--coop-load")
+            .expect("flag");
         assert_eq!(s.args[i + 1], "g.txt");
         assert!(!s.args.contains(&"--new-game".to_string()));
         assert!(!s.args.contains(&"--coop-host".to_string()));
@@ -192,18 +237,30 @@ v-rs-quicksave.txt"]);
 
     #[test]
     fn guest_has_no_cell_and_no_new_game() {
-        let s = build(&plan(Mode::Join { addr: "1.2.3.4:27961".into() }));
+        let s = build(&plan(Mode::Join {
+            addr: "1.2.3.4:27961".into(),
+        }));
         assert_eq!(s.args[1], "--coop-join");
         assert_eq!(s.args[2], "1.2.3.4:27961");
-        assert!(!s.args.iter().any(|a| a == "--new-game" || a == "--coop-host"));
+        assert!(!s
+            .args
+            .iter()
+            .any(|a| a == "--new-game" || a == "--coop-host"));
     }
 
     #[test]
     fn host_passes_its_token() {
-        let mut p = plan(Mode::Host { port: 27961, new_game: true });
+        let mut p = plan(Mode::Host {
+            port: 27961,
+            new_game: true,
+        });
         p.token = Some([0xab; 16]);
         let s = build(&p);
-        let i = s.args.iter().position(|a| a == "--coop-token").expect("token flag");
+        let i = s
+            .args
+            .iter()
+            .position(|a| a == "--coop-token")
+            .expect("token flag");
         assert_eq!(s.args[i + 1], "ab".repeat(16));
         assert!(!s.args.contains(&"--coop-test-token".to_string()));
     }
@@ -215,8 +272,14 @@ v-rs-quicksave.txt"]);
         let s = build(&p);
         assert!(s.args.contains(&"--coop-steam-friend".to_string()));
         assert!(!s.args.contains(&"--coop-join".to_string()));
-        assert!(!s.args.contains(&"--coop-steam".to_string()), "friend join implies steam");
-        let mut h = plan(Mode::Host { port: 1, new_game: false });
+        assert!(
+            !s.args.contains(&"--coop-steam".to_string()),
+            "friend join implies steam"
+        );
+        let mut h = plan(Mode::Host {
+            port: 1,
+            new_game: false,
+        });
         h.steam = true;
         assert!(build(&h).args.contains(&"--coop-steam".to_string()));
         h.steam = false;
@@ -225,7 +288,10 @@ v-rs-quicksave.txt"]);
 
     #[test]
     fn env_and_steam() {
-        let mut p = plan(Mode::Host { port: 1, new_game: true });
+        let mut p = plan(Mode::Host {
+            port: 1,
+            new_game: true,
+        });
         p.uncap = true;
         p.windowed = true;
         p.steam = true;

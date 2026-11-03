@@ -14,7 +14,11 @@ fn data(tag: &str) -> (testdata::TempData, Arc<Data>) {
 }
 
 fn scn(body: &str) -> Scenario {
-    Scenario::parse(&format!(r#"{{"cell":"TestFightCell","duration_s":12,"settle_s":3,{body}}}"#), "t").unwrap()
+    Scenario::parse(
+        &format!(r#"{{"cell":"TestFightCell","duration_s":12,"settle_s":3,{body}}}"#),
+        "t",
+    )
+    .unwrap()
 }
 
 const CHAT: &str = r#""name":"chat","network":"good_wifi","seed":3,
@@ -56,8 +60,17 @@ fn passes(body: &str, tag: &str) {
 fn twin_fails(body: &str, tag: &str) {
     let (_t, d) = data(tag);
     let twin = strip_scripts(body);
-    let r = run(&scn(&format!(r#"{twin},"expect_fail":true"#)), &d, &RunOpts::default());
-    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+    let r = run(
+        &scn(&format!(r#"{twin},"expect_fail":true"#)),
+        &d,
+        &RunOpts::default(),
+    );
+    assert_eq!(
+        (r.verdict.result.as_str(), r.verdict.class.as_str()),
+        ("pass", "twin"),
+        "{}",
+        r.verdict.reason
+    );
 }
 
 #[test]
@@ -104,9 +117,21 @@ fn a_guest_missing_a_plugin_is_refused() {
 #[test]
 fn compat_twin_with_matching_plugins_joins_and_fails_its_checks() {
     let (_t, d) = data("soc-compat-twin");
-    let twin = COMPAT.replace(r#""guest":{"plugins":["FalloutNV.esm"]}"#, r#""guest":{"plugins":["FalloutNV.esm","DeadMoney.esm"]}"#);
-    let r = run(&scn(&format!(r#"{twin},"expect_fail":true"#)), &d, &RunOpts::default());
-    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+    let twin = COMPAT.replace(
+        r#""guest":{"plugins":["FalloutNV.esm"]}"#,
+        r#""guest":{"plugins":["FalloutNV.esm","DeadMoney.esm"]}"#,
+    );
+    let r = run(
+        &scn(&format!(r#"{twin},"expect_fail":true"#)),
+        &d,
+        &RunOpts::default(),
+    );
+    assert_eq!(
+        (r.verdict.result.as_str(), r.verdict.class.as_str()),
+        ("pass", "twin"),
+        "{}",
+        r.verdict.reason
+    );
 }
 
 #[test]
@@ -135,13 +160,28 @@ const FOUR: &str = r#""name":"four","network":"good_wifi","seed":7,"duration_s":
 fn four_peers_agree_and_stay_inside_the_budget() {
     let (_t, d) = data("soc-four");
     let r = run_multi(&scn(FOUR), &d, &MultiOpts::default());
-    assert_eq!(r.verdict.result, "pass", "{} | {:?}", r.verdict.reason, r.checks.iter().filter(|c| !c.ok).map(|c| &c.detail).collect::<Vec<_>>());
+    assert_eq!(
+        r.verdict.result,
+        "pass",
+        "{} | {:?}",
+        r.verdict.reason,
+        r.checks
+            .iter()
+            .filter(|c| !c.ok)
+            .map(|c| &c.detail)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(r.budget.peers.len(), 4);
     println!("{}", r.budget.report());
     let over = r.budget.violations(&Limits::default(), false);
     assert!(over.is_empty(), "{over:?}");
     for g in &r.budget.peers[1..] {
-        assert!(g.down_bps > 100.0, "{} received almost nothing: {:.0} B/s", g.name, g.down_bps);
+        assert!(
+            g.down_bps > 100.0,
+            "{} received almost nothing: {:.0} B/s",
+            g.name,
+            g.down_bps
+        );
     }
     assert!(r.budget.peers[0].frames > 100);
 }
@@ -162,8 +202,17 @@ fn four_peer_twin_fails_as_expected() {
         .replace(r#"{"at":4,"run":"coop say one"},{"at":3,"run":"coop voice 2"}"#, "")
         .replace(r#"{"at":5,"run":"coop say two"},{"at":7,"run":"coop voice 2"},{"at":4,"run":"coop ping 300"}"#, "")
         .replace(r#"{"at":6,"run":"coop say three"},{"at":11,"run":"coop voice 2"},{"at":12,"run":"coop waypoint 40 50"}"#, "");
-    let r = run_multi(&scn(&format!(r#"{twin},"expect_fail":true"#)), &d, &MultiOpts::default());
-    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+    let r = run_multi(
+        &scn(&format!(r#"{twin},"expect_fail":true"#)),
+        &d,
+        &MultiOpts::default(),
+    );
+    assert_eq!(
+        (r.verdict.result.as_str(), r.verdict.class.as_str()),
+        ("pass", "twin"),
+        "{}",
+        r.verdict.reason
+    );
 }
 
 #[test]
@@ -197,12 +246,37 @@ fn shipped_scenarios_parse() {
 #[test]
 fn budget_limits_catch_a_chatty_peer() {
     use coop_headless::multi::{Budget, PeerBudget};
-    let p = |name: &str, up: f64, down: f64| PeerBudget { name: name.into(), up_bps: up, down_bps: down, ..PeerBudget::default() };
-    let ok = Budget { peers: vec![p("host", 100_000.0, 1_000.0), p("guest", 5_000.0, 40_000.0)], steady_s: 10.0 };
+    let p = |name: &str, up: f64, down: f64| PeerBudget {
+        name: name.into(),
+        up_bps: up,
+        down_bps: down,
+        ..PeerBudget::default()
+    };
+    let ok = Budget {
+        peers: vec![p("host", 100_000.0, 1_000.0), p("guest", 5_000.0, 40_000.0)],
+        steady_s: 10.0,
+    };
     assert!(ok.violations(&Limits::default(), true).is_empty());
-    let bad = Budget { peers: vec![p("host", 300_000.0, 1_000.0), p("guest", 30_000.0, 70_000.0)], steady_s: 10.0 };
+    let bad = Budget {
+        peers: vec![
+            p("host", 300_000.0, 1_000.0),
+            p("guest", 30_000.0, 70_000.0),
+        ],
+        steady_s: 10.0,
+    };
     assert_eq!(bad.violations(&Limits::default(), true).len(), 3);
-    let slow = Budget { peers: vec![PeerBudget { name: "host".into(), frame_mean_us: 9_000.0, frame_p99_us: 30_000.0, ..PeerBudget::default() }], steady_s: 1.0 };
+    let slow = Budget {
+        peers: vec![PeerBudget {
+            name: "host".into(),
+            frame_mean_us: 9_000.0,
+            frame_p99_us: 30_000.0,
+            ..PeerBudget::default()
+        }],
+        steady_s: 1.0,
+    };
     assert_eq!(slow.violations(&Limits::default(), true).len(), 2);
-    assert!(slow.violations(&Limits::default(), false).is_empty(), "debug builds are not gated on CPU");
+    assert!(
+        slow.violations(&Limits::default(), false).is_empty(),
+        "debug builds are not gated on CPU"
+    );
 }

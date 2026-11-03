@@ -28,11 +28,19 @@ fn redact_user_dirs(text: &str) -> String {
                 j += 1;
             }
             let start = j;
-            while j < b.len() && !is_sep(b[j]) && !matches!(b[j], b'"' | b'\'' | b'\n' | b'\r' | b'\t') {
+            while j < b.len()
+                && !is_sep(b[j])
+                && !matches!(b[j], b'"' | b'\'' | b'\n' | b'\r' | b'\t')
+            {
                 j += 1;
             }
             let seg = &lower[start..j];
-            if !seg.is_empty() && seg != "<user>" && seg != "public" && seg != "default" && seg != "all users" {
+            if !seg.is_empty()
+                && seg != "<user>"
+                && seg != "public"
+                && seg != "default"
+                && seg != "all users"
+            {
                 out.push_str(&text[copied..start]);
                 out.push_str("<user>");
                 copied = j;
@@ -66,9 +74,18 @@ mod tests {
 
     #[test]
     fn user_folders_are_replaced() {
-        assert_eq!(redact(r"C:\Users\bobsmith\AppData\Roaming\x", None), r"C:\<user>\AppData\Roaming\x".replace(r"C:\<user>", r"C:\Users\<user>"));
-        assert_eq!(redact("c:/users/Bob Smith/Docs", None), "c:/users/<user>/Docs");
-        assert_eq!(redact(r#""C:\\Users\\bobsmith\\x""#, None), r#""C:\\Users\\<user>\\x""#);
+        assert_eq!(
+            redact(r"C:\Users\bobsmith\AppData\Roaming\x", None),
+            r"C:\<user>\AppData\Roaming\x".replace(r"C:\<user>", r"C:\Users\<user>")
+        );
+        assert_eq!(
+            redact("c:/users/Bob Smith/Docs", None),
+            "c:/users/<user>/Docs"
+        );
+        assert_eq!(
+            redact(r#""C:\\Users\\bobsmith\\x""#, None),
+            r#""C:\\Users\\<user>\\x""#
+        );
     }
 
     #[test]
@@ -81,7 +98,10 @@ mod tests {
 
     #[test]
     fn plain_name_everywhere() {
-        assert_eq!(redact("hello BobSmith, bobsmith@pc", Some("bobsmith")), "hello <user>, <user>@pc");
+        assert_eq!(
+            redact("hello BobSmith, bobsmith@pc", Some("bobsmith")),
+            "hello <user>, <user>@pc"
+        );
         // too short to replace safely
         assert_eq!(redact("a b ab", Some("ab")), "a b ab");
     }

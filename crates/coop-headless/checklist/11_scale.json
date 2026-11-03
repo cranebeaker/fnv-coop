@@ -2,8 +2,8 @@
   "area": "SCALE",
   "rows": [
     {"id": "scale.four_peers", "area": "SCALE", "title": "4 peers: CPU per frame of the replication layer", "proves": "3 guests under a write stream converge within the budget", "tests": ["builtin:scale_four_peer_budget"], "twin": true, "backend": "agnostic", "source": "list F"},
-    {"id": "scale.bandwidth", "area": "SCALE", "title": "4 peers: bandwidth budget per scenario", "proves": "bytes per second per guest within the budget", "tests": ["scenario:scale_bandwidth_4p"], "source": "list F"},
+    {"id": "scale.bandwidth", "area": "SCALE", "title": "4 peers: bandwidth budget per scenario", "proves": "bytes per second per guest within the budget", "tests": ["scenario:scale_bandwidth_4p"], "source": "list F", "twin": true},
     {"id": "scale.questwalk_peers", "area": "SCALE", "title": "Quest walk with 3 and 4 peers", "proves": "the walk holds with the party at cap", "tests": ["questwalk:all"], "source": "list F", "note": "run with --full for 2, 3, 4 peers on all profiles"},
-    {"id": "scale.party_cap", "area": "SCALE", "title": "Party cap", "proves": "a fifth player is refused", "tests": ["scenario:live_party_cap"], "source": "list F"}
+    {"id": "scale.party_cap", "area": "SCALE", "title": "Party cap", "proves": "a fifth player is refused", "tests": ["scenario:live_party_cap"], "source": "list F", "twin": true}
   ]
 }

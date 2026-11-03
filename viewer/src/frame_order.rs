@@ -542,7 +542,9 @@ pub fn begin_frame(
     this.0 = viewer_frame_state(FrameInputs {
         alt_tab_held: keys.pressed(KeyCode::Tab)
             && (keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight)),
-        menu_up: (menus.is_open() && crate::coop_live::menus_freeze_time()) || in_dialogue || vats.is_some_and(|v| v.in_menu()),
+        menu_up: (menus.is_open() && crate::coop_live::menus_freeze_time())
+            || in_dialogue
+            || vats.is_some_and(|v| v.in_menu()),
         vats_mode,
         top_menu: draw.1.last().copied(),
     });

@@ -37,12 +37,22 @@ pub struct Outcome {
 impl Outcome {
     /// Success with nothing to publish.
     pub fn done() -> Outcome {
-        Outcome { ok: true, why: Why::None, shared: Vec::new(), follow: None }
+        Outcome {
+            ok: true,
+            why: Why::None,
+            shared: Vec::new(),
+            follow: None,
+        }
     }
 
     /// Refusal.
     pub fn refused(why: Why) -> Outcome {
-        Outcome { ok: false, why, shared: Vec::new(), follow: None }
+        Outcome {
+            ok: false,
+            why,
+            shared: Vec::new(),
+            follow: None,
+        }
     }
 
     /// Adds shared facts.
@@ -117,13 +127,21 @@ impl InteractHost {
     /// the game to execute it; a duplicate is answered from the cache and
     /// never executes twice.
     pub fn on_msg(&mut self, from: PlayerId, msg: InteractMsg) -> Vec<IOut> {
-        let InteractMsg::Request { txn, act } = msg else { return vec![] };
+        let InteractMsg::Request { txn, act } = msg else {
+            return vec![];
+        };
         if txn == 0 {
             return vec![];
         }
         if txn <= self.seen.get(&from).copied().unwrap_or(0) {
             self.stats.replays += 1;
-            return self.done.get(&(from, txn)).cloned().map(|m| out(Audience::To(from), m)).into_iter().collect();
+            return self
+                .done
+                .get(&(from, txn))
+                .cloned()
+                .map(|m| out(Audience::To(from), m))
+                .into_iter()
+                .collect();
         }
         self.seen.insert(from, txn);
         self.stats.requests += 1;
@@ -138,7 +156,11 @@ impl InteractHost {
 
     /// Records the result of an executed request and returns what to send.
     pub fn resolve(&mut self, from: PlayerId, txn: u32, o: Outcome) -> Vec<IOut> {
-        let verdict = InteractMsg::Verdict { txn, ok: o.ok, why: o.why };
+        let verdict = InteractMsg::Verdict {
+            txn,
+            ok: o.ok,
+            why: o.why,
+        };
         if o.ok {
             self.stats.ok += 1;
         } else {
@@ -186,7 +208,9 @@ impl InteractHost {
     /// What a joiner missed.
     pub fn sync_for(&self, p: PlayerId) -> Vec<IOut> {
         let all: Vec<Shared> = self.log.values().cloned().collect();
-        all.chunks(SYNC_CHUNK).map(|c| out(Audience::To(p), InteractMsg::Sync(c.to_vec()))).collect()
+        all.chunks(SYNC_CHUNK)
+            .map(|c| out(Audience::To(p), InteractMsg::Sync(c.to_vec())))
+            .collect()
     }
 
     /// The shared record under a key, if any.

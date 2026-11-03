@@ -133,7 +133,12 @@ fn count(n: usize, noun: &str) -> String {
 }
 
 fn names(v: &[String]) -> String {
-    let mut s = v.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>().join(", ");
+    let mut s = v
+        .iter()
+        .take(NAMES_SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
     if v.len() > NAMES_SHOWN {
         s.push_str(&format!(" and {} more", v.len() - NAMES_SHOWN));
     }
@@ -149,10 +154,16 @@ fn same_name(a: &str, b: &str) -> bool {
 pub fn issues(host: &Hello, guest: &Hello) -> Vec<Issue> {
     let mut v = Vec::new();
     if host.proto != guest.proto {
-        v.push(Issue::Protocol { host: host.proto, guest: guest.proto });
+        v.push(Issue::Protocol {
+            host: host.proto,
+            guest: guest.proto,
+        });
     }
     if host.exe != guest.exe {
-        v.push(Issue::Exe { host: host.exe.clone(), guest: guest.exe.clone() });
+        v.push(Issue::Exe {
+            host: host.exe.clone(),
+            guest: guest.exe.clone(),
+        });
     }
     if host.build_hash != guest.build_hash {
         v.push(Issue::Build);
@@ -165,10 +176,18 @@ pub fn issues(host: &Hello, guest: &Hello) -> Vec<Issue> {
     }
     let mut plugin_issue = false;
     if !host.plugins.is_empty() && !guest.plugins.is_empty() {
-        let missing: Vec<String> =
-            host.plugins.iter().filter(|p| !guest.plugins.iter().any(|g| same_name(p, g))).cloned().collect();
-        let extra: Vec<String> =
-            guest.plugins.iter().filter(|p| !host.plugins.iter().any(|h| same_name(p, h))).cloned().collect();
+        let missing: Vec<String> = host
+            .plugins
+            .iter()
+            .filter(|p| !guest.plugins.iter().any(|g| same_name(p, g)))
+            .cloned()
+            .collect();
+        let extra: Vec<String> = guest
+            .plugins
+            .iter()
+            .filter(|p| !host.plugins.iter().any(|h| same_name(p, h)))
+            .cloned()
+            .collect();
         if !missing.is_empty() {
             v.push(Issue::MissingPlugins(missing));
             plugin_issue = true;
@@ -179,7 +198,11 @@ pub fn issues(host: &Hello, guest: &Hello) -> Vec<Issue> {
         }
         if !plugin_issue {
             let in_order = host.plugins.len() == guest.plugins.len()
-                && host.plugins.iter().zip(&guest.plugins).all(|(a, b)| same_name(a, b));
+                && host
+                    .plugins
+                    .iter()
+                    .zip(&guest.plugins)
+                    .all(|(a, b)| same_name(a, b));
             if !in_order {
                 v.push(Issue::LoadOrder);
                 plugin_issue = true;
@@ -209,7 +232,9 @@ pub fn decide(host: &Hello, guest: &Hello, policy: CompatPolicy) -> Verdict {
     if found.is_empty() {
         return Verdict::Accept;
     }
-    let blocking = found.iter().find(|i| policy.allow_mismatch.then(|| i.is_hard()).unwrap_or(true));
+    let blocking = found
+        .iter()
+        .find(|i| policy.allow_mismatch.then(|| i.is_hard()).unwrap_or(true));
     match blocking {
         Some(i) => Verdict::Refuse(i.reason(), found.clone()),
         None => Verdict::Warn(found),
@@ -230,7 +255,11 @@ pub enum Viewpoint {
 pub fn explain(found: &[Issue], who: Viewpoint, guest_name: &str, refused: bool) -> Vec<String> {
     match who {
         Viewpoint::Guest => {
-            let head = if refused { "You cannot join this game." } else { "Joined with differences (developer override):" };
+            let head = if refused {
+                "You cannot join this game."
+            } else {
+                "Joined with differences (developer override):"
+            };
             let mut v = vec![head.to_string()];
             v.extend(found.iter().map(Issue::text));
             v
@@ -250,8 +279,12 @@ pub fn explain(found: &[Issue], who: Viewpoint, guest_name: &str, refused: bool)
 
 fn host_text(i: &Issue) -> String {
     match i {
-        Issue::Protocol { .. } | Issue::Build | Issue::Rules | Issue::Volatile => "Different co-op build.".into(),
-        Issue::Exe { host, guest } => format!("Game version: you {}, they {}.", shown(host), shown(guest)),
+        Issue::Protocol { .. } | Issue::Build | Issue::Rules | Issue::Volatile => {
+            "Different co-op build.".into()
+        }
+        Issue::Exe { host, guest } => {
+            format!("Game version: you {}, they {}.", shown(host), shown(guest))
+        }
         Issue::MissingPlugins(v) => format!("They lack: {}.", names(v)),
         Issue::ExtraPlugins(v) => format!("They also have: {}.", names(v)),
         Issue::LoadOrder => "Their load order is different.".into(),
@@ -263,12 +296,18 @@ fn host_text(i: &Issue) -> String {
 /// host's identity, e.g. an older host).
 pub fn reason_text(r: RejectReason) -> String {
     match r {
-        RejectReason::ProtocolMismatch => Issue::Protocol { host: 0, guest: 0 }.text().replace("(host 0, you 0)", ""),
-        RejectReason::ExeMismatch => "The game versions differ. Both players need the same game version.".into(),
+        RejectReason::ProtocolMismatch => Issue::Protocol { host: 0, guest: 0 }
+            .text()
+            .replace("(host 0, you 0)", ""),
+        RejectReason::ExeMismatch => {
+            "The game versions differ. Both players need the same game version.".into()
+        }
         RejectReason::BuildMismatch => Issue::Build.text(),
         RejectReason::RulesMismatch => Issue::Rules.text(),
         RejectReason::VolatileMismatch => Issue::Volatile.text(),
-        RejectReason::PluginsMismatch => "Your plugins differ from the host's. Match the host's plugin list.".into(),
+        RejectReason::PluginsMismatch => {
+            "Your plugins differ from the host's. Match the host's plugin list.".into()
+        }
         RejectReason::LoadOrderMismatch => Issue::LoadOrder.text(),
         RejectReason::ModsMismatch => Issue::ModsHash.text(),
         RejectReason::Full => "The session is full.".into(),
@@ -330,8 +369,12 @@ mod tests {
         }
     }
 
-    const STRICT: CompatPolicy = CompatPolicy { allow_mismatch: false };
-    const LOOSE: CompatPolicy = CompatPolicy { allow_mismatch: true };
+    const STRICT: CompatPolicy = CompatPolicy {
+        allow_mismatch: false,
+    };
+    const LOOSE: CompatPolicy = CompatPolicy {
+        allow_mismatch: true,
+    };
 
     #[test]
     fn identical_games_are_accepted() {
@@ -349,14 +392,63 @@ mod tests {
     fn each_field_is_refused_with_its_own_code() {
         let cases: Vec<(Hello, RejectReason)> = vec![
             (Hello { proto: 1, ..host() }, RejectReason::ProtocolMismatch),
-            (Hello { exe: "1.4.0.500".into(), ..host() }, RejectReason::ExeMismatch),
-            (Hello { build_hash: 0, ..host() }, RejectReason::BuildMismatch),
-            (Hello { rules_hash: 0, ..host() }, RejectReason::RulesMismatch),
-            (Hello { volatile_hash: 0, ..host() }, RejectReason::VolatileMismatch),
-            (Hello { plugins: plugins(&["FalloutNV.esm", "Mod.esp"]), ..host() }, RejectReason::PluginsMismatch),
-            (Hello { plugins: plugins(&["FalloutNV.esm", "DeadMoney.esm", "Mod.esp", "X.esp"]), ..host() }, RejectReason::PluginsMismatch),
-            (Hello { plugins: plugins(&["FalloutNV.esm", "Mod.esp", "DeadMoney.esm"]), ..host() }, RejectReason::LoadOrderMismatch),
-            (Hello { plugins: vec![], mods_hash: 1, ..host() }, RejectReason::ModsMismatch),
+            (
+                Hello {
+                    exe: "1.4.0.500".into(),
+                    ..host()
+                },
+                RejectReason::ExeMismatch,
+            ),
+            (
+                Hello {
+                    build_hash: 0,
+                    ..host()
+                },
+                RejectReason::BuildMismatch,
+            ),
+            (
+                Hello {
+                    rules_hash: 0,
+                    ..host()
+                },
+                RejectReason::RulesMismatch,
+            ),
+            (
+                Hello {
+                    volatile_hash: 0,
+                    ..host()
+                },
+                RejectReason::VolatileMismatch,
+            ),
+            (
+                Hello {
+                    plugins: plugins(&["FalloutNV.esm", "Mod.esp"]),
+                    ..host()
+                },
+                RejectReason::PluginsMismatch,
+            ),
+            (
+                Hello {
+                    plugins: plugins(&["FalloutNV.esm", "DeadMoney.esm", "Mod.esp", "X.esp"]),
+                    ..host()
+                },
+                RejectReason::PluginsMismatch,
+            ),
+            (
+                Hello {
+                    plugins: plugins(&["FalloutNV.esm", "Mod.esp", "DeadMoney.esm"]),
+                    ..host()
+                },
+                RejectReason::LoadOrderMismatch,
+            ),
+            (
+                Hello {
+                    plugins: vec![],
+                    mods_hash: 1,
+                    ..host()
+                },
+                RejectReason::ModsMismatch,
+            ),
         ];
         for (g, want) in cases {
             match decide(&host(), &g, STRICT) {
@@ -371,17 +463,29 @@ mod tests {
 
     #[test]
     fn missing_and_extra_plugins_are_named() {
-        let g = Hello { plugins: plugins(&["FalloutNV.esm", "Other.esp"]), ..host() };
+        let g = Hello {
+            plugins: plugins(&["FalloutNV.esm", "Other.esp"]),
+            ..host()
+        };
         let found = issues(&host(), &g);
-        assert!(found.contains(&Issue::MissingPlugins(plugins(&["DeadMoney.esm", "Mod.esp"]))));
+        assert!(found.contains(&Issue::MissingPlugins(plugins(&[
+            "DeadMoney.esm",
+            "Mod.esp"
+        ]))));
         assert!(found.contains(&Issue::ExtraPlugins(plugins(&["Other.esp"]))));
         let lines = explain(&found, Viewpoint::Guest, "", true);
         assert!(lines[0].contains("cannot join"));
-        assert!(lines.iter().any(|l| l.contains("DeadMoney.esm") && l.contains("missing 2 plugins")));
-        assert!(lines.iter().any(|l| l.contains("Other.esp") && l.contains("Disable it")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("DeadMoney.esm") && l.contains("missing 2 plugins")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("Other.esp") && l.contains("Disable it")));
         let host_lines = explain(&found, Viewpoint::Host, "Ann", true);
         assert!(host_lines[0].starts_with("Ann could not join"));
-        assert!(host_lines.iter().any(|l| l.contains("They lack: DeadMoney.esm, Mod.esp")));
+        assert!(host_lines
+            .iter()
+            .any(|l| l.contains("They lack: DeadMoney.esm, Mod.esp")));
     }
 
     #[test]
@@ -393,7 +497,12 @@ mod tests {
 
     #[test]
     fn override_lets_soft_differences_in_with_a_warning() {
-        let g = Hello { exe: "x".into(), plugins: plugins(&["FalloutNV.esm"]), build_hash: 3, ..host() };
+        let g = Hello {
+            exe: "x".into(),
+            plugins: plugins(&["FalloutNV.esm"]),
+            build_hash: 3,
+            ..host()
+        };
         match decide(&host(), &g, LOOSE) {
             Verdict::Warn(found) => {
                 assert!(found.iter().any(|i| matches!(i, Issue::Exe { .. })));
@@ -407,7 +516,13 @@ mod tests {
 
     #[test]
     fn override_never_lets_protocol_or_rules_through() {
-        for g in [Hello { proto: 1, ..host() }, Hello { rules_hash: 0, ..host() }] {
+        for g in [
+            Hello { proto: 1, ..host() },
+            Hello {
+                rules_hash: 0,
+                ..host()
+            },
+        ] {
             assert!(matches!(decide(&host(), &g, LOOSE), Verdict::Refuse(..)));
         }
     }
@@ -415,7 +530,11 @@ mod tests {
     #[test]
     fn refusal_names_the_first_blocking_issue_under_the_override() {
         // exe differs (soft) and rules differ (hard): the refusal is the rules one
-        let g = Hello { exe: "x".into(), rules_hash: 0, ..host() };
+        let g = Hello {
+            exe: "x".into(),
+            rules_hash: 0,
+            ..host()
+        };
         match decide(&host(), &g, LOOSE) {
             Verdict::Refuse(r, _) => assert_eq!(r, RejectReason::RulesMismatch),
             other => panic!("{other:?}"),
@@ -426,8 +545,17 @@ mod tests {
     fn every_reason_has_text() {
         use RejectReason::*;
         for r in [
-            ProtocolMismatch, ExeMismatch, BuildMismatch, RulesMismatch, VolatileMismatch, PluginsMismatch,
-            LoadOrderMismatch, ModsMismatch, Full, SessionMismatch, BadMessage,
+            ProtocolMismatch,
+            ExeMismatch,
+            BuildMismatch,
+            RulesMismatch,
+            VolatileMismatch,
+            PluginsMismatch,
+            LoadOrderMismatch,
+            ModsMismatch,
+            Full,
+            SessionMismatch,
+            BadMessage,
         ] {
             assert!(reason_text(r).len() > 10, "{r:?}");
         }
@@ -436,21 +564,42 @@ mod tests {
     #[test]
     fn sanity_bounds() {
         assert!(hello_is_sane(&host()));
-        assert!(!hello_is_sane(&Hello { plugins: vec!["x".repeat(65)], ..host() }));
-        assert!(!hello_is_sane(&Hello { plugins: vec!["a".into(); 256], ..host() }));
-        assert!(!hello_is_sane(&Hello { exe: "9".repeat(33), ..host() }));
+        assert!(!hello_is_sane(&Hello {
+            plugins: vec!["x".repeat(65)],
+            ..host()
+        }));
+        assert!(!hello_is_sane(&Hello {
+            plugins: vec!["a".into(); 256],
+            ..host()
+        }));
+        assert!(!hello_is_sane(&Hello {
+            exe: "9".repeat(33),
+            ..host()
+        }));
     }
 
     #[test]
     fn volatile_hash_ignores_order_and_case() {
-        assert_eq!(volatile_hash(&["GameHour", "GameDaysPassed"]), volatile_hash(&["gamedayspassed", "GAMEHOUR"]));
+        assert_eq!(
+            volatile_hash(&["GameHour", "GameDaysPassed"]),
+            volatile_hash(&["gamedayspassed", "GAMEHOUR"])
+        );
         assert_ne!(volatile_hash(VOLATILE_KEYS), volatile_hash(&["GameHour"]));
     }
 
     #[test]
     fn plugin_hash_is_order_sensitive() {
-        assert_ne!(plugin_list_hash(&plugins(&["a", "b"])), plugin_list_hash(&plugins(&["b", "a"])));
-        assert_ne!(plugin_list_hash(&plugins(&["ab"])), plugin_list_hash(&plugins(&["a", "b"])));
-        assert_eq!(plugin_list_hash(&plugins(&["A"])), plugin_list_hash(&plugins(&["a"])));
+        assert_ne!(
+            plugin_list_hash(&plugins(&["a", "b"])),
+            plugin_list_hash(&plugins(&["b", "a"]))
+        );
+        assert_ne!(
+            plugin_list_hash(&plugins(&["ab"])),
+            plugin_list_hash(&plugins(&["a", "b"]))
+        );
+        assert_eq!(
+            plugin_list_hash(&plugins(&["A"])),
+            plugin_list_hash(&plugins(&["a"]))
+        );
     }
 }

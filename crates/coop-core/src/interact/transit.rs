@@ -36,7 +36,10 @@ pub struct Transit {
 
 impl Default for Transit {
     fn default() -> Self {
-        Transit { leader: PlayerId::HOST, follow_leader: true }
+        Transit {
+            leader: PlayerId::HOST,
+            follow_leader: true,
+        }
     }
 }
 
@@ -60,7 +63,11 @@ impl Transit {
                     .iter()
                     .copied()
                     .filter(|m| *m != from)
-                    .filter(|m| interest.peer_cell(*m).map_or(false, |c| interest.visible(from_cell, c)))
+                    .filter(|m| {
+                        interest
+                            .peer_cell(*m)
+                            .map_or(false, |c| interest.visible(from_cell, c))
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -72,7 +79,9 @@ impl Transit {
             None => true,
         };
         if allowed {
-            Decision::Go { followers: Vec::new() }
+            Decision::Go {
+                followers: Vec::new(),
+            }
         } else {
             Decision::Deny(Why::Policy)
         }
@@ -80,6 +89,10 @@ impl Transit {
 
     /// Everyone who loads the destination when a barrier releases.
     pub fn everyone(&self, requester: PlayerId, members: &[PlayerId]) -> Vec<PlayerId> {
-        members.iter().copied().filter(|m| *m != requester).collect()
+        members
+            .iter()
+            .copied()
+            .filter(|m| *m != requester)
+            .collect()
     }
 }

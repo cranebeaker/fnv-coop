@@ -1,0 +1,47 @@
+{
+  "name": "lab_pose_pop",
+  "description": "Lab room, position pop detector. At 5 s the host's player jumps 1500 units in one frame inside Doc Mitchell's house (coop teleport; under the 4000 unit teleport distance, so the stream carries no teleport flag). The guest draws the host's avatar from the replicated stream, and its glitch watch (coop_session::glitch, the same code the viewer runs) must count a pop. The detectors read the drawn position, heading and animation id, not rendered pixels.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 5,
+        "run": "coop teleport 3852 1603.6 7360.0"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-pop",
+      "path": "live.glitch.pops",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-host-jump",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 1000,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -147,7 +147,9 @@ impl LootMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            LootMsg::Opened { items, .. } | LootMsg::Resync { items, .. } => items.len() <= MAX_ITEMS,
+            LootMsg::Opened { items, .. } | LootMsg::Resync { items, .. } => {
+                items.len() <= MAX_ITEMS
+            }
             _ => true,
         }
     }
@@ -176,13 +178,22 @@ pub struct TransferLedger<R: Clone> {
 impl<R: Clone> TransferLedger<R> {
     /// A ledger remembering up to `cap` results.
     pub fn new(cap: usize) -> Self {
-        TransferLedger { last: BTreeMap::new(), cache: BTreeMap::new(), cap }
+        TransferLedger {
+            last: BTreeMap::new(),
+            cache: BTreeMap::new(),
+            cap,
+        }
     }
 
     /// Runs `apply` unless `(player, txn)` was seen. Returns the result and
     /// whether it was freshly applied. A replay older than the cache yields
     /// `None`.
-    pub fn once(&mut self, player: PlayerId, txn: u32, apply: impl FnOnce() -> R) -> Option<(R, bool)> {
+    pub fn once(
+        &mut self,
+        player: PlayerId,
+        txn: u32,
+        apply: impl FnOnce() -> R,
+    ) -> Option<(R, bool)> {
         let last = self.last.get(&player).copied().unwrap_or(0);
         if txn <= last {
             return self.cache.get(&(player, txn)).map(|r| (r.clone(), false));
@@ -211,7 +222,9 @@ mod tests {
 
     #[test]
     fn digest_ignores_zero_and_order() {
-        let a: BTreeMap<_, _> = [(FormId(1), 2), (FormId(2), 0), (FormId(3), 4)].into_iter().collect();
+        let a: BTreeMap<_, _> = [(FormId(1), 2), (FormId(2), 0), (FormId(3), 4)]
+            .into_iter()
+            .collect();
         let b: BTreeMap<_, _> = [(FormId(3), 4), (FormId(1), 2)].into_iter().collect();
         assert_eq!(digest(&a), digest(&b));
         let c: BTreeMap<_, _> = [(FormId(3), 4), (FormId(1), 3)].into_iter().collect();

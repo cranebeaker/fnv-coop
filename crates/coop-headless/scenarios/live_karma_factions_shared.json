@@ -1,0 +1,84 @@
+{
+  "name": "live_karma_factions_shared",
+  "description": "The guest earns 50 karma, 20 Novac fame and a place in the NCR faction, and sets its own Barter skill to 77 (its own script lines, run as the guest on the host). The host's own script then reads karma, Novac fame, NCR membership and Barter as the host player and writes them into four unused globals. The host reads the karma, fame and faction the guest made, so they are one value for the party. The host does not read the guest's Barter, so the reads use the host's own rows.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 92,
+  "duration_s": 16,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 11,
+        "run": "set CG03TestValue to player.GetActorValue Karma"
+      },
+      {
+        "at": 11,
+        "run": "set MS10Future to GetReputation RepNVNovac 0"
+      },
+      {
+        "at": 11,
+        "run": "set MS12GhoulsDead to player.GetInFaction NCRAgent"
+      },
+      {
+        "at": 11,
+        "run": "set MS09MurphyPoints to player.GetActorValue Barter"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "RewardKarma 50"
+      },
+      {
+        "at": 3,
+        "run": "AddReputationExact RepNVNovac 0 20"
+      },
+      {
+        "at": 3,
+        "run": "player.AddToFaction NCRAgent 0"
+      },
+      {
+        "at": 3,
+        "run": "player.SetActorValue Barter 77"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "karma-read-by-host",
+      "path": "globals.CG03TestValue",
+      "op": "eq",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "fame-read-by-host",
+      "path": "globals.MS10Future",
+      "op": "eq",
+      "value": 20,
+      "on": "both"
+    },
+    {
+      "id": "faction-read-by-host",
+      "path": "globals.MS12GhoulsDead",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "probe-reads-host-rows",
+      "path": "globals.MS09MurphyPoints",
+      "op": "ne",
+      "value": 77,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

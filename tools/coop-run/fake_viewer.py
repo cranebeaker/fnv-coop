@@ -42,7 +42,7 @@ FLAGS1 = {"--plugins", "--ini", "--brightness", "--at", "--screenshot", "--wait"
           "--pipboy-keys", "--lockpick", "--cloud-time", "--open-menu", "--use", "--menu-pointer",
           "--menu-click", "--menu-keys",
           "--coop-host", "--coop-join", "--coop-log", "--coop-state-dump", "--coop-quit-file",
-          "--coop-quit-after", "--coop-control", "--fake", "--coop-name"}
+          "--coop-quit-after", "--coop-control", "--fake", "--coop-name", "--coop-go-file"}
 SPAWN = [2352.0, 1603.6, 7360.0, 0.0]
 WALK_SPEED = 150.0  # units a second in the fake; w/s move y, a/d move x
 FLAGS2 = {"--stage", "--run-at", "--key-at"}

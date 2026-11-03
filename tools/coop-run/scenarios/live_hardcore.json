@@ -1,0 +1,79 @@
+{
+  "name": "live_hardcore",
+  "description": "Hunger, thirst and sleep are each player's own. The host turns hardcore on (coop hardcore: world::living::needs::set_hardcore, the switch the game's settings use), gives the guest one Cram and one Purified Water, and the party waits 6 hours. The host grows every other player's needs in that player's shadow (campaign::needs, each hour of the wait and on the game clock). The guest eats and drinks, the host does not. On both peers the guest is fed and watered. The host stays hungry and thirsty (two guard checks that also hold in the twin).",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 84,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop hardcore 1"
+      },
+      {
+        "at": 3,
+        "run": "coop give 1 Cram 1"
+      },
+      {
+        "at": 3,
+        "run": "coop give 1 WaterPurified 1"
+      },
+      {
+        "at": 6,
+        "run": "coop wait 6"
+      },
+      {
+        "at": 8,
+        "run": "coop vote yes"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop vote yes"
+      },
+      {
+        "at": 14,
+        "run": "coop use Cram"
+      },
+      {
+        "at": 15,
+        "run": "coop use WaterPurified"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-fed",
+      "path": "campaign.needs.guest.hunger",
+      "op": "lt",
+      "value": 5,
+      "on": "both"
+    },
+    {
+      "id": "guest-watered",
+      "path": "campaign.needs.guest.thirst",
+      "op": "lt",
+      "value": 15,
+      "on": "both"
+    },
+    {
+      "id": "host-hungry",
+      "path": "campaign.needs.host.hunger",
+      "op": "gt",
+      "value": 10,
+      "on": "host"
+    },
+    {
+      "id": "host-thirsty",
+      "path": "campaign.needs.host.thirst",
+      "op": "gt",
+      "value": 30,
+      "on": "host"
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "area": "HARNESS",
   "rows": [
-    {"id": "harness.verdicts", "area": "HARNESS", "title": "Verdict JSON, ledger, clean runs", "proves": "every run ends in one parseable verdict", "tests": ["cargo:coop-headless"], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.verdicts", "area": "HARNESS", "title": "Verdict JSON, ledger, clean runs", "proves": "every run ends in one parseable verdict", "tests": ["builtin:harness_verdicts"], "backend": "agnostic", "source": "08 1.9", "twin": true},
     {"id": "harness.twins", "area": "HARNESS", "title": "Mutation twins", "proves": "every twin fails as expected", "tests": ["scenario:doc_stage_sync"], "twin": true, "source": "08 1.9"},
-    {"id": "harness.fake_engine", "area": "HARNESS", "title": "Headless simulator and fuzzer", "proves": "soak matrix is deterministic", "tests": ["cargo:coop-headless"], "backend": "agnostic", "source": "08 1.9"},
-    {"id": "harness.recorder", "area": "HARNESS", "title": "Flight recorder, diverge, shrink, gentest", "proves": "tools to find the first divergence", "tests": [], "backend": "agnostic", "source": "08 1.9"},
-    {"id": "harness.lab_rooms", "area": "HARNESS", "title": "Lab rooms, animation and pose glitch detectors", "proves": "visual detectors", "tests": [], "backend": "agnostic", "source": "08 1.9"},
+    {"id": "harness.fake_engine", "area": "HARNESS", "title": "Headless simulator and fuzzer", "proves": "soak matrix is deterministic", "tests": ["builtin:harness_sim_deterministic"], "backend": "agnostic", "source": "08 1.9", "twin": true},
+    {"id": "harness.recorder", "area": "HARNESS", "title": "Flight recorder, diverge, shrink, gentest", "proves": "tools to find the first divergence", "tests": ["builtin:harness_recorder", "builtin:harness_diverge", "builtin:harness_shrink", "builtin:harness_gentest"], "backend": "agnostic", "source": "08 1.9", "twin": true},
+    {"id": "harness.lab_rooms", "area": "HARNESS", "title": "Lab rooms, animation and pose glitch detectors", "proves": "visual detectors", "tests": ["scenario:lab_pose_pop", "scenario:lab_pose_snap", "scenario:lab_anim_flip", "scenario:lab_clean"], "backend": "agnostic", "source": "08 1.9", "twin": true, "fidelity": "modelled", "stand_in": "detectors read the replicated avatar stream (position, heading, animation id as the remote draws them); rendered pixels and skeleton pose need the renderer"},
     {"id": "harness.stage_walk", "area": "HARNESS", "title": "Stage walk per quest from data", "proves": "1691 stages walked from the ESMs", "tests": ["questwalk:all"], "source": "08 1.9 / list C"},
-    {"id": "harness.live_control", "area": "HARNESS", "title": "Live control port", "proves": "drive a running viewer", "tests": ["scenario:live_control_port"], "source": "08 1.9"}
+    {"id": "harness.live_control", "area": "HARNESS", "title": "Live control port", "proves": "drive a running viewer", "tests": ["builtin:harness_live_control"], "source": "08 1.9", "twin": true, "fidelity": "modelled", "stand_in": "the viewer frame that answers each request (viewer/src/coop_control.rs) is modelled by the check; a running viewer needs the renderer. In the real game, runner.py run --attach drives it"}
   ]
 }

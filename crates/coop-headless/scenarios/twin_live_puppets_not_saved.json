@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "name": "twin_live_puppets_not_saved",
+  "description": "MUTATION TWIN of live_puppets_not_saved: the host saves, but the peers do not restart and nothing loads the save, so the puppet row is still in the world. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "party": { "key": 4242, "host_loads": true, "guest_same_key": true, "second": { "duration_s": 10 } },
+  "host": { "script": [
+    {"at": 1, "run": "coop give FE000001 Caps001 7"},
+    {"at": 1.2, "run": "coop give FC000001 Caps001 3"},
+    {"at": 1.4, "run": "coop give FE000100 Caps001 5"},
+    {"at": 2, "run": "DocMitchellREF.AddItem Caps001 9"},
+    {"at": 7, "run": "coop psave"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "puppet-row-not-saved", "path": "items.FE000001", "op": "absent", "on": "both"},
+    {"id": "shadow-row-not-saved", "path": "items.FC000001", "op": "absent", "on": "both"},
+    {"id": "row-past-the-block-kept", "path": "items.FE000100.Caps001", "op": "eq", "value": 5, "on": "both"},
+    {"id": "world-fact-back", "path": "items.DocMitchellREF.Caps001", "op": "eq", "value": 13, "on": "both"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

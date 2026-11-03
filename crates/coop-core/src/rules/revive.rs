@@ -63,7 +63,10 @@ pub enum ReviveEvent {
 #[derive(Clone, Copy, Debug)]
 enum Status {
     Up,
-    Downed { since: u64, helper: Option<(PlayerId, u64)> },
+    Downed {
+        since: u64,
+        helper: Option<(PlayerId, u64)>,
+    },
 }
 
 /// Revive bookkeeping on the host clock.
@@ -92,7 +95,10 @@ impl Reviver {
     /// The helper currently reviving `target`.
     pub fn helper_of(&self, target: PlayerId) -> Option<PlayerId> {
         match self.players.get(&target) {
-            Some(Status::Downed { helper: Some((h, _)), .. }) => Some(*h),
+            Some(Status::Downed {
+                helper: Some((h, _)),
+                ..
+            }) => Some(*h),
             _ => None,
         }
     }
@@ -106,14 +112,24 @@ impl Reviver {
         if !revivable {
             return vec![ReviveEvent::Respawn(p)];
         }
-        self.players.insert(p, Status::Downed { since: now_ms, helper: None });
+        self.players.insert(
+            p,
+            Status::Downed {
+                since: now_ms,
+                helper: None,
+            },
+        );
         let mut v = vec![ReviveEvent::Downed(p)];
         v.extend(self.check_wipe());
         v
     }
 
     fn check_wipe(&mut self) -> Option<ReviveEvent> {
-        let all = !self.players.is_empty() && self.players.values().all(|s| matches!(s, Status::Downed { .. }));
+        let all = !self.players.is_empty()
+            && self
+                .players
+                .values()
+                .all(|s| matches!(s, Status::Downed { .. }));
         if all && !self.wiped {
             self.wiped = true;
             return Some(ReviveEvent::Wipe);
@@ -126,10 +142,19 @@ impl Reviver {
 
     /// Starts a revive. `dist` is the host's measured distance (None when in
     /// different spaces or unknown).
-    pub fn begin(&mut self, helper: PlayerId, target: PlayerId, now_ms: u64, dist: Option<f32>) -> Result<(), ReviveDeny> {
+    pub fn begin(
+        &mut self,
+        helper: PlayerId,
+        target: PlayerId,
+        now_ms: u64,
+        dist: Option<f32>,
+    ) -> Result<(), ReviveDeny> {
         let helper_ok = matches!(self.players.get(&helper), Some(Status::Up))
             && helper != target
-            && !self.players.values().any(|s| matches!(s, Status::Downed { helper: Some((h, _)), .. } if *h == helper));
+            && !self
+                .players
+                .values()
+                .any(|s| matches!(s, Status::Downed { helper: Some((h, _)), .. } if *h == helper));
         if !helper_ok {
             return Err(ReviveDeny::BadHelper);
         }
@@ -170,26 +195,50 @@ impl Reviver {
     }
 
     /// Advances the host clock; `dist(helper, target)` re-measures range.
-    pub fn tick(&mut self, now_ms: u64, dist: impl Fn(PlayerId, PlayerId) -> Option<f32>) -> Vec<ReviveEvent> {
+    pub fn tick(
+        &mut self,
+        now_ms: u64,
+        dist: impl Fn(PlayerId, PlayerId) -> Option<f32>,
+    ) -> Vec<ReviveEvent> {
         let mut ev = Vec::new();
         let ids: Vec<PlayerId> = self.players.keys().copied().collect();
         for t in ids {
-            let Some(Status::Downed { since, helper }) = self.players.get(&t).copied() else { continue };
+            let Some(Status::Downed { since, helper }) = self.players.get(&t).copied() else {
+                continue;
+            };
             if now_ms.saturating_sub(since) >= DOWN_WINDOW_MS {
                 if let Some((h, _)) = helper {
-                    ev.push(ReviveEvent::Cancelled { target: t, helper: h });
+                    ev.push(ReviveEvent::Cancelled {
+                        target: t,
+                        helper: h,
+                    });
                 }
                 self.players.insert(t, Status::Up);
                 ev.push(ReviveEvent::Respawn(t));
                 continue;
             }
             let Some((h, began)) = helper else { continue };
-            if !dist(h, t).map_or(false, |d| d <= HOST_RANGE) || !matches!(self.players.get(&h), Some(Status::Up)) {
-                self.players.insert(t, Status::Downed { since, helper: None });
-                ev.push(ReviveEvent::Cancelled { target: t, helper: h });
+            if !dist(h, t).map_or(false, |d| d <= HOST_RANGE)
+                || !matches!(self.players.get(&h), Some(Status::Up))
+            {
+                self.players.insert(
+                    t,
+                    Status::Downed {
+                        since,
+                        helper: None,
+                    },
+                );
+                ev.push(ReviveEvent::Cancelled {
+                    target: t,
+                    helper: h,
+                });
             } else if now_ms.saturating_sub(began) >= HOLD_MS {
                 self.players.insert(t, Status::Up);
-                ev.push(ReviveEvent::Revived { player: t, helper: h, health_pct: REVIVE_PCT });
+                ev.push(ReviveEvent::Revived {
+                    player: t,
+                    helper: h,
+                    health_pct: REVIVE_PCT,
+                });
             }
         }
         if !ev.is_empty() {
@@ -225,7 +274,14 @@ mod tests {
         assert!(r.begin(A, B, 2000, Some(120.0)).is_ok());
         assert!(r.tick(2000 + HOLD_MS - 1, near).is_empty());
         let ev = r.tick(2000 + HOLD_MS, near);
-        assert_eq!(ev, vec![ReviveEvent::Revived { player: B, helper: A, health_pct: 30 }]);
+        assert_eq!(
+            ev,
+            vec![ReviveEvent::Revived {
+                player: B,
+                helper: A,
+                health_pct: 30
+            }]
+        );
         assert!(!r.is_downed(B));
     }
 
@@ -244,8 +300,14 @@ mod tests {
         r.set_down(B, 0, true);
         r.begin(A, B, DOWN_WINDOW_MS - 1000, Some(10.0)).unwrap();
         let ev = r.tick(DOWN_WINDOW_MS, near);
-        assert!(ev.contains(&ReviveEvent::Respawn(B)), "the window closes before the hold completes");
-        assert!(ev.contains(&ReviveEvent::Cancelled { target: B, helper: A }));
+        assert!(
+            ev.contains(&ReviveEvent::Respawn(B)),
+            "the window closes before the hold completes"
+        );
+        assert!(ev.contains(&ReviveEvent::Cancelled {
+            target: B,
+            helper: A
+        }));
     }
 
     #[test]
@@ -253,14 +315,28 @@ mod tests {
         let mut r = party();
         assert_eq!(r.begin(A, B, 0, Some(10.0)), Err(ReviveDeny::NotRevivable));
         r.set_down(B, 0, true);
-        assert_eq!(r.begin(A, B, 0, Some(HOST_RANGE + 1.0)), Err(ReviveDeny::OutOfRange));
+        assert_eq!(
+            r.begin(A, B, 0, Some(HOST_RANGE + 1.0)),
+            Err(ReviveDeny::OutOfRange)
+        );
         assert_eq!(r.begin(A, B, 0, None), Err(ReviveDeny::OutOfRange));
         assert_eq!(r.begin(B, B, 0, Some(0.0)), Err(ReviveDeny::BadHelper));
-        assert_eq!(r.begin(PlayerId(9), B, 0, Some(0.0)), Err(ReviveDeny::BadHelper));
+        assert_eq!(
+            r.begin(PlayerId(9), B, 0, Some(0.0)),
+            Err(ReviveDeny::BadHelper)
+        );
         r.begin(A, B, 0, Some(HOST_RANGE)).unwrap();
-        assert_eq!(r.begin(C, B, 0, Some(10.0)), Err(ReviveDeny::Busy), "one helper");
+        assert_eq!(
+            r.begin(C, B, 0, Some(10.0)),
+            Err(ReviveDeny::Busy),
+            "one helper"
+        );
         r.set_down(C, 0, true);
-        assert_eq!(r.begin(C, B, 0, Some(10.0)), Err(ReviveDeny::BadHelper), "downed helper");
+        assert_eq!(
+            r.begin(C, B, 0, Some(10.0)),
+            Err(ReviveDeny::BadHelper),
+            "downed helper"
+        );
     }
 
     #[test]
@@ -269,10 +345,22 @@ mod tests {
         r.set_down(B, 0, true);
         r.begin(A, B, 0, Some(10.0)).unwrap();
         let ev = r.tick(1000, |_, _| Some(HOST_RANGE + 50.0));
-        assert_eq!(ev, vec![ReviveEvent::Cancelled { target: B, helper: A }]);
+        assert_eq!(
+            ev,
+            vec![ReviveEvent::Cancelled {
+                target: B,
+                helper: A
+            }]
+        );
         assert!(r.helper_of(B).is_none());
         r.begin(A, B, 2000, Some(10.0)).unwrap();
-        assert_eq!(r.cancel(A), Some(ReviveEvent::Cancelled { target: B, helper: A }));
+        assert_eq!(
+            r.cancel(A),
+            Some(ReviveEvent::Cancelled {
+                target: B,
+                helper: A
+            })
+        );
         assert!(r.tick(2000 + 10 * HOLD_MS, near).is_empty());
     }
 
@@ -298,13 +386,23 @@ mod tests {
         let mut r = party();
         r.set_down(B, 0, true);
         r.begin(A, B, 0, Some(1.0)).unwrap();
-        assert_eq!(r.remove(A), vec![ReviveEvent::Cancelled { target: B, helper: A }]);
+        assert_eq!(
+            r.remove(A),
+            vec![ReviveEvent::Cancelled {
+                target: B,
+                helper: A
+            }]
+        );
         r.set_down(C, 0, true);
         assert!(r.remove(PlayerId(9)).is_empty());
         let mut r = Reviver::new();
         r.add(A);
         r.add(B);
         r.set_down(A, 0, true);
-        assert_eq!(r.remove(B), vec![ReviveEvent::Wipe], "last upright player left");
+        assert_eq!(
+            r.remove(B),
+            vec![ReviveEvent::Wipe],
+            "last upright player left"
+        );
     }
 }

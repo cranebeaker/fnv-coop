@@ -1,0 +1,27 @@
+{
+  "name": "live_scene_ending",
+  "description": "The host's story sets VHDHouseBattle stage 10. The campaign policy marks that quest as an ending, so the set-stage hook opens an ending scene on the host. Then the host's slideshow shows slides 1, 2 and 3 (GameState::coop_scene_slide). Every peer is in the same playing ending scene with every control locked, the guest's own controls are off, and both peers saw slide 3.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 72,
+  "duration_s": 14,
+  "settle_s": 8,
+  "host": {
+    "script": [
+      { "at": 2, "run": "SetStage VHDHouseBattle 10" },
+      { "at": 6, "run": "coop slide 1" },
+      { "at": 7, "run": "coop slide 2" },
+      { "at": 8, "run": "coop slide 3" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "ending-kind", "path": "scene.kind", "op": "eq", "value": 4, "on": "both" },
+    { "id": "playing", "path": "scene.phase", "op": "eq", "value": 2, "on": "both" },
+    { "id": "controls-locked", "path": "scene.locks", "op": "eq", "value": 127, "on": "both" },
+    { "id": "guest-controls", "path": "scene.controls", "op": "eq", "value": 127, "on": "guest" },
+    { "id": "saw-slide-3", "path": "scene.slide", "op": "eq", "value": 3, "on": "both" },
+    { "id": "same-scene", "path": "scene.id", "on": "equal" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

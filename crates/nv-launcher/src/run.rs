@@ -10,12 +10,17 @@ use std::sync::mpsc;
 
 /// Unix seconds now.
 pub fn now_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// `20251029-010600`-style stamp for file names (UTC).
 pub fn stamp(secs: u64) -> String {
-    crate::party::format_time(secs).replace(['-', ':'], "").replace(' ', "-")
+    crate::party::format_time(secs)
+        .replace(['-', ':'], "")
+        .replace(' ', "-")
 }
 
 /// Whether a viewer output line is worth showing in the launcher's window: co-op notices, join
@@ -38,7 +43,10 @@ fn pump(pipe: impl Read + Send + 'static, tx: mpsc::Sender<String>) {
         let mut r = BufReader::new(pipe);
         let mut buf = Vec::new();
         while r.read_until(b'\n', &mut buf).unwrap_or(0) > 0 {
-            if tx.send(String::from_utf8_lossy(&buf).trim_end().to_string()).is_err() {
+            if tx
+                .send(String::from_utf8_lossy(&buf).trim_end().to_string())
+                .is_err()
+            {
                 break;
             }
             buf.clear();
@@ -49,7 +57,12 @@ fn pump(pipe: impl Read + Send + 'static, tx: mpsc::Sender<String>) {
 /// Runs the viewer to completion. Its stdout and stderr go to `log` (redacted) as they come and
 /// each line is also handed to `on_line` (the launcher shows the interesting ones). Returns the
 /// exit code (None when it was ended by a signal).
-pub fn run_viewer(spec: &Spec, log: &Path, user: Option<&str>, on_line: &mut dyn FnMut(&str)) -> Result<Option<i32>, String> {
+pub fn run_viewer(
+    spec: &Spec,
+    log: &Path,
+    user: Option<&str>,
+    on_line: &mut dyn FnMut(&str),
+) -> Result<Option<i32>, String> {
     if !spec.program.is_file() {
         return Err(format!("The viewer was not found at {}. Extract the whole package and keep nv-viewer.exe where it was.", spec.program.display()));
     }
@@ -58,13 +71,25 @@ pub fn run_viewer(spec: &Spec, log: &Path, user: Option<&str>, on_line: &mut dyn
         fs::create_dir_all(d).map_err(|e| format!("could not make the log folder: {e}"))?;
     }
     let mut f = File::create(log).map_err(|e| format!("could not create the log: {e}"))?;
-    let _ = writeln!(f, "nv-launcher {} starting the viewer at {}\n{}", crate::VERSION, crate::party::format_time(now_secs()), redact(&command::render(spec), user));
+    let _ = writeln!(
+        f,
+        "nv-launcher {} starting the viewer at {}\n{}",
+        crate::VERSION,
+        crate::party::format_time(now_secs()),
+        redact(&command::render(spec), user)
+    );
     let mut cmd = Command::new(&spec.program);
-    cmd.args(&spec.args).current_dir(&spec.cwd).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    cmd.args(&spec.args)
+        .current_dir(&spec.cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     for (k, v) in &spec.env {
         cmd.env(k, v);
     }
-    let mut child = cmd.spawn().map_err(|e| format!("could not start the viewer: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("could not start the viewer: {e}"))?;
     let (tx, rx) = mpsc::channel::<String>();
     if let Some(o) = child.stdout.take() {
         pump(o, tx.clone());
@@ -78,7 +103,9 @@ pub fn run_viewer(spec: &Spec, log: &Path, user: Option<&str>, on_line: &mut dyn
         let _ = writeln!(f, "{line}");
         on_line(&line);
     }
-    let status = child.wait().map_err(|e| format!("could not wait for the viewer: {e}"))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("could not wait for the viewer: {e}"))?;
     let _ = writeln!(f, "\nviewer exited: {status}");
     Ok(status.code())
 }
@@ -94,8 +121,19 @@ mod tests {
 
     #[test]
     fn missing_viewer_is_a_clear_error() {
-        let spec = Spec { program: "Z:\\nope\\nv-viewer.exe".into(), args: vec![], env: vec![], cwd: std::env::temp_dir() };
-        let e = run_viewer(&spec, &std::env::temp_dir().join("nvl-never.log"), None, &mut |_| {}).unwrap_err();
+        let spec = Spec {
+            program: "Z:\\nope\\nv-viewer.exe".into(),
+            args: vec![],
+            env: vec![],
+            cwd: std::env::temp_dir(),
+        };
+        let e = run_viewer(
+            &spec,
+            &std::env::temp_dir().join("nvl-never.log"),
+            None,
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(e.contains("not found"));
     }
 
@@ -115,17 +153,29 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let spec = Spec {
             program: sh.into(),
-            args: vec!["/C".into(), "echo Co-op: hello & echo to-stderr 1>&2 & exit 3".into()],
+            args: vec![
+                "/C".into(),
+                "echo Co-op: hello & echo to-stderr 1>&2 & exit 3".into(),
+            ],
             env: vec![],
             cwd: dir.join("cwd"),
         };
         let mut seen = Vec::new();
-        let code = run_viewer(&spec, &dir.join("l").join("v.log"), None, &mut |l| seen.push(l.to_string())).unwrap();
+        let code = run_viewer(&spec, &dir.join("l").join("v.log"), None, &mut |l| {
+            seen.push(l.to_string())
+        })
+        .unwrap();
         assert_eq!(code, Some(3));
-        assert!(seen.iter().any(|l| l.starts_with("Co-op: hello")), "{seen:?}");
+        assert!(
+            seen.iter().any(|l| l.starts_with("Co-op: hello")),
+            "{seen:?}"
+        );
         assert!(seen.iter().any(|l| l.contains("to-stderr")), "{seen:?}");
         let log = fs::read_to_string(dir.join("l").join("v.log")).unwrap();
-        assert!(log.contains("Co-op: hello") && log.contains("viewer exited"), "{log}");
+        assert!(
+            log.contains("Co-op: hello") && log.contains("viewer exited"),
+            "{log}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

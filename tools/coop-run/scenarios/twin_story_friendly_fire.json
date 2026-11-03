@@ -1,0 +1,55 @@
+{
+  "name": "twin_story_friendly_fire",
+  "description": "MUTATION TWIN of story_friendly_fire: the guest hits Colonel Moore only twice, inside the allowance of three deliberate hits in 10 s, so the host's guard drops nothing and the guest sends fewer than five requests. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 69,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VHDColonelMooreREF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VHDColonelMooreREF.MoveTo DocMitchellREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop hit VHDColonelMooreREF 1"
+      },
+      {
+        "at": 6.5,
+        "run": "coop hit VHDColonelMooreREF 1"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "blocked",
+      "path": "campaign.ff_blocked",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "guest-sent",
+      "path": "live.hits_sent",
+      "op": "ge",
+      "value": 5,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

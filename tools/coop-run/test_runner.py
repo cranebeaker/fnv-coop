@@ -184,7 +184,67 @@ class E2E(unittest.TestCase):
         self.assertIn("same seed", summary["note"])
 
 
+class RelayStart(unittest.TestCase):
+    """A stalled relay start is stopped and started again (runner start_relay)."""
+    slot = 40
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        type(self).slot += 1
+        saved = (runner.Proc, runner.RELAY_START_S, runner.RELAY_TRIES)
+        self.real_proc = saved[0]
+        self.addCleanup(self.restore, saved)
+        runner.RELAY_START_S = 2
+
+    def restore(self, saved):
+        runner.Proc, runner.RELAY_START_S, runner.RELAY_TRIES = saved
+
+    def stall_relays(self, n):
+        """The next n relay starts sleep and write no ready file."""
+        left = [n]
+
+        class StallProc(self.real_proc):
+            def __init__(self, role, cmd, stdout_path, cwd=None):
+                if role == "relay" and left[0] > 0:
+                    left[0] -= 1
+                    cmd = [sys.executable, "-I", "-c", "import time; time.sleep(60)"]
+                super().__init__(role, cmd, stdout_path, cwd)
+
+        runner.Proc = StallProc
+
+    def go(self):
+        lines = []
+        d = os.path.join(self.tmp.name, "run")
+        v = runner.run_scenario(scn(), cfg(), d, scn_path="x.json", slot=self.slot, log=lines.append)
+        return v, lines
+
+    def test_a_stalled_relay_is_started_again(self):
+        self.stall_relays(1)
+        v, lines = self.go()
+        self.assertEqual((v["result"], v["class"]), ("pass", "pass"), v["reason"])
+        self.assertTrue(any("try 1 of 3" in x for x in lines), lines)
+
+    def test_a_relay_that_never_starts_is_a_harness_failure(self):
+        runner.RELAY_TRIES = 2
+        self.stall_relays(2)
+        v, lines = self.go()
+        self.assertEqual(v["class"], "harness", v["reason"])
+        self.assertIn("relay did not start", v["reason"])
+        self.assertEqual(len(lines), 2, lines)
+
+
 class Pieces(unittest.TestCase):
+    def test_free_udp_port_skips_a_port_held_on_every_address(self):
+        import socket
+        held = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        held.bind(("0.0.0.0", 0))
+        try:
+            port = held.getsockname()[1]
+            self.assertNotEqual(runner.free_udp_port(port), port)
+        finally:
+            held.close()
+
     def test_scorer_selftest_passes(self):
         self.assertEqual(verdict.scorer_selftest(), [])
 

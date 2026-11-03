@@ -240,7 +240,13 @@ mod tests {
     use super::*;
 
     fn sky(cur: u32, prev: u32, fade: u16) -> SkyState {
-        SkyState { current: cur, previous: prev, forced: 0, fade_milli: fade, started_centi: 800 }
+        SkyState {
+            current: cur,
+            previous: prev,
+            forced: 0,
+            fade_milli: fade,
+            started_centi: 800,
+        }
     }
 
     fn time(h: f32) -> TimeState {
@@ -261,11 +267,24 @@ mod tests {
     fn fade_is_throttled_and_keepalive_repeats() {
         let mut h = HostEnv::new();
         h.tick(1000, sky(2, 1, 0), time(8.0));
-        assert!(h.tick(1100, sky(2, 1, 50), time(8.0)).iter().all(|m| matches!(m, EnvMsg::Time(_)) || false) || true);
+        assert!(
+            h.tick(1100, sky(2, 1, 50), time(8.0))
+                .iter()
+                .all(|m| matches!(m, EnvMsg::Time(_)) || false)
+                || true
+        );
         let skies = |v: Vec<EnvMsg>| v.iter().filter(|m| matches!(m, EnvMsg::Sky(_))).count();
-        assert_eq!(skies(h.tick(1200, sky(2, 1, 60), time(8.0))), 0, "inside the throttle");
+        assert_eq!(
+            skies(h.tick(1200, sky(2, 1, 60), time(8.0))),
+            0,
+            "inside the throttle"
+        );
         assert_eq!(skies(h.tick(1600, sky(2, 1, 100), time(8.0))), 1);
-        assert_eq!(skies(h.tick(7000, sky(2, 1, 100), time(8.0))), 1, "keepalive");
+        assert_eq!(
+            skies(h.tick(7000, sky(2, 1, 100), time(8.0))),
+            1,
+            "keepalive"
+        );
     }
 
     #[test]
@@ -321,7 +340,14 @@ mod tests {
         let mut c = ClockSmoother::new();
         c.feed(0, time(23.99));
         c.sample(0);
-        c.feed(500, TimeState { days: 4, hour_milli: 10, scale_deci: 300 });
+        c.feed(
+            500,
+            TimeState {
+                days: 4,
+                hour_milli: 10,
+                scale_deci: 300,
+            },
+        );
         let h = c.hour_of_day(550).unwrap();
         assert!(h < 0.1 || h > 23.9, "{h}");
     }

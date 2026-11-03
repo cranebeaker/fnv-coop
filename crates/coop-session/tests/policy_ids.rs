@@ -17,19 +17,41 @@ fn dir() -> Option<PathBuf> {
 
 fn order_of(names: &[&str]) -> LoadOrder {
     let d = dir().expect("data");
-    let list = names.iter().map(|n| (n.to_string(), Some(d.join(n)), Plugin::open(d.join(n)).expect("plugin"))).collect();
+    let list = names
+        .iter()
+        .map(|n| {
+            (
+                n.to_string(),
+                Some(d.join(n)),
+                Plugin::open(d.join(n)).expect("plugin"),
+            )
+        })
+        .collect();
     LoadOrder::from_plugins(list).expect("order")
 }
 
-const FULL: [&str; 5] = ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm"];
+const FULL: [&str; 5] = [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+];
 
 fn rows_of(t: &PolicyTable, loaded: &[&str]) -> usize {
-    t.rows().iter().filter(|r| !r.synthetic && loaded.iter().any(|p| p.eq_ignore_ascii_case(&r.plugin))).count()
+    t.rows()
+        .iter()
+        .filter(|r| !r.synthetic && loaded.iter().any(|p| p.eq_ignore_ascii_case(&r.plugin)))
+        .count()
 }
 
 fn assert_only_missing_plugins_unmatched(rep: &coop_policy::RemapReport, loaded: &[&str]) {
     for (p, e) in &rep.unmatched {
-        assert!(!loaded.iter().any(|l| l.eq_ignore_ascii_case(p)), "{e} of loaded {p} did not resolve: {}", rep.describe());
+        assert!(
+            !loaded.iter().any(|l| l.eq_ignore_ascii_case(p)),
+            "{e} of loaded {p} did not resolve: {}",
+            rep.describe()
+        );
     }
 }
 
@@ -45,10 +67,21 @@ fn all_rows_resolve_with_the_five_esm_order() {
     assert_only_missing_plugins_unmatched(&rep, &FULL);
     assert_eq!(rep.resolved, rows_of(&t, &FULL));
     assert_eq!(rep.resolved, 482);
-    assert_eq!(rep.unmatched, vec![("GunRunnersArsenal.esm".to_string(), "NVDLC05MQ00".to_string())]);
+    assert_eq!(
+        rep.unmatched,
+        vec![(
+            "GunRunnersArsenal.esm".to_string(),
+            "NVDLC05MQ00".to_string()
+        )]
+    );
     // every row now answers to the id the load order gives its editor id
     for r in m.rows().iter().filter(|r| !r.synthetic) {
-        assert_eq!(order.form_by_editor_id(&r.edid).map(|f| f.0), Some(r.id), "{}", r.edid);
+        assert_eq!(
+            order.form_by_editor_id(&r.edid).map(|f| f.0),
+            Some(r.id),
+            "{}",
+            r.edid
+        );
         assert!(m.row(r.id).is_some());
     }
 }
@@ -58,20 +91,42 @@ fn a_shuffled_dlc_order_still_resolves() {
     if dir().is_none() {
         return;
     }
-    let shuffled = ["FalloutNV.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "DeadMoney.esm", "HonestHearts.esm"];
+    let shuffled = [
+        "FalloutNV.esm",
+        "LonesomeRoad.esm",
+        "OldWorldBlues.esm",
+        "DeadMoney.esm",
+        "HonestHearts.esm",
+    ];
     let order = order_of(&shuffled);
     let (m, rep) = bundled_for(&order).expect("remap");
     assert_only_missing_plugins_unmatched(&rep, &shuffled);
     assert_eq!(rep.resolved, 482, "{}", rep.describe());
     assert!(rep.moved > 0, "a different order must move DLC rows");
     let dm = m.row_by_edid("NVDLC01MQ02").expect("row");
-    assert_eq!(dm.id >> 24, 3, "Dead Money is fourth in this order (index 3)");
-    assert_eq!(order.form_by_editor_id("NVDLC01MQ02").map(|f| f.0), Some(dm.id));
+    assert_eq!(
+        dm.id >> 24,
+        3,
+        "Dead Money is fourth in this order (index 3)"
+    );
+    assert_eq!(
+        order.form_by_editor_id("NVDLC01MQ02").map(|f| f.0),
+        Some(dm.id)
+    );
     for r in m.rows().iter().filter(|r| !r.synthetic) {
-        assert_eq!(order.form_by_editor_id(&r.edid).map(|f| f.0), Some(r.id), "{}", r.edid);
+        assert_eq!(
+            order.form_by_editor_id(&r.edid).map(|f| f.0),
+            Some(r.id),
+            "{}",
+            r.edid
+        );
     }
     // one row resolves the same way on its own
-    let row = PolicyTable::bundled().unwrap().row_by_edid("NVDLC01MQ02").cloned().unwrap();
+    let row = PolicyTable::bundled()
+        .unwrap()
+        .row_by_edid("NVDLC01MQ02")
+        .cloned()
+        .unwrap();
     assert_eq!(resolve_row(&order, &row), Some(dm.id));
 }
 

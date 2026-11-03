@@ -30,9 +30,15 @@ pub struct TimeScales {
 /// `shared` is true in a co-op session (host or guest).
 pub fn vats_scales(shared: bool, wanted: f32) -> TimeScales {
     if shared {
-        TimeScales { world: 1.0, presentation: wanted.clamp(0.0, 1.0) }
+        TimeScales {
+            world: 1.0,
+            presentation: wanted.clamp(0.0, 1.0),
+        }
     } else {
-        TimeScales { world: wanted.clamp(0.0, 1.0), presentation: wanted.clamp(0.0, 1.0) }
+        TimeScales {
+            world: wanted.clamp(0.0, 1.0),
+            presentation: wanted.clamp(0.0, 1.0),
+        }
     }
 }
 
@@ -49,7 +55,11 @@ pub struct VatsLimits {
 
 impl Default for VatsLimits {
     fn default() -> Self {
-        VatsLimits { max_ap: 200, max_chance: 950, crit: 50 }
+        VatsLimits {
+            max_ap: 200,
+            max_chance: 950,
+            crit: 50,
+        }
     }
 }
 
@@ -99,18 +109,33 @@ impl VatsHost {
     }
 
     /// Resolves a queue. A repeated `(from, id)` returns the first answer.
-    pub fn resolve(&mut self, from: PlayerId, id: u32, claimed_ap: u16, shots: &[VatsShot], scaling: &Scaling) -> (Vec<VatsResult>, u16) {
+    pub fn resolve(
+        &mut self,
+        from: PlayerId,
+        id: u32,
+        claimed_ap: u16,
+        shots: &[VatsShot],
+        scaling: &Scaling,
+    ) -> (Vec<VatsResult>, u16) {
         if let Some(r) = self.done.get(&(from, id)) {
             return r.clone();
         }
-        let have = claimed_ap.min(self.limits.max_ap).min(self.known_ap.get(&from).copied().unwrap_or(u16::MAX));
+        let have = claimed_ap
+            .min(self.limits.max_ap)
+            .min(self.known_ap.get(&from).copied().unwrap_or(u16::MAX));
         let mut left = have;
         let mut spent = 0u16;
         let mut results = Vec::new();
         for (i, s) in shots.iter().take(MAX_VATS_SHOTS).enumerate() {
             if s.cost > left {
                 self.broke += 1;
-                results.push(VatsResult { hit: false, fired: false, damage: 0, limb: s.limb, critical: false });
+                results.push(VatsResult {
+                    hit: false,
+                    fired: false,
+                    damage: 0,
+                    limb: s.limb,
+                    critical: false,
+                });
                 continue;
             }
             left -= s.cost;
@@ -119,12 +144,26 @@ impl VatsHost {
             let chance = u64::from(s.chance.min(self.limits.max_chance));
             let hit = roll < chance && s.limb <= LIMB_COUNT;
             let critical = hit && mix(roll ^ 0xC417) % 1000 < u64::from(self.limits.crit);
-            let base = if critical { f32::from(s.damage) * 2.0 } else { f32::from(s.damage) };
-            let damage = if hit { scaling.damage_dealt(base).round().max(1.0) as u16 } else { 0 };
+            let base = if critical {
+                f32::from(s.damage) * 2.0
+            } else {
+                f32::from(s.damage)
+            };
+            let damage = if hit {
+                scaling.damage_dealt(base).round().max(1.0) as u16
+            } else {
+                0
+            };
             if hit {
                 self.hits += 1;
             }
-            results.push(VatsResult { hit, fired: true, damage, limb: s.limb, critical });
+            results.push(VatsResult {
+                hit,
+                fired: true,
+                damage,
+                limb: s.limb,
+                critical,
+            });
         }
         if let Some(k) = self.known_ap.get_mut(&from) {
             *k = k.saturating_sub(spent);

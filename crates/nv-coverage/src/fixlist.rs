@@ -4,9 +4,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::data::Line;
 use crate::funcs::FuncReport;
 use crate::quests::{LineReport, Verdict};
-use crate::data::Line;
 
 #[derive(Debug, Clone)]
 pub struct Fix {
@@ -38,7 +38,9 @@ pub fn blocked_by(lines: &BTreeMap<Line, LineReport>) -> BTreeMap<String, BTreeS
                 _ => continue,
             };
             for n in names {
-                out.entry(n.to_ascii_lowercase()).or_default().insert((s.editor.clone(), s.stage));
+                out.entry(n.to_ascii_lowercase())
+                    .or_default()
+                    .insert((s.editor.clone(), s.stage));
             }
         }
     }
@@ -47,15 +49,37 @@ pub fn blocked_by(lines: &BTreeMap<Line, LineReport>) -> BTreeMap<String, BTreeS
 
 fn files_for(system: &str) -> Vec<&'static str> {
     match system {
-        "quests" => vec!["crates/world/src/scripting.rs", "crates/world/src/quest.rs", "crates/world/src/quest_text.rs"],
-        "dialogue" => vec!["crates/world/src/dialogue.rs", "crates/world/src/scripting.rs"],
-        "combat" => vec!["crates/world/src/combat.rs", "crates/world/src/scripting.rs"],
+        "quests" => vec![
+            "crates/world/src/scripting.rs",
+            "crates/world/src/quest.rs",
+            "crates/world/src/quest_text.rs",
+        ],
+        "dialogue" => vec![
+            "crates/world/src/dialogue.rs",
+            "crates/world/src/scripting.rs",
+        ],
+        "combat" => vec![
+            "crates/world/src/combat.rs",
+            "crates/world/src/scripting.rs",
+        ],
         "inventory" => vec!["crates/world/src/items.rs", "crates/world/src/scripting.rs"],
-        "UI" => vec!["crates/world/src/script_functions.rs", "viewer/src/menus.rs"],
+        "UI" => vec![
+            "crates/world/src/script_functions.rs",
+            "viewer/src/menus.rs",
+        ],
         "sound" => vec!["crates/world/src/sound.rs", "crates/world/src/music.rs"],
-        "camera" => vec!["crates/world/src/player_camera.rs", "viewer/src/player_camera.rs"],
-        "world" => vec!["crates/world/src/script_functions.rs", "crates/world/src/more_functions/mod.rs"],
-        "actors" => vec!["crates/world/src/more_functions/actors.rs", "crates/world/src/living/mod.rs"],
+        "camera" => vec![
+            "crates/world/src/player_camera.rs",
+            "viewer/src/player_camera.rs",
+        ],
+        "world" => vec![
+            "crates/world/src/script_functions.rs",
+            "crates/world/src/more_functions/mod.rs",
+        ],
+        "actors" => vec![
+            "crates/world/src/more_functions/actors.rs",
+            "crates/world/src/living/mod.rs",
+        ],
         "NVSE-only" => vec!["crates/script/src/nvse.rs", "docs/NVSE_COVERAGE.md"],
         _ => vec!["crates/world/src/script_functions.rs"],
     }
@@ -63,7 +87,9 @@ fn files_for(system: &str) -> Vec<&'static str> {
 
 /// Reads (Get/Is/Has) return values from stored data; the rest change runtime state.
 fn is_query(name: &str) -> bool {
-    ["Get", "Is", "Has", "Can", "Was", "Count", "Eval"].iter().any(|p| name.starts_with(p))
+    ["Get", "Is", "Has", "Can", "Was", "Count", "Eval"]
+        .iter()
+        .any(|p| name.starts_with(p))
 }
 
 pub fn build(
@@ -82,7 +108,13 @@ pub fn build(
         // A fix item is at most eight functions, so one agent brief fits one item.
         let mut ranked = list.clone();
         ranked.sort_by_key(|s| {
-            std::cmp::Reverse((blocked.get(&s.name.to_ascii_lowercase()).map_or(0, |b| b.len()), s.quests.len(), s.calls + s.conditions))
+            std::cmp::Reverse((
+                blocked
+                    .get(&s.name.to_ascii_lowercase())
+                    .map_or(0, |b| b.len()),
+                s.quests.len(),
+                s.calls + s.conditions,
+            ))
         });
         for (n, chunk) in ranked.chunks(8).enumerate() {
             let mut stages = BTreeSet::new();
@@ -109,10 +141,18 @@ pub fn build(
                 3..=5 => "M (about a day)",
                 _ => "L (one to two days)",
             };
-            let title = format!("{group}: {}{}", names.iter().take(3).cloned().collect::<Vec<_>>().join(", "), if names.len() > 3 { ", ..." } else { "" });
+            let title = format!(
+                "{group}: {}{}",
+                names.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
+                if names.len() > 3 { ", ..." } else { "" }
+            );
             let translated: Vec<String> = chunk
                 .iter()
-                .filter_map(|s| trans.get(&s.name.to_ascii_lowercase()).map(|(a, f)| format!("{} {a} {f}", s.name)))
+                .filter_map(|s| {
+                    trans
+                        .get(&s.name.to_ascii_lowercase())
+                        .map(|(a, f)| format!("{} {a} {f}", s.name))
+                })
                 .collect();
             let brief = format!(
                 "Implement these script functions in the world host with provenance (exe address of each command handler from Ghidra, or the record field they read): {}. \
@@ -172,6 +212,12 @@ mod tests {
 
     #[test]
     fn empty_input_gives_no_fixes() {
-        assert!(build(&FuncReport::default(), &BTreeMap::new(), 0, &Default::default()).is_empty());
+        assert!(build(
+            &FuncReport::default(),
+            &BTreeMap::new(),
+            0,
+            &Default::default()
+        )
+        .is_empty());
     }
 }

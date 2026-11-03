@@ -31,6 +31,10 @@ import scenario as scn_mod  # noqa: E402
 import verdict as verdict_mod  # noqa: E402
 
 DEFAULT_CONFIG = os.path.join(HERE, "coop-run.local.json")
+# Seconds the runner waits for a relay to write its ready file, and the
+# number of starts before the run is a harness failure.
+RELAY_START_S = 15
+RELAY_TRIES = 3
 
 
 class ConfigError(Exception):
@@ -62,10 +66,12 @@ def load_config(path=None):
 
 
 def free_udp_port(start):
+    # Probe the wildcard address: the viewer binds 0.0.0.0. On Windows a bind on
+    # 127.0.0.1 succeeds while another socket holds 0.0.0.0 on the same port.
     for p in range(start, start + 200):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            s.bind(("127.0.0.1", p))
+            s.bind(("0.0.0.0", p))
             return p
         except OSError:
             continue
@@ -154,7 +160,8 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
         rp = free_udp_port(nxt)
         relay_ports.append(rp)
         nxt = rp + 1
-    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit")} for r in roles}
+    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit"),
+                 "go": f(r + ".go")} for r in roles}
     run = {"run_id": os.path.basename(run_dir), "seed": seed, "rerun": rerun_hint(scn_path, cfg_path, seed),
            "relay": None, "timed_out_run": False, "harness_error": None}
     for r in roles:
@@ -164,6 +171,26 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
 
     def relay_name(i, ext):
         return f("relay.%s" % ext) if i == 0 else f("relay%d.%s" % (i + 1, ext))
+
+    def start_relay(i, cmd):
+        """Starts relay i and waits for its ready file. A busy machine can stall a new
+        Python process for 12 s to more than 30 s (seen in full suites, median start
+        0.1 s). The runner stops a stalled relay and starts it again, RELAY_TRIES times."""
+        tail = ""
+        for attempt in range(RELAY_TRIES):
+            out = relay_name(i, "stdout.txt") if attempt == 0 else relay_name(i, "try%d.stdout.txt" % (attempt + 1))
+            rproc = Proc("relay", cmd, out)
+            if rproc.launch_error:
+                raise RuntimeError("relay: " + rproc.launch_error)
+            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), RELAY_START_S)
+            if os.path.exists(relay_name(i, "ready")):
+                return rproc
+            tail = rproc.tail()
+            rproc.stop()
+            rproc.close()
+            run["relay_restarts"] = run.get("relay_restarts", 0) + 1
+            log("  relay %d wrote no ready file in %d s (try %d of %d)" % (i + 1, RELAY_START_S, attempt + 1, RELAY_TRIES))
+        raise RuntimeError("relay did not start: " + tail)
 
     stats_path = relay_name(0, "stats.json")
     try:
@@ -176,14 +203,7 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
                          "--profile", scn["network"], "--seed", str(seed + 7919 * i), "--schedule", f("relay.schedule.json"),
                          "--stats", relay_name(i, "stats.json"), "--log", relay_name(i, "log.jsonl"),
                          "--stop-file", relay_name(i, "stop"), "--ready-file", relay_name(i, "ready")]
-            rproc = Proc("relay", relay_cmd, relay_name(i, "stdout.txt"))
-            relay_procs.append(rproc)
-            if rproc.launch_error:
-                raise RuntimeError("relay: " + rproc.launch_error)
-        for i, rproc in enumerate(relay_procs):
-            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), 10)
-            if not os.path.exists(relay_name(i, "ready")):
-                raise RuntimeError("relay did not start: " + rproc.tail())
+            relay_procs.append(start_relay(i, relay_cmd))
 
         # a quit request must outlast the script plus the settle window; the backstop is longer
         script_end = scn["duration_s"] + scn["settle_s"]
@@ -200,7 +220,13 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             _wait(lambda: _has_event(files["host"]["log"], "coop_listening") or not procs["host"].alive(),
                   min(cfg["launch_timeout_s"], deadline - time.monotonic()))
         if not procs["host"].launch_error and procs["host"].alive():
-            for r in roles[1:]:
+            # guests join one at a time, in launch order: the host gives slots in join
+            # order, so "guest" is slot 1, "guest2" slot 2 (the scenarios' paths say so)
+            for i, r in enumerate(roles[1:]):
+                if i > 0:
+                    prev = roles[i]
+                    _wait(lambda: _has_event(files[prev]["log"], "coop_connected") or not procs[prev].alive(),
+                          min(cfg["launch_timeout_s"], max(0, deadline - time.monotonic())))
                 procs[r] = Proc(r, cfg["viewer"] + args[r], f(r + ".stdout.txt"))
         all_up = all(r in procs and not procs[r].launch_error for r in roles)
 
@@ -217,6 +243,9 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             both_ready = both_ready and ready_all()
         if both_ready:
             log("all %d peers ready; running %.0f s + %.0f s settle" % (len(roles), scn["duration_s"], scn["settle_s"]))
+            # script time starts now on every peer (README "Timeline")
+            for r in roles:
+                _touch(files[r]["go"])
             end = min(time.monotonic() + script_end, deadline)
             _wait(lambda: not all_alive(), max(0, end - time.monotonic()))
             if time.monotonic() >= deadline:

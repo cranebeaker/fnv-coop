@@ -1,0 +1,60 @@
+{
+  "name": "story_karma_reputation",
+  "description": "The host's script takes 50 karma and gives 10 Goodsprings fame. The guest's own script lines (run as the guest on the host) give 20 karma, 5 more Goodsprings fame and 3 Goodsprings infamy. Karma, fame and infamy are one value for the party: each peer reads karma -30, fame 15 and infamy 3 from its own game state.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 76,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "RewardKarma -50"
+      },
+      {
+        "at": 3,
+        "run": "AddReputationExact RepNVGoodsprings 1 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 5,
+        "run": "RewardKarma 20"
+      },
+      {
+        "at": 6,
+        "run": "AddReputationExact RepNVGoodsprings 1 5"
+      },
+      {
+        "at": 6,
+        "run": "AddReputationExact RepNVGoodsprings 0 3"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "party-karma",
+      "path": "karma",
+      "op": "eq",
+      "value": -30,
+      "on": "both"
+    },
+    {
+      "id": "party-fame",
+      "path": "reputations.RepNVGoodsprings.fame",
+      "op": "eq",
+      "value": 15,
+      "on": "both"
+    },
+    {
+      "id": "party-infamy",
+      "path": "reputations.RepNVGoodsprings.infamy",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    }
+  ]
+}

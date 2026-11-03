@@ -47,7 +47,11 @@ impl FireHub {
     }
 
     fn remember(&mut self, blast: bool, p: PlayerId, id: u32) -> bool {
-        let fresh = if blast { self.seen_blast.insert((p, id)) } else { self.seen_fire.insert((p, id)) };
+        let fresh = if blast {
+            self.seen_blast.insert((p, id))
+        } else {
+            self.seen_fire.insert((p, id))
+        };
         if !fresh {
             return false;
         }
@@ -78,9 +82,21 @@ impl FireHub {
 
     /// A shot from `from`. `at` is where the host believes `from` stands
     /// (their avatar). Returns the event to relay, with the shooter filled.
-    pub fn on_fire(&mut self, from: PlayerId, now_ms: u64, at: Option<[f32; 3]>, mut e: FireEvent) -> Option<FireEvent> {
-        let near = at.map_or(true, |p| dist(e.origin, p) <= MAX_BLAST_REACH && dist_fixed(e.origin, e.hit) <= MAX_SHOT_RANGE);
-        if e.id == 0 || !near || !Self::rate(&mut self.fire_times, from, now_ms) || !self.remember(false, from, e.id) {
+    pub fn on_fire(
+        &mut self,
+        from: PlayerId,
+        now_ms: u64,
+        at: Option<[f32; 3]>,
+        mut e: FireEvent,
+    ) -> Option<FireEvent> {
+        let near = at.map_or(true, |p| {
+            dist(e.origin, p) <= MAX_BLAST_REACH && dist_fixed(e.origin, e.hit) <= MAX_SHOT_RANGE
+        });
+        if e.id == 0
+            || !near
+            || !Self::rate(&mut self.fire_times, from, now_ms)
+            || !self.remember(false, from, e.id)
+        {
             self.refused += 1;
             return None;
         }
@@ -90,9 +106,19 @@ impl FireHub {
     }
 
     /// A blast from `from`.
-    pub fn on_blast(&mut self, from: PlayerId, now_ms: u64, at: Option<[f32; 3]>, mut e: BlastEvent) -> Option<BlastEvent> {
+    pub fn on_blast(
+        &mut self,
+        from: PlayerId,
+        now_ms: u64,
+        at: Option<[f32; 3]>,
+        mut e: BlastEvent,
+    ) -> Option<BlastEvent> {
         let near = at.map_or(true, |p| dist(e.pos, p) <= MAX_BLAST_REACH);
-        if e.id == 0 || !near || !Self::rate(&mut self.blast_times, from, now_ms) || !self.remember(true, from, e.id) {
+        if e.id == 0
+            || !near
+            || !Self::rate(&mut self.blast_times, from, now_ms)
+            || !self.remember(true, from, e.id)
+        {
             self.refused += 1;
             return None;
         }

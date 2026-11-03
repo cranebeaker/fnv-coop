@@ -1,0 +1,90 @@
+{
+  "name": "live_party_warp",
+  "description": "A party warp brings a player from another cell to the anchor without overlap. Both peers start in Doc Mitchell's house. At 2 s the host moves the party to Doc's couch (player.MoveTo DocMitchellCouchREF, couch at 1298 1850 7396). At 4 s the host starts a story tether there. At 8 s the guest walks to the Prospector Saloon (`coop cell`). After the 120 s straggler timeout the host warps the guest back. The guest must be back in Doc's house, near the anchor, and not on top of the host: the host stands on the couch, so the guest must be at least 48 units (half of coop_core::roam::model::WARP_SPREAD) from it. The warped player takes its own spot on the ring (SceneModel::party_warp, world coop rules spread_on_ring). Headless only: the viewer bot has no `coop cell` verb.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 57,
+  "duration_s": 140,
+  "settle_s": 8,
+  "timeout_s": 400,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "player.MoveTo DocMitchellCouchREF"
+      },
+      {
+        "at": 4,
+        "run": "coop tether DocMitchellCouchREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop cell GSProspectorSaloonInterior"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-warped-one",
+      "path": "campaign.warped",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-back-in-the-anchor-cell",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 1064441,
+      "on": "both"
+    },
+    {
+      "id": "guest-at-the-anchor",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        1298.0,
+        1850.0,
+        7396.0
+      ],
+      "cmp": "le",
+      "value": 300,
+      "on": "both"
+    },
+    {
+      "id": "host-at-the-anchor",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        1298.0,
+        1850.0,
+        7396.0
+      ],
+      "cmp": "le",
+      "value": 300,
+      "on": "both"
+    },
+    {
+      "id": "guest-not-on-the-host",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        1298.0,
+        1850.0,
+        7396.0
+      ],
+      "cmp": "ge",
+      "value": 48,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

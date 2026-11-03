@@ -1,19 +1,20 @@
 //! Host side of the replication protocol.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use super::live::HostLive;
 use crate::authority::AuthorityTable;
 use crate::baseline::{BaselineRing, SendPlan};
 use crate::chunk;
 use crate::delta::StateStore;
 use crate::hash::{HashHistory, Repair, ShardHashes};
+use crate::ids::SHARD_COUNT;
 use crate::ids::{Epoch, FormId, PlayerId, Rev, Seq, Tick};
 use crate::proto::{self, Hello, Msg, RejectReason, SNAPSHOT_CHUNK_BYTES};
-use crate::schema::Field;
+use crate::rules::Mode;
+use crate::schema::{Field, Key};
 use crate::session::{self, HostCursor, RejoinDecision, RejoinRequest};
 use crate::snapshot::Snapshot;
-use super::live::HostLive;
-use crate::rules::Mode;
 
 /// Host tunables.
 #[derive(Clone, Debug)]
@@ -37,7 +38,15 @@ pub struct HostConfig {
 impl HostConfig {
     /// Sensible defaults for a given identity.
     pub fn new(hello: Hello, session: u64) -> Self {
-        HostConfig { hello, session, max_guests: 3, ring_cap: 128, hash_history: 32, mode: Mode::CoopBalanced, compat: Default::default() }
+        HostConfig {
+            hello,
+            session,
+            max_guests: 3,
+            ring_cap: 128,
+            hash_history: 32,
+            mode: Mode::CoopBalanced,
+            compat: Default::default(),
+        }
     }
 }
 
@@ -51,6 +60,19 @@ pub struct CompatNote {
     pub issues: Vec<crate::compat::Issue>,
     /// True when the guest was turned away.
     pub refused: bool,
+}
+
+/// Store writes remembered for [`HostSync::recent_roots`] (about 40 s of a
+/// timer that changes every frame).
+const UNDO_CAP: usize = 4096;
+
+/// One store write, with the value it replaced.
+#[derive(Debug)]
+struct Undo {
+    rev: Rev,
+    key: Key,
+    old: Option<Field>,
+    at_ms: u64,
 }
 
 #[derive(Debug, Default)]
@@ -82,6 +104,12 @@ pub struct HostSync {
     pub repairs_sent: u32,
     /// Full snapshots sent so far (diagnostics).
     pub snapshots_sent: u32,
+    /// Joins turned away because the party was full (`Reject(Full)`), one per
+    /// refused player (a repeated hello of the same player is not counted again).
+    pub full_refusals: u32,
+    refused_full: std::collections::BTreeSet<PlayerId>,
+    /// The last store writes, oldest first (see [`HostSync::recent_roots`]).
+    undo: VecDeque<Undo>,
 }
 
 impl HostSync {
@@ -105,6 +133,9 @@ impl HostSync {
             deferred: Vec::new(),
             repairs_sent: 0,
             snapshots_sent: 0,
+            full_refusals: 0,
+            refused_full: std::collections::BTreeSet::new(),
+            undo: VecDeque::new(),
         }
     }
 
@@ -115,7 +146,75 @@ impl HostSync {
 
     /// Host-side game write.
     pub fn write(&mut self, form: FormId, field: Field) -> Option<Rev> {
-        self.store.write_local(form, field)
+        // COOP_STORE_TRACE=1 prints each store change (finds keys that change every frame)
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let trace = *TRACE.get_or_init(|| std::env::var_os("COOP_STORE_TRACE").is_some());
+        let shown = trace.then(|| format!("{form:?} {field:?}"));
+        let rev = self.write_logged(form, field);
+        if let (Some(r), Some(s)) = (rev, shown) {
+            eprintln!(
+                "coop store {r:?}: {}",
+                s.chars().take(160).collect::<String>()
+            );
+        }
+        rev
+    }
+
+    /// Writes the store and remembers the replaced value.
+    fn write_logged(&mut self, form: FormId, field: Field) -> Option<Rev> {
+        let key = field.key(form);
+        let old = self.store.get_key(&key).map(|e| e.field.clone());
+        let rev = self.store.write_local(form, field)?;
+        self.undo.push_back(Undo {
+            rev,
+            key,
+            old,
+            at_ms: self.now_ms,
+        });
+        while self.undo.len() > UNDO_CAP {
+            self.undo.pop_front();
+        }
+        Some(rev)
+    }
+
+    /// The root hash of the store at each recent revision, newest first,
+    /// from the current revision back to the writes of the last `within_ms`.
+    /// `keep` selects the fields that count (the game hash skips cleared
+    /// fields). The list stops at a write that this host did not log (a
+    /// direct store change), because the older revisions are then unknown.
+    /// A guest that dumps its state a few revisions behind is compared at
+    /// its own revision with this list.
+    pub fn recent_roots(&self, within_ms: u64, keep: &dyn Fn(&Field) -> bool) -> Vec<(Rev, u64)> {
+        let mut shards = vec![0u64; SHARD_COUNT];
+        for (k, e) in self.store.iter().filter(|(_, e)| keep(&e.field)) {
+            let s = crate::ids::shard_of(k.form) as usize;
+            shards[s] = shards[s].wrapping_add(crate::hash::record_hash(k.form, &e.field));
+        }
+        let root = |shards: &[u64]| ShardHashes::from_vec(shards.to_vec()).map_or(0, |h| h.root());
+        let mut rev = self.store.rev();
+        let mut out = vec![(rev, root(&shards))];
+        let mut now: HashMap<Key, Option<Field>> = HashMap::new();
+        let since = self.now_ms.saturating_sub(within_ms);
+        for u in self.undo.iter().rev() {
+            if u.rev != rev || u.at_ms < since {
+                break;
+            }
+            let cur = now
+                .get(&u.key)
+                .cloned()
+                .unwrap_or_else(|| self.store.get_key(&u.key).map(|e| e.field.clone()));
+            let s = crate::ids::shard_of(u.key.form) as usize;
+            if let Some(f) = cur.as_ref().filter(|f| keep(f)) {
+                shards[s] = shards[s].wrapping_sub(crate::hash::record_hash(u.key.form, f));
+            }
+            if let Some(f) = u.old.as_ref().filter(|f| keep(f)) {
+                shards[s] = shards[s].wrapping_add(crate::hash::record_hash(u.key.form, f));
+            }
+            now.insert(u.key, u.old.clone());
+            rev = Rev(rev.0 - 1);
+            out.push((rev, root(&shards)));
+        }
+        out
     }
 
     /// Drains guest input messages received so far.
@@ -146,7 +245,8 @@ impl HostSync {
 
     /// Feeds a live-layer message from the host player's own game.
     pub fn on_local(&mut self, msg: Msg) -> Vec<(PlayerId, Msg)> {
-        self.live.on_msg(PlayerId::HOST, msg, self.now_ms, &mut self.auth)
+        self.live
+            .on_msg(PlayerId::HOST, msg, self.now_ms, &mut self.auth)
     }
 
     fn cursor_for(&self, p: PlayerId) -> HostCursor {
@@ -168,16 +268,32 @@ impl HostSync {
             Msg::Hello(h) => {
                 if !self.guests.contains_key(&from) && self.guests.len() >= self.cfg.max_guests {
                     out.push((from, Msg::Reject(RejectReason::Full)));
-                } else if let crate::compat::Verdict::Refuse(r, found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                    if self.refused_full.insert(from) {
+                        self.full_refusals += 1;
+                    }
+                } else if let crate::compat::Verdict::Refuse(r, found) =
+                    crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat)
+                {
                     out.push((from, Msg::Incompat(self.cfg.hello.clone())));
                     out.push((from, Msg::Reject(r)));
-                    self.compat_log.push(CompatNote { player: from, issues: found, refused: true });
+                    self.compat_log.push(CompatNote {
+                        player: from,
+                        issues: found,
+                        refused: true,
+                    });
                 } else {
-                    if let crate::compat::Verdict::Warn(found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                    if let crate::compat::Verdict::Warn(found) =
+                        crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat)
+                    {
                         out.push((from, Msg::Incompat(self.cfg.hello.clone())));
-                        self.compat_log.push(CompatNote { player: from, issues: found, refused: false });
+                        self.compat_log.push(CompatNote {
+                            player: from,
+                            issues: found,
+                            refused: false,
+                        });
                     }
                     self.guests.entry(from).or_default().active = false;
+                    self.refused_full.remove(&from);
                     out.push((
                         from,
                         Msg::Welcome {
@@ -200,12 +316,20 @@ impl HostSync {
                     out.push((from, Msg::Reject(RejectReason::SessionMismatch)));
                 }
             }
-            Msg::Rejoin { session, last_seq, have_rev } => {
+            Msg::Rejoin {
+                session,
+                last_seq,
+                have_rev,
+            } => {
                 if !self.guests.contains_key(&from) {
                     out.push((from, Msg::Reject(RejectReason::SessionMismatch)));
                     return out;
                 }
-                let req = RejoinRequest { session, last_seq, have_rev };
+                let req = RejoinRequest {
+                    session,
+                    last_seq,
+                    have_rev,
+                };
                 match session::decide_rejoin(&self.cursor_for(from), &req) {
                     RejoinDecision::Resume { base } => {
                         self.ring.resume_from(from, base);
@@ -227,14 +351,27 @@ impl HostSync {
                     self.inputs.push((from, tick, payload));
                 }
             }
-            Msg::Intent { id, epoch, changes } => out.extend(self.on_intent(from, id, epoch, changes)),
-            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_) | Msg::Scene(_) | Msg::Interact(_) | Msg::Roam(_) | Msg::Combat(_)) => {
+            Msg::Intent { id, epoch, changes } => {
+                out.extend(self.on_intent(from, id, epoch, changes))
+            }
+            m @ (Msg::Avatar(_)
+            | Msg::Actor(_)
+            | Msg::Dialogue(_)
+            | Msg::Loot(_)
+            | Msg::Rules(_)
+            | Msg::Social(_)
+            | Msg::Scene(_)
+            | Msg::Interact(_)
+            | Msg::Roam(_)
+            | Msg::Combat(_)) => {
                 if self.guests.get(&from).map_or(false, |g| g.active) {
                     out.extend(self.live.on_msg(from, m, self.now_ms, &mut self.auth));
                 }
             }
             Msg::Ping { nonce } => out.push((from, Msg::Pong { nonce })),
-            Msg::RepairRequest { rev, shards } => out.extend(self.on_repair_request(from, rev, shards)),
+            Msg::RepairRequest { rev, shards } => {
+                out.extend(self.on_repair_request(from, rev, shards))
+            }
             _ => {}
         }
         out
@@ -247,18 +384,26 @@ impl HostSync {
         epoch: Epoch,
         changes: Vec<(FormId, Field)>,
     ) -> Vec<(PlayerId, Msg)> {
-        let Some(g) = self.guests.get_mut(&from) else { return vec![] };
+        let Some(g) = self.guests.get_mut(&from) else {
+            return vec![];
+        };
         if !g.active {
             return vec![];
         }
         if id <= g.last_intent {
             // retransmission: repeat the verdict, apply nothing
-            return vec![(from, Msg::IntentAck { id, rejected: g.last_rejected })];
+            return vec![(
+                from,
+                Msg::IntentAck {
+                    id,
+                    rejected: g.last_rejected,
+                },
+            )];
         }
         let mut rejected = 0u16;
         for (form, field) in changes {
             if self.auth.check_write(from, epoch, form, &field).is_ok() {
-                self.store.write_local(form, field);
+                self.write_logged(form, field);
             } else {
                 rejected += 1;
             }
@@ -269,7 +414,12 @@ impl HostSync {
         vec![(from, Msg::IntentAck { id, rejected })]
     }
 
-    fn on_repair_request(&mut self, from: PlayerId, rev: Rev, shards: Vec<u64>) -> Vec<(PlayerId, Msg)> {
+    fn on_repair_request(
+        &mut self,
+        from: PlayerId,
+        rev: Rev,
+        shards: Vec<u64>,
+    ) -> Vec<(PlayerId, Msg)> {
         let (Some(theirs), Some(ours)) = (ShardHashes::from_vec(shards), self.hist.get(rev)) else {
             return vec![];
         };
@@ -293,7 +443,12 @@ impl HostSync {
         self.tick = Tick(self.tick.0 + 1);
         let mut out = std::mem::take(&mut self.deferred);
         out.extend(self.live.tick(self.now_ms, &mut self.auth));
-        let active: Vec<PlayerId> = self.guests.iter().filter(|(_, g)| g.active).map(|(p, _)| *p).collect();
+        let active: Vec<PlayerId> = self
+            .guests
+            .iter()
+            .filter(|(_, g)| g.active)
+            .map(|(p, _)| *p)
+            .collect();
         for p in active {
             match self.ring.plan(p, self.store.rev()) {
                 SendPlan::Nothing => {}
@@ -341,7 +496,16 @@ impl HostSync {
         self.guests
             .iter()
             .filter(|(_, g)| g.active)
-            .map(|(p, _)| (*p, Msg::Hash { tick: self.tick, rev, root }))
+            .map(|(p, _)| {
+                (
+                    *p,
+                    Msg::Hash {
+                        tick: self.tick,
+                        rev,
+                        root,
+                    },
+                )
+            })
             .collect()
     }
 

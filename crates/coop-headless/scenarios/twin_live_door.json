@@ -1,0 +1,28 @@
+{
+  "name": "twin_live_door",
+  "description": "MUTATION TWIN of live_door: the guest neither picks the lock nor takes the door, so the door stays locked and the guest stays in the house. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 20,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 2, "run": "coop enter GSDocMitchellHouseIntDoorREF GSDocMitchellHouse 00000001"},
+    {"at": 6, "run": "coop setlock GSDocMitchellHouseIntDoorREF 2"}
+  ] },
+  "guest": { "script": [
+    {"at": 5, "run": "coop cell GSDocMitchellHouse"},
+    {"at": 8, "run": "coop door GSDocMitchellHouseIntDoorREF"}
+  ] },
+  "expect": [
+    {"id": "locked-door-refused", "path": "interact.refused", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "picked", "path": "interact.lockpick", "op": "ge", "value": 1, "on": "guest"},
+    {"id": "unlocked-host", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "host"},
+    {"id": "unlocked-guest", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "guest"},
+    {"id": "guest-outside-own", "path": "live.roam.cells.guest", "op": "eq", "value": 896699, "on": "guest"},
+    {"id": "guest-outside-host-view", "path": "live.roam.cells.guest", "op": "eq", "value": 894758, "on": "host"},
+    {"id": "guest-took-the-door", "path": "interact.transition", "op": "ge", "value": 1, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

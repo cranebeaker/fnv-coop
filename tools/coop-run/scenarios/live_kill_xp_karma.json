@@ -1,0 +1,48 @@
+{
+  "name": "live_kill_xp_karma",
+  "description": "The host hits Sunny Smiles (very good karma, in a crime-tracking faction) and the guest then kills her. The guest is the killer: the host pays the guest's own shadow experience, and the kill's karma (fKarmaModMurderingVeryGoodNPC, -100) is paid once, for the killer's kill. Karma is one value for the party, so every peer reads karma -100 from its own game state.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit SunnyRef 3"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 13,
+        "run": "coop hit SunnyRef 100000"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.SunnyRef",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "killer-paid-xp",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "killer-karma-once",
+      "path": "karma",
+      "op": "eq",
+      "value": -100,
+      "on": "both"
+    }
+  ]
+}

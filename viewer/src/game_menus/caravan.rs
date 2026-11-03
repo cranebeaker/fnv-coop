@@ -416,6 +416,12 @@ impl CaravanScreen {
                     state.caravan.active = deck;
                 }
                 Effect::Settle { won, stake } => {
+                    // co-op: the host settles the same game in this player's own rows
+                    state.coop_route(world::coop::interact::caravan_act(
+                        self.game.npc,
+                        stake,
+                        won,
+                    ));
                     bet::settle(order, state, self.game.npc, stake, won);
                     self.facts = record_facts(state, self.facts.npc_name.clone());
                     println!("Caravan: {} for {stake}.", if won { "won" } else { "lost" });

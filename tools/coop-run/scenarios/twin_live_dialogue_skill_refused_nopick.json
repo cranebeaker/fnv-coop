@@ -1,0 +1,29 @@
+{
+  "name": "twin_live_dialogue_skill_refused_nopick",
+  "description": "Twin of live_dialogue_skill_refused without the guest's picks. The guest talks to Doc Mitchell but picks no line, so the host has nothing to check or refuse. The run must fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 86,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "player.SetActorValue Medicine 100" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 2, "run": "player.SetActorValue Medicine 10" },
+      { "at": 4, "run": "coop talk DocMitchellREF" }
+    ]
+  },
+  "expect": [
+    { "id": "host-refused", "path": "scene.talk.refused", "op": "eq", "value": 1, "on": "host" },
+    { "id": "guest-told", "path": "scene.talk.refusals", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "allowed-pick-checked", "path": "scene.talk.checked", "op": "ge", "value": 1, "on": "host" },
+    { "id": "allowed-line-played", "path": "live.lines_played", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "no-supplies", "path": "items.guest.VMS16bMedicalSupplies", "op": "absent", "on": "both" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

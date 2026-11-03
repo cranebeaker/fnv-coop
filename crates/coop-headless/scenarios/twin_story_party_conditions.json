@@ -1,0 +1,86 @@
+{
+  "name": "twin_story_party_conditions",
+  "description": "MUTATION TWIN of story_party_conditions: the guest holds no caps, kills nothing, does not move and does not change cell, so no party member satisfies the conditions through the guest. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 66,
+  "duration_s": 28,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "DocMitchellREF.MoveTo DocMitchellCouchREF"
+      },
+      {
+        "at": 2.2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 17,
+        "run": "coop pcond NVDLC02MQ00 IsKiller VCG02Gecko1REF"
+      },
+      {
+        "at": 18,
+        "run": "coop teleport 6000.0 1603.6 7360.0"
+      },
+      {
+        "at": 21,
+        "run": "coop pcond Followers GetDistance DocMitchellREF"
+      },
+      {
+        "at": 25,
+        "run": "coop pcond VMQYesMan01a GetInCell D00001"
+      },
+      {
+        "at": 25.2,
+        "run": "coop pcond VMS35 GetItemCount Caps001"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "itemcount-any",
+      "path": "campaign.probes.VMS35_GetItemCount",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "distance-min",
+      "path": "campaign.probes.Followers_GetDistance",
+      "op": "lt",
+      "value": 300,
+      "on": "host"
+    },
+    {
+      "id": "gecko-dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "iskiller-any",
+      "path": "campaign.probes.NVDLC02MQ00_IsKiller",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "incell-any",
+      "path": "campaign.probes.VMQYesMan01a_GetInCell",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    }
+  ],
+  "expect_fail": true
+}

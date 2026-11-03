@@ -18,7 +18,11 @@ impl LogFile {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             fs::create_dir_all(dir)?;
         }
-        let file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
         Ok(LogFile { file })
     }
 

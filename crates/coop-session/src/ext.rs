@@ -161,7 +161,8 @@ impl R<'_> {
         self.take(2).map(|b| u16::from_le_bytes([b[0], b[1]]))
     }
     fn u32(&mut self) -> Option<u32> {
-        self.take(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        self.take(4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
     fn f32(&mut self) -> Option<f32> {
         self.u32().map(f32::from_bits)
@@ -282,12 +283,19 @@ impl Ext {
                 Ext::Cmd { id, cmd }
             }
             3 => Ext::CmdAck(r.u32()?),
-            4 => Ext::Info { name: r.str()?, rtt_ms: r.u32()? },
+            4 => Ext::Info {
+                name: r.str()?,
+                rtt_ms: r.u32()?,
+            },
             5 => {
                 let n = r.u8()?;
                 let mut list = Vec::new();
                 for _ in 0..n {
-                    list.push(PeerInfo { player: PlayerId(r.u8()?), name: r.str()?, rtt_ms: r.u32()? });
+                    list.push(PeerInfo {
+                        player: PlayerId(r.u8()?),
+                        name: r.str()?,
+                        rtt_ms: r.u32()?,
+                    });
                 }
                 Ext::Roster(list)
             }
@@ -312,7 +320,13 @@ impl Ext {
                 for _ in 0..r.u8()? {
                     perks.push(r.u32()?);
                 }
-                Ext::Character(Sheet { name, female, special, tags, perks })
+                Ext::Character(Sheet {
+                    name,
+                    female,
+                    special,
+                    tags,
+                    perks,
+                })
             }
             8 => Ext::SheetAck,
             9 => {
@@ -333,20 +347,51 @@ mod tests {
     #[test]
     fn round_trips() {
         let all = [
-            Ext::Place(Place { cell: 0x1234, world: 0, pos: None }),
-            Ext::Place(Place { cell: 5, world: 9, pos: Some([1.0, -2.5, 3.0]) }),
-            Ext::Cmd { id: 7, cmd: Command::Line("player.additem f 1".into()) },
-            Ext::Cmd { id: 8, cmd: Command::Stage("VCG01".into(), 20) },
+            Ext::Place(Place {
+                cell: 0x1234,
+                world: 0,
+                pos: None,
+            }),
+            Ext::Place(Place {
+                cell: 5,
+                world: 9,
+                pos: Some([1.0, -2.5, 3.0]),
+            }),
+            Ext::Cmd {
+                id: 7,
+                cmd: Command::Line("player.additem f 1".into()),
+            },
+            Ext::Cmd {
+                id: 8,
+                cmd: Command::Stage("VCG01".into(), 20),
+            },
             Ext::CmdAck(7),
-            Ext::Info { name: "Ann".into(), rtt_ms: 33 },
+            Ext::Info {
+                name: "Ann".into(),
+                rtt_ms: 33,
+            },
             Ext::Party(vec![1, 2, 3]),
             Ext::Roster(vec![
-                PeerInfo { player: PlayerId(0), name: "Host".into(), rtt_ms: 0 },
-                PeerInfo { player: PlayerId(2), name: "Bo".into(), rtt_ms: 90 },
+                PeerInfo {
+                    player: PlayerId(0),
+                    name: "Host".into(),
+                    rtt_ms: 0,
+                },
+                PeerInfo {
+                    player: PlayerId(2),
+                    name: "Bo".into(),
+                    rtt_ms: 90,
+                },
             ]),
             Ext::Opening(Opening::InProgress),
             Ext::Opening(Opening::Over),
-            Ext::Character(Sheet { name: "Bo".into(), female: Some(true), special: [1, 2, 3, 4, 5, 6, 10], tags: vec![32, 41], perks: vec![0x1234, 7] }),
+            Ext::Character(Sheet {
+                name: "Bo".into(),
+                female: Some(true),
+                special: [1, 2, 3, 4, 5, 6, 10],
+                tags: vec![32, 41],
+                perks: vec![0x1234, 7],
+            }),
             Ext::Character(Sheet::default()),
             Ext::SheetAck,
         ];
@@ -368,9 +413,17 @@ mod tests {
 
     #[test]
     fn place_query_and_key() {
-        let i = Place { cell: 0xAB, world: 0, pos: None };
+        let i = Place {
+            cell: 0xAB,
+            world: 0,
+            pos: None,
+        };
         assert_eq!(i.query(), "000000AB");
-        let o = Place { cell: 1, world: 0xCD, pos: None };
+        let o = Place {
+            cell: 1,
+            world: 0xCD,
+            pos: None,
+        };
         assert_eq!(o.query(), "000000CD");
         assert_ne!(i.key(), o.key());
     }

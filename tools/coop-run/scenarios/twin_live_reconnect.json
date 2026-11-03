@@ -18,11 +18,11 @@
     "script": [
       {
         "at": 3,
-        "run": "coop teleport 2552 1603.6 7360.0"
+        "run": "coop teleport 2178 2300 7360.0"
       },
       {
         "at": 20,
-        "run": "coop teleport 2152 1403.6 7360.0"
+        "run": "coop teleport 1961 1690 7360.0"
       }
     ]
   },
@@ -40,8 +40,8 @@
       "path": "positions.host",
       "op": "near",
       "value": [
-        2552,
-        1603.6
+        2178.0,
+        2300.0
       ],
       "tol": 80,
       "dims": 2,

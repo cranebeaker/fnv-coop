@@ -14,9 +14,12 @@ use testdata::quest_ids::*;
 use world::coop::apply::{Ctx, Opts};
 use world::coop::export::{domain_of, export};
 use world::coop::facts::puppet_of;
-use world::coop::party_char::{baseline_diff, baseline_of, carry_coop, install_for_slot, sanitize_offer, CharacterFile};
+use world::coop::party_char::{
+    baseline_diff, baseline_of, carry_coop, install_for_slot, sanitize_offer, CharacterFile,
+};
 use world::coop::party_save::{
-    is_synthetic, load_party, party_dir_for, write_party, write_party_with, GuestSidecar, PartySave, Problem, Step,
+    is_synthetic, load_party, party_dir_for, write_party, write_party_with, GuestSidecar,
+    PartySave, Problem, Step,
 };
 use world::coop::shadow::{shadow_form, PlayerShadow};
 use world::coop::{Authority, Domain, GuestBridge, HostBridge, ShadowPlan, WorldBackend};
@@ -29,10 +32,11 @@ const CAMPAIGN: u64 = 0x00ab_12cd_34ef_5678;
 
 fn table() -> Arc<PolicyTable> {
     let json = format!(
-        r#"{{"schema":1,
+        r#"{{"schema":2,
 "policy":{{"death":{{"mode":"downed","revive_s":60,"all_down":"reload-host-save"}},"late_join":{{"during_scene":"wait","after_scene":"warp-to-zone"}},"barrier_timeout_s":120,"tether_timeout_s":120,"follower_cap":{{"humanoid":1,"critter":1}},"party_cap":4}},
 "shadow_classes":{{"skills":"per_player","perks":"per_player","followers":"per_player","karma":"shared","reputation":"shared"}},
-"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host","scope":"per_player","save_suppress":true}}]}}"#
+"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","local":"0x{:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host","scope":"per_player","save_suppress":true}}]}}"#,
+        QUEST & 0x00FF_FFFF
     );
     Arc::new(PolicyTable::from_json(&json).expect("table"))
 }
@@ -71,7 +75,11 @@ impl<'a> Rig<'a> {
             host.register_player(s);
             host.with_player(s, |g| g.stock(order, PLAYER_REF));
         }
-        host.coop.gate.as_mut().unwrap().set_present((0..=2).map(PlayerId));
+        host.coop
+            .gate
+            .as_mut()
+            .unwrap()
+            .set_present((0..=2).map(PlayerId));
         let guests = (1..=2u8)
             .map(|s| {
                 let mut g = GameState::new(order);
@@ -103,7 +111,13 @@ impl<'a> Rig<'a> {
         self.sim.step();
         for i in 0..self.guests.len() {
             if self.sim.guests[i].sync.phase() == GuestPhase::Active {
-                let opts = Opts { present: true, ctx: Some(Ctx { order: self.order, scripts: self.scripts }) };
+                let opts = Opts {
+                    present: true,
+                    ctx: Some(Ctx {
+                        order: self.order,
+                        scripts: self.scripts,
+                    }),
+                };
                 let store = &self.sim.guests[i].sync.store;
                 self.gbs[i].sync(&mut self.guests[i], store, false, opts);
             }
@@ -146,7 +160,11 @@ fn shared_hash(gs: &GameState) -> u64 {
 
 /// The shared records (shadows left out), for readable diffs.
 fn shared_fields(gs: &GameState) -> Vec<String> {
-    export(gs).into_iter().filter(|(k, _)| domain_of(k) != Domain::Shadow).map(|(k, f)| format!("{k:?} = {f:?}")).collect()
+    export(gs)
+        .into_iter()
+        .filter(|(k, _)| domain_of(k) != Domain::Shadow)
+        .map(|(k, f)| format!("{k:?} = {f:?}"))
+        .collect()
 }
 
 /// Makes the three characters different and the world interesting.
@@ -163,7 +181,10 @@ fn play(rig: &mut Rig, order: &LoadOrder, scripts: &ScriptCache) {
         g.player_level = 8;
         g.stages.insert(FormId(QUEST), 10);
     });
-    *rig.host.items.entry((PLAYER_REF, FormId(CAPS))).or_insert(0) += 1000;
+    *rig.host
+        .items
+        .entry((PLAYER_REF, FormId(CAPS)))
+        .or_insert(0) += 1000;
     rig.host.player_level = 2;
     rig.host.topics.insert(FormId(TOPIC_SECRET));
     let mut r = Runner::new(order, scripts, &mut rig.host);
@@ -173,7 +194,9 @@ fn play(rig: &mut Rig, order: &LoadOrder, scripts: &ScriptCache) {
 fn capture(rig: &Rig, keys: [u64; 2], seq: u32) -> PartySave {
     let guests = [(1u8, keys[0], "Ann"), (2u8, keys[1], "Bo")]
         .iter()
-        .map(|(slot, key, name)| GuestSidecar::from_shadow(*key, name, *slot, true, &rig.host.shadow_of(*slot).unwrap()))
+        .map(|(slot, key, name)| {
+            GuestSidecar::from_shadow(*key, name, *slot, true, &rig.host.shadow_of(*slot).unwrap())
+        })
         .collect();
     PartySave {
         campaign: CAMPAIGN,
@@ -182,12 +205,20 @@ fn capture(rig: &Rig, keys: [u64; 2], seq: u32) -> PartySave {
         saved_unix: 1_700_000_000,
         world_text: world::save::save(&rig.host, None),
         guests,
+        rules: Default::default(),
     }
 }
 
 /// What a joining guest with `key` gets from a loaded party save, installed on the host.
-fn rejoin(host: &mut GameState, loaded: &world::coop::party_save::LoadedParty, slot: u8, key: u64) -> bool {
-    let Some(sc) = loaded.guest(key) else { return false };
+fn rejoin(
+    host: &mut GameState,
+    loaded: &world::coop::party_save::LoadedParty,
+    slot: u8,
+    key: u64,
+) -> bool {
+    let Some(sc) = loaded.guest(key) else {
+        return false;
+    };
     let plan = host.coop.bank.plan.clone().unwrap();
     let (sh, _) = sanitize_offer(sc.shadow().unwrap(), &plan, true);
     install_for_slot(host, slot, sh)
@@ -203,7 +234,10 @@ fn save_drop_everything_load_rejoin_in_swapped_slots() {
         assert!(rig.settle(), "first session did not converge ({chaos})");
         let hash = shared_hash(&rig.host);
         let before = shared_fields(&rig.host);
-        let (ann, bo) = (rig.host.shadow_of(1).unwrap(), rig.host.shadow_of(2).unwrap());
+        let (ann, bo) = (
+            rig.host.shadow_of(1).unwrap(),
+            rig.host.shadow_of(2).unwrap(),
+        );
         let host_me = PlayerShadow::read(&rig.host, rig.host.coop.bank.plan.as_ref().unwrap());
         assert_ne!(ann, bo);
         let dir = tmp("round").join("Save 1.txt.partysave");
@@ -224,17 +258,37 @@ fn save_drop_everything_load_rejoin_in_swapped_slots() {
         let after = shared_fields(&rig.host);
         let only_before: Vec<_> = before.iter().filter(|x| !after.contains(x)).collect();
         let only_after: Vec<_> = after.iter().filter(|x| !before.contains(x)).collect();
-        assert!(only_before.is_empty() && only_after.is_empty(), "lost {only_before:?} gained {only_after:?}");
-        assert_eq!(shared_hash(&rig.host), hash, "shared state identical after the load ({chaos})");
+        assert!(
+            only_before.is_empty() && only_after.is_empty(),
+            "lost {only_before:?} gained {only_after:?}"
+        );
+        assert_eq!(
+            shared_hash(&rig.host),
+            hash,
+            "shared state identical after the load ({chaos})"
+        );
         assert_eq!(rig.host.shadow_of(1).unwrap(), bo, "slot 1 is B now");
         assert_eq!(rig.host.shadow_of(2).unwrap(), ann, "slot 2 is A now");
-        assert_eq!(PlayerShadow::read(&rig.host, rig.host.coop.bank.plan.as_ref().unwrap()), host_me);
+        assert_eq!(
+            PlayerShadow::read(&rig.host, rig.host.coop.bank.plan.as_ref().unwrap()),
+            host_me
+        );
         // the guests hold their own rows live
         assert_eq!(rig.guests[0].shadow_of(1).unwrap(), bo);
         assert_eq!(rig.guests[1].shadow_of(2).unwrap(), ann);
-        assert_eq!(rig.guests[1].items.get(&(PLAYER_REF, FormId(CAPS))).copied(), ann.items.get(&FormId(CAPS)).copied(), "per-player caps");
+        assert_eq!(
+            rig.guests[1]
+                .items
+                .get(&(PLAYER_REF, FormId(CAPS)))
+                .copied(),
+            ann.items.get(&FormId(CAPS)).copied(),
+            "per-player caps"
+        );
         assert!(ann.items.get(&FormId(CAPS)).copied().unwrap_or(0) >= 70);
-        assert!(!rig.host.stages.contains_key(&FormId(QUEST)), "the per-player quest is not shared");
+        assert!(
+            !rig.host.stages.contains_key(&FormId(QUEST)),
+            "the per-player quest is not shared"
+        );
         assert_eq!(ann.quest_stage.get(&FormId(QUEST)), Some(&30));
         assert_eq!(bo.quest_stage.get(&FormId(QUEST)), Some(&10));
         assert!(rig.host.topics.contains(&FormId(TOPIC_SECRET)));
@@ -261,7 +315,10 @@ fn an_unmatched_joiner_gets_a_fresh_character_and_nobody_else_changes() {
     carry_coop(&mut rig.host, &mut state, Some(&order));
     rig.host = state;
     assert!(rejoin(&mut rig.host, &loaded, 2, KEY_A));
-    assert!(!rejoin(&mut rig.host, &loaded, 1, KEY_B), "no sidecar for B");
+    assert!(
+        !rejoin(&mut rig.host, &loaded, 1, KEY_B),
+        "no sidecar for B"
+    );
     assert!(rig.settle());
     assert_eq!(rig.host.shadow_of(2).unwrap(), ann);
     let fresh = rig.host.shadow_of(1).unwrap();
@@ -302,12 +359,26 @@ fn a_late_joiner_brings_its_own_character_under_the_hosts_shared_state() {
     assert_eq!(got.level, 12);
     assert_eq!(got.items.get(&FormId(CAPS)), Some(&999));
     assert!(got.perks.contains(&FormId(0x77)));
-    assert_eq!(got.quest_stage.get(&FormId(QUEST)), Some(&30), "personal quest progress is theirs");
-    assert!(!got.quest_stage.contains_key(&FormId(0xDEAD)), "the shared quest is not theirs");
-    assert_eq!(rig.guests[1].stages.get(&FormId(0xDEAD)), Some(&50), "the host's shared stage wins");
+    assert_eq!(
+        got.quest_stage.get(&FormId(QUEST)),
+        Some(&30),
+        "personal quest progress is theirs"
+    );
+    assert!(
+        !got.quest_stage.contains_key(&FormId(0xDEAD)),
+        "the shared quest is not theirs"
+    );
+    assert_eq!(
+        rig.guests[1].stages.get(&FormId(0xDEAD)),
+        Some(&50),
+        "the host's shared stage wins"
+    );
     assert!(got.cell.is_none());
     assert!(!got.items.keys().any(|f| is_synthetic(*f)));
-    assert_eq!(baseline_of(&rig.host).iter().find(|(q, _)| *q == 0xDEAD), Some(&(0xDEAD, 50)));
+    assert_eq!(
+        baseline_of(&rig.host).iter().find(|(q, _)| *q == 0xDEAD),
+        Some(&(0xDEAD, 50))
+    );
 }
 
 #[test]
@@ -326,7 +397,12 @@ fn puppets_and_shadow_forms_never_reach_a_save() {
     rig.host.positions.insert(p, ([1.0, 2.0, 3.0], 0.0));
     rig.host.topics.insert(shadow_form(2));
     let text = world::save::save(&rig.host, None);
-    assert!(text.lines().any(|l| l.split_whitespace().any(|w| w.len() == 8 && w.starts_with("FE0000"))), "precondition: the raw text has them");
+    assert!(
+        text.lines().any(|l| l
+            .split_whitespace()
+            .any(|w| w.len() == 8 && w.starts_with("FE0000"))),
+        "precondition: the raw text has them"
+    );
     let mut save = capture(&rig, [KEY_A, KEY_B], 1);
     save.world_text = text;
     let mut sh = rig.host.shadow_of(1).unwrap();
@@ -340,7 +416,10 @@ fn puppets_and_shadow_forms_never_reach_a_save() {
     for l in raw.lines() {
         for w in l.split_whitespace() {
             if w.len() == 8 && w.bytes().all(|b| b.is_ascii_hexdigit()) {
-                assert!(!is_synthetic(FormId(u32::from_str_radix(w, 16).unwrap())), "synthetic id on disk: {l}");
+                assert!(
+                    !is_synthetic(FormId(u32::from_str_radix(w, 16).unwrap())),
+                    "synthetic id on disk: {l}"
+                );
             }
         }
     }
@@ -349,7 +428,10 @@ fn puppets_and_shadow_forms_never_reach_a_save() {
     assert!(!ann.items.contains_key(&p) && ann.teammates.is_empty());
     // loading the text back gives a state with none of them
     let (state, _) = world::save::load(&loaded.save.world_text).unwrap();
-    assert!(!state.items.keys().any(|(a, b)| is_synthetic(*a) || is_synthetic(*b)));
+    assert!(!state
+        .items
+        .keys()
+        .any(|(a, b)| is_synthetic(*a) || is_synthetic(*b)));
     assert!(!state.disabled.contains_key(&p));
 }
 
@@ -366,7 +448,13 @@ fn damaged_files_cost_only_their_guest_and_failed_writes_keep_the_old_save() {
     // a write that fails half way
     let mut next = capture(&rig, [KEY_A, KEY_B], 2);
     next.world_text.push_str("level 99\n");
-    let r = write_party_with(&dir, &next, &mut |s| if s == Step::File(2) { Err(std::io::Error::other("disk full")) } else { Ok(()) });
+    let r = write_party_with(&dir, &next, &mut |s| {
+        if s == Step::File(2) {
+            Err(std::io::Error::other("disk full"))
+        } else {
+            Ok(())
+        }
+    });
     assert!(r.is_err());
     assert_eq!(load_party(&dir).unwrap(), old);
     // a damaged sidecar: B gets a fresh character, A is intact
@@ -387,12 +475,22 @@ fn a_scene_holds_the_host_save() {
     let mut rig = Rig::new(&order, &scripts, "perfect");
     let dir = tmp("lock");
     let path = dir.join("q.txt");
-    rig.host.coop.gate.as_mut().unwrap().scene(FormId(QUEST), true);
+    rig.host
+        .coop
+        .gate
+        .as_mut()
+        .unwrap()
+        .scene(FormId(QUEST), true);
     assert!(rig.host.coop_save_blocked());
     let err = world::save::save_to_path(&path, &rig.host, None).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
     assert!(!path.exists());
-    rig.host.coop.gate.as_mut().unwrap().scene(FormId(QUEST), false);
+    rig.host
+        .coop
+        .gate
+        .as_mut()
+        .unwrap()
+        .scene(FormId(QUEST), false);
     world::save::save_to_path(&path, &rig.host, None).unwrap();
     assert!(path.exists());
     assert_eq!(party_dir_for(&path), dir.join("q.txt.partysave"));

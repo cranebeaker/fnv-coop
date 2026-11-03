@@ -17,6 +17,9 @@ path = "src/main.rs"
 coop-core = { path = "../coop-core", features = ["testkit"] }
 coop-session = { path = "../coop-session" }
 coop-voice = { path = "../coop-voice" }
+# steam-mock: MockSteam and SteamBackend for the checklist's Steam check, no DLL loader.
+coop-net = { path = "../coop-net", features = ["steam-mock"] }
+nv-launcher = { path = "../nv-launcher" }
 coop-policy = { path = "../coop-policy" }
 world = { path = "../world" }
 esm = { path = "../esm" }

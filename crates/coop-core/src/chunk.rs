@@ -27,15 +27,28 @@ pub fn split(id: Seq, bytes: &[u8], max: usize) -> Result<Vec<Chunk>> {
     let max = max.max(1);
     let n = bytes.len().div_ceil(max).max(1);
     if n > MAX_CHUNKS as usize {
-        return Err(Error::TooLarge { len: bytes.len(), max: max * MAX_CHUNKS as usize });
+        return Err(Error::TooLarge {
+            len: bytes.len(),
+            max: max * MAX_CHUNKS as usize,
+        });
     }
     let mut out: Vec<Chunk> = bytes
         .chunks(max)
         .enumerate()
-        .map(|(i, c)| Chunk { id, index: i as u16, total: n as u16, data: c.to_vec() })
+        .map(|(i, c)| Chunk {
+            id,
+            index: i as u16,
+            total: n as u16,
+            data: c.to_vec(),
+        })
         .collect();
     if out.is_empty() {
-        out.push(Chunk { id, index: 0, total: 1, data: Vec::new() });
+        out.push(Chunk {
+            id,
+            index: 0,
+            total: 1,
+            data: Vec::new(),
+        });
     }
     Ok(out)
 }
@@ -114,22 +127,86 @@ mod tests {
     #[test]
     fn bad_chunks() {
         let mut r = Reassembler::new();
-        assert!(r.push(Chunk { id: Seq(1), index: 0, total: 0, data: vec![] }).is_err());
-        assert!(r.push(Chunk { id: Seq(1), index: 2, total: 2, data: vec![] }).is_err());
-        r.push(Chunk { id: Seq(1), index: 0, total: 2, data: vec![1] }).unwrap();
-        assert!(r.push(Chunk { id: Seq(1), index: 1, total: 3, data: vec![1] }).is_err());
+        assert!(r
+            .push(Chunk {
+                id: Seq(1),
+                index: 0,
+                total: 0,
+                data: vec![]
+            })
+            .is_err());
+        assert!(r
+            .push(Chunk {
+                id: Seq(1),
+                index: 2,
+                total: 2,
+                data: vec![]
+            })
+            .is_err());
+        r.push(Chunk {
+            id: Seq(1),
+            index: 0,
+            total: 2,
+            data: vec![1],
+        })
+        .unwrap();
+        assert!(r
+            .push(Chunk {
+                id: Seq(1),
+                index: 1,
+                total: 3,
+                data: vec![1]
+            })
+            .is_err());
     }
 
     #[test]
     fn newer_blob_restarts_older_ignored() {
         let mut r = Reassembler::new();
-        r.push(Chunk { id: Seq(5), index: 0, total: 2, data: vec![1] }).unwrap();
-        r.push(Chunk { id: Seq(6), index: 0, total: 2, data: vec![2] }).unwrap();
-        assert_eq!(r.push(Chunk { id: Seq(5), index: 1, total: 2, data: vec![9] }).unwrap(), None);
-        let out = r.push(Chunk { id: Seq(6), index: 1, total: 2, data: vec![3] }).unwrap();
+        r.push(Chunk {
+            id: Seq(5),
+            index: 0,
+            total: 2,
+            data: vec![1],
+        })
+        .unwrap();
+        r.push(Chunk {
+            id: Seq(6),
+            index: 0,
+            total: 2,
+            data: vec![2],
+        })
+        .unwrap();
+        assert_eq!(
+            r.push(Chunk {
+                id: Seq(5),
+                index: 1,
+                total: 2,
+                data: vec![9]
+            })
+            .unwrap(),
+            None
+        );
+        let out = r
+            .push(Chunk {
+                id: Seq(6),
+                index: 1,
+                total: 2,
+                data: vec![3],
+            })
+            .unwrap();
         assert_eq!(out, Some(vec![2, 3]));
         // late duplicate of finished blob does not restart
-        assert_eq!(r.push(Chunk { id: Seq(6), index: 0, total: 2, data: vec![2] }).unwrap(), None);
+        assert_eq!(
+            r.push(Chunk {
+                id: Seq(6),
+                index: 0,
+                total: 2,
+                data: vec![2]
+            })
+            .unwrap(),
+            None
+        );
     }
 
     proptest! {

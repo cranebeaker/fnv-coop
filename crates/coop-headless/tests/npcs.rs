@@ -13,7 +13,11 @@ fn data(tag: &str) -> (testdata::TempData, Arc<Data>) {
 }
 
 fn scn(body: &str) -> Scenario {
-    Scenario::parse(&format!(r#"{{"cell":"TestFightCell","duration_s":12,"settle_s":4,{body}}}"#), "t").unwrap()
+    Scenario::parse(
+        &format!(r#"{{"cell":"TestFightCell","duration_s":12,"settle_s":4,{body}}}"#),
+        "t",
+    )
+    .unwrap()
 }
 
 /// Everyone placed in the cell is known to both peers, alive, owned by
@@ -68,22 +72,50 @@ fn a_host_made_creature_appears_once_on_the_guest_and_dies_once_on_both() {
 #[test]
 fn the_twin_without_the_spawn_fails_as_expected() {
     let (_t, d) = data("npcs-twin");
-    let twin = SPAWN.replace(r#""script":[{"at":2,"run":"TestGuardRef.PlaceAtMe TestFightGecko 1"}]"#, r#""script":[]"#);
-    let r = run(&scn(&format!(r#"{twin},"expect_fail":true"#)), &d, &RunOpts::default());
-    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+    let twin = SPAWN.replace(
+        r#""script":[{"at":2,"run":"TestGuardRef.PlaceAtMe TestFightGecko 1"}]"#,
+        r#""script":[]"#,
+    );
+    let r = run(
+        &scn(&format!(r#"{twin},"expect_fail":true"#)),
+        &d,
+        &RunOpts::default(),
+    );
+    assert_eq!(
+        (r.verdict.result.as_str(), r.verdict.class.as_str()),
+        ("pass", "twin"),
+        "{}",
+        r.verdict.reason
+    );
 }
 
 #[test]
 fn people_and_a_spawn_hold_on_every_chaos_profile() {
     use coop_headless::suite::{plan, run_jobs, summary};
     let (_t, d) = data("npcs-soak");
-    let scns = vec![("live_npcs_present.json".to_string(), scn(NPCS)), ("live_creature_spawn_shared.json".to_string(), scn(SPAWN))];
+    let scns = vec![
+        ("live_npcs_present.json".to_string(), scn(NPCS)),
+        ("live_creature_spawn_shared.json".to_string(), scn(SPAWN)),
+    ];
     let jobs = plan(&scns, Some(&[1, 2, 3]), true, None);
     assert_eq!(jobs.len(), 2 * 7 * 3);
     let done = run_jobs(&d, jobs, 3, None, true, None, false, false);
-    let bad: Vec<String> = done.iter().filter(|x| x.result != "pass").map(|x| format!("{} {} seed {} {}", x.scenario, x.net, x.seed, x.result)).collect();
-    assert!(bad.is_empty(), "failing: {bad:?}
-{}", summary(&done, true).join("
-"));
-    assert!(done.iter().all(|x| x.hash2 == Some(x.hash)), "deterministic");
+    let bad: Vec<String> = done
+        .iter()
+        .filter(|x| x.result != "pass")
+        .map(|x| format!("{} {} seed {} {}", x.scenario, x.net, x.seed, x.result))
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "failing: {bad:?}
+{}",
+        summary(&done, true).join(
+            "
+"
+        )
+    );
+    assert!(
+        done.iter().all(|x| x.hash2 == Some(x.hash)),
+        "deterministic"
+    );
 }

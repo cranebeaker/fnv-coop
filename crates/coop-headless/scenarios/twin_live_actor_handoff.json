@@ -1,0 +1,20 @@
+{
+  "name": "twin_live_actor_handoff",
+  "description": "MUTATION TWIN of live_actor_handoff: the host stays in Doc Mitchell's house, so the host keeps Doc and no handoff happens. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "guest-took-over", "path": "actors.DocMitchellREF.owner", "op": "eq", "value": "me", "on": "guest"},
+    {"id": "host-let-go", "path": "actors.DocMitchellREF.owner", "op": "eq", "value": "other", "on": "host"},
+    {"id": "host-counts-guest-owned", "path": "live.roam.owned.guest", "op": "eq", "value": 1, "on": "host"},
+    {"id": "host-left-the-cell", "path": "live.roam.cells.host", "op": "eq", "value": 1073541, "on": "host"},
+    {"id": "host-mirrors-none", "path": "live.roam.remote_actors", "op": "eq", "value": 0, "on": "host"},
+    {"id": "shared-hash", "path": "hash.shared", "on": "equal"}
+  ]
+}

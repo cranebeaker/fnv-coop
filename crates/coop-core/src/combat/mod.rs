@@ -290,7 +290,9 @@ impl CombatMsg {
             CombatMsg::VatsQueue { shots, .. } => {
                 !shots.is_empty()
                     && shots.len() <= MAX_VATS_SHOTS
-                    && shots.iter().all(|s| s.damage <= MAX_PLAYER_HIT && s.limb <= LIMB_COUNT)
+                    && shots
+                        .iter()
+                        .all(|s| s.damage <= MAX_PLAYER_HIT && s.limb <= LIMB_COUNT)
             }
             CombatMsg::VatsDone { results, .. } => results.len() <= MAX_VATS_SHOTS,
             CombatMsg::Blast(b) => b.damage <= MAX_PLAYER_HIT && b.radius <= 4096,

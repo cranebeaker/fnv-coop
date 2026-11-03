@@ -1,0 +1,82 @@
+{
+  "name": "twin_live_weather_time",
+  "description": "MUTATION TWIN of live_weather_time: the guest never votes and the host never forces the weather. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 91,
+  "duration_s": 14,
+  "settle_s": 8,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop wait 3"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "skips-host",
+      "path": "time.skips",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "skips-guest",
+      "path": "time.skips",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "hours-host",
+      "path": "time.hours",
+      "op": "eq",
+      "value": 3,
+      "on": "host"
+    },
+    {
+      "id": "hours-guest",
+      "path": "time.hours",
+      "op": "eq",
+      "value": 3,
+      "on": "guest"
+    },
+    {
+      "id": "clock",
+      "path": "globals.GameHour",
+      "on": "equal",
+      "tol": 0.4
+    },
+    {
+      "id": "days",
+      "path": "globals.GameDaysPassed",
+      "on": "equal",
+      "tol": 0.05
+    },
+    {
+      "id": "weather-host",
+      "path": "live.weather",
+      "op": "eq",
+      "value": 1051214,
+      "on": "host"
+    },
+    {
+      "id": "weather-guest",
+      "path": "live.weather",
+      "op": "eq",
+      "value": 1051214,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

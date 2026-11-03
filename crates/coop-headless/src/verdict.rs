@@ -101,7 +101,13 @@ pub struct Verdict {
 }
 
 fn dir_json(d: &Dir) -> J {
-    obj(vec![("in", n(d.inn as f64)), ("forwarded", n(d.forwarded as f64)), ("dropped", n(d.dropped as f64)), ("duplicated", n(d.duplicated as f64)), ("reordered", n(d.reordered as f64))])
+    obj(vec![
+        ("in", n(d.inn as f64)),
+        ("forwarded", n(d.forwarded as f64)),
+        ("dropped", n(d.dropped as f64)),
+        ("duplicated", n(d.duplicated as f64)),
+        ("reordered", n(d.reordered as f64)),
+    ])
 }
 
 fn loss_of(profile: &str) -> f64 {
@@ -125,38 +131,107 @@ pub fn judge(scn: &Scenario, run: &RunFacts) -> Verdict {
     }
     for p in [&run.host, &run.guest] {
         if p.started && !p.shutdown_clean {
-            fail("crash", format!("{} has no clean shutdown event", p.role), &mut cls, &mut reason);
+            fail(
+                "crash",
+                format!("{} has no clean shutdown event", p.role),
+                &mut cls,
+                &mut reason,
+            );
         }
     }
     for p in [&run.host, &run.guest] {
         if let Some(e) = p.errors.first() {
-            fail("log", format!("{} logged error: {}", p.role, e.chars().take(120).collect::<String>()), &mut cls, &mut reason);
+            fail(
+                "log",
+                format!(
+                    "{} logged error: {}",
+                    p.role,
+                    e.chars().take(120).collect::<String>()
+                ),
+                &mut cls,
+                &mut reason,
+            );
         }
     }
     for p in [&run.host, &run.guest] {
         if !p.started {
-            fail("hollow", format!("{} wrote no start event (log missing or empty)", p.role), &mut cls, &mut reason);
+            fail(
+                "hollow",
+                format!("{} wrote no start event (log missing or empty)", p.role),
+                &mut cls,
+                &mut reason,
+            );
         } else if !p.ready {
-            fail("hollow", format!("{} never reached coop_ready (single player fallback or no join)", p.role), &mut cls, &mut reason);
+            fail(
+                "hollow",
+                format!(
+                    "{} never reached coop_ready (single player fallback or no join)",
+                    p.role
+                ),
+                &mut cls,
+                &mut reason,
+            );
         } else if p.state.is_none() {
-            fail("hollow", format!("{} wrote no state dump", p.role), &mut cls, &mut reason);
-        } else if p.state.as_ref().and_then(|s| s.get("role")).and_then(J::as_str).is_some_and(|r| r != p.role) {
-            fail("hollow", format!("{} state dump says another role", p.role), &mut cls, &mut reason);
+            fail(
+                "hollow",
+                format!("{} wrote no state dump", p.role),
+                &mut cls,
+                &mut reason,
+            );
+        } else if p
+            .state
+            .as_ref()
+            .and_then(|s| s.get("role"))
+            .and_then(J::as_str)
+            .is_some_and(|r| r != p.role)
+        {
+            fail(
+                "hollow",
+                format!("{} state dump says another role", p.role),
+                &mut cls,
+                &mut reason,
+            );
         }
     }
     let (g, h) = (&run.relay.g2h, &run.relay.h2g);
     if !run.relay.armed || g.inn == 0 || h.inn == 0 {
-        fail("hollow", format!("relay saw no traffic in both directions (g2h={} h2g={})", g.inn, h.inn), &mut cls, &mut reason);
+        fail(
+            "hollow",
+            format!(
+                "relay saw no traffic in both directions (g2h={} h2g={})",
+                g.inn, h.inn
+            ),
+            &mut cls,
+            &mut reason,
+        );
     } else {
         let total = g.inn + h.inn;
-        let did: u64 = [g, h].iter().map(|d| d.dropped + d.duplicated + d.reordered).sum();
+        let did: u64 = [g, h]
+            .iter()
+            .map(|d| d.dropped + d.duplicated + d.reordered)
+            .sum();
         let loss = loss_of(&scn.network);
         if loss > 0.0 && total as f64 * loss >= 8.0 && did == 0 {
-            fail("hollow", format!("profile {} should have dropped about {} of {} datagrams, relay changed none", scn.network, (total as f64 * loss).round(), total), &mut cls, &mut reason);
+            fail(
+                "hollow",
+                format!(
+                    "profile {} should have dropped about {} of {} datagrams, relay changed none",
+                    scn.network,
+                    (total as f64 * loss).round(),
+                    total
+                ),
+                &mut cls,
+                &mut reason,
+            );
         }
     }
     if !scn.outages.is_empty() && !run.relay.outages_fired {
-        fail("hollow", "scheduled outage never fired".into(), &mut cls, &mut reason);
+        fail(
+            "hollow",
+            "scheduled outage never fired".into(),
+            &mut cls,
+            &mut reason,
+        );
     }
     let mut checks: Vec<Check> = Vec::new();
     if let (Some(hs), Some(gs)) = (&run.host.state, &run.guest.state) {
@@ -164,19 +239,43 @@ pub fn judge(scn: &Scenario, run: &RunFacts) -> Verdict {
         if scn.hash_check {
             if let (Some(a), Some(b)) = (hs.path("hash.shared"), gs.path("hash.shared")) {
                 let d = |v: &J| v.as_str().unwrap_or("").to_string();
-                checks.push(Check { id: "auto.hash.shared".into(), ok: a == b, kind: "desync", detail: format!("hash.shared host={} guest={}", d(a), d(b)) });
+                checks.push(Check {
+                    id: "auto.hash.shared".into(),
+                    ok: a == b,
+                    kind: "desync",
+                    detail: format!("hash.shared host={} guest={}", d(a), d(b)),
+                });
             }
         }
         for kind in ["desync", "assert"] {
             if let Some(c) = checks.iter().find(|c| !c.ok && c.kind == kind) {
-                fail(if kind == "desync" { "desync" } else { "assert" }, format!("{}: {}", c.id, c.detail), &mut cls, &mut reason);
+                fail(
+                    if kind == "desync" { "desync" } else { "assert" },
+                    format!("{}: {}", c.id, c.detail),
+                    &mut cls,
+                    &mut reason,
+                );
             }
         }
     }
-    let max_rep = scn.max_repairs.or(if scn.network == "perfect" { Some(0) } else { None });
+    let max_rep = scn.max_repairs.or(if scn.network == "perfect" {
+        Some(0)
+    } else {
+        None
+    });
     let reps = run.host.repairs + run.guest.repairs;
     if max_rep.is_some_and(|m| reps > m) {
-        fail("repair", format!("{reps} repairs (host {}, guest {}), allowed {}", run.host.repairs, run.guest.repairs, max_rep.unwrap_or(0)), &mut cls, &mut reason);
+        fail(
+            "repair",
+            format!(
+                "{reps} repairs (host {}, guest {}), allowed {}",
+                run.host.repairs,
+                run.guest.repairs,
+                max_rep.unwrap_or(0)
+            ),
+            &mut cls,
+            &mut reason,
+        );
     }
     let mut twin = false;
     if scn.expect_fail {
@@ -193,27 +292,64 @@ pub fn judge(scn: &Scenario, run: &RunFacts) -> Verdict {
             _ => {}
         }
     }
-    let class = cls.unwrap_or(if twin { "twin" } else { "pass" }).to_string();
+    let class = cls
+        .unwrap_or(if twin { "twin" } else { "pass" })
+        .to_string();
     let result = if cls.is_some() { "fail" } else { "pass" };
-    let reason = if reason.is_empty() { "all checks passed".to_string() } else { reason };
+    let reason = if reason.is_empty() {
+        "all checks passed".to_string()
+    } else {
+        reason
+    };
     let mut v = base(scn, run, result, &class, &reason);
     if let J::Obj(m) = &mut v {
-        m.insert("checks".into(), J::Arr(checks.iter().map(|c| obj(vec![("id", s(c.id.clone())), ("ok", J::Bool(c.ok)), ("detail", s(c.detail.chars().take(160).collect::<String>()))])).collect()));
+        m.insert(
+            "checks".into(),
+            J::Arr(
+                checks
+                    .iter()
+                    .map(|c| {
+                        obj(vec![
+                            ("id", s(c.id.clone())),
+                            ("ok", J::Bool(c.ok)),
+                            ("detail", s(c.detail.chars().take(160).collect::<String>())),
+                        ])
+                    })
+                    .collect(),
+            ),
+        );
         if cls.is_some() {
             m.insert("packet".into(), packet(scn, run, &class, &reason, &checks));
         }
     }
-    Verdict { json: v, result: result.into(), class, reason }
+    Verdict {
+        json: v,
+        result: result.into(),
+        class,
+        reason,
+    }
 }
 
 fn skip(scn: &Scenario, run: &RunFacts, why: &str) -> Verdict {
     let v = base(scn, run, "skip", "needs_assets", why);
-    Verdict { json: v, result: "skip".into(), class: "needs_assets".into(), reason: why.into() }
+    Verdict {
+        json: v,
+        result: "skip".into(),
+        class: "needs_assets".into(),
+        reason: why.into(),
+    }
 }
 
 fn base(scn: &Scenario, run: &RunFacts, result: &str, class: &str, reason: &str) -> J {
     let peer = |p: &PeerFacts| {
-        obj(vec![("exit_code", n(0.0)), ("timed_out", J::Bool(false)), ("events", n(p.events as f64)), ("ready", J::Bool(p.ready)), ("shutdown_clean", J::Bool(p.shutdown_clean)), ("repairs", n(p.repairs as f64))])
+        obj(vec![
+            ("exit_code", n(0.0)),
+            ("timed_out", J::Bool(false)),
+            ("events", n(p.events as f64)),
+            ("ready", J::Bool(p.ready)),
+            ("shutdown_clean", J::Bool(p.shutdown_clean)),
+            ("repairs", n(p.repairs as f64)),
+        ])
     };
     let mut m: BTreeMap<String, J> = BTreeMap::new();
     for (k, v) in [
@@ -228,9 +364,23 @@ fn base(scn: &Scenario, run: &RunFacts, result: &str, class: &str, reason: &str)
         ("duration_s", n((run.duration_s * 10.0).round() / 10.0)),
         ("rerun", s(run.rerun.clone())),
         ("engine", s("headless")),
-        ("modelled", J::Arr(run.modelled.iter().map(|x| s(x.clone())).collect())),
-        ("relay", obj(vec![("profile", s(run.relay.profile.clone())), ("armed", J::Bool(run.relay.armed)), ("g2h", dir_json(&run.relay.g2h)), ("h2g", dir_json(&run.relay.h2g))])),
-        ("peers", obj(vec![("host", peer(&run.host)), ("guest", peer(&run.guest))])),
+        (
+            "modelled",
+            J::Arr(run.modelled.iter().map(|x| s(x.clone())).collect()),
+        ),
+        (
+            "relay",
+            obj(vec![
+                ("profile", s(run.relay.profile.clone())),
+                ("armed", J::Bool(run.relay.armed)),
+                ("g2h", dir_json(&run.relay.g2h)),
+                ("h2g", dir_json(&run.relay.h2g)),
+            ]),
+        ),
+        (
+            "peers",
+            obj(vec![("host", peer(&run.host)), ("guest", peer(&run.guest))]),
+        ),
         ("checks", J::Arr(vec![])),
     ] {
         m.insert(k.into(), v);
@@ -242,7 +392,10 @@ fn clip(t: &str, max: usize) -> String {
     if t.chars().count() <= max {
         t.to_string()
     } else {
-        format!("{}...", t.chars().take(max.saturating_sub(3)).collect::<String>())
+        format!(
+            "{}...",
+            t.chars().take(max.saturating_sub(3)).collect::<String>()
+        )
     }
 }
 
@@ -252,7 +405,8 @@ pub fn packet(scn: &Scenario, run: &RunFacts, class: &str, reason: &str, checks:
     let mut last = J::Null;
     for tail_n in [4usize, 2, 1, 0] {
         for cl in [160usize, 80, 40] {
-            let tail = |p: &PeerFacts| J::Arr(p.tail.iter().rev().take(tail_n).rev().cloned().collect());
+            let tail =
+                |p: &PeerFacts| J::Arr(p.tail.iter().rev().take(tail_n).rev().cloned().collect());
             let pk = obj(vec![
                 ("scenario", s(scn.name.clone())),
                 ("class", s(class)),
@@ -260,10 +414,40 @@ pub fn packet(scn: &Scenario, run: &RunFacts, class: &str, reason: &str, checks:
                 ("network", s(scn.network.clone())),
                 ("seed", n(run.seed as f64)),
                 ("rerun", s(clip(&run.rerun, 200))),
-                ("failed_checks", J::Arr(failed.iter().take(4).map(|c| obj(vec![("id", s(c.id.clone())), ("detail", s(clip(&c.detail, cl)))])).collect())),
-                ("relay", obj(vec![("profile", s(run.relay.profile.clone())), ("g2h", dir_json(&run.relay.g2h)), ("h2g", dir_json(&run.relay.h2g))])),
-                ("ready", obj(vec![("host", J::Bool(run.host.ready)), ("guest", J::Bool(run.guest.ready))])),
-                ("tail", obj(vec![("host", tail(&run.host)), ("guest", tail(&run.guest))])),
+                (
+                    "failed_checks",
+                    J::Arr(
+                        failed
+                            .iter()
+                            .take(4)
+                            .map(|c| {
+                                obj(vec![
+                                    ("id", s(c.id.clone())),
+                                    ("detail", s(clip(&c.detail, cl))),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ),
+                (
+                    "relay",
+                    obj(vec![
+                        ("profile", s(run.relay.profile.clone())),
+                        ("g2h", dir_json(&run.relay.g2h)),
+                        ("h2g", dir_json(&run.relay.h2g)),
+                    ]),
+                ),
+                (
+                    "ready",
+                    obj(vec![
+                        ("host", J::Bool(run.host.ready)),
+                        ("guest", J::Bool(run.guest.ready)),
+                    ]),
+                ),
+                (
+                    "tail",
+                    obj(vec![("host", tail(&run.host)), ("guest", tail(&run.guest))]),
+                ),
             ]);
             if pk.dump().len() < PACKET_LIMIT {
                 return pk;
@@ -287,10 +471,27 @@ pub fn result_line(v: &Verdict) -> String {
     let seed = j.get("seed").and_then(J::as_f64).unwrap_or(0.0);
     let dur = j.get("duration_s").and_then(J::as_f64).unwrap_or(0.0);
     match (v.result.as_str(), v.class.as_str()) {
-        ("pass", "twin") => format!("RESULT: PASS twin {} ({}) {}", g("scenario"), g("network"), clip(&v.reason, 140)),
-        ("pass", _) => format!("RESULT: PASS {} ({}, seed {}, {:.0} s)", g("scenario"), g("network"), seed, dur),
+        ("pass", "twin") => format!(
+            "RESULT: PASS twin {} ({}) {}",
+            g("scenario"),
+            g("network"),
+            clip(&v.reason, 140)
+        ),
+        ("pass", _) => format!(
+            "RESULT: PASS {} ({}, seed {}, {:.0} s)",
+            g("scenario"),
+            g("network"),
+            seed,
+            dur
+        ),
         ("skip", _) => format!("RESULT: SKIP needs_assets {}: {}", g("scenario"), v.reason),
-        _ => format!("RESULT: FAIL {} {}: {} | rerun: {}", v.class, g("scenario"), v.reason, g("rerun")),
+        _ => format!(
+            "RESULT: FAIL {} {}: {} | rerun: {}",
+            v.class,
+            g("scenario"),
+            v.reason,
+            g("rerun")
+        ),
     }
 }
 
@@ -303,13 +504,42 @@ mod tests {
     }
 
     fn peer(role: &str, stage: i32) -> PeerFacts {
-        let st = J::parse(&format!(r#"{{"role":"{role}","quests":{{"Q":{{"stage":{stage}}}}},"hash":{{"shared":"a"}}}}"#)).unwrap();
-        PeerFacts { role: role.into(), started: true, ready: true, shutdown_clean: true, state: Some(st), events: 5, ..Default::default() }
+        let st = J::parse(&format!(
+            r#"{{"role":"{role}","quests":{{"Q":{{"stage":{stage}}}}},"hash":{{"shared":"a"}}}}"#
+        ))
+        .unwrap();
+        PeerFacts {
+            role: role.into(),
+            started: true,
+            ready: true,
+            shutdown_clean: true,
+            state: Some(st),
+            events: 5,
+            ..Default::default()
+        }
     }
 
     fn facts() -> RunFacts {
-        let d = Dir { inn: 5, forwarded: 5, ..Dir::default() };
-        RunFacts { host: peer("host", 1), guest: peer("guest", 1), relay: RelayFacts { profile: "perfect".into(), armed: true, g2h: d, h2g: d, outages_fired: true }, rerun: "coop-sim run t.json --seed 1".into(), seed: 1, duration_s: 12.0, ..Default::default() }
+        let d = Dir {
+            inn: 5,
+            forwarded: 5,
+            ..Dir::default()
+        };
+        RunFacts {
+            host: peer("host", 1),
+            guest: peer("guest", 1),
+            relay: RelayFacts {
+                profile: "perfect".into(),
+                armed: true,
+                g2h: d,
+                h2g: d,
+                outages_fired: true,
+            },
+            rerun: "coop-sim run t.json --seed 1".into(),
+            seed: 1,
+            duration_s: 12.0,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -341,13 +571,20 @@ mod tests {
         f.guest = peer("guest", 2);
         assert_eq!(judge(&sc, &f).class, "assert");
         let mut f = facts();
-        f.guest.state = Some(J::parse(r#"{"role":"guest","quests":{"Q":{"stage":1}},"hash":{"shared":"b"}}"#).unwrap());
+        f.guest.state = Some(
+            J::parse(r#"{"role":"guest","quests":{"Q":{"stage":1}},"hash":{"shared":"b"}}"#)
+                .unwrap(),
+        );
         assert_eq!(judge(&sc, &f).class, "desync");
     }
 
     #[test]
     fn a_hollow_chaos_run_and_a_missed_outage_are_caught() {
-        let sc = Scenario::parse(r#"{"cell":"X","network":"flaky","outages":[{"at":1,"seconds":1}]}"#, "t").unwrap();
+        let sc = Scenario::parse(
+            r#"{"cell":"X","network":"flaky","outages":[{"at":1,"seconds":1}]}"#,
+            "t",
+        )
+        .unwrap();
         let mut f = facts();
         f.relay.g2h.inn = 100;
         assert_eq!(judge(&sc, &f).class, "hollow");
@@ -365,9 +602,15 @@ mod tests {
         f.guest = peer("guest", 9);
         let v = judge(&sc, &f);
         assert_eq!((v.result.as_str(), v.class.as_str()), ("pass", "twin"));
-        assert!(result_line(&v).starts_with("RESULT: PASS twin t (perfect) twin failed as expected"));
+        assert!(
+            result_line(&v).starts_with("RESULT: PASS twin t (perfect) twin failed as expected")
+        );
         f.host.shutdown_clean = false;
-        assert_eq!(judge(&sc, &f).class, "crash", "a crash is never hidden by a twin");
+        assert_eq!(
+            judge(&sc, &f).class,
+            "crash",
+            "a crash is never hidden by a twin"
+        );
     }
 
     #[test]
@@ -375,11 +618,21 @@ mod tests {
         let sc = scn("");
         let mut f = facts();
         f.guest = peer("guest", 2);
-        f.guest.tail = (0..6).map(|i| obj(vec![("ev", s("script")), ("line", s("x".repeat(400))), ("i", n(i as f64))])).collect();
+        f.guest.tail = (0..6)
+            .map(|i| {
+                obj(vec![
+                    ("ev", s("script")),
+                    ("line", s("x".repeat(400))),
+                    ("i", n(i as f64)),
+                ])
+            })
+            .collect();
         f.host.tail = f.guest.tail.clone();
         let v = judge(&sc, &f);
         assert!(v.json.get("packet").unwrap().dump().len() < PACKET_LIMIT);
-        assert!(result_line(&v).starts_with("RESULT: FAIL assert t: q@guest: guest quests.Q.stage eq 1 (got 2) | rerun: "));
+        assert!(result_line(&v).starts_with(
+            "RESULT: FAIL assert t: q@guest: guest quests.Q.stage eq 1 (got 2) | rerun: "
+        ));
         let ok = judge(&sc, &facts());
         assert_eq!(result_line(&ok), "RESULT: PASS t (perfect, seed 1, 12 s)");
         let mut f = facts();

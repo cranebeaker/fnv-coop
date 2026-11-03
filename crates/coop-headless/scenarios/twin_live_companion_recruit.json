@@ -1,0 +1,29 @@
+{
+  "name": "twin_live_companion_recruit",
+  "description": "MUTATION TWIN of live_companion_recruit: the guest's slot does not recruit Doc Mitchell. The guest's humanoid cap is then free, so Sunny goes to the guest, the host's recruit of Sunny is refused, and nobody owns Doc. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": { "script": [
+    {"at": 3, "run": "coop recruit 1 VCG02Gecko1REF"},
+    {"at": 4, "run": "coop recruit 1 SunnyRef"},
+    {"at": 5, "run": "coop recruit 1 vGSBrahmin02Ref"},
+    {"at": 6, "run": "coop recruit 0 SunnyRef"},
+    {"at": 7, "run": "coop command 0 DocMitchellREF wait"},
+    {"at": 8, "run": "coop dismiss 0 DocMitchellREF"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "doc-is-the-guests", "path": "campaign.owner.DocMitchellREF", "op": "eq", "value": "guest", "on": "both"},
+    {"id": "gecko-is-the-guests", "path": "campaign.owner.VCG02Gecko1REF", "op": "eq", "value": "guest", "on": "both"},
+    {"id": "second-critter-refused", "path": "campaign.owner.vGSBrahmin02Ref", "op": "absent", "on": "both"},
+    {"id": "sunny-is-the-hosts", "path": "campaign.owner.SunnyRef", "op": "eq", "value": "host", "on": "both"},
+    {"id": "guest-at-its-caps", "path": "campaign.followers.guest", "op": "eq", "value": 2, "on": "both"},
+    {"id": "host-has-one", "path": "campaign.followers.host", "op": "eq", "value": 1, "on": "both"},
+    {"id": "not-owner-refused", "path": "campaign.commands_refused", "op": "eq", "value": 2, "on": "host"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

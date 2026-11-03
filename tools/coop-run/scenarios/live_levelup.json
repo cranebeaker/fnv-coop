@@ -1,0 +1,26 @@
+{
+  "name": "live_levelup",
+  "description": "Level-ups, skill points and perks are each player's own. The guest earns 300 XP and closes its level-up menu with 10 points in Guns (AV 41) and the Intense Training perk (coop levelup: the interaction act the guest's level-up menu sends, run on the host in the guest's shadow by progress::level_up). Both peers see the guest at level 2 with one perk and 10 skill points. The host player stays at level 1 with no perk and no points: the party sums (guest plus host) are 3 levels, 1 perk and 10 points.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": [
+      { "at": 2, "run": "RewardXP 300" },
+      { "at": 6, "run": "coop levelup IntenseTraining 41:10" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-level-2", "path": "campaign.level.guest", "op": "eq", "value": 2, "on": "both" },
+    { "id": "guest-perk", "path": "campaign.perks.guest", "op": "eq", "value": 1, "on": "both" },
+    { "id": "guest-points", "path": "campaign.skill_points.guest", "op": "eq", "value": 10, "on": "both" },
+    { "id": "host-stays-level-1", "path": "campaign.level.guest", "op": "sum", "add": ["campaign.level.host"], "cmp": "eq", "value": 3, "on": "both" },
+    { "id": "host-no-perk", "path": "campaign.perks.guest", "op": "sum", "add": ["campaign.perks.host"], "cmp": "eq", "value": 1, "on": "both" },
+    { "id": "host-no-points", "path": "campaign.skill_points.guest", "op": "sum", "add": ["campaign.skill_points.host"], "cmp": "eq", "value": 10, "on": "both" }
+  ]
+}

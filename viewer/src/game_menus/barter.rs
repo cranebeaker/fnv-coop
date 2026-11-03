@@ -198,8 +198,9 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<For
                     let buys: Vec<_> = buys.into_iter().map(|(f, n)| (FormId(f), n)).collect();
                     let sells: Vec<_> = sells.into_iter().map(|(f, n)| (FormId(f), n)).collect();
                     // co-op: the party shares one stock; a guest asks the host
-                    if state.coop_route(world::coop::interact::barter_act(vendor, &buys, &sells, total))
-                        == world::coop::interact::Route::Remote
+                    if state.coop_route(world::coop::interact::barter_act(
+                        vendor, &buys, &sells, total,
+                    )) == world::coop::interact::Route::Remote
                     {
                         println!("Barter: asked the host ({total:+.1} caps).");
                         let (player, goods, caps) = sides(order, state, vendor);

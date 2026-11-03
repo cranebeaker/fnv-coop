@@ -54,10 +54,19 @@ pub fn apply_changes(gs: &mut GameState, changes: &[Change], opts: Opts) -> Appl
     let mut announce: BTreeSet<FormId> = BTreeSet::new();
     let mut journal: Vec<(FormId, u16)> = Vec::new();
     let mut objectives: Vec<(FormId, i32, bool)> = Vec::new();
-    if changes.iter().any(|(k, _)| super::shadow::slot_of_shadow_form(wf(k.form)).is_some()) {
+    if changes
+        .iter()
+        .any(|(k, _)| super::shadow::slot_of_shadow_form(wf(k.form)).is_some())
+    {
         // a variable the host holds per player has no shared row, so this machine may not
         // have the quest's variables at all yet: lay them out as the script declares them
-        let quests: Vec<FormId> = gs.coop.bank.plan.as_ref().map(|p| p.quest_vars.keys().copied().collect()).unwrap_or_default();
+        let quests: Vec<FormId> = gs
+            .coop
+            .bank
+            .plan
+            .as_ref()
+            .map(|p| p.quest_vars.keys().copied().collect())
+            .unwrap_or_default();
         for q in quests {
             ensure_locals(gs, q, opts.ctx);
         }
@@ -72,7 +81,16 @@ pub fn apply_changes(gs: &mut GameState, changes: &[Change], opts: Opts) -> Appl
             Some(_) => r.set += 1,
             None => r.cleared += 1,
         }
-        apply_one(gs, form, key, field.as_ref(), opts, &mut announce, &mut journal, &mut objectives);
+        apply_one(
+            gs,
+            form,
+            key,
+            field.as_ref(),
+            opts,
+            &mut announce,
+            &mut journal,
+            &mut objectives,
+        );
     }
     if let (Some(c), true) = (opts.ctx, gs.coop.campaign.unnamed_vars) {
         super::campaign::names::heal(c, gs);
@@ -89,7 +107,11 @@ pub fn apply_changes(gs: &mut GameState, changes: &[Change], opts: Opts) -> Appl
                 .and_then(|c| c.scripts.quest(c.order, q))
                 .and_then(|quest| quest.objective(i).map(|o| o.text.clone()))
                 .unwrap_or_default();
-            gs.events.push(Event::Objective { quest: q, text, completed });
+            gs.events.push(Event::Objective {
+                quest: q,
+                text,
+                completed,
+            });
         }
         for q in announce {
             crate::quest_text::announce(gs, q);
@@ -120,7 +142,11 @@ pub fn reconcile(gs: &mut GameState, want: &Fields, opts: Opts) -> ApplyReport {
 fn journal_text(c: Ctx, gs: &GameState, q: FormId, stage: u16) -> Option<String> {
     let quest = c.scripts.quest(c.order, q)?;
     let st = quest.stage(stage)?;
-    let facts = Facts { order: c.order, state: gs, speaker: None };
+    let facts = Facts {
+        order: c.order,
+        state: gs,
+        speaker: None,
+    };
     st.entries
         .iter()
         .find(|e| facts.conditions_pass(&e.conditions, PLAYER_REF, PLAYER_REF))
@@ -166,7 +192,12 @@ fn apply_one(
                 flag::FAILED => gs.failed.contains(&form),
                 _ => gs.quests_announced.contains(&form),
             };
-            for b in [flag::RUNNING, flag::COMPLETED, flag::FAILED, flag::ANNOUNCED] {
+            for b in [
+                flag::RUNNING,
+                flag::COMPLETED,
+                flag::FAILED,
+                flag::ANNOUNCED,
+            ] {
                 let on = bits & b != 0;
                 if on && !had(gs, b) && b != flag::RUNNING {
                     announce.insert(form);
@@ -215,7 +246,11 @@ fn apply_one(
                 gs.globals.insert(form, v);
             }
         }
-        (4, f) => set_in(&mut gs.topics, form, matches!(f, Some(Field::Topic { known: true }))),
+        (4, f) => set_in(
+            &mut gs.topics,
+            form,
+            matches!(f, Some(Field::Topic { known: true })),
+        ),
         (5, f) => {
             let item = esm::FormId(key.sub);
             match f {
@@ -280,7 +315,9 @@ fn set_var(gs: &mut GameState, owner: FormId, index: usize, value: f64, ctx: Opt
         ensure_locals(gs, owner, ctx);
         gs.variables.entry(owner).or_default();
     }
-    let Some(locals) = gs.variables.get_mut(&owner) else { return };
+    let Some(locals) = gs.variables.get_mut(&owner) else {
+        return;
+    };
     let len = locals.iter().count();
     for i in len..=index {
         locals.insert(&format!("coopvar{i}"), VarKind::Float, 0.0);
@@ -292,6 +329,37 @@ fn set_var(gs: &mut GameState, owner: FormId, index: usize, value: f64, ctx: Opt
     }
     // healed with the real names as soon as game data is at hand
     gs.coop.campaign.unnamed_vars |= invented;
+}
+
+/// Faction relations and crime (`export::export_factions_crime`).
+fn factions_crime(gs: &mut GameState, form: FormId, t: u16, data: &[u8]) {
+    let word = |o: usize| {
+        data.get(o..o + 4)
+            .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    match t {
+        tag::RELATION => {
+            gs.faction_relations.retain(|(a, _), _| *a != form);
+            for c in data.chunks_exact(5) {
+                let other = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                gs.faction_relations.insert((form, FormId(other)), c[4]);
+            }
+        }
+        tag::CRIME => {
+            if data.len() >= 9 {
+                gs.faction_crimes.insert(form, (word(0), word(4)));
+                set_in(&mut gs.crime_enemies, form, data[8] != 0);
+            } else {
+                gs.faction_crimes.remove(&form);
+                gs.crime_enemies.remove(&form);
+            }
+        }
+        _ => {
+            gs.player_crimes = (word(0), word(4));
+            gs.steal_warnings = word(8);
+            gs.player_murderer = data.get(12).is_some_and(|b| *b != 0);
+        }
+    }
 }
 
 fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
@@ -311,14 +379,23 @@ fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
             if on {
                 if gs.dead.insert(form) {
                     gs.combat.remove(&form);
-                    gs.events.push(Event::Died { who: form, by: FormId(0) });
+                    gs.events.push(Event::Died {
+                        who: form,
+                        by: FormId(0),
+                    });
                 }
             } else {
                 gs.dead.remove(&form);
             }
         }
         tag::STOCKED => set_in(&mut gs.stocked, form, on),
-        tag::MARKER => set_in(&mut gs.map_markers, form, on),
+        tag::MARKER => {
+            // bit 1 revealed, bit 2 found (`export`)
+            let bits = data.first().copied().unwrap_or(0);
+            set_in(&mut gs.map_markers, form, bits & 1 != 0);
+            set_in(&mut gs.discovered, form, bits & 2 != 0);
+        }
+        tag::RELATION | tag::CRIME | tag::PLAYER_CRIME => factions_crime(gs, form, t, data),
         tag::PERK => {
             gs.perk_ranks.remove(&form);
             set_in(&mut gs.perks, form, on);
@@ -335,7 +412,9 @@ fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
         }
         tag::REPUTATION => {
             if data.len() >= 8 {
-                let b = |o: usize| f32::from_bits(u32::from_le_bytes(data[o..o + 4].try_into().unwrap()));
+                let b = |o: usize| {
+                    f32::from_bits(u32::from_le_bytes(data[o..o + 4].try_into().unwrap()))
+                };
                 gs.reputations.insert(form, (b(0), b(4)));
             } else {
                 gs.reputations.remove(&form);
@@ -343,7 +422,8 @@ fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
         }
         t if t >= tag::FACTION_BASE => {
             let low = u32::from(t - tag::FACTION_BASE);
-            gs.faction_changes.retain(|(fac, who), _| !(*fac == form && who.0 & 0xFF == low));
+            gs.faction_changes
+                .retain(|(fac, who), _| !(*fac == form && who.0 & 0xFF == low));
             for c in data.chunks_exact(5) {
                 let who = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
                 gs.faction_changes.insert((form, FormId(who)), c[4] as i8);
@@ -351,9 +431,11 @@ fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
         }
         t if t >= tag::STAGES_BASE => {
             let chunk = t - tag::STAGES_BASE;
-            gs.stages_done.retain(|(q, s)| !(*q == form && *s / tag::STAGES_CHUNK == chunk));
+            gs.stages_done
+                .retain(|(q, s)| !(*q == form && *s / tag::STAGES_CHUNK == chunk));
             for c in data.chunks_exact(2) {
-                gs.stages_done.insert((form, u16::from_le_bytes([c[0], c[1]])));
+                gs.stages_done
+                    .insert((form, u16::from_le_bytes([c[0], c[1]])));
             }
         }
         _ => {}

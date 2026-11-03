@@ -101,7 +101,10 @@ struct Found {
 
 fn scenario_dirs(extra: &[PathBuf]) -> Vec<PathBuf> {
     let root = super::repo_root();
-    let mut v = vec![root.join("tools").join("coop-run").join("scenarios"), root.join("crates").join("coop-headless").join("scenarios")];
+    let mut v = vec![
+        root.join("tools").join("coop-run").join("scenarios"),
+        root.join("crates").join("coop-headless").join("scenarios"),
+    ];
     v.extend(extra.iter().cloned());
     v
 }
@@ -109,24 +112,42 @@ fn scenario_dirs(extra: &[PathBuf]) -> Vec<PathBuf> {
 fn find_scenarios(dirs: &[PathBuf]) -> BTreeMap<String, Found> {
     let mut m = BTreeMap::new();
     for d in dirs {
-        let Ok(rd) = std::fs::read_dir(d) else { continue };
-        let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|f| f.extension().is_some_and(|x| x == "json")).collect();
+        let Ok(rd) = std::fs::read_dir(d) else {
+            continue;
+        };
+        let mut files: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|f| f.extension().is_some_and(|x| x == "json"))
+            .collect();
         files.sort();
         for f in files {
             let Ok(s) = Scenario::load(&f) else { continue };
-            let key = f.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let key = f
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             let rel = match (f.canonicalize(), super::repo_root().canonicalize()) {
-                (Ok(a), Ok(r)) => a.strip_prefix(&r).map(|p| p.display().to_string().replace('\\', "/")).unwrap_or_else(|_| f.display().to_string()),
+                (Ok(a), Ok(r)) => a
+                    .strip_prefix(&r)
+                    .map(|p| p.display().to_string().replace('\\', "/"))
+                    .unwrap_or_else(|_| f.display().to_string()),
                 _ => f.display().to_string(),
             };
-            m.entry(key).or_insert(Found { path: rel, scn: Arc::new(s) });
+            m.entry(key).or_insert(Found {
+                path: rel,
+                scn: Arc::new(s),
+            });
         }
     }
     m
 }
 
 fn dlc_key(s: &str) -> String {
-    s.to_ascii_lowercase().replace([' ', '\''], "_").replace("__", "_")
+    s.to_ascii_lowercase()
+        .replace([' ', '\''], "_")
+        .replace("__", "_")
 }
 
 /// Does a quest belong to a `questwalk:SCOPE`? Scopes: `all`, `base`, a DLC key
@@ -159,23 +180,50 @@ fn group_of(r: &QuestResult) -> String {
     format!("Quests: Base game, {g}")
 }
 
+/// A row's data needs: one need, or several separated by commas (all must be here).
 fn needs_ok(needs: &str, d: Option<&Data>) -> Result<(), String> {
-    let Some(d) = d else { return Err("no data folder".into()) };
+    if needs.contains(',') {
+        return needs
+            .split(',')
+            .map(str::trim)
+            .try_for_each(|n| needs_ok(n, d));
+    }
+    let Some(d) = d else {
+        return Err("no data folder".into());
+    };
     if needs == "base" {
         return Ok(());
     }
     if needs == "full_assets" {
-        return if d.has_meshes { Ok(()) } else { Err("needs full assets (meshes)".into()) };
+        return if d.has_meshes {
+            Ok(())
+        } else {
+            Err("needs full assets (meshes)".into())
+        };
     }
     if let Some(name) = needs.strip_prefix("dlc:") {
         let key = name.to_ascii_lowercase().replace([' ', '_'], "");
-        let has = d.order.plugins().iter().any(|p| p.name.to_ascii_lowercase().replace([' ', '_'], "").contains(&key));
-        return if has { Ok(()) } else { Err(format!("needs DLC {name}")) };
+        let has = d.order.plugins().iter().any(|p| {
+            p.name
+                .to_ascii_lowercase()
+                .replace([' ', '_'], "")
+                .contains(&key)
+        });
+        return if has {
+            Ok(())
+        } else {
+            Err(format!("needs DLC {name}"))
+        };
     }
     Ok(())
 }
 
 /// Last real-game verdict per scenario from `tools/coop-run` output folders.
+/// `--backend engine`: a world-bound row is PENDING, the engine backend runs nothing yet.
+pub fn engine_gate(engine: bool, row_backend: &str) -> Option<String> {
+    (engine && row_backend == "world").then(|| "engine backend".to_string())
+}
+
 pub fn read_real(dir: &Path) -> BTreeMap<String, (String, bool)> {
     fn walk(d: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         let Ok(rd) = std::fs::read_dir(d) else { return };
@@ -192,11 +240,29 @@ pub fn read_real(dir: &Path) -> BTreeMap<String, (String, bool)> {
     walk(dir, 0, &mut files);
     let mut best: BTreeMap<String, (String, String, bool)> = BTreeMap::new();
     for f in files {
-        let Ok(text) = std::fs::read_to_string(&f) else { continue };
-        let Ok(j) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-        let (Some(name), Some(res)) = (j.get("scenario").and_then(|v| v.as_str()), j.get("result").and_then(|v| v.as_str())) else { continue };
-        let stamp = f.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("").to_string();
-        let date = if stamp.len() >= 8 && stamp[..8].chars().all(|c| c.is_ascii_digit()) { format!("{}-{}-{}", &stamp[..4], &stamp[4..6], &stamp[6..8]) } else { "undated".into() };
+        let Ok(text) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        let Ok(j) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let (Some(name), Some(res)) = (
+            j.get("scenario").and_then(|v| v.as_str()),
+            j.get("result").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let stamp = f
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        let date = if stamp.len() >= 8 && stamp[..8].chars().all(|c| c.is_ascii_digit()) {
+            format!("{}-{}-{}", &stamp[..4], &stamp[4..6], &stamp[6..8])
+        } else {
+            "undated".into()
+        };
         let key = format!("{stamp}");
         if best.get(name).is_none_or(|(k, _, _)| key > *k) {
             best.insert(name.to_string(), (key, date, res == "pass"));
@@ -209,7 +275,9 @@ fn real_cell(row: &Row, real: &Option<BTreeMap<String, (String, bool)>>) -> Stri
     if row.real.is_empty() {
         return "-".into();
     }
-    let Some(map) = real else { return "not read".into() };
+    let Some(map) = real else {
+        return "not read".into();
+    };
     let mut parts = Vec::new();
     for n in &row.real {
         match map.get(n) {
@@ -252,7 +320,11 @@ fn combine(rs: Vec<T>) -> (Status, String, Vec<String>) {
     (status, detail.join("; "), replay)
 }
 
-fn parallel<T: Send + Sync, R: Send>(items: Vec<T>, jobs: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+fn parallel<T: Send + Sync, R: Send>(
+    items: Vec<T>,
+    jobs: usize,
+    f: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = AtomicUsize::new(0);
     let out: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::new());
     std::thread::scope(|sc| {
@@ -278,8 +350,14 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
         let a = a.to_ascii_lowercase();
         rows.retain(|r| r.area.to_ascii_lowercase().starts_with(&a));
     }
-    let data: Option<Arc<Data>> = Data::locate(opts.data.as_deref()).and_then(|d| Data::open(&d)).ok().map(Arc::new);
-    let plugins: Vec<String> = data.as_ref().map(|d| d.order.plugins().iter().map(|p| p.name.clone()).collect()).unwrap_or_default();
+    let data: Option<Arc<Data>> = Data::locate(opts.data.as_deref())
+        .and_then(|d| Data::open(&d))
+        .ok()
+        .map(Arc::new);
+    let plugins: Vec<String> = data
+        .as_ref()
+        .map(|d| d.order.plugins().iter().map(|p| p.name.clone()).collect())
+        .unwrap_or_default();
     let found = find_scenarios(&scenario_dirs(&opts.scenario_dirs));
     let real = opts.real_out.as_ref().map(|d| read_real(d));
     let engine = opts.backend == "engine";
@@ -295,8 +373,15 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
         Some("all") => PROFILES.iter().map(|p| Some(p.to_string())).collect(),
         Some(p) => vec![Some(p.to_string())],
     };
-    let seeds_for = |f: &Found| -> Vec<u64> { opts.seeds.clone().unwrap_or_else(|| vec![f.scn.seed]) };
-    let twin_names = |row: &Row, name: &str| -> Vec<String> { if row.twin_ids.is_empty() { vec![format!("twin_{name}")] } else { row.twin_ids.clone() } };
+    let seeds_for =
+        |f: &Found| -> Vec<u64> { opts.seeds.clone().unwrap_or_else(|| vec![f.scn.seed]) };
+    let twin_names = |row: &Row, name: &str| -> Vec<String> {
+        if row.twin_ids.is_empty() {
+            vec![format!("twin_{name}")]
+        } else {
+            row.twin_ids.clone()
+        }
+    };
     for row in &rows {
         for t in &row.tests {
             let (kind, name) = t.split_once(':').unwrap_or(("", t));
@@ -341,23 +426,54 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
     // ---- scenarios
     let mut done: BTreeMap<(String, u64, Option<String>), Done> = BTreeMap::new();
     if let Some(d) = &data {
-        let jobs: Vec<Job> = scn_jobs.iter().map(|(n, s, net)| Job { scn: found[n].scn.clone(), path: found[n].path.clone(), seed: *s, net: net.clone() }).collect();
-        let res = run_jobs(d, jobs, opts.jobs, None, false, opts.data.clone(), false, false);
+        let jobs: Vec<Job> = scn_jobs
+            .iter()
+            .map(|(n, s, net)| Job {
+                scn: found[n].scn.clone(),
+                path: found[n].path.clone(),
+                seed: *s,
+                net: net.clone(),
+            })
+            .collect();
+        let res = run_jobs(
+            d,
+            jobs,
+            opts.jobs,
+            None,
+            false,
+            opts.data.clone(),
+            false,
+            false,
+        );
         for ((n, s, net), r) in scn_jobs.iter().zip(res) {
             done.insert((n.clone(), *s, net.clone()), r);
         }
     }
 
     // ---- builtins and conformance
-    let env = |peers| Env { data: data.as_deref(), peers, net: opts.net.as_deref().filter(|n| *n != "all").unwrap_or("bad_wifi"), seed: 7 };
+    let env = |peers| Env {
+        data: data.as_deref(),
+        peers,
+        net: opts
+            .net
+            .as_deref()
+            .filter(|n| *n != "all")
+            .unwrap_or("bad_wifi"),
+        seed: 7,
+    };
     let reg = builtin::registry();
     let bres: BTreeMap<(String, bool), Result<String, String>> = {
         let list: Vec<(String, bool)> = builtins.into_iter().collect();
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let r = parallel(list.clone(), opts.jobs, |(n, m)| match reg.iter().find(|(x, _)| x == n) {
-            None => Err(format!("PENDING no builtin check {n}")),
-            Some((_, f)) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&env(opts.peers), *m))).unwrap_or_else(|_| Err("panic".into())),
+        let r = parallel(list.clone(), opts.jobs, |(n, m)| {
+            match reg.iter().find(|(x, _)| x == n) {
+                None => Err(format!("PENDING no builtin check {n}")),
+                Some((_, f)) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    f(&env(opts.peers), *m)
+                }))
+                .unwrap_or_else(|_| Err("panic".into())),
+            }
         });
         std::panic::set_hook(prev);
         list.into_iter().zip(r).collect()
@@ -367,7 +483,9 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
             let list: Vec<(String, bool)> = conf.into_iter().collect();
             let prev = std::panic::take_hook();
             std::panic::set_hook(Box::new(|_| {}));
-            let r = parallel(list.clone(), opts.jobs, |(n, m)| backend::run_test(&*be, d, n, *m));
+            let r = parallel(list.clone(), opts.jobs, |(n, m)| {
+                backend::run_test(&*be, d, n, *m)
+            });
             std::panic::set_hook(prev);
             list.into_iter().zip(r).collect()
         }
@@ -379,12 +497,19 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
     let mut missing_quests = 0;
     if !want_walk.is_empty() && !opts.no_questwalk && !engine {
         if let Some(d) = &data {
-            let mut w = WalkOpts { jobs: opts.jobs, ..WalkOpts::default() };
+            let mut w = WalkOpts {
+                jobs: opts.jobs,
+                ..WalkOpts::default()
+            };
             if opts.quick {
                 w.nets = vec!["perfect".into()];
             }
             if let Some(n) = opts.net.as_deref() {
-                w.nets = if n == "all" { PROFILES.iter().map(|s| s.to_string()).collect() } else { vec![n.to_string()] };
+                w.nets = if n == "all" {
+                    PROFILES.iter().map(|s| s.to_string()).collect()
+                } else {
+                    vec![n.to_string()]
+                };
             }
             if opts.full {
                 w.nets = PROFILES.iter().map(|s| s.to_string()).collect();
@@ -401,7 +526,9 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
     // ---- assemble
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mk_scn = |name: &str, row: &Row| -> T {
-        let Some(f) = found.get(name) else { return T::Pending(format!("scenario {name} does not exist yet")) };
+        let Some(f) = found.get(name) else {
+            return T::Pending(format!("scenario {name} does not exist yet"));
+        };
         if data.is_none() {
             return T::Skip("no data folder".into());
         }
@@ -409,12 +536,25 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
         let mut skips = 0;
         for s in seeds_for(f) {
             for net in &nets {
-                let Some(d) = done.get(&(name.to_string(), s, net.clone())) else { continue };
+                let Some(d) = done.get(&(name.to_string(), s, net.clone())) else {
+                    continue;
+                };
                 runs += 1;
                 match d.result.as_str() {
                     "pass" => {}
                     "skip" => skips += 1,
-                    _ => return T::Fail(format!("{name} seed {} ({}): {} {}", d.seed, d.net, d.class, d.line.trim_start_matches("RESULT: ")), d.rerun.clone()),
+                    _ => {
+                        return T::Fail(
+                            format!(
+                                "{name} seed {} ({}): {} {}",
+                                d.seed,
+                                d.net,
+                                d.class,
+                                d.line.trim_start_matches("RESULT: ")
+                            ),
+                            d.rerun.clone(),
+                        )
+                    }
                 }
             }
         }
@@ -432,8 +572,8 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
         let mut rs: Vec<T> = Vec::new();
         if row.tests.is_empty() {
             rs.push(T::Pending("no test yet".into()));
-        } else if engine && row.backend == "world" {
-            rs.push(T::Pending("engine backend".into()));
+        } else if let Some(why) = engine_gate(engine, &row.backend) {
+            rs.push(T::Pending(why));
         } else if let Err(why) = needs_ok(&row.needs, data.as_deref()) {
             rs.push(T::Skip(why));
         } else {
@@ -518,22 +658,49 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
                     other => rs.push(T::Pending(format!("unknown test kind {other:?} in {t}"))),
                 }
             }
-            if row.twin && !row.tests.iter().any(|t| t.starts_with("scenario:") || t.starts_with("builtin:") || t.starts_with("conformance:")) {
-                rs.push(T::Pending("twin required but the row has no test a twin can attach to".into()));
+            if row.twin
+                && !row.tests.iter().any(|t| {
+                    t.starts_with("scenario:")
+                        || t.starts_with("builtin:")
+                        || t.starts_with("conformance:")
+                })
+            {
+                rs.push(T::Pending(
+                    "twin required but the row has no test a twin can attach to".into(),
+                ));
             }
         }
         let (status, detail, replay) = combine(rs);
         let sp = if row.tests.iter().any(|t| t.starts_with("questwalk:")) {
-            let scope = row.tests.iter().find_map(|t| t.strip_prefix("questwalk:")).unwrap_or("all");
-            quests.iter().filter(|q| scope_match(scope, q) && !q.sp_gaps.is_empty()).count()
+            let scope = row
+                .tests
+                .iter()
+                .find_map(|t| t.strip_prefix("questwalk:"))
+                .unwrap_or("all");
+            quests
+                .iter()
+                .filter(|q| scope_match(scope, q) && !q.sp_gaps.is_empty())
+                .count()
         } else {
             0
         };
-        outcomes.push(Outcome { row: row.clone(), status, detail, replay, ms: t_row.elapsed().as_millis() as u64, real_game: real_cell(row, &real), sp_gaps: sp });
+        outcomes.push(Outcome {
+            row: row.clone(),
+            status,
+            detail,
+            replay,
+            ms: t_row.elapsed().as_millis() as u64,
+            real_game: real_cell(row, &real),
+            sp_gaps: sp,
+        });
     }
 
     // ---- one outcome per quest (items of the checklist)
-    let area_ok = |a: &str| opts.area.as_ref().is_none_or(|x| a.to_ascii_lowercase().starts_with(&x.to_ascii_lowercase()));
+    let area_ok = |a: &str| {
+        opts.area
+            .as_ref()
+            .is_none_or(|x| a.to_ascii_lowercase().starts_with(&x.to_ascii_lowercase()))
+    };
     for q in &quests {
         let area = group_of(q);
         if !area_ok(&area) && !area_ok("quests") {
@@ -562,10 +729,53 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
             fix: None,
             meta: serde_json::Value::Null,
         };
-        let status = if q.status == QStatus::Pass { Status::Pass } else { Status::Fail(q.fails.iter().take(2).cloned().collect::<Vec<_>>().join(" | ")) };
-        let detail = format!("{} stages: {} applied, {} released, {} refused, {} per-player; {} runs{}", q.stages, q.applied, q.released, q.refused, q.per_player, q.runs, if q.sp_gaps.is_empty() { String::new() } else { format!("; SP-GAP: {}", q.sp_gaps.keys().cloned().collect::<Vec<_>>().join(", ")) });
-        outcomes.push(Outcome { row, status, detail, replay: vec![q.replay.clone()], ms: q.ms, real_game: "-".into(), sp_gaps: q.sp_gaps.len() });
+        let status = if q.status == QStatus::Pass {
+            Status::Pass
+        } else {
+            Status::Fail(
+                q.fails
+                    .iter()
+                    .take(2)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            )
+        };
+        let detail = format!(
+            "{} stages: {} applied, {} released, {} refused, {} per-player; {} runs{}",
+            q.stages,
+            q.applied,
+            q.released,
+            q.refused,
+            q.per_player,
+            q.runs,
+            if q.sp_gaps.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "; SP-GAP: {}",
+                    q.sp_gaps.keys().cloned().collect::<Vec<_>>().join(", ")
+                )
+            }
+        );
+        outcomes.push(Outcome {
+            row,
+            status,
+            detail,
+            replay: vec![q.replay.clone()],
+            ms: q.ms,
+            real_game: "-".into(),
+            sp_gaps: q.sp_gaps.len(),
+        });
     }
 
-    Ok(Report { outcomes, quests, wall_s: t0.elapsed().as_secs_f64(), opts: opts.clone(), plugins, missing_quests, scenarios_found: found.len() })
+    Ok(Report {
+        outcomes,
+        quests,
+        wall_s: t0.elapsed().as_secs_f64(),
+        opts: opts.clone(),
+        plugins,
+        missing_quests,
+        scenarios_found: found.len(),
+    })
 }

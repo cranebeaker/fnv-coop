@@ -352,6 +352,38 @@ pub enum Act {
         /// No way back (a barrier is needed).
         one_way: bool,
     },
+    /// The level-up menu closed (played locally): the level is taken, the
+    /// skill points go into the skills, the perk is given.
+    LevelUp {
+        /// Skill actor values and the points put into each.
+        skills: Vec<(u16, u32)>,
+        /// The perk picked (0 when the level gives none).
+        perk: FormId,
+    },
+    /// A caravan game ended (played locally): the loser pays the stake and
+    /// the player's record counts the game.
+    Caravan {
+        /// The opponent.
+        npc: FormId,
+        /// The stake (the smaller ante).
+        stake: u32,
+        /// The player won.
+        won: bool,
+    },
+    /// A casino game closed (played locally): the player's ledger at that
+    /// casino, and the chips the menu ended with.
+    Casino {
+        /// The casino record (`CSNO`).
+        casino: FormId,
+        /// The menu's chips at closing.
+        chips: u32,
+        /// The net chips won there, all games (`iTotalWinnings`).
+        winnings: i32,
+        /// The winnings level reached (0 to 4).
+        level: u8,
+        /// A round reached a new level (the comps quest starts).
+        new_level: bool,
+    },
 }
 
 impl Act {
@@ -378,6 +410,9 @@ impl Act {
             Act::Trap { .. } => "trap",
             Act::Discover { .. } => "discover",
             Act::Transition { .. } => "transition",
+            Act::LevelUp { .. } => "levelup",
+            Act::Caravan { .. } => "caravan",
+            Act::Casino { .. } => "casino",
         }
     }
 
@@ -438,9 +473,10 @@ impl InteractMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            InteractMsg::Request { act: Act::Barter { buys, sells, .. }, .. } => {
-                buys.len() <= MAX_LINES && sells.len() <= MAX_LINES
-            }
+            InteractMsg::Request {
+                act: Act::Barter { buys, sells, .. },
+                ..
+            } => buys.len() <= MAX_LINES && sells.len() <= MAX_LINES,
             InteractMsg::Sync(v) => v.len() <= SYNC_CHUNK,
             _ => true,
         }

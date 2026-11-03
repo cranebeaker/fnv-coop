@@ -38,12 +38,20 @@ pub struct ExtraShadow {
 }
 
 /// Reads the wanted object variables and the follower quests from the table.
-pub fn configure(camp: &mut Campaign, _order: &LoadOrder, table: &Arc<PolicyTable>, lid: &dyn Fn(u32) -> FormId) {
+pub fn configure(
+    camp: &mut Campaign,
+    _order: &LoadOrder,
+    table: &Arc<PolicyTable>,
+    lid: &dyn Fn(u32) -> FormId,
+) {
     for row in table.rows() {
         if let Some(sh) = &row.shadow {
             for ov in &sh.objvars {
                 if let Some((script, var)) = ov.split_once('.') {
-                    let e = camp.objvar_wanted.entry(script.to_ascii_lowercase()).or_default();
+                    let e = camp
+                        .objvar_wanted
+                        .entry(script.to_ascii_lowercase())
+                        .or_default();
                     let v = var.to_ascii_lowercase();
                     if !e.contains(&v) {
                         e.push(v);
@@ -84,7 +92,9 @@ fn capture(gs: &GameState) -> ExtraShadow {
     let c = &gs.coop.campaign;
     let mut x = ExtraShadow::default();
     for (owner, script) in &c.objvar_owners {
-        let (Some(names), Some(l)) = (c.objvar_wanted.get(script), gs.variables.get(owner)) else { continue };
+        let (Some(names), Some(l)) = (c.objvar_wanted.get(script), gs.variables.get(owner)) else {
+            continue;
+        };
         for n in names {
             if let Some(v) = l.get(n) {
                 x.objvars.insert((*owner, n.clone()), v);
@@ -114,7 +124,13 @@ fn clear(gs: &mut GameState) {
         .campaign
         .objvar_owners
         .iter()
-        .filter_map(|(o, s)| gs.coop.campaign.objvar_wanted.get(s).map(|n| (*o, n.clone())))
+        .filter_map(|(o, s)| {
+            gs.coop
+                .campaign
+                .objvar_wanted
+                .get(s)
+                .map(|n| (*o, n.clone()))
+        })
         .collect();
     for (o, names) in owners {
         if let Some(l) = gs.variables.get_mut(&o) {
@@ -183,13 +199,21 @@ pub fn extra_of(gs: &GameState, slot: u8) -> ExtraShadow {
     if slot == gs.active_slot() {
         capture(gs)
     } else {
-        gs.coop.campaign.parked.get(&slot).cloned().unwrap_or_default()
+        gs.coop
+            .campaign
+            .parked
+            .get(&slot)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
 impl Campaign {
     /// Nothing configured that needs a swap.
     pub fn is_idle(&self) -> bool {
-        self.objvar_owners.is_empty() && self.follower_quests.is_empty() && self.personal.is_empty() && !self.swap_living
+        self.objvar_owners.is_empty()
+            && self.follower_quests.is_empty()
+            && self.personal.is_empty()
+            && !self.swap_living
     }
 }

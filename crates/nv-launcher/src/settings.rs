@@ -65,7 +65,11 @@ pub fn clean_name(raw: &str) -> String {
         .collect();
     let s: String = s.trim().chars().take(24).collect();
     let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "Player".into() } else { s }
+    if s.is_empty() {
+        "Player".into()
+    } else {
+        s
+    }
 }
 
 impl Settings {
@@ -85,19 +89,41 @@ impl Settings {
                 .unwrap_or(def)
         };
         Settings {
-            data_path: v.get("data_path").and_then(Value::as_str).unwrap_or("").trim().to_string(),
-            player_name: v.get("player_name").and_then(Value::as_str).map(clean_name).unwrap_or(d.player_name),
+            data_path: v
+                .get("data_path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            player_name: v
+                .get("player_name")
+                .and_then(Value::as_str)
+                .map(clean_name)
+                .unwrap_or(d.player_name),
             port,
             transport: match v.get("transport").and_then(Value::as_str) {
                 Some(t) if t.eq_ignore_ascii_case("steam") => Transport::Steam,
                 _ => Transport::Udp,
             },
-            windowed: v.get("windowed").and_then(Value::as_bool).unwrap_or(d.windowed),
+            windowed: v
+                .get("windowed")
+                .and_then(Value::as_bool)
+                .unwrap_or(d.windowed),
             width: dim("width", d.width),
             height: dim("height", d.height),
             uncap: v.get("uncap").and_then(Value::as_bool).unwrap_or(d.uncap),
-            host_address: v.get("host_address").and_then(Value::as_str).unwrap_or("").trim().to_string(),
-            viewer_path: v.get("viewer_path").and_then(Value::as_str).unwrap_or("").trim().to_string(),
+            host_address: v
+                .get("host_address")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            viewer_path: v
+                .get("viewer_path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string(),
         }
     }
 
@@ -120,14 +146,23 @@ impl Settings {
     pub fn load(path: &Path) -> (Settings, Option<String>) {
         match std::fs::read(path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Settings::default(), None),
-            Err(e) => (Settings::default(), Some(format!("could not read settings: {e}"))),
+            Err(e) => (
+                Settings::default(),
+                Some(format!("could not read settings: {e}")),
+            ),
             Ok(bytes) => {
                 let text = String::from_utf8_lossy(&bytes);
                 let text = text.trim_start_matches('\u{feff}');
                 match json::parse(text) {
                     Ok(v @ Value::Obj(_)) => (Settings::from_json(&v), None),
-                    Ok(_) => (Settings::default(), Some("settings file is not a JSON object; using defaults".into())),
-                    Err(e) => (Settings::default(), Some(format!("settings file is damaged ({e}); using defaults"))),
+                    Ok(_) => (
+                        Settings::default(),
+                        Some("settings file is not a JSON object; using defaults".into()),
+                    ),
+                    Err(e) => (
+                        Settings::default(),
+                        Some(format!("settings file is damaged ({e}); using defaults")),
+                    ),
                 }
             }
         }
@@ -229,7 +264,13 @@ mod tests {
             _ => None,
         };
         assert_eq!(home_dir(&e), PathBuf::from("X:\\h"));
-        let e2 = |k: &str| if k == "APPDATA" { Some("C:\\A".to_string()) } else { None };
+        let e2 = |k: &str| {
+            if k == "APPDATA" {
+                Some("C:\\A".to_string())
+            } else {
+                None
+            }
+        };
         assert_eq!(home_dir(&e2), PathBuf::from("C:\\A").join("nv-rs-coop"));
         assert_eq!(home_dir(&|_| None), PathBuf::from("nv-rs-coop"));
     }

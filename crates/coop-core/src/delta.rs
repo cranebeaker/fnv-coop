@@ -245,18 +245,32 @@ impl StateStore {
                 break;
             }
             let e = &self.map[k];
-            changes.push(Change { form: k.form, field: e.field.clone(), rev_off: r.0 - base.0 });
+            changes.push(Change {
+                form: k.form,
+                field: e.field.clone(),
+                rev_off: r.0 - base.0,
+            });
             last = *r;
         }
         let rev = if truncated { last } else { self.rev.max(base) };
-        Delta { tick, base_rev: base, rev, changes, complete: !truncated }
+        Delta {
+            tick,
+            base_rev: base,
+            rev,
+            changes,
+            complete: !truncated,
+        }
     }
 
     /// All records, ascending by key.
     pub fn entries(&self) -> Vec<SnapEntry> {
         self.map
             .iter()
-            .map(|(k, e)| SnapEntry { form: k.form, field: e.field.clone(), rev: e.rev })
+            .map(|(k, e)| SnapEntry {
+                form: k.form,
+                field: e.field.clone(),
+                rev: e.rev,
+            })
             .collect()
     }
 
@@ -276,7 +290,11 @@ impl StateStore {
         self.map
             .iter()
             .filter(|(k, _)| shards.contains(&shard_of(k.form)))
-            .map(|(k, e)| SnapEntry { form: k.form, field: e.field.clone(), rev: e.rev })
+            .map(|(k, e)| SnapEntry {
+                form: k.form,
+                field: e.field.clone(),
+                rev: e.rev,
+            })
             .collect()
     }
 
@@ -284,8 +302,12 @@ impl StateStore {
     /// Entries outside the listed shards are ignored.
     pub fn replace_shards(&mut self, shards: &[u8], entries: Vec<SnapEntry>) {
         // `exact` is deliberately untouched: a repair only moves content toward the sender.
-        let doomed: Vec<Key> =
-            self.map.keys().filter(|k| shards.contains(&shard_of(k.form))).copied().collect();
+        let doomed: Vec<Key> = self
+            .map
+            .keys()
+            .filter(|k| shards.contains(&shard_of(k.form)))
+            .copied()
+            .collect();
         for k in doomed {
             if let Some(e) = self.map.remove(&k) {
                 self.by_rev.remove(&e.rev);
@@ -322,14 +344,32 @@ mod tests {
     #[test]
     fn apply_entry_lww() {
         let mut s = StateStore::new();
-        assert_eq!(s.apply_entry(FormId(1), stage(2), Rev(5)), ApplyOutcome::Applied);
-        assert_eq!(s.apply_entry(FormId(1), stage(1), Rev(3)), ApplyOutcome::Stale);
-        assert_eq!(s.apply_entry(FormId(1), stage(2), Rev(5)), ApplyOutcome::Duplicate);
-        assert_eq!(s.apply_entry(FormId(1), stage(9), Rev(7)), ApplyOutcome::Applied);
+        assert_eq!(
+            s.apply_entry(FormId(1), stage(2), Rev(5)),
+            ApplyOutcome::Applied
+        );
+        assert_eq!(
+            s.apply_entry(FormId(1), stage(1), Rev(3)),
+            ApplyOutcome::Stale
+        );
+        assert_eq!(
+            s.apply_entry(FormId(1), stage(2), Rev(5)),
+            ApplyOutcome::Duplicate
+        );
+        assert_eq!(
+            s.apply_entry(FormId(1), stage(9), Rev(7)),
+            ApplyOutcome::Applied
+        );
         assert_eq!(s.get(FormId(1), &stage(0)).unwrap().field, stage(9));
-        assert_eq!(s.apply_entry(FormId(1), stage(9), Rev(0)), ApplyOutcome::Rejected);
+        assert_eq!(
+            s.apply_entry(FormId(1), stage(9), Rev(0)),
+            ApplyOutcome::Rejected
+        );
         // a different key may not steal an existing revision
-        assert_eq!(s.apply_entry(FormId(2), stage(1), Rev(7)), ApplyOutcome::Rejected);
+        assert_eq!(
+            s.apply_entry(FormId(2), stage(1), Rev(7)),
+            ApplyOutcome::Rejected
+        );
     }
 
     #[test]
@@ -399,8 +439,16 @@ mod tests {
             rev: Rev(2),
             complete: true,
             changes: vec![
-                Change { form: FormId(1), field: stage(1), rev_off: 0 },
-                Change { form: FormId(2), field: stage(1), rev_off: 5 },
+                Change {
+                    form: FormId(1),
+                    field: stage(1),
+                    rev_off: 0,
+                },
+                Change {
+                    form: FormId(2),
+                    field: stage(1),
+                    rev_off: 5,
+                },
             ],
         };
         let r = g.apply_delta(&d);
@@ -422,7 +470,14 @@ mod tests {
         // corrupt one shard on g, repair from h
         let victim = FormId(0x0100_0007);
         let shard = shard_of(victim);
-        g.replace_shards(&[shard], vec![SnapEntry { form: victim, field: stage(999), rev: Rev(9999) }]);
+        g.replace_shards(
+            &[shard],
+            vec![SnapEntry {
+                form: victim,
+                field: stage(999),
+                rev: Rev(9999),
+            }],
+        );
         assert_ne!(g.entries(), h.entries());
         let fix = h.entries_in_shards(&[shard]);
         g.replace_shards(&[shard], fix);

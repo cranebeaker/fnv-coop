@@ -1807,8 +1807,16 @@ pub fn weapon_equipped(order: &LoadOrder, state: &GameState, who: FormId) -> Opt
         .into_iter()
         .flatten()
         .copied()
-        .find(|&i| order.get(i).is_some_and(|r| r.entry.header.kind == WEAP) && !state.dropped.contains(&(who, i)))?;
-    Some(crate::weapon_mods::modded(order, state, who, Weapon::load(order, id)?))
+        .find(|&i| {
+            order.get(i).is_some_and(|r| r.entry.header.kind == WEAP)
+                && !state.dropped.contains(&(who, i))
+        })?;
+    Some(crate::weapon_mods::modded(
+        order,
+        state,
+        who,
+        Weapon::load(order, id)?,
+    ))
 }
 
 /// How far a projectile carries, as the combat AI measures it

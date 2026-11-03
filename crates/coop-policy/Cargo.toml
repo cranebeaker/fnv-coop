@@ -8,7 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [dev-dependencies]
 proptest = "1"
+# Tests only: a dev-dependency is not linked into `world` (see src/json.rs).
+serde_json = "1"

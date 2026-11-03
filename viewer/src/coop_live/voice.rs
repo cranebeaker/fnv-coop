@@ -36,7 +36,10 @@ impl Controls {
     /// Volume of `name` (1 = normal).
     pub fn volume_of(&self, name: &str) -> f32 {
         let n = name.to_ascii_lowercase();
-        self.volume.iter().find(|(k, _)| *k == n).map_or(1.0, |(_, v)| *v)
+        self.volume
+            .iter()
+            .find(|(k, _)| *k == n)
+            .map_or(1.0, |(_, v)| *v)
     }
 
     /// Mutes or unmutes by name.
@@ -101,7 +104,13 @@ pub fn register(_app: &mut bevy::prelude::App) {}
 
 #[cfg(feature = "voice")]
 fn status() -> String {
-    with_controls(|c| format!("Voice: mic {}, speakers {}", if c.self_muted { "muted" } else { "on" }, if c.deafened { "off" } else { "on" }))
+    with_controls(|c| {
+        format!(
+            "Voice: mic {}, speakers {}",
+            if c.self_muted { "muted" } else { "on" },
+            if c.deafened { "off" } else { "on" }
+        )
+    })
 }
 
 #[cfg(feature = "voice")]
@@ -152,7 +161,9 @@ mod real {
         })
         .add_systems(
             Update,
-            run.in_set(ViewerSet::AfterFrame).after(crate::coop_live::frame::run).before(crate::coop::send),
+            run.in_set(ViewerSet::AfterFrame)
+                .after(crate::coop_live::frame::run)
+                .before(crate::coop::send),
         );
     }
 
@@ -178,15 +189,23 @@ mod real {
             a.tried = true;
             match capture::start() {
                 Ok(c) => {
-                    let act = if cfg.voice == "vad" { Activation::VoiceActivity } else { Activation::PushToTalk };
+                    let act = if cfg.voice == "vad" {
+                        Activation::VoiceActivity
+                    } else {
+                        Activation::PushToTalk
+                    };
                     a.tx = Some(VoiceTx::with_default_codec(view.me.0, c.device_rate, act));
                     a.capture = Some(c);
                 }
-                Err(e) => messages.queue.push(HudMessage::from(format!("Voice: no microphone ({e})"))),
+                Err(e) => messages
+                    .queue
+                    .push(HudMessage::from(format!("Voice: no microphone ({e})"))),
             }
             match capture::start_playback() {
                 Ok(p) => a.playback = Some(p),
-                Err(e) => messages.queue.push(HudMessage::from(format!("Voice: no speakers ({e})"))),
+                Err(e) => messages
+                    .queue
+                    .push(HudMessage::from(format!("Voice: no speakers ({e})"))),
             }
         }
         // keys
@@ -195,14 +214,22 @@ mod real {
                 c.self_muted = !c.self_muted;
                 c.self_muted
             });
-            messages.queue.push(HudMessage::from(if on { "Microphone muted".to_string() } else { "Microphone on".to_string() }));
+            messages.queue.push(HudMessage::from(if on {
+                "Microphone muted".to_string()
+            } else {
+                "Microphone on".to_string()
+            }));
         }
         if keys.just_pressed(KeyCode::F7) {
             let on = with_controls(|c| {
                 c.deafened = !c.deafened;
                 c.deafened
             });
-            messages.queue.push(HudMessage::from(if on { "Voice chat off".to_string() } else { "Voice chat on".to_string() }));
+            messages.queue.push(HudMessage::from(if on {
+                "Voice chat off".to_string()
+            } else {
+                "Voice chat on".to_string()
+            }));
         }
         let (self_muted, deafened) = with_controls(|c| (c.self_muted, c.deafened));
         // microphone to the party
@@ -224,10 +251,16 @@ mod real {
             let f = t.forward().as_vec3();
             f.x.atan2(-f.z)
         });
-        a.rx.positions.listener = (gs.player_position.unwrap_or([0.0; 3]), heading, gs.player_cell.map_or(0, |c| c.0));
+        a.rx.positions.listener = (
+            gs.player_position.unwrap_or([0.0; 3]),
+            heading,
+            gs.player_cell.map_or(0, |c| c.0),
+        );
         a.rx.positions.speakers.clear();
         for av in &view.avatars {
-            a.rx.positions.speakers.insert(av.player.0, (av.pos, av.cell));
+            a.rx.positions
+                .speakers
+                .insert(av.player.0, (av.pos, av.cell));
             let (muted, vol) = with_controls(|c| (c.is_muted(&av.name), c.volume_of(&av.name)));
             a.rx.set_muted(av.player.0, muted);
             a.rx.set_volume(av.player.0, vol);

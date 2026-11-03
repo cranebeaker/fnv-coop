@@ -20,8 +20,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use esm::{FormId, FourCC, LoadOrder};
 use crate::coop::Domain;
+use esm::{FormId, FourCC, LoadOrder};
 use script::interp::{self, Host, Locals};
 use script::{Arg, Call, Script};
 
@@ -1234,6 +1234,9 @@ pub enum Event {
     MoveTo {
         what: FormId,
         to: FormId,
+        /// The exact spot, when it is not the target's own spot (the
+        /// offsets of `MoveToMarker`, a party warp's ring around an anchor).
+        at: Option<[f32; 3]>,
     },
     Sound(FormId),
     /// `Activate`: something activated (by someone).
@@ -2109,6 +2112,11 @@ impl Facts<'_> {
                 let (who, other) = (on?, arg(0).form());
                 if s.dead.contains(&who) {
                     0.0
+                } else if other == PLAYER_REF && s.coop.authority.replicates() {
+                    // co-op: the party is seen when its best-seen player is
+                    // (`coop::combat_live::party_detection`)
+                    let (_, best) = crate::coop::combat_live::party_detection(self.order, s, who)?;
+                    flag(best > crate::detection::SEEN)
                 } else {
                     flag(self.detection(who, other)? > crate::detection::SEEN)
                 }
@@ -2450,7 +2458,9 @@ impl Facts<'_> {
         let (mut moving, mut running) = if player {
             (s.player_moving, s.player_running)
         } else {
-            motion.or(puppet.map(|p| (p.moving, p.running))).unwrap_or((false, false))
+            motion
+                .or(puppet.map(|p| (p.moving, p.running)))
+                .unwrap_or((false, false))
         };
         // The one noticed's perks' "Ignore Running During Detection"
         // (entry point 31, Silent Running; `008a0d10`): they never count
@@ -2493,7 +2503,10 @@ impl Facts<'_> {
             } else {
                 av(other, 42)
             },
-            target_level: puppet.map_or_else(|| f32::from(self.level(other).unwrap_or(1)), |p| f32::from(p.level)),
+            target_level: puppet.map_or_else(
+                || f32::from(self.level(other).unwrap_or(1)),
+                |p| f32::from(p.level),
+            ),
             detector_level: f32::from(self.level(who).unwrap_or(1)),
         })
     }
@@ -3444,7 +3457,7 @@ impl<'a> Runner<'a> {
         else {
             return false;
         };
-        let names =|b: &script::Block, who: Option<FormId>| match b.args.first() {
+        let names = |b: &script::Block, who: Option<FormId>| match b.args.first() {
             None => true,
             Some(Arg::Word(w)) => {
                 let id = if w.eq_ignore_ascii_case("player") || w.eq_ignore_ascii_case("playerref")
@@ -3932,7 +3945,9 @@ impl<'a> Runner<'a> {
         if self.depth >= MAX_DEPTH || self.guest_skip() {
             return false;
         }
-        if self.state.coop.authority != crate::coop::Authority::Single && !self.state.coop_gate_stage(quest_id, stage) {
+        if self.state.coop.authority != crate::coop::Authority::Single
+            && !self.state.coop_gate_stage(quest_id, stage)
+        {
             return false;
         }
         let Some(quest) = self.scripts.quest(self.order, quest_id) else {
@@ -4151,17 +4166,33 @@ impl<'a> Runner<'a> {
             "ShowMessage" => {
                 let values: Vec<f64> = args.iter().skip(1).map(Value::number).collect();
                 self.message(arg(0).form(), &values);
+                // co-op host: a box a consent row lists is put to the party
+                let owner = self.message_owner();
+                crate::coop::campaign::consent::box_shown(
+                    self.order,
+                    self.state,
+                    arg(0).form(),
+                    owner,
+                );
             }
             // `005b4a80`: the button only for the owner the box was shown
             // by; anyone else gets -1 and the button stays for the owner.
             "GetButtonPressed" => {
                 let mine = self.state.button_owner == Some(self.message_owner());
                 return Some(match self.state.button.filter(|&b| b >= 0 && mine) {
-                    Some(b) => {
-                        self.state.button = None;
-                        self.state.button_owner = None;
-                        f64::from(b)
-                    }
+                    // co-op host: a party box's button waits for the party
+                    Some(b) => match crate::coop::campaign::consent::box_button(self.state, b) {
+                        crate::coop::campaign::consent::Press::Give => {
+                            self.state.button = None;
+                            self.state.button_owner = None;
+                            f64::from(b)
+                        }
+                        crate::coop::campaign::consent::Press::Hold => -1.0,
+                        crate::coop::campaign::consent::Press::Drop => {
+                            self.state.button = None;
+                            -1.0
+                        }
+                    },
                     None => -1.0,
                 });
             }
@@ -4433,6 +4464,8 @@ impl<'a> Runner<'a> {
                 self.state
                     .faction_relations
                     .insert((b, a), code(arg(3).number()));
+                self.state.emit(Domain::FactionRelation, a);
+                self.state.emit(Domain::FactionRelation, b);
             }
             "AddToFaction" | "SetFactionRank" => {
                 let who = target?;
@@ -4440,10 +4473,12 @@ impl<'a> Runner<'a> {
                 self.state
                     .faction_changes
                     .insert((who, arg(0).form()), rank);
+                self.state.emit(Domain::Faction, who);
             }
             "RemoveFromFaction" => {
                 let who = target?;
                 self.state.faction_changes.insert((who, arg(0).form()), -1);
+                self.state.emit(Domain::Faction, who);
             }
             "StopCombat" => {
                 self.state.combat.remove(&target?);
@@ -4499,11 +4534,17 @@ impl<'a> Runner<'a> {
             }
             "StartConversation" | "SayTo" => {
                 let speaker = target?;
-                events.push(Event::Talk {
+                let (to, topic) = (
+                    arg(0).form(),
+                    args.get(1).map(Value::form).filter(|f| f.0 != 0),
+                );
+                let conversation = name == "StartConversation";
+                self.state.coop_talk(speaker, to, topic, conversation);
+                self.state.events.push(Event::Talk {
                     speaker,
-                    to: arg(0).form(),
-                    topic: args.get(1).map(Value::form).filter(|f| f.0 != 0),
-                    conversation: name == "StartConversation",
+                    to,
+                    topic,
+                    conversation,
                 });
             }
             "DisablePlayerControls" | "EnablePlayerControls" => {
@@ -4542,8 +4583,11 @@ impl<'a> Runner<'a> {
                 let what = target?;
                 let to = arg(0).form();
                 let (space, cell, mut position, heading) = self.state.place(self.order, to)?;
+                let mut offset = false;
                 for (i, p) in position.iter_mut().enumerate() {
-                    *p += arg(i + 1).number() as f32;
+                    let d = arg(i + 1).number() as f32;
+                    offset |= d != 0.0;
+                    *p += d;
                 }
                 if what == PLAYER_REF {
                     self.state.coop_script_moved(to, cell);
@@ -4555,7 +4599,11 @@ impl<'a> Runner<'a> {
                     self.state.spaces.insert(what, (space, cell));
                     self.state.positions.insert(what, (position, heading));
                 }
-                self.state.events.push(Event::MoveTo { what, to });
+                self.state.events.push(Event::MoveTo {
+                    what,
+                    to,
+                    at: offset.then_some(position),
+                });
             }
             "SetQuestDelay" => {
                 self.state
@@ -4570,6 +4618,8 @@ impl<'a> Runner<'a> {
                     self.state.modifiers.push(m);
                 }
                 events.push(Event::ImageSpace(m, on));
+                self.state
+                    .coop_present(coop_core::scene::Cue::ImageSpace { form: m.0, on });
             }
             "ForceWeather" | "SetWeather" => {
                 let hour = self
@@ -4611,7 +4661,12 @@ impl<'a> Runner<'a> {
                 }
                 events.push(Event::Video(video));
             }
-            "PlayMusic" => events.push(Event::Music(arg(0).form())),
+            "PlayMusic" => {
+                let form = arg(0).form();
+                events.push(Event::Music(form));
+                self.state
+                    .coop_present(coop_core::scene::Cue::Music { form: form.0 });
+            }
             // `005d0760`: knocked out (life state 3, `008ace10`) after
             // stopping their own fight (actor vtable +0x434 with no target,
             // the call `StopCombatAlarmOnActor` makes per attacker); woken
@@ -4670,9 +4725,11 @@ impl<'a> Runner<'a> {
             // stops (`world::crime`).
             "SetPCEnemyofFaction" => {
                 self.state.crime_enemies.insert(arg(0).form());
+                self.state.emit(Domain::Crime, arg(0).form());
             }
             "ClearFactionPlayerEnemyFlag" => {
                 self.state.crime_enemies.remove(&arg(0).form());
+                self.state.emit(Domain::Crime, arg(0).form());
             }
             // Always the player's, whoever it's called on (`005d51a0`).
             "RewardKarma" => {
@@ -4700,7 +4757,9 @@ impl<'a> Runner<'a> {
             "SetPlayerTeammate" => {
                 let who = target?;
                 if arg(0).number() != 0.0 {
-                    if self.state.coop.authority == crate::coop::Authority::Single || self.state.coop_recruit_ok(who) {
+                    if self.state.coop.authority == crate::coop::Authority::Single
+                        || self.state.coop_recruit_ok(who)
+                    {
                         self.state.teammates.insert(who);
                     }
                 } else {
@@ -4732,7 +4791,12 @@ impl<'a> Runner<'a> {
                 }
             }
             "ClearScreenSplatter" => {}
-            "PlaySound" | "PlaySound3D" => events.push(Event::Sound(arg(0).form())),
+            "PlaySound" | "PlaySound3D" => {
+                let form = arg(0).form();
+                events.push(Event::Sound(form));
+                self.state
+                    .coop_present(coop_core::scene::Cue::Sound { form: form.0 });
+            }
             "Activate" => {
                 let what = target?;
                 let by = args.first().map(Value::form);
@@ -5065,7 +5129,12 @@ impl<'a> Runner<'a> {
 impl Runner<'_> {
     /// Runs one command by name, as a script's call of it would (a co-op
     /// operation deferred for an unloaded cell, replayed once it loads).
-    pub fn apply_call(&mut self, name: &str, target: Option<FormId>, args: &[Value]) -> Option<f64> {
+    pub fn apply_call(
+        &mut self,
+        name: &str,
+        target: Option<FormId>,
+        args: &[Value],
+    ) -> Option<f64> {
         self.change(name, target, args)
     }
 }
@@ -5108,11 +5177,15 @@ impl Host for Runner<'_> {
         let value = if self.state.is_guest() {
             // Safety net: on a guest only pure queries run; anything else
             // is a refused write that reports success (value 0).
-            self.facts().value(call.function, target, &args).or_else(|| {
-                self.state.coop.stats.suppressed_calls += 1;
-                Some(0.0)
-            })
-        } else if let Some(v) = crate::coop::roam_ops::defer(self.state, self.order, sig.name, target, &args) {
+            self.facts()
+                .value(call.function, target, &args)
+                .or_else(|| {
+                    self.state.coop.stats.suppressed_calls += 1;
+                    Some(0.0)
+                })
+        } else if let Some(v) =
+            crate::coop::roam_ops::defer(self.state, self.order, sig.name, target, &args)
+        {
             Some(v)
         } else {
             self.change(sig.name, target, &args)

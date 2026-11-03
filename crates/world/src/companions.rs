@@ -466,13 +466,43 @@ pub fn come_along(
         {
             continue;
         }
-        state.stand(who);
-        state.spaces.insert(who, (space, cell));
-        state.positions.insert(who, (at, heading));
-        state.evaluate.insert(who);
+        bring(state, who, (space, cell, at, heading));
         moved.push(who);
     }
     moved
+}
+
+/// Puts `who` at a player's place (space, cell, position, heading) and
+/// lets it look at its packages again: the move of [`come_along`].
+fn bring(state: &mut GameState, who: FormId, place: (FormId, FormId, [f32; 3], f32)) {
+    let (space, cell, at, heading) = place;
+    state.stand(who);
+    state.spaces.insert(who, (space, cell));
+    state.positions.insert(who, (at, heading));
+    state.evaluate.insert(who);
+}
+
+/// A teammate of another player comes along to that player's `place`
+/// (space, cell, position, heading), as [`come_along`] brings the local
+/// player's teammates: not one who is dead, disabled or waiting. Co-op: the
+/// host moves a guest's followers, whose records the host keeps. Returns
+/// whether it moved.
+pub fn bring_teammate(
+    order: &LoadOrder,
+    scripts: &ScriptCache,
+    state: &mut GameState,
+    who: FormId,
+    place: (FormId, FormId, [f32; 3], f32),
+) -> bool {
+    if who == PLAYER_REF
+        || state.dead.contains(&who)
+        || !crate::enabled_now(order, who, &state.disabled)
+        || variable(order, scripts, state, who, "Waiting") == 1.0
+    {
+        return false;
+    }
+    bring(state, who, place);
+    true
 }
 
 /// Whether the player is fighting: fighting someone, or someone fighting

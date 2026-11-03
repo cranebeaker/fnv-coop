@@ -215,6 +215,19 @@ pub fn walker_at_door(
             doors_ahead.remove(0);
             false
         }
+        // Co-op guest: a door is shared state, so the walker asks the host
+        // and waits. The swing arrives as a shared fact. The act toggles the
+        // door, so the guest asks again only after ASK_AGAIN_S.
+        OpenState::Closed if state.coop.authority == world::coop::Authority::Guest => {
+            let now = state.seconds;
+            let mut asks = WALKER_ASKS.lock().unwrap_or_else(|e| e.into_inner());
+            asks.retain(|_, at| now - *at < ASK_AGAIN_S);
+            if let std::collections::btree_map::Entry::Vacant(e) = asks.entry(door.0) {
+                e.insert(now);
+                let _ = state.coop_route(world::coop::interact::door_act(door));
+            }
+            true
+        }
         OpenState::Closed => {
             activate(order, state, sounds, door, Some(walker));
             true
@@ -226,6 +239,14 @@ pub fn walker_at_door(
         }
     }
 }
+
+/// The doors a guest's walkers asked the host to open, with the game time
+/// of each ask.
+static WALKER_ASKS: std::sync::Mutex<std::collections::BTreeMap<u32, f64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The seconds a guest waits before it asks the host again for one door.
+const ASK_AGAIN_S: f64 = 2.0;
 
 /// How near a door's portal triangle someone must be to use the door: the
 /// portal is the navmesh triangle across the doorway, so about a

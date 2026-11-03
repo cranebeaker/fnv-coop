@@ -4,8 +4,10 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::actors::ActorClient;
+use crate::avatar::{
+    ActionRx, AvatarAction, AvatarMsg, AvatarParts, AvatarSender, AvatarState, InterpBuffer,
+};
 use crate::combat::CombatClient;
-use crate::avatar::{ActionRx, AvatarAction, AvatarMsg, AvatarParts, AvatarSender, AvatarState, InterpBuffer};
 use crate::dialogue::DialogueClient;
 use crate::ids::{FormId, PlayerId};
 use crate::interact::InteractClient;
@@ -110,7 +112,11 @@ impl GuestLive {
     pub fn say(&mut self, channel: ChatChannel, text: &str) -> Msg {
         let msg_id = self.next_chat;
         self.next_chat += 1;
-        Msg::Social(SocialMsg::Say { msg_id, channel, text: text.to_string() })
+        Msg::Social(SocialMsg::Say {
+            msg_id,
+            channel,
+            text: text.to_string(),
+        })
     }
 
     /// Applies one host message; returns replies (none today, kept for
@@ -118,7 +124,11 @@ impl GuestLive {
     pub fn on_msg(&mut self, msg: Msg, now_ms: u64) -> Vec<Msg> {
         match msg {
             Msg::Avatar(AvatarMsg::State { player, seq, state }) if player != self.me => {
-                self.remote.entry(player).or_default().interp.push(now_ms, seq, state);
+                self.remote
+                    .entry(player)
+                    .or_default()
+                    .interp
+                    .push(now_ms, seq, state);
             }
             Msg::Avatar(AvatarMsg::Parts { player, parts }) if player != self.me => {
                 let r = self.remote.entry(player).or_default();
@@ -138,7 +148,9 @@ impl GuestLive {
             Msg::Interact(m) => self.interact.on_msg(m),
             Msg::Env(m) => self.env.on_msg(m, now_ms),
             Msg::Combat(m) => self.combat.on_msg(m),
-            Msg::Social(SocialMsg::Line { from, name, text, .. }) => {
+            Msg::Social(SocialMsg::Line {
+                from, name, text, ..
+            }) => {
                 self.chat_log.push_back(ChatLine { from, name, text });
                 while self.chat_log.len() > CHAT_LOG_CAP {
                     self.chat_log.pop_front();
@@ -216,12 +228,37 @@ mod tests {
     #[test]
     fn remote_avatar_state_and_parts() {
         let mut g = GuestLive::new(PlayerId(1));
-        let st = AvatarState { cell: CellId(1), ..Default::default() };
-        g.on_msg(Msg::Avatar(AvatarMsg::State { player: PlayerId(2), seq: Seq(1), state: st }), 0);
-        g.on_msg(Msg::Avatar(AvatarMsg::State { player: PlayerId(1), seq: Seq(1), state: st }), 0);
+        let st = AvatarState {
+            cell: CellId(1),
+            ..Default::default()
+        };
+        g.on_msg(
+            Msg::Avatar(AvatarMsg::State {
+                player: PlayerId(2),
+                seq: Seq(1),
+                state: st,
+            }),
+            0,
+        );
+        g.on_msg(
+            Msg::Avatar(AvatarMsg::State {
+                player: PlayerId(1),
+                seq: Seq(1),
+                state: st,
+            }),
+            0,
+        );
         assert_eq!(g.remote.len(), 1, "own echo ignored");
         assert!(g.sample(PlayerId(2), 500).is_some());
-        let p = |rev| Msg::Avatar(AvatarMsg::Parts { player: PlayerId(2), parts: AvatarParts { rev, ..Default::default() } });
+        let p = |rev| {
+            Msg::Avatar(AvatarMsg::Parts {
+                player: PlayerId(2),
+                parts: AvatarParts {
+                    rev,
+                    ..Default::default()
+                },
+            })
+        };
         g.on_msg(p(3), 1);
         g.on_msg(p(2), 2);
         assert_eq!(g.remote[&PlayerId(2)].parts.as_ref().unwrap().rev, 3);
@@ -232,22 +269,52 @@ mod tests {
         let mut g = GuestLive::new(PlayerId(1));
         for i in 0..CHAT_LOG_CAP + 20 {
             g.on_msg(
-                Msg::Social(SocialMsg::Line { from: Some(PlayerId(2)), name: "x".into(), channel: ChatChannel::All, text: i.to_string() }),
+                Msg::Social(SocialMsg::Line {
+                    from: Some(PlayerId(2)),
+                    name: "x".into(),
+                    channel: ChatChannel::All,
+                    text: i.to_string(),
+                }),
                 0,
             );
         }
         assert_eq!(g.chat_log.len(), CHAT_LOG_CAP);
-        let m = Marker { id: 1, kind: 0, cell: CellId(1), pos: [0; 3], label: String::new(), ttl_ms: 0 };
-        g.on_msg(Msg::Social(SocialMsg::MarkerShown { owner: PlayerId(2), marker: m }), 0);
+        let m = Marker {
+            id: 1,
+            kind: 0,
+            cell: CellId(1),
+            pos: [0; 3],
+            label: String::new(),
+            ttl_ms: 0,
+        };
+        g.on_msg(
+            Msg::Social(SocialMsg::MarkerShown {
+                owner: PlayerId(2),
+                marker: m,
+            }),
+            0,
+        );
         assert_eq!(g.markers.len(), 1);
-        g.on_msg(Msg::Social(SocialMsg::MarkerGone { owner: PlayerId(2), id: 1 }), 0);
+        g.on_msg(
+            Msg::Social(SocialMsg::MarkerGone {
+                owner: PlayerId(2),
+                id: 1,
+            }),
+            0,
+        );
         assert!(g.markers.is_empty());
     }
 
     #[test]
     fn voice_frames_deduplicated() {
         let mut g = GuestLive::new(PlayerId(1));
-        let v = |seq| Msg::Social(SocialMsg::Voice(VoicePacket { speaker: PlayerId(2), seq, payload: vec![1] }));
+        let v = |seq| {
+            Msg::Social(SocialMsg::Voice(VoicePacket {
+                speaker: PlayerId(2),
+                seq,
+                payload: vec![1],
+            }))
+        };
         g.on_msg(v(1), 0);
         g.on_msg(v(1), 0);
         g.on_msg(v(2), 0);
@@ -257,8 +324,10 @@ mod tests {
     #[test]
     fn say_ids_increase() {
         let mut g = GuestLive::new(PlayerId(1));
-        let (Msg::Social(SocialMsg::Say { msg_id: a, .. }), Msg::Social(SocialMsg::Say { msg_id: b, .. })) =
-            (g.say(ChatChannel::All, "a"), g.say(ChatChannel::All, "b"))
+        let (
+            Msg::Social(SocialMsg::Say { msg_id: a, .. }),
+            Msg::Social(SocialMsg::Say { msg_id: b, .. }),
+        ) = (g.say(ChatChannel::All, "a"), g.say(ChatChannel::All, "b"))
         else {
             panic!()
         };

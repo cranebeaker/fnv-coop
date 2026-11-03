@@ -125,7 +125,10 @@ impl SpawnArbiter {
     ) -> (SpawnOutcome, Option<(FormId, SpawnRec)>) {
         match self.sites.get(&site) {
             Some(Site::Active { owner, .. }) => {
-                return (SpawnOutcome::Denied(DenyReason::SiteTaken { owner: *owner }), None)
+                return (
+                    SpawnOutcome::Denied(DenyReason::SiteTaken { owner: *owner }),
+                    None,
+                )
             }
             Some(Site::Cooling { until_ms }) if now_ms < *until_ms => {
                 return (SpawnOutcome::Denied(DenyReason::Cooling), None)
@@ -137,7 +140,12 @@ impl SpawnArbiter {
         }
         let id = FormId(self.next);
         self.next += 1;
-        let rec = SpawnRec { base, site, cell, pos };
+        let rec = SpawnRec {
+            base,
+            site,
+            cell,
+            pos,
+        };
         self.sites.insert(site, Site::Active { owner: from, id });
         self.live.insert(id, rec);
         (SpawnOutcome::Granted { id }, Some((id, rec)))
@@ -166,9 +174,16 @@ impl SpawnArbiter {
     /// Removes a dynamic ref (dead and cleaned up, or despawned) and starts
     /// its site's respawn timer. Returns true when it existed.
     pub fn despawn(&mut self, id: FormId, now_ms: u64, respawn_ms: u64) -> bool {
-        let Some(rec) = self.live.remove(&id) else { return false };
+        let Some(rec) = self.live.remove(&id) else {
+            return false;
+        };
         if matches!(self.sites.get(&rec.site), Some(Site::Active { id: i, .. }) if *i == id) {
-            self.sites.insert(rec.site, Site::Cooling { until_ms: now_ms + respawn_ms });
+            self.sites.insert(
+                rec.site,
+                Site::Cooling {
+                    until_ms: now_ms + respawn_ms,
+                },
+            );
         }
         true
     }
@@ -206,9 +221,17 @@ mod tests {
         let mut a = SpawnArbiter::new();
         let (o1, r1) = a.request(PlayerId(1), 1, SITE, BASE, C, [0; 3], 0);
         let (o2, r2) = a.request(PlayerId(2), 1, SITE, BASE, C, [0; 3], 0);
-        assert_eq!(o1, SpawnOutcome::Granted { id: FormId(DYN_ID_BASE) });
+        assert_eq!(
+            o1,
+            SpawnOutcome::Granted {
+                id: FormId(DYN_ID_BASE)
+            }
+        );
         assert!(r1.is_some() && r2.is_none());
-        assert_eq!(o2, SpawnOutcome::Denied(DenyReason::SiteTaken { owner: PlayerId(1) }));
+        assert_eq!(
+            o2,
+            SpawnOutcome::Denied(DenyReason::SiteTaken { owner: PlayerId(1) })
+        );
         assert_eq!(a.live().count(), 1);
     }
 
@@ -227,7 +250,9 @@ mod tests {
         let mut a = SpawnArbiter::new();
         let mut ids = std::collections::BTreeSet::new();
         for i in 0..50u32 {
-            if let (SpawnOutcome::Granted { id }, _) = a.request(PlayerId(1), i, FormId(i), BASE, C, [0; 3], 0) {
+            if let (SpawnOutcome::Granted { id }, _) =
+                a.request(PlayerId(1), i, FormId(i), BASE, C, [0; 3], 0)
+            {
                 assert!(id.0 >= DYN_ID_BASE);
                 assert!(ids.insert(id));
             }

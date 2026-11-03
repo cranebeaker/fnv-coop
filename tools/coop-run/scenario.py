@@ -228,6 +228,9 @@ def viewer_args(s, role, data, ports, files, quit_after, background=True, screen
     args.append("--coop-test-token")
     args += ["--coop-log", files["log"], "--coop-state-dump", files["state"],
              "--coop-quit-file", files["quit"], "--coop-quit-after", _num(quit_after)]
+    if files.get("go"):
+        # the script clock starts when the runner writes this file (every peer is ready)
+        args += ["--coop-go-file", files["go"]]
     return args
 
 
@@ -298,6 +301,30 @@ def _short(v):
     return t if len(t) <= 80 else t[:77] + "..."
 
 
+def hash_match(host_state, peer_state):
+    """Compares the shared-state hash of the host and one guest. Returns (ok, detail).
+
+    Equal hashes match. Script timers change the host's state every frame, so a guest
+    can dump its state a few revisions behind. Then the guest's hash must equal the
+    host's root at the guest's own revision (`hash.rev`, found in the host's
+    `hash.recent`). A guest more than a few seconds behind finds no root and fails."""
+    a, b = get_path(host_state, "hash.shared"), get_path(peer_state, "hash.shared")
+    if a is _MISSING or b is _MISSING:
+        return False, "hash.shared host=%s guest=%s" % (_short(a), _short(b))
+    if a == b:
+        return True, "hash.shared host=%s guest=%s" % (a, b)
+    rev, hrev = get_path(peer_state, "hash.rev"), get_path(host_state, "hash.rev")
+    recent = get_path(host_state, "hash.recent")
+    if isinstance(rev, int) and isinstance(recent, list):
+        at = next((p[1] for p in recent if isinstance(p, list) and len(p) == 2 and p[0] == rev), None)
+        if at is not None:
+            behind = hrev - rev if isinstance(hrev, int) else "?"
+            return at == b, "hash.shared host=%s guest=%s; host root at guest rev %d=%s (%s revisions behind)" % (
+                a, b, rev, at, behind)
+    return False, "hash.shared host=%s guest=%s (guest rev %s, host rev %s, no host root at the guest rev)" % (
+        a, b, _short(rev), _short(hrev))
+
+
 def evaluate(expect, host_state, guest_state, extra_states=None):
     """Returns a list of {id, ok, kind, detail}. kind is 'assert' or 'desync' (equal checks).
     extra_states: {'guest2': state, 'guest3': state} for runs with more than one guest."""
@@ -310,6 +337,11 @@ def evaluate(expect, host_state, guest_state, extra_states=None):
             for w, st in peers.items():
                 if w == "host":
                     continue
+                if path == "hash.shared" and "tol" not in e:
+                    ok, detail = hash_match(host_state, st)
+                    out.append({"id": "%s#%s" % (eid, w), "ok": ok, "kind": "desync",
+                                "detail": detail.replace("guest", w, 1)})
+                    continue
                 a, b = get_path(host_state, path), get_path(st, path)
                 if a is _MISSING or b is _MISSING:
                     ok = False
@@ -319,6 +351,10 @@ def evaluate(expect, host_state, guest_state, extra_states=None):
                     ok = a == b
                 out.append({"id": "%s#%s" % (eid, w), "ok": ok, "kind": "desync",
                             "detail": "%s host=%s %s=%s" % (path, _short(a), w, _short(b))})
+            continue
+        if e["on"] == "equal" and path == "hash.shared" and "tol" not in e:
+            ok, detail = hash_match(host_state, guest_state)
+            out.append({"id": eid, "ok": ok, "kind": "desync", "detail": detail})
             continue
         if e["on"] == "equal":
             a, b = get_path(host_state, path), get_path(guest_state, path)

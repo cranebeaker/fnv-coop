@@ -77,7 +77,12 @@ pub struct EndpointConfig {
 
 impl Default for EndpointConfig {
     fn default() -> Self {
-        EndpointConfig { name: "player".into(), max_guests: 3, max_message: framing::DEFAULT_MAX_MESSAGE, clock: Clock::system() }
+        EndpointConfig {
+            name: "player".into(),
+            max_guests: 3,
+            max_message: framing::DEFAULT_MAX_MESSAGE,
+            clock: Clock::system(),
+        }
     }
 }
 
@@ -93,7 +98,10 @@ struct Peer {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GuestState {
-    Joining { started: u64, last_sent: Option<u64> },
+    Joining {
+        started: u64,
+        last_sent: Option<u64>,
+    },
     Joined,
     Closed,
 }
@@ -133,7 +141,10 @@ impl<B: Backend> Endpoint<B> {
     pub fn guest(backend: B, token: Token, cfg: EndpointConfig) -> Self {
         let now = cfg.clock.now();
         let mut e = Self::new(backend, Role::Guest, token, cfg);
-        e.guest = GuestState::Joining { started: now, last_sent: None };
+        e.guest = GuestState::Joining {
+            started: now,
+            last_sent: None,
+        };
         e
     }
 
@@ -198,7 +209,12 @@ impl<B: Backend> Endpoint<B> {
         if self.role != Role::Host {
             return;
         }
-        self.send_ctl_to(player, &Ctl::Kick { reason: reason.to_string() });
+        self.send_ctl_to(
+            player,
+            &Ctl::Kick {
+                reason: reason.to_string(),
+            },
+        );
         self.drop_peer(player, LeaveReason::Kicked(reason.to_string()));
     }
 
@@ -222,7 +238,10 @@ impl<B: Backend> Endpoint<B> {
             self.remove_quiet(p);
         }
         self.local = None;
-        self.guest = GuestState::Joining { started: self.cfg.clock.now(), last_sent: None };
+        self.guest = GuestState::Joining {
+            started: self.cfg.clock.now(),
+            last_sent: None,
+        };
     }
 
     /// Runs the endpoint: backend poll, frame handling, keep-alives, timeouts.
@@ -253,18 +272,27 @@ impl<B: Backend> Endpoint<B> {
                 Readiness::Pending => {
                     if now.saturating_sub(started) >= TIMEOUT_MS * 3 {
                         self.guest = GuestState::Closed;
-                        self.events.push_back(NetEvent::JoinFailed("setup timed out".into()));
+                        self.events
+                            .push_back(NetEvent::JoinFailed("setup timed out".into()));
                     }
                 }
                 Readiness::Ready => {
                     if now.saturating_sub(started) >= TIMEOUT_MS * 3 {
                         self.guest = GuestState::Closed;
-                        self.events.push_back(NetEvent::JoinFailed("host did not answer".into()));
+                        self.events
+                            .push_back(NetEvent::JoinFailed("host did not answer".into()));
                     } else if last_sent.map_or(true, |t| now.saturating_sub(t) >= 1_000) {
                         if let Some(host) = self.backend.host_peer() {
-                            let join = Ctl::Join { proto: NET_PROTO, token: self.token, name: self.cfg.name.clone() };
+                            let join = Ctl::Join {
+                                proto: NET_PROTO,
+                                token: self.token,
+                                name: self.cfg.name.clone(),
+                            };
                             let _ = self.backend.send(host, Lane::Control, &enc(&join));
-                            self.guest = GuestState::Joining { started, last_sent: Some(now) };
+                            self.guest = GuestState::Joining {
+                                started,
+                                last_sent: Some(now),
+                            };
                         }
                     }
                 }
@@ -308,12 +336,21 @@ impl<B: Backend> Endpoint<B> {
                     None => return,
                 };
                 match res {
-                    Ok(Some(msg)) => self.inbox.push_back(Packet { from: p, channel: Channel::ReliableOrdered, data: msg }),
+                    Ok(Some(msg)) => self.inbox.push_back(Packet {
+                        from: p,
+                        channel: Channel::ReliableOrdered,
+                        data: msg,
+                    }),
                     Ok(None) => {}
                     Err(_) => {
                         self.frame_errors += 1;
                         if self.role == Role::Host {
-                            self.send_ctl_to(p, &Ctl::Kick { reason: "protocol error".into() });
+                            self.send_ctl_to(
+                                p,
+                                &Ctl::Kick {
+                                    reason: "protocol error".into(),
+                                },
+                            );
                         }
                         self.drop_peer(p, LeaveReason::ProtocolError);
                     }
@@ -329,10 +366,19 @@ impl<B: Backend> Endpoint<B> {
                     self.frame_errors += 1;
                     return;
                 }
-                let Some(peer) = self.peers.get_mut(&p) else { return };
-                if peer.unrel_rx.map_or(true, |last| framing::seq_newer(seq, last)) {
+                let Some(peer) = self.peers.get_mut(&p) else {
+                    return;
+                };
+                if peer
+                    .unrel_rx
+                    .map_or(true, |last| framing::seq_newer(seq, last))
+                {
                     peer.unrel_rx = Some(seq);
-                    self.inbox.push_back(Packet { from: p, channel: Channel::Unreliable, data: body.to_vec() });
+                    self.inbox.push_back(Packet {
+                        from: p,
+                        channel: Channel::Unreliable,
+                        data: body.to_vec(),
+                    });
                 }
             }
         }
@@ -356,19 +402,31 @@ impl<B: Backend> Endpoint<B> {
                     None
                 };
                 if let Some(code) = reject {
-                    let _ = self.backend.send(key, Lane::Control, &enc(&Ctl::Reject(code)));
+                    let _ = self
+                        .backend
+                        .send(key, Lane::Control, &enc(&Ctl::Reject(code)));
                     self.backend.disconnect(key);
                     return;
                 }
-                let slot = (1..=u8::MAX).map(PlayerId).find(|s| !self.peers.contains_key(s));
+                let slot = (1..=u8::MAX)
+                    .map(PlayerId)
+                    .find(|s| !self.peers.contains_key(s));
                 let Some(slot) = slot else { return };
                 self.peers.insert(
                     slot,
-                    Peer { key, name: name.clone(), live: Liveness::new(now), rel: Reassembler::new(self.cfg.max_message), unrel_rx: None, unrel_tx: 0 },
+                    Peer {
+                        key,
+                        name: name.clone(),
+                        live: Liveness::new(now),
+                        rel: Reassembler::new(self.cfg.max_message),
+                        unrel_rx: None,
+                        unrel_tx: 0,
+                    },
                 );
                 self.by_key.insert(key, slot);
                 self.send_ctl_to(slot, &Ctl::Welcome { slot: slot.0 });
-                self.events.push_back(NetEvent::PeerJoined { player: slot, name });
+                self.events
+                    .push_back(NetEvent::PeerJoined { player: slot, name });
             }
             (Role::Host, Ctl::Goodbye) => {
                 if let Some(p) = known {
@@ -387,7 +445,14 @@ impl<B: Backend> Endpoint<B> {
                             self.local = Some(me);
                             self.peers.insert(
                                 PlayerId::HOST,
-                                Peer { key, name: "host".into(), live: Liveness::new(now), rel: Reassembler::new(self.cfg.max_message), unrel_rx: None, unrel_tx: 0 },
+                                Peer {
+                                    key,
+                                    name: "host".into(),
+                                    live: Liveness::new(now),
+                                    rel: Reassembler::new(self.cfg.max_message),
+                                    unrel_rx: None,
+                                    unrel_tx: 0,
+                                },
                             );
                             self.by_key.insert(key, PlayerId::HOST);
                             self.events.push_back(NetEvent::Connected { local: me });
@@ -398,7 +463,9 @@ impl<B: Backend> Endpoint<B> {
                         self.events.push_back(NetEvent::Rejected(code));
                     }
                     Ctl::Goodbye => self.drop_peer(PlayerId::HOST, LeaveReason::Goodbye),
-                    Ctl::Kick { reason } => self.drop_peer(PlayerId::HOST, LeaveReason::Kicked(reason)),
+                    Ctl::Kick { reason } => {
+                        self.drop_peer(PlayerId::HOST, LeaveReason::Kicked(reason))
+                    }
                     _ => {}
                 }
             }
@@ -427,7 +494,8 @@ impl<B: Backend> Endpoint<B> {
             if self.role == Role::Guest {
                 self.guest = GuestState::Closed;
             }
-            self.events.push_back(NetEvent::PeerLeft { player: p, reason });
+            self.events
+                .push_back(NetEvent::PeerLeft { player: p, reason });
         }
     }
 }
@@ -441,7 +509,12 @@ impl<B: Backend> Transport for Endpoint<B> {
         self.local.unwrap_or(PlayerId(u8::MAX))
     }
 
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         let (key, seq) = match self.peers.get_mut(&to) {
             Some(p) => {
                 let s = p.unrel_tx;
@@ -455,14 +528,22 @@ impl<B: Backend> Transport for Endpoint<B> {
         let res: Result<(), BackendError> = match channel {
             Channel::Unreliable => {
                 let frame = framing::encode_unreliable(seq, &data).map_err(|e| match e {
-                    FrameError::UnreliableTooLarge { len, max } => TransportError::TooLarge { len, max },
-                    _ => TransportError::TooLarge { len: data.len(), max: MAX_UNRELIABLE },
+                    FrameError::UnreliableTooLarge { len, max } => {
+                        TransportError::TooLarge { len, max }
+                    }
+                    _ => TransportError::TooLarge {
+                        len: data.len(),
+                        max: MAX_UNRELIABLE,
+                    },
                 })?;
                 self.backend.send(key, Lane::Unreliable, &frame)
             }
             Channel::ReliableOrdered => {
                 if data.len() > self.cfg.max_message {
-                    return Err(TransportError::TooLarge { len: data.len(), max: self.cfg.max_message });
+                    return Err(TransportError::TooLarge {
+                        len: data.len(),
+                        max: self.cfg.max_message,
+                    });
                 }
                 let mut r = Ok(());
                 for f in framing::fragment(&data, MAX_FRAGMENT) {

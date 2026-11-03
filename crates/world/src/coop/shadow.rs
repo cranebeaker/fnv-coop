@@ -112,7 +112,8 @@ impl ShadowPlan {
             }
             if let Some(sh) = &row.shadow {
                 if !sh.vars.is_empty() && pp(ShadowClass::QuestVar) {
-                    let mut v: Vec<String> = sh.vars.iter().map(|s| s.to_ascii_lowercase()).collect();
+                    let mut v: Vec<String> =
+                        sh.vars.iter().map(|s| s.to_ascii_lowercase()).collect();
                     v.sort();
                     v.dedup();
                     plan.quest_vars.insert(id, v);
@@ -278,11 +279,20 @@ impl PlayerShadow {
             .filter(|((w, id), _)| me(w) && plan.av_per_player(*id))
             .map(|((_, id), v)| (*id, *v))
             .collect();
-        s.value_damage =
-            gs.value_damage.iter().filter(|((w, _), _)| me(w)).map(|((_, id), v)| (*id, *v)).collect();
+        s.value_damage = gs
+            .value_damage
+            .iter()
+            .filter(|((w, _), _)| me(w))
+            .map(|((_, id), v)| (*id, *v))
+            .collect();
         s.damage = gs.damage.get(&PLAYER_REF).copied();
         s.dead = gs.dead.contains(&PLAYER_REF);
-        s.items = gs.items.iter().filter(|((h, _), _)| me(h)).map(|((_, i), n)| (*i, *n)).collect();
+        s.items = gs
+            .items
+            .iter()
+            .filter(|((h, _), _)| me(h))
+            .map(|((_, i), n)| (*i, *n))
+            .collect();
         s.stocked = gs.stocked.contains(&PLAYER_REF);
         s.equipped = gs.equipped.get(&PLAYER_REF).cloned();
         s.weapon_health = gs
@@ -291,10 +301,24 @@ impl PlayerShadow {
             .filter(|((h, _), _)| me(h))
             .map(|((_, i), v)| (*i, v.to_bits()))
             .collect();
-        s.weapon_mods =
-            gs.weapon_mods.iter().filter(|((h, _), _)| me(h)).map(|((_, i), v)| (*i, *v)).collect();
-        s.dropped = gs.dropped.iter().filter(|(h, _)| me(h)).map(|(_, i)| *i).collect();
-        s.equip_locked = gs.equip_locked.iter().filter(|(h, _)| me(h)).map(|(_, i)| *i).collect();
+        s.weapon_mods = gs
+            .weapon_mods
+            .iter()
+            .filter(|((h, _), _)| me(h))
+            .map(|((_, i), v)| (*i, *v))
+            .collect();
+        s.dropped = gs
+            .dropped
+            .iter()
+            .filter(|(h, _)| me(h))
+            .map(|(_, i)| *i)
+            .collect();
+        s.equip_locked = gs
+            .equip_locked
+            .iter()
+            .filter(|(h, _)| me(h))
+            .map(|(_, i)| *i)
+            .collect();
         s.ammo_loaded = gs.ammo_loaded.get(&PLAYER_REF).copied();
         s.hotkeys = gs.hotkeys;
         s.misc_stats = gs.misc_stats.clone();
@@ -337,8 +361,12 @@ impl PlayerShadow {
                 s.quest_flags.insert(*q, bits);
             }
         }
-        s.stages_done =
-            gs.stages_done.iter().filter(|(q, _)| plan.quests.contains(q)).copied().collect();
+        s.stages_done = gs
+            .stages_done
+            .iter()
+            .filter(|(q, _)| plan.quests.contains(q))
+            .copied()
+            .collect();
         for ((q, i), done) in &gs.objectives {
             if plan.quests.contains(q) {
                 s.objectives.insert((*q, *i), if *done { 3 } else { 1 });
@@ -364,13 +392,19 @@ impl PlayerShadow {
             s.local.casinos = gs.casinos.clone();
         }
         s.local.caravan = gs.caravan.clone();
-        s.local.effects = gs.active_effects.iter().filter(|e| e.target == PLAYER_REF).cloned().collect();
+        s.local.effects = gs
+            .active_effects
+            .iter()
+            .filter(|e| e.target == PLAYER_REF)
+            .cloned()
+            .collect();
         s
     }
 
     /// Removes the player's rows from `gs` (the inverse of [`Self::install`]).
     pub fn clear(gs: &mut GameState, plan: &ShadowPlan) {
-        gs.actor_values.retain(|(w, id), _| !(*w == PLAYER_REF && plan.av_per_player(*id)));
+        gs.actor_values
+            .retain(|(w, id), _| !(*w == PLAYER_REF && plan.av_per_player(*id)));
         gs.value_damage.retain(|(w, _), _| *w != PLAYER_REF);
         gs.damage.remove(&PLAYER_REF);
         gs.dead.remove(&PLAYER_REF);
@@ -405,7 +439,9 @@ impl PlayerShadow {
         if !plan.quests.is_empty() {
             gs.stages_done.retain(|(q, _)| !plan.quests.contains(q));
             gs.objectives.retain(|(q, _), _| !plan.quests.contains(q));
-            gs.set_by_scripts.hidden_completed.retain(|(q, _)| !plan.quests.contains(q));
+            gs.set_by_scripts
+                .hidden_completed
+                .retain(|(q, _)| !plan.quests.contains(q));
         }
         gs.active_effects.retain(|e| e.target != PLAYER_REF);
     }
@@ -434,7 +470,8 @@ impl PlayerShadow {
             gs.equipped.insert(PLAYER_REF, e.clone());
         }
         for (i, v) in &self.weapon_health {
-            gs.weapon_health.insert((PLAYER_REF, *i), f32::from_bits(*v));
+            gs.weapon_health
+                .insert((PLAYER_REF, *i), f32::from_bits(*v));
         }
         for (i, v) in &self.weapon_mods {
             gs.weapon_mods.insert((PLAYER_REF, *i), *v);
@@ -505,7 +542,10 @@ impl PlayerShadow {
         for (q, names) in &plan.quest_vars {
             if let Some(locals) = gs.variables.get_mut(q) {
                 for n in names {
-                    let v = self.quest_vars.get(&(*q, n.clone())).map_or(0.0, |b| f64::from_bits(*b));
+                    let v = self
+                        .quest_vars
+                        .get(&(*q, n.clone()))
+                        .map_or(0.0, |b| f64::from_bits(*b));
                     locals.set(n, v);
                 }
             }
@@ -543,7 +583,11 @@ impl GameState {
     /// (0 for the host, the guest's own slot on a guest). Both peers of a
     /// session must use the same plan.
     pub fn enable_shadows(&mut self, plan: ShadowPlan, me: u8) {
-        self.coop.bank = ShadowBank { plan: Some(plan), active: me, ..ShadowBank::default() };
+        self.coop.bank = ShadowBank {
+            plan: Some(plan),
+            active: me,
+            ..ShadowBank::default()
+        };
     }
 
     /// The slot that owns the live `PLAYER_REF` rows.
@@ -590,14 +634,21 @@ impl GameState {
 
     /// Makes `slot` the owner of the live `PLAYER_REF` rows.
     fn swap_to(&mut self, slot: u8) {
-        let Some(plan) = self.coop.bank.plan.clone() else { return };
+        let Some(plan) = self.coop.bank.plan.clone() else {
+            return;
+        };
         let prev = self.coop.bank.active;
         if prev == slot {
             return;
         }
         let parked = PlayerShadow::read(self, &plan);
         PlayerShadow::clear(self, &plan);
-        let next = self.coop.bank.parked.remove(&slot).unwrap_or_else(PlayerShadow::fresh);
+        let next = self
+            .coop
+            .bank
+            .parked
+            .remove(&slot)
+            .unwrap_or_else(PlayerShadow::fresh);
         next.install(self, &plan);
         self.coop.bank.parked.insert(prev, parked);
         self.coop.bank.active = slot;
@@ -614,7 +665,13 @@ impl GameState {
         if on {
             self.swap_to(slot);
         }
-        ShadowGuard { gs: self, prev, slot, on, prev_initiator }
+        ShadowGuard {
+            gs: self,
+            prev,
+            slot,
+            on,
+            prev_initiator,
+        }
     }
 
     /// Closure form of [`Self::as_player`].
@@ -988,7 +1045,10 @@ fn chunks_of(slot: u8, blob: &[u8]) -> Vec<(Key, Field)> {
         .take(usize::from(TAG_END - TAG_BASE))
         .enumerate()
         .map(|(i, c)| {
-            let f = Field::Custom { tag: TAG_BASE + i as u16, data: c.to_vec() };
+            let f = Field::Custom {
+                tag: TAG_BASE + i as u16,
+                data: c.to_vec(),
+            };
             (f.key(cf(shadow_form(slot))), f)
         })
         .collect()
@@ -1018,7 +1078,9 @@ fn keep_transients(to: &mut PlayerShadow, from: &PlayerShadow) {
 /// Adds every slot's shadow to `m` (the host and guests produce the same
 /// fields for the same logical state).
 pub fn export_into(gs: &GameState, m: &mut Fields) {
-    let Some(plan) = gs.coop.bank.plan.as_ref() else { return };
+    let Some(plan) = gs.coop.bank.plan.as_ref() else {
+        return;
+    };
     let mut put = |slot: u8, s: &PlayerShadow| {
         for (k, f) in chunks_of(slot, &encode(&replicated(s))) {
             m.insert(k, f);
@@ -1035,7 +1097,9 @@ pub fn export_into(gs: &GameState, m: &mut Fields) {
 /// the live rows; other slots are parked. Returns the slots touched.
 pub fn apply_changes(gs: &mut GameState, changes: &[(Key, Option<Field>)]) -> BTreeSet<u8> {
     let mut touched = BTreeSet::new();
-    let Some(plan) = gs.coop.bank.plan.clone() else { return touched };
+    let Some(plan) = gs.coop.bank.plan.clone() else {
+        return touched;
+    };
     let mut by_slot: BTreeMap<u8, Vec<&(Key, Option<Field>)>> = BTreeMap::new();
     for c in changes {
         if let Some(slot) = slot_of_shadow_form(FormId(c.0.form.0)) {
@@ -1078,7 +1142,9 @@ pub fn apply_changes(gs: &mut GameState, changes: &[(Key, Option<Field>)]) -> BT
             blob.extend_from_slice(c);
             t += 1;
         }
-        let Some(mut shadow) = decode(&blob) else { continue };
+        let Some(mut shadow) = decode(&blob) else {
+            continue;
+        };
         if slot == gs.coop.bank.active {
             let old = PlayerShadow::read(gs, &plan);
             PlayerShadow::clear(gs, &plan);

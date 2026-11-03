@@ -42,7 +42,13 @@ pub struct SteamOptions {
 
 impl Default for SteamOptions {
     fn default() -> Self {
-        SteamOptions { tag: "1".into(), name: "nv-rs co-op".into(), max_members: 4, retry_sleep: Duration::from_millis(5), max_retries: 400 }
+        SteamOptions {
+            tag: "1".into(),
+            name: "nv-rs co-op".into(),
+            max_members: 4,
+            retry_sleep: Duration::from_millis(5),
+            max_retries: 400,
+        }
     }
 }
 
@@ -98,13 +104,29 @@ impl<A: SteamApi> SteamBackend<A> {
     /// Host: creates a friends-only lobby.
     pub fn host(mut api: A, opts: SteamOptions) -> Self {
         api.create_lobby(opts.max_members);
-        SteamBackend { api, opts, phase: SteamPhase::Creating, invites: vec![], rejected_sessions: 0, buffer_full_retries: 0, pending: VecDeque::new() }
+        SteamBackend {
+            api,
+            opts,
+            phase: SteamPhase::Creating,
+            invites: vec![],
+            rejected_sessions: 0,
+            buffer_full_retries: 0,
+            pending: VecDeque::new(),
+        }
     }
 
     /// Guest: joins `lobby`, then verifies the marker key and tag.
     pub fn guest(mut api: A, lobby: LobbyId, opts: SteamOptions) -> Self {
         api.join_lobby(lobby);
-        SteamBackend { api, opts, phase: SteamPhase::Joining { lobby }, invites: vec![], rejected_sessions: 0, buffer_full_retries: 0, pending: VecDeque::new() }
+        SteamBackend {
+            api,
+            opts,
+            phase: SteamPhase::Joining { lobby },
+            invites: vec![],
+            rejected_sessions: 0,
+            buffer_full_retries: 0,
+            pending: VecDeque::new(),
+        }
     }
 
     /// Guest: points a backend that has not connected (its last attempt
@@ -125,7 +147,9 @@ impl<A: SteamApi> SteamBackend<A> {
     /// The lobby id once known.
     pub fn lobby(&self) -> Option<LobbyId> {
         match self.phase {
-            SteamPhase::Hosting { lobby } | SteamPhase::Joining { lobby } | SteamPhase::Guest { lobby, .. } => Some(lobby),
+            SteamPhase::Hosting { lobby }
+            | SteamPhase::Joining { lobby }
+            | SteamPhase::Guest { lobby, .. } => Some(lobby),
             _ => None,
         }
     }
@@ -141,7 +165,8 @@ impl<A: SteamApi> SteamBackend<A> {
 
     /// Join code for this lobby (copy it to the clipboard as the fallback).
     pub fn join_code(&self, token: Token) -> Option<JoinCode> {
-        self.lobby().map(|l| JoinCode::new(JoinTarget::SteamLobby(l), token))
+        self.lobby()
+            .map(|l| JoinCode::new(JoinTarget::SteamLobby(l), token))
     }
 
     /// Invites that arrived since the last call.
@@ -151,13 +176,21 @@ impl<A: SteamApi> SteamBackend<A> {
 
     /// Online friends for the in-game invite list.
     pub fn online_friends(&self) -> Vec<Friend> {
-        self.api.friends().into_iter().filter(|f| f.online).collect()
+        self.api
+            .friends()
+            .into_iter()
+            .filter(|f| f.online)
+            .collect()
     }
 
     /// Friends who are in a Spacewar lobby: candidates for "Friend X is hosting".
     /// The lobby still has to pass the marker check when joined.
     pub fn hosting_friends(&self) -> Vec<Friend> {
-        self.api.friends().into_iter().filter(|f| f.playing_app == Some(480) && f.lobby != 0).collect()
+        self.api
+            .friends()
+            .into_iter()
+            .filter(|f| f.playing_app == Some(480) && f.lobby != 0)
+            .collect()
     }
 
     /// Host: sends a Steam invite to a friend.
@@ -212,14 +245,19 @@ impl<A: SteamApi> SteamBackend<A> {
                 // Delivered twice by real Steam: act only in the Creating phase.
                 if self.phase == SteamPhase::Creating {
                     if result != 1 {
-                        self.phase = SteamPhase::Failed(format!("could not create a Steam lobby (result {result})"));
+                        self.phase = SteamPhase::Failed(format!(
+                            "could not create a Steam lobby (result {result})"
+                        ));
                         return;
                     }
                     self.api.set_lobby_data(lobby, MARKER_KEY, "1");
-                    self.api.set_lobby_data(lobby, "tag", &self.opts.tag.clone());
+                    self.api
+                        .set_lobby_data(lobby, "tag", &self.opts.tag.clone());
                     self.api.set_lobby_data(lobby, "mode", "lobby");
-                    self.api.set_lobby_data(lobby, "name", &self.opts.name.clone());
-                    self.api.set_rich_presence("connect", &format!("+connect_lobby {lobby}"));
+                    self.api
+                        .set_lobby_data(lobby, "name", &self.opts.name.clone());
+                    self.api
+                        .set_rich_presence("connect", &format!("+connect_lobby {lobby}"));
                     self.api.set_rich_presence("status", "Hosting nv-rs co-op");
                     self.phase = SteamPhase::Hosting { lobby };
                 }
@@ -232,7 +270,9 @@ impl<A: SteamApi> SteamBackend<A> {
                     if response != 1 {
                         let why = match response {
                             2 => "that lobby does not exist any more",
-                            3 => "you are not allowed in that lobby (is the host your Steam friend?)",
+                            3 => {
+                                "you are not allowed in that lobby (is the host your Steam friend?)"
+                            }
                             4 => "that lobby is full",
                             _ => "could not join the Steam lobby",
                         };
@@ -245,7 +285,10 @@ impl<A: SteamApi> SteamBackend<A> {
                     }
                     let tag = self.api.get_lobby_data(lobby, "tag").unwrap_or_default();
                     if tag != self.opts.tag {
-                        self.fail(&format!("that game is a different version (host {tag}, you {})", self.opts.tag));
+                        self.fail(&format!(
+                            "that game is a different version (host {tag}, you {})",
+                            self.opts.tag
+                        ));
                         return;
                     }
                     let owner = self.api.lobby_owner(lobby);
@@ -256,17 +299,39 @@ impl<A: SteamApi> SteamBackend<A> {
                     self.phase = SteamPhase::Guest { lobby, owner };
                 }
             }
-            SteamEvent::LobbyChatUpdate { lobby, user_changed, state, .. } => {
-                if Some(lobby) == self.lobby() && state & CHAT_GONE_MASK != 0 && user_changed != self.api.self_id() {
-                    self.pending.push_back(BackendEvent::PeerGone { peer: user_changed });
+            SteamEvent::LobbyChatUpdate {
+                lobby,
+                user_changed,
+                state,
+                ..
+            } => {
+                if Some(lobby) == self.lobby()
+                    && state & CHAT_GONE_MASK != 0
+                    && user_changed != self.api.self_id()
+                {
+                    self.pending
+                        .push_back(BackendEvent::PeerGone { peer: user_changed });
                 }
             }
-            SteamEvent::JoinRequested { lobby, friend } => self.invites.push(Invite { lobby, from: friend }),
-            SteamEvent::LobbyInvite { inviter, lobby } => self.invites.push(Invite { lobby, from: inviter }),
+            SteamEvent::JoinRequested { lobby, friend } => self.invites.push(Invite {
+                lobby,
+                from: friend,
+            }),
+            SteamEvent::LobbyInvite { inviter, lobby } => self.invites.push(Invite {
+                lobby,
+                from: inviter,
+            }),
             SteamEvent::RichPresenceJoin { friend, connect } => {
                 // "+connect_lobby <id>"
-                if let Some(id) = connect.split_whitespace().last().and_then(|s| s.parse::<u64>().ok()) {
-                    self.invites.push(Invite { lobby: id, from: friend });
+                if let Some(id) = connect
+                    .split_whitespace()
+                    .last()
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
+                    self.invites.push(Invite {
+                        lobby: id,
+                        from: friend,
+                    });
                 }
             }
             SteamEvent::SessionRequest { from } => {
@@ -276,7 +341,9 @@ impl<A: SteamApi> SteamBackend<A> {
                     self.rejected_sessions += 1;
                 }
             }
-            SteamEvent::SessionFailed { from } => self.pending.push_back(BackendEvent::PeerGone { peer: from }),
+            SteamEvent::SessionFailed { from } => self
+                .pending
+                .push_back(BackendEvent::PeerGone { peer: from }),
         }
     }
 }
@@ -287,7 +354,10 @@ impl<A: SteamApi> Backend for SteamBackend<A> {
             Lane::Reliable | Lane::Control => (lane as i32, SEND_RELIABLE | SEND_NO_NAGLE),
             Lane::Unreliable => {
                 if data.len() > MAX_UNRELIABLE_FRAME {
-                    return Err(BackendError::TooLarge { len: data.len(), max: MAX_UNRELIABLE_FRAME });
+                    return Err(BackendError::TooLarge {
+                        len: data.len(),
+                        max: MAX_UNRELIABLE_FRAME,
+                    });
                 }
                 (2, SEND_UNRELIABLE | SEND_NO_NAGLE)
             }
@@ -309,7 +379,11 @@ impl<A: SteamApi> Backend for SteamBackend<A> {
                         std::thread::sleep(self.opts.retry_sleep);
                     }
                 }
-                SendResult::Failed(code) => return Err(BackendError::Failed(format!("SendMessageToUser result {code}"))),
+                SendResult::Failed(code) => {
+                    return Err(BackendError::Failed(format!(
+                        "SendMessageToUser result {code}"
+                    )))
+                }
             }
         }
     }
@@ -327,7 +401,11 @@ impl<A: SteamApi> Backend for SteamBackend<A> {
                     continue;
                 }
                 if let Some(lane) = Lane::from_u8(ch as u8) {
-                    out.push(BackendEvent::Frame { peer: m.from, lane, data: m.data });
+                    out.push(BackendEvent::Frame {
+                        peer: m.from,
+                        lane,
+                        data: m.data,
+                    });
                 }
             }
         }

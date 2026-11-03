@@ -63,7 +63,12 @@ impl AuthorityTable {
 
     /// Gives `owner` the actor, bumping its epoch. Returns the new epoch.
     pub fn claim_actor(&mut self, form: FormId, owner: PlayerId) -> Epoch {
-        let epoch = self.last_epoch.get(&form).copied().unwrap_or_default().next();
+        let epoch = self
+            .last_epoch
+            .get(&form)
+            .copied()
+            .unwrap_or_default()
+            .next();
         self.last_epoch.insert(form, epoch);
         self.actors.insert(form, (owner, epoch));
         epoch
@@ -76,8 +81,12 @@ impl AuthorityTable {
 
     /// Releases every actor owned by `player` (disconnect). Returns them.
     pub fn release_all_of(&mut self, player: PlayerId) -> Vec<FormId> {
-        let gone: Vec<FormId> =
-            self.actors.iter().filter(|(_, (o, _))| *o == player).map(|(f, _)| *f).collect();
+        let gone: Vec<FormId> = self
+            .actors
+            .iter()
+            .filter(|(_, (o, _))| *o == player)
+            .map(|(f, _)| *f)
+            .collect();
         for f in &gone {
             self.actors.remove(f);
         }
@@ -95,7 +104,10 @@ impl AuthorityTable {
             return Authority::Avatar(*p);
         }
         match self.actors.get(&form) {
-            Some((owner, epoch)) => Authority::Actor { owner: *owner, epoch: *epoch },
+            Some((owner, epoch)) => Authority::Actor {
+                owner: *owner,
+                epoch: *epoch,
+            },
             None => Authority::Host,
         }
     }
@@ -145,8 +157,17 @@ mod tests {
     #[test]
     fn host_can_write_anything() {
         let t = AuthorityTable::new();
-        assert!(t.check_write(PlayerId::HOST, Epoch(0), FormId(1), &Field::QuestStage { stage: 1 }).is_ok());
-        assert!(t.check_write(PlayerId::HOST, Epoch(0), FormId(1), &pos()).is_ok());
+        assert!(t
+            .check_write(
+                PlayerId::HOST,
+                Epoch(0),
+                FormId(1),
+                &Field::QuestStage { stage: 1 }
+            )
+            .is_ok());
+        assert!(t
+            .check_write(PlayerId::HOST, Epoch(0), FormId(1), &pos())
+            .is_ok());
     }
 
     #[test]
@@ -159,14 +180,20 @@ mod tests {
             Field::Karma { value: 1 },
             Field::Topic { known: true },
         ] {
-            assert_eq!(t.check_write(A, Epoch(0), FormId(7), &f), Err(AuthError::NotHost));
+            assert_eq!(
+                t.check_write(A, Epoch(0), FormId(7), &f),
+                Err(AuthError::NotHost)
+            );
         }
     }
 
     #[test]
     fn unowned_entity_is_host_only() {
         let t = AuthorityTable::new();
-        assert_eq!(t.check_write(A, Epoch(0), FormId(9), &pos()), Err(AuthError::NotHost));
+        assert_eq!(
+            t.check_write(A, Epoch(0), FormId(9), &pos()),
+            Err(AuthError::NotHost)
+        );
     }
 
     #[test]
@@ -187,13 +214,22 @@ mod tests {
         assert!(t.check_write(A, e1, FormId(20), &pos()).is_ok());
         let e2 = t.claim_actor(FormId(20), B);
         assert!(e2 > e1);
-        assert_eq!(t.check_write(A, e1, FormId(20), &pos()), Err(AuthError::NotOwner { owner: B }));
+        assert_eq!(
+            t.check_write(A, e1, FormId(20), &pos()),
+            Err(AuthError::NotOwner { owner: B })
+        );
         assert!(t.check_write(B, e2, FormId(20), &pos()).is_ok());
-        assert_eq!(t.check_write(B, e1, FormId(20), &pos()), Err(AuthError::StaleEpoch { current: e2 }));
+        assert_eq!(
+            t.check_write(B, e1, FormId(20), &pos()),
+            Err(AuthError::StaleEpoch { current: e2 })
+        );
         // hand back to A: epoch keeps growing, old A epoch stays dead
         let e3 = t.claim_actor(FormId(20), A);
         assert!(e3 > e2);
-        assert_eq!(t.check_write(A, e1, FormId(20), &pos()), Err(AuthError::StaleEpoch { current: e3 }));
+        assert_eq!(
+            t.check_write(A, e1, FormId(20), &pos()),
+            Err(AuthError::StaleEpoch { current: e3 })
+        );
     }
 
     #[test]
@@ -206,7 +242,10 @@ mod tests {
         g.sort();
         assert_eq!(g, vec![FormId(20), FormId(21)]);
         assert_eq!(t.authority_of(FormId(20)), Authority::Host);
-        assert!(matches!(t.authority_of(FormId(22)), Authority::Actor { .. }));
+        assert!(matches!(
+            t.authority_of(FormId(22)),
+            Authority::Actor { .. }
+        ));
         t.release_actor(FormId(22));
         assert_eq!(t.authority_of(FormId(22)), Authority::Host);
     }

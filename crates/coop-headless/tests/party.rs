@@ -14,16 +14,38 @@ fn data(tag: &str) -> (testdata::TempData, Arc<Data>) {
 }
 
 const FILES: [(&str, &str); 6] = [
-    ("live_party_save_roundtrip", include_str!("../../../tools/coop-run/scenarios/live_party_save_roundtrip.json")),
-    ("twin_live_party_save_roundtrip", include_str!("../../../tools/coop-run/scenarios/twin_live_party_save_roundtrip.json")),
-    ("live_guest_rejoin_own_character", include_str!("../../../tools/coop-run/scenarios/live_guest_rejoin_own_character.json")),
-    ("twin_live_guest_rejoin_own_character", include_str!("../../../tools/coop-run/scenarios/twin_live_guest_rejoin_own_character.json")),
-    ("live_late_joiner_with_save", include_str!("../../../tools/coop-run/scenarios/live_late_joiner_with_save.json")),
-    ("twin_live_late_joiner_with_save", include_str!("../../../tools/coop-run/scenarios/twin_live_late_joiner_with_save.json")),
+    (
+        "live_party_save_roundtrip",
+        include_str!("../../../tools/coop-run/scenarios/live_party_save_roundtrip.json"),
+    ),
+    (
+        "twin_live_party_save_roundtrip",
+        include_str!("../../../tools/coop-run/scenarios/twin_live_party_save_roundtrip.json"),
+    ),
+    (
+        "live_guest_rejoin_own_character",
+        include_str!("../../../tools/coop-run/scenarios/live_guest_rejoin_own_character.json"),
+    ),
+    (
+        "twin_live_guest_rejoin_own_character",
+        include_str!("../../../tools/coop-run/scenarios/twin_live_guest_rejoin_own_character.json"),
+    ),
+    (
+        "live_late_joiner_with_save",
+        include_str!("../../../tools/coop-run/scenarios/live_late_joiner_with_save.json"),
+    ),
+    (
+        "twin_live_late_joiner_with_save",
+        include_str!("../../../tools/coop-run/scenarios/twin_live_late_joiner_with_save.json"),
+    ),
 ];
 
 fn scn(name: &str) -> Scenario {
-    let text = FILES.iter().find(|(n, _)| *n == name).expect("known scenario").1;
+    let text = FILES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .expect("known scenario")
+        .1;
     let text = text
         .replace("GSDocMitchellHouse", "TestFightCell")
         .replace("DocMitchellREF", "TestGuardRef")
@@ -88,10 +110,26 @@ fn live_late_joiner_with_save_twin_fails_as_expected() {
 fn party_scenarios_survive_every_chaos_profile() {
     let (_t, d) = data("party-soak");
     let mut bad = Vec::new();
-    for name in ["live_party_save_roundtrip", "live_guest_rejoin_own_character", "live_late_joiner_with_save"] {
-        for net in ["perfect", "good_wifi", "bad_wifi", "mobile", "congested", "flaky", "partition"] {
+    for name in [
+        "live_party_save_roundtrip",
+        "live_guest_rejoin_own_character",
+        "live_late_joiner_with_save",
+    ] {
+        for net in [
+            "perfect",
+            "good_wifi",
+            "bad_wifi",
+            "mobile",
+            "congested",
+            "flaky",
+            "partition",
+        ] {
             for seed in [1u64, 2, 3] {
-                let o = RunOpts { seed: Some(seed), net: Some(net.into()), ..RunOpts::default() };
+                let o = RunOpts {
+                    seed: Some(seed),
+                    net: Some(net.into()),
+                    ..RunOpts::default()
+                };
                 let r = run(&scn(name), &d, &o);
                 if r.verdict.result != "pass" {
                     bad.push(format!("{name} {net} seed {seed}: {}", r.verdict.reason));
@@ -100,7 +138,11 @@ fn party_scenarios_survive_every_chaos_profile() {
         }
     }
     assert!(bad.is_empty(), "{bad:#?}");
-    let o = RunOpts { seed: Some(9), net: Some("bad_wifi".into()), ..RunOpts::default() };
+    let o = RunOpts {
+        seed: Some(9),
+        net: Some("bad_wifi".into()),
+        ..RunOpts::default()
+    };
     let a = run(&scn("live_party_save_roundtrip"), &d, &o);
     let b = run(&scn("live_party_save_roundtrip"), &d, &o);
     assert_eq!(a.dumps, b.dumps, "deterministic");

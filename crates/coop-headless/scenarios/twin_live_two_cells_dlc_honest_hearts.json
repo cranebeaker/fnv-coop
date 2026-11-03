@@ -1,0 +1,29 @@
+{
+  "name": "twin_live_two_cells_dlc_honest_hearts",
+  "description": "MUTATION TWIN of live_two_cells_dlc_honest_hearts: the guest never leaves the host's cell, so it does not run the other cell's person and it mirrors the host's people. Marked expect_fail.",
+  "cell": "NVDLC02NarrowsSorrows",
+  "network": "good_wifi",
+  "seed": 73,
+  "duration_s": 18,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 2, "run": "coop enter 02009784 NVDLC02NarrowsSorrows 00000001"},
+    {"at": 7, "run": "coop hit NVDLC02SorrowPatrol01REF 1"},
+    {"at": 8, "run": "set CG03TestValue to 7"}
+  ] },
+  "guest": { "script": [
+    {"at": 10, "run": "set DemoVatsCameraGlobal to 1"}
+  ] },
+  "expect": [
+    {"id": "host-runs-its-cell", "path": "actors.NVDLC02SorrowPatrol01REF.owner", "op": "eq", "value": "me", "on": "host"},
+    {"id": "guest-runs-its-cell", "path": "actors.0200A2F8.owner", "op": "eq", "value": "me", "on": "guest"},
+    {"id": "host-counts-guest-owned", "path": "live.roam.owned.guest", "op": "eq", "value": 5, "on": "host"},
+    {"id": "guest-mirrors-none", "path": "live.roam.remote_actors", "op": "eq", "value": 0, "on": "guest"},
+    {"id": "host-mirrors-none", "path": "live.roam.remote_actors", "op": "eq", "value": 0, "on": "host"},
+    {"id": "guest-cell-known", "path": "live.roam.cells.guest", "op": "eq", "value": 33589825, "on": "both"},
+    {"id": "host-change-reached-both", "path": "globals.CG03TestValue", "op": "eq", "value": 7, "on": "both"},
+    {"id": "guest-change-reached-both", "path": "globals.DemoVatsCameraGlobal", "op": "eq", "value": 1, "on": "both"},
+    {"id": "shared-hash", "path": "hash.shared", "on": "equal"}
+  ],
+  "expect_fail": true
+}

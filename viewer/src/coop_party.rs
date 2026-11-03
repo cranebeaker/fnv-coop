@@ -20,8 +20,8 @@ use world::coop::party_save::{load_party, party_dir_for};
 use crate::args::CoopArgs;
 use crate::coop::CoopLink;
 use crate::dialogue::DialogueState;
-use crate::frame_order::ViewerSet;
 use crate::fos_start::FosStart;
+use crate::frame_order::ViewerSet;
 use crate::hud::{HudMessage, HudMessages};
 use crate::scripts::Notices;
 
@@ -69,7 +69,9 @@ pub fn open_start(game: &cellview::Game, dir: &Path) -> Result<FosStart, String>
             (None, Some(start))
         }
         None => {
-            let mut scene = game.load_cell_now(place.cell, &state.disabled).map_err(|e| e.0)?;
+            let mut scene = game
+                .load_cell_now(place.cell, &state.disabled)
+                .map_err(|e| e.0)?;
             let [x, y, z] = place.position;
             scene.start = cellview::Start {
                 eye: [x, y, z + cellview::EYE_HEIGHT],
@@ -79,7 +81,11 @@ pub fn open_start(game: &cellview::Game, dir: &Path) -> Result<FosStart, String>
             (Some(scene), None)
         }
     };
-    Ok(FosStart { state, scene, outdoors })
+    Ok(FosStart {
+        state,
+        scene,
+        outdoors,
+    })
 }
 
 /// Before the session starts running: turns the party layer on.
@@ -112,8 +118,14 @@ pub struct PartyPlugin(pub Role);
 
 impl Plugin for PartyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PartyBridge { guest: self.0 == Role::Guest, ..PartyBridge::default() })
-            .add_systems(Update, pump.in_set(ViewerSet::AfterFrame).after(crate::coop::send));
+        app.insert_resource(PartyBridge {
+            guest: self.0 == Role::Guest,
+            ..PartyBridge::default()
+        })
+        .add_systems(
+            Update,
+            pump.in_set(ViewerSet::AfterFrame).after(crate::coop::send),
+        );
     }
 }
 
@@ -151,7 +163,9 @@ fn pump(
                 s.party_host_load(&loaded.save);
                 s.party_host_loaded();
             }
-            Err(e) => say(format!("No party data came with this save ({e}); guests keep their characters.")),
+            Err(e) => say(format!(
+                "No party data came with this save ({e}); guests keep their characters."
+            )),
         }
     }
     if std::mem::take(&mut bridge.guest_save) {
@@ -168,12 +182,20 @@ fn pump(
     }
     for ev in s.take_party_events() {
         match ev {
-            PartyEvent::HostSaved { guests, from_guests, .. } => {
+            PartyEvent::HostSaved {
+                guests,
+                from_guests,
+                ..
+            } => {
                 say(format!("Party saved: {guests} guest character(s), {from_guests} saved by the guests themselves."));
             }
             PartyEvent::HostSaveFailed { why, .. } => say(format!("The party save failed: {why}")),
-            PartyEvent::GuestSaved { .. } => say("The host saved the game: your character was saved too.".into()),
-            PartyEvent::GuestSaveRefused { why, .. } => say(format!("Your character could not be saved: {why}")),
+            PartyEvent::GuestSaved { .. } => {
+                say("The host saved the game: your character was saved too.".into())
+            }
+            PartyEvent::GuestSaveRefused { why, .. } => {
+                say(format!("Your character could not be saved: {why}"))
+            }
             PartyEvent::Campaign { matched, .. } => {
                 if matched {
                     say("The host restored your saved character.".into());
@@ -184,8 +206,15 @@ fn pump(
                     say("The host could not store the party save.".into());
                 }
             }
-            PartyEvent::CharacterRestored => say("The host loaded a save: your saved character is back.".into()),
-            PartyEvent::OfferAnswered { ok, conflicts, dropped, why } => {
+            PartyEvent::CharacterRestored => {
+                say("The host loaded a save: your saved character is back.".into())
+            }
+            PartyEvent::OfferAnswered {
+                ok,
+                conflicts,
+                dropped,
+                why,
+            } => {
                 if ok {
                     say(format!(
                         "Your character joined this game ({conflicts} story difference(s) with the host's; the host's story is used, {dropped} story row(s) dropped)."

@@ -1,0 +1,23 @@
+{
+  "name": "live_interest",
+  "description": "Interest by cell: a peer gets avatar updates only for the cells it can see. Both peers start in Doc Mitchell's house. At 2 s the guest walks to the Prospector Saloon (`coop cell`). At 6 s the host moves 1000 units in Doc's house (`coop teleport`). The guest cannot see Doc's house, so its copy of the host's position must keep the old spot, while the host's own position is the new spot. The link still works: at 8 s the host sets CG03TestValue, and the value must reach the guest. Headless only: the viewer bot has no `coop cell` verb.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 74,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 6, "run": "coop teleport 3352.0 1603.6 7360.0"},
+    {"at": 8, "run": "set CG03TestValue to 7"}
+  ] },
+  "guest": { "script": [
+    {"at": 2, "run": "coop cell GSProspectorSaloonInterior"}
+  ] },
+  "expect": [
+    {"id": "host-moved", "path": "positions.host", "op": "dist_from", "from": [3352.0, 1603.6, 7360.0], "cmp": "le", "value": 50, "on": "host"},
+    {"id": "guest-got-no-move", "path": "positions.host", "op": "dist_from", "from": [3352.0, 1603.6, 7360.0], "cmp": "ge", "value": 900, "on": "guest"},
+    {"id": "guest-in-other-cell", "path": "live.roam.cells.guest", "op": "eq", "value": 1073541, "on": "host"},
+    {"id": "shared-still-flows", "path": "globals.CG03TestValue", "op": "eq", "value": 7, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

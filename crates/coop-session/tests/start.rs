@@ -31,7 +31,13 @@ struct Rig<'a> {
 }
 
 fn cfg(name: &str, t: Box<dyn coop_core::transport::Transport>) -> SessionConfig {
-    SessionConfig { name: name.into(), session_id: 0xABCD, transport: Some(t), live: true, ..SessionConfig::default() }
+    SessionConfig {
+        name: name.into(),
+        session_id: 0xABCD,
+        transport: Some(t),
+        live: true,
+        ..SessionConfig::default()
+    }
 }
 
 impl<'a> Rig<'a> {
@@ -39,19 +45,44 @@ impl<'a> Rig<'a> {
         let net = LoopbackNet::new();
         let mut hs = Session::host(cfg("Host", Box::new(net.endpoint(PlayerId::HOST)))).unwrap();
         let mut gsn = Session::join(cfg("Ann", Box::new(net.endpoint(PlayerId(1))))).unwrap();
-        hs.set_start_config(coop_session::StartConfig { new_game, ..Default::default() });
+        hs.set_start_config(coop_session::StartConfig {
+            new_game,
+            ..Default::default()
+        });
         gsn.set_start_config(coop_session::StartConfig::default());
-        let mut host = Peer { s: hs, gs: GameState::new(order) };
-        let mut guest = Peer { s: gsn, gs: GameState::new(order) };
+        let mut host = Peer {
+            s: hs,
+            gs: GameState::new(order),
+        };
+        let mut guest = Peer {
+            s: gsn,
+            gs: GameState::new(order),
+        };
         host.gs.player_cell = Some(FormId(HOST_CELL));
         guest.gs.player_cell = Some(FormId(HOST_CELL));
-        Rig { order, scripts, host, guest, menu_left: 0, opened: Vec::new() }
+        Rig {
+            order,
+            scripts,
+            host,
+            guest,
+            menu_left: 0,
+            opened: Vec::new(),
+        }
     }
 
     fn frame(&mut self) {
-        let cx = Ctx { order: self.order, scripts: self.scripts };
+        let cx = Ctx {
+            order: self.order,
+            scripts: self.scripts,
+        };
         for p in [&mut self.host, &mut self.guest] {
-            p.s.pre_frame_with(&mut p.gs, Opts { present: true, ctx: Some(cx) });
+            p.s.pre_frame_with(
+                &mut p.gs,
+                Opts {
+                    present: true,
+                    ctx: Some(cx),
+                },
+            );
             p.gs.player_position = Some([0.0, 0.0, 0.0]);
             p.s.live_frame(&mut p.gs, cx, DT);
         }
@@ -120,7 +151,11 @@ fn a_guest_joining_the_hosts_opening_makes_its_own_character_in_the_hosts_place(
     assert!(ok, "guest at {:?}", r.guest.s.start_phase());
     assert_eq!(r.guest.s.start_info().venue, Venue::HostPlace);
     assert_eq!(r.guest.s.host_opening(), Some(Opening::InProgress));
-    assert_eq!(r.opened, coop_session::start::STEPS.to_vec(), "the menus ran once each, in order");
+    assert_eq!(
+        r.opened,
+        coop_session::start::STEPS.to_vec(),
+        "the menus ran once each, in order"
+    );
     assert!(!left_place, "never left the host's place");
     for _ in 0..200 {
         r.frame();
@@ -148,16 +183,25 @@ fn a_guest_joining_after_the_opening_makes_its_character_in_a_local_room_first()
     r.guest.gs.player_cell = Some(FormId(ROOM_CELL));
     let mut stayed = true;
     let ok = r.until(8000, |r| {
-        if r.guest.s.start_phase() == Phase::CharacterCreation && r.guest.gs.player_cell != Some(FormId(ROOM_CELL)) {
+        if r.guest.s.start_phase() == Phase::CharacterCreation
+            && r.guest.gs.player_cell != Some(FormId(ROOM_CELL))
+        {
             stayed = false;
         }
         r.guest.s.start_phase() == Phase::Playing
     });
     assert!(ok, "guest at {:?}", r.guest.s.start_phase());
-    assert!(stayed, "the guest was kept in the room while making its character");
+    assert!(
+        stayed,
+        "the guest was kept in the room while making its character"
+    );
     assert_eq!(r.guest.s.start_info().venue, Venue::LocalRoom);
     assert_eq!(r.guest.s.host_opening(), Some(Opening::Over));
     assert_eq!(r.host.s.start_phase(), Phase::Playing);
     assert_eq!(r.opened.len(), 4);
-    assert_eq!(r.guest.gs.player_cell, Some(FormId(HOST_CELL)), "and then arrived at the host's place");
+    assert_eq!(
+        r.guest.gs.player_cell,
+        Some(FormId(HOST_CELL)),
+        "and then arrived at the host's place"
+    );
 }

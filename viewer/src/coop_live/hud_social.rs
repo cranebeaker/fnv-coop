@@ -67,13 +67,41 @@ impl Binding {
             "F11" => k(KeyCode::F11),
             other => {
                 let letters = [
-                    KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE, KeyCode::KeyF, KeyCode::KeyG,
-                    KeyCode::KeyH, KeyCode::KeyI, KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyL, KeyCode::KeyM, KeyCode::KeyN,
-                    KeyCode::KeyO, KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR, KeyCode::KeyS, KeyCode::KeyT, KeyCode::KeyU,
-                    KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY, KeyCode::KeyZ,
+                    KeyCode::KeyA,
+                    KeyCode::KeyB,
+                    KeyCode::KeyC,
+                    KeyCode::KeyD,
+                    KeyCode::KeyE,
+                    KeyCode::KeyF,
+                    KeyCode::KeyG,
+                    KeyCode::KeyH,
+                    KeyCode::KeyI,
+                    KeyCode::KeyJ,
+                    KeyCode::KeyK,
+                    KeyCode::KeyL,
+                    KeyCode::KeyM,
+                    KeyCode::KeyN,
+                    KeyCode::KeyO,
+                    KeyCode::KeyP,
+                    KeyCode::KeyQ,
+                    KeyCode::KeyR,
+                    KeyCode::KeyS,
+                    KeyCode::KeyT,
+                    KeyCode::KeyU,
+                    KeyCode::KeyV,
+                    KeyCode::KeyW,
+                    KeyCode::KeyX,
+                    KeyCode::KeyY,
+                    KeyCode::KeyZ,
                 ];
-                let letter = other.strip_prefix("Key").filter(|l| l.len() == 1).and_then(|l| l.bytes().next());
-                letter.filter(u8::is_ascii_uppercase).and_then(|b| letters.get((b - b'A') as usize)).map(|c| Binding::Key(*c))
+                let letter = other
+                    .strip_prefix("Key")
+                    .filter(|l| l.len() == 1)
+                    .and_then(|l| l.bytes().next());
+                letter
+                    .filter(u8::is_ascii_uppercase)
+                    .and_then(|b| letters.get((b - b'A') as usize))
+                    .map(|c| Binding::Key(*c))
             }
         }
     }
@@ -87,7 +115,11 @@ impl Binding {
     }
 
     /// Went down this frame.
-    pub fn just_pressed(&self, keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> bool {
+    pub fn just_pressed(
+        &self,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+    ) -> bool {
         match self {
             Binding::Key(k) => keys.just_pressed(*k),
             Binding::Mouse(m) => mouse.just_pressed(*m),
@@ -112,11 +144,25 @@ static SETTINGS: Mutex<Option<Settings>> = Mutex::new(None);
 
 /// Reads the `--coop-*` social options (called from `coop::connect`).
 pub fn configure(a: &crate::args::CoopArgs) {
-    let ping = a.ping_key.as_deref().and_then(Binding::parse).unwrap_or(Binding::Mouse(MouseButton::Middle));
-    let ptt = a.ptt_key.as_deref().and_then(Binding::parse).unwrap_or(Binding::Key(KeyCode::Backslash));
+    let ping = a
+        .ping_key
+        .as_deref()
+        .and_then(Binding::parse)
+        .unwrap_or(Binding::Mouse(MouseButton::Middle));
+    let ptt = a
+        .ptt_key
+        .as_deref()
+        .and_then(Binding::parse)
+        .unwrap_or(Binding::Key(KeyCode::Backslash));
     let voice = a.voice.clone().unwrap_or_else(|| "ptt".into());
     if let Ok(mut s) = SETTINGS.lock() {
-        *s = Some(Settings { ping, ptt, voice, window: a.window, gamepad: a.gamepad });
+        *s = Some(Settings {
+            ping,
+            ptt,
+            voice,
+            window: a.window,
+            gamepad: a.gamepad,
+        });
         if let Some(g) = a.gamepad {
             println!("Co-op couch: seat uses controller {g} (the launcher routes the input)");
         }
@@ -129,7 +175,13 @@ pub fn settings() -> Settings {
         .lock()
         .ok()
         .and_then(|s| s.clone())
-        .unwrap_or(Settings { ping: Binding::Mouse(MouseButton::Middle), ptt: Binding::Key(KeyCode::Backslash), voice: "ptt".into(), window: None, gamepad: None })
+        .unwrap_or(Settings {
+            ping: Binding::Mouse(MouseButton::Middle),
+            ptt: Binding::Key(KeyCode::Backslash),
+            voice: "ptt".into(),
+            window: None,
+            gamepad: None,
+        })
 }
 
 /// The most health points seen per player: the avatar stream carries points, not a maximum, so the
@@ -137,7 +189,9 @@ pub fn settings() -> Settings {
 static MAX_SEEN: Mutex<Vec<(u8, u16)>> = Mutex::new(Vec::new());
 
 fn health_frac(p: PlayerId, hp: u16) -> f32 {
-    let Ok(mut m) = MAX_SEEN.lock() else { return 1.0 };
+    let Ok(mut m) = MAX_SEEN.lock() else {
+        return 1.0;
+    };
     let max = match m.iter_mut().find(|(k, _)| *k == p.0) {
         Some(e) => {
             e.1 = e.1.max(hp);
@@ -170,19 +224,43 @@ pub fn party_points() -> Vec<[f32; 3]> {
 
 /// The pins the HUD draws: teammates and other players' markers in this place, and the player's own.
 pub fn pins(now: &LiveNow, book: &Book, gs: &world::scripting::GameState) -> Vec<c::Pin> {
-    let Some(view) = &now.view else { return Vec::new() };
+    let Some(view) = &now.view else {
+        return Vec::new();
+    };
     let here = gs.player_cell.map_or(0, |c| c.0);
     let outdoors = gs.player_world.is_some();
     let me = gs.player_position.unwrap_or([0.0; 3]);
     let near = |cell: u32, pos: [f32; 3]| {
-        (cell != 0 && cell == here) || (outdoors && cell != 0 && (pos[0] - me[0]).hypot(pos[1] - me[1]) <= REACH)
+        (cell != 0 && cell == here)
+            || (outdoors && cell != 0 && (pos[0] - me[0]).hypot(pos[1] - me[1]) <= REACH)
     };
-    let mates = view.avatars.iter().filter(|a| near(a.cell, a.pos)).map(|a| {
-        // outdoors, other squares count as this place
-        (a.player, a.name.clone(), here, a.pos, health_frac(a.player, a.health), a.downed)
-    });
-    let marks = view.markers.iter().filter(|m| near(m.cell, m.pos)).map(|m| (m.owner, m.kind, here, m.pos, m.label.clone()));
-    let own: Vec<c::Pin> = book.0.pins().into_iter().filter(|p| near(p.cell, p.pos)).map(|p| c::Pin { cell: here, ..p }).collect();
+    let mates = view
+        .avatars
+        .iter()
+        .filter(|a| near(a.cell, a.pos))
+        .map(|a| {
+            // outdoors, other squares count as this place
+            (
+                a.player,
+                a.name.clone(),
+                here,
+                a.pos,
+                health_frac(a.player, a.health),
+                a.downed,
+            )
+        });
+    let marks = view
+        .markers
+        .iter()
+        .filter(|m| near(m.cell, m.pos))
+        .map(|m| (m.owner, m.kind, here, m.pos, m.label.clone()));
+    let own: Vec<c::Pin> = book
+        .0
+        .pins()
+        .into_iter()
+        .filter(|p| near(p.cell, p.pos))
+        .map(|p| c::Pin { cell: here, ..p })
+        .collect();
     c::collect_pins(mates, marks, &own)
 }
 
@@ -197,15 +275,25 @@ pub fn compass_extra(
 ) {
     let _ = heading_deg;
     let me = gs.player_position.unwrap_or([0.0; 3]);
-    let l = c::Listener { cell: gs.player_cell.map_or(0, |c| c.0), pos: me, heading: 0.0 };
+    let l = c::Listener {
+        cell: gs.player_cell.map_or(0, |c| c.0),
+        pos: me,
+        heading: 0.0,
+    };
     for p in pins(now, book, gs) {
         let (_, d) = c::bearing(&l, p.pos);
         if p.kind == c::KIND_TEAMMATE {
             if d <= c::TAG_RANGE {
-                actors.push(CompassActor { position: p.pos, hostile: false });
+                actors.push(CompassActor {
+                    position: p.pos,
+                    hostile: false,
+                });
             }
         } else {
-            markers.push(CompassMarker { position: p.pos, found: true });
+            markers.push(CompassMarker {
+                position: p.pos,
+                found: true,
+            });
         }
     }
 }
@@ -214,7 +302,10 @@ pub fn compass_extra(
 pub fn publish(now: Res<LiveNow>, state: Res<DialogueState>, mut book: ResMut<Book>) {
     let Some(view) = &now.view else { return };
     book.0.tick(view.now_ms);
-    let pts: Vec<[f32; 3]> = pins(&now, &book, &state.0).into_iter().map(|p| p.pos).collect();
+    let pts: Vec<[f32; 3]> = pins(&now, &book, &state.0)
+        .into_iter()
+        .map(|p| p.pos)
+        .collect();
     if let Ok(mut g) = PARTY.lock() {
         *g = pts;
     }
@@ -235,7 +326,9 @@ pub fn ping_input(
     mut link: NonSendMut<CoopLink>,
     mut messages: ResMut<HudMessages>,
 ) {
-    let Some((me, now_ms)) = now.view.as_ref().map(|v| (v.me, v.now_ms)) else { return };
+    let Some((me, now_ms)) = now.view.as_ref().map(|v| (v.me, v.now_ms)) else {
+        return;
+    };
     if menus.is_open() || conversation.0.is_some() {
         return;
     }
@@ -255,13 +348,17 @@ pub fn ping_input(
     if ctrl {
         if let Some(m) = book.0.clear_waypoint() {
             link.0.live_intent(Intent::Social(m));
-            messages.queue.push(HudMessage::from("Waypoint cleared".to_string()));
+            messages
+                .queue
+                .push(HudMessage::from("Waypoint cleared".to_string()));
         }
     } else if shift {
         let m = book.0.waypoint(me, cell, at, "waypoint");
         link.0.live_intent(Intent::Social(m));
         now.counters.pings += 1;
-        messages.queue.push(HudMessage::from("Waypoint set".to_string()));
+        messages
+            .queue
+            .push(HudMessage::from("Waypoint set".to_string()));
     } else if let Some(msgs) = book.0.ping(me, cell, at, "ping", now_ms) {
         for m in msgs {
             link.0.live_intent(Intent::Social(m));
@@ -271,9 +368,18 @@ pub fn ping_input(
 }
 
 /// The label of a name tag: name, distance, and a health bar when hurt or near.
-pub fn tag_text(now: &LiveNow, gs: &world::scripting::GameState, a: &coop_session::RemoteAvatarView, speaking: bool) -> (String, Color) {
+pub fn tag_text(
+    now: &LiveNow,
+    gs: &world::scripting::GameState,
+    a: &coop_session::RemoteAvatarView,
+    speaking: bool,
+) -> (String, Color) {
     let me = gs.player_position.unwrap_or([0.0; 3]);
-    let l = c::Listener { cell: a.cell, pos: me, heading: 0.0 };
+    let l = c::Listener {
+        cell: a.cell,
+        pos: me,
+        heading: 0.0,
+    };
     let pin = c::Pin {
         owner: a.player,
         kind: c::KIND_TEAMMATE,
@@ -291,7 +397,11 @@ pub fn tag_text(now: &LiveNow, gs: &world::scripting::GameState, a: &coop_sessio
         tone = t.tone;
         if t.show_bar {
             let filled = (t.health * 10.0).round() as usize;
-            text.push_str(&format!("\n{}{}", "#".repeat(filled.min(10)), "-".repeat(10 - filled.min(10))));
+            text.push_str(&format!(
+                "\n{}{}",
+                "#".repeat(filled.min(10)),
+                "-".repeat(10 - filled.min(10))
+            ));
         }
         if a.downed {
             text.push_str("\ndown");
@@ -311,7 +421,10 @@ pub fn tag_text(now: &LiveNow, gs: &world::scripting::GameState, a: &coop_sessio
 }
 
 /// Couch mode: puts the window where `--coop-window` says, once.
-pub fn place_window(mut done: Local<bool>, mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
+pub fn place_window(
+    mut done: Local<bool>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
     if *done {
         return;
     }
@@ -335,9 +448,17 @@ pub struct EdgeHint;
 pub fn setup(mut commands: Commands) {
     commands.spawn((
         Text::new(String::new()),
-        TextFont { font_size: 14.0, ..default() },
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
         TextColor(Color::srgb(0.85, 0.95, 1.0)),
-        Node { position_type: PositionType::Absolute, top: Val::Px(6.0), left: Val::Percent(30.0), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(6.0),
+            left: Val::Percent(30.0),
+            ..default()
+        },
         Visibility::Hidden,
         EdgeHint,
     ));
@@ -354,11 +475,19 @@ pub fn edge_hints(
     let Ok(cam) = cameras.single() else { return };
     let f = cam.forward().as_vec3();
     let gs = &state.0;
-    let l = c::Listener { cell: gs.player_cell.map_or(0, |c| c.0), pos: gs.player_position.unwrap_or([0.0; 3]), heading: f.x.atan2(-f.z) };
+    let l = c::Listener {
+        cell: gs.player_cell.map_or(0, |c| c.0),
+        pos: gs.player_position.unwrap_or([0.0; 3]),
+        heading: f.x.atan2(-f.z),
+    };
     let mut left = Vec::new();
     let mut right = Vec::new();
     for e in c::compass(&l, &pins(&now, &book, gs)) {
-        let name = if e.label.is_empty() { "ping".to_string() } else { e.label.clone() };
+        let name = if e.label.is_empty() {
+            "ping".to_string()
+        } else {
+            e.label.clone()
+        };
         let item = format!("{name} {} m", (e.distance / 70.0).round());
         match e.edge {
             c::Edge::Left => left.push(item),
@@ -376,6 +505,10 @@ pub fn edge_hints(
         if t.0 != text {
             t.0 = text.clone();
         }
-        *v = if text.is_empty() { Visibility::Hidden } else { Visibility::Inherited };
+        *v = if text.is_empty() {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
     }
 }

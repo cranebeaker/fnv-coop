@@ -26,7 +26,9 @@ pub const PERSONAL_BASE: u32 = 0xFA00_0000;
 
 /// The holder of `container` for `slot`: stable on every machine.
 pub fn personal_id(container: FormId, slot: u8) -> FormId {
-    let h = container.0.wrapping_mul(0x9E37_79B1).rotate_left(11) ^ (u32::from(slot) << 20) ^ container.0;
+    let h = container.0.wrapping_mul(0x9E37_79B1).rotate_left(11)
+        ^ (u32::from(slot) << 20)
+        ^ container.0;
     FormId(PERSONAL_BASE | (h & 0x00FF_FFFF))
 }
 
@@ -63,8 +65,16 @@ pub fn redirect_op(gs: &GameState, slot: u8, op: LootOp) -> LootOp {
     match op {
         LootOp::Open(c) => LootOp::Open(r(c)),
         LootOp::Close(c) => LootOp::Close(r(c)),
-        LootOp::Take { container, item, n } => LootOp::Take { container: r(container), item, n },
-        LootOp::Put { container, item, n } => LootOp::Put { container: r(container), item, n },
+        LootOp::Take { container, item, n } => LootOp::Take {
+            container: r(container),
+            item,
+            n,
+        },
+        LootOp::Put { container, item, n } => LootOp::Put {
+            container: r(container),
+            item,
+            n,
+        },
     }
 }
 
@@ -92,6 +102,9 @@ mod tests {
         gs.coop.campaign.personal.insert(FormId(7));
         assert_eq!(redirect(&gs, FormId(7), 2), personal_id(FormId(7), 2));
         assert_eq!(redirect(&gs, FormId(8), 2), FormId(8));
-        assert_eq!(redirect_op(&gs, 1, LootOp::Open(FormId(8))), LootOp::Open(FormId(8)));
+        assert_eq!(
+            redirect_op(&gs, 1, LootOp::Open(FormId(8))),
+            LootOp::Open(FormId(8))
+        );
     }
 }

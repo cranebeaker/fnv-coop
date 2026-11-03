@@ -12,7 +12,7 @@
   },
   "guest": { "script": [] },
   "expect": [
-    { "id": "guest-on", "path": "campaign.objvars.guest.DocMitchellREF_bcollaron", "op": "eq", "value": 1, "on": "host" },
-    { "id": "guest-timer", "path": "campaign.objvars.guest.DocMitchellREF_ftimer", "op": "eq", "value": 42.5, "on": "host" }
+    { "id": "guest-on", "path": "campaign.objvars.guest.DocMitchellDresserRef_bcollaron", "op": "eq", "value": 1, "on": "host" },
+    { "id": "guest-timer", "path": "campaign.objvars.guest.DocMitchellDresserRef_ftimer", "op": "eq", "value": 42.5, "on": "host" }
   ]
 }

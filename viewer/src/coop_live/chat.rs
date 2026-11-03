@@ -49,7 +49,10 @@ pub struct ChatText;
 pub fn setup(mut commands: Commands) {
     commands.spawn((
         Text::new(String::new()),
-        TextFont { font_size: 15.0, ..default() },
+        TextFont {
+            font_size: 15.0,
+            ..default()
+        },
         TextColor(Color::srgb(0.95, 0.95, 0.8)),
         Node {
             position_type: PositionType::Absolute,
@@ -72,7 +75,12 @@ pub fn show(
     mut panel: Query<(&mut Text, &mut Visibility), With<ChatText>>,
 ) {
     let t = time.elapsed_secs();
-    let mut lines: Vec<String> = log.lines.iter().filter(|(at, _)| t - at < SHOW_SECONDS).map(|(_, s)| s.clone()).collect();
+    let mut lines: Vec<String> = log
+        .lines
+        .iter()
+        .filter(|(at, _)| t - at < SHOW_SECONDS)
+        .map(|(_, s)| s.clone())
+        .collect();
     if typing.on {
         lines.push(format!("> {}_", typing.text));
     }
@@ -81,7 +89,11 @@ pub fn show(
         if shown.0 != text {
             shown.0 = text.clone();
         }
-        *vis = if text.is_empty() { Visibility::Hidden } else { Visibility::Inherited };
+        *vis = if text.is_empty() {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
     }
 }
 
@@ -100,7 +112,11 @@ pub fn typing(
     now: Res<LiveNow>,
 ) {
     if !typing.on {
-        if buttons.just_pressed(KeyCode::KeyY) && !menus.is_open() && conversation.0.is_none() && now.view.is_some() {
+        if buttons.just_pressed(KeyCode::KeyY)
+            && !menus.is_open()
+            && conversation.0.is_none()
+            && now.view.is_some()
+        {
             typing.on = true;
             typing.text.clear();
             typing.restore_ready = player.ready;
@@ -137,7 +153,8 @@ pub fn typing(
         let text = std::mem::take(&mut typing.text);
         if send && text.starts_with('/') {
             // voice commands (/mute, /unmute, /vol, /voice) stay on this machine
-            let reply = super::voice::command(&text).unwrap_or_else(|| "Unknown command".to_string());
+            let reply =
+                super::voice::command(&text).unwrap_or_else(|| "Unknown command".to_string());
             log.push(reply, time.elapsed_secs());
         } else if send && !text.trim().is_empty() {
             log.push(format!("You: {text}"), time.elapsed_secs());

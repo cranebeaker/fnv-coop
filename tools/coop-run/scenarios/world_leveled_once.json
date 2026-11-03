@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "name": "world_leveled_once",
+  "description": "A leveled pick is made once, on the host. The host adds a leveled list of guns (LL2Tier4Guns50, six entries) to Doc Mitchell four times and to the guest's view nothing is rolled: the guest must show the same guns as the host. A guest runs no quest script and rolls nothing itself.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 3,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "DocMitchellREF.AddItem LL2Tier4Guns50 1"
+      },
+      {
+        "at": 2,
+        "run": "DocMitchellREF.AddItem LL2Tier4Guns50 1"
+      },
+      {
+        "at": 3,
+        "run": "DocMitchellREF.AddItem LL2Tier4Guns50 1"
+      },
+      {
+        "at": 4,
+        "run": "DocMitchellREF.AddItem LL2Tier4Guns50 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "rolled",
+      "path": "items.DocMitchellREF",
+      "op": "present",
+      "on": "both"
+    },
+    {
+      "id": "same-pick",
+      "path": "items.DocMitchellREF",
+      "on": "equal"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

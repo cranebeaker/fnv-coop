@@ -1,0 +1,27 @@
+{
+  "name": "live_scene_controls_reverse",
+  "description": "Two sources lock the controls at once. The BeatrixFX scene takes every control but the view switch (119). A script's control lock then takes the view switch only (8). The host skips the scene. That ends the scene's lock only: the script's own 8 stays in force on both peers, and the control scene is the one left.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 88,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "coop cinematic 1554961" },
+      { "at": 3, "run": "coop lock 0001000" },
+      { "at": 7, "run": "coop skip yes" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "scene-locks-host", "path": "scene.locks", "op": "eq", "value": 8, "on": "host" },
+    { "id": "scene-locks-guest", "path": "scene.locks", "op": "eq", "value": 8, "on": "guest" },
+    { "id": "guest-controls", "path": "scene.controls", "op": "eq", "value": 8, "on": "guest" },
+    { "id": "one-left", "path": "scene.active", "op": "eq", "value": 1, "on": "both" },
+    { "id": "control-left", "path": "scene.kind", "op": "eq", "value": 1, "on": "both" },
+    { "id": "scene-skipped", "path": "scene.last_reason", "op": "eq", "value": 2, "on": "both" },
+    { "id": "same-scene", "path": "scene.id", "on": "equal" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

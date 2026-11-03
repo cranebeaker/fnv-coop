@@ -96,7 +96,9 @@ impl LineReport {
     }
 }
 
-const PLACED: [&[u8; 4]; 7] = [b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PMIS", b"PBEA", b"PFLA"];
+const PLACED: [&[u8; 4]; 7] = [
+    b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PMIS", b"PBEA", b"PFLA",
+];
 
 /// Walks every quest of every line.
 pub fn walk(order: &LoadOrder) -> BTreeMap<Line, LineReport> {
@@ -118,7 +120,9 @@ pub fn walk(order: &LoadOrder) -> BTreeMap<Line, LineReport> {
         let rep = out.entry(line).or_default();
         rep.quests = quests.len();
         for (id, editor) in quests {
-            let Some(quest) = scripts.quest(order, id) else { continue };
+            let Some(quest) = scripts.quest(order, id) else {
+                continue;
+            };
             let mut stages: Vec<u16> = quest.stages.iter().map(|s| s.index as u16).collect();
             stages.sort_unstable();
             stages.dedup();
@@ -131,14 +135,25 @@ pub fn walk(order: &LoadOrder) -> BTreeMap<Line, LineReport> {
                 if verdict.runnable() {
                     entry.1 += 1;
                 }
-                rep.stages.push(StageResult { quest: id, editor: editor.clone(), stage, has_script, verdict });
+                rep.stages.push(StageResult {
+                    quest: id,
+                    editor: editor.clone(),
+                    stage,
+                    has_script,
+                    verdict,
+                });
             }
             for o in &quest.objectives {
                 rep.objectives += 1;
                 for t in &o.targets {
                     rep.targets += 1;
                     if let Some(why) = target_problem(order, t.reference) {
-                        rep.gaps.push(ObjectiveGap { editor: editor.clone(), objective: o.index, target: t.reference, why });
+                        rep.gaps.push(ObjectiveGap {
+                            editor: editor.clone(),
+                            objective: o.index,
+                            target: t.reference,
+                            why,
+                        });
                     }
                 }
             }
@@ -182,7 +197,9 @@ pub fn stage_verdict(
     let delta = state_delta(state, &before);
     // One second of game time so the quest scripts and timers run; only a panic counts,
     // as what they ask of the stub world is not this stage's doing.
-    let ticked = catch_unwind(AssertUnwindSafe(|| Runner::new(order, scripts, state).update(1.0)));
+    let ticked = catch_unwind(AssertUnwindSafe(|| {
+        Runner::new(order, scripts, state).update(1.0)
+    }));
     if let Err(p) = ticked {
         return Verdict::Panic(panic_text(p));
     }

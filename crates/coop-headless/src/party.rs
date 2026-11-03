@@ -43,11 +43,16 @@ pub fn attach(p: &mut Peer, key: u64, dir: &Path) {
 /// Handles a `coop psave` / `coop pload` line. True when it was one.
 pub fn line(p: &mut Peer, t: f64, l: &str) -> bool {
     let verb = l.split_whitespace().nth(1).map(str::to_ascii_lowercase);
-    let Some(dir) = p.party_dir.clone() else { return false };
+    let Some(dir) = p.party_dir.clone() else {
+        return false;
+    };
     match verb.as_deref() {
         Some("psave") => {
             let text = world::save::save(&p.gs, None);
-            match p.sess.party_begin_save(&p.gs, party_folder(&dir), text, 1_700_000_000) {
+            match p
+                .sess
+                .party_begin_save(&p.gs, party_folder(&dir), text, 1_700_000_000)
+            {
                 Ok(seq) => log(p, t, "party_save_begun", vec![("seq", n(seq as f64))]),
                 Err(e) => log(p, t, "party_save_refused", vec![("why", s(e))]),
             }
@@ -57,9 +62,19 @@ pub fn line(p: &mut Peer, t: f64, l: &str) -> bool {
             match read_character(&dir.join(GUEST_FILE)) {
                 Ok(f) => {
                     p.sess.party_guest_load(&f);
-                    log(p, t, "party_character_load", vec![("level", n(f.shadow().map_or(0, |x| x.level) as f64))]);
+                    log(
+                        p,
+                        t,
+                        "party_character_load",
+                        vec![("level", n(f.shadow().map_or(0, |x| x.level) as f64))],
+                    );
                 }
-                Err(e) => log(p, t, "party_character_missing", vec![("why", s(e.to_string()))]),
+                Err(e) => log(
+                    p,
+                    t,
+                    "party_character_missing",
+                    vec![("why", s(e.to_string()))],
+                ),
             }
             true
         }
@@ -75,18 +90,39 @@ fn log(p: &mut Peer, t: f64, ev: &str, f: Vec<(&str, J)>) {
 pub fn pump(p: &mut Peer, t: f64) {
     for e in p.sess.take_party_events() {
         let (name, f) = match &e {
-            coop_session::PartyEvent::HostSaved { seq, guests, from_guests, .. } => {
-                ("party_saved", vec![("seq", n(*seq as f64)), ("guests", n(*guests as f64)), ("from_guests", n(*from_guests as f64))])
+            coop_session::PartyEvent::HostSaved {
+                seq,
+                guests,
+                from_guests,
+                ..
+            } => (
+                "party_saved",
+                vec![
+                    ("seq", n(*seq as f64)),
+                    ("guests", n(*guests as f64)),
+                    ("from_guests", n(*from_guests as f64)),
+                ],
+            ),
+            coop_session::PartyEvent::HostSaveFailed { why, .. } => {
+                ("party_save_failed", vec![("why", s(why.clone()))])
             }
-            coop_session::PartyEvent::HostSaveFailed { why, .. } => ("party_save_failed", vec![("why", s(why.clone()))]),
-            coop_session::PartyEvent::GuestSaved { seq, .. } => ("party_char_saved", vec![("seq", n(*seq as f64))]),
-            coop_session::PartyEvent::GuestSaveRefused { why, .. } => ("party_char_refused", vec![("why", s(why.clone()))]),
-            coop_session::PartyEvent::Campaign { matched, .. } => ("party_campaign", vec![("matched", J::Bool(*matched))]),
-            coop_session::PartyEvent::Stored { ok, .. } => ("party_stored", vec![("ok", J::Bool(*ok))]),
+            coop_session::PartyEvent::GuestSaved { seq, .. } => {
+                ("party_char_saved", vec![("seq", n(*seq as f64))])
+            }
+            coop_session::PartyEvent::GuestSaveRefused { why, .. } => {
+                ("party_char_refused", vec![("why", s(why.clone()))])
+            }
+            coop_session::PartyEvent::Campaign { matched, .. } => {
+                ("party_campaign", vec![("matched", J::Bool(*matched))])
+            }
+            coop_session::PartyEvent::Stored { ok, .. } => {
+                ("party_stored", vec![("ok", J::Bool(*ok))])
+            }
             coop_session::PartyEvent::CharacterRestored => ("party_restored", vec![]),
-            coop_session::PartyEvent::OfferAnswered { ok, conflicts, .. } => {
-                ("party_offer_answered", vec![("ok", J::Bool(*ok)), ("conflicts", n(*conflicts as f64))])
-            }
+            coop_session::PartyEvent::OfferAnswered { ok, conflicts, .. } => (
+                "party_offer_answered",
+                vec![("ok", J::Bool(*ok)), ("conflicts", n(*conflicts as f64))],
+            ),
         };
         p.log_pub(t, name, f);
         p.party_log.push(name.to_string());

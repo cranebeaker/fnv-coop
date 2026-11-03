@@ -2,15 +2,15 @@
 //! every link wrapped in a [`ChaosTransport`] on one virtual clock.
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod live;
+#[cfg(test)]
+mod live_combat;
 #[cfg(test)]
 mod live_more;
 #[cfg(test)]
 mod roam;
 #[cfg(test)]
-mod live_combat;
+mod tests;
 
 use crate::hash::ShardHashes;
 use crate::ids::{FormId, PlayerId};
@@ -32,7 +32,15 @@ type Net = ChaosTransport<LoopbackEndpoint>;
 
 /// Identity every well-behaved peer uses.
 pub fn test_hello() -> Hello {
-    Hello { proto: PROTOCOL_VERSION, build_hash: 0xB001, rules_hash: 0x201E5, mods_hash: 0x30D5, exe: String::new(), volatile_hash: 0, plugins: Vec::new() }
+    Hello {
+        proto: PROTOCOL_VERSION,
+        build_hash: 0xB001,
+        rules_hash: 0x201E5,
+        mods_hash: 0x30D5,
+        exe: String::new(),
+        volatile_hash: 0,
+        plugins: Vec::new(),
+    }
 }
 
 /// One simulated guest.
@@ -159,12 +167,24 @@ impl Sim {
         let form = self.universe[self.rng.below(self.universe.len() as u64) as usize];
         let v = self.rng.next_u64();
         let field = match v % 7 {
-            0 => Field::QuestStage { stage: (v >> 8) as u16 % 100 },
-            1 => Field::QuestFlags { flags: (v >> 8) as u32 & 0xFF },
-            2 => Field::Objective { index: ((v >> 8) % 6) as u16, state: ((v >> 16) % 4) as u8 },
+            0 => Field::QuestStage {
+                stage: (v >> 8) as u16 % 100,
+            },
+            1 => Field::QuestFlags {
+                flags: (v >> 8) as u32 & 0xFF,
+            },
+            2 => Field::Objective {
+                index: ((v >> 8) % 6) as u16,
+                state: ((v >> 16) % 4) as u8,
+            },
             3 => Field::global(((v >> 8) % 1000) as f32 / 4.0),
-            4 => Field::ItemCount { item: FormId(0x0200_0000 + ((v >> 8) % 20) as u32), count: ((v >> 20) % 50) as i32 },
-            5 => Field::RefDisabled { disabled: v & 0x100 != 0 },
+            4 => Field::ItemCount {
+                item: FormId(0x0200_0000 + ((v >> 8) % 20) as u32),
+                count: ((v >> 20) % 50) as i32,
+            },
+            5 => Field::RefDisabled {
+                disabled: v & 0x100 != 0,
+            },
             _ => Field::script_var(((v >> 8) % 8) as u16, ((v >> 16) % 100) as f64),
         };
         self.host.write(form, field);

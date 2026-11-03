@@ -1,0 +1,24 @@
+{
+  "name": "live_hacking",
+  "description": "The guest plays the hacking game on two Goodsprings school terminals (the bot reports the outcome). It wins on the first and is locked out of the second. The host applies both outcomes for everyone: the first terminal reads hacked (-1) and the second reads one lock-out or more, on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 84,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": { "script": [] },
+  "guest": {
+    "script": [
+      { "at": 8, "run": "coop hack GSSchoolTerminal01Ref won" },
+      { "at": 10, "run": "coop hack GSSchoolTerminal02Ref lost" }
+    ]
+  },
+  "expect": [
+    { "id": "won-host", "path": "objects.hacked.GSSchoolTerminal01Ref", "op": "eq", "value": -1, "on": "host" },
+    { "id": "won-guest", "path": "objects.hacked.GSSchoolTerminal01Ref", "op": "eq", "value": -1, "on": "guest" },
+    { "id": "lost-host", "path": "objects.hacked.GSSchoolTerminal02Ref", "op": "ge", "value": 1, "on": "host" },
+    { "id": "lost-guest", "path": "objects.hacked.GSSchoolTerminal02Ref", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "counted", "path": "interact.hack", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

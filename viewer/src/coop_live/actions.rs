@@ -29,28 +29,44 @@ pub struct Seen {
 
 /// Queues an event for each combat change of the local player; the live
 /// layer sends them (`gs.coop.live.local_actions`).
-pub fn emit(game: Res<GameFiles>, mut state: ResMut<DialogueState>, attack: Res<PlayerAttack>, mut seen: Local<Seen>) {
+pub fn emit(
+    game: Res<GameFiles>,
+    mut state: ResMut<DialogueState>,
+    attack: Res<PlayerAttack>,
+    mut seen: Local<Seen>,
+) {
     let order = &game.0.order;
     let gs = &mut state.0;
     let weapon = world::combat::weapon_equipped(order, gs, PLAYER_REF);
     let mut out: Vec<(ActionKind, u32)> = Vec::new();
     if attack.fired_at != seen.fired {
         if attack.fired_at.is_some() {
-            let kind = if weapon.as_ref().is_none_or(|w| w.is_melee()) { ActionKind::Swing } else { ActionKind::Shoot };
+            let kind = if weapon.as_ref().is_none_or(|w| w.is_melee()) {
+                ActionKind::Swing
+            } else {
+                ActionKind::Shoot
+            };
             out.push((kind, u32::from(attack.attack_group)));
         }
         seen.fired = attack.fired_at;
     }
     if attack.reload_started != seen.reload {
         if let (Some(_), Some(w)) = (attack.reload_started, weapon.as_ref()) {
-            out.push((ActionKind::Reload, u32::from(group::RELOAD_A + w.reload_animation.min(22))));
+            out.push((
+                ActionKind::Reload,
+                u32::from(group::RELOAD_A + w.reload_animation.min(22)),
+            ));
         }
         seen.reload = attack.reload_started;
     }
     if attack.readied_at != seen.readied {
         if let Some((_, drawn)) = attack.readied_at {
             let held = weapon.as_ref().map_or(0, |w| w.form_id.0);
-            out.push(if drawn { (ActionKind::Draw, held) } else { (ActionKind::Holster, 0) });
+            out.push(if drawn {
+                (ActionKind::Draw, held)
+            } else {
+                (ActionKind::Holster, 0)
+            });
         }
         seen.readied = attack.readied_at;
     }
@@ -78,7 +94,15 @@ pub fn emit(game: Res<GameFiles>, mut state: ResMut<DialogueState>, attack: Res<
 }
 
 /// Plays one event of a remote player on its puppet.
-pub fn play(rig: &mut ActorRig, walker: &Walker, gs: &mut world::scripting::GameState, puppet: FormId, now: f32, kind: ActionKind, arg: u32) {
+pub fn play(
+    rig: &mut ActorRig,
+    walker: &Walker,
+    gs: &mut world::scripting::GameState,
+    puppet: FormId,
+    now: f32,
+    kind: ActionKind,
+    arg: u32,
+) {
     let attack_group = |g: u32| match g {
         26..=0xa8 => g as u8,
         _ => group::ATTACK_RIGHT,
@@ -92,7 +116,10 @@ pub fn play(rig: &mut ActorRig, walker: &Walker, gs: &mut world::scripting::Game
         ActionKind::Draw => rig.want_drawn = true,
         ActionKind::Holster => rig.want_drawn = false,
         // the hit reaction the game's idle tree answers a hit with (`sitting::idle_requests`)
-        ActionKind::Hurt | ActionKind::Knockdown => gs.hits_taken.push((puppet, i32::from(world::body_parts::part::TORSO), false)),
+        ActionKind::Hurt | ActionKind::Knockdown => {
+            gs.hits_taken
+                .push((puppet, i32::from(world::body_parts::part::TORSO), false))
+        }
         ActionKind::Death => {
             if rig.ragdoll.is_none() {
                 rig.go_limp(now, walker.placement(), None, None);
