@@ -59,11 +59,7 @@ pub fn within(a: (FormId, [f32; 3]), b: (FormId, [f32; 3]), radius: f32) -> bool
 }
 
 /// Whether the local player can hear `speaker` (same space, in range).
-pub fn heard(
-    order: &esm::LoadOrder,
-    state: &world::scripting::GameState,
-    speaker: FormId,
-) -> bool {
+pub fn heard(order: &esm::LoadOrder, state: &world::scripting::GameState, speaker: FormId) -> bool {
     let place = |r| state.place(order, r).map(|(space, _, p, _)| (space, p));
     match (place(speaker), place(world::dialogue::PLAYER_REF)) {
         (Some(a), Some(b)) => within(a, b, HEARING_RADIUS),
