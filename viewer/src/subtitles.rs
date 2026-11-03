@@ -47,6 +47,30 @@ impl Subtitles {
     }
 }
 
+/// How far a voice carries for subtitles, in game units (about 21 m). The
+/// game's 3D voice attenuation isn't traced here (voices play at full
+/// volume, see `chatter`), so this is a chosen range.
+pub const HEARING_RADIUS: f32 = 1500.0;
+
+/// Whether two places (the interior or worldspace, the position) are in the
+/// same space and within `radius` of each other.
+pub fn within(a: (FormId, [f32; 3]), b: (FormId, [f32; 3]), radius: f32) -> bool {
+    a.0 == b.0 && (0..3).map(|i| (a.1[i] - b.1[i]).powi(2)).sum::<f32>() <= radius * radius
+}
+
+/// Whether the local player can hear `speaker` (same space, in range).
+pub fn heard(
+    order: &esm::LoadOrder,
+    state: &world::scripting::GameState,
+    speaker: FormId,
+) -> bool {
+    let place = |r| state.place(order, r).map(|(space, _, p, _)| (space, p));
+    match (place(speaker), place(world::dialogue::PLAYER_REF)) {
+        (Some(a), Some(b)) => within(a, b, HEARING_RADIUS),
+        _ => false,
+    }
+}
+
 /// A speaker's name: the person's `Speaker` name, else their base's `FULL`.
 pub fn speaker_name(order: &esm::LoadOrder, reference: FormId) -> String {
     let Some(base) = world::scripting::base_of(order, reference) else {
@@ -85,6 +109,14 @@ mod tests {
         assert_eq!(s.current(2.0), Some("two"));
         s.show("B", "  ", 2.0, 5.0);
         assert_eq!(s.current(3.0), Some("two"));
+    }
+
+    #[test]
+    fn hearing_needs_same_space_and_range() {
+        let a = (FormId(1), [0.0, 0.0, 0.0]);
+        assert!(within(a, (FormId(1), [1000.0, 0.0, 0.0]), HEARING_RADIUS));
+        assert!(!within(a, (FormId(1), [1600.0, 0.0, 0.0]), HEARING_RADIUS));
+        assert!(!within(a, (FormId(2), [10.0, 0.0, 0.0]), HEARING_RADIUS));
     }
 
     #[test]

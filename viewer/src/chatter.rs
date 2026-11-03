@@ -262,7 +262,7 @@ pub fn say_lines(
             0,
         );
         if let Some(r) = info.responses.first() {
-            if show {
+            if show && crate::subtitles::heard(&game.0.order, &state.0, request.speaker) {
                 let who = crate::subtitles::speaker_name(&game.0.order, request.speaker);
                 subtitles.show(&who, &r.text, now, crate::subtitles::seconds(&r.text, 2.0));
             }
@@ -306,7 +306,7 @@ pub fn say_lines(
         saying.response += 1;
         saying.since = now;
         if saying.response < saying.info.responses.len() {
-            if show {
+            if show && crate::subtitles::heard(&game.0.order, &state.0, speaker) {
                 let r = &saying.info.responses[saying.response];
                 let who = crate::subtitles::speaker_name(&game.0.order, speaker);
                 subtitles.show(&who, &r.text, now, crate::subtitles::seconds(&r.text, 2.0));
