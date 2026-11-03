@@ -55,7 +55,24 @@ pub struct Vitals {
     pub knocked_until: u64,
     hurt_at: u64,
     next_dot: u64,
+    /// The last player to hurt this one, and when (kill credit).
+    pvp_by: Option<(PlayerId, u64)>,
 }
+
+/// A player put another down (or, with nobody to revive them, out) by a
+/// player-versus-player hit: the host's kill credit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PvpDown {
+    /// Who landed the blow that did it.
+    pub attacker: PlayerId,
+    /// Who went down.
+    pub victim: PlayerId,
+    /// Host time (ms).
+    pub at_ms: u64,
+}
+
+/// A fall within this long of a player's hit is that player's doing.
+const PVP_CREDIT_MS: u64 = 5_000;
 
 /// Counters for dumps and tests.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -68,6 +85,8 @@ pub struct VitalsStats {
     pub friendly_blocked: u32,
     /// Player versus player hits that landed.
     pub friendly_landed: u32,
+    /// Players put down by another player's hit.
+    pub pvp_downs: u32,
     /// Hits ignored because the victim was down.
     pub while_downed: u32,
     /// Limbs crippled.
@@ -88,6 +107,7 @@ pub struct VitalsHost {
     seen: BTreeSet<(PlayerId, u32)>,
     seen_order: VecDeque<(PlayerId, u32)>,
     times: BTreeMap<PlayerId, VecDeque<u64>>,
+    downs: Vec<PvpDown>,
 }
 
 impl Default for VitalsHost {
@@ -111,6 +131,29 @@ impl VitalsHost {
             seen: BTreeSet::new(),
             seen_order: VecDeque::new(),
             times: BTreeMap::new(),
+            downs: Vec::new(),
+        }
+    }
+
+    /// Takes the player-versus-player downs since the last call (the game
+    /// announces them; no experience or karma is paid for them).
+    pub fn take_downs(&mut self) -> Vec<PvpDown> {
+        std::mem::take(&mut self.downs)
+    }
+
+    fn credit(&mut self, now_ms: u64, victim: PlayerId) {
+        let Some(v) = self.players.get_mut(&victim) else {
+            return;
+        };
+        if let Some((attacker, at)) = v.pvp_by.take() {
+            if now_ms.saturating_sub(at) <= PVP_CREDIT_MS {
+                self.stats.pvp_downs += 1;
+                self.downs.push(PvpDown {
+                    attacker,
+                    victim,
+                    at_ms: now_ms,
+                });
+            }
         }
     }
 
@@ -151,12 +194,16 @@ impl VitalsHost {
             v.hp = v.hp.min(hp);
         }
         v.max = v.max.max(v.hp);
+        let fell = (downed || dead) && !v.downed && !v.dead;
         if downed && !v.downed {
             v.bleed_ms.clear();
             v.poison_ms = 0;
         }
         v.downed = downed;
         v.dead = dead;
+        if fell {
+            self.credit(now_ms, p);
+        }
     }
 
     fn fresh(&mut self, from: PlayerId, id: u32, now_ms: u64) -> bool {
@@ -297,6 +344,15 @@ impl VitalsHost {
         if attacker == victim {
             return self.hurt(now_ms, victim, by, amount, kind, limb, &none);
         }
+        // someone who is down or dead is out of the fight: no blow from them
+        if self
+            .players
+            .get(&attacker)
+            .is_some_and(|a| a.downed || a.dead)
+        {
+            self.stats.refused += 1;
+            return vec![];
+        }
         let k = match self.friendly {
             FriendlyFire::Off => {
                 self.stats.friendly_blocked += 1;
@@ -311,7 +367,19 @@ impl VitalsHost {
             return vec![];
         }
         self.stats.friendly_landed += 1;
-        self.hurt(now_ms, victim, by, a, kind, limb, &none)
+        let out = self.hurt(now_ms, victim, by, a, kind, limb, &none);
+        if !out.is_empty() {
+            let mut gone = false;
+            if let Some(v) = self.players.get_mut(&victim) {
+                v.pvp_by = Some((attacker, now_ms));
+                // the host's mirror reaches nothing left: down now
+                gone = v.hp == 0 && !v.downed && !v.dead;
+            }
+            if gone {
+                self.credit(now_ms, victim);
+            }
+        }
+        out
     }
 
     /// A player-versus-player request from a peer.
@@ -390,6 +458,7 @@ impl VitalsHost {
         if let Some(v) = self.players.get_mut(&p) {
             v.downed = false;
             v.dead = false;
+            v.pvp_by = None;
             v.hp = ((u32::from(v.max) * u32::from(pct.min(100))) / 100).max(1) as u16;
             v.hurt_at = now_ms.max(1);
         }
