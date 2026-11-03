@@ -5,8 +5,28 @@ use std::path::Path;
 use crate::json::J;
 
 /// The chaos profiles of coop-core.
-pub const PROFILES: [&str; 7] = ["perfect", "good_wifi", "bad_wifi", "mobile", "congested", "flaky", "partition"];
-const OPS: [&str; 11] = ["eq", "ne", "ge", "le", "gt", "lt", "near", "present", "absent", "dist_from", "sum"];
+pub const PROFILES: [&str; 7] = [
+    "perfect",
+    "good_wifi",
+    "bad_wifi",
+    "mobile",
+    "congested",
+    "flaky",
+    "partition",
+];
+const OPS: [&str; 11] = [
+    "eq",
+    "ne",
+    "ge",
+    "le",
+    "gt",
+    "lt",
+    "near",
+    "present",
+    "absent",
+    "dist_from",
+    "sum",
+];
 
 /// What one script line does.
 #[derive(Clone, Debug, PartialEq)]
@@ -157,13 +177,80 @@ pub struct Scenario {
     /// `guests: [..]`: every guest's script (2 or 3 entries for a 3 or 4 peer
     /// run). When present it replaces `guest`, which becomes `guests[0]`.
     pub guests: Vec<Side>,
+    /// `budget: {..}`: the multi-peer judge fails the run when a peer's steady
+    /// bandwidth (or CPU, when given) passes these limits.
+    pub budget: Option<BudgetCfg>,
+}
+
+/// The `budget` object of a scenario: limits in KB/s (1024 bytes) and
+/// microseconds. A key that is left out keeps the documented default; CPU is
+/// gated only when one of its keys is given (and only in release builds).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BudgetCfg {
+    /// Host to one guest, KB/s.
+    pub guest_down_kbps: Option<f64>,
+    /// One guest to the host, KB/s.
+    pub guest_up_kbps: Option<f64>,
+    /// The host's total upstream, KB/s.
+    pub host_up_kbps: Option<f64>,
+    /// Mean frame time, microseconds.
+    pub frame_mean_us: Option<f64>,
+    /// 99th percentile frame time, microseconds.
+    pub frame_p99_us: Option<f64>,
+}
+
+impl BudgetCfg {
+    const KEYS: [&'static str; 5] = [
+        "guest_down_kbps",
+        "guest_up_kbps",
+        "host_up_kbps",
+        "frame_mean_us",
+        "frame_p99_us",
+    ];
+
+    fn parse(j: &J, errs: &mut Vec<String>) -> BudgetCfg {
+        let mut b = BudgetCfg::default();
+        let J::Obj(m) = j else {
+            errs.push("budget must be an object".into());
+            return b;
+        };
+        for (k, v) in m {
+            let slot = match k.as_str() {
+                "guest_down_kbps" => &mut b.guest_down_kbps,
+                "guest_up_kbps" => &mut b.guest_up_kbps,
+                "host_up_kbps" => &mut b.host_up_kbps,
+                "frame_mean_us" => &mut b.frame_mean_us,
+                "frame_p99_us" => &mut b.frame_p99_us,
+                _ => {
+                    errs.push(format!(
+                        "budget.{k} is not a budget key ({})",
+                        Self::KEYS.join(", ")
+                    ));
+                    continue;
+                }
+            };
+            match v.as_f64() {
+                Some(n) if n > 0.0 => *slot = Some(n),
+                _ => errs.push(format!("budget.{k} must be a number > 0")),
+            }
+        }
+        b
+    }
+
+    /// True when a CPU key is given.
+    pub fn gates_cpu(&self) -> bool {
+        self.frame_mean_us.is_some() || self.frame_p99_us.is_some()
+    }
 }
 
 impl Scenario {
     /// Loads and validates a file.
     pub fn load(path: &Path) -> Result<Scenario, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("scenario");
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("scenario");
         Scenario::parse(&text, stem)
     }
 
@@ -182,17 +269,40 @@ impl Scenario {
                 d
             }
         };
-        let name = j.get("name").and_then(J::as_str).unwrap_or(default_name).to_string();
-        let cell = j.get("cell").and_then(J::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+        let name = j
+            .get("name")
+            .and_then(J::as_str)
+            .unwrap_or(default_name)
+            .to_string();
+        let cell = j
+            .get("cell")
+            .and_then(J::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         let new_game = j.get("new_game").and_then(J::as_bool).unwrap_or(false);
-        let network = j.get("network").and_then(J::as_str).unwrap_or("perfect").to_string();
+        let network = j
+            .get("network")
+            .and_then(J::as_str)
+            .unwrap_or("perfect")
+            .to_string();
         let mut s = Scenario {
             name,
-            description: j.get("description").and_then(J::as_str).unwrap_or("").to_string(),
+            description: j
+                .get("description")
+                .and_then(J::as_str)
+                .unwrap_or("")
+                .to_string(),
             cell,
-            host_cell: j.get("host_cell").and_then(J::as_str).filter(|s| !s.is_empty()).map(str::to_string),
+            host_cell: j
+                .get("host_cell")
+                .and_then(J::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
             new_game,
-            character_creation: j.get("character_creation").and_then(J::as_bool).unwrap_or(false),
+            character_creation: j
+                .get("character_creation")
+                .and_then(J::as_bool)
+                .unwrap_or(false),
             network,
             seed: 1,
             duration_s: num("duration_s", 20.0, &mut errs),
@@ -204,17 +314,28 @@ impl Scenario {
             expect: Vec::new(),
             expect_fail: j.get("expect_fail").and_then(J::as_bool).unwrap_or(false),
             hash_check: j.get("hash_check").and_then(J::as_bool).unwrap_or(true),
-            expect_refused: j.get("expect_refused").and_then(J::as_bool).unwrap_or(false),
+            expect_refused: j
+                .get("expect_refused")
+                .and_then(J::as_bool)
+                .unwrap_or(false),
             party: None,
             host: Side::default(),
             guest: Side::default(),
             guests: Vec::new(),
+            budget: None,
         };
+        if let Some(b) = j.get("budget") {
+            s.budget = Some(BudgetCfg::parse(b, &mut errs));
+        }
         if s.cell.is_none() && !s.new_game {
             errs.push("cell is required unless new_game is true".into());
         }
         if !PROFILES.contains(&s.network.as_str()) {
-            errs.push(format!("network {:?} is not a profile ({})", s.network, PROFILES.join(", ")));
+            errs.push(format!(
+                "network {:?} is not a profile ({})",
+                s.network,
+                PROFILES.join(", ")
+            ));
         }
         match j.get("seed") {
             None => {}
@@ -231,13 +352,28 @@ impl Scenario {
             Some(J::Num(n)) => s.max_repairs = Some(*n as u32),
             _ => errs.push("max_repairs must be a number".into()),
         }
-        for (i, o) in j.get("outages").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
-            let dir = o.get("dir").and_then(J::as_str).unwrap_or("both").to_string();
-            match (o.get("at").and_then(J::as_f64), o.get("seconds").and_then(J::as_f64)) {
+        for (i, o) in j
+            .get("outages")
+            .and_then(J::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+        {
+            let dir = o
+                .get("dir")
+                .and_then(J::as_str)
+                .unwrap_or("both")
+                .to_string();
+            match (
+                o.get("at").and_then(J::as_f64),
+                o.get("seconds").and_then(J::as_f64),
+            ) {
                 (Some(at), Some(seconds)) if ["both", "g2h", "h2g"].contains(&dir.as_str()) => {
                     s.outages.push(Outage { at, seconds, dir })
                 }
-                _ => errs.push(format!("outages[{i}] needs at, seconds and optional dir both|g2h|h2g")),
+                _ => errs.push(format!(
+                    "outages[{i}] needs at, seconds and optional dir both|g2h|h2g"
+                )),
             }
         }
         for (role, side) in [("host", &mut s.host), ("guest", &mut s.guest)] {
@@ -245,9 +381,11 @@ impl Scenario {
                 parse_side(r, role, side, &mut errs);
             }
         }
+        // a fourth guest entry is a fifth peer that only a refusal scenario may start
+        let max_guests = MAX_GUESTS + usize::from(s.expect_refused);
         if let Some(gs) = j.get("guests") {
             match gs.as_arr() {
-                Some(a) if !a.is_empty() && a.len() <= MAX_GUESTS => {
+                Some(a) if !a.is_empty() && a.len() <= max_guests => {
                     for (n, r) in a.iter().enumerate() {
                         let mut side = Side::default();
                         parse_side(r, &format!("guests[{n}]"), &mut side, &mut errs);
@@ -255,21 +393,35 @@ impl Scenario {
                     }
                     s.guest = s.guests[0].clone();
                 }
-                _ => errs.push(format!("guests must be a list of 1 to {MAX_GUESTS} objects")),
+                _ => errs.push(format!(
+                    "guests must be a list of 1 to {MAX_GUESTS} objects (one more with expect_refused: a fifth peer the full party refuses)"
+                )),
             }
         }
         if let Some(p) = j.get("party") {
-            let key = p.get("key").and_then(J::as_f64).filter(|k| *k >= 1.0 && k.fract() == 0.0);
+            let key = p
+                .get("key")
+                .and_then(J::as_f64)
+                .filter(|k| *k >= 1.0 && k.fract() == 0.0);
             let second = p.get("second");
             let mut cfg = PartyCfg {
                 guest_key: key.map_or(0, |k| k as u64),
-                restart_at: p.get("restart_at").and_then(J::as_f64).filter(|t| *t >= 0.0),
+                restart_at: p
+                    .get("restart_at")
+                    .and_then(J::as_f64)
+                    .filter(|t| *t >= 0.0),
                 host_loads: p.get("host_loads").and_then(J::as_bool).unwrap_or(true),
                 guest_same_key: p.get("guest_same_key").and_then(J::as_bool).unwrap_or(true),
-                second_duration_s: second.and_then(|x| x.get("duration_s")).and_then(J::as_f64).unwrap_or(12.0),
+                second_duration_s: second
+                    .and_then(|x| x.get("duration_s"))
+                    .and_then(J::as_f64)
+                    .unwrap_or(12.0),
                 second_host: Side::default(),
                 second_guest: Side::default(),
-                guest_offers_own: p.get("guest_offers_own").and_then(J::as_bool).unwrap_or(false),
+                guest_offers_own: p
+                    .get("guest_offers_own")
+                    .and_then(J::as_bool)
+                    .unwrap_or(false),
             };
             if key.is_none() {
                 errs.push("party.key must be a whole number >= 1".into());
@@ -285,7 +437,13 @@ impl Scenario {
             s.party = Some(cfg);
         }
         let mut ids: Vec<String> = Vec::new();
-        for (i, e) in j.get("expect").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
+        for (i, e) in j
+            .get("expect")
+            .and_then(J::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+        {
             // "real_only": true marks a check of something the simulator does not run (it
             // stands in for the viewer's menus and Doc's speech); the real harness keeps it
             if e.get("real_only").and_then(J::as_bool) == Some(true) {
@@ -336,15 +494,32 @@ fn parse_side(r: &J, role: &str, side: &mut Side, errs: &mut Vec<String>) {
     side.extra_args = r
         .get("extra_args")
         .and_then(J::as_arr)
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
     side.plugins = r
         .get("plugins")
         .and_then(J::as_arr)
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
-    side.allow_mismatch = r.get("allow_mismatch").and_then(J::as_bool).unwrap_or(false);
-    for (i, l) in r.get("script").and_then(J::as_arr).unwrap_or(&[]).iter().enumerate() {
+    side.allow_mismatch = r
+        .get("allow_mismatch")
+        .and_then(J::as_bool)
+        .unwrap_or(false);
+    for (i, l) in r
+        .get("script")
+        .and_then(J::as_arr)
+        .unwrap_or(&[])
+        .iter()
+        .enumerate()
+    {
         match parse_line(l) {
             Ok(line) => side.script.push(line),
             Err(e) => errs.push(format!("{role}.script[{i}]: {e}")),
@@ -354,7 +529,11 @@ fn parse_side(r: &J, role: &str, side: &mut Side, errs: &mut Vec<String>) {
 
 fn parse_line(l: &J) -> Result<Line, String> {
     const KEYS: [&str; 6] = ["run", "stage", "talk", "choose", "say", "key"];
-    let present: Vec<&str> = KEYS.iter().copied().filter(|k| l.get(k).is_some()).collect();
+    let present: Vec<&str> = KEYS
+        .iter()
+        .copied()
+        .filter(|k| l.get(k).is_some())
+        .collect();
     if present.len() != 1 {
         return Err("needs exactly one of run/stage/talk/choose/say/key".into());
     }
@@ -380,13 +559,21 @@ fn parse_line(l: &J) -> Result<Line, String> {
         }
         "talk" => {
             if v.as_bool() == Some(false) {
-                return Ok(Line { at, action: Action::Choose(Vec::new()) });
+                return Ok(Line {
+                    at,
+                    action: Action::Choose(Vec::new()),
+                });
             }
             Action::Talk
         }
         "choose" => {
             let a = v.as_arr().ok_or("choose must be a list of integers")?;
-            Action::Choose(a.iter().map(|x| x.as_f64().map(|n| n as i64)).collect::<Option<_>>().ok_or("choose must be a list of integers")?)
+            Action::Choose(
+                a.iter()
+                    .map(|x| x.as_f64().map(|n| n as i64))
+                    .collect::<Option<_>>()
+                    .ok_or("choose must be a list of integers")?,
+            )
         }
         "say" => Action::Say(v.as_str().ok_or("say must be a string")?.to_string()),
         _ => {
@@ -398,7 +585,13 @@ fn parse_line(l: &J) -> Result<Line, String> {
                 return Err("key needs a time (at)".into());
             }
             let (key, hold) = match t.split_once(':') {
-                Some((k, h)) => (k.to_string(), h.parse::<f64>().ok().filter(|h| *h > 0.0).ok_or("key hold must be a number > 0")?),
+                Some((k, h)) => (
+                    k.to_string(),
+                    h.parse::<f64>()
+                        .ok()
+                        .filter(|h| *h > 0.0)
+                        .ok_or("key hold must be a number > 0")?,
+                ),
                 None => (t, 0.1),
             };
             Action::Key(key, hold)
@@ -408,16 +601,30 @@ fn parse_line(l: &J) -> Result<Line, String> {
 }
 
 fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
-    let id = e.get("id").and_then(J::as_str).map(str::to_string).unwrap_or_else(|| format!("e{i}"));
+    let id = e
+        .get("id")
+        .and_then(J::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("e{i}"));
     let op = e.get("op").and_then(J::as_str).unwrap_or("eq").to_string();
-    let on = e.get("on").and_then(J::as_str).unwrap_or("both").to_string();
+    let on = e
+        .get("on")
+        .and_then(J::as_str)
+        .unwrap_or("both")
+        .to_string();
     let path = e.get("path").and_then(J::as_str).unwrap_or("").to_string();
     let mut errs = Vec::new();
     if !OPS.contains(&op.as_str()) {
         errs.push(format!("expect {id}: op {op:?} not in {OPS:?}"));
     }
-    if !["host", "guest", "guest2", "guest3", "all", "both", "equal"].contains(&on.as_str()) {
-        errs.push(format!("expect {id}: on {on:?} not in host/guest/guest2/guest3/all/both/equal"));
+    if ![
+        "host", "guest", "guest2", "guest3", "guest4", "all", "both", "equal",
+    ]
+    .contains(&on.as_str())
+    {
+        errs.push(format!(
+            "expect {id}: on {on:?} not in host/guest/guest2/guest3/guest4/all/both/equal"
+        ));
     }
     if path.is_empty() {
         errs.push(format!("expect {id}: path is required"));
@@ -431,7 +638,15 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
         errs.push(format!("expect {id}: near needs tol"));
     }
     let cmp = e.get("cmp").and_then(J::as_str).unwrap_or("").to_string();
-    let add: Vec<String> = e.get("add").and_then(J::as_arr).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let add: Vec<String> = e
+        .get("add")
+        .and_then(J::as_arr)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
     if op == "sum" {
         if !["eq", "ge", "le", "gt", "lt"].contains(&cmp.as_str()) {
             errs.push(format!("expect {id}: sum needs cmp eq|ge|le|gt|lt"));
@@ -440,7 +655,11 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
             errs.push(format!("expect {id}: sum needs a numeric value"));
         }
     }
-    let from: Vec<f64> = e.get("from").and_then(J::as_arr).map(|a| a.iter().filter_map(J::as_f64).collect()).unwrap_or_default();
+    let from: Vec<f64> = e
+        .get("from")
+        .and_then(J::as_arr)
+        .map(|a| a.iter().filter_map(J::as_f64).collect())
+        .unwrap_or_default();
     if op == "dist_from" {
         if from.len() < 2 {
             errs.push(format!("expect {id}: dist_from needs from: [x, y(, z)]"));
@@ -449,13 +668,26 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
             errs.push(format!("expect {id}: dist_from needs cmp ge|le|gt|lt"));
         }
         if value.as_ref().and_then(J::as_f64).is_none() {
-            errs.push(format!("expect {id}: dist_from needs a numeric value (units)"));
+            errs.push(format!(
+                "expect {id}: dist_from needs a numeric value (units)"
+            ));
         }
     }
     if !errs.is_empty() {
         return Err(errs);
     }
-    Ok(Expect { id, path, op, on, value, tol, dims: e.get("dims").and_then(J::as_f64).map(|n| n as usize), from, cmp, add })
+    Ok(Expect {
+        id,
+        path,
+        op,
+        on,
+        value,
+        tol,
+        dims: e.get("dims").and_then(J::as_f64).map(|n| n as usize),
+        from,
+        cmp,
+        add,
+    })
 }
 
 #[cfg(test)]
@@ -470,7 +702,10 @@ mod tests {
     #[test]
     fn parses_a_full_scenario() {
         let s = Scenario::parse(BASE, "d").unwrap();
-        assert_eq!((s.name.as_str(), s.seed, s.network.as_str()), ("t", 21, "bad_wifi"));
+        assert_eq!(
+            (s.name.as_str(), s.seed, s.network.as_str()),
+            ("t", 21, "bad_wifi")
+        );
         assert_eq!(s.host.script.len(), 3);
         assert_eq!(s.host.script[0].action, Action::Stage("VCG03".into(), 10));
         assert_eq!(s.host.script[2].action, Action::Key("w".into(), 1.5));
@@ -485,12 +720,30 @@ mod tests {
         for (bad, why) in [
             (r#"{"network":"perfect"}"#, "cell is required"),
             (r#"{"cell":"X","network":"nope"}"#, "not a profile"),
-            (r#"{"cell":"X","host":{"script":[{"run":"a","stage":"A 1"}]}}"#, "exactly one"),
-            (r#"{"cell":"X","host":{"script":[{"at":1,"talk":true}]}}"#, "startup flag"),
-            (r#"{"cell":"X","host":{"script":[{"key":"w"}]}}"#, "needs a time"),
-            (r#"{"cell":"X","expect":[{"path":"a","op":"near","value":1}]}"#, "needs tol"),
-            (r#"{"cell":"X","expect":[{"path":"a","op":"sum","cmp":"eq"}]}"#, "numeric value"),
-            (r#"{"cell":"X","expect":[{"path":"a","op":"dist_from","value":1,"cmp":"ge"}]}"#, "from:"),
+            (
+                r#"{"cell":"X","host":{"script":[{"run":"a","stage":"A 1"}]}}"#,
+                "exactly one",
+            ),
+            (
+                r#"{"cell":"X","host":{"script":[{"at":1,"talk":true}]}}"#,
+                "startup flag",
+            ),
+            (
+                r#"{"cell":"X","host":{"script":[{"key":"w"}]}}"#,
+                "needs a time",
+            ),
+            (
+                r#"{"cell":"X","expect":[{"path":"a","op":"near","value":1}]}"#,
+                "needs tol",
+            ),
+            (
+                r#"{"cell":"X","expect":[{"path":"a","op":"sum","cmp":"eq"}]}"#,
+                "numeric value",
+            ),
+            (
+                r#"{"cell":"X","expect":[{"path":"a","op":"dist_from","value":1,"cmp":"ge"}]}"#,
+                "from:",
+            ),
             (r#"{"cell":"X","outages":[{"at":1}]}"#, "outages[0]"),
         ] {
             let e = Scenario::parse(bad, "d").unwrap_err();

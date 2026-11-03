@@ -1,0 +1,75 @@
+{
+  "name": "live_stealth",
+  "description": "Detection of the party uses the best-seen player (world::coop::combat_live::party_detection, which GetDetected on the player also uses in a co-op session). Both players stand together in Doc Mitchell's house. At 7 s the host probes how well gecko 1 detects the party from 700 units (coop probeparty: the NPC stands 700 units from the host and looks at it). At 10 s the host sneaks, the guest does not. At 14 s the host probes again. The host's own value drops by at least 10, but the party's value does not drop: the guest, a remote player in plain sight, still gives the party away. At 1.5 s the host makes gecko 1 a ghost (SetGhost 1): in the real game the gecko and Doc Mitchell fight on sight, and a detector in combat sees much less, so the probe would not measure plain stealth.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 70,
+  "duration_s": 18,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 1.5,
+        "run": "VCG02Gecko1REF.SetGhost 1"
+      },
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 7,
+        "run": "coop probeparty VCG02Gecko1REF 700"
+      },
+      {
+        "at": 10,
+        "run": "coop sneak 1"
+      },
+      {
+        "at": 14,
+        "run": "coop probeparty VCG02Gecko1REF 700"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-hides",
+      "path": "combat.probe_slots.host.drop",
+      "op": "ge",
+      "value": 10,
+      "on": "host"
+    },
+    {
+      "id": "guest-still-seen",
+      "path": "combat.probe_slots.guest.drop",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "party-still-seen",
+      "path": "combat.probe_party_drop",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "party-seen-at-all",
+      "path": "combat.probe_party_last",
+      "op": "gt",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

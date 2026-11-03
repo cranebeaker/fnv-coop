@@ -249,6 +249,13 @@ impl RouletteScreen {
                     sounds.extend(order.form_by_editor_id("UIPopUpMessageGeneral"));
                 }
                 Effect::Close => {
+                    // co-op: the host settles the same ledger in this player's own rows
+                    state.coop_route(world::coop::interact::casino_act(
+                        self.casino.form,
+                        self.game.chips,
+                        self.game.data,
+                        self.game.new_level,
+                    ));
                     let settled = world::casino::settle(
                         order,
                         state,

@@ -22,7 +22,9 @@ impl PerkCensus {
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>, depth: usize) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() && depth < 6 {
@@ -41,7 +43,10 @@ fn entry_constants(perks_rs: &str) -> Vec<(String, u8)> {
         if let Some(rest) = l.strip_prefix("pub const ") {
             if let Some((name, tail)) = rest.split_once(": u8 = ") {
                 if let Ok(n) = tail.trim_end_matches(';').trim().parse::<u8>() {
-                    if name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()) {
+                    if name
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+                    {
                         out.push((name.to_string(), n));
                     }
                 }
@@ -56,13 +61,17 @@ pub fn perk_census(order: &LoadOrder, repo: Option<&Path>) -> PerkCensus {
     // An entry point is "applied" when its constant is named somewhere besides its definition.
     let mut applied: HashMap<u8, bool> = HashMap::new();
     if let Some(root) = repo {
-        let perks_rs = std::fs::read_to_string(root.join("crates/world/src/perks.rs")).unwrap_or_default();
+        let perks_rs =
+            std::fs::read_to_string(root.join("crates/world/src/perks.rs")).unwrap_or_default();
         let consts = entry_constants(&perks_rs);
         let mut files = Vec::new();
         for sub in ["crates/world/src", "viewer/src"] {
             rust_files(&root.join(sub), &mut files, 0);
         }
-        let texts: Vec<String> = files.iter().filter_map(|f| std::fs::read_to_string(f).ok()).collect();
+        let texts: Vec<String> = files
+            .iter()
+            .filter_map(|f| std::fs::read_to_string(f).ok())
+            .collect();
         for (name, n) in consts {
             let uses: usize = texts.iter().map(|t| t.matches(name.as_str()).count()).sum();
             // One hit is the definition itself.
@@ -75,8 +84,16 @@ pub fn perk_census(order: &LoadOrder, repo: Option<&Path>) -> PerkCensus {
         c.perks += 1;
         for e in world::perks::entry_points(order, rr.form_id) {
             c.entry_points += 1;
-            let name = world::perks::ENTRY_POINT_NAMES.get(usize::from(e.entry)).copied().unwrap_or("?").to_string();
-            let slot = c.by_entry.entry(e.entry).or_insert((name, 0, applied.get(&e.entry).copied().unwrap_or(false)));
+            let name = world::perks::ENTRY_POINT_NAMES
+                .get(usize::from(e.entry))
+                .copied()
+                .unwrap_or("?")
+                .to_string();
+            let slot = c.by_entry.entry(e.entry).or_insert((
+                name,
+                0,
+                applied.get(&e.entry).copied().unwrap_or(false),
+            ));
             slot.1 += 1;
         }
     }
@@ -91,7 +108,9 @@ pub fn translations(repo: &Path) -> HashMap<String, (String, String)> {
     rust_files(&repo.join("crates/engine-fallout/src"), &mut files, 0);
     let mut out = HashMap::new();
     for f in files {
-        let Ok(text) = std::fs::read_to_string(&f) else { continue };
+        let Ok(text) = std::fs::read_to_string(&f) else {
+            continue;
+        };
         let mut addr: Option<String> = None;
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("// Translated from ") {
@@ -100,7 +119,13 @@ pub fn translations(repo: &Path) -> HashMap<String, (String, String)> {
                 let tail = &line[i + 9..];
                 if let Some(end) = tail.find("Function`") {
                     let name = tail[..end].to_ascii_lowercase();
-                    out.entry(name).or_insert((a.clone(), f.strip_prefix(repo).unwrap_or(&f).to_string_lossy().replace('\\', "/")));
+                    out.entry(name).or_insert((
+                        a.clone(),
+                        f.strip_prefix(repo)
+                            .unwrap_or(&f)
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                    ));
                 }
             }
         }

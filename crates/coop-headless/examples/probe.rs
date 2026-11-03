@@ -22,8 +22,15 @@ fn main() {
             gs.place(&d.order, f)
         );
         if let Some(b) = d.actor_base(f) {
-            let acbs = d.order.get(b).and_then(|rr| rr.record().ok()).and_then(|r| r.get(esm::FourCC::new(b"ACBS")).map(|s| s.data.clone()));
-            println!("  base {b} ACBS {:02x?}", acbs.as_deref().map(|x| &x[..x.len().min(8)]));
+            let acbs = d
+                .order
+                .get(b)
+                .and_then(|rr| rr.record().ok())
+                .and_then(|r| r.get(esm::FourCC::new(b"ACBS")).map(|s| s.data.clone()));
+            println!(
+                "  base {b} ACBS {:02x?}",
+                acbs.as_deref().map(|x| &x[..x.len().min(8)])
+            );
             let same = world::more_functions::is_essential(&d.order, &gs, b);
             println!("  is_essential(base) {same}");
         }

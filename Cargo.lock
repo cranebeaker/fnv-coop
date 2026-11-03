@@ -281,10 +281,12 @@ name = "coop-headless"
 version = "0.1.0"
 dependencies = [
  "coop-core",
+ "coop-net",
  "coop-policy",
  "coop-session",
  "coop-voice",
  "esm",
+ "nv-launcher",
  "script",
  "serde",
  "serde_json",

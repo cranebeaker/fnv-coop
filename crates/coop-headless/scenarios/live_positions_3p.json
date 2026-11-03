@@ -1,0 +1,39 @@
+{
+    "name": "live_positions_3p",
+    "description": "A host and two guests. The second guest moves to a point away from the others. Every peer's dump holds the second guest under positions.guest2 at that point, also the second guest's own dump (its own position goes under its own slot name, not under guest). The point is a floor spot in Doc's house (VCG01DocSkullTestMarkerREF), so the real game's physics keeps the guest there.",
+    "cell": "GSDocMitchellHouse",
+    "network": "bad_wifi",
+    "seed": 79,
+    "duration_s": 14,
+    "settle_s": 6,
+    "host": {
+        "script": []
+    },
+    "guests": [
+        {
+            "script": []
+        },
+        {
+            "script": [
+                {
+                    "at": 4,
+                    "run": "coop teleport 1451 2045 7360"
+                }
+            ]
+        }
+    ],
+    "expect": [
+        {
+            "id": "guest2-at-point",
+            "path": "positions.guest2",
+            "op": "near",
+            "value": [
+                1451,
+                2045,
+                7360
+            ],
+            "tol": 40,
+            "on": "all"
+        }
+    ]
+}

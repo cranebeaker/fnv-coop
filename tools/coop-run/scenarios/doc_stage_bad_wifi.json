@@ -1,6 +1,6 @@
 {
   "name": "doc_stage_bad_wifi",
-  "description": "Quest stage (VCG03, both players inside its tether zone, the Prospector Saloon) and a guest item pickup under bad_wifi, with a 3 s blackout in both directions. Chaos ends before the settle window, then both peers must converge with exact counts.",
+  "description": "Quest stage (VCG03, both players inside its tether zone, the Prospector Saloon) and a guest item pickup under bad_wifi, with a 3 s blackout in both directions. Chaos ends before the settle window, then both peers must converge with exact counts. In the real game Sunny Smiles greets the host when the guest loads slowly, and the host's console lines (the stage too) wait while her dialogue is open. The host leaves it by picking the Goodbye. topic (coop topic Goodbye.), which waits until a dialogue offers topics.",
   "cell": "GSProspectorSaloonInterior",
   "network": "bad_wifi",
   "seed": 21,
@@ -17,6 +17,10 @@
   "timeout_s": 300,
   "host": {
     "script": [
+      {
+        "at": 0,
+        "run": "coop topic Goodbye."
+      },
       {
         "stage": "VCG03 10"
       }

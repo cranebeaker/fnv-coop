@@ -1,0 +1,70 @@
+{
+  "name": "live_dialogue_abort_disconnect",
+  "description": "The guest opens a conversation with Doc Mitchell and never picks. The link then dies for 12 seconds, longer than the 8 second peer timeout, so the host drops the guest. The session must end cleanly: Doc is free again, so the host can talk to him and play a line after the guest is back.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 83,
+  "duration_s": 34,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 24,
+        "run": "coop talk DocMitchellREF"
+      },
+      {
+        "at": 26,
+        "run": "coop pick 00107220"
+      },
+      {
+        "at": 29,
+        "run": "coop linedone"
+      },
+      {
+        "at": 31,
+        "run": "coop close"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop talk DocMitchellREF"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-line-played",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-saw-line",
+      "path": "live.lines_played",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "lines-equal",
+      "path": "live.lines_played",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "outages": [
+    {
+      "at": 5,
+      "seconds": 12,
+      "dir": "both"
+    }
+  ]
+}

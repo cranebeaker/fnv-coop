@@ -1,0 +1,53 @@
+{
+  "name": "live_spawn_arbitration",
+  "description": "Two players at one spawn site do not double the spawns. Both peers stand in Doc Mitchell's house and, at the same time (6 s), each asks for the same one-gecko encounter at the same spot (`coop spawnenc VCG02Gecko1REF 1`). Both machines name the same site (coop-session `encounter_site`, from the cell, the base and the spot), so the host's arbiter grants one request and denies the other: both peers count exactly one spawn and one creature.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 60,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop spawnenc VCG02Gecko1REF 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop spawnenc VCG02Gecko1REF 1"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "one-spawn-host",
+      "path": "live.spawned",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "one-spawn-guest",
+      "path": "live.spawned",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "one-creature-guest",
+      "path": "live.creatures",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -59,7 +59,13 @@ impl ExtrasPlanner {
     /// An enemy appears (a dynamic encounter, not a placed ref the party
     /// already fought). Returns a plan when it brings an extra. `is_extra`
     /// keeps extras from breeding.
-    pub fn consider(&mut self, s: &Scaling, enemy: FormId, pos: [f32; 3], is_extra: bool) -> Option<ExtraPlan> {
+    pub fn consider(
+        &mut self,
+        s: &Scaling,
+        enemy: FormId,
+        pos: [f32; 3],
+        is_extra: bool,
+    ) -> Option<ExtraPlan> {
         if is_extra || self.decided.contains_key(&enemy) {
             return None;
         }
@@ -71,7 +77,11 @@ impl ExtrasPlanner {
         self.planned.insert(enemy, ());
         // deterministic side of the origin from the id
         let sgn = if enemy.0 & 1 == 0 { 1.0 } else { -1.0 };
-        Some(ExtraPlan { origin: enemy, site: extra_site(enemy), pos: [pos[0] + OFFSET * sgn, pos[1] + OFFSET, pos[2]] })
+        Some(ExtraPlan {
+            origin: enemy,
+            site: extra_site(enemy),
+            pos: [pos[0] + OFFSET * sgn, pos[1] + OFFSET, pos[2]],
+        })
     }
 
     /// The host granted the spawn: `id` is the extra.
@@ -94,14 +104,19 @@ impl ExtrasPlanner {
     /// Extras that should be cleared: far from every player in `players`.
     /// `pos_of` gives an extra's current position (falls back to where it
     /// was created).
-    pub fn to_clear(&mut self, players: &[(PlayerId, [f32; 3])], pos_of: impl Fn(FormId) -> Option<[f32; 3]>) -> Vec<FormId> {
+    pub fn to_clear(
+        &mut self,
+        players: &[(PlayerId, [f32; 3])],
+        pos_of: impl Fn(FormId) -> Option<[f32; 3]>,
+    ) -> Vec<FormId> {
         let far: Vec<FormId> = self
             .alive
             .iter()
             .filter(|(id, (_, p0, _))| {
                 let p = pos_of(**id).unwrap_or(*p0);
                 players.iter().all(|(_, q)| {
-                    let d = ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt();
+                    let d = ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2))
+                        .sqrt();
                     d > CLEAR_DISTANCE
                 })
             })

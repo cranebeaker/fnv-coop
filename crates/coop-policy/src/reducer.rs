@@ -56,7 +56,11 @@ impl Reducer {
         phase: Phase,
         values: &[(Slot, f64)],
     ) -> Option<f64> {
-        let vs: Vec<(Slot, f64)> = values.iter().copied().filter(|(s, _)| present.contains(*s)).collect();
+        let vs: Vec<(Slot, f64)> = values
+            .iter()
+            .copied()
+            .filter(|(s, _)| present.contains(*s))
+            .collect();
         if vs.is_empty() {
             return None;
         }
@@ -82,7 +86,8 @@ impl Reducer {
 mod tests {
     use super::*;
     fn m(s: &[u8]) -> PlayerMask {
-        s.iter().fold(PlayerMask::NONE, |a, x| a.or(PlayerMask::of(*x)))
+        s.iter()
+            .fold(PlayerMask::NONE, |a, x| a.or(PlayerMask::of(*x)))
     }
     #[test]
     fn every_name_in_the_bundled_table_parses() {
@@ -111,7 +116,10 @@ mod tests {
     #[test]
     fn absent_players_do_not_count() {
         let v = [(0u8, 1.0), (1, 0.0)];
-        assert_eq!(Reducer::All.reduce(m(&[0]), None, Phase::Entry, &v), Some(1.0));
+        assert_eq!(
+            Reducer::All.reduce(m(&[0]), None, Phase::Entry, &v),
+            Some(1.0)
+        );
         assert_eq!(Reducer::All.reduce(m(&[3]), None, Phase::Entry, &v), None);
     }
 }

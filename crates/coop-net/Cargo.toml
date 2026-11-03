@@ -8,9 +8,12 @@ rust-version.workspace = true
 
 [features]
 default = []
-# Steam flat-API backend (runtime-loaded steam_api64.dll via libloading), the
-# SteamApi trait, MockSteam and the lobby logic. Off by default.
-steam = ["dep:libloading"]
+# The SteamApi trait, MockSteam and the lobby logic (SteamBackend) only: no DLL
+# loading code and no libloading. Off by default. Test rigs (coop-headless) use it.
+steam-mock = []
+# Steam flat-API backend (runtime-loaded steam_api64.dll via libloading) on top
+# of steam-mock. Off by default.
+steam = ["steam-mock", "dep:libloading"]
 
 [dependencies]
 coop-core = { path = "../coop-core" }

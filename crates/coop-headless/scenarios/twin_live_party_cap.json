@@ -1,0 +1,120 @@
+{
+  "name": "twin_live_party_cap",
+  "description": "MUTATION TWIN of live_party_cap: no fifth peer tries to join, so nobody is refused. The refusal checks must fail. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 78,
+  "duration_s": 14,
+  "settle_s": 4,
+  "expect_refused": true,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop say host here"
+      },
+      {
+        "at": 9,
+        "run": "coop say still four of us"
+      },
+      {
+        "at": 10,
+        "run": "coop waypoint 10 20"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop say guest one here"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 5,
+          "run": "coop say guest two here"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 6,
+          "run": "coop say guest three here"
+        },
+        {
+          "at": 10,
+          "run": "coop waypoint 40 50"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "host-has-three",
+      "path": "live.avatars",
+      "op": "eq",
+      "value": 3,
+      "on": "host"
+    },
+    {
+      "id": "host-refused-one",
+      "path": "live.full_refused",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "fifth-refused",
+      "path": "live.full_refused",
+      "op": "eq",
+      "value": 1,
+      "on": "guest4"
+    },
+    {
+      "id": "fifth-heard-nothing",
+      "path": "live.chat_in",
+      "op": "eq",
+      "value": 0,
+      "on": "guest4"
+    },
+    {
+      "id": "fifth-sees-nobody",
+      "path": "live.avatars",
+      "op": "eq",
+      "value": 0,
+      "on": "guest4"
+    },
+    {
+      "id": "four-see-three",
+      "path": "live.avatars",
+      "op": "eq",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "four-chat-on",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "four-markers",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

@@ -1,0 +1,91 @@
+{
+  "name": "twin_live_scene_cutscene",
+  "description": "MUTATION TWIN of live_scene_cutscene: the story never starts the cinematic. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 89,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "active-host",
+      "path": "scene.active",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "active-guest",
+      "path": "scene.active",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "playing-host",
+      "path": "scene.phase",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "playing-guest",
+      "path": "scene.phase",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "cinematic-host",
+      "path": "scene.kind",
+      "op": "eq",
+      "value": 2,
+      "on": "host"
+    },
+    {
+      "id": "cinematic-guest",
+      "path": "scene.kind",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "locked-host",
+      "path": "scene.locks",
+      "op": "eq",
+      "value": 127,
+      "on": "host"
+    },
+    {
+      "id": "locked-guest",
+      "path": "scene.locks",
+      "op": "eq",
+      "value": 127,
+      "on": "guest"
+    },
+    {
+      "id": "guest-controls",
+      "path": "scene.controls",
+      "op": "eq",
+      "value": 127,
+      "on": "guest"
+    },
+    {
+      "id": "same-scene",
+      "path": "scene.id",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

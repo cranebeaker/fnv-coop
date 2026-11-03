@@ -33,7 +33,11 @@ pub struct Snapshot {
 impl Snapshot {
     /// Captures a store.
     pub fn from_store(store: &StateStore, tick: Tick) -> Self {
-        Snapshot { tick, rev: store.rev(), entries: store.entries() }
+        Snapshot {
+            tick,
+            rev: store.rev(),
+            entries: store.entries(),
+        }
     }
 
     /// Builds a store whose baseline is the snapshot revision.
@@ -47,11 +51,17 @@ impl Snapshot {
     pub fn encode(&self) -> Result<Vec<u8>> {
         let raw = postcard::to_allocvec(self)?;
         if raw.len() > MAX_SNAPSHOT_BYTES {
-            return Err(Error::TooLarge { len: raw.len(), max: MAX_SNAPSHOT_BYTES });
+            return Err(Error::TooLarge {
+                len: raw.len(),
+                max: MAX_SNAPSHOT_BYTES,
+            });
         }
         let packed = lz4_flex::block::compress(&raw);
-        let (codec, body) =
-            if packed.len() < raw.len() { (CODEC_LZ4, packed) } else { (CODEC_RAW, raw.clone()) };
+        let (codec, body) = if packed.len() < raw.len() {
+            (CODEC_LZ4, packed)
+        } else {
+            (CODEC_RAW, raw.clone())
+        };
         let mut out = Vec::with_capacity(HEADER + body.len());
         out.extend_from_slice(MAGIC);
         out.push(SNAPSHOT_VERSION);
@@ -71,7 +81,10 @@ impl Snapshot {
         }
         let raw_len = u32::from_le_bytes([bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
         if raw_len > MAX_SNAPSHOT_BYTES {
-            return Err(Error::TooLarge { len: raw_len, max: MAX_SNAPSHOT_BYTES });
+            return Err(Error::TooLarge {
+                len: raw_len,
+                max: MAX_SNAPSHOT_BYTES,
+            });
         }
         let body = &bytes[HEADER..];
         let raw = match bytes[4] {
@@ -105,7 +118,12 @@ mod tests {
     fn store(n: u32) -> StateStore {
         let mut s = StateStore::new();
         for i in 0..n {
-            s.write_local(FormId(0x0100_0000 + i), Field::QuestStage { stage: (i % 50) as u16 });
+            s.write_local(
+                FormId(0x0100_0000 + i),
+                Field::QuestStage {
+                    stage: (i % 50) as u16,
+                },
+            );
             s.write_local(FormId(0x0100_0000 + i), Field::QuestFlags { flags: i });
         }
         s
@@ -134,14 +152,19 @@ mod tests {
 
     #[test]
     fn empty_roundtrip() {
-        let bytes = Snapshot::from_store(&StateStore::new(), Tick(0)).encode().unwrap();
+        let bytes = Snapshot::from_store(&StateStore::new(), Tick(0))
+            .encode()
+            .unwrap();
         assert!(Snapshot::decode(&bytes).unwrap().entries.is_empty());
     }
 
     #[test]
     fn rejects_garbage() {
         assert!(matches!(Snapshot::decode(b"xx"), Err(Error::BadMagic)));
-        assert!(matches!(Snapshot::decode(b"XXX\x01\x00\0\0\0\0"), Err(Error::BadMagic)));
+        assert!(matches!(
+            Snapshot::decode(b"XXX\x01\x00\0\0\0\0"),
+            Err(Error::BadMagic)
+        ));
         let mut b = Snapshot::from_store(&store(10), Tick(0)).encode().unwrap();
         b[3] = 99;
         assert!(matches!(Snapshot::decode(&b), Err(Error::Version(99))));

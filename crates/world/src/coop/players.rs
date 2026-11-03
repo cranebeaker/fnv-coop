@@ -89,8 +89,12 @@ impl PlayerRegistry {
                 self.store(p, &s);
             }
         }
-        let gone: Vec<PlayerId> =
-            self.players.keys().copied().filter(|p| !live.members().contains(p)).collect();
+        let gone: Vec<PlayerId> = self
+            .players
+            .keys()
+            .copied()
+            .filter(|p| !live.members().contains(p))
+            .collect();
         for p in gone {
             self.leave(p);
         }
@@ -99,7 +103,11 @@ impl PlayerRegistry {
     fn store(&mut self, p: PlayerId, s: &AvatarState) {
         let r = self.join(p, "");
         r.cell = s.cell.0;
-        r.position = [dequant_pos(s.pos[0]), dequant_pos(s.pos[1]), dequant_pos(s.pos[2])];
+        r.position = [
+            dequant_pos(s.pos[0]),
+            dequant_pos(s.pos[1]),
+            dequant_pos(s.pos[2]),
+        ];
         r.heading = dequant_heading(s.heading);
         r.health = s.health;
         r.downed = s.flags & FLAG_DOWNED != 0;

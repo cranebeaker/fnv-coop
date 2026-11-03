@@ -1,0 +1,29 @@
+{
+  "name": "live_companion_recruit",
+  "description": "Companions belong to their recruiter, and the follower caps hold (1 humanoid and 1 critter per player, coop-policy/data/policy.json). The host runs the campaign verbs for each slot. The guest's slot (1) recruits Doc Mitchell (humanoid) and a gecko (critter). Then it tries Sunny Smiles (a second humanoid) and a brahmin (a second critter): the caps must refuse both. The host's slot (0) then recruits Sunny: the cap is per player, so this must work. The host's slot gives the guest's Doc a wait command and a dismiss: both must be refused. Both peers must show the owners and follower counts. Headless only: `coop recruit`, `coop command` and `coop dismiss` are campaign bot verbs (crates/coop-headless/src/campaign_bot.rs).",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 16,
+  "settle_s": 4,
+  "host": { "script": [
+    {"at": 2, "run": "coop recruit 1 DocMitchellREF"},
+    {"at": 3, "run": "coop recruit 1 VCG02Gecko1REF"},
+    {"at": 4, "run": "coop recruit 1 SunnyRef"},
+    {"at": 5, "run": "coop recruit 1 vGSBrahmin02Ref"},
+    {"at": 6, "run": "coop recruit 0 SunnyRef"},
+    {"at": 7, "run": "coop command 0 DocMitchellREF wait"},
+    {"at": 8, "run": "coop dismiss 0 DocMitchellREF"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "doc-is-the-guests", "path": "campaign.owner.DocMitchellREF", "op": "eq", "value": "guest", "on": "both"},
+    {"id": "gecko-is-the-guests", "path": "campaign.owner.VCG02Gecko1REF", "op": "eq", "value": "guest", "on": "both"},
+    {"id": "second-critter-refused", "path": "campaign.owner.vGSBrahmin02Ref", "op": "absent", "on": "both"},
+    {"id": "sunny-is-the-hosts", "path": "campaign.owner.SunnyRef", "op": "eq", "value": "host", "on": "both"},
+    {"id": "guest-at-its-caps", "path": "campaign.followers.guest", "op": "eq", "value": 2, "on": "both"},
+    {"id": "host-has-one", "path": "campaign.followers.host", "op": "eq", "value": 1, "on": "both"},
+    {"id": "not-owner-refused", "path": "campaign.commands_refused", "op": "eq", "value": 2, "on": "host"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

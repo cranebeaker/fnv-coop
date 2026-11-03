@@ -1,0 +1,32 @@
+{
+  "name": "live_dialogue_skill_refused",
+  "description": "The host has Medicine 100 and the guest has Medicine 10. The guest talks to Doc Mitchell and picks line 0015ED5B, whose conditions need Medicine 25 or more and whose script gives the picker VMS16bMedicalSupplies. The host holds the guest's pick (DialogueBridge::hold_pick) and tests the line's conditions with the guest's own rows (check_picks). The test fails, so the host refuses the pick, runs no script and tells only the guest. The step stays open: the guest then picks line 0015ED5C (Medicine below 25), which passes and plays. The guest gets no supplies.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 86,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "player.SetActorValue Medicine 100" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 2, "run": "player.SetActorValue Medicine 10" },
+      { "at": 4, "run": "coop talk DocMitchellREF" },
+      { "at": 6, "run": "coop pick 0015ED5B" },
+      { "at": 9, "run": "coop linedone" },
+      { "at": 11, "run": "coop pick 0015ED5C" },
+      { "at": 14, "run": "coop linedone" }
+    ]
+  },
+  "expect": [
+    { "id": "host-refused", "path": "scene.talk.refused", "op": "eq", "value": 1, "on": "host" },
+    { "id": "guest-told", "path": "scene.talk.refusals", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "allowed-pick-checked", "path": "scene.talk.checked", "op": "ge", "value": 1, "on": "host" },
+    { "id": "allowed-line-played", "path": "live.lines_played", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "no-supplies", "path": "items.guest.VMS16bMedicalSupplies", "op": "absent", "on": "both" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

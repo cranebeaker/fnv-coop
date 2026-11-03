@@ -75,7 +75,13 @@ impl ThreatDirector {
 
     /// `by` damaged `enemy`.
     pub fn damaged(&mut self, enemy: FormId, by: PlayerId, amount: f32) {
-        *self.mem.entry(enemy).or_default().damage.entry(by).or_insert(0.0) += amount.max(0.0);
+        *self
+            .mem
+            .entry(enemy)
+            .or_default()
+            .damage
+            .entry(by)
+            .or_insert(0.0) += amount.max(0.0);
     }
 
     /// The enemy died or was removed.
@@ -93,11 +99,23 @@ impl ThreatDirector {
         self.mem.get(&enemy).and_then(|m| m.current)
     }
 
-    fn score(&self, enemy: FormId, i: &ThreatInput, focus: f32, players: usize, is_current: bool) -> f32 {
+    fn score(
+        &self,
+        enemy: FormId,
+        i: &ThreatInput,
+        focus: f32,
+        players: usize,
+        is_current: bool,
+    ) -> f32 {
         if i.downed || i.dead || !i.same_cell {
             return 0.0;
         }
-        let dmg = self.mem.get(&enemy).and_then(|m| m.damage.get(&i.player)).copied().unwrap_or(0.0);
+        let dmg = self
+            .mem
+            .get(&enemy)
+            .and_then(|m| m.damage.get(&i.player))
+            .copied()
+            .unwrap_or(0.0);
         let near = (1.0 - i.dist / NEAR_RANGE).clamp(0.0, 1.0);
         let weight = focus / players.max(1) as f32;
         let others = self.load_on(i.player) - usize::from(is_current);
@@ -108,7 +126,13 @@ impl ThreatDirector {
 
     /// Picks the enemy's target among `players`. `focus` is the party focus
     /// (`Scaling::focus`).
-    pub fn choose(&mut self, enemy: FormId, now_ms: u64, focus: f32, players: &[ThreatInput]) -> Option<Threat> {
+    pub fn choose(
+        &mut self,
+        enemy: FormId,
+        now_ms: u64,
+        focus: f32,
+        players: &[ThreatInput],
+    ) -> Option<Threat> {
         let cur = self.mem.get(&enemy).and_then(|m| m.current);
         let since = self.mem.get(&enemy).map_or(0, |m| m.since_ms);
         let n = players.len();
@@ -127,7 +151,9 @@ impl ThreatDirector {
         let (bp, bs) = best?;
         let keep = cur.is_some()
             && cur_score > 0.0
-            && (Some(bp) == cur || now_ms.saturating_sub(since) < MIN_HOLD_MS || bs < cur_score * SWITCH_MARGIN);
+            && (Some(bp) == cur
+                || now_ms.saturating_sub(since) < MIN_HOLD_MS
+                || bs < cur_score * SWITCH_MARGIN);
         let pick = if keep { cur.expect("checked") } else { bp };
         let m = self.mem.entry(enemy).or_default();
         let switched = m.current != Some(pick);
@@ -136,6 +162,9 @@ impl ThreatDirector {
             m.since_ms = now_ms;
             self.switches += 1;
         }
-        Some(Threat { target: pick, switched })
+        Some(Threat {
+            target: pick,
+            switched,
+        })
     }
 }

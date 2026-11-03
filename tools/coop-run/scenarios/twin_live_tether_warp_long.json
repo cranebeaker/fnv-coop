@@ -1,0 +1,54 @@
+{
+  "name": "twin_live_tether_warp_long",
+  "description": "MUTATION TWIN of live_tether_warp_long: the host starts no tether, so nothing warps the guest back from its far spot. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 56,
+  "duration_s": 140,
+  "settle_s": 8,
+  "timeout_s": 400,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "player.MoveTo DocMitchellCouchREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop teleport 11352.0 1603.6 7360.0"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "warped-back",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "positions-equal",
+      "path": "positions.guest",
+      "on": "equal",
+      "tol": 600,
+      "dims": 2
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

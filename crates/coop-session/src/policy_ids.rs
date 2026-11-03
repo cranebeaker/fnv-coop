@@ -27,8 +27,13 @@ pub fn resolve_row(order: &LoadOrder, row: &QuestRow) -> Option<u32> {
 }
 
 /// `table` with every row keyed by its id in `order`; unmatched rows are dropped and listed.
-pub fn resolve_policy(table: &PolicyTable, order: &LoadOrder) -> Result<(PolicyTable, RemapReport), String> {
-    table.remap(|r| resolve_row(order, r)).map_err(|e| format!("{e}"))
+pub fn resolve_policy(
+    table: &PolicyTable,
+    order: &LoadOrder,
+) -> Result<(PolicyTable, RemapReport), String> {
+    table
+        .remap(|r| resolve_row(order, r))
+        .map_err(|e| format!("{e}"))
 }
 
 /// The bundled table resolved against `order`.

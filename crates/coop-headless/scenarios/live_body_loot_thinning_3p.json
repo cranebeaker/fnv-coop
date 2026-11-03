@@ -1,0 +1,112 @@
+{
+  "name": "live_body_loot_thinning_3p",
+  "description": "Three players: the first guest kills a gecko that carries five stacks and the host opens the body. The reward scaling is 1/1.4, so every stack whose roll is above 0.714 goes (Psycho 0.851, WaterPurified 0.789, RadAway 0.732) and the others stay (Buffout 0.667, Stimpak 0.489). The same body keeps WaterPurified and RadAway with two players.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Stimpak 3"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem WaterPurified 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Psycho 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem RadAway 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Buffout 1"
+      },
+      {
+        "at": 16,
+        "run": "coop lootopen VCG02Gecko1REF"
+      },
+      {
+        "at": 18,
+        "run": "coop lootclose VCG02Gecko1REF"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 9,
+          "run": "coop hit VCG02Gecko1REF 3"
+        },
+        {
+          "at": 12,
+          "run": "coop hit VCG02Gecko1REF 100000"
+        }
+      ]
+    },
+    {
+      "script": []
+    }
+  ],
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "all"
+    },
+    {
+      "id": "thinned-psycho",
+      "path": "items.VCG02Gecko1REF.Psycho",
+      "op": "absent",
+      "on": "all"
+    },
+    {
+      "id": "thinned-water",
+      "path": "items.VCG02Gecko1REF.WaterPurified",
+      "op": "absent",
+      "on": "all"
+    },
+    {
+      "id": "thinned-radaway",
+      "path": "items.VCG02Gecko1REF.RadAway",
+      "op": "absent",
+      "on": "all"
+    },
+    {
+      "id": "kept-stimpak",
+      "path": "items.VCG02Gecko1REF.Stimpak",
+      "op": "eq",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "kept-buffout",
+      "path": "items.VCG02Gecko1REF.Buffout",
+      "op": "eq",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

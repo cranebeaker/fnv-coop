@@ -1,0 +1,92 @@
+{
+  "name": "live_npc_targets_players",
+  "description": "Two geckos fight the party in Doc Mitchell's house, and each machine's threat director (CombatBridge::retarget, coop-core ThreatDirector) decides whom each attends to. The host stands at (2289, 1700) and the guest far off at (2289, 3700). Gecko 1 waits at Doc Mitchell, gecko 2 at the host, and both start combat on the host's player. Distance: at 6 s the guest walks up to gecko 1 (44 units, the host 544), so gecko 1 moves to the guest's machine (the nearest player owns it) and attends to the guest. Threat: gecko 2 stays next to the host, but at 9 s the guest hits it hard from 500 units away, so it attends to the guest. combat.targets (enemy to player, from each machine's combat state; the owner sends its own player as its puppet form) must name the guest for both geckos on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 69,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2,
+        "run": "VCG02Gecko2REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "coop teleport 2289 1700 7360"
+      },
+      {
+        "at": 4,
+        "run": "VCG02Gecko2REF.MoveTo player"
+      },
+      {
+        "at": 4.5,
+        "run": "VCG02Gecko1REF.ForceActorValue Health 5000"
+      },
+      {
+        "at": 4.5,
+        "run": "VCG02Gecko2REF.ForceActorValue Health 5000"
+      },
+      {
+        "at": 5,
+        "run": "VCG02Gecko1REF.StartCombat player"
+      },
+      {
+        "at": 5,
+        "run": "VCG02Gecko2REF.StartCombat player"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2289 3700 7360"
+      },
+      {
+        "at": 6,
+        "run": "coop teleport 2289 2200 7360"
+      },
+      {
+        "at": 9,
+        "run": "coop hit VCG02Gecko2REF 400"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "distance-gecko1-on-guest",
+      "path": "combat.targets.VCG02Gecko1REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "both"
+    },
+    {
+      "id": "threat-gecko2-on-guest",
+      "path": "combat.targets.VCG02Gecko2REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "both"
+    },
+    {
+      "id": "gecko2-alive",
+      "path": "dead.VCG02Gecko2REF",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

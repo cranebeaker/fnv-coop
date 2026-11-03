@@ -1,6 +1,6 @@
 {
   "name": "live_kill_xp_attribution",
-  "description": "The guest finishes a gecko that the host brought in. The kill is paid by slot on the host: the guest's own shadow earns the experience, the host player does not (the host never hit it), and it is paid once.",
+  "description": "The guest finishes a gecko that the host brought in. The kill is paid by slot on the host: the guest's own shadow earns the experience, the host player does not (the host never hit it), and it is paid once. In the real game Doc fights the gecko, and his knife can kill a 20-point gecko in 2 s. At 2.6 s the host raises the gecko's health to 400 (ForceActorValue, the ledger takes the raise), so Doc cannot kill it first. The guest hits at 6 s and 8 s, and the 8 s hit kills it.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 61,
@@ -8,21 +8,65 @@
   "settle_s": 6,
   "host": {
     "script": [
-      { "at": 2, "run": "VCG02Gecko1REF.Enable" },
-      { "at": 2.5, "run": "VCG02Gecko1REF.MoveTo DocMitchellREF" }
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 2.6,
+        "run": "VCG02Gecko1REF.ForceActorValue Health 400"
+      }
     ]
   },
   "guest": {
     "script": [
-      { "at": 9, "run": "coop hit VCG02Gecko1REF 3" },
-      { "at": 13, "run": "coop hit VCG02Gecko1REF 100000" }
+      {
+        "at": 6,
+        "run": "coop hit VCG02Gecko1REF 3"
+      },
+      {
+        "at": 8,
+        "run": "coop hit VCG02Gecko1REF 100000"
+      }
     ]
   },
   "expect": [
-    { "id": "dead-host", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "host" },
-    { "id": "guest-paid", "path": "campaign.xp.guest", "op": "ge", "value": 1, "on": "host" },
-    { "id": "host-not-paid", "path": "campaign.xp.host", "op": "eq", "value": 0, "on": "host" },
-    { "id": "paid-once", "path": "campaign.paid", "op": "eq", "value": 1, "on": "host" },
-    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+    {
+      "id": "dead-host",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "guest-paid",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-not-paid",
+      "path": "campaign.xp.host",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "paid-once",
+      "path": "campaign.paid",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
   ]
 }

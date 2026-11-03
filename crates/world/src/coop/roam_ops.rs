@@ -107,7 +107,13 @@ fn cell_of(gs: &GameState, order: &LoadOrder, r: FormId) -> Option<FormId> {
 /// The hook in the script `Host::call`: returns `Some(value)` when the
 /// command was queued for later, `None` to run it now. Runs on the host
 /// only, and only once the session has reported the host's loaded cells.
-pub fn defer(gs: &mut GameState, order: &LoadOrder, func: &str, target: Option<FormId>, args: &[Value]) -> Option<f64> {
+pub fn defer(
+    gs: &mut GameState,
+    order: &LoadOrder,
+    func: &str,
+    target: Option<FormId>,
+    args: &[Value],
+) -> Option<f64> {
     if gs.coop.authority != Authority::Host {
         return None;
     }
@@ -120,7 +126,12 @@ pub fn defer(gs: &mut GameState, order: &LoadOrder, func: &str, target: Option<F
     if loaded.contains(&cell.0) {
         return None;
     }
-    gs.coop.live.deferred_out.push((t, cell, func.to_string(), args.iter().map(to_darg).collect()));
+    gs.coop.live.deferred_out.push((
+        t,
+        cell,
+        func.to_string(),
+        args.iter().map(to_darg).collect(),
+    ));
     Some(0.0)
 }
 
@@ -134,7 +145,10 @@ pub fn replay(r: &mut Runner<'_>, op: &DeferredOp) -> Option<f64> {
 /// so loaded sets, interest and the tether zone span grid neighbours. The
 /// viewer calls this once per worldspace it loads (host side, and guests
 /// that want puppet culling to use the same table).
-pub fn register_world_grid(graph: &mut coop_core::roam::CellGraph, grid: &crate::exterior::WorldGrid) {
+pub fn register_world_grid(
+    graph: &mut coop_core::roam::CellGraph,
+    grid: &crate::exterior::WorldGrid,
+) {
     for ((x, y), cell) in &grid.cells {
         graph.register_exterior(CellId(cell.0), grid.world.form_id.0, *x, *y);
     }
@@ -158,14 +172,33 @@ mod tests {
     fn classification_is_case_insensitive_and_defaults_to_state() {
         assert_eq!(classify("playgroup"), OpClass::NeedsLoaded);
         assert_eq!(classify("StartCombat"), OpClass::NeedsLoaded);
-        for state in ["Enable", "Disable", "MoveTo", "SetPos", "AddItem", "RemoveItem", "SetStage", "SetAV", "ModAV", "Kill", "Lock", "Unlock", "SetOwnership", "SomethingNew"] {
+        for state in [
+            "Enable",
+            "Disable",
+            "MoveTo",
+            "SetPos",
+            "AddItem",
+            "RemoveItem",
+            "SetStage",
+            "SetAV",
+            "ModAV",
+            "Kill",
+            "Lock",
+            "Unlock",
+            "SetOwnership",
+            "SomethingNew",
+        ] {
             assert_eq!(classify(state), OpClass::State, "{state}");
         }
     }
 
     #[test]
     fn arguments_survive_the_queue() {
-        let v = [Value::Form(FormId(7)), Value::Number(1.5), Value::Text("x".into())];
+        let v = [
+            Value::Form(FormId(7)),
+            Value::Number(1.5),
+            Value::Text("x".into()),
+        ];
         let back: Vec<Value> = v.iter().map(|a| from_darg(&to_darg(a))).collect();
         assert_eq!(back, v);
     }

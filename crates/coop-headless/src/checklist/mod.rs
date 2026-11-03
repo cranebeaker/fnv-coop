@@ -18,6 +18,10 @@
 pub mod builtin;
 pub mod report;
 pub mod run;
+pub mod units_harness;
+pub mod units_more;
+pub mod units_net;
+pub mod units_sim;
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -189,14 +193,19 @@ pub fn load(dir: &Path) -> Result<Vec<Row>, String> {
     files.sort();
     // The GAME layer lives in `game/` next to the co-op files.
     if let Ok(rd) = std::fs::read_dir(dir.join("game")) {
-        let mut g: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|f| f.extension().is_some_and(|x| x == "json")).collect();
+        let mut g: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|f| f.extension().is_some_and(|x| x == "json"))
+            .collect();
         g.sort();
         files.extend(g);
     }
     let mut rows: Vec<Row> = Vec::new();
     for f in files {
         let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
-        let file: File = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", f.display()))?;
+        let file: File =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", f.display()))?;
         for mut r in file.rows {
             if f.parent().is_some_and(|p| p.ends_with("game")) && r.layer == "coop" {
                 r.layer = "game".into();

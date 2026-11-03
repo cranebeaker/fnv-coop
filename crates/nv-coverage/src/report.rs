@@ -49,7 +49,15 @@ pub fn to_json(f: &Full) -> J {
             ("calls", J::u(s.calls)),
             ("scripts", J::u(s.scripts)),
             ("conditions", J::u(s.conditions)),
-            ("by_kind", J::Obj(s.by_kind.iter().map(|(k, n)| (k.label().to_string(), J::u(*n))).collect())),
+            (
+                "by_kind",
+                J::Obj(
+                    s.by_kind
+                        .iter()
+                        .map(|(k, n)| (k.label().to_string(), J::u(*n)))
+                        .collect(),
+                ),
+            ),
             ("main_line_quests", J::arr(s.quests.iter().map(J::s))),
         ])
     });
@@ -66,7 +74,9 @@ pub fn to_json(f: &Full) -> J {
         let stages = r.stages.iter().filter(|s| !s.verdict.is_clean()).map(|s| {
             let detail = match &s.verdict {
                 Verdict::ParseError(e) | Verdict::Panic(e) => vec![e.clone()],
-                Verdict::Unhandled(n) | Verdict::StubLimit(n) | Verdict::StaticMissing(n) => n.clone(),
+                Verdict::Unhandled(n) | Verdict::StubLimit(n) | Verdict::StaticMissing(n) => {
+                    n.clone()
+                }
                 _ => Vec::new(),
             };
             J::obj(vec![
@@ -104,20 +114,42 @@ pub fn to_json(f: &Full) -> J {
         )
     });
     let d = &f.dialogue;
-    let counts = |c: &crate::sweep::Counts| J::obj(vec![("tried", J::u(c.tried)), ("loaded", J::u(c.loaded)), ("failed", J::u(c.failed))]);
+    let counts = |c: &crate::sweep::Counts| {
+        J::obj(vec![
+            ("tried", J::u(c.tried)),
+            ("loaded", J::u(c.loaded)),
+            ("failed", J::u(c.failed)),
+        ])
+    };
     let sweep = match &f.sweep {
         None => J::Null,
         Some(s) => J::obj(vec![
             ("mode", J::s(if s.full { "full" } else { "records" })),
             ("skipped", s.skipped.clone().map_or(J::Null, J::s)),
             ("interiors", counts(&s.interiors)),
-            ("exteriors", J::Obj(s.exteriors.iter().map(|(k, v)| (k.clone(), counts(v))).collect())),
+            (
+                "exteriors",
+                J::Obj(
+                    s.exteriors
+                        .iter()
+                        .map(|(k, v)| (k.clone(), counts(v)))
+                        .collect(),
+                ),
+            ),
             (
                 "failures",
                 J::Obj(
                     s.failures
                         .iter()
-                        .map(|(k, (n, ex))| (k.clone(), J::obj(vec![("cells", J::u(*n)), ("examples", J::arr(ex.iter().map(J::s)))])))
+                        .map(|(k, (n, ex))| {
+                            (
+                                k.clone(),
+                                J::obj(vec![
+                                    ("cells", J::u(*n)),
+                                    ("examples", J::arr(ex.iter().map(J::s))),
+                                ]),
+                            )
+                        })
                         .collect(),
                 ),
             ),
@@ -133,7 +165,12 @@ pub fn to_json(f: &Full) -> J {
                                 k.clone(),
                                 J::obj(vec![
                                     ("distinct", J::u(m.len())),
-                                    ("top", J::arr(v.into_iter().take(50).map(|(p, n)| J::obj(vec![("path", J::s(p)), ("cells", J::u(*n))])))),
+                                    (
+                                        "top",
+                                        J::arr(v.into_iter().take(50).map(|(p, n)| {
+                                            J::obj(vec![("path", J::s(p)), ("cells", J::u(*n))])
+                                        })),
+                                    ),
                                 ]),
                             )
                         })
@@ -144,7 +181,14 @@ pub fn to_json(f: &Full) -> J {
         ]),
     };
     J::obj(vec![
-        ("data_dir_name", J::s(f.data_dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned()))),
+        (
+            "data_dir_name",
+            J::s(
+                f.data_dir
+                    .file_name()
+                    .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+            ),
+        ),
         ("plugins", J::arr(f.plugins.iter().map(J::s))),
         ("has_meshes", J::Bool(f.has_meshes)),
         (
@@ -158,10 +202,68 @@ pub fn to_json(f: &Full) -> J {
                 ("used_missing", J::u(used - used_handled)),
                 ("use_weight_total", J::u(fr.weight(false))),
                 ("use_weight_handled", J::u(fr.weight(true))),
-                ("sources", J::Obj(fr.by_kind.iter().map(|(k, t)| (k.label().to_string(), J::obj(vec![("total", J::u(t.sources)), ("parsed", J::u(t.parsed))]))).collect())),
-                ("parse_errors", J::Obj(fr.parse_errors.iter().map(|(m, (n, ex))| (m.clone(), J::obj(vec![("count", J::u(*n)), ("examples", J::arr(ex.iter().map(J::s)))]))).collect())),
-                ("groups", J::Obj(groups.iter().map(|(g, (u, h, w))| (g.to_string(), J::obj(vec![("used", J::u(*u)), ("handled", J::u(*h)), ("weight", J::u(*w))]))).collect())),
-                ("events", J::arr(f.events.iter().map(|(k, n, h)| J::obj(vec![("event", J::s(k)), ("scripts", J::u(*n)), ("handled", h.map_or(J::Null, J::Bool))])))),
+                (
+                    "sources",
+                    J::Obj(
+                        fr.by_kind
+                            .iter()
+                            .map(|(k, t)| {
+                                (
+                                    k.label().to_string(),
+                                    J::obj(vec![
+                                        ("total", J::u(t.sources)),
+                                        ("parsed", J::u(t.parsed)),
+                                    ]),
+                                )
+                            })
+                            .collect(),
+                    ),
+                ),
+                (
+                    "parse_errors",
+                    J::Obj(
+                        fr.parse_errors
+                            .iter()
+                            .map(|(m, (n, ex))| {
+                                (
+                                    m.clone(),
+                                    J::obj(vec![
+                                        ("count", J::u(*n)),
+                                        ("examples", J::arr(ex.iter().map(J::s))),
+                                    ]),
+                                )
+                            })
+                            .collect(),
+                    ),
+                ),
+                (
+                    "groups",
+                    J::Obj(
+                        groups
+                            .iter()
+                            .map(|(g, (u, h, w))| {
+                                (
+                                    g.to_string(),
+                                    J::obj(vec![
+                                        ("used", J::u(*u)),
+                                        ("handled", J::u(*h)),
+                                        ("weight", J::u(*w)),
+                                    ]),
+                                )
+                            })
+                            .collect(),
+                    ),
+                ),
+                (
+                    "events",
+                    J::arr(f.events.iter().map(|(k, n, h)| {
+                        J::obj(vec![
+                            ("event", J::s(k)),
+                            ("scripts", J::u(*n)),
+                            ("handled", h.map_or(J::Null, J::Bool)),
+                        ])
+                    })),
+                ),
                 ("functions", J::arr(function_rows)),
             ]),
         ),
@@ -172,37 +274,101 @@ pub fn to_json(f: &Full) -> J {
                 ("infos", J::u(d.infos)),
                 ("infos_with_conditions", J::u(d.infos_with_conditions)),
                 ("conditions", J::u(d.conditions)),
-                ("infos_unsupported_condition", J::u(d.infos_unsupported_condition)),
+                (
+                    "infos_unsupported_condition",
+                    J::u(d.infos_unsupported_condition),
+                ),
                 ("condition_percent_supported", J::f(d.condition_percent())),
-                ("unsupported_conditions", J::Obj(d.unsupported_conditions.iter().map(|(k, n)| (k.clone(), J::u(*n))).collect())),
+                (
+                    "unsupported_conditions",
+                    J::Obj(
+                        d.unsupported_conditions
+                            .iter()
+                            .map(|(k, n)| (k.clone(), J::u(*n)))
+                            .collect(),
+                    ),
+                ),
                 ("results", J::u(d.results)),
                 ("results_parse_failed", J::u(d.results_parse_failed)),
                 ("results_missing_function", J::u(d.results_missing_function)),
                 ("results_ran_clean", J::u(d.results_ran_clean)),
                 ("results_panicked", J::u(d.results_panicked)),
                 ("result_percent_clean", J::f(d.result_percent())),
-                ("unsupported_results", J::Obj(d.unsupported_results.iter().map(|(k, n)| (k.clone(), J::u(*n))).collect())),
+                (
+                    "unsupported_results",
+                    J::Obj(
+                        d.unsupported_results
+                            .iter()
+                            .map(|(k, n)| (k.clone(), J::u(*n)))
+                            .collect(),
+                    ),
+                ),
             ]),
         ),
         (
             "object_scripts",
             J::obj(vec![
-                ("references_with_script", J::u(f.objects.references_with_script)),
+                (
+                    "references_with_script",
+                    J::u(f.objects.references_with_script),
+                ),
                 ("distinct_scripts", J::u(f.objects.distinct_scripts)),
                 ("ran_clean", J::u(f.objects.ran_clean)),
-                ("with_unhandled_function", J::u(f.objects.scripts_with_unhandled)),
+                (
+                    "with_unhandled_function",
+                    J::u(f.objects.scripts_with_unhandled),
+                ),
                 ("panicked", J::u(f.objects.panicked)),
                 ("panics", J::arr(f.objects.panics.iter().map(J::s))),
-                ("worker_crashes", J::arr(f.objects.overflows.iter().map(|(n, r)| J::obj(vec![("script", J::s(n)), ("reference", J::s(r))])))),
-                ("unhandled_functions", J::Obj(f.objects.unhandled.iter().map(|(k, n)| (k.clone(), J::u(*n))).collect())),
-                ("stub_limited_functions", J::Obj(f.objects.stub_limited.iter().map(|(k, n)| (k.clone(), J::u(*n))).collect())),
+                (
+                    "worker_crashes",
+                    J::arr(
+                        f.objects.overflows.iter().map(|(n, r)| {
+                            J::obj(vec![("script", J::s(n)), ("reference", J::s(r))])
+                        }),
+                    ),
+                ),
+                (
+                    "unhandled_functions",
+                    J::Obj(
+                        f.objects
+                            .unhandled
+                            .iter()
+                            .map(|(k, n)| (k.clone(), J::u(*n)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "stub_limited_functions",
+                    J::Obj(
+                        f.objects
+                            .stub_limited
+                            .iter()
+                            .map(|(k, n)| (k.clone(), J::u(*n)))
+                            .collect(),
+                    ),
+                ),
             ]),
         ),
         (
             "quest_graph",
             J::obj(vec![
-                ("main_line_quests_with_missing_functions", J::Obj(f.graph.deps.iter().map(|(q, fs)| (q.clone(), J::arr(fs.iter().map(J::s)))).collect())),
-                ("stages_never_set_by_data", J::arr(f.graph.never_set.iter().map(|(q, s)| J::obj(vec![("quest", J::s(q)), ("stage", J::u(*s as usize))])))),
+                (
+                    "main_line_quests_with_missing_functions",
+                    J::Obj(
+                        f.graph
+                            .deps
+                            .iter()
+                            .map(|(q, fs)| (q.clone(), J::arr(fs.iter().map(J::s))))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "stages_never_set_by_data",
+                    J::arr(f.graph.never_set.iter().map(|(q, s)| {
+                        J::obj(vec![("quest", J::s(q)), ("stage", J::u(*s as usize))])
+                    })),
+                ),
             ]),
         ),
         (
@@ -214,7 +380,12 @@ pub fn to_json(f: &Full) -> J {
                 (
                     "by_entry_point",
                     J::arr(f.perks.by_entry.iter().map(|(n, (name, count, applied))| {
-                        J::obj(vec![("entry", J::u(*n as usize)), ("name", J::s(name)), ("in_perks", J::u(*count)), ("applied", J::Bool(*applied))])
+                        J::obj(vec![
+                            ("entry", J::u(*n as usize)),
+                            ("name", J::s(name)),
+                            ("in_perks", J::u(*count)),
+                            ("applied", J::Bool(*applied)),
+                        ])
                     })),
                 ),
             ]),
@@ -226,7 +397,19 @@ pub fn to_json(f: &Full) -> J {
                 J::obj(vec![
                     ("system", J::s(i.system)),
                     ("status_guess", J::s(i.status.label())),
-                    ("files", J::arr(crate::checklist::file_state(f.repo.as_deref(), i).into_iter().map(|(p, e)| J::obj(vec![("path", J::s(p)), ("exists", e.map_or(J::Null, J::Bool))])))),
+                    (
+                        "files",
+                        J::arr(
+                            crate::checklist::file_state(f.repo.as_deref(), i)
+                                .into_iter()
+                                .map(|(p, e)| {
+                                    J::obj(vec![
+                                        ("path", J::s(p)),
+                                        ("exists", e.map_or(J::Null, J::Bool)),
+                                    ])
+                                }),
+                        ),
+                    ),
                     ("note", J::s(i.note)),
                 ])
             })),
@@ -245,7 +428,10 @@ pub fn to_json(f: &Full) -> J {
                     ("size", J::s(x.size)),
                     ("translation_source", J::s(x.source)),
                     ("files", J::arr(x.files.iter().map(|p| J::s(*p)))),
-                    ("translated_handlers_in_tree", J::arr(x.translated.iter().map(J::s))),
+                    (
+                        "translated_handlers_in_tree",
+                        J::arr(x.translated.iter().map(J::s)),
+                    ),
                     ("agent_brief", J::s(&x.brief)),
                 ])
             })),

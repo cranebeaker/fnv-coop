@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use coop_core::ids::PlayerId;
 use coop_core::roam::{DeferredOp, Placement};
 use coop_core::sync::{GuestLive, HostLive};
-use esm::FormId;
 use world::coop::apply::Ctx;
 use world::coop::roam_ops;
 use world::scripting::{GameState, Runner};
@@ -29,6 +28,9 @@ pub struct RoamView {
     pub remote_actors: u32,
     /// Cells this machine has loaded (host only; a guest knows its own).
     pub loaded: Vec<u32>,
+    /// Outdoor players' grids: (player, grid x, grid y, grid cells loaded).
+    /// The host knows every peer's, a guest its own.
+    pub grids: Vec<(PlayerId, i32, i32, u32)>,
     /// Deferred operations waiting for a cell.
     pub deferred_pending: u32,
     /// Deferred operations queued so far.
@@ -51,11 +53,33 @@ fn self_place(gs: &GameState, me: PlayerId) -> Option<(PlayerId, u32, [f32; 3])>
 }
 
 /// Host side, once a frame after the live adapter ran.
-pub(crate) fn host_frame(cx: Ctx, gs: &mut GameState, live: &mut HostLive, view: &mut LiveView, now_ms: u64) {
-    let loaded: BTreeSet<u32> = live.roam.model.loaded_of(PlayerId::HOST).into_iter().map(|c| c.0).collect();
-    gs.coop.live.host_loaded = if loaded.is_empty() { None } else { Some(loaded.clone()) };
+pub(crate) fn host_frame(
+    cx: Ctx,
+    gs: &mut GameState,
+    live: &mut HostLive,
+    view: &mut LiveView,
+    now_ms: u64,
+) {
+    let loaded: BTreeSet<u32> = live
+        .roam
+        .model
+        .loaded_of(PlayerId::HOST)
+        .into_iter()
+        .map(|c| c.0)
+        .collect();
+    gs.coop.live.host_loaded = if loaded.is_empty() {
+        None
+    } else {
+        Some(loaded.clone())
+    };
     for (target, cell, func, args) in std::mem::take(&mut gs.coop.live.deferred_out) {
-        live.roam.deferred.queue(coop_core::ids::FormId(target.0), roam_ops::cell_id(cell), &func, args, now_ms);
+        live.roam.deferred.queue(
+            coop_core::ids::FormId(target.0),
+            roam_ops::cell_id(cell),
+            &func,
+            args,
+            now_ms,
+        );
     }
     let ready = live.roam.take_ready_local();
     if !ready.is_empty() {
@@ -64,9 +88,12 @@ pub(crate) fn host_frame(cx: Ctx, gs: &mut GameState, live: &mut HostLive, view:
             roam_ops::replay(&mut r, op);
         }
     }
-    // only actors in cells this machine has loaded are mirrored
+    // only actors in cells this machine has loaded are mirrored (outdoors:
+    // in the grid square around the host's player)
     if !loaded.is_empty() {
-        view.remote_actors.retain(|a| loaded.contains(&a.cell));
+        let m = &live.roam.model;
+        view.remote_actors
+            .retain(|a| m.sees(PlayerId::HOST, coop_core::ids::CellId(a.cell), a.pos));
     }
     let own = &live.actors.own;
     let mut owned: BTreeMap<PlayerId, u32> = BTreeMap::new();
@@ -78,12 +105,32 @@ pub(crate) fn host_frame(cx: Ctx, gs: &mut GameState, live: &mut HostLive, view:
         }
     }
     let s = &live.roam;
+    let grids = s
+        .model
+        .peers()
+        .filter_map(|(p, sc)| {
+            let (x, y) = s.model.square_of_peer(*p)?;
+            let g = &s.model.graph;
+            let n = sc
+                .loaded
+                .iter()
+                .filter(|c| g.grid_of(**c).is_some())
+                .count();
+            Some((*p, x, y, n as u32))
+        })
+        .collect();
     view.roam = RoamView {
-        peers: s.model.places().into_iter().map(|(p, c, pos)| (p, c.0, pos)).collect(),
+        peers: s
+            .model
+            .places()
+            .into_iter()
+            .map(|(p, c, pos)| (p, c.0, pos))
+            .collect(),
         owned: owned.into_iter().collect(),
         dormant,
         remote_actors: view.remote_actors.len() as u32,
         loaded: loaded.into_iter().collect(),
+        grids,
         deferred_pending: s.deferred.pending() as u32,
         deferred_queued: s.deferred.queued,
         deferred_replayed: s.deferred.replayed,
@@ -102,12 +149,20 @@ pub(crate) fn guest_frame(gs: &GameState, live: &mut GuestLive, view: &mut LiveV
     for op in &ops {
         live.roam.done(op.id);
     }
-    if let Some(c) = gs.player_cell {
-        let loaded = live.roam.graph.loaded_set(coop_core::ids::CellId(c.0));
-        view.remote_actors.retain(|a| loaded.contains(&coop_core::ids::CellId(a.cell)));
+    // outdoors actors are filed under the worldspace: the grid square decides
+    if let Some(c) = gs.player_world.or(gs.player_cell) {
+        let home = coop_core::ids::CellId(c.0);
+        let at = gs.player_position.unwrap_or([0.0; 3]);
+        let g = &live.roam.graph;
+        view.remote_actors
+            .retain(|a| g.sees(home, at, coop_core::ids::CellId(a.cell), a.pos));
     }
-    let mut peers: BTreeMap<PlayerId, (u32, [f32; 3])> =
-        live.roam.places.iter().map(|(p, r)| (*p, (r.cell.0, r.pos))).collect();
+    let mut peers: BTreeMap<PlayerId, (u32, [f32; 3])> = live
+        .roam
+        .places
+        .iter()
+        .map(|(p, r)| (*p, (r.cell.0, r.pos)))
+        .collect();
     for a in &view.avatars {
         peers.insert(a.player, (a.cell, a.pos));
     }
@@ -115,7 +170,19 @@ pub(crate) fn guest_frame(gs: &GameState, live: &mut GuestLive, view: &mut LiveV
     if let Some((p, c, pos)) = self_place(gs, me) {
         peers.insert(p, (c, pos));
     }
+    // this machine's own grid, from the same table the host uses
+    let g = &live.roam.graph;
+    let grids = match (gs.player_world, gs.player_position) {
+        (Some(w), Some(at)) if g.is_world(coop_core::ids::CellId(w.0)) => {
+            let (x, y) = coop_core::roam::graph::square_of(at);
+            let loaded = g.loaded_at(coop_core::ids::CellId(w.0), at);
+            let n = loaded.iter().filter(|c| g.grid_of(**c).is_some()).count();
+            vec![(me, x, y, n as u32)]
+        }
+        _ => vec![],
+    };
     view.roam = RoamView {
+        grids,
         peers: peers.into_iter().map(|(p, (c, pos))| (p, c, pos)).collect(),
         owned: vec![(me, view.owned_actors.len() as u32)],
         remote_actors: view.remote_actors.len() as u32,
@@ -124,11 +191,6 @@ pub(crate) fn guest_frame(gs: &GameState, live: &mut GuestLive, view: &mut LiveV
         place: live.roam.place.take(),
         ..RoamView::default()
     };
-}
-
-/// A reference's form id in the session's types.
-pub fn form(f: coop_core::ids::FormId) -> FormId {
-    FormId(f.0)
 }
 
 impl crate::Session {

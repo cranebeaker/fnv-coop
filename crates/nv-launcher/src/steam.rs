@@ -31,18 +31,27 @@ pub fn find_dll(dirs: &[PathBuf]) -> Option<PathBuf> {
 /// Pure decision from what was found.
 pub fn status(dll: Option<&Path>, viewer_help: Option<&str>) -> Status {
     if dll.is_none() {
-        return Status::Unavailable(format!("{DLL} was not found next to the launcher (it is optional; see THIRD-PARTY.txt)."));
+        return Status::Unavailable(format!(
+            "{DLL} was not found next to the launcher (it is optional; see THIRD-PARTY.txt)."
+        ));
     }
     match viewer_help {
         Some(h) if h.contains(VIEWER_FLAG) => Status::Available,
-        Some(_) => Status::Unavailable("this viewer build has no Steam transport yet; UDP direct is used.".into()),
-        None => Status::Unavailable("the viewer was not found, so Steam support could not be checked.".into()),
+        Some(_) => Status::Unavailable(
+            "this viewer build has no Steam transport yet; UDP direct is used.".into(),
+        ),
+        None => Status::Unavailable(
+            "the viewer was not found, so Steam support could not be checked.".into(),
+        ),
     }
 }
 
 /// Runs `viewer --help` (which exits before opening a window) and returns its text.
 pub fn viewer_help(viewer: &Path) -> Option<String> {
-    let out = std::process::Command::new(viewer).arg("--help").output().ok()?;
+    let out = std::process::Command::new(viewer)
+        .arg("--help")
+        .output()
+        .ok()?;
     let mut t = String::from_utf8_lossy(&out.stdout).into_owned();
     t.push_str(&String::from_utf8_lossy(&out.stderr));
     Some(t)

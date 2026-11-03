@@ -112,12 +112,15 @@ pub fn file_time_to_system_time(e: &mut Engine, time: Ptr, out: Ptr) -> u32 {
 }
 
 // Platform: replaces KERNEL32.DLL WideCharToMultiByte (import)
-/// `WideCharToMultiByte(code page, flags, wide, count, out, size, default, used)` for ASCII
-/// text in `CP_ACP` (0) or 1252 with no flags and no default character: each character as its
-/// byte (`count` -1: through the zero, which is counted); `used` (when given) FALSE; `size` 0
+/// `WideCharToMultiByte(code page, flags, wide, count, out, size, default, used)` for text in
+/// `CP_ACP` (0) or 1252 with no flags and no default character: each character as its byte
+/// (`count` -1: through the zero, which is counted); `used` (when given) FALSE; `size` 0
 /// answers the size needed; too small a buffer is filled as far as it goes and answers 0 with
-/// `ERROR_INSUFFICIENT_BUFFER` (122). As measured (module comment). Other code pages, flags,
-/// a default character or non-ASCII text are not provided (they stop the run).
+/// `ERROR_INSUFFICIENT_BUFFER` (122). As measured (module comment). Non-ASCII text converts
+/// through the Windows-1252 table ([`cp1252_byte`]); with `CP_ACP` that needs the machine's ANSI
+/// code page to be 1252 (a Finnish or other western Windows names its time zone "Itä-Euroopan
+/// normaaliaika"). Other code pages, flags, a default character, a character 1252 lacks, or
+/// non-ASCII text under another ANSI code page are not provided (they stop the run).
 #[allow(clippy::too_many_arguments)]
 pub fn wide_char_to_multi_byte(
     e: &mut Engine,
@@ -142,11 +145,23 @@ pub fn wide_char_to_multi_byte(
             break;
         }
         let c = e.mem.u16(at);
-        assert!(
-            c < 0x80,
-            "WideCharToMultiByte: the non-ASCII character {c:#x} is not provided"
-        );
-        text.push(c as u8);
+        let byte = if c < 0x80 {
+            c as u8
+        } else {
+            let page = if code_page == 0 {
+                crate::units::platform::d3d9::get_acp(e)
+            } else {
+                code_page
+            };
+            assert!(
+                page == 1252,
+                "WideCharToMultiByte: the non-ASCII character {c:#x} in code page {page} is not provided"
+            );
+            cp1252_byte(c).unwrap_or_else(|| {
+                panic!("WideCharToMultiByte: the character {c:#x} has no Windows-1252 byte (a default character is not provided)")
+            })
+        };
+        text.push(byte);
         at += 2;
         if count < 0 && c == 0 {
             break;
@@ -166,6 +181,45 @@ pub fn wide_char_to_multi_byte(
         return 0;
     }
     text.len() as u32
+}
+
+/// The Windows-1252 byte of a UTF-16 unit: ASCII and U+00A0..=U+00FF as themselves, the 27
+/// characters 1252 puts at 0x80..=0x9F, `None` for the rest (0x81, 0x8D, 0x8F, 0x90 and 0x9D
+/// hold no character).
+pub fn cp1252_byte(c: u16) -> Option<u8> {
+    const HIGH: [(u16, u8); 27] = [
+        (0x20AC, 0x80),
+        (0x201A, 0x82),
+        (0x0192, 0x83),
+        (0x201E, 0x84),
+        (0x2026, 0x85),
+        (0x2020, 0x86),
+        (0x2021, 0x87),
+        (0x02C6, 0x88),
+        (0x2030, 0x89),
+        (0x0160, 0x8A),
+        (0x2039, 0x8B),
+        (0x0152, 0x8C),
+        (0x017D, 0x8E),
+        (0x2018, 0x91),
+        (0x2019, 0x92),
+        (0x201C, 0x93),
+        (0x201D, 0x94),
+        (0x2022, 0x95),
+        (0x2013, 0x96),
+        (0x2014, 0x97),
+        (0x02DC, 0x98),
+        (0x2122, 0x99),
+        (0x0161, 0x9A),
+        (0x203A, 0x9B),
+        (0x0153, 0x9C),
+        (0x017E, 0x9E),
+        (0x0178, 0x9F),
+    ];
+    match c {
+        0..=0x7F | 0xA0..=0xFF => Some(c as u8),
+        _ => HIGH.iter().find(|(u, _)| *u == c).map(|(_, b)| *b),
+    }
 }
 
 /// The days of `month` in `year` (proleptic Gregorian).
@@ -480,6 +534,35 @@ mod tests {
         );
         let words: Vec<u16> = (0..8).map(|i| e.mem.u16(out + 2 * i)).collect();
         assert_eq!(words, [1970, 1, 4, 1, 0, 0, 12, 345]);
+    }
+
+    #[test]
+    fn western_names_convert_through_code_page_1252() {
+        let mut e = Engine::new();
+        let wide = e.mem.alloc(128);
+        for (i, c) in "Itä-Euroopan normaaliaika €\0".encode_utf16().enumerate() {
+            e.mem.set_u16(wide + 2 * i as u32, c);
+        }
+        let out = e.mem.alloc(64);
+        let n = wide_char_to_multi_byte(
+            &mut e,
+            1252,
+            0,
+            Ptr::new(wide),
+            -1,
+            Ptr::new(out),
+            64,
+            Ptr::new(0),
+            Ptr::new(0),
+        );
+        assert_eq!(n, 28);
+        assert_eq!(
+            e.mem.cstr(out),
+            b"It\xe4-Euroopan normaaliaika \x80".to_vec()
+        );
+        assert_eq!(cp1252_byte(0x81), None);
+        assert_eq!(cp1252_byte(0x0100), None);
+        assert_eq!(cp1252_byte(0x2122), Some(0x99));
     }
 
     #[test]

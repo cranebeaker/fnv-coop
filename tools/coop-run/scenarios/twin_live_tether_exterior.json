@@ -1,0 +1,79 @@
+{
+  "name": "twin_live_tether_exterior",
+  "description": "MUTATION TWIN of live_tether_exterior: the host starts no tether, so no zone exists, nobody is counted inside, and nothing warps the guest from 6000 units away. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "000DAEBB",
+  "network": "good_wifi",
+  "seed": 57,
+  "duration_s": 140,
+  "settle_s": 8,
+  "timeout_s": 400,
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "coop teleport -73300.0 2208.0 8367.0"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 2,
+        "run": "coop teleport -76429.0 2208.0 8367.0"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-counted-inside",
+      "path": "live.tether_zone.host",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "guest-inside-after-warp",
+      "path": "live.tether_zone.guest",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "inside-stays",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        -73300.0,
+        2208.0
+      ],
+      "cmp": "le",
+      "value": 50,
+      "on": "both"
+    },
+    {
+      "id": "outside-warped",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        -70429.0,
+        2208.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "positions-equal",
+      "path": "positions.guest",
+      "on": "equal",
+      "tol": 600,
+      "dims": 2
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

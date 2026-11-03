@@ -18,7 +18,10 @@ fn converge_scenario(name: &str, seed: u64) {
     sim.start_guest(0);
     sim.start_guest(1);
     sim.run(400, 2); // 10 s of constant writes
-    assert!(sim.run_until_converged(180_000), "profile {name} seed {seed} did not converge");
+    assert!(
+        sim.run_until_converged(180_000),
+        "profile {name} seed {seed} did not converge"
+    );
     for g in &sim.guests {
         assert_eq!(g.sync.store.entries(), sim.host.store.entries());
         assert_eq!(g.sync.desyncs_detected, 0, "profile {name}");
@@ -108,7 +111,10 @@ fn rejoin_resumes_with_deltas_not_a_snapshot() {
     sim.reconnect_guest(1);
     sim.run(100, 1);
     assert!(sim.run_until_converged(120_000));
-    assert_eq!(sim.guests[1].sync.snapshots_loaded, 1, "no second snapshot on resume");
+    assert_eq!(
+        sim.guests[1].sync.snapshots_loaded, 1,
+        "no second snapshot on resume"
+    );
     assert!(sim.host.snapshots_sent >= snaps_before); // ring may age out while it is away
     assert_eq!(sim.guests[1].sync.store.entries(), sim.host.store.entries());
 }
@@ -166,21 +172,44 @@ fn desync_is_detected_and_repaired_partially() {
     // silently corrupt one record on guest 0 (same revision, wrong value)
     let victim = sim.universe[5];
     let entries = sim.guests[0].sync.store.entries();
-    let target = entries.iter().find(|e| e.form == victim).cloned().expect("victim present");
+    let target = entries
+        .iter()
+        .find(|e| e.form == victim)
+        .cloned()
+        .expect("victim present");
     let mut bad = target.clone();
     bad.field = match &target.field {
-        Field::QuestStage { stage } => Field::QuestStage { stage: stage.wrapping_add(1) },
+        Field::QuestStage { stage } => Field::QuestStage {
+            stage: stage.wrapping_add(1),
+        },
         Field::QuestFlags { flags } => Field::QuestFlags { flags: flags ^ 1 },
-        Field::Objective { index, state } => Field::Objective { index: *index, state: state ^ 1 },
+        Field::Objective { index, state } => Field::Objective {
+            index: *index,
+            state: state ^ 1,
+        },
         Field::Global { bits } => Field::Global { bits: bits ^ 1 },
-        Field::RefDisabled { disabled } => Field::RefDisabled { disabled: !disabled },
-        Field::ItemCount { item, count } => Field::ItemCount { item: *item, count: count + 1 },
-        Field::ScriptVar { index, bits } => Field::ScriptVar { index: *index, bits: bits ^ 1 },
+        Field::RefDisabled { disabled } => Field::RefDisabled {
+            disabled: !disabled,
+        },
+        Field::ItemCount { item, count } => Field::ItemCount {
+            item: *item,
+            count: count + 1,
+        },
+        Field::ScriptVar { index, bits } => Field::ScriptVar {
+            index: *index,
+            bits: bits ^ 1,
+        },
         other => other.clone(),
     };
     assert_ne!(bad.field, target.field);
     let shard = crate::ids::shard_of(victim);
-    let keep: Vec<_> = sim.guests[0].sync.store.entries_in_shards(&[shard]).into_iter().filter(|e| e != &target).collect();
+    let keep: Vec<_> = sim.guests[0]
+        .sync
+        .store
+        .entries_in_shards(&[shard])
+        .into_iter()
+        .filter(|e| e != &target)
+        .collect();
     let mut repl = keep;
     repl.push(bad);
     sim.guests[0].sync.store.replace_shards(&[shard], repl);
@@ -190,7 +219,10 @@ fn desync_is_detected_and_repaired_partially() {
     assert!(sim.guests[0].sync.repairs_applied >= 1);
     assert!(sim.host.repairs_sent >= 1);
     assert_eq!(sim.guests[1].sync.repairs_applied, 0);
-    assert_eq!(sim.host.snapshots_sent, 2, "repair must not need a snapshot");
+    assert_eq!(
+        sim.host.snapshots_sent, 2,
+        "repair must not need a snapshot"
+    );
 }
 
 #[test]
@@ -201,7 +233,10 @@ fn incompatible_peer_is_rejected() {
     sim.guests[0].sync = GuestSync::new(PlayerId(1), bad);
     sim.start_guest(0);
     sim.run(40, 0);
-    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Rejected(RejectReason::ModsMismatch));
+    assert_eq!(
+        sim.guests[0].sync.phase(),
+        GuestPhase::Rejected(RejectReason::ModsMismatch)
+    );
     assert!(sim.host.players().is_empty());
 }
 
@@ -217,7 +252,12 @@ fn full_session_rejects_extra_guest() {
     sim.start_guest(1);
     sim.run(40, 0);
     assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Active);
-    assert_eq!(sim.guests[1].sync.phase(), GuestPhase::Rejected(RejectReason::Full));
+    assert_eq!(
+        sim.guests[1].sync.phase(),
+        GuestPhase::Rejected(RejectReason::Full)
+    );
+    // the host counts the refusal once, however often the hello came
+    assert_eq!(sim.host.full_refusals, 1);
 }
 
 #[test]
@@ -237,15 +277,18 @@ fn guest_intents_obey_authority_and_apply_once() {
     let msgs = sim.guests[0].sync.send_intent(
         epoch,
         vec![
-            (avatar1, pos(1)),                                // own avatar: ok
-            (npc, pos(2)),                                    // owned actor, right epoch: ok
-            (avatar2, pos(3)),                                // someone else's avatar: refused
+            (avatar1, pos(1)),                                      // own avatar: ok
+            (npc, pos(2)),                                          // owned actor, right epoch: ok
+            (avatar2, pos(3)), // someone else's avatar: refused
             (FormId(0x0100_0001), Field::QuestStage { stage: 99 }), // story: refused
         ],
     );
     for m in msgs {
         let b = proto::encode(&m).unwrap();
-        sim.guests[0].net.send(PlayerId::HOST, m.channel(), b).unwrap();
+        sim.guests[0]
+            .net
+            .send(PlayerId::HOST, m.channel(), b)
+            .unwrap();
     }
     // let the intent cross the link before judging convergence
     sim.run(100, 0);
@@ -254,7 +297,9 @@ fn guest_intents_obey_authority_and_apply_once() {
     assert!(host.get(avatar1, &pos(0)).is_some());
     assert!(host.get(npc, &pos(0)).is_some());
     assert!(host.get(avatar2, &pos(0)).is_none());
-    assert!(host.get(FormId(0x0100_0001), &Field::QuestStage { stage: 0 }).map_or(true, |e| e.field != Field::QuestStage { stage: 99 }));
+    assert!(host
+        .get(FormId(0x0100_0001), &Field::QuestStage { stage: 0 })
+        .map_or(true, |e| e.field != Field::QuestStage { stage: 99 }));
     assert_eq!(sim.guests[0].sync.unacked_intents(), 0);
     // the other guest sees guest 0's avatar through ordinary replication
     assert!(sim.guests[1].sync.store.get(avatar1, &pos(0)).is_some());
@@ -265,7 +310,10 @@ fn guest_intents_obey_authority_and_apply_once() {
     let msgs = sim.guests[0].sync.send_intent(epoch, vec![(npc, pos(500))]);
     for m in msgs {
         let b = proto::encode(&m).unwrap();
-        sim.guests[0].net.send(PlayerId::HOST, m.channel(), b).unwrap();
+        sim.guests[0]
+            .net
+            .send(PlayerId::HOST, m.channel(), b)
+            .unwrap();
     }
     sim.run(100, 0);
     assert!(sim.run_until_converged(30_000));
@@ -285,18 +333,31 @@ fn duplicate_intent_is_applied_once() {
     };
     let b = proto::encode(&m).unwrap();
     for _ in 0..3 {
-        sim.guests[0].net.send(PlayerId::HOST, m.channel(), b.clone()).unwrap();
+        sim.guests[0]
+            .net
+            .send(PlayerId::HOST, m.channel(), b.clone())
+            .unwrap();
     }
     sim.run(20, 0);
     assert_eq!(sim.host.store.rev(), Rev(1));
     // a later write of a different value with a NEW id is applied
-    let m2 = Msg::Intent { id: 2, epoch: Epoch(0), changes: vec![(FormId(7), Field::ActorValue { av: 1, value: 6 })] };
+    let m2 = Msg::Intent {
+        id: 2,
+        epoch: Epoch(0),
+        changes: vec![(FormId(7), Field::ActorValue { av: 1, value: 6 })],
+    };
     let b2 = proto::encode(&m2).unwrap();
-    sim.guests[0].net.send(PlayerId::HOST, m2.channel(), b2).unwrap();
+    sim.guests[0]
+        .net
+        .send(PlayerId::HOST, m2.channel(), b2)
+        .unwrap();
     sim.run(20, 0);
     assert_eq!(sim.host.store.rev(), Rev(2));
     // replaying the old id does not roll the value back
-    sim.guests[0].net.send(PlayerId::HOST, m.channel(), b).unwrap();
+    sim.guests[0]
+        .net
+        .send(PlayerId::HOST, m.channel(), b)
+        .unwrap();
     sim.run(20, 0);
     assert_eq!(sim.host.store.rev(), Rev(2));
 }
@@ -309,7 +370,12 @@ fn same_seed_reproduces_exactly() {
         sim.start_guest(1);
         sim.run(300, 2);
         sim.run_until_converged(120_000);
-        (sim.host_root(), sim.clock.now(), sim.host_net.stats(), sim.guests[0].net.stats())
+        (
+            sim.host_root(),
+            sim.clock.now(),
+            sim.host_net.stats(),
+            sim.guests[0].net.stats(),
+        )
     };
     assert_eq!(run(9), run(9));
     assert_ne!(run(9).0, run(10).0);
@@ -383,10 +449,19 @@ fn live_messages_that_beat_the_join_snapshot_are_kept_not_dropped() {
     // the guest is joining: the host accepted it but its snapshot has not been applied yet
     assert!(sim.run_until(60_000, |s| s.guests[0].sync.phase() == GuestPhase::Joining));
     let a = FormId(0x77);
-    let assign = ActorMsg::Assign { actor: a, owner: None, epoch: Epoch(1), seed: Some(ActorState::default()) };
+    let assign = ActorMsg::Assign {
+        actor: a,
+        owner: None,
+        epoch: Epoch(1),
+        seed: Some(ActorState::default()),
+    };
     sim.guests[0].sync.on_msg(Msg::Actor(assign));
     assert!(sim.run_until(60_000, |s| s.guests[0].sync.phase() == GuestPhase::Active));
-    assert_eq!(sim.guests[0].sync.live.actors.iter().count(), 1, "the early assignment was applied once the guest was active");
+    assert_eq!(
+        sim.guests[0].sync.live.actors.iter().count(),
+        1,
+        "the early assignment was applied once the guest was active"
+    );
 }
 
 #[test]
@@ -402,13 +477,23 @@ fn a_stale_rejoin_after_the_host_dropped_the_guest_restarts_the_handshake_not_ki
         let msg = if stale_join {
             Msg::Join
         } else {
-            Msg::Rejoin { session: 0, last_seq: crate::ids::Seq(1), have_rev: Rev(1) }
+            Msg::Rejoin {
+                session: 0,
+                last_seq: crate::ids::Seq(1),
+                have_rev: Rev(1),
+            }
         };
         sim.guest_emit(0, vec![msg]);
         sim.run(40, 0);
-        assert!(!matches!(sim.guests[0].sync.phase(), GuestPhase::Rejected(_)), "join={stale_join}: guest was rejected");
+        assert!(
+            !matches!(sim.guests[0].sync.phase(), GuestPhase::Rejected(_)),
+            "join={stale_join}: guest was rejected"
+        );
         sim.reconnect_guest(0);
-        assert!(sim.run_until_converged(120_000), "join={stale_join}: guest never came back");
+        assert!(
+            sim.run_until_converged(120_000),
+            "join={stale_join}: guest never came back"
+        );
     }
 }
 
@@ -422,13 +507,24 @@ fn listed(plugins: &[&str]) -> crate::proto::Hello {
 #[test]
 fn missing_plugin_is_refused_and_the_guest_learns_which() {
     let mut sim = Sim::new(1, profile("perfect"), 73);
-    sim.host = HostSync::new(HostConfig::new(listed(&["FalloutNV.esm", "DeadMoney.esm"]), 0x5E55));
+    sim.host = HostSync::new(HostConfig::new(
+        listed(&["FalloutNV.esm", "DeadMoney.esm"]),
+        0x5E55,
+    ));
     sim.guests[0].sync = GuestSync::new(PlayerId(1), listed(&["FalloutNV.esm"]));
     sim.start_guest(0);
     sim.run(40, 0);
-    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Rejected(RejectReason::PluginsMismatch));
+    assert_eq!(
+        sim.guests[0].sync.phase(),
+        GuestPhase::Rejected(RejectReason::PluginsMismatch)
+    );
     let found = sim.guests[0].sync.compat_issues();
-    assert_eq!(found, vec![crate::compat::Issue::MissingPlugins(vec!["DeadMoney.esm".into()])]);
+    assert_eq!(
+        found,
+        vec![crate::compat::Issue::MissingPlugins(vec![
+            "DeadMoney.esm".into()
+        ])]
+    );
     assert_eq!(sim.host.compat_log.len(), 1);
     assert!(sim.host.compat_log[0].refused);
     assert!(sim.host.players().is_empty());
@@ -444,7 +540,10 @@ fn override_admits_a_mismatched_guest_with_a_warning() {
     sim.start_guest(0);
     sim.run(60, 0);
     assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Active);
-    assert!(!sim.guests[0].sync.compat_issues().is_empty(), "guest is told it joined with differences");
+    assert!(
+        !sim.guests[0].sync.compat_issues().is_empty(),
+        "guest is told it joined with differences"
+    );
     assert!(!sim.host.compat_log[0].refused);
 }
 
@@ -459,5 +558,66 @@ fn override_does_not_admit_a_protocol_mismatch() {
     sim.guests[0].sync = GuestSync::new(PlayerId(1), bad);
     sim.start_guest(0);
     sim.run(40, 0);
-    assert_eq!(sim.guests[0].sync.phase(), GuestPhase::Rejected(RejectReason::ProtocolMismatch));
+    assert_eq!(
+        sim.guests[0].sync.phase(),
+        GuestPhase::Rejected(RejectReason::ProtocolMismatch)
+    );
+}
+
+#[test]
+fn recent_roots_match_a_lagging_guest_at_its_own_revision() {
+    use crate::hash::ShardHashes;
+    let mut sim = Sim::new(1, profile("bad_wifi"), 77);
+    sim.start_guest(0);
+    sim.run(100, 2);
+    assert!(sim.run_until_converged(60_000));
+    let (mut behind, mut checked) = (0, 0);
+    for _ in 0..300 {
+        sim.run(1, 3);
+        let g = &sim.guests[0].sync.store;
+        if g.base() != g.rev() {
+            continue;
+        }
+        let points = sim.host.recent_roots(u64::MAX, &|_| true);
+        assert_eq!(points[0].0, sim.host.store.rev());
+        let ours = ShardHashes::compute(g).root();
+        let at = points.iter().find(|(r, _)| *r == g.rev());
+        assert_eq!(at.map(|p| p.1), Some(ours), "guest rev {:?}", g.rev());
+        checked += 1;
+        if g.rev() < sim.host.store.rev() {
+            behind += 1;
+        }
+    }
+    assert!(
+        checked > 50 && behind > 10,
+        "checked {checked}, behind {behind}"
+    );
+    // a field the filter drops does not count at any revision
+    let skip = |f: &Field| !matches!(f, Field::QuestStage { .. });
+    let points = sim.host.recent_roots(u64::MAX, &skip);
+    let mut kept = StateStore::new();
+    for e in sim
+        .host
+        .store
+        .entries()
+        .into_iter()
+        .filter(|e| skip(&e.field))
+    {
+        kept.write_local(e.form, e.field);
+    }
+    assert_eq!(points[0].1, ShardHashes::compute(&kept).root());
+}
+
+#[test]
+fn recent_roots_stop_at_a_write_the_host_did_not_log() {
+    let mut sim = Sim::new(1, profile("perfect"), 78);
+    sim.run(10, 2);
+    assert!(sim.host.recent_roots(u64::MAX, &|_| true).len() > 10);
+    sim.host
+        .store
+        .write_local(FormId(0x0700_0001), Field::QuestStage { stage: 5 });
+    assert_eq!(sim.host.recent_roots(u64::MAX, &|_| true).len(), 1);
+    sim.host
+        .write(FormId(0x0700_0001), Field::QuestStage { stage: 6 });
+    assert_eq!(sim.host.recent_roots(u64::MAX, &|_| true).len(), 2);
 }

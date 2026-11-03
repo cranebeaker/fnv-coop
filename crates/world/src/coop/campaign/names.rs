@@ -18,7 +18,12 @@ pub fn is_unnamed(l: &Locals) -> bool {
 
 /// Renames invented variables. Returns how many owners were fixed.
 pub fn heal(cx: Ctx, gs: &mut GameState) -> usize {
-    let owners: Vec<_> = gs.variables.iter().filter(|(_, l)| is_unnamed(l)).map(|(o, _)| *o).collect();
+    let owners: Vec<_> = gs
+        .variables
+        .iter()
+        .filter(|(_, l)| is_unnamed(l))
+        .map(|(o, _)| *o)
+        .collect();
     let mut fixed = 0;
     for o in owners {
         let Some(base) = crate::scripting::script_of(cx.order, o)
@@ -27,7 +32,11 @@ pub fn heal(cx: Ctx, gs: &mut GameState) -> usize {
         else {
             continue;
         };
-        let old: Vec<f64> = gs.variables.get(&o).map(|l| l.iter().map(|(_, _, v)| v).collect()).unwrap_or_default();
+        let old: Vec<f64> = gs
+            .variables
+            .get(&o)
+            .map(|l| l.iter().map(|(_, _, v)| v).collect())
+            .unwrap_or_default();
         let names: Vec<String> = base.iter().map(|(n, _, _)| n.to_string()).collect();
         let mut fresh = base;
         for (i, n) in names.iter().enumerate() {

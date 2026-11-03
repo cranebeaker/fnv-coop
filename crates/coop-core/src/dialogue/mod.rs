@@ -128,6 +128,16 @@ pub enum DialogueMsg {
         /// Why.
         reason: CloseReason,
     },
+    /// Host to the picker: the game refused the pick (the line's conditions
+    /// fail for the picker). The step stays open.
+    Refused {
+        /// Session.
+        session: u32,
+        /// The step the pick asked for.
+        step: u32,
+        /// The refused choice.
+        choice: u32,
+    },
 }
 
 /// What the game must do on the host.

@@ -1,0 +1,76 @@
+{
+  "name": "twin_live_scene_ending",
+  "description": "MUTATION TWIN of live_scene_ending: the host's story never sets the ending stage, so no ending scene opens and the slides go nowhere. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 72,
+  "duration_s": 14,
+  "settle_s": 8,
+  "host": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop slide 1"
+      },
+      {
+        "at": 7,
+        "run": "coop slide 2"
+      },
+      {
+        "at": 8,
+        "run": "coop slide 3"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "ending-kind",
+      "path": "scene.kind",
+      "op": "eq",
+      "value": 4,
+      "on": "both"
+    },
+    {
+      "id": "playing",
+      "path": "scene.phase",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "controls-locked",
+      "path": "scene.locks",
+      "op": "eq",
+      "value": 127,
+      "on": "both"
+    },
+    {
+      "id": "guest-controls",
+      "path": "scene.controls",
+      "op": "eq",
+      "value": 127,
+      "on": "guest"
+    },
+    {
+      "id": "saw-slide-3",
+      "path": "scene.slide",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "same-scene",
+      "path": "scene.id",
+      "on": "equal"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

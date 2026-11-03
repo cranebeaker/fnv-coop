@@ -1,6 +1,6 @@
 {
   "name": "live_reconnect",
-  "description": "The link dies for 8 seconds. The host teleports to point A before the outage and to point B (about 400 units away) after it ends; the guest must see the host at B, not stale at A, after it reconnects, and the shared state converges.",
+  "description": "The link dies for 8 seconds. The host teleports to point A before the outage and to point B (about 650 units away) after it ends; the guest must see the host at B, not stale at A, after it reconnects, and the shared state converges. The teleport targets are on the house floor. Each avatar must stay within 1000 units of its target in 3D, so a player who falls through the floor fails.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 57,
@@ -18,11 +18,11 @@
     "script": [
       {
         "at": 3,
-        "run": "coop teleport 2552 1603.6 7360.0"
+        "run": "coop teleport 2178 2300 7360.0"
       },
       {
         "at": 20,
-        "run": "coop teleport 2152 1403.6 7360.0"
+        "run": "coop teleport 1961 1690 7360.0"
       }
     ]
   },
@@ -40,8 +40,8 @@
       "path": "positions.host",
       "op": "near",
       "value": [
-        2152,
-        1403.6
+        1961.0,
+        1690.0
       ],
       "tol": 80,
       "dims": 2,
@@ -52,8 +52,8 @@
       "path": "positions.host",
       "op": "dist_from",
       "from": [
-        2552,
-        1603.6
+        2178.0,
+        2300.0
       ],
       "cmp": "ge",
       "value": 200,
@@ -109,6 +109,32 @@
       "id": "shared-hash",
       "path": "hash.shared",
       "on": "equal"
+    },
+    {
+      "id": "host-on-floor",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        1961.0,
+        1690.0,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
+    },
+    {
+      "id": "guest-on-floor",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2152.0,
+        1803.6,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
     }
   ]
 }

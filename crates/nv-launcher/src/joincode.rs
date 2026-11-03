@@ -37,6 +37,9 @@ pub enum JoinInput {
     Addr(String),
     /// Join whichever Steam friend is hosting (`--coop-steam-friend`), no code.
     SteamFriend,
+    /// A six character join-service code (normalised). [`resolve_short`] turns it into
+    /// the `NVRS-` code it stands for; the viewer can also resolve it itself.
+    Short(String),
 }
 
 impl JoinInput {
@@ -46,14 +49,35 @@ impl JoinInput {
             JoinInput::Code { text, .. } => text,
             JoinInput::Addr(a) => a,
             JoinInput::SteamFriend => "",
+            JoinInput::Short(c) => c,
         }
+    }
+}
+
+/// Asks the join service what a short code stands for and returns that join code.
+pub fn resolve_short(
+    code: &str,
+    svc: &coop_net::joinsvc::JoinService,
+) -> Result<JoinInput, String> {
+    let blob = svc.resolve(code)?;
+    match parse_join(&blob)? {
+        j @ JoinInput::Code { .. } => Ok(j),
+        _ => Err(format!(
+            "the join service gave {code} something that is not a join code"
+        )),
     }
 }
 
 fn valid_host(h: &str) -> bool {
     !h.is_empty()
         && h.len() <= 253
-        && h.split('.').all(|l| !l.is_empty() && l.len() <= 63 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !l.starts_with('-') && !l.ends_with('-'))
+        && h.split('.').all(|l| {
+            !l.is_empty()
+                && l.len() <= 63
+                && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+        })
 }
 
 /// Parses a join code or an address (`1.2.3.4`, `1.2.3.4:5000`, `[::1]:5000`, `name.example`).
@@ -64,23 +88,44 @@ pub fn parse_join(input: &str) -> Result<JoinInput, String> {
     }
     if s.len() >= 4 && s[..4].eq_ignore_ascii_case("NVRS") {
         let code: JoinCode = s.parse().map_err(|e| format!("{e}"))?;
-        return Ok(JoinInput::Code { text: code.to_string(), target: code.target });
+        return Ok(JoinInput::Code {
+            text: code.to_string(),
+            target: code.target,
+        });
+    }
+    // a six character code of the join service (no ':' or '.', so not a host name with a port
+    // or a domain); the viewer's `coop_session::target` reads it the same way
+    if !s.contains(':') && !s.contains('.') {
+        if let Some(c) = coop_net::joinsvc::normalize_code(s) {
+            return Ok(JoinInput::Short(c));
+        }
     }
     if let Some(a) = s.parse::<SocketAddr>().ok().filter(|a| a.port() != 0) {
         return Ok(JoinInput::Addr(a.to_string()));
     }
-    if let Ok(ip) = s.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>() {
-        return Ok(JoinInput::Addr(SocketAddr::new(ip, DEFAULT_PORT).to_string()));
+    if let Ok(ip) = s
+        .trim_matches(|c| c == '[' || c == ']')
+        .parse::<std::net::IpAddr>()
+    {
+        return Ok(JoinInput::Addr(
+            SocketAddr::new(ip, DEFAULT_PORT).to_string(),
+        ));
     }
     let (host, port) = match s.rsplit_once(':') {
         Some((h, p)) => {
-            let port: u16 = p.parse().ok().filter(|p| *p != 0).ok_or_else(|| format!("'{p}' is not a port number (1 to 65535)."))?;
+            let port: u16 = p
+                .parse()
+                .ok()
+                .filter(|p| *p != 0)
+                .ok_or_else(|| format!("'{p}' is not a port number (1 to 65535)."))?;
             (h, port)
         }
         None => (s, DEFAULT_PORT),
     };
     if !valid_host(host) {
-        return Err(format!("'{host}' is not an address or a join code. Use NVRS-..., 1.2.3.4 or 1.2.3.4:27961."));
+        return Err(format!(
+            "'{host}' is not an address or a join code. Use NVRS-..., 1.2.3.4 or 1.2.3.4:27961."
+        ));
     }
     Ok(JoinInput::Addr(format!("{host}:{port}")))
 }
@@ -91,10 +136,15 @@ pub fn host_code(addr: &str, port: u16, token: [u8; 16]) -> Result<String, Strin
     let a = addr.trim();
     let sock: SocketAddr = if let Ok(s) = a.parse::<SocketAddr>() {
         s
-    } else if let Ok(ip) = a.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>() {
+    } else if let Ok(ip) = a
+        .trim_matches(|c| c == '[' || c == ']')
+        .parse::<std::net::IpAddr>()
+    {
         SocketAddr::new(ip, port)
     } else {
-        return Err(format!("'{a}' is not an IP address. A join code needs one (for example 192.168.1.20)."));
+        return Err(format!(
+            "'{a}' is not an IP address. A join code needs one (for example 192.168.1.20)."
+        ));
     };
     Ok(JoinCode::new(JoinTarget::Direct(sock), token).to_string())
 }
@@ -111,7 +161,10 @@ mod tests {
         match parse_join(&messy).unwrap() {
             JoinInput::Code { text, target } => {
                 assert_eq!(text, code);
-                assert_eq!(target, JoinTarget::Direct("192.168.1.20:27961".parse().unwrap()));
+                assert_eq!(
+                    target,
+                    JoinTarget::Direct("192.168.1.20:27961".parse().unwrap())
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -130,14 +183,58 @@ mod tests {
 
     #[test]
     fn addresses() {
-        assert_eq!(parse_join("1.2.3.4").unwrap(), JoinInput::Addr("1.2.3.4:27961".into()));
-        assert_eq!(parse_join("1.2.3.4:5000").unwrap(), JoinInput::Addr("1.2.3.4:5000".into()));
-        assert_eq!(parse_join("[::1]:5000").unwrap(), JoinInput::Addr("[::1]:5000".into()));
-        assert_eq!(parse_join("pc.example.com").unwrap(), JoinInput::Addr("pc.example.com:27961".into()));
-        assert_eq!(parse_join("pc.example.com:99").unwrap().viewer_arg(), "pc.example.com:99");
-        for bad in ["", "1.2.3.4:0", "1.2.3.4:99999", "bad host", "a..b", "-x.com", "x;rm"] {
+        assert_eq!(
+            parse_join("1.2.3.4").unwrap(),
+            JoinInput::Addr("1.2.3.4:27961".into())
+        );
+        assert_eq!(
+            parse_join("1.2.3.4:5000").unwrap(),
+            JoinInput::Addr("1.2.3.4:5000".into())
+        );
+        assert_eq!(
+            parse_join("[::1]:5000").unwrap(),
+            JoinInput::Addr("[::1]:5000".into())
+        );
+        assert_eq!(
+            parse_join("pc.example.com").unwrap(),
+            JoinInput::Addr("pc.example.com:27961".into())
+        );
+        assert_eq!(
+            parse_join("pc.example.com:99").unwrap().viewer_arg(),
+            "pc.example.com:99"
+        );
+        for bad in [
+            "",
+            "1.2.3.4:0",
+            "1.2.3.4:99999",
+            "bad host",
+            "a..b",
+            "-x.com",
+            "x;rm",
+        ] {
             assert!(parse_join(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn short_codes_are_codes_not_host_names() {
+        for typed in ["K7M3XW", "k7m-3xw", " k7 m3 xw "] {
+            assert_eq!(
+                parse_join(typed).unwrap(),
+                JoinInput::Short("K7M3XW".into()),
+                "{typed}"
+            );
+        }
+        assert_eq!(parse_join("K7M3XW").unwrap().viewer_arg(), "K7M3XW");
+        // a host name with a dot or a port stays an address
+        assert_eq!(
+            parse_join("K7M3XW.lan").unwrap(),
+            JoinInput::Addr("K7M3XW.lan:27961".into())
+        );
+        assert_eq!(
+            parse_join("K7M3XW:99").unwrap(),
+            JoinInput::Addr("K7M3XW:99".into())
+        );
     }
 
     #[test]
@@ -164,6 +261,12 @@ mod tests {
     #[test]
     fn steam_lobby_codes_parse() {
         let c = JoinCode::new(JoinTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
-        assert!(matches!(parse_join(&c).unwrap(), JoinInput::Code { target: JoinTarget::SteamLobby(_), .. }));
+        assert!(matches!(
+            parse_join(&c).unwrap(),
+            JoinInput::Code {
+                target: JoinTarget::SteamLobby(_),
+                ..
+            }
+        ));
     }
 }

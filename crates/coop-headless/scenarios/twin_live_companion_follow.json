@@ -1,0 +1,54 @@
+{
+  "name": "twin_live_companion_follow",
+  "description": "MUTATION TWIN of live_companion_follow: nobody recruits the gecko, so it has no owner to follow and stays in Doc Mitchell's house. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 63,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop cell D00001"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "owner",
+      "path": "campaign.owner.VCG02Gecko1REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "host"
+    },
+    {
+      "id": "guest-moved",
+      "path": "live.roam.cells.guest",
+      "op": "eq",
+      "value": 13631489,
+      "on": "host"
+    },
+    {
+      "id": "follower-with-owner",
+      "path": "actors.VCG02Gecko1REF.cell",
+      "op": "eq",
+      "value": 13631489,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

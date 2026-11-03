@@ -1,0 +1,18 @@
+{
+  "name": "twin_live_dialogue_forced_line",
+  "description": "Twin of live_dialogue_forced_line without the SayTo and Say lines. No talk note exists, so the host says no line and no peer plays one. The run must fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 85,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": { "script": [] },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-said-two", "path": "scene.talk.lines", "op": "eq", "value": 2, "on": "host" },
+    { "id": "lines-host", "path": "live.lines_played", "op": "ge", "value": 2, "on": "host" },
+    { "id": "lines-guest", "path": "live.lines_played", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

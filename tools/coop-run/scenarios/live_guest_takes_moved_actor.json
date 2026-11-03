@@ -1,0 +1,30 @@
+{
+  "name": "live_guest_takes_moved_actor",
+  "description": "The host enables a gecko in its Goodsprings cell and moves it to Doc Mitchell (MoveTo). The guest stands next to Doc, so the ledger gives the gecko to the guest. The guest never ran the MoveTo: it must take the gecko at the ledger's place (the Assign seed), not publish its old cell. The guest then owns the gecko in Doc's house, its hits reach the host, and the gecko dies on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 2, "run": "VCG02Gecko1REF.Enable" },
+      { "at": 2.5, "run": "VCG02Gecko1REF.MoveTo DocMitchellREF" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 1, "run": "coop teleport 2290 2200 7360" },
+      { "at": 9, "run": "coop hit VCG02Gecko1REF 3" },
+      { "at": 13, "run": "coop hit VCG02Gecko1REF 100000" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-owns", "path": "actors.VCG02Gecko1REF.owner", "op": "eq", "value": "me", "on": "guest" },
+    { "id": "guest-has-it-at-doc", "path": "actors.VCG02Gecko1REF.cell", "op": "eq", "value": 1064441, "on": "guest" },
+    { "id": "guest-hits-sent", "path": "live.hits_sent", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "dead-host", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "host" },
+    { "id": "dead-guest", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "guest" },
+    { "id": "guest-paid", "path": "campaign.xp.guest", "op": "ge", "value": 1, "on": "host" }
+  ]
+}

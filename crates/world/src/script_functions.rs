@@ -1435,6 +1435,9 @@ fn carry_out(
             "Say" => {
                 let speaker = target?;
                 let topic = arg(0).form();
+                runner
+                    .state
+                    .coop_talk(speaker, FormId(0), (topic.0 != 0).then_some(topic), false);
                 runner.state.events.push(Event::Talk {
                     speaker,
                     to: FormId(0),

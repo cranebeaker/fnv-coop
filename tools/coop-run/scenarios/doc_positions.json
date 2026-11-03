@@ -1,6 +1,6 @@
 {
   "name": "doc_positions",
-  "description": "Each peer teleports its own physical player (coop teleport; player.setpos only edits script state and the viewer re-reads the physical player, so it moves nobody). The other peer must see that avatar at least 150 units from the shared spawn point, and both peers must agree on each avatar within 40 units.",
+  "description": "Each peer teleports its own physical player (coop teleport; player.setpos only edits script state and the viewer re-reads the physical player, so it moves nobody). The other peer must see that avatar at least 150 units from the shared spawn point, and both peers must agree on each avatar within 40 units. The teleport targets are on the house floor. Each avatar must stay within 1000 units of its target in 3D, so a player who falls through the floor fails.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 31,
@@ -10,7 +10,7 @@
     "script": [
       {
         "at": 3,
-        "run": "coop teleport 2552 1603.6 7360.0"
+        "run": "coop teleport 2178 2300 7360.0"
       }
     ]
   },
@@ -94,6 +94,32 @@
       "path": "live.avatars",
       "op": "ge",
       "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "host-on-floor",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2178.0,
+        2300.0,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
+    },
+    {
+      "id": "guest-on-floor",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2152.0,
+        1803.6,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
       "on": "both"
     }
   ]

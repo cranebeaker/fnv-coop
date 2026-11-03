@@ -32,7 +32,13 @@ fn short(v: Option<&J>) -> String {
 fn py_dump(v: &J) -> String {
     match v {
         J::Arr(a) => format!("[{}]", a.iter().map(py_dump).collect::<Vec<_>>().join(", ")),
-        J::Obj(m) => format!("{{{}}}", m.iter().map(|(k, v)| format!("{}: {}", J::Str(k.clone()).dump(), py_dump(v))).collect::<Vec<_>>().join(", ")),
+        J::Obj(m) => format!(
+            "{{{}}}",
+            m.iter()
+                .map(|(k, v)| format!("{}: {}", J::Str(k.clone()).dump(), py_dump(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         other => other.dump(),
     }
 }
@@ -99,38 +105,95 @@ pub fn evaluate(expect: &[Expect], host: &J, guest: &J) -> Vec<Check> {
                 },
                 _ => false,
             };
-            out.push(Check { id: e.id.clone(), ok, kind: "desync", detail: format!("{} host={} guest={}", e.path, short(a), short(b)) });
+            out.push(Check {
+                id: e.id.clone(),
+                ok,
+                kind: "desync",
+                detail: format!("{} host={} guest={}", e.path, short(a), short(b)),
+            });
             continue;
         }
-        let who: Vec<(&str, &J)> = if e.on == "both" { vec![("host", host), ("guest", guest)] } else if e.on == "host" { vec![("host", host)] } else { vec![("guest", guest)] };
+        let who: Vec<(&str, &J)> = if e.on == "both" {
+            vec![("host", host), ("guest", guest)]
+        } else if e.on == "host" {
+            vec![("host", host)]
+        } else {
+            vec![("guest", guest)]
+        };
         let multi = who.len() > 1;
         for (w, st) in who {
-            let id = if multi { format!("{}@{}", e.id, w) } else { e.id.clone() };
+            let id = if multi {
+                format!("{}@{}", e.id, w)
+            } else {
+                e.id.clone()
+            };
             let got = st.path(&e.path);
             let want = e.value.as_ref();
             let (ok, detail) = match e.op.as_str() {
                 "sum" => {
-                    let total: f64 = std::iter::once(&e.path).chain(e.add.iter()).filter_map(|p| st.path(p).and_then(J::as_f64)).sum();
-                    let parts = std::iter::once(e.path.clone()).chain(e.add.iter().cloned()).collect::<Vec<_>>().join(", ");
-                    (cmp_num(&e.cmp, total, want.and_then(J::as_f64).unwrap_or(0.0)), format!("{w} sum({parts}) {} {} (got {}; missing counts 0)", e.cmp, short(want), short(Some(&J::Num(total)))))
+                    let total: f64 = std::iter::once(&e.path)
+                        .chain(e.add.iter())
+                        .filter_map(|p| st.path(p).and_then(J::as_f64))
+                        .sum();
+                    let parts = std::iter::once(e.path.clone())
+                        .chain(e.add.iter().cloned())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (
+                        cmp_num(&e.cmp, total, want.and_then(J::as_f64).unwrap_or(0.0)),
+                        format!(
+                            "{w} sum({parts}) {} {} (got {}; missing counts 0)",
+                            e.cmp,
+                            short(want),
+                            short(Some(&J::Num(total)))
+                        ),
+                    )
                 }
                 "dist_from" => {
                     let d = got.and_then(|g| dist_xy(g, &e.from));
-                    let ok = d.is_some_and(|d| cmp_num(&e.cmp, d, want.and_then(J::as_f64).unwrap_or(0.0)));
+                    let ok = d.is_some_and(|d| {
+                        cmp_num(&e.cmp, d, want.and_then(J::as_f64).unwrap_or(0.0))
+                    });
                     let fr = J::Arr(e.from.iter().map(|x| J::Num(*x)).collect());
-                    (ok, format!("{w} {} dist_from {} {} {} (got {})", e.path, short(Some(&fr)), e.cmp, short(want), d.map_or("<missing>".into(), |d| format!("{d:.1}"))))
+                    (
+                        ok,
+                        format!(
+                            "{w} {} dist_from {} {} {} (got {})",
+                            e.path,
+                            short(Some(&fr)),
+                            e.cmp,
+                            short(want),
+                            d.map_or("<missing>".into(), |d| format!("{d:.1}"))
+                        ),
+                    )
                 }
-                "present" => (got.is_some(), format!("{w} {} present (got {})", e.path, short(got))),
-                "absent" => (got.is_none(), format!("{w} {} absent (got {})", e.path, short(got))),
+                "present" => (
+                    got.is_some(),
+                    format!("{w} {} present (got {})", e.path, short(got)),
+                ),
+                "absent" => (
+                    got.is_none(),
+                    format!("{w} {} absent (got {})", e.path, short(got)),
+                ),
                 op => {
                     let ok = match (got, want) {
-                        (Some(g), Some(v)) => cmp(op, &dims(g, e), &dims(v, e), e.tol.unwrap_or(0.0)),
+                        (Some(g), Some(v)) => {
+                            cmp(op, &dims(g, e), &dims(v, e), e.tol.unwrap_or(0.0))
+                        }
                         _ => false,
                     };
-                    (ok, format!("{w} {} {op} {} (got {})", e.path, short(want), short(got)))
+                    (
+                        ok,
+                        format!("{w} {} {op} {} (got {})", e.path, short(want), short(got)),
+                    )
                 }
             };
-            out.push(Check { id, ok, kind: "assert", detail });
+            out.push(Check {
+                id,
+                ok,
+                kind: "assert",
+                detail,
+            });
         }
     }
     out
@@ -143,7 +206,11 @@ mod tests {
 
     fn run(expect: &str, host: &str, guest: &str) -> Vec<Check> {
         let s = Scenario::parse(&format!(r#"{{"cell":"X","expect":{expect}}}"#), "t").unwrap();
-        evaluate(&s.expect, &J::parse(host).unwrap(), &J::parse(guest).unwrap())
+        evaluate(
+            &s.expect,
+            &J::parse(host).unwrap(),
+            &J::parse(guest).unwrap(),
+        )
     }
 
     #[test]
@@ -156,7 +223,19 @@ mod tests {
             r#"{"q":{"s":12}}"#,
         );
         let ok: Vec<(&str, bool)> = c.iter().map(|x| (x.id.as_str(), x.ok)).collect();
-        assert_eq!(ok, vec![("a@host", true), ("a@guest", true), ("b", true), ("c@host", true), ("c@guest", true), ("d", true), ("e@host", false), ("e@guest", false)]);
+        assert_eq!(
+            ok,
+            vec![
+                ("a@host", true),
+                ("a@guest", true),
+                ("b", true),
+                ("c@host", true),
+                ("c@guest", true),
+                ("d", true),
+                ("e@host", false),
+                ("e@guest", false)
+            ]
+        );
     }
 
     #[test]
@@ -170,13 +249,26 @@ mod tests {
             r#"{"p":[120,48,900,1],"i":{"a":20,"b":30},"hash":{"shared":"b"}}"#,
         );
         let m: Vec<(&str, bool, &str)> = c.iter().map(|x| (x.id.as_str(), x.ok, x.kind)).collect();
-        assert_eq!(m, vec![("n", true, "assert"), ("d", true, "assert"), ("s", true, "assert"), ("e", true, "desync"), ("h", false, "desync")]);
+        assert_eq!(
+            m,
+            vec![
+                ("n", true, "assert"),
+                ("d", true, "assert"),
+                ("s", true, "assert"),
+                ("e", true, "desync"),
+                ("h", false, "desync")
+            ]
+        );
         assert!(c[1].detail.contains("(got 112.7)"), "{}", c[1].detail);
     }
 
     #[test]
     fn a_missing_path_fails_comparisons_and_dist() {
-        let c = run(r#"[{"id":"a","path":"nope","op":"eq","value":1,"on":"host"},{"id":"b","path":"nope","op":"dist_from","from":[0,0],"cmp":"ge","value":1,"on":"host"}]"#, "{}", "{}");
+        let c = run(
+            r#"[{"id":"a","path":"nope","op":"eq","value":1,"on":"host"},{"id":"b","path":"nope","op":"dist_from","from":[0,0],"cmp":"ge","value":1,"on":"host"}]"#,
+            "{}",
+            "{}",
+        );
         assert!(c.iter().all(|x| !x.ok));
         assert!(c[0].detail.contains("<missing>"));
     }

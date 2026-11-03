@@ -57,7 +57,9 @@ fn sender_time(seq: Seq) -> i64 {
 }
 
 fn dist(a: &AvatarState, b: &AvatarState) -> f32 {
-    let d: f32 = (0..3).map(|i| dequant_pos(a.pos[i] - b.pos[i]).powi(2)).sum();
+    let d: f32 = (0..3)
+        .map(|i| dequant_pos(a.pos[i] - b.pos[i]).powi(2))
+        .sum();
     d.sqrt()
 }
 
@@ -94,7 +96,11 @@ impl InterpBuffer {
         if let Some((ns, _)) = newest {
             if !seq.is_newer_than(ns) {
                 // late arrival: insert in order if it is still useful
-                let pos = self.snaps.iter().position(|(s, _)| s.is_newer_than(seq)).unwrap_or(self.snaps.len());
+                let pos = self
+                    .snaps
+                    .iter()
+                    .position(|(s, _)| s.is_newer_than(seq))
+                    .unwrap_or(self.snaps.len());
                 if pos == 0 {
                     self.dropped += 1;
                     return false;
@@ -212,7 +218,11 @@ mod tests {
             let s = b.sample(now).unwrap();
             assert!(!s.extrapolated);
             let want = 100.0 * (now as f32 - 30.0 - DELAY_MS as f32) / 1000.0;
-            assert!((s.pos[0] - want).abs() < 1.0, "now {now}: {} vs {want}", s.pos[0]);
+            assert!(
+                (s.pos[0] - want).abs() < 1.0,
+                "now {now}: {} vs {want}",
+                s.pos[0]
+            );
         }
     }
 
@@ -224,7 +234,10 @@ mod tests {
         assert!(s.extrapolated);
         let p2 = b.sample(1000 + DELAY_MS as u64 + 5000).unwrap().pos[0];
         // capped: never more than EXTRAPOLATE_CAP_MS of travel past the last sample
-        assert!((p2 - 40.0 - 40.0 * EXTRAPOLATE_CAP_MS as f32 / 1000.0).abs() < 1.0, "{p2}");
+        assert!(
+            (p2 - 40.0 - 40.0 * EXTRAPOLATE_CAP_MS as f32 / 1000.0).abs() < 1.0,
+            "{p2}"
+        );
         assert!(p2 > s.pos[0]);
     }
 
@@ -259,7 +272,10 @@ mod tests {
         assert!(!b.push(1, Seq(1), st(0.0, 0.0)));
         assert!(b.push(100, Seq(3), st(2.0, 0.0)));
         assert!(b.push(110, Seq(2), st(1.0, 0.0)), "late but between");
-        assert!(!b.push(120, Seq(0), st(1.0, 0.0)), "older than everything held");
+        assert!(
+            !b.push(120, Seq(0), st(1.0, 0.0)),
+            "older than everything held"
+        );
         let seqs: Vec<u32> = b.snaps.iter().map(|(s, _)| s.0).collect();
         assert_eq!(seqs, vec![1, 2, 3]);
     }

@@ -35,15 +35,18 @@ fn arb_class() -> impl Strategy<Value = ShadowClass> {
 fn arb_kind() -> impl Strategy<Value = EventKind> {
     prop_oneof![
         (0u32..300).prop_map(|stage| EventKind::SetStage { stage }),
-        (0u32..4, prop_oneof![
-            Just(RewardKind::Caps),
-            Just(RewardKind::Xp),
-            Just(RewardKind::Item),
-            Just(RewardKind::QuestItem),
-            Just(RewardKind::Karma),
-            Just(RewardKind::Payment),
-            "[A-Za-z0-9:]{0,8}".prop_map(RewardKind::Perk),
-        ])
+        (
+            0u32..4,
+            prop_oneof![
+                Just(RewardKind::Caps),
+                Just(RewardKind::Xp),
+                Just(RewardKind::Item),
+                Just(RewardKind::QuestItem),
+                Just(RewardKind::Karma),
+                Just(RewardKind::Payment),
+                "[A-Za-z0-9:]{0,8}".prop_map(RewardKind::Perk),
+            ]
+        )
             .prop_map(|(reward_id, what)| EventKind::Reward { reward_id, what }),
         (arb_class(), 0u8..10, proptest::option::of("[a-zA-Z]{0,10}"))
             .prop_map(|(class, slot, var)| EventKind::ShadowWrite { class, slot, var }),
@@ -59,8 +62,12 @@ fn arb_kind() -> impl Strategy<Value = EventKind> {
             any::<bool>()
         )
             .prop_map(|(op, owner, critter)| EventKind::Companion { op, owner, critter }),
-        prop_oneof![Just(SceneKind::Ending), Just(SceneKind::TimeSkip), Just(SceneKind::Cinematic)]
-            .prop_map(|kind| EventKind::Scene { kind }),
+        prop_oneof![
+            Just(SceneKind::Ending),
+            Just(SceneKind::TimeSkip),
+            Just(SceneKind::Cinematic)
+        ]
+        .prop_map(|kind| EventKind::Scene { kind }),
         any::<u32>().prop_map(|choice| EventKind::Choice { choice }),
         any::<u32>().prop_map(|info| EventKind::ReadyRequest { info }),
         (0u8..10).prop_map(|slot| EventKind::PlayerDown { slot }),
@@ -76,11 +83,23 @@ fn arb_state() -> impl Strategy<Value = State> {
         proptest::option::of(0u8..10),
         arb_mask(),
         0u32..400,
-        prop_oneof![Just(TetherMode::On), Just(TetherMode::Warn), Just(TetherMode::Off)],
+        prop_oneof![
+            Just(TetherMode::On),
+            Just(TetherMode::Warn),
+            Just(TetherMode::Off)
+        ],
         arb_mask(),
         0u32..400,
     );
-    let b = (arb_mask(), arb_mask(), 0u32..400, arb_mask(), arb_mask(), 0u32..400, proptest::collection::vec(0u32..300, 0..4));
+    let b = (
+        arb_mask(),
+        arb_mask(),
+        0u32..400,
+        arb_mask(),
+        arb_mask(),
+        0u32..400,
+        proptest::collection::vec(0u32..300, 0..4),
+    );
     let c = (
         proptest::collection::vec((0u32..4, 0u8..8), 0..6),
         any::<bool>(),
@@ -124,7 +143,11 @@ fn arb_quest() -> impl Strategy<Value = FormId> {
 }
 
 fn arb_event() -> impl Strategy<Value = Event> {
-    (arb_quest(), arb_origin(), arb_kind()).prop_map(|(quest, origin, kind)| Event { quest, origin, kind })
+    (arb_quest(), arb_origin(), arb_kind()).prop_map(|(quest, origin, kind)| Event {
+        quest,
+        origin,
+        kind,
+    })
 }
 
 proptest! {

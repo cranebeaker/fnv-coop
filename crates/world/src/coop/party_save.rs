@@ -44,7 +44,9 @@ pub const FOLDER_SUFFIX: &str = "partysave";
 
 /// 64-bit FNV-1a, the hash of every file in the folder.
 pub fn fnv64(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 /// A campaign id as 16 lower-case hex digits.
@@ -63,12 +65,16 @@ pub fn parse_campaign(s: &str) -> Option<u64> {
 
 /// True for a form that stands for a remote player: a puppet or a shadow carrier.
 pub fn is_synthetic(f: FormId) -> bool {
-    (PUPPET_BASE..PUPPET_BASE + 256).contains(&f.0) || (SHADOW_FORM_BASE..SHADOW_FORM_BASE + 256).contains(&f.0)
+    (PUPPET_BASE..PUPPET_BASE + 256).contains(&f.0)
+        || (SHADOW_FORM_BASE..SHADOW_FORM_BASE + 256).contains(&f.0)
 }
 
 /// The folder a save at `save_path` keeps its party data in.
 pub fn party_dir_for(save_path: &Path) -> PathBuf {
-    let mut n = save_path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut n = save_path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     n.push(format!(".{FOLDER_SUFFIX}"));
     save_path.with_file_name(n)
 }
@@ -98,13 +104,100 @@ pub struct GuestSidecar {
 
 impl GuestSidecar {
     /// Builds a sidecar from a shadow.
-    pub fn from_shadow(key: u64, name: &str, slot: u8, from_guest: bool, s: &PlayerShadow) -> GuestSidecar {
-        GuestSidecar { key, name: name.to_string(), slot, level: s.level, from_guest, blob: encode(s) }
+    pub fn from_shadow(
+        key: u64,
+        name: &str,
+        slot: u8,
+        from_guest: bool,
+        s: &PlayerShadow,
+    ) -> GuestSidecar {
+        GuestSidecar {
+            key,
+            name: name.to_string(),
+            slot,
+            level: s.level,
+            from_guest,
+            blob: encode(s),
+        }
     }
 
     /// The character, `None` when the blob does not parse.
     pub fn shadow(&self) -> Option<PlayerShadow> {
         decode(&self.blob)
+    }
+}
+
+/// The host's campaign rules: the difficulty mode and friendly fire. The
+/// launcher and viewer flags choose them, and the party save keeps them
+/// (manifest line `rules=MODE on|off`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartyRules {
+    /// Normal or Co-op balanced.
+    pub mode: coop_core::rules::Mode,
+    /// Players' hits on other players count.
+    pub friendly_fire: bool,
+}
+
+impl Default for PartyRules {
+    /// Co-op balanced, friendly fire off (a session without a choice).
+    fn default() -> Self {
+        PartyRules {
+            mode: coop_core::rules::Mode::CoopBalanced,
+            friendly_fire: false,
+        }
+    }
+}
+
+impl PartyRules {
+    /// `normal` or `balanced` (the flag's word).
+    pub fn mode_name(&self) -> &'static str {
+        match self.mode {
+            coop_core::rules::Mode::Normal => "normal",
+            coop_core::rules::Mode::CoopBalanced => "balanced",
+        }
+    }
+
+    /// `on` or `off` (the flag's word).
+    pub fn friendly_fire_name(&self) -> &'static str {
+        if self.friendly_fire {
+            "on"
+        } else {
+            "off"
+        }
+    }
+
+    /// A mode word: `normal` or `balanced`.
+    pub fn parse_mode(s: &str) -> Option<coop_core::rules::Mode> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "normal" => Some(coop_core::rules::Mode::Normal),
+            "balanced" | "coop-balanced" | "coop_balanced" => {
+                Some(coop_core::rules::Mode::CoopBalanced)
+            }
+            _ => None,
+        }
+    }
+
+    /// A switch word: `on` or `off`.
+    pub fn parse_switch(s: &str) -> Option<bool> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "on" => Some(true),
+            "off" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// The manifest value: `MODE on|off`.
+    fn text(&self) -> String {
+        format!("{} {}", self.mode_name(), self.friendly_fire_name())
+    }
+
+    /// Reads the manifest value.
+    fn parse(s: &str) -> Option<PartyRules> {
+        let mut w = s.split_whitespace();
+        Some(PartyRules {
+            mode: Self::parse_mode(w.next()?)?,
+            friendly_fire: Self::parse_switch(w.next()?)?,
+        })
     }
 }
 
@@ -123,6 +216,8 @@ pub struct PartySave {
     pub world_text: String,
     /// One per guest, ordered by key.
     pub guests: Vec<GuestSidecar>,
+    /// The host's campaign rules (a save without the line: the default).
+    pub rules: PartyRules,
 }
 
 /// What can go wrong with a party save.
@@ -145,7 +240,10 @@ impl std::fmt::Display for PartyError {
         match self {
             PartyError::Io(e) => write!(f, "party save: {e}"),
             PartyError::Version { found, supported } => {
-                write!(f, "party save is format {found}, this build reads up to {supported}")
+                write!(
+                    f,
+                    "party save is format {found}, this build reads up to {supported}"
+                )
             }
             PartyError::BadManifest(e) => write!(f, "party save manifest: {e}"),
             PartyError::WorldBad(e) => write!(f, "party save world file: {e}"),
@@ -337,7 +435,9 @@ fn side_parse(b: &[u8]) -> Option<(u64, Vec<u8>)> {
 }
 
 fn clean_line(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+    s.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 fn manifest_text(save: &PartySave, world: &[u8], sides: &[(u64, Vec<u8>)]) -> String {
@@ -359,6 +459,8 @@ fn manifest_text(save: &PartySave, world: &[u8], sides: &[(u64, Vec<u8>)]) -> St
             clean_line(&g.name)
         ));
     }
+    // after the pinned lines the launcher reads (it skips keys it does not know)
+    t.push_str(&format!("rules={}\n", save.rules.text()));
     t
 }
 
@@ -366,7 +468,10 @@ fn manifest_text(save: &PartySave, world: &[u8], sides: &[(u64, Vec<u8>)]) -> St
 
 fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
-    let mut f = fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
     f.write_all(bytes)?;
     f.sync_all()
 }
@@ -374,8 +479,15 @@ fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 fn sibling(dir: &Path, tag: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let mut n = dir.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-    n.push(format!(".{}.{}.{tag}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let mut n = dir
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    n.push(format!(
+        ".{}.{}.{tag}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     dir.with_file_name(n)
 }
 
@@ -405,7 +517,8 @@ pub fn write_party_with(
         }
         fs::create_dir(&tmp)?;
         let world = save.world_text.as_bytes();
-        let sides: Vec<(u64, Vec<u8>)> = save.guests.iter().map(|g| (g.key, side_bytes(g))).collect();
+        let sides: Vec<(u64, Vec<u8>)> =
+            save.guests.iter().map(|g| (g.key, side_bytes(g))).collect();
         let mut i = 0;
         hook(Step::File(i))?;
         write_file(&tmp.join(WORLD), world)?;
@@ -415,7 +528,10 @@ pub fn write_party_with(
             write_file(&tmp.join(sidecar_name(*key)), bytes)?;
         }
         hook(Step::File(i + 1))?;
-        write_file(&tmp.join(MANIFEST), manifest_text(&save, world, &sides).as_bytes())?;
+        write_file(
+            &tmp.join(MANIFEST),
+            manifest_text(&save, world, &sides).as_bytes(),
+        )?;
         hook(Step::Swap)?;
         let old = sibling(dir, "old");
         let had = dir.exists();
@@ -473,31 +589,47 @@ struct Manifest {
     world_len: usize,
     world_hash: u64,
     guests: Vec<Listed>,
+    rules: PartyRules,
 }
 
 fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
     let mut lines = text.lines();
     let first = lines.next().unwrap_or("");
     let bad = |m: &str| PartyError::BadManifest(m.to_string());
-    let v = first.strip_prefix(MANIFEST_MAGIC).ok_or_else(|| bad("not a party save"))?;
+    let v = first
+        .strip_prefix(MANIFEST_MAGIC)
+        .ok_or_else(|| bad("not a party save"))?;
     let version: u32 = v.trim().parse().map_err(|_| bad("no version"))?;
     if version > FORMAT_VERSION || version == 0 {
-        return Err(PartyError::Version { found: version, supported: FORMAT_VERSION });
+        return Err(PartyError::Version {
+            found: version,
+            supported: FORMAT_VERSION,
+        });
     }
     let (mut campaign, mut host, mut seq, mut saved) = (None, String::new(), 0u32, 0u64);
     let mut world = None;
     let mut guests = Vec::new();
+    let mut rules = PartyRules::default();
     for l in lines {
-        let Some((k, v)) = l.split_once('=') else { continue };
+        let Some((k, v)) = l.split_once('=') else {
+            continue;
+        };
         match k {
             "campaign" => campaign = parse_campaign(v),
             "host" => host = v.to_string(),
             "seq" => seq = v.parse().map_err(|_| bad("seq"))?,
             "saved" => saved = v.parse().map_err(|_| bad("saved"))?,
+            "rules" => rules = PartyRules::parse(v).ok_or_else(|| bad("rules"))?,
             "world" => {
                 let mut w = v.split_whitespace();
-                let len = w.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad("world length"))?;
-                let hash = w.next().and_then(|x| u64::from_str_radix(x, 16).ok()).ok_or_else(|| bad("world hash"))?;
+                let len = w
+                    .next()
+                    .and_then(|x| x.parse().ok())
+                    .ok_or_else(|| bad("world length"))?;
+                let hash = w
+                    .next()
+                    .and_then(|x| u64::from_str_radix(x, 16).ok())
+                    .ok_or_else(|| bad("world hash"))?;
                 world = Some((len, hash));
             }
             "guest" => {
@@ -510,19 +642,38 @@ fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
                 let len = next()?.parse().map_err(|_| bad("guest length"))?;
                 let hash = u64::from_str_radix(next()?, 16).map_err(|_| bad("guest hash"))?;
                 let name = next().map(str::to_string).unwrap_or_default();
-                guests.push(Listed { key, slot, level, from_guest, len, hash, name });
+                guests.push(Listed {
+                    key,
+                    slot,
+                    level,
+                    from_guest,
+                    len,
+                    hash,
+                    name,
+                });
             }
             _ => {}
         }
     }
     let campaign = campaign.ok_or(PartyError::NoCampaign)?;
     let (world_len, world_hash) = world.ok_or_else(|| bad("no world line"))?;
-    let roster = guests.iter().map(|g| (g.key, g.name.clone(), g.level)).collect();
+    let roster = guests
+        .iter()
+        .map(|g| (g.key, g.name.clone(), g.level))
+        .collect();
     Ok(Manifest {
-        info: Info { version, campaign, host_name: host, seq, saved_unix: saved, roster },
+        info: Info {
+            version,
+            campaign,
+            host_name: host,
+            seq,
+            saved_unix: saved,
+            roster,
+        },
         world_len,
         world_hash,
         guests,
+        rules,
     })
 }
 
@@ -532,12 +683,18 @@ fn recover(dir: &Path) -> Option<PathBuf> {
         return Some(dir.to_path_buf());
     }
     let name = dir.file_name()?.to_string_lossy().into_owned();
-    let parent = dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for e in fs::read_dir(parent).ok()?.flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
         if n.starts_with(&format!("{name}.")) && n.ends_with(".old") && e.path().is_dir() {
-            let t = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            let t = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
             if best.as_ref().is_none_or(|(bt, _)| t > *bt) {
                 best = Some((t, e.path()));
             }
@@ -548,20 +705,25 @@ fn recover(dir: &Path) -> Option<PathBuf> {
 
 /// Reads only the manifest (roster and time for lists).
 pub fn read_info(dir: &Path) -> Result<Info, PartyError> {
-    let d = recover(dir).ok_or_else(|| PartyError::Io(format!("{} is not there", dir.display())))?;
+    let d =
+        recover(dir).ok_or_else(|| PartyError::Io(format!("{} is not there", dir.display())))?;
     let text = fs::read_to_string(d.join(MANIFEST))?;
     Ok(parse_manifest(&text)?.info)
 }
 
 /// Reads and checks a party save.
 pub fn load_party(dir: &Path) -> Result<LoadedParty, PartyError> {
-    let d = recover(dir).ok_or_else(|| PartyError::Io(format!("{} is not there", dir.display())))?;
+    let d =
+        recover(dir).ok_or_else(|| PartyError::Io(format!("{} is not there", dir.display())))?;
     let m = parse_manifest(&fs::read_to_string(d.join(MANIFEST))?)?;
     let world = fs::read(d.join(WORLD)).map_err(|e| PartyError::WorldBad(e.to_string()))?;
     if world.len() != m.world_len || fnv64(&world) != m.world_hash {
-        return Err(PartyError::WorldBad("size or hash differs from the manifest".into()));
+        return Err(PartyError::WorldBad(
+            "size or hash differs from the manifest".into(),
+        ));
     }
-    let world_text = String::from_utf8(world).map_err(|_| PartyError::WorldBad("not text".into()))?;
+    let world_text =
+        String::from_utf8(world).map_err(|_| PartyError::WorldBad("not text".into()))?;
     let mut problems = Vec::new();
     let mut guests = Vec::new();
     let mut seen = BTreeSet::new();
@@ -575,14 +737,16 @@ pub fn load_party(dir: &Path) -> Result<LoadedParty, PartyError> {
         };
         let ok = bytes.len() == g.len && fnv64(&bytes) == g.hash;
         match ok.then(|| side_parse(&bytes)).flatten() {
-            Some((key, blob)) if key == g.key && decode(&blob).is_some() => guests.push(GuestSidecar {
-                key,
-                name: g.name.clone(),
-                slot: g.slot,
-                level: g.level,
-                from_guest: g.from_guest,
-                blob,
-            }),
+            Some((key, blob)) if key == g.key && decode(&blob).is_some() => {
+                guests.push(GuestSidecar {
+                    key,
+                    name: g.name.clone(),
+                    slot: g.slot,
+                    level: g.level,
+                    from_guest: g.from_guest,
+                    blob,
+                })
+            }
             _ => problems.push(Problem::SidecarCorrupt(g.key)),
         }
     }
@@ -593,6 +757,7 @@ pub fn load_party(dir: &Path) -> Result<LoadedParty, PartyError> {
         saved_unix: m.info.saved_unix,
         world_text,
         guests,
+        rules: m.rules,
     };
     let dropped = save.scrub();
     if dropped > 0 {
@@ -632,6 +797,10 @@ mod tests {
                 GuestSidecar::from_shadow(2, "Bo", 2, true, &shadow(7, 40)),
                 GuestSidecar::from_shadow(1, "Ann", 1, false, &shadow(3, 9)),
             ],
+            rules: PartyRules {
+                mode: coop_core::rules::Mode::Normal,
+                friendly_fire: true,
+            },
         }
     }
 
@@ -669,7 +838,13 @@ mod tests {
         let p = d.join("a.txt.partysave");
         write_party(&p, &sample()).unwrap();
         let before = load_party(&p).unwrap();
-        for fail_at in [Step::File(0), Step::File(1), Step::File(2), Step::File(3), Step::Swap] {
+        for fail_at in [
+            Step::File(0),
+            Step::File(1),
+            Step::File(2),
+            Step::File(3),
+            Step::Swap,
+        ] {
             let mut next = sample();
             next.seq = 99;
             let r = write_party_with(&p, &next, &mut |s| {
@@ -681,11 +856,21 @@ mod tests {
             });
             assert!(matches!(r, Err(PartyError::Io(_))), "{fail_at:?}");
             assert_eq!(load_party(&p).unwrap(), before, "{fail_at:?}");
-            assert_eq!(fs::read_dir(&d).unwrap().count(), 1, "temporary folder removed after {fail_at:?}");
+            assert_eq!(
+                fs::read_dir(&d).unwrap().count(),
+                1,
+                "temporary folder removed after {fail_at:?}"
+            );
         }
         // a first write that fails leaves nothing
         let q = d.join("b.txt.partysave");
-        let r = write_party_with(&q, &sample(), &mut |s| if s == Step::Swap { Err(io::Error::other("x")) } else { Ok(()) });
+        let r = write_party_with(&q, &sample(), &mut |s| {
+            if s == Step::Swap {
+                Err(io::Error::other("x"))
+            } else {
+                Ok(())
+            }
+        });
         assert!(r.is_err());
         assert!(!q.exists());
     }
@@ -697,7 +882,10 @@ mod tests {
         write_party(&p, &sample()).unwrap();
         let old = sibling(&p, "old");
         fs::rename(&p, &old).unwrap();
-        assert!(load_party(&p).is_ok(), "the .old folder is used when the folder is missing");
+        assert!(
+            load_party(&p).is_ok(),
+            "the .old folder is used when the folder is missing"
+        );
     }
 
     #[test]
@@ -705,9 +893,17 @@ mod tests {
         let d = tmp("ver");
         let p = d.join("v.txt.partysave");
         write_party(&p, &sample()).unwrap();
-        let m = fs::read_to_string(p.join(MANIFEST)).unwrap().replacen(" 1\n", " 2\n", 1);
+        let m = fs::read_to_string(p.join(MANIFEST))
+            .unwrap()
+            .replacen(" 1\n", " 2\n", 1);
         fs::write(p.join(MANIFEST), m).unwrap();
-        assert_eq!(load_party(&p), Err(PartyError::Version { found: 2, supported: 1 }));
+        assert_eq!(
+            load_party(&p),
+            Err(PartyError::Version {
+                found: 2,
+                supported: 1
+            })
+        );
         assert!(matches!(read_info(&p), Err(PartyError::Version { .. })));
         fs::write(p.join(MANIFEST), "garbage\n").unwrap();
         assert!(matches!(load_party(&p), Err(PartyError::BadManifest(_))));
@@ -740,7 +936,10 @@ mod tests {
         assert_eq!(l.save.guests.len(), 1);
         // truncated too
         fs::write(&f, &b[..5]).unwrap();
-        assert_eq!(load_party(&p).unwrap().problems, vec![Problem::SidecarCorrupt(1)]);
+        assert_eq!(
+            load_party(&p).unwrap().problems,
+            vec![Problem::SidecarCorrupt(1)]
+        );
     }
 
     #[test]
@@ -769,8 +968,34 @@ mod tests {
         assert_eq!(lines[4], "saved=1700000000");
         assert!(lines[5].starts_with("world="));
         // guest=<key> <slot> <level> <from_guest> <len> <hash> <name>, sorted by key
-        let g: Vec<&str> = lines[6].splitn(2, '=').nth(1).unwrap().splitn(7, ' ').collect();
-        assert_eq!((g[0], g[1], g[2], g[3], g[6]), ("0000000000000001", "1", "3", "0", "Ann"));
+        let g: Vec<&str> = lines[6]
+            .splitn(2, '=')
+            .nth(1)
+            .unwrap()
+            .splitn(7, ' ')
+            .collect();
+        assert_eq!(
+            (g[0], g[1], g[2], g[3], g[6]),
+            ("0000000000000001", "1", "3", "0", "Ann")
+        );
+    }
+
+    #[test]
+    fn the_rules_line_round_trips_and_an_older_save_gets_the_default() {
+        let d = tmp("rules");
+        let p = d.join("Save 1.txt.partysave");
+        write_party(&p, &sample()).unwrap();
+        let t = fs::read_to_string(p.join(MANIFEST)).unwrap();
+        assert!(t.lines().any(|l| l == "rules=normal on"), "{t}");
+        assert_eq!(load_party(&p).unwrap().save.rules, sample().rules);
+        // a save written before the rules line
+        let old: String = t
+            .lines()
+            .filter(|l| !l.starts_with("rules="))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        fs::write(p.join(MANIFEST), old).unwrap();
+        assert_eq!(load_party(&p).unwrap().save.rules, PartyRules::default());
     }
 
     #[test]
@@ -781,7 +1006,10 @@ mod tests {
         assert_eq!(campaign_hex(0xab), "00000000000000ab");
         let mut s = sample();
         s.campaign = 0;
-        assert_eq!(write_party(&tmp("zero").join("z"), &s), Err(PartyError::NoCampaign));
+        assert_eq!(
+            write_party(&tmp("zero").join("z"), &s),
+            Err(PartyError::NoCampaign)
+        );
     }
 
     #[test]
@@ -799,11 +1027,22 @@ disabled FC000001 1\nvar 00000014 FE000001 f 1\nitem FF000001 0000000F 1\n"
         let p = d.join("s.txt.partysave");
         write_party(&p, &s).unwrap();
         let l = load_party(&p).unwrap();
-        assert!(!l.save.world_text.contains("item FE0000") && !l.save.world_text.contains("position FE"), "{}", l.save.world_text);
+        assert!(
+            !l.save.world_text.contains("item FE0000")
+                && !l.save.world_text.contains("position FE"),
+            "{}",
+            l.save.world_text
+        );
         assert!(!l.save.world_text.contains("FC0000"));
         assert!(l.save.world_text.contains("item 00000014 0000000F 5"));
-        assert!(l.save.world_text.contains("item FF000001"), "dynamic references are real state");
-        assert!(l.save.world_text.contains("var 00000014 FE000001 f 1"), "a variable name is not a form");
+        assert!(
+            l.save.world_text.contains("item FF000001"),
+            "dynamic references are real state"
+        );
+        assert!(
+            l.save.world_text.contains("var 00000014 FE000001 f 1"),
+            "a variable name is not a form"
+        );
         let back = l.guest(2).unwrap().shadow().unwrap();
         assert!(!back.items.keys().any(|f| is_synthetic(*f)));
         assert!(back.teammates.is_empty());

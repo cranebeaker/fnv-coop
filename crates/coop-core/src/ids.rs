@@ -3,15 +3,21 @@
 use serde::{Deserialize, Serialize};
 
 /// A game FormID (plugin index in the top byte, as in the ESM).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct FormId(pub u32);
 
 /// An interior cell or exterior grid cell id (interest and ownership are per cell).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct CellId(pub u32);
 
 /// A player slot. Slot 0 is always the host.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct PlayerId(pub u8);
 
 impl PlayerId {
@@ -26,7 +32,9 @@ impl PlayerId {
 
 /// Ownership epoch. Bumped every time an entity changes owner so late
 /// writes from the previous owner can be fenced off.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Epoch(pub u32);
 
 impl Epoch {
@@ -37,7 +45,9 @@ impl Epoch {
 }
 
 /// Dense per-connection message sequence number (wraps, serial arithmetic).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Seq(pub u32);
 
 impl Seq {
@@ -54,12 +64,16 @@ impl Seq {
 }
 
 /// Host simulation tick.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Tick(pub u32);
 
 /// Host write counter. Every accepted host write gets the next revision, so a
 /// revision is both a per-key version and a position in host order.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Rev(pub u64);
 
 impl Rev {

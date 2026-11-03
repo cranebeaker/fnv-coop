@@ -21,8 +21,8 @@ use coop_core::actors::ActorMsg;
 use coop_core::authority::AuthorityTable;
 use coop_core::avatar::{dequant_heading, dequant_pos, FLAG_DEAD, FLAG_DOWNED, FLAG_SNEAK};
 use coop_core::combat::{
-    BlastEvent, CombatClient, CombatMsg, DamageKind, EffectKind, EffectNote, ExtraPlan, FireEvent, HurtNote, Threat,
-    ThreatDirector, ThreatInput, VatsResult, VatsShot,
+    BlastEvent, CombatClient, CombatMsg, DamageKind, EffectKind, EffectNote, ExtraPlan, FireEvent,
+    HurtNote, Threat, ThreatDirector, ThreatInput, VatsResult, VatsShot,
 };
 use coop_core::ids::{CellId, FormId as CForm, PlayerId};
 use coop_core::proto::Msg;
@@ -83,7 +83,15 @@ pub struct Stealth {
 
 impl Default for Stealth {
     fn default() -> Self {
-        Stealth { sneaking: false, moving: false, running: false, downed: false, dead: false, sneak_skill: f32::from(DEFAULT_SNEAK), level: 1 }
+        Stealth {
+            sneaking: false,
+            moving: false,
+            running: false,
+            downed: false,
+            dead: false,
+            sneak_skill: f32::from(DEFAULT_SNEAK),
+            level: 1,
+        }
     }
 }
 
@@ -184,12 +192,15 @@ pub struct CombatStats {
     pub vats_clock_kept: u32,
     /// Detection values the `probe` verb measured, oldest first (tests).
     pub probes: Vec<i32>,
+    /// What the `probeparty` verb measured, oldest first (tests): the
+    /// party's value (the best-seen player) and each player's, by slot.
+    pub party_probes: Vec<(i32, BTreeMap<u8, i32>)>,
 }
 
 impl CombatStats {
     /// The dump object (`combat` in the state dump).
     pub fn json(&self) -> String {
-        format!(
+        let base = format!(
             "{{\"npc_hits_sent\":{},\"pvp_sent\":{},\"hurts_applied\":{},\"hurt_points\":{:.1},\"downs\":{},\"effects_applied\":{},\"fires_sent\":{},\"fires_seen\":{},\"blasts_sent\":{},\"blasts_seen\":{},\"blast_hits\":{},\"vats_sent\":{},\"vats_hits\":{},\"retargets\":{},\"crimes\":{},\"extras_made\":{},\"extras_cleared\":{},\"vats_clock_kept\":{},\"probe_first\":{},\"probe_last\":{},\"probe_drop\":{}}}",
             self.npc_hits_sent,
             self.pvp_sent,
@@ -212,6 +223,37 @@ impl CombatStats {
             self.probes.first().copied().unwrap_or(0),
             self.probes.last().copied().unwrap_or(0),
             self.probes.first().copied().unwrap_or(0) - self.probes.last().copied().unwrap_or(0)
+        );
+        let party = self.party_probe_json();
+        format!("{},{party}}}", base.strip_suffix('}').unwrap_or(&base))
+    }
+
+    /// `probe_party_first`, `_last`, `_drop` and `probe_slots.<slot>.{first,
+    /// last,drop}` from the `probeparty` samples (zero without any).
+    fn party_probe_json(&self) -> String {
+        let first = self.party_probes.first();
+        let last = self.party_probes.last();
+        let pf = first.map_or(0, |p| p.0);
+        let pl = last.map_or(0, |p| p.0);
+        let mut slots: Vec<String> = Vec::new();
+        if let (Some(f), Some(l)) = (first, last) {
+            for (slot, a) in &f.1 {
+                let b = l.1.get(slot).copied().unwrap_or(*a);
+                let key = match slot {
+                    0 => "host".to_string(),
+                    1 => "guest".to_string(),
+                    n => format!("guest{n}"),
+                };
+                slots.push(format!(
+                    "\"{key}\":{{\"first\":{a},\"last\":{b},\"drop\":{}}}",
+                    a - b
+                ));
+            }
+        }
+        format!(
+            "\"probe_party_first\":{pf},\"probe_party_last\":{pl},\"probe_party_drop\":{},\"probe_slots\":{{{}}}",
+            pf - pl,
+            slots.join(",")
         )
     }
 }
@@ -273,16 +315,32 @@ impl CombatFacts {
 
 /// The `combat::hurt` hook for a remote player's puppet. Returns false (a
 /// remote player's health is theirs; the host judges the blow).
-pub(crate) fn puppet_hurt(state: &mut GameState, victim: PlayerId, amount: f64, by: FormId) -> bool {
+pub(crate) fn puppet_hurt(
+    state: &mut GameState,
+    victim: PlayerId,
+    amount: f64,
+    by: FormId,
+) -> bool {
     if state.coop.live.replaying || amount <= 0.0 {
         return false;
     }
     let f = &mut state.coop.live.combat;
     let (kind, limb) = f.next_kind.take().unwrap_or((DamageKind::Bullet, 1));
     if by == PLAYER_REF || player_of(by).is_some() {
-        f.pvp_hits.push(PvpNote { victim, amount, kind, limb });
+        f.pvp_hits.push(PvpNote {
+            victim,
+            amount,
+            kind,
+            limb,
+        });
     } else {
-        f.npc_hits.push(NpcNote { attacker: by, victim, amount, kind, limb });
+        f.npc_hits.push(NpcNote {
+            attacker: by,
+            victim,
+            amount,
+            kind,
+            limb,
+        });
     }
     false
 }
@@ -330,7 +388,12 @@ pub fn note_shot(state: &mut GameState, weapon: FormId) {
 }
 
 /// Where the newest shot landed, on whom and on which body part.
-pub fn note_impact(state: &mut GameState, point: [f32; 3], target: Option<FormId>, part: Option<u8>) {
+pub fn note_impact(
+    state: &mut GameState,
+    point: [f32; 3],
+    target: Option<FormId>,
+    part: Option<u8>,
+) {
     if let Some(e) = state.coop.live.combat.last_shot.as_mut() {
         e.hit = [quant(point[0]), quant(point[1]), quant(point[2])];
         e.target = cf(target.unwrap_or(FormId(0)));
@@ -340,7 +403,10 @@ pub fn note_impact(state: &mut GameState, point: [f32; 3], target: Option<FormId
 }
 
 /// Where a puppet stands (`GameState::place` asks for synthetic forms).
-pub(crate) fn puppet_place(state: &GameState, r: FormId) -> Option<(FormId, FormId, [f32; 3], f32)> {
+pub(crate) fn puppet_place(
+    state: &GameState,
+    r: FormId,
+) -> Option<(FormId, FormId, [f32; 3], f32)> {
     let p = state.coop.live.combat.puppets.get(&r)?;
     Some((p.space, p.cell, p.pos, p.heading))
 }
@@ -348,7 +414,14 @@ pub(crate) fn puppet_place(state: &GameState, r: FormId) -> Option<(FormId, Form
 /// A remote player's stealth state, for detection (`None`: not a puppet).
 pub(crate) fn stealth_of(state: &GameState, r: FormId) -> Option<Stealth> {
     let p = player_of(r)?;
-    state.coop.live.combat.stealth.get(&p).copied().or(Some(Stealth::default()))
+    state
+        .coop
+        .live
+        .combat
+        .stealth
+        .get(&p)
+        .copied()
+        .or(Some(Stealth::default()))
 }
 
 /// The remote players as things the AI can see: (puppet form, feet, moving,
@@ -373,8 +446,72 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
         .combat
         .puppets
         .iter()
-        .filter(|(f, _)| player_of(**f).map_or(false, |p| !state.coop.live.combat.stealth.get(&p).is_some_and(|s| s.dead)))
+        .filter(|(f, _)| {
+            player_of(**f).map_or(false, |p| {
+                !state
+                    .coop
+                    .live
+                    .combat
+                    .stealth
+                    .get(&p)
+                    .is_some_and(|s| s.dead)
+            })
+        })
         .map(|(f, p)| (*f, p.pos))
+        .collect()
+}
+
+// -- party detection -----------------------------------------------------
+
+/// How well `npc` detects each player of the party now: the local player
+/// (`PLAYER_REF`) and every remote player's puppet, each with their own
+/// sneak, motion, skill and level (`Facts::detection`). Downed and dead
+/// players and players outside the NPC's place are left out.
+pub fn party_values(order: &LoadOrder, gs: &GameState, npc: FormId) -> Vec<(FormId, i32)> {
+    let facts = Facts {
+        order,
+        state: gs,
+        speaker: None,
+    };
+    let mut out = Vec::new();
+    let local_out = gs.coop.live.downed || gs.dead.contains(&PLAYER_REF);
+    if !local_out {
+        if let Some(v) = facts.detection(npc, PLAYER_REF) {
+            out.push((PLAYER_REF, v));
+        }
+    }
+    for (form, _, _, _) in remote_seen(gs) {
+        if let Some(v) = facts.detection(npc, form) {
+            out.push((form, v));
+        }
+    }
+    out
+}
+
+/// The party rule for stealth: an NPC detects the party as well as it
+/// detects the player it sees best (the highest detection value). One
+/// player in plain sight gives the party away, however well the others
+/// sneak. `None` when no player shares the NPC's place.
+pub fn party_detection(order: &LoadOrder, gs: &GameState, npc: FormId) -> Option<(FormId, i32)> {
+    party_values(order, gs, npc)
+        .into_iter()
+        .fold(None, |best, (f, v)| match best {
+            Some((_, b)) if b >= v => best,
+            _ => Some((f, v)),
+        })
+}
+
+/// Whom each enemy in combat attends to, by player slot: its combat
+/// target when that is a player (`PLAYER_REF` is `me`, a puppet its
+/// player). Dead enemies and other targets are left out.
+pub fn enemy_targets(gs: &GameState, me: PlayerId) -> Vec<(FormId, PlayerId)> {
+    gs.combat
+        .iter()
+        .filter(|(enemy, _)| !gs.dead.contains(*enemy) && player_of(**enemy).is_none())
+        .filter_map(|(enemy, t)| {
+            let p = if *t == PLAYER_REF { me } else { player_of(*t)? };
+            Some((*enemy, p))
+        })
         .collect()
 }
 
@@ -388,7 +525,14 @@ pub fn world_clock_may_change(state: &GameState) -> bool {
 /// Something exploded because of the local player (or a mine): the other
 /// machines are shown it. Damage was already dealt by the caller's own area
 /// pass. A no-op in single player.
-pub fn note_blast(state: &mut GameState, explosion: FormId, at: [f32; 3], damage: f32, radius: f32, mine: bool) {
+pub fn note_blast(
+    state: &mut GameState,
+    explosion: FormId,
+    at: [f32; 3],
+    damage: f32,
+    radius: f32,
+    mine: bool,
+) {
     if state.coop.authority == super::Authority::Single {
         return;
     }
@@ -402,7 +546,11 @@ pub fn note_blast(state: &mut GameState, explosion: FormId, at: [f32; 3], damage
         pos: [quant(at[0]), quant(at[1]), quant(at[2])],
         damage: damage.clamp(0.0, 5000.0) as u16,
         radius: radius.clamp(0.0, 4096.0) as u16,
-        kind: if mine { DamageKind::Mine } else { DamageKind::Explosion },
+        kind: if mine {
+            DamageKind::Mine
+        } else {
+            DamageKind::Explosion
+        },
     });
 }
 
@@ -436,7 +584,14 @@ pub fn apply_hurt(order: &LoadOrder, gs: &mut GameState, h: &HurtNote) -> bool {
 pub fn apply_effect(order: &LoadOrder, gs: &mut GameState, e: &EffectNote, now_ms: u64) {
     match e.effect {
         EffectKind::Radiation => {
-            crate::magic::change(order, gs, PLAYER_REF, RADS_AV, -f64::from(e.amount), FormId(0));
+            crate::magic::change(
+                order,
+                gs,
+                PLAYER_REF,
+                RADS_AV,
+                -f64::from(e.amount),
+                FormId(0),
+            );
         }
         EffectKind::Cripple => {
             if let Some(av) = LIMB_AV.get(usize::from(e.limb)) {
@@ -453,7 +608,13 @@ pub fn apply_effect(order: &LoadOrder, gs: &mut GameState, e: &EffectNote, now_m
             f.poison = 0;
             f.bleeding.clear();
             for av in LIMB_AV {
-                if gs.value_damage.get(&(PLAYER_REF, av)).copied().unwrap_or(0.0) > 0.0 {
+                if gs
+                    .value_damage
+                    .get(&(PLAYER_REF, av))
+                    .copied()
+                    .unwrap_or(0.0)
+                    > 0.0
+                {
                     crate::magic::change(order, gs, PLAYER_REF, av, 100.0, FormId(0));
                 }
             }
@@ -578,8 +739,20 @@ impl CombatBridge {
             let form = puppet_of(r.player);
             seen.insert(form);
             let cell = FormId(r.cell);
-            let space = if gs.player_cell == Some(cell) { gs.player_world.unwrap_or(cell) } else { cell };
-            gs.coop.live.combat.puppets.insert(form, PuppetPlace { space, cell, pos: r.pos, heading: r.heading });
+            let space = if gs.player_cell == Some(cell) {
+                gs.player_world.unwrap_or(cell)
+            } else {
+                cell
+            };
+            gs.coop.live.combat.puppets.insert(
+                form,
+                PuppetPlace {
+                    space,
+                    cell,
+                    pos: r.pos,
+                    heading: r.heading,
+                },
+            );
             gs.positions.insert(form, (r.pos, r.heading));
             let speed = (r.vel[0] * r.vel[0] + r.vel[1] * r.vel[1]).sqrt();
             let skill = self.skills.get(&r.player).copied();
@@ -595,11 +768,21 @@ impl CombatBridge {
             }
         }
         gs.coop.live.combat.puppets.retain(|f, _| seen.contains(f));
-        gs.coop.live.combat.stealth.retain(|p, _| seen.contains(&puppet_of(*p)));
+        gs.coop
+            .live
+            .combat
+            .stealth
+            .retain(|p, _| seen.contains(&puppet_of(*p)));
     }
 
     /// Turns the local queues into messages for the host. `send` takes one.
-    fn local_notes(&mut self, gs: &mut GameState, client: &mut CombatClient, ap: u16, mut send: impl FnMut(CombatMsg)) {
+    fn local_notes(
+        &mut self,
+        gs: &mut GameState,
+        client: &mut CombatClient,
+        ap: u16,
+        mut send: impl FnMut(CombatMsg),
+    ) {
         let f = &mut gs.coop.live.combat;
         if let Some(e) = f.last_shot.take() {
             f.fires.push(e);
@@ -618,7 +801,9 @@ impl CombatBridge {
         }
         let mut pv: BTreeMap<(PlayerId, u8, u8), (f64, DamageKind)> = BTreeMap::new();
         for n in std::mem::take(&mut f.pvp_hits) {
-            let e = pv.entry((n.victim, n.limb, n.kind as u8)).or_insert((0.0, n.kind));
+            let e = pv
+                .entry((n.victim, n.limb, n.kind as u8))
+                .or_insert((0.0, n.kind));
             e.0 += n.amount;
         }
         for ((victim, limb, _), (amount, kind)) in pv {
@@ -638,7 +823,13 @@ impl CombatBridge {
             let shots: Vec<VatsShot> = asks
                 .iter()
                 .take(coop_core::combat::MAX_VATS_SHOTS)
-                .map(|a| VatsShot { target: cf(a.target), limb: a.limb, cost: a.cost, chance: a.chance, damage: a.damage })
+                .map(|a| VatsShot {
+                    target: cf(a.target),
+                    limb: a.limb,
+                    cost: a.cost,
+                    chance: a.chance,
+                    damage: a.damage,
+                })
                 .collect();
             f.stats.vats_sent += 1;
             let (_, m) = client.vats(ap, shots);
@@ -662,13 +853,27 @@ impl CombatBridge {
     // -- enemy attention -------------------------------------------------
 
     /// Re-decides whom each enemy this machine owns attends to.
-    pub fn retarget(&mut self, order: &LoadOrder, gs: &mut GameState, owned: &[FormId], me: PlayerId, now_ms: u64) {
+    pub fn retarget(
+        &mut self,
+        order: &LoadOrder,
+        gs: &mut GameState,
+        owned: &[FormId],
+        me: PlayerId,
+        now_ms: u64,
+    ) {
         if now_ms < self.next_retarget_ms {
             return;
         }
         self.next_retarget_ms = now_ms + RETARGET_MS;
         let focus = gs.coop.live.scaling.map_or(1.0, |s| s.focus);
-        let remotes: Vec<(PlayerId, FormId)> = gs.coop.live.combat.puppets.keys().filter_map(|f| player_of(*f).map(|p| (p, *f))).collect();
+        let remotes: Vec<(PlayerId, FormId)> = gs
+            .coop
+            .live
+            .combat
+            .puppets
+            .keys()
+            .filter_map(|f| player_of(*f).map(|p| (p, *f)))
+            .collect();
         if remotes.is_empty() {
             return;
         }
@@ -679,29 +884,59 @@ impl CombatBridge {
                 self.threat.forget(cf(enemy));
                 continue;
             }
-            let Some(&cur) = gs.combat.get(&enemy) else { continue };
+            let Some(&cur) = gs.combat.get(&enemy) else {
+                continue;
+            };
             let player_side = cur == PLAYER_REF || player_of(cur).is_some();
             if !player_side {
                 continue;
             }
-            let Some((space, cell, at, _)) = gs.place(order, enemy) else { continue };
+            let Some((space, cell, at, _)) = gs.place(order, enemy) else {
+                continue;
+            };
             let mut inputs = Vec::new();
             let mut forms: BTreeMap<PlayerId, FormId> = BTreeMap::new();
-            let mut consider = |p: PlayerId, form: FormId, downed: bool, dead: bool, gs: &GameState| {
-                let Some((sp, ce, pos, _)) = gs.place(order, form) else { return };
-                let d = ((pos[0] - at[0]).powi(2) + (pos[1] - at[1]).powi(2) + (pos[2] - at[2]).powi(2)).sqrt();
-                let seen = Facts { order, state: gs, speaker: None }
+            let mut consider =
+                |p: PlayerId, form: FormId, downed: bool, dead: bool, gs: &GameState| {
+                    let Some((sp, ce, pos, _)) = gs.place(order, form) else {
+                        return;
+                    };
+                    let d = ((pos[0] - at[0]).powi(2)
+                        + (pos[1] - at[1]).powi(2)
+                        + (pos[2] - at[2]).powi(2))
+                    .sqrt();
+                    let seen = Facts {
+                        order,
+                        state: gs,
+                        speaker: None,
+                    }
                     .detection(enemy, form)
                     .is_some_and(|v| v > crate::detection::SEEN);
-                inputs.push(ThreatInput { player: p, dist: d, seen, downed, dead, same_cell: sp == space || ce == cell });
-                forms.insert(p, form);
-            };
+                    inputs.push(ThreatInput {
+                        player: p,
+                        dist: d,
+                        seen,
+                        downed,
+                        dead,
+                        same_cell: sp == space || ce == cell,
+                    });
+                    forms.insert(p, form);
+                };
             consider(me, PLAYER_REF, local_down, local_dead, gs);
             for (p, form) in &remotes {
-                let s = gs.coop.live.combat.stealth.get(p).copied().unwrap_or_default();
+                let s = gs
+                    .coop
+                    .live
+                    .combat
+                    .stealth
+                    .get(p)
+                    .copied()
+                    .unwrap_or_default();
                 consider(*p, *form, s.downed, s.dead, gs);
             }
-            let Some(Threat { target, switched }) = self.threat.choose(cf(enemy), now_ms, focus, &inputs) else {
+            let Some(Threat { target, switched }) =
+                self.threat.choose(cf(enemy), now_ms, focus, &inputs)
+            else {
                 continue;
             };
             if switched {
@@ -749,14 +984,25 @@ impl CombatBridge {
                 Some(Remote {
                     player: *p,
                     cell: s.cell.0,
-                    pos: [dequant_pos(s.pos[0]), dequant_pos(s.pos[1]), dequant_pos(s.pos[2])],
+                    pos: [
+                        dequant_pos(s.pos[0]),
+                        dequant_pos(s.pos[1]),
+                        dequant_pos(s.pos[2]),
+                    ],
                     heading: dequant_heading(s.heading),
                     vel: [0.0; 3],
                     flags: s.flags,
                 })
             })
             .collect();
-        let prev: BTreeMap<PlayerId, [f32; 3]> = gs.coop.live.combat.puppets.iter().filter_map(|(f, p)| Some((player_of(*f)?, p.pos))).collect();
+        let prev: BTreeMap<PlayerId, [f32; 3]> = gs
+            .coop
+            .live
+            .combat
+            .puppets
+            .iter()
+            .filter_map(|(f, p)| Some((player_of(*f)?, p.pos)))
+            .collect();
         let dt = 0.05_f32;
         let remotes: Vec<Remote> = remotes
             .into_iter()
@@ -772,29 +1018,55 @@ impl CombatBridge {
             self.next_slow_ms = now_ms + SLOW_MS;
             for p in &members {
                 if let Some(sh) = gs.shadow_of(p.0) {
-                    let sneak = sh.actor_values.get(&SNEAK_AV).copied().unwrap_or(f64::from(DEFAULT_SNEAK)).clamp(0.0, 100.0) as u8;
+                    let sneak = sh
+                        .actor_values
+                        .get(&SNEAK_AV)
+                        .copied()
+                        .unwrap_or(f64::from(DEFAULT_SNEAK))
+                        .clamp(0.0, 100.0) as u8;
                     self.skills.insert(*p, (sneak, sh.level));
                     let max = sh.actor_values.get(&AP_AV).copied().unwrap_or(0.0);
                     let used = sh.value_damage.get(&AP_AV).copied().unwrap_or(0.0);
                     if !p.is_host() && max > 0.0 {
-                        live.combat.vats.known_ap.insert(*p, (max - used).clamp(0.0, 255.0) as u16);
+                        live.combat
+                            .vats
+                            .known_ap
+                            .insert(*p, (max - used).clamp(0.0, 255.0) as u16);
                     }
                 }
             }
             for (p, v) in self.skills.clone() {
                 if self.announced.get(&p) != Some(&v) {
                     self.announced.insert(p, v);
-                    outs.extend(live.route_combat_all(CombatMsg::Stealth { player: p, sneak: v.0, level: v.1 }));
+                    outs.extend(live.route_combat_all(CombatMsg::Stealth {
+                        player: p,
+                        sneak: v.0,
+                        level: v.1,
+                    }));
                 }
             }
         }
         self.sync_remotes(gs, PlayerId::HOST, &remotes);
         // vitals mirror
         let scaling = live.rules.scaling(now_ms);
-        let max_hp = |order: &LoadOrder, gs: &GameState| crate::combat::max_health(order, gs, PLAYER_REF).unwrap_or(100.0).clamp(1.0, 65535.0) as u16;
-        let host_hp = crate::combat::health(order, gs, PLAYER_REF).unwrap_or(0.0).clamp(0.0, 65535.0) as u16;
-        live.combat.vitals.track(PlayerId::HOST, host_hp, max_hp(order, gs));
-        live.combat.vitals.report(PlayerId::HOST, now_ms, host_hp, gs.coop.live.downed, gs.dead.contains(&PLAYER_REF));
+        let max_hp = |order: &LoadOrder, gs: &GameState| {
+            crate::combat::max_health(order, gs, PLAYER_REF)
+                .unwrap_or(100.0)
+                .clamp(1.0, 65535.0) as u16
+        };
+        let host_hp = crate::combat::health(order, gs, PLAYER_REF)
+            .unwrap_or(0.0)
+            .clamp(0.0, 65535.0) as u16;
+        live.combat
+            .vitals
+            .track(PlayerId::HOST, host_hp, max_hp(order, gs));
+        live.combat.vitals.report(
+            PlayerId::HOST,
+            now_ms,
+            host_hp,
+            gs.coop.live.downed,
+            gs.dead.contains(&PLAYER_REF),
+        );
         for p in &members {
             if p.is_host() {
                 continue;
@@ -802,7 +1074,9 @@ impl CombatBridge {
             if let Some(s) = live.avatars.state(*p) {
                 live.combat.vitals.track(*p, s.health, s.health.max(100));
                 let down = s.flags & FLAG_DOWNED != 0 || live.rules.revive.is_downed(*p);
-                live.combat.vitals.report(*p, now_ms, s.health, down, s.flags & FLAG_DEAD != 0);
+                live.combat
+                    .vitals
+                    .report(*p, now_ms, s.health, down, s.flags & FLAG_DEAD != 0);
             }
         }
         // the host player's own notes
@@ -811,18 +1085,35 @@ impl CombatBridge {
             let f = &mut gs.coop.live.combat;
             let mut by: BTreeMap<(FormId, PlayerId, u8, u8), (f64, DamageKind)> = BTreeMap::new();
             for n in std::mem::take(&mut f.npc_hits) {
-                let e = by.entry((n.attacker, n.victim, n.limb, n.kind as u8)).or_insert((0.0, n.kind));
+                let e = by
+                    .entry((n.attacker, n.victim, n.limb, n.kind as u8))
+                    .or_insert((0.0, n.kind));
                 e.0 += n.amount;
             }
             for ((attacker, victim, limb, _), (amount, kind)) in by {
                 f.stats.npc_hits_sent += 1;
                 let pts = amount.ceil().clamp(1.0, 5000.0) as u16;
-                msgs.extend(live.combat.vitals.hurt(now_ms, victim, cf(attacker), pts, kind, limb, &scaling));
+                msgs.extend(live.combat.vitals.hurt(
+                    now_ms,
+                    victim,
+                    cf(attacker),
+                    pts,
+                    kind,
+                    limb,
+                    &scaling,
+                ));
             }
             for n in std::mem::take(&mut f.pvp_hits) {
                 f.stats.pvp_sent += 1;
                 let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
-                msgs.extend(live.combat.vitals.player_vs_player(now_ms, PlayerId::HOST, n.victim, pts, n.kind, n.limb));
+                msgs.extend(live.combat.vitals.player_vs_player(
+                    now_ms,
+                    PlayerId::HOST,
+                    n.victim,
+                    pts,
+                    n.kind,
+                    n.limb,
+                ));
             }
         }
         outs.extend(live.route_combat(msgs));
@@ -860,7 +1151,8 @@ impl CombatBridge {
         // the host's own hurts to enemies feed the director too
         for h in &gs.coop.live.hurts {
             if h.by == PLAYER_REF {
-                self.threat.damaged(cf(h.who), PlayerId::HOST, h.amount as f32);
+                self.threat
+                    .damaged(cf(h.who), PlayerId::HOST, h.amount as f32);
             }
         }
         self.feed_threat(&mut own.actors);
@@ -877,7 +1169,15 @@ impl CombatBridge {
 
     /// Crime and reputation for the player who hit or killed someone: run
     /// as that player, so the witnesses are the ones who can see them.
-    fn attribute(&mut self, order: &LoadOrder, gs: &mut GameState, actor: CForm, by: PlayerId, amount: u16, killed: bool) {
+    fn attribute(
+        &mut self,
+        order: &LoadOrder,
+        gs: &mut GameState,
+        actor: CForm,
+        by: PlayerId,
+        amount: u16,
+        killed: bool,
+    ) {
         self.threat.damaged(actor, by, f32::from(amount));
         if by.is_host() || gs.coop.authority != super::Authority::Host {
             return; // the host's own hits run the game's normal paths
@@ -912,7 +1212,12 @@ impl CombatBridge {
         let mut outs = Vec::new();
         let scaling = live.rules.scaling(now_ms);
         // answers to earlier requests
-        let answered: Vec<u32> = self.pending_extras.keys().copied().filter(|r| own.actors.spawn_results.contains_key(r)).collect();
+        let answered: Vec<u32> = self
+            .pending_extras
+            .keys()
+            .copied()
+            .filter(|r| own.actors.spawn_results.contains_key(r))
+            .collect();
         for req in answered {
             let (plan, base, cell) = self.pending_extras.remove(&req).expect("listed");
             match own.actors.spawn_results.remove(&req) {
@@ -920,28 +1225,45 @@ impl CombatBridge {
                     live.combat.extras.created_as(&plan, id, cell);
                     gs.coop.live.combat.extras.insert(wf(id));
                     gs.coop.live.combat.stats.extras_made += 1;
-                    gs.coop.live.spawns.push(SpawnNote { id: wf(id), base: Some(base), pos: plan.pos });
+                    gs.coop.live.spawns.push(SpawnNote {
+                        id: wf(id),
+                        base: Some(base),
+                        pos: plan.pos,
+                    });
                 }
                 _ => live.combat.extras.refused(&plan),
             }
         }
         // new hostile dynamic spawns bring extras
-        let spawns: Vec<(CForm, coop_core::actors::SpawnRec)> = live.actors.spawn.live().map(|(i, r)| (*i, *r)).collect();
+        let spawns: Vec<(CForm, coop_core::actors::SpawnRec)> =
+            live.actors.spawn.live().map(|(i, r)| (*i, *r)).collect();
         for (id, rec) in spawns {
             if !self.seen_spawns.insert(wf(id)) {
                 continue;
             }
-            let is_extra = gs.coop.live.combat.extras.contains(&wf(id)) || rec.site.0 & 0xFF00_0000 == 0xFD00_0000;
-            let hostile = hostile_base(order, wf(rec.base)) || crate::factions::reaction(order, gs, wf(id), PLAYER_REF) == crate::factions::Reaction::Enemy;
+            let is_extra = gs.coop.live.combat.extras.contains(&wf(id))
+                || rec.site.0 & 0xFF00_0000 == 0xFD00_0000;
+            let hostile = hostile_base(order, wf(rec.base))
+                || crate::factions::reaction(order, gs, wf(id), PLAYER_REF)
+                    == crate::factions::Reaction::Enemy;
             if !hostile {
                 continue;
             }
-            let pos = [dequant_pos(rec.pos[0]), dequant_pos(rec.pos[1]), dequant_pos(rec.pos[2])];
+            let pos = [
+                dequant_pos(rec.pos[0]),
+                dequant_pos(rec.pos[1]),
+                dequant_pos(rec.pos[2]),
+            ];
             if let Some(plan) = live.combat.extras.consider(&scaling, id, pos, is_extra) {
-                let health = crate::combat::max_health(order, gs, wf(rec.base)).unwrap_or(100.0).clamp(1.0, 65535.0) as u16;
+                let health = crate::combat::max_health(order, gs, wf(rec.base))
+                    .unwrap_or(100.0)
+                    .clamp(1.0, 65535.0) as u16;
                 let fixed = [quant(plan.pos[0]), quant(plan.pos[1]), quant(plan.pos[2])];
-                let (req, m) = own.actors.request_spawn(plan.site, rec.base, rec.cell, fixed, health);
-                self.pending_extras.insert(req, (plan, wf(rec.base), rec.cell));
+                let (req, m) = own
+                    .actors
+                    .request_spawn(plan.site, rec.base, rec.cell, fixed, health);
+                self.pending_extras
+                    .insert(req, (plan, wf(rec.base), rec.cell));
                 outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
             }
         }
@@ -957,16 +1279,35 @@ impl CombatBridge {
             .iter()
             .filter_map(|p| {
                 let s = live.avatars.state(*p)?;
-                Some((*p, [dequant_pos(s.pos[0]), dequant_pos(s.pos[1]), dequant_pos(s.pos[2])]))
+                Some((
+                    *p,
+                    [
+                        dequant_pos(s.pos[0]),
+                        dequant_pos(s.pos[1]),
+                        dequant_pos(s.pos[2]),
+                    ],
+                ))
             })
             .collect();
         if !players.is_empty() {
-            let far = live.combat.extras.to_clear(&players, |id| gs.place(order, wf(id)).map(|p| p.2));
+            let far = live
+                .combat
+                .extras
+                .to_clear(&players, |id| gs.place(order, wf(id)).map(|p| p.2));
             for id in far {
                 gs.coop.live.combat.extras.remove(&wf(id));
                 gs.coop.live.combat.stats.extras_cleared += 1;
-                gs.coop.live.spawns.push(SpawnNote { id: wf(id), base: None, pos: [0.0; 3] });
-                outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(ActorMsg::Despawn { id }), now_ms, auth));
+                gs.coop.live.spawns.push(SpawnNote {
+                    id: wf(id),
+                    base: None,
+                    pos: [0.0; 3],
+                });
+                outs.extend(live.on_msg(
+                    PlayerId::HOST,
+                    Msg::Actor(ActorMsg::Despawn { id }),
+                    now_ms,
+                    auth,
+                ));
             }
         }
         outs
@@ -975,13 +1316,27 @@ impl CombatBridge {
     // -- guest -------------------------------------------------------------
 
     /// A guest's per-frame combat work; returns messages for the host.
-    pub fn guest_frame(&mut self, cx: Ctx, gs: &mut GameState, live: &mut GuestLive, me: PlayerId, now_ms: u64) -> Vec<Msg> {
+    pub fn guest_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut GuestLive,
+        me: PlayerId,
+        now_ms: u64,
+    ) -> Vec<Msg> {
         let order = cx.order;
         let ids: Vec<PlayerId> = live.remote.keys().copied().collect();
         let mut remotes = Vec::new();
         for p in ids {
             if let Some(s) = live.sample(p, now_ms) {
-                remotes.push(Remote { player: p, cell: s.cell.0, pos: s.pos, heading: s.heading, vel: s.vel, flags: s.flags });
+                remotes.push(Remote {
+                    player: p,
+                    cell: s.cell.0,
+                    pos: s.pos,
+                    heading: s.heading,
+                    vel: s.vel,
+                    flags: s.flags,
+                });
             }
         }
         self.skills = live.combat.stealth.clone();
@@ -1006,9 +1361,57 @@ fn quant(v: f32) -> i32 {
     coop_core::avatar::quant_pos(v)
 }
 
+/// The `probeparty` verb: puts `npc` `dist` units south of the local
+/// player, facing them, reads [`party_values`] and [`party_detection`],
+/// puts the NPC back and keeps the sample in the combat counters.
+fn probe_party(order: &LoadOrder, gs: &mut GameState, npc: FormId, dist: f32) {
+    let Some((space, cell, at, _)) = gs.place(order, PLAYER_REF) else {
+        return;
+    };
+    let keep = (
+        gs.positions.get(&npc).copied(),
+        gs.spaces.get(&npc).copied(),
+    );
+    gs.positions
+        .insert(npc, ([at[0], at[1] - dist, at[2]], 0.0));
+    gs.spaces.insert(npc, (space, cell));
+    let values = party_values(order, gs, npc);
+    let best = party_detection(order, gs, npc);
+    match keep.0 {
+        Some(k) => gs.positions.insert(npc, k),
+        None => gs.positions.remove(&npc),
+    };
+    match keep.1 {
+        Some(k) => gs.spaces.insert(npc, k),
+        None => gs.spaces.remove(&npc),
+    };
+    // the local player's slot: the host is slot 0, a guest its live rows' owner
+    let me = if gs.coop.authority == super::Authority::Guest {
+        gs.active_slot()
+    } else {
+        0
+    };
+    let by_slot: BTreeMap<u8, i32> = values
+        .iter()
+        .filter_map(|(f, v)| {
+            let slot = if *f == PLAYER_REF {
+                me
+            } else {
+                player_of(*f)?.0
+            };
+            Some((slot, *v))
+        })
+        .collect();
+    if let Some((_, v)) = best {
+        gs.coop.live.combat.stats.party_probes.push((v, by_slot));
+    }
+}
+
 /// A creature base is always a threat to the party.
 fn hostile_base(order: &LoadOrder, base: FormId) -> bool {
-    order.get(base).is_some_and(|r| r.entry.header.kind == FourCC::new(b"CREA"))
+    order
+        .get(base)
+        .is_some_and(|r| r.entry.header.kind == FourCC::new(b"CREA"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,9 +1430,15 @@ fn hostile_base(order: &LoadOrder, base: FormId) -> bool {
 /// coop vats TARGET LIMB CHANCE DAMAGE   one VATS shot (cost 20 AP)
 /// coop vatsmark 0|1                     entered or left VATS
 /// coop sneak 0|1                        the local player sneaks
+/// coop probeparty NPC DIST              NPC's detection of the party (tests)
 /// coop cripple LIMB | rads N | cure     effects on the local player
 /// ```
-pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dyn Fn(&str) -> Option<FormId>) -> bool {
+pub fn bot_line(
+    order: &LoadOrder,
+    gs: &mut GameState,
+    words: &[&str],
+    form: &dyn Fn(&str) -> Option<FormId>,
+) -> bool {
     let arg = |i: usize| words.get(i).copied();
     let num = |i: usize| arg(i).and_then(|w| w.parse::<f64>().ok());
     let me_cell = gs.player_cell.map_or(0, |c| c.0);
@@ -1050,7 +1459,9 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
             }
         }
         Some("fire") => {
-            if let (Some(weapon), Some(x), Some(y), Some(z)) = (arg(2).and_then(form), num(3), num(4), num(5)) {
+            if let (Some(weapon), Some(x), Some(y), Some(z)) =
+                (arg(2).and_then(form), num(3), num(4), num(5))
+            {
                 gs.coop.live.combat.fires.push(FireEvent {
                     shooter: PlayerId(0),
                     id: 0,
@@ -1065,7 +1476,9 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
             }
         }
         Some("explode") => {
-            if let (Some(expl), Some(radius), Some(damage)) = (arg(2).and_then(form), num(3), num(4)) {
+            if let (Some(expl), Some(radius), Some(damage)) =
+                (arg(2).and_then(form), num(3), num(4))
+            {
                 gs.coop.live.combat.blasts.push(BlastEvent {
                     source: PlayerId(0),
                     id: 0,
@@ -1079,7 +1492,14 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
                 });
                 // and the local resolution against everyone this machine knows
                 let mut candidates = remote_candidates(gs);
-                candidates.extend(gs.coop.live.combat.extras.iter().filter_map(|e| gs.place(order, *e).map(|p| (*e, p.2))));
+                candidates.extend(
+                    gs.coop
+                        .live
+                        .combat
+                        .extras
+                        .iter()
+                        .filter_map(|e| gs.place(order, *e).map(|p| (*e, p.2))),
+                );
                 let people: Vec<(FormId, [f32; 3])> = gs
                     .positions
                     .iter()
@@ -1090,12 +1510,29 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
                 if !gs.dead.contains(&PLAYER_REF) {
                     candidates.push((PLAYER_REF, pos));
                 }
-                resolve_blast(order, gs, pos, radius as f32, damage as f32, PLAYER_REF, DamageKind::Explosion, &candidates);
+                resolve_blast(
+                    order,
+                    gs,
+                    pos,
+                    radius as f32,
+                    damage as f32,
+                    PLAYER_REF,
+                    DamageKind::Explosion,
+                    &candidates,
+                );
             }
         }
         Some("vats") => {
-            if let (Some(target), Some(limb), Some(chance), Some(damage)) = (arg(2).and_then(form), num(3), num(4), num(5)) {
-                gs.coop.live.combat.vats.push(VatsAsk { target, limb: limb as u8, cost: 20, chance: chance as u16, damage: damage as u16 });
+            if let (Some(target), Some(limb), Some(chance), Some(damage)) =
+                (arg(2).and_then(form), num(3), num(4), num(5))
+            {
+                gs.coop.live.combat.vats.push(VatsAsk {
+                    target,
+                    limb: limb as u8,
+                    cost: 20,
+                    chance: chance as u16,
+                    damage: damage as u16,
+                });
             }
         }
         Some("vatsmark") => {
@@ -1118,12 +1555,32 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
         }
         Some("cripple") => {
             if let Some(l) = num(2) {
-                apply_effect(order, gs, &EffectNote { effect: EffectKind::Cripple, amount: 0, limb: l as u8, ms: 0 }, 0);
+                apply_effect(
+                    order,
+                    gs,
+                    &EffectNote {
+                        effect: EffectKind::Cripple,
+                        amount: 0,
+                        limb: l as u8,
+                        ms: 0,
+                    },
+                    0,
+                );
             }
         }
         Some("rads") => {
             if let Some(n) = num(2) {
-                apply_effect(order, gs, &EffectNote { effect: EffectKind::Radiation, amount: n as u16, limb: 0, ms: 0 }, 0);
+                apply_effect(
+                    order,
+                    gs,
+                    &EffectNote {
+                        effect: EffectKind::Radiation,
+                        amount: n as u16,
+                        limb: 0,
+                        ms: 0,
+                    },
+                    0,
+                );
             }
         }
         Some("health") => {
@@ -1139,12 +1596,33 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
             // coop probe NPC DIST: how well NPC notices the first remote player
             // when standing DIST units from them, looking at them (tests)
             if let (Some(npc), Some(dist)) = (arg(2).and_then(form), num(3)) {
-                let target = gs.coop.live.combat.puppets.iter().next().map(|(f, p)| (*f, *p));
+                let target = gs
+                    .coop
+                    .live
+                    .combat
+                    .puppets
+                    .iter()
+                    .next()
+                    .map(|(f, p)| (*f, *p));
                 if let Some((puppet, place)) = target {
-                    let keep = (gs.positions.get(&npc).copied(), gs.spaces.get(&npc).copied());
-                    gs.positions.insert(npc, ([place.pos[0], place.pos[1] - dist as f32, place.pos[2]], 0.0));
+                    let keep = (
+                        gs.positions.get(&npc).copied(),
+                        gs.spaces.get(&npc).copied(),
+                    );
+                    gs.positions.insert(
+                        npc,
+                        (
+                            [place.pos[0], place.pos[1] - dist as f32, place.pos[2]],
+                            0.0,
+                        ),
+                    );
                     gs.spaces.insert(npc, (place.space, place.cell));
-                    let v = Facts { order, state: gs, speaker: None }.detection(npc, puppet);
+                    let v = Facts {
+                        order,
+                        state: gs,
+                        speaker: None,
+                    }
+                    .detection(npc, puppet);
                     match keep.0 {
                         Some(k) => gs.positions.insert(npc, k),
                         None => gs.positions.remove(&npc),
@@ -1159,7 +1637,25 @@ pub fn bot_line(order: &LoadOrder, gs: &mut GameState, words: &[&str], form: &dy
                 }
             }
         }
-        Some("cure") => apply_effect(order, gs, &EffectNote { effect: EffectKind::Cure, amount: 0, limb: 0, ms: 0 }, 0),
+        Some("probeparty") => {
+            // coop probeparty NPC DIST: how well NPC detects the party (the
+            // best-seen player, `party_detection`) and each player, standing
+            // DIST units south of the local player and looking at them (tests)
+            if let (Some(npc), Some(dist)) = (arg(2).and_then(form), num(3)) {
+                probe_party(order, gs, npc, dist as f32);
+            }
+        }
+        Some("cure") => apply_effect(
+            order,
+            gs,
+            &EffectNote {
+                effect: EffectKind::Cure,
+                amount: 0,
+                limb: 0,
+                ms: 0,
+            },
+            0,
+        ),
         _ => return false,
     }
     true

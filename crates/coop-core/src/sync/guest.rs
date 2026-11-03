@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use super::glive::GuestLive;
 use super::RETRY_TICKS;
 use crate::chunk::Reassembler;
 use crate::delta::StateStore;
@@ -10,7 +11,6 @@ use crate::ids::{Epoch, FormId, PlayerId, Rev, Seq, Tick};
 use crate::proto::{Hello, Msg, RejectReason};
 use crate::schema::Field;
 use crate::snapshot::Snapshot;
-use super::glive::GuestLive;
 
 /// Where the guest is in the connection lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,7 +146,10 @@ impl GuestSync {
     /// Differences between this guest's game and the host's, once the host
     /// has said (empty until then).
     pub fn compat_issues(&self) -> Vec<crate::compat::Issue> {
-        self.host_identity.as_ref().map(|h| crate::compat::issues(h, &self.hello)).unwrap_or_default()
+        self.host_identity
+            .as_ref()
+            .map(|h| crate::compat::issues(h, &self.hello))
+            .unwrap_or_default()
     }
 
     /// Intents not yet acknowledged.
@@ -164,7 +167,11 @@ impl GuestSync {
                 if self.want_rejoin && self.session == Some(session) {
                     self.phase = GuestPhase::Active;
                     self.want_rejoin = false;
-                    vec![Msg::Rejoin { session, last_seq: self.last_seq, have_rev: self.store.base() }]
+                    vec![Msg::Rejoin {
+                        session,
+                        last_seq: self.last_seq,
+                        have_rev: self.store.base(),
+                    }]
                 } else {
                     self.fresh_join(session)
                 }
@@ -199,8 +206,12 @@ impl GuestSync {
             }
             Msg::Snapshot(chunk) => {
                 let id = chunk.id;
-                let Ok(Some(bytes)) = self.reasm.push(chunk) else { return vec![] };
-                let Ok(snap) = Snapshot::decode(&bytes) else { return vec![] };
+                let Ok(Some(bytes)) = self.reasm.push(chunk) else {
+                    return vec![];
+                };
+                let Ok(snap) = Snapshot::decode(&bytes) else {
+                    return vec![];
+                };
                 self.store = snap.into_store();
                 self.snapshots_loaded += 1;
                 self.last_seq = id;
@@ -231,7 +242,17 @@ impl GuestSync {
                 self.apply_repair(r);
                 vec![]
             }
-            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_) | Msg::Scene(_) | Msg::Interact(_) | Msg::Env(_) | Msg::Roam(_) | Msg::Combat(_)) => {
+            m @ (Msg::Avatar(_)
+            | Msg::Actor(_)
+            | Msg::Dialogue(_)
+            | Msg::Loot(_)
+            | Msg::Rules(_)
+            | Msg::Social(_)
+            | Msg::Scene(_)
+            | Msg::Interact(_)
+            | Msg::Env(_)
+            | Msg::Roam(_)
+            | Msg::Combat(_)) => {
                 if self.phase == GuestPhase::Active {
                     self.live.on_msg(m, self.now_ms)
                 } else {
@@ -264,7 +285,9 @@ impl GuestSync {
         if !self.store.is_exact() {
             return vec![];
         }
-        let Some(pos) = self.pending_hashes.iter().position(|(r, _)| *r == rev) else { return vec![] };
+        let Some(pos) = self.pending_hashes.iter().position(|(r, _)| *r == rev) else {
+            return vec![];
+        };
         let (_, root) = self.pending_hashes.remove(pos).expect("found");
         let mine = ShardHashes::compute(&self.store);
         self.hash_checks += 1;
@@ -272,12 +295,19 @@ impl GuestSync {
             return vec![];
         }
         self.desyncs_detected += 1;
-        vec![Msg::RepairRequest { rev, shards: mine.shards().to_vec() }]
+        vec![Msg::RepairRequest {
+            rev,
+            shards: mine.shards().to_vec(),
+        }]
     }
 
     /// Per-tick housekeeping: handshake retries and intent resends.
     pub fn tick(&mut self, _now: Tick) -> Vec<Msg> {
-        let mut live = if self.phase == GuestPhase::Active { self.live.tick(self.now_ms) } else { vec![] };
+        let mut live = if self.phase == GuestPhase::Active {
+            self.live.tick(self.now_ms)
+        } else {
+            vec![]
+        };
         self.wait_ticks += 1;
         if self.wait_ticks < RETRY_TICKS {
             return live;
@@ -286,14 +316,19 @@ impl GuestSync {
         match self.phase {
             GuestPhase::Greeting | GuestPhase::Joining => {
                 // restart the handshake (keeps rejoin intent if we had one)
-                self.want_rejoin = self.want_rejoin || self.session.is_some() && self.store.base() > Rev::ZERO;
+                self.want_rejoin =
+                    self.want_rejoin || self.session.is_some() && self.store.base() > Rev::ZERO;
                 self.begin()
             }
             GuestPhase::Active => {
                 live.extend(
                     self.unacked
                         .iter()
-                        .map(|(id, (epoch, changes))| Msg::Intent { id: *id, epoch: *epoch, changes: changes.clone() }),
+                        .map(|(id, (epoch, changes))| Msg::Intent {
+                            id: *id,
+                            epoch: *epoch,
+                            changes: changes.clone(),
+                        }),
                 );
                 live
             }

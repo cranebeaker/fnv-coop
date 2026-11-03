@@ -19,7 +19,8 @@ pub mod hex_id {
         let h = t
             .strip_prefix("0x")
             .ok_or_else(|| serde::de::Error::custom(format!("form id {t:?} must start with 0x")))?;
-        u32::from_str_radix(h, 16).map_err(|e| serde::de::Error::custom(format!("form id {t:?}: {e}")))
+        u32::from_str_radix(h, 16)
+            .map_err(|e| serde::de::Error::custom(format!("form id {t:?}: {e}")))
     }
 }
 

@@ -1,0 +1,21 @@
+{
+  "name": "twin_live_scene_presentation",
+  "description": "Twin of live_scene_presentation without the host's fades, sound and music. The host sends no cue and the guest applies none. The run must fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 89,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": { "script": [] },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-sent", "path": "scene.present.sent", "op": "eq", "value": 5, "on": "host" },
+    { "id": "guest-applied", "path": "scene.present.applied", "op": "eq", "value": 5, "on": "guest" },
+    { "id": "guest-fades", "path": "scene.present.imods", "op": "eq", "value": 3, "on": "guest" },
+    { "id": "guest-sound", "path": "scene.present.sounds", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "guest-music", "path": "scene.present.music", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "fade-left-on", "path": "scene.present.on", "op": "eq", "value": 1, "on": "both" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

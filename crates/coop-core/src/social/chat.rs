@@ -27,7 +27,13 @@ pub fn sanitize(text: &str) -> String {
     let mut s: String = text
         .chars()
         .filter(|c| !c.is_control())
-        .map(|c| if matches!(c, '%' | '&' | '<' | '>' | '\\') { '?' } else { c })
+        .map(|c| {
+            if matches!(c, '%' | '&' | '<' | '>' | '\\') {
+                '?'
+            } else {
+                c
+            }
+        })
         .collect();
     s = s.trim().to_string();
     if s.len() > MAX_CHAT_BYTES {
@@ -60,11 +66,19 @@ impl ChatHost {
         let base = {
             let b = sanitize(wanted);
             let b: String = b.chars().take(24).collect();
-            if b.is_empty() { format!("Player {}", p.0) } else { b }
+            if b.is_empty() {
+                format!("Player {}", p.0)
+            } else {
+                b
+            }
         };
         let mut name = base.clone();
         let mut n = 2;
-        while self.names.iter().any(|(q, v)| *q != p && v.eq_ignore_ascii_case(&name)) {
+        while self
+            .names
+            .iter()
+            .any(|(q, v)| *q != p && v.eq_ignore_ascii_case(&name))
+        {
             name = format!("{base} {n}");
             n += 1;
         }
@@ -88,18 +102,38 @@ impl ChatHost {
     pub fn system(&self, text: &str) -> ChatOut {
         ChatOut {
             aud: Audience::All,
-            msg: SocialMsg::Line { from: None, name: String::new(), channel: ChatChannel::System, text: sanitize(text) },
+            msg: SocialMsg::Line {
+                from: None,
+                name: String::new(),
+                channel: ChatChannel::System,
+                text: sanitize(text),
+            },
         }
     }
 
     /// Handles a line from `from`.
-    pub fn on_say(&mut self, from: PlayerId, msg_id: u32, channel: ChatChannel, text: &str, now_ms: u64) -> Vec<ChatOut> {
-        let reject = |reason| vec![ChatOut { aud: Audience::To(from), msg: SocialMsg::Rejected { msg_id, reason } }];
+    pub fn on_say(
+        &mut self,
+        from: PlayerId,
+        msg_id: u32,
+        channel: ChatChannel,
+        text: &str,
+        now_ms: u64,
+    ) -> Vec<ChatOut> {
+        let reject = |reason| {
+            vec![ChatOut {
+                aud: Audience::To(from),
+                msg: SocialMsg::Rejected { msg_id, reason },
+            }]
+        };
         if self.last_id.get(&from).map_or(false, |l| msg_id <= *l) {
             return vec![]; // duplicate delivery
         }
         let q = self.recent.entry(from).or_default();
-        while q.front().map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS) {
+        while q
+            .front()
+            .map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
+        {
             q.pop_front();
         }
         if q.len() >= RATE_LINES {
@@ -112,11 +146,22 @@ impl ChatHost {
         q.push_back(now_ms);
         self.last_id.insert(from, msg_id);
         let name = self.names.get(&from).cloned().unwrap_or_default();
-        let line = SocialMsg::Line { from: Some(from), name, channel, text };
+        let line = SocialMsg::Line {
+            from: Some(from),
+            name,
+            channel,
+            text,
+        };
         match channel {
-            ChatChannel::Whisper(to) if to != from => vec![ChatOut { aud: Audience::To(to), msg: line }],
+            ChatChannel::Whisper(to) if to != from => vec![ChatOut {
+                aud: Audience::To(to),
+                msg: line,
+            }],
             ChatChannel::Whisper(_) => reject(ChatReject::Invalid),
-            _ => vec![ChatOut { aud: Audience::AllExcept(from), msg: line }],
+            _ => vec![ChatOut {
+                aud: Audience::AllExcept(from),
+                msg: line,
+            }],
         }
     }
 }
@@ -153,7 +198,11 @@ mod tests {
         let mut c = ChatHost::new();
         assert_eq!(c.set_name(A, "Courier"), "Courier");
         assert_eq!(c.set_name(B, "courier"), "courier 2");
-        assert_eq!(c.set_name(B, "courier"), "courier 2", "same player keeps its name");
+        assert_eq!(
+            c.set_name(B, "courier"),
+            "courier 2",
+            "same player keeps its name"
+        );
         assert_eq!(c.set_name(PlayerId(3), "   "), "Player 3");
         c.remove(A);
         assert_eq!(c.set_name(PlayerId(4), "Courier"), "Courier");
@@ -165,19 +214,39 @@ mod tests {
         c.set_name(A, "Ann");
         let o = c.on_say(A, 1, ChatChannel::All, "hello <world>", 0);
         assert_eq!(o[0].aud, Audience::AllExcept(A));
-        assert!(matches!(&o[0].msg, SocialMsg::Line { name, text, .. } if name == "Ann" && text == "hello ?world?"));
+        assert!(
+            matches!(&o[0].msg, SocialMsg::Line { name, text, .. } if name == "Ann" && text == "hello ?world?")
+        );
     }
 
     #[test]
     fn five_lines_per_ten_seconds() {
         let mut c = ChatHost::new();
         for i in 1..=5 {
-            assert!(matches!(c.on_say(A, i, ChatChannel::All, "x", i as u64)[0].msg, SocialMsg::Line { .. }));
+            assert!(matches!(
+                c.on_say(A, i, ChatChannel::All, "x", i as u64)[0].msg,
+                SocialMsg::Line { .. }
+            ));
         }
         let o = c.on_say(A, 6, ChatChannel::All, "x", 100);
-        assert!(matches!(o[0].msg, SocialMsg::Rejected { reason: ChatReject::RateLimited, msg_id: 6 }));
-        assert!(matches!(c.on_say(A, 7, ChatChannel::All, "x", RATE_WINDOW_MS + 1)[0].msg, SocialMsg::Line { .. }));
-        assert!(matches!(c.on_say(B, 1, ChatChannel::All, "x", 100)[0].msg, SocialMsg::Line { .. }), "per sender");
+        assert!(matches!(
+            o[0].msg,
+            SocialMsg::Rejected {
+                reason: ChatReject::RateLimited,
+                msg_id: 6
+            }
+        ));
+        assert!(matches!(
+            c.on_say(A, 7, ChatChannel::All, "x", RATE_WINDOW_MS + 1)[0].msg,
+            SocialMsg::Line { .. }
+        ));
+        assert!(
+            matches!(
+                c.on_say(B, 1, ChatChannel::All, "x", 100)[0].msg,
+                SocialMsg::Line { .. }
+            ),
+            "per sender"
+        );
     }
 
     #[test]
@@ -193,9 +262,21 @@ mod tests {
         let mut c = ChatHost::new();
         let o = c.on_say(A, 1, ChatChannel::Whisper(B), "psst", 0);
         assert_eq!(o[0].aud, Audience::To(B));
-        assert!(matches!(c.on_say(A, 2, ChatChannel::Whisper(A), "me", 0)[0].msg, SocialMsg::Rejected { .. }));
-        assert!(matches!(c.on_say(A, 3, ChatChannel::System, "fake", 0)[0].msg, SocialMsg::Rejected { reason: ChatReject::Invalid, .. }));
-        assert!(matches!(c.on_say(A, 4, ChatChannel::All, "  \u{1} ", 0)[0].msg, SocialMsg::Rejected { .. }));
+        assert!(matches!(
+            c.on_say(A, 2, ChatChannel::Whisper(A), "me", 0)[0].msg,
+            SocialMsg::Rejected { .. }
+        ));
+        assert!(matches!(
+            c.on_say(A, 3, ChatChannel::System, "fake", 0)[0].msg,
+            SocialMsg::Rejected {
+                reason: ChatReject::Invalid,
+                ..
+            }
+        ));
+        assert!(matches!(
+            c.on_say(A, 4, ChatChannel::All, "  \u{1} ", 0)[0].msg,
+            SocialMsg::Rejected { .. }
+        ));
         assert_eq!(c.system("* host saved").aud, Audience::All);
     }
 }

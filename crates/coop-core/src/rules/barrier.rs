@@ -115,7 +115,9 @@ impl Barrier {
 
     /// Cancels on timeout.
     pub fn tick(&mut self, now_ms: u64) -> BarrierState {
-        if self.state == BarrierState::Waiting && now_ms.saturating_sub(self.started_ms) >= TIMEOUT_MS {
+        if self.state == BarrierState::Waiting
+            && now_ms.saturating_sub(self.started_ms) >= TIMEOUT_MS
+        {
             self.state = BarrierState::Cancelled(CancelReason::Timeout);
         }
         self.state
@@ -135,7 +137,11 @@ mod tests {
     fn releases_only_when_everyone_is_ready() {
         let mut b = Barrier::new(1, 9, &ps(3), 0);
         assert_eq!(b.ready(PlayerId(0)), BarrierState::Waiting);
-        assert_eq!(b.ready(PlayerId(0)), BarrierState::Waiting, "double ready counts once");
+        assert_eq!(
+            b.ready(PlayerId(0)),
+            BarrierState::Waiting,
+            "double ready counts once"
+        );
         assert_eq!(b.ready(PlayerId(1)), BarrierState::Waiting);
         assert_eq!(b.missing(), vec![PlayerId(2)]);
         assert_eq!(b.ready(PlayerId(2)), BarrierState::Released);
@@ -144,9 +150,18 @@ mod tests {
     #[test]
     fn decline_cancels_and_is_final() {
         let mut b = Barrier::new(1, 0, &ps(2), 0);
-        assert_eq!(b.decline(PlayerId(1)), BarrierState::Cancelled(CancelReason::Declined));
-        assert_eq!(b.ready(PlayerId(0)), BarrierState::Cancelled(CancelReason::Declined));
-        assert_eq!(b.tick(10 * TIMEOUT_MS), BarrierState::Cancelled(CancelReason::Declined));
+        assert_eq!(
+            b.decline(PlayerId(1)),
+            BarrierState::Cancelled(CancelReason::Declined)
+        );
+        assert_eq!(
+            b.ready(PlayerId(0)),
+            BarrierState::Cancelled(CancelReason::Declined)
+        );
+        assert_eq!(
+            b.tick(10 * TIMEOUT_MS),
+            BarrierState::Cancelled(CancelReason::Declined)
+        );
     }
 
     #[test]
@@ -156,7 +171,10 @@ mod tests {
         b.ready(PlayerId(1));
         assert_eq!(b.leave(PlayerId(2)), BarrierState::Released);
         let mut b = Barrier::new(2, 0, &ps(1), 0);
-        assert_eq!(b.leave(PlayerId(0)), BarrierState::Cancelled(CancelReason::Empty));
+        assert_eq!(
+            b.leave(PlayerId(0)),
+            BarrierState::Cancelled(CancelReason::Empty)
+        );
     }
 
     #[test]
@@ -164,7 +182,10 @@ mod tests {
         let mut b = Barrier::new(1, 0, &ps(2), 1000);
         b.ready(PlayerId(0));
         assert_eq!(b.tick(1000 + TIMEOUT_MS - 1), BarrierState::Waiting);
-        assert_eq!(b.tick(1000 + TIMEOUT_MS), BarrierState::Cancelled(CancelReason::Timeout));
+        assert_eq!(
+            b.tick(1000 + TIMEOUT_MS),
+            BarrierState::Cancelled(CancelReason::Timeout)
+        );
     }
 
     #[test]

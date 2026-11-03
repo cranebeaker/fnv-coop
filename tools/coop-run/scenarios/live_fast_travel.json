@@ -1,0 +1,94 @@
+{
+  "name": "live_fast_travel",
+  "description": "Fast travel is free, voted or locked by the policy row. Both peers start outdoors in Goodsprings (cell 000DAEBB, WastelandNV), an exterior cell that allows fast travel. Free: with no tether the guest travels to Sloan (000E62DF) at 3 s; the host grants the trip at once and only the guest moves. Voted: at 8 s the host starts a tether at the Goodsprings marker, so at 10 s the host's trip to the Goodsprings Cemetery (001088F6) opens a party vote; the guest votes yes at 12 s and both peers travel. The host ends the tether at 14 s. Locked: at 16 s the host opens the cinematic of FortEquipmentConfiscationQuest (00164762), a policy row with fast_travel_lock. At 18 s the guest and at 20 s the host ask to travel to Primm (000CDF46): the host refuses both trips, so both peers stay at the cemetery. Each peer carries out an allowed trip as the viewer's coop_live::intents::travel does (world::map::travel) and counts it in live.travels.",
+  "cell": "000DAEBB",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 26,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop tether 000CDF51"
+      },
+      {
+        "at": 10,
+        "run": "coop travel 001088F6"
+      },
+      {
+        "at": 14,
+        "run": "coop untether"
+      },
+      {
+        "at": 16,
+        "run": "coop cinematic 1460066"
+      },
+      {
+        "at": 20,
+        "run": "coop travel 000CDF46"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop travel 000E62DF"
+      },
+      {
+        "at": 12,
+        "run": "coop vote yes"
+      },
+      {
+        "at": 18,
+        "run": "coop travel 000CDF46"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-free-and-voted-trips",
+      "path": "live.travels",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-voted-trip-only",
+      "path": "live.travels",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-stays-at-the-cemetery",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        -62219.0,
+        12673.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "guest-stays-at-the-cemetery",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        -62219.0,
+        12673.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

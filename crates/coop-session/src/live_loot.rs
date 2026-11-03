@@ -33,8 +33,12 @@ impl Session {
             LootOp::Put { container, item, n } if host => {
                 gs.move_item(cx.order, PLAYER_REF, container, item, n as i32);
             }
-            LootOp::Take { container, item, n } => self.live_intent(Intent::LootTake { container, item, n }),
-            LootOp::Put { container, item, n } => self.live_intent(Intent::LootPut { container, item, n }),
+            LootOp::Take { container, item, n } => {
+                self.live_intent(Intent::LootTake { container, item, n })
+            }
+            LootOp::Put { container, item, n } => {
+                self.live_intent(Intent::LootPut { container, item, n })
+            }
             LootOp::Close(c) => self.live_intent(Intent::LootClose(c)),
         }
     }

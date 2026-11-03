@@ -1,7 +1,7 @@
 //! Social channels: chat, map markers and pings, push-to-talk voice.
 
-pub mod compass;
 mod chat;
+pub mod compass;
 mod markers;
 mod voice;
 
@@ -135,7 +135,9 @@ impl SocialMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            SocialMsg::Say { text, .. } | SocialMsg::Line { text, .. } => text.len() <= MAX_CHAT_BYTES * 4,
+            SocialMsg::Say { text, .. } | SocialMsg::Line { text, .. } => {
+                text.len() <= MAX_CHAT_BYTES * 4
+            }
             SocialMsg::MarkerSet { marker } | SocialMsg::MarkerShown { marker, .. } => {
                 marker.label.len() <= MAX_LABEL_BYTES
             }

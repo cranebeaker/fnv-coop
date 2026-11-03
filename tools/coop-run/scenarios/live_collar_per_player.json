@@ -1,21 +1,47 @@
 {
-  "name": "live_collar_per_player",
-  "description": "A Dead Money collar script's object variables (NVDLC01VaultCollarBeepScript, listed under NVDLC01MQ03 shadow.objvars) are per player. The guest's collar timer runs to 42.5 and its collar is on; the host player's collar variables stay at zero.",
-  "cell": "GSDocMitchellHouse",
-  "network": "good_wifi",
-  "seed": 64,
-  "duration_s": 14,
-  "settle_s": 4,
-  "host": {
-    "script": [
-      { "at": 3, "run": "coop objvar 1 DocMitchellREF NVDLC01VaultCollarBeepScript bCollarOn 1" },
-      { "at": 3.2, "run": "coop objvar 1 DocMitchellREF NVDLC01VaultCollarBeepScript fTimer 42.5" }
+    "name": "live_collar_per_player",
+    "description": "A Dead Money collar script's object variables (NVDLC01VaultCollarBeepScript, listed under NVDLC01MQ03 shadow.objvars) are per player. The guest's collar timer runs to 42.5 and its collar is on; the host player's collar variables stay at zero. The variables go on Doc's dresser, a reference without its own object script (Doc Mitchell runs his own script in the real game).",
+    "cell": "GSDocMitchellHouse",
+    "network": "good_wifi",
+    "seed": 64,
+    "duration_s": 14,
+    "settle_s": 4,
+    "host": {
+        "script": [
+            {
+                "at": 3,
+                "run": "coop objvar 1 DocMitchellDresserRef NVDLC01VaultCollarBeepScript bCollarOn 1"
+            },
+            {
+                "at": 3.2,
+                "run": "coop objvar 1 DocMitchellDresserRef NVDLC01VaultCollarBeepScript fTimer 42.5"
+            }
+        ]
+    },
+    "guest": {
+        "script": []
+    },
+    "expect": [
+        {
+            "id": "guest-on",
+            "path": "campaign.objvars.guest.DocMitchellDresserRef_bcollaron",
+            "op": "eq",
+            "value": 1,
+            "on": "host"
+        },
+        {
+            "id": "guest-timer",
+            "path": "campaign.objvars.guest.DocMitchellDresserRef_ftimer",
+            "op": "eq",
+            "value": 42.5,
+            "on": "host"
+        },
+        {
+            "id": "host-clean",
+            "path": "campaign.objvars.host.DocMitchellDresserRef_ftimer",
+            "op": "eq",
+            "value": 0,
+            "on": "host"
+        }
     ]
-  },
-  "guest": { "script": [] },
-  "expect": [
-    { "id": "guest-on", "path": "campaign.objvars.guest.DocMitchellREF_bcollaron", "op": "eq", "value": 1, "on": "host" },
-    { "id": "guest-timer", "path": "campaign.objvars.guest.DocMitchellREF_ftimer", "op": "eq", "value": 42.5, "on": "host" },
-    { "id": "host-clean", "path": "campaign.objvars.host.DocMitchellREF_ftimer", "op": "eq", "value": 0, "on": "host" }
-  ]
 }

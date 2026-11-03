@@ -7,8 +7,9 @@
 //! the rest of the co-op code.
 
 pub mod engine;
-pub mod load;
+mod json;
 pub mod lifecycle;
+pub mod load;
 pub mod model;
 pub mod reducer;
 

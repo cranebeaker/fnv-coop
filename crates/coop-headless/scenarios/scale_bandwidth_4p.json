@@ -1,0 +1,100 @@
+{
+  "name": "scale_bandwidth_4p",
+  "description": "Four peers in typical play (chat, voice, pings, waypoints, a gecko fight). The budget key makes the multi-peer judge gate the run on Budget::violations: steady bandwidth per guest must stay under 64 KB/s down and 24 KB/s up, and the host under 192 KB/s up.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 77,
+  "duration_s": 30,
+  "settle_s": 5,
+  "budget": {
+    "guest_down_kbps": 64,
+    "guest_up_kbps": 24,
+    "host_up_kbps": 192
+  },
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "coop say host here"
+      },
+      {
+        "at": 9,
+        "run": "coop waypoint 10 20"
+      },
+      {
+        "at": 12,
+        "run": "coop spawnenc VCG02Gecko1REF 6"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop say guest one here"
+        },
+        {
+          "at": 5,
+          "run": "coop voice 3"
+        },
+        {
+          "at": 14,
+          "run": "coop hit VCG02Gecko1REF 100000"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 5,
+          "run": "coop ping 300"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 6,
+          "run": "coop waypoint 40 50"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "chat",
+      "path": "live.chat_in",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "voice",
+      "path": "live.voice_in",
+      "op": "ge",
+      "value": 60,
+      "on": "host"
+    },
+    {
+      "id": "markers",
+      "path": "live.markers",
+      "op": "ge",
+      "value": 1,
+      "on": "all"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

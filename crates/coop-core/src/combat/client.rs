@@ -87,13 +87,39 @@ impl CombatClient {
     }
 
     /// My NPC hurt a player.
-    pub fn npc_hit(&mut self, attacker: FormId, victim: PlayerId, amount: u16, kind: DamageKind, limb: u8) -> CombatMsg {
-        CombatMsg::NpcHit { id: self.id(), attacker, victim, amount: amount.max(1), kind, limb }
+    pub fn npc_hit(
+        &mut self,
+        attacker: FormId,
+        victim: PlayerId,
+        amount: u16,
+        kind: DamageKind,
+        limb: u8,
+    ) -> CombatMsg {
+        CombatMsg::NpcHit {
+            id: self.id(),
+            attacker,
+            victim,
+            amount: amount.max(1),
+            kind,
+            limb,
+        }
     }
 
     /// I hit another player.
-    pub fn player_hit(&mut self, victim: PlayerId, amount: u16, kind: DamageKind, limb: u8) -> CombatMsg {
-        CombatMsg::PlayerHit { id: self.id(), victim, amount: amount.max(1), kind, limb }
+    pub fn player_hit(
+        &mut self,
+        victim: PlayerId,
+        amount: u16,
+        kind: DamageKind,
+        limb: u8,
+    ) -> CombatMsg {
+        CombatMsg::PlayerHit {
+            id: self.id(),
+            victim,
+            amount: amount.max(1),
+            kind,
+            limb,
+        }
     }
 
     /// I fired.
@@ -118,7 +144,10 @@ impl CombatClient {
 
     /// I entered or left VATS.
     pub fn vats_mark(&self, active: bool) -> CombatMsg {
-        CombatMsg::VatsMark { player: self.me, active }
+        CombatMsg::VatsMark {
+            player: self.me,
+            active,
+        }
     }
 
     fn fresh(&mut self, seq: u32) -> bool {
@@ -137,15 +166,41 @@ impl CombatClient {
     /// Applies a host message.
     pub fn on_msg(&mut self, msg: CombatMsg) {
         match msg {
-            CombatMsg::PlayerHurt { victim, seq, amount, kind, limb, attacker, health } if victim == self.me => {
+            CombatMsg::PlayerHurt {
+                victim,
+                seq,
+                amount,
+                kind,
+                limb,
+                attacker,
+                health,
+            } if victim == self.me => {
                 if self.fresh(seq) {
                     self.hurts_seen += 1;
-                    self.hurts.push(HurtNote { amount, kind, limb, attacker, health });
+                    self.hurts.push(HurtNote {
+                        amount,
+                        kind,
+                        limb,
+                        attacker,
+                        health,
+                    });
                 }
             }
-            CombatMsg::PlayerEffect { victim, seq, effect, amount, limb, ms } if victim == self.me => {
+            CombatMsg::PlayerEffect {
+                victim,
+                seq,
+                effect,
+                amount,
+                limb,
+                ms,
+            } if victim == self.me => {
                 if self.fresh(seq) {
-                    self.effects.push(EffectNote { effect, amount, limb, ms });
+                    self.effects.push(EffectNote {
+                        effect,
+                        amount,
+                        limb,
+                        ms,
+                    });
                 }
             }
             CombatMsg::Fire(e) if e.shooter != self.me => self.fires.push(e),
@@ -153,7 +208,11 @@ impl CombatClient {
             CombatMsg::VatsDone { id, results, spent } => {
                 self.vats_done.insert(id, (results, spent));
             }
-            CombatMsg::Stealth { player, sneak, level } => {
+            CombatMsg::Stealth {
+                player,
+                sneak,
+                level,
+            } => {
                 self.stealth.insert(player, (sneak, level));
             }
             CombatMsg::VatsMark { player, active } if player != self.me => {

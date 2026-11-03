@@ -10,7 +10,7 @@
     "script": [
       {
         "at": 2,
-        "run": "coop lock 1111111 010048FE"
+        "run": "coop lock 1111111 NVDLC03AutoDoc"
       }
     ]
   },

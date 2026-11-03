@@ -1,0 +1,91 @@
+{
+  "name": "twin_live_fast_travel",
+  "description": "MUTATION TWIN of live_fast_travel: the host opens no cinematic, so no policy row locks fast travel. The trips to Primm at 18 s and 20 s go through, the counters grow and both peers end in Primm. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "000DAEBB",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 26,
+  "settle_s": 5,
+  "host": {
+    "script": [
+      {
+        "at": 8,
+        "run": "coop tether 000CDF51"
+      },
+      {
+        "at": 10,
+        "run": "coop travel 001088F6"
+      },
+      {
+        "at": 14,
+        "run": "coop untether"
+      },
+      {
+        "at": 20,
+        "run": "coop travel 000CDF46"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop travel 000E62DF"
+      },
+      {
+        "at": 12,
+        "run": "coop vote yes"
+      },
+      {
+        "at": 18,
+        "run": "coop travel 000CDF46"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "guest-free-and-voted-trips",
+      "path": "live.travels",
+      "op": "eq",
+      "value": 2,
+      "on": "guest"
+    },
+    {
+      "id": "host-voted-trip-only",
+      "path": "live.travels",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-stays-at-the-cemetery",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        -62219.0,
+        12673.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "guest-stays-at-the-cemetery",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        -62219.0,
+        12673.0
+      ],
+      "cmp": "le",
+      "value": 1500,
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

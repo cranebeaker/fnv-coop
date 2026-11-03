@@ -98,7 +98,11 @@ impl JitterBuffer {
                 self.reset();
             }
         }
-        let ext = if self.highest.is_none() { ext } else { self.extend(seq) };
+        let ext = if self.highest.is_none() {
+            ext
+        } else {
+            self.extend(seq)
+        };
         if self.frames.contains_key(&ext) {
             self.stats.duplicates += 1;
             return Push::Duplicate;

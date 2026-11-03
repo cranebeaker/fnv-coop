@@ -613,7 +613,12 @@ fn an_original_save_starts_a_coop_campaign() {
     let mut w = PipeWriter::new();
     place(&mut w, refid(ROOM), [10.0, 20.0, 30.0], 1.5);
     w.player_head(&[(24, 40.0), (5, 1.0)]);
-    w.u8(0xFF).mobile_tail().actor_fixed().still_mover(true).u8(0).u8(0);
+    w.u8(0xFF)
+        .mobile_tail()
+        .actor_fixed()
+        .still_mover(true)
+        .u8(0)
+        .u8(0);
     w.player_tail(&[(refid(PERK), 2)], refid(QUEST), [0; 8]);
     let player = Form::new(refid(0x14), 0x2, fos::save_type::ACHR, w.finish());
     let mut b = PipeWriter::new();
@@ -626,8 +631,15 @@ fn an_original_save_starts_a_coop_campaign() {
     host.register_player(1);
     let plan = host.coop.bank.plan.clone().unwrap();
     let mine = PlayerShadow::read(&host, &plan);
-    assert!(mine.perks.contains(&FormId(PERK)), "the host keeps the save's character");
-    assert_eq!(host.shadow_of(1).unwrap(), PlayerShadow::fresh(), "the guest starts fresh");
+    assert!(
+        mine.perks.contains(&FormId(PERK)),
+        "the host keeps the save's character"
+    );
+    assert_eq!(
+        host.shadow_of(1).unwrap(),
+        PlayerShadow::fresh(),
+        "the guest starts fresh"
+    );
     let dir = std::env::temp_dir().join(format!("nvrs-fos-coop-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let party = dir.join("Save.txt.partysave");
@@ -637,7 +649,14 @@ fn an_original_save_starts_a_coop_campaign() {
         seq: 1,
         saved_unix: 1,
         world_text: crate::save::save(&host, None),
-        guests: vec![GuestSidecar::from_shadow(9, "Bo", 1, true, &host.shadow_of(1).unwrap())],
+        guests: vec![GuestSidecar::from_shadow(
+            9,
+            "Bo",
+            1,
+            true,
+            &host.shadow_of(1).unwrap(),
+        )],
+        rules: Default::default(),
     };
     write_party(&party, &save).unwrap();
     let loaded = load_party(&party).unwrap();

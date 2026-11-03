@@ -1,0 +1,35 @@
+{
+    "name": "twin_live_positions_3p",
+    "description": "MUTATION TWIN of live_positions_3p: the second guest does not move. Marked expect_fail.",
+    "cell": "GSDocMitchellHouse",
+    "network": "bad_wifi",
+    "seed": 79,
+    "duration_s": 14,
+    "settle_s": 6,
+    "host": {
+        "script": []
+    },
+    "guests": [
+        {
+            "script": []
+        },
+        {
+            "script": []
+        }
+    ],
+    "expect": [
+        {
+            "id": "guest2-at-point",
+            "path": "positions.guest2",
+            "op": "near",
+            "value": [
+                1451,
+                2045,
+                7360
+            ],
+            "tol": 40,
+            "on": "all"
+        }
+    ],
+    "expect_fail": true
+}

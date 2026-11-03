@@ -321,6 +321,7 @@ pub fn alarm(
         // The player's own minor crimes (`GetMinorCrimeCount`; the Xbox
         // `Actor::TrespassAlarm` counts it once at the end).
         state.player_crimes.0 += 1;
+        state.emit(crate::coop::Domain::Crime, PLAYER_REF);
     }
     turned
 }

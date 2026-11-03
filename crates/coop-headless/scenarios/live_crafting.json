@@ -1,0 +1,33 @@
+{
+  "name": "live_crafting",
+  "description": "The host gives each player the ingredients for two healing powders (2 broc flowers and 2 xander roots). The guest crafts RecipeHealingPowder twice at a bench. The host runs the craft in the guest's rows only: the guest's ingredients are spent and it holds 2 healing powders, and the host keeps its own ingredients and makes nothing, on both peers.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 94,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "coop give 0 BrocFlower 2" },
+      { "at": 1, "run": "coop give 0 XanderRoot 2" },
+      { "at": 1, "run": "coop give 1 BrocFlower 2" },
+      { "at": 1, "run": "coop give 1 XanderRoot 2" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 8, "run": "coop craft DocMitchellREF RecipeHealingPowder 2" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-made-host", "path": "items.guest.NVHealingPowder", "op": "eq", "value": 2, "on": "host" },
+    { "id": "guest-made-guest", "path": "items.guest.NVHealingPowder", "op": "eq", "value": 2, "on": "guest" },
+    { "id": "guest-spent-broc", "path": "items.guest.BrocFlower", "op": "absent", "on": "both" },
+    { "id": "guest-spent-xander", "path": "items.guest.XanderRoot", "op": "absent", "on": "both" },
+    { "id": "host-kept-broc", "path": "items.host.BrocFlower", "op": "eq", "value": 2, "on": "both" },
+    { "id": "host-kept-xander", "path": "items.host.XanderRoot", "op": "eq", "value": 2, "on": "both" },
+    { "id": "host-made-nothing", "path": "items.host.NVHealingPowder", "op": "absent", "on": "both" },
+    { "id": "counted", "path": "interact.craft", "op": "ge", "value": 1, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

@@ -9,7 +9,9 @@ use crate::vad::{EnergyVad, Gate, Mode};
 /// SplitMix64.
 pub struct Rng(u64);
 impl Rng {
-    pub fn new(seed: u64) -> Self { Rng(seed) }
+    pub fn new(seed: u64) -> Self {
+        Rng(seed)
+    }
     pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -18,7 +20,9 @@ impl Rng {
         z ^ (z >> 31)
     }
     /// 0.0..1.0
-    pub fn unit(&mut self) -> f64 { (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64 }
+    pub fn unit(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,9 +37,27 @@ pub struct Profile {
 }
 
 impl Profile {
-    pub const CLEAN: Profile = Profile { loss: 0.0, burst_loss: 0.0, dup: 0.0, base_ms: 40.0, jitter_ms: 0.0 };
-    pub const WIFI: Profile = Profile { loss: 0.03, burst_loss: 0.2, dup: 0.01, base_ms: 40.0, jitter_ms: 25.0 };
-    pub const BAD: Profile = Profile { loss: 0.10, burst_loss: 0.4, dup: 0.02, base_ms: 80.0, jitter_ms: 60.0 };
+    pub const CLEAN: Profile = Profile {
+        loss: 0.0,
+        burst_loss: 0.0,
+        dup: 0.0,
+        base_ms: 40.0,
+        jitter_ms: 0.0,
+    };
+    pub const WIFI: Profile = Profile {
+        loss: 0.03,
+        burst_loss: 0.2,
+        dup: 0.01,
+        base_ms: 40.0,
+        jitter_ms: 25.0,
+    };
+    pub const BAD: Profile = Profile {
+        loss: 0.10,
+        burst_loss: 0.4,
+        dup: 0.02,
+        base_ms: 80.0,
+        jitter_ms: 60.0,
+    };
 }
 
 pub struct SimResult {
@@ -51,7 +73,12 @@ pub struct SimResult {
 
 /// One speaker talking for `talk_frames` frames (20 ms each) through the
 /// profile into a receiver. Full path including envelope encode/decode.
-pub fn simulate_call(seed: u64, profile: Profile, talk_frames: usize, jitter_target: usize) -> SimResult {
+pub fn simulate_call(
+    seed: u64,
+    profile: Profile,
+    talk_frames: usize,
+    jitter_target: usize,
+) -> SimResult {
     let mut rng = Rng::new(seed);
     let gate = Gate::new(Mode::AlwaysOpen, EnergyVad::new(0.0, 0));
     let mut sender = Sender::new(1, Box::new(AdpcmCodec::new(16000, 320)), gate);
@@ -67,10 +94,16 @@ pub fn simulate_call(seed: u64, profile: Profile, talk_frames: usize, jitter_tar
     let mut prev_lost = false;
     let mut order = 0u32;
     for i in 0..talk_frames {
-        let pcm: Vec<i16> = (0..320).map(|n| (((i * 320 + n) as f32 * 0.07).sin() * 9000.0) as i16).collect();
+        let pcm: Vec<i16> = (0..320)
+            .map(|n| (((i * 320 + n) as f32 * 0.07).sin() * 9000.0) as i16)
+            .collect();
         let p = sender.process(&pcm).unwrap();
         let bytes = p.encode();
-        let p_loss = if prev_lost { profile.burst_loss } else { profile.loss };
+        let p_loss = if prev_lost {
+            profile.burst_loss
+        } else {
+            profile.loss
+        };
         prev_lost = rng.unit() < p_loss;
         if prev_lost {
             lost += 1;
@@ -156,7 +189,12 @@ mod tests {
         // Each lost packet inside the talk spurt is concealed; late ones too.
         assert!(r.frames_played as usize + r.lost <= r.sent + r.late as usize + 1);
         assert!(r.frames_played as usize >= r.sent - r.lost - r.late as usize - 1);
-        assert!(r.concealed as usize >= r.lost.saturating_sub(5), "concealed {} lost {}", r.concealed, r.lost);
+        assert!(
+            r.concealed as usize >= r.lost.saturating_sub(5),
+            "concealed {} lost {}",
+            r.concealed,
+            r.lost
+        );
         assert!(r.duplicates > 0 || r.sent < 100 || true);
     }
 
@@ -164,7 +202,12 @@ mod tests {
     fn deeper_buffer_reduces_late() {
         let shallow = simulate_call(5, Profile::WIFI, 600, 1);
         let deep = simulate_call(5, Profile::WIFI, 600, 5);
-        assert!(deep.late <= shallow.late, "deep {} shallow {}", deep.late, shallow.late);
+        assert!(
+            deep.late <= shallow.late,
+            "deep {} shallow {}",
+            deep.late,
+            shallow.late
+        );
     }
 
     #[test]

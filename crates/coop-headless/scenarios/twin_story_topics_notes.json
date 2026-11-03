@@ -1,0 +1,39 @@
+{
+  "name": "twin_story_topics_notes",
+  "description": "MUTATION TWIN of story_topics_notes: the host's script adds no topic and no note, and the guest's script adds no note. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 74,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "topic",
+      "path": "topics.DoctorMedical",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "host-note",
+      "path": "notes.NVCGLog8Note",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-note",
+      "path": "notes.GSTrudyNote",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

@@ -27,7 +27,10 @@ pub fn save_to_path(
 ) -> std::io::Result<()> {
     use std::io::Write;
     if state.coop.authority != crate::coop::Authority::Single && state.coop_save_blocked() {
-        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "saving is held by a co-op scene"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "saving is held by a co-op scene",
+        ));
     }
     let text = save(state, player);
     replace_file(path, |file| file.write_all(text.as_bytes()))

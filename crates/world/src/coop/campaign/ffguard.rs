@@ -45,12 +45,17 @@ impl FfTracker {
 /// A player's hit on `victim` is about to land. Returns whether it may.
 /// Hits on actors no row protects always may.
 pub fn allow_hit(order: &esm::LoadOrder, gs: &mut GameState, slot: u8, victim: FormId) -> bool {
-    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else { return true };
+    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else {
+        return true;
+    };
     if table.rows().iter().all(|r| r.friendly_fire.is_none()) {
         return true;
     }
     // rows name actors by editor id or `plugin:id`: send both aliases
-    let edid = order.get(victim).and_then(|r| r.editor_id().ok().flatten()).unwrap_or_default();
+    let edid = order
+        .get(victim)
+        .and_then(|r| r.editor_id().ok().flatten())
+        .unwrap_or_default();
     let aliases = format!("{edid}|{:08X}", victim.0);
     let guards = table.guards_for(&aliases);
     if guards.is_empty() {
@@ -58,9 +63,14 @@ pub fn allow_hit(order: &esm::LoadOrder, gs: &mut GameState, slot: u8, victim: F
     }
     let mut ok = true;
     for row in guards {
-        let window = row.friendly_fire.as_ref().map_or(10.0, |f| f.window_s as f32);
+        let window = row
+            .friendly_fire
+            .as_ref()
+            .map_or(10.0, |f| f.window_s as f32);
         let recent = gs.coop.campaign.ff.recent(slot, victim, window);
-        let d = gs.with_gate(Decision::Apply, |g, gs| g.hit_check(gs, g.lid(row.id), slot, &aliases, recent));
+        let d = gs.with_gate(Decision::Apply, |g, gs| {
+            g.hit_check(gs, g.lid(row.id), slot, &aliases, recent)
+        });
         if matches!(d, Decision::Reject { .. }) {
             ok = false;
         }
@@ -68,7 +78,12 @@ pub fn allow_hit(order: &esm::LoadOrder, gs: &mut GameState, slot: u8, victim: F
     if ok {
         gs.coop.campaign.ff.record(slot, victim);
     } else {
-        *gs.coop.campaign.ff.blocked.entry((slot, victim)).or_insert(0) += 1;
+        *gs.coop
+            .campaign
+            .ff
+            .blocked
+            .entry((slot, victim))
+            .or_insert(0) += 1;
         gs.coop.campaign.stats.ff_blocked += 1;
     }
     ok

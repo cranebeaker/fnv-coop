@@ -25,14 +25,17 @@ use esm::{FormId, LoadOrder};
 use crate::scripting::GameState;
 
 pub mod attribution;
+pub mod bot;
 pub mod consent;
 pub mod downed;
 pub mod extra;
 pub mod ffguard;
 pub mod names;
+pub mod needs;
 pub mod owners;
 pub mod party;
 pub mod producers;
+pub mod progress;
 pub mod storage;
 
 /// All campaign bookkeeping of one machine.
@@ -46,6 +49,11 @@ pub struct Campaign {
     pub attribution_on: bool,
     /// Damage per victim and slot.
     pub tally: BTreeMap<FormId, BTreeMap<u8, f64>>,
+    /// Host, this frame: the ledger hits an NPC dealt (victim, points). They
+    /// keep the ledger's health right but pay no player.
+    pub unattributed: Vec<(FormId, u16)>,
+    /// Victims whose last ledger hit came from an NPC: their death has no killer.
+    pub npc_blow: BTreeSet<FormId>,
     /// Kills already settled.
     pub settled: BTreeSet<FormId>,
     /// What kills paid, for tests and diagnostics: (victim, slot, xp).
@@ -64,6 +72,15 @@ pub struct Campaign {
     pub cond_quest: Option<FormId>,
     /// The local player was down at the last host frame.
     pub local_down: bool,
+    /// The quest whose script took the local player's health (a collar).
+    pub down_quest: Option<FormId>,
+    /// Skill points the open level-up menu has given (skill actor value to
+    /// points), sent with the perk when it closes (`progress::level_up`).
+    pub levelup_draft: BTreeMap<u16, i32>,
+    /// Session clock (ms) of the next growth of the other players' needs.
+    pub needs_ms: u64,
+    /// The slot whose blow killed each settled victim (`party` `IsKiller`).
+    pub killers: BTreeMap<FormId, u8>,
     /// Session clock of the last host frame (ms).
     pub last_ms: u64,
     /// Members seen by the last host frame (slot bit set).
@@ -114,7 +131,11 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     if gs.coop.gate.is_none() {
         return;
     }
-    let dt = if gs.coop.campaign.last_ms == 0 { 0.0 } else { now_ms.saturating_sub(gs.coop.campaign.last_ms) as f32 / 1000.0 };
+    let dt = if gs.coop.campaign.last_ms == 0 {
+        0.0
+    } else {
+        now_ms.saturating_sub(gs.coop.campaign.last_ms) as f32 / 1000.0
+    };
     gs.coop.campaign.last_ms = now_ms.max(1);
     // new members: late join policy
     let members = gs.coop.gate.as_ref().map_or(0, |g| g.members().0);
@@ -129,7 +150,8 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     let down_now = gs.coop.live.down_pending || gs.coop.live.downed;
     if down_now && !gs.coop.campaign.local_down {
         let slot = gs.active_slot();
-        downed::player_down(gs, slot, None);
+        let quest = gs.coop.campaign.down_quest.take();
+        downed::player_down(gs, slot, quest);
     } else if !down_now && gs.coop.campaign.local_down {
         let slot = gs.active_slot();
         downed::revive(gs, slot);
@@ -143,6 +165,7 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     owners::sync_critters(cx.order, gs);
     downed::frame(cx.order, gs, dt);
     consent::poll(gs);
+    needs::frame(cx.order, gs, now_ms);
 }
 
 impl GameState {
@@ -152,7 +175,9 @@ impl GameState {
         if self.coop.campaign.configured {
             return;
         }
-        let Some(gate) = self.coop.gate.as_mut() else { return };
+        let Some(gate) = self.coop.gate.as_mut() else {
+            return;
+        };
         let table = gate.table_arc();
         // a table still keyed by the plugins' own index bytes (one the session did not
         // resolve with `policy_ids`): map the gate's lookups to the running load order. A
@@ -176,7 +201,13 @@ impl GameState {
 pub fn table_to_load_order(order: &LoadOrder, table: &coop_policy::PolicyTable) -> Vec<(u32, u32)> {
     let mut out = Vec::new();
     for row in table.rows() {
-        let Some(p) = order.plugins().iter().find(|p| p.name.eq_ignore_ascii_case(&row.plugin)) else { continue };
+        let Some(p) = order
+            .plugins()
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(&row.plugin))
+        else {
+            continue;
+        };
         let load = p.to_global(FormId(row.id)).0;
         if load != row.id {
             out.push((load, row.id));

@@ -1,0 +1,21 @@
+{
+  "name": "story_endings",
+  "description": "The host's story begins House's final battle (VHDHouseBattle stage 10). The policy commits the final_battle group for the whole party, so the guest holds the same stage. Then the host's story tries to begin the Independent final battle (VHDIndependentBattle stage 10). The gate refuses it because a rival of the group is committed, so no peer has an Independent battle stage.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 73,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 2, "run": "SetStage VHDHouseBattle 10" },
+      { "at": 5, "run": "SetStage VHDIndependentBattle 10" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "ending-committed", "path": "quests.VHDHouseBattle.stage", "op": "eq", "value": 10, "on": "both" },
+    { "id": "rival-locked", "path": "quests.VHDIndependentBattle.stage", "op": "absent", "on": "both" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

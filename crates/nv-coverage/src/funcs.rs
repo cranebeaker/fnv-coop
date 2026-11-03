@@ -76,7 +76,10 @@ impl FuncReport {
         v
     }
     pub fn weight(&self, handled_only: bool) -> usize {
-        self.used().filter(|s| !handled_only || s.handled).map(|s| s.calls + s.conditions).sum()
+        self.used()
+            .filter(|s| !handled_only || s.handled)
+            .map(|s| s.calls + s.conditions)
+            .sum()
     }
 }
 
@@ -87,7 +90,9 @@ fn quest_scripts(order: &LoadOrder) -> HashMap<FormId, FormId> {
         if let Ok(r) = rr.record() {
             if let Some(s) = r.get(FourCC::new(b"SCRI")) {
                 if let Some(raw) = s.data.get(..4) {
-                    let id = rr.plugin.to_global(FormId(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])));
+                    let id = rr
+                        .plugin
+                        .to_global(FormId(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])));
                     map.insert(id, rr.form_id);
                 }
             }
@@ -132,11 +137,15 @@ pub fn analyse(order: &LoadOrder, sources: &[Source]) -> FuncReport {
         t.sources += 1;
         match &s.parsed {
             Err(e) => {
-                let msg = e.split_once(": ").map_or(e.as_str(), |(_, m)| m).to_string();
+                let msg = e
+                    .split_once(": ")
+                    .map_or(e.as_str(), |(_, m)| m)
+                    .to_string();
                 let slot = rep.parse_errors.entry(msg).or_default();
                 slot.0 += 1;
                 if slot.1.len() < 5 {
-                    slot.1.push(format!("{} {} ({})", s.record, s.editor, s.plugin));
+                    slot.1
+                        .push(format!("{} {} ({})", s.record, s.editor, s.plugin));
                 }
             }
             Ok(parsed) => {
@@ -145,10 +154,14 @@ pub fn analyse(order: &LoadOrder, sources: &[Source]) -> FuncReport {
                     *rep.events.entry(b.kind.clone()).or_default() += 1;
                 }
                 let quest = s.quest.or_else(|| by_script.get(&s.form).copied());
-                let named = quest.and_then(|q| quest_names.get(&q)).map(|(e, _)| e.clone());
+                let named = quest
+                    .and_then(|q| quest_names.get(&q))
+                    .map(|(e, _)| e.clone());
                 let mut seen = BTreeSet::new();
                 for f in calls_of(parsed) {
-                    let Some(st) = stats.get_mut(usize::from(f)) else { continue };
+                    let Some(st) = stats.get_mut(usize::from(f)) else {
+                        continue;
+                    };
                     st.calls += 1;
                     *st.by_kind.entry(s.kind).or_default() += 1;
                     if seen.insert(f) {
@@ -167,8 +180,14 @@ pub fn analyse(order: &LoadOrder, sources: &[Source]) -> FuncReport {
         }
     }
     rep.table = table.len();
-    rep.named = stats.iter().filter(|s| !s.name.starts_with("UnusedFunction")).count();
-    rep.named_handled = stats.iter().filter(|s| !s.name.starts_with("UnusedFunction") && s.handled).count();
+    rep.named = stats
+        .iter()
+        .filter(|s| !s.name.starts_with("UnusedFunction"))
+        .count();
+    rep.named_handled = stats
+        .iter()
+        .filter(|s| !s.name.starts_with("UnusedFunction") && s.handled)
+        .count();
     rep.stats = stats;
     rep
 }

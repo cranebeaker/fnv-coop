@@ -86,23 +86,49 @@ pub enum SceneKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventKind {
-    SetStage { stage: u32 },
-    Reward { reward_id: u32, what: RewardKind },
-    ShadowWrite { class: ShadowClass, slot: Slot, var: Option<String> },
-    Companion { op: CompanionOp, owner: Slot, critter: bool },
-    Scene { kind: SceneKind },
+    SetStage {
+        stage: u32,
+    },
+    Reward {
+        reward_id: u32,
+        what: RewardKind,
+    },
+    ShadowWrite {
+        class: ShadowClass,
+        slot: Slot,
+        var: Option<String>,
+    },
+    Companion {
+        op: CompanionOp,
+        owner: Slot,
+        critter: bool,
+    },
+    Scene {
+        kind: SceneKind,
+    },
     /// An irreversible fork put to the party.
-    Choice { choice: u32 },
+    Choice {
+        choice: u32,
+    },
     /// A confirmation line ("I'm ready") that needs every player.
-    ReadyRequest { info: u32 },
-    PlayerDown { slot: Slot },
+    ReadyRequest {
+        info: u32,
+    },
+    PlayerDown {
+        slot: Slot,
+    },
     FastTravel,
     Save,
     /// A guest asks to run a script locally. `script` is a form id.
-    GuestScript { script: FormId },
+    GuestScript {
+        script: FormId,
+    },
     /// A player hit `victim`, given as aliases joined by `|` (editor id and 8-digit hex);
     /// `recent` earlier hits by that player fell inside the window.
-    Hit { victim: String, recent: u32 },
+    Hit {
+        victim: String,
+        recent: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,14 +225,28 @@ pub enum Decision {
     /// Apply once on the host to the shared story state; normal delta replication follows.
     Apply,
     /// Deliver the effect to these players (rewards, quest items, payment, scenes).
-    Replicate { recipients: PlayerMask, mode: FanOut },
+    Replicate {
+        recipients: PlayerMask,
+        mode: FanOut,
+    },
     /// Hold until the listed players have arrived, passed, or answered.
-    DeferToBarrier { barrier: BarrierKind, waiting: PlayerMask, timeout_s: u32 },
+    DeferToBarrier {
+        barrier: BarrierKind,
+        waiting: PlayerMask,
+        timeout_s: u32,
+    },
     /// The tether wait ran out: warp the stragglers into the zone, then apply.
-    GatherThenApply { stragglers: PlayerMask },
+    GatherThenApply {
+        stragglers: PlayerMask,
+    },
     /// Write to this player's private copy only.
-    PerPlayerShadow { slot: Slot, class: ShadowClass },
-    Reject { reason: Reject },
+    PerPlayerShadow {
+        slot: Slot,
+        class: ShadowClass,
+    },
+    Reject {
+        reason: Reject,
+    },
 }
 
 fn reject(r: Reject) -> Decision {
@@ -235,7 +275,9 @@ impl PolicyTable {
     pub fn decide(&self, event: &Event, state: &State) -> Decision {
         match self.decide_inner(event, state) {
             // Nobody to deliver to is a refusal, not an empty success.
-            Decision::Replicate { recipients, .. } if recipients.is_empty() => reject(Reject::NotPresent),
+            Decision::Replicate { recipients, .. } if recipients.is_empty() => {
+                reject(Reject::NotPresent)
+            }
             d => d,
         }
     }
@@ -257,16 +299,26 @@ impl PolicyTable {
         }
         match &event.kind {
             EventKind::SetStage { stage } => self.stage(row, event, state, *stage),
-            EventKind::Reward { reward_id, what } => self.reward(row, event, state, *reward_id, what),
-            EventKind::ShadowWrite { class, slot, var } => self.shadow(row, event, state, *class, *slot, var.as_deref()),
-            EventKind::Companion { op, owner, critter } => self.companion(row, event, state, *op, *owner, *critter),
+            EventKind::Reward { reward_id, what } => {
+                self.reward(row, event, state, *reward_id, what)
+            }
+            EventKind::ShadowWrite { class, slot, var } => {
+                self.shadow(row, event, state, *class, *slot, var.as_deref())
+            }
+            EventKind::Companion { op, owner, critter } => {
+                self.companion(row, event, state, *op, *owner, *critter)
+            }
             EventKind::Scene { kind } => self.scene(row, event, state, *kind),
             EventKind::Choice { .. } => self.choice(row, event, state),
             EventKind::ReadyRequest { .. } => self.ready(row, state),
             EventKind::PlayerDown { slot } => match &row.shadow {
                 Some(sh) if sh.down.is_some() => Decision::PerPlayerShadow {
                     slot: *slot,
-                    class: if sh.scope == "collar" { ShadowClass::Collar } else { ShadowClass::QuestVar },
+                    class: if sh.scope == "collar" {
+                        ShadowClass::Collar
+                    } else {
+                        ShadowClass::QuestVar
+                    },
                 },
                 _ => Decision::Apply,
             },
@@ -288,7 +340,11 @@ impl PolicyTable {
             EventKind::GuestScript { script } => match event.origin {
                 Origin::Host => Decision::Apply,
                 Origin::Player(_) => {
-                    let ok = row.guest_local.iter().filter_map(|s| local_id(s)).any(|l| l == script & 0x00FF_FFFF);
+                    let ok = row
+                        .guest_local
+                        .iter()
+                        .filter_map(|s| local_id(s))
+                        .any(|l| l == script & 0x00FF_FFFF);
                     if ok {
                         Decision::Apply
                     } else {
@@ -303,7 +359,10 @@ impl PolicyTable {
         if f(row) && state.active_scenes.contains(&row.id) {
             return true;
         }
-        state.active_scenes.iter().any(|id| self.row(*id).map(&f).unwrap_or(false))
+        state
+            .active_scenes
+            .iter()
+            .any(|id| self.row(*id).map(&f).unwrap_or(false))
     }
 
     fn authorize(&self, row: &QuestRow, origin: Origin, state: &State) -> Option<Decision> {
@@ -322,7 +381,9 @@ impl PolicyTable {
     }
 
     fn rivals_committed(&self, row: &QuestRow, state: &State) -> bool {
-        self.group_rivals(row.id).iter().any(|r| state.committed_quests.contains(r))
+        self.group_rivals(row.id)
+            .iter()
+            .any(|r| state.committed_quests.contains(r))
     }
 
     fn stage(&self, row: &QuestRow, event: &Event, state: &State, stage: u32) -> Decision {
@@ -336,7 +397,12 @@ impl PolicyTable {
             return reject(Reject::GroupCommitted);
         }
         if let Some(x) = &row.exclusive {
-            if x.stages.contains(&stage) && state.committed_stages.iter().any(|c| *c != stage && x.stages.contains(c)) {
+            if x.stages.contains(&stage)
+                && state
+                    .committed_stages
+                    .iter()
+                    .any(|c| *c != stage && x.stages.contains(c))
+            {
                 return reject(Reject::StageExcluded);
             }
         }
@@ -348,8 +414,14 @@ impl PolicyTable {
                 _ => None,
             };
             return match who {
-                Some(slot) => Decision::PerPlayerShadow { slot, class: ShadowClass::QuestStage },
-                None => Decision::Replicate { recipients: state.present, mode: FanOut::Full },
+                Some(slot) => Decision::PerPlayerShadow {
+                    slot,
+                    class: ShadowClass::QuestStage,
+                },
+                None => Decision::Replicate {
+                    recipients: state.present,
+                    mode: FanOut::Full,
+                },
             };
         }
         if let Some(d) = self.tether_gate(row, state, Some(stage)) {
@@ -363,7 +435,11 @@ impl PolicyTable {
                     if state.barrier_elapsed_s >= t {
                         return reject(Reject::TimedOut);
                     }
-                    return Decision::DeferToBarrier { barrier: BarrierKind::AllPlayersPass, waiting: missing, timeout_s: t };
+                    return Decision::DeferToBarrier {
+                        barrier: BarrierKind::AllPlayersPass,
+                        waiting: missing,
+                        timeout_s: t,
+                    };
                 }
             }
         }
@@ -386,16 +462,32 @@ impl PolicyTable {
         }
         let limit = t.timeout_s.unwrap_or(self.policy().tether_timeout_s);
         if state.tether_elapsed_s >= limit && t.gather == Gather::AutoWarp {
-            return Some(Decision::GatherThenApply { stragglers: missing });
+            return Some(Decision::GatherThenApply {
+                stragglers: missing,
+            });
         }
-        Some(Decision::DeferToBarrier { barrier: BarrierKind::Tether, waiting: missing, timeout_s: limit })
+        Some(Decision::DeferToBarrier {
+            barrier: BarrierKind::Tether,
+            waiting: missing,
+            timeout_s: limit,
+        })
     }
 
-    fn reward(&self, row: &QuestRow, event: &Event, state: &State, reward_id: u32, what: &RewardKind) -> Decision {
+    fn reward(
+        &self,
+        row: &QuestRow,
+        event: &Event,
+        state: &State,
+        reward_id: u32,
+        what: &RewardKind,
+    ) -> Decision {
         if matches!(event.origin, Origin::Player(_)) {
             return reject(Reject::NotHost);
         }
-        let initiator_mask = state.initiator.map(PlayerMask::of).unwrap_or(PlayerMask::NONE);
+        let initiator_mask = state
+            .initiator
+            .map(PlayerMask::of)
+            .unwrap_or(PlayerMask::NONE);
         let (mut recipients, mode) = match what {
             // Karma and reputation are one value for the party.
             RewardKind::Karma | RewardKind::Reputation => return Decision::Apply,
@@ -406,10 +498,15 @@ impl PolicyTable {
             },
             RewardKind::Perk(p) => {
                 let perks = row.perks.as_ref();
-                let hit = |l: &Vec<String>| l.iter().any(|x| p.split('|').any(|alias| same_form(x, alias)));
+                let hit = |l: &Vec<String>| {
+                    l.iter()
+                        .any(|x| p.split('|').any(|alias| same_form(x, alias)))
+                };
                 match perks {
                     // The recruiter is the player who ran the recruit conversation.
-                    Some(pk) if hit(&pk.initiator) || hit(&pk.recruiter) => (initiator_mask, FanOut::Full),
+                    Some(pk) if hit(&pk.initiator) || hit(&pk.recruiter) => {
+                        (initiator_mask, FanOut::Full)
+                    }
                     _ => (state.present, FanOut::Full),
                 }
             }
@@ -435,10 +532,21 @@ impl PolicyTable {
         if fresh.is_empty() {
             return reject(Reject::AlreadyGranted);
         }
-        Decision::Replicate { recipients: fresh, mode }
+        Decision::Replicate {
+            recipients: fresh,
+            mode,
+        }
     }
 
-    fn shadow(&self, row: &QuestRow, event: &Event, state: &State, class: ShadowClass, slot: Slot, var: Option<&str>) -> Decision {
+    fn shadow(
+        &self,
+        row: &QuestRow,
+        event: &Event,
+        state: &State,
+        class: ShadowClass,
+        slot: Slot,
+        var: Option<&str>,
+    ) -> Decision {
         if let Origin::Player(s) = event.origin {
             if s != slot {
                 return reject(Reject::NotOwner);
@@ -450,7 +558,10 @@ impl PolicyTable {
         if let (Some(sh), Some(v)) = (&row.shadow, var) {
             let named = |l: &Vec<String>| l.iter().any(|x| x == v);
             if named(&sh.vars) || named(&sh.objvars) {
-                return Decision::PerPlayerShadow { slot, class: ShadowClass::QuestVar };
+                return Decision::PerPlayerShadow {
+                    slot,
+                    class: ShadowClass::QuestVar,
+                };
             }
         }
         let _ = state;
@@ -460,7 +571,15 @@ impl PolicyTable {
         }
     }
 
-    fn companion(&self, row: &QuestRow, event: &Event, state: &State, op: CompanionOp, owner: Slot, critter: bool) -> Decision {
+    fn companion(
+        &self,
+        row: &QuestRow,
+        event: &Event,
+        state: &State,
+        op: CompanionOp,
+        owner: Slot,
+        critter: bool,
+    ) -> Decision {
         if owner >= 8 {
             return reject(Reject::NotPresent);
         }
@@ -481,13 +600,18 @@ impl PolicyTable {
             }
             let total: u32 = (0..8u8)
                 .filter(|s| state.present.contains(*s))
-                .map(|s| state.followers[s as usize].0 as u32 + state.followers[s as usize].1 as u32)
+                .map(|s| {
+                    state.followers[s as usize].0 as u32 + state.followers[s as usize].1 as u32
+                })
                 .sum();
             if total >= self.policy().party_cap as u32 {
                 return reject(Reject::PartyCap);
             }
         }
-        Decision::PerPlayerShadow { slot: owner, class: ShadowClass::Followers }
+        Decision::PerPlayerShadow {
+            slot: owner,
+            class: ShadowClass::Followers,
+        }
     }
 
     fn scene(&self, row: &QuestRow, event: &Event, state: &State, kind: SceneKind) -> Decision {
@@ -514,18 +638,29 @@ impl PolicyTable {
                     if state.barrier_elapsed_s >= t {
                         return reject(Reject::TimedOut);
                     }
-                    return Decision::DeferToBarrier { barrier: BarrierKind::AllPlayersPass, waiting: missing, timeout_s: t };
+                    return Decision::DeferToBarrier {
+                        barrier: BarrierKind::AllPlayersPass,
+                        waiting: missing,
+                        timeout_s: t,
+                    };
                 }
             }
         }
         // Everyone is locked, warped and shown the scene together.
-        Decision::Replicate { recipients: state.present, mode: FanOut::Full }
+        Decision::Replicate {
+            recipients: state.present,
+            mode: FanOut::Full,
+        }
     }
 
     fn choice(&self, row: &QuestRow, event: &Event, state: &State) -> Decision {
         let c = match &row.consent {
             Some(c) => c,
-            None => return self.authorize(row, event.origin, state).unwrap_or(Decision::Apply),
+            None => {
+                return self
+                    .authorize(row, event.origin, state)
+                    .unwrap_or(Decision::Apply)
+            }
         };
         let present = state.present;
         let yes = state.votes_yes.and(present);
@@ -551,7 +686,11 @@ impl PolicyTable {
                 } else if state.vote_elapsed_s >= c.timeout_s {
                     reject(Reject::TimedOut)
                 } else {
-                    Decision::DeferToBarrier { barrier: BarrierKind::Consent, waiting: present.minus(yes), timeout_s: c.timeout_s }
+                    Decision::DeferToBarrier {
+                        barrier: BarrierKind::Consent,
+                        waiting: present.minus(yes),
+                        timeout_s: c.timeout_s,
+                    }
                 }
             }
             ConsentMode::Vote => {
@@ -565,7 +704,11 @@ impl PolicyTable {
                         reject(Reject::Declined)
                     }
                 } else {
-                    Decision::DeferToBarrier { barrier: BarrierKind::Consent, waiting: present.minus(answered), timeout_s: c.timeout_s }
+                    Decision::DeferToBarrier {
+                        barrier: BarrierKind::Consent,
+                        waiting: present.minus(answered),
+                        timeout_s: c.timeout_s,
+                    }
                 }
             }
         }
@@ -587,12 +730,21 @@ impl PolicyTable {
         if state.ready_elapsed_s >= r.timeout_s {
             return reject(Reject::TimedOut);
         }
-        Decision::DeferToBarrier { barrier: BarrierKind::ReadyCheck, waiting: present.minus(yes), timeout_s: r.timeout_s }
+        Decision::DeferToBarrier {
+            barrier: BarrierKind::ReadyCheck,
+            waiting: present.minus(yes),
+            timeout_s: r.timeout_s,
+        }
     }
 
     fn friendly_fire(&self, row: &QuestRow, victim: &str, recent: u32) -> Decision {
         match &row.friendly_fire {
-            Some(ff) if ff.actors.iter().any(|a| victim.split('|').any(|al| same_form(a, al))) => {
+            Some(ff)
+                if ff
+                    .actors
+                    .iter()
+                    .any(|a| victim.split('|').any(|al| same_form(a, al))) =>
+            {
                 if recent + 1 > ff.deliberate_hits {
                     reject(Reject::FriendlyFire)
                 } else {
@@ -608,9 +760,11 @@ impl PolicyTable {
         self.rows()
             .iter()
             .filter(|r| {
-                r.friendly_fire
-                    .as_ref()
-                    .is_some_and(|ff| ff.actors.iter().any(|a| victim.split('|').any(|al| same_form(a, al))))
+                r.friendly_fire.as_ref().is_some_and(|ff| {
+                    ff.actors
+                        .iter()
+                        .any(|a| victim.split('|').any(|al| same_form(a, al)))
+                })
             })
             .collect()
     }

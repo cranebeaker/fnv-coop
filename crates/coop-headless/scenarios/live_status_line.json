@@ -1,0 +1,50 @@
+{
+  "name": "live_status_line",
+  "description": "A host and two guests. The status line (Session::status, the dump's status object) of every peer counts three players, the host lists both guests with their ping, the first guest lists the second guest, and the second guest has a ping to the host.",
+  "cell": "GSDocMitchellHouse",
+  "network": "bad_wifi",
+  "seed": 73,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guests": [
+    {
+      "script": []
+    },
+    {
+      "script": []
+    }
+  ],
+  "expect": [
+    {
+      "id": "players",
+      "path": "status.players",
+      "op": "eq",
+      "value": 3,
+      "on": "all"
+    },
+    {
+      "id": "host-lists-guest2",
+      "path": "status.peers.guest2.rtt_ms",
+      "op": "gt",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "guest-lists-guest2",
+      "path": "status.peers.guest2.name",
+      "op": "eq",
+      "value": "Guest 2",
+      "on": "guest"
+    },
+    {
+      "id": "guest2-ping",
+      "path": "status.rtt_ms",
+      "op": "gt",
+      "value": 0,
+      "on": "guest2"
+    }
+  ]
+}

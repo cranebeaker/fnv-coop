@@ -23,7 +23,9 @@ use coop_core::ids::PlayerId;
 use coop_core::proto::Channel;
 use coop_core::transport::{Packet, Transport, TransportError};
 use coop_net::steam::{self, Friend, Invite, SteamApi, SteamBackend, SteamOptions, SteamPhase};
-use coop_net::{Backend, Clock, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token};
+use coop_net::{
+    Backend, Clock, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token,
+};
 
 use crate::link::{parse_token_hex, token_hex, LinkRequest, Notice, Opened};
 use crate::net::{Link, LinkErrors};
@@ -111,7 +113,10 @@ impl<A: SteamApi> SteamLink<A> {
             be.open_overlay();
         }
         sh.invites.extend(be.take_invites());
-        if self.last_refresh.map_or(true, |t| t.elapsed() >= self.friends_every) {
+        if self
+            .last_refresh
+            .map_or(true, |t| t.elapsed() >= self.friends_every)
+        {
             self.last_refresh = Some(Instant::now());
             sh.friends = be.online_friends();
         }
@@ -122,7 +127,12 @@ impl<A: SteamApi> Transport for SteamLink<A> {
     fn local(&self) -> PlayerId {
         self.link.local()
     }
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         self.link.send(to, channel, data)
     }
     fn recv(&mut self) -> Option<Packet> {
@@ -136,7 +146,11 @@ fn now_ms() -> u64 {
 }
 
 /// Polls `be` until `done(phase)` or the timeout. Returns the final phase.
-fn wait_phase<A: SteamApi>(be: &mut SteamBackend<A>, st: &SteamSettings, done: impl Fn(&SteamPhase) -> bool) -> SteamPhase {
+fn wait_phase<A: SteamApi>(
+    be: &mut SteamBackend<A>,
+    st: &SteamSettings,
+    done: impl Fn(&SteamPhase) -> bool,
+) -> SteamPhase {
     let start = Instant::now();
     loop {
         let _ = be.poll(now_ms());
@@ -148,7 +162,10 @@ fn wait_phase<A: SteamApi>(be: &mut SteamBackend<A>, st: &SteamSettings, done: i
 }
 
 fn ep_cfg(req: &LinkRequest) -> EndpointConfig {
-    EndpointConfig { name: req.name.clone(), ..EndpointConfig::default() }
+    EndpointConfig {
+        name: req.name.clone(),
+        ..EndpointConfig::default()
+    }
 }
 
 fn init_real(req: &LinkRequest) -> Result<steam::RealSteam, String> {
@@ -172,24 +189,44 @@ pub fn open_guest(req: &LinkRequest, code: Option<JoinCode>) -> Result<Opened, E
 }
 
 /// Host over any [`SteamApi`] (tests pass a `MockSteam`).
-pub fn open_host_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, token: Token, st: &SteamSettings) -> Result<Opened, String> {
+pub fn open_host_with<A: SteamApi + 'static>(
+    api: A,
+    req: &LinkRequest,
+    token: Token,
+    st: &SteamSettings,
+) -> Result<Opened, String> {
     let mut be = SteamBackend::host(api, st.backend.clone());
-    match wait_phase(&mut be, st, |p| matches!(p, SteamPhase::Hosting { .. } | SteamPhase::Failed(_))) {
+    match wait_phase(&mut be, st, |p| {
+        matches!(p, SteamPhase::Hosting { .. } | SteamPhase::Failed(_))
+    }) {
         SteamPhase::Hosting { .. } => {}
         SteamPhase::Failed(m) => return Err(m),
         _ => return Err("Steam did not create a lobby in time".into()),
     }
     let lobby = be.lobby().ok_or("Steam lobby vanished")?;
-    be.api_mut().set_lobby_data(lobby, TOKEN_KEY, &token_hex(&token));
+    be.api_mut()
+        .set_lobby_data(lobby, TOKEN_KEY, &token_hex(&token));
     let code = be.join_code(token).ok_or("no join code")?.to_string();
     let friends_online = be.online_friends().len();
     let errors = LinkErrors::default();
     let shared = SteamHandle::default();
     shared.0.borrow_mut().lobby = Some(lobby);
-    let link = Link { ep: Endpoint::host(be, token, ep_cfg(req)), guest: false, errors: errors.clone(), retry_at: None };
-    let sl = SteamLink { link, shared: shared.clone(), friends_every: st.friends_every, last_refresh: None };
+    let link = Link {
+        ep: Endpoint::host(be, token, ep_cfg(req)),
+        guest: false,
+        errors: errors.clone(),
+        retry_at: None,
+    };
+    let sl = SteamLink {
+        link,
+        shared: shared.clone(),
+        friends_every: st.friends_every,
+        last_refresh: None,
+    };
     let mut o = Opened::new(Box::new(sl), errors, "steam");
-    o.lines.push(format!("Co-op: hosting on Steam (friends-only lobby {lobby})."));
+    o.lines.push(format!(
+        "Co-op: hosting on Steam (friends-only lobby {lobby})."
+    ));
     o.lines.push(format!("Co-op: join code: {code}"));
     o.lines.push("Co-op: invite friends from Steam (or the in-game list), or send them the code. Both of you need Steam running.".into());
     o.notices.push(Notice::new(
@@ -201,21 +238,42 @@ pub fn open_host_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, token: T
             ("invite", "friends-list,overlay,join-code,rich-presence"),
         ],
     ));
-    o.notices.push(Notice::new("coop_join_code", &[("transport", "steam"), ("code", &code), ("token", &token_hex(&token))]));
+    o.notices.push(Notice::new(
+        "coop_join_code",
+        &[
+            ("transport", "steam"),
+            ("code", &code),
+            ("token", &token_hex(&token)),
+        ],
+    ));
     o.join_code = Some(code);
     o.steam = Some(shared);
     Ok(o)
 }
 
 /// Guest over any [`SteamApi`]. `code` is the lobby code, or `None` for friend auto-join.
-pub fn open_guest_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, code: Option<JoinCode>, st: &SteamSettings) -> Result<Opened, Error> {
+pub fn open_guest_with<A: SteamApi + 'static>(
+    api: A,
+    req: &LinkRequest,
+    code: Option<JoinCode>,
+    st: &SteamSettings,
+) -> Result<Opened, Error> {
     let (mut candidates, code_token): (Vec<u64>, Option<Token>) = match &code {
         Some(c) => match c.target {
             NetTarget::SteamLobby(id) => (vec![id], Some(c.token)),
-            _ => return Err(Error::Target("this join code does not name a Steam lobby".into())),
+            _ => {
+                return Err(Error::Target(
+                    "this join code does not name a Steam lobby".into(),
+                ))
+            }
         },
         None => {
-            let hosting: Vec<u64> = api.friends().into_iter().filter(|f| f.playing_app == Some(480) && f.lobby != 0).map(|f| f.lobby).collect();
+            let hosting: Vec<u64> = api
+                .friends()
+                .into_iter()
+                .filter(|f| f.playing_app == Some(480) && f.lobby != 0)
+                .map(|f| f.lobby)
+                .collect();
             if hosting.is_empty() {
                 return Err(Error::Target(
                     "no Steam friend is hosting an nv-rs game right now. Ask your friend to start hosting (and keep Steam running), or use their join code".into(),
@@ -231,7 +289,9 @@ pub fn open_guest_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, code: O
     let mut last_why: String;
     let mut lobby = first;
     loop {
-        match wait_phase(&mut be, st, |p| matches!(p, SteamPhase::Guest { .. } | SteamPhase::Failed(_))) {
+        match wait_phase(&mut be, st, |p| {
+            matches!(p, SteamPhase::Guest { .. } | SteamPhase::Failed(_))
+        }) {
             SteamPhase::Guest { .. } => break,
             SteamPhase::Failed(m) => last_why = m,
             _ => last_why = "Steam did not answer in time".into(),
@@ -241,7 +301,11 @@ pub fn open_guest_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, code: O
                 lobby = next;
                 be.retarget(next);
             }
-            None => return Err(Error::Target(format!("could not join over Steam: {last_why}"))),
+            None => {
+                return Err(Error::Target(format!(
+                    "could not join over Steam: {last_why}"
+                )))
+            }
         }
     }
     let token = match code_token {
@@ -250,16 +314,36 @@ pub fn open_guest_with<A: SteamApi + 'static>(api: A, req: &LinkRequest, code: O
             .api()
             .get_lobby_data(lobby, TOKEN_KEY)
             .and_then(|h| parse_token_hex(&h))
-            .ok_or_else(|| Error::Target("that Steam lobby has no session token (the host runs another build)".into()))?,
+            .ok_or_else(|| {
+                Error::Target(
+                    "that Steam lobby has no session token (the host runs another build)".into(),
+                )
+            })?,
     };
     let errors = LinkErrors::default();
     let shared = SteamHandle::default();
     shared.0.borrow_mut().lobby = Some(lobby);
-    let link = Link { ep: Endpoint::guest(be, token, ep_cfg(req)), guest: true, errors: errors.clone(), retry_at: None };
-    let sl = SteamLink { link, shared: shared.clone(), friends_every: st.friends_every, last_refresh: None };
+    let link = Link {
+        ep: Endpoint::guest(be, token, ep_cfg(req)),
+        guest: true,
+        errors: errors.clone(),
+        retry_at: None,
+    };
+    let sl = SteamLink {
+        link,
+        shared: shared.clone(),
+        friends_every: st.friends_every,
+        last_refresh: None,
+    };
     let mut o = Opened::new(Box::new(sl), errors, "steam");
     o.lines.push(format!("Co-op: joined Steam lobby {lobby}."));
-    o.notices.push(Notice::new("steam_joined", &[("lobby", &lobby.to_string()), ("via", if code.is_some() { "code" } else { "friend" })]));
+    o.notices.push(Notice::new(
+        "steam_joined",
+        &[
+            ("lobby", &lobby.to_string()),
+            ("via", if code.is_some() { "code" } else { "friend" }),
+        ],
+    ));
     o.steam = Some(shared);
     Ok(o)
 }
@@ -275,7 +359,10 @@ mod tests {
             setup_timeout: Duration::from_millis(300),
             poll: Duration::from_millis(1),
             friends_every: Duration::from_millis(1),
-            backend: SteamOptions { retry_sleep: Duration::from_millis(1), ..Default::default() },
+            backend: SteamOptions {
+                retry_sleep: Duration::from_millis(1),
+                ..Default::default()
+            },
         }
     }
 
@@ -305,12 +392,19 @@ mod tests {
         let parsed: JoinCode = code.parse().unwrap();
         assert_eq!(parsed.token, token);
         assert!(matches!(parsed.target, NetTarget::SteamLobby(_)));
-        assert!(ho.notices.iter().any(|n| n.ev == "steam_lobby" && n.get("code") == Some(code.as_str())));
+        assert!(ho
+            .notices
+            .iter()
+            .any(|n| n.ev == "steam_lobby" && n.get("code") == Some(code.as_str())));
 
         let greq = LinkRequest::new(Role::Guest, "G", &code);
         let mut go = open_guest_with(g, &greq, Some(parsed), &fast()).unwrap();
         pump_both(&mut ho, &mut go);
-        assert_eq!(go.transport.local(), PlayerId(1), "slot assigned by the handshake");
+        assert_eq!(
+            go.transport.local(),
+            PlayerId(1),
+            "slot assigned by the handshake"
+        );
         let hh = ho.steam.clone().unwrap();
         assert!(hh.lobby().is_some());
     }
@@ -343,7 +437,9 @@ mod tests {
         let (_u, _h, g) = users();
         let code = JoinCode::new(NetTarget::SteamLobby(424242), [1; 16]);
         let greq = LinkRequest::new(Role::Guest, "G", &code.to_string());
-        let e = open_guest_with(g, &greq, Some(code), &fast()).err().unwrap();
+        let e = open_guest_with(g, &greq, Some(code), &fast())
+            .err()
+            .unwrap();
         assert!(e.to_string().contains("could not join"), "{e}");
     }
 

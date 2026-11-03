@@ -1,0 +1,28 @@
+{
+  "name": "live_scene_presentation",
+  "description": "Host scripts show and play what the ending of the game shows (FadeToCreditsTimerScript): IMod FadeToBlack4sISFX, PlaySound QSTEndTransitionStinger, PlayMusic musDocMitchellHouse, IMod FadeToBlackPermanent, then RIMod FadeToBlack4sISFX. Each script function calls GameState::coop_present. The host sends the five cues (SceneMsg::Present) and the guest applies each one (presentation::apply): its own modifiers end with the permanent fade on, as the host's do.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 89,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 3, "run": "IMod FadeToBlack4sISFX" },
+      { "at": 4, "run": "PlaySound QSTEndTransitionStinger" },
+      { "at": 5, "run": "PlayMusic musDocMitchellHouse" },
+      { "at": 6, "run": "IMod FadeToBlackPermanent" },
+      { "at": 8, "run": "RIMod FadeToBlack4sISFX" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-sent", "path": "scene.present.sent", "op": "eq", "value": 5, "on": "host" },
+    { "id": "guest-applied", "path": "scene.present.applied", "op": "eq", "value": 5, "on": "guest" },
+    { "id": "guest-fades", "path": "scene.present.imods", "op": "eq", "value": 3, "on": "guest" },
+    { "id": "guest-sound", "path": "scene.present.sounds", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "guest-music", "path": "scene.present.music", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "fade-left-on", "path": "scene.present.on", "op": "eq", "value": 1, "on": "both" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

@@ -1376,7 +1376,12 @@ pub fn player_attack(
             damage: hit.dealt,
             killed: state.dead.contains(&target),
         });
-        world::coop::combat_live::note_impact(state, [0, 1, 2].map(|k| eye[k] + dir[k] * d), Some(target), part);
+        world::coop::combat_live::note_impact(
+            state,
+            [0, 1, 2].map(|k| eye[k] + dir[k] * d),
+            Some(target),
+            part,
+        );
         println!("{}.", tell_hit(order, state, &mut attack, target, d, &hit));
     }
 }

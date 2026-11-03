@@ -117,14 +117,44 @@ pub enum PartyEvent {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Msg {
-    Hello { key: u64, offering: bool },
-    HelloAck { campaign: u64, matched: bool, want_offer: bool },
-    Order { seq: u32, name: String },
-    Chunk { kind: u8, seq: u32, idx: u16, total: u16, data: Vec<u8> },
-    Refused { seq: u32, why: String },
-    Stored { seq: u32, ok: bool },
-    Reloaded { campaign: u64 },
-    OfferResult { seq: u32, ok: bool, conflicts: u32, dropped: u32, why: String },
+    Hello {
+        key: u64,
+        offering: bool,
+    },
+    HelloAck {
+        campaign: u64,
+        matched: bool,
+        want_offer: bool,
+    },
+    Order {
+        seq: u32,
+        name: String,
+    },
+    Chunk {
+        kind: u8,
+        seq: u32,
+        idx: u16,
+        total: u16,
+        data: Vec<u8>,
+    },
+    Refused {
+        seq: u32,
+        why: String,
+    },
+    Stored {
+        seq: u32,
+        ok: bool,
+    },
+    Reloaded {
+        campaign: u64,
+    },
+    OfferResult {
+        seq: u32,
+        ok: bool,
+        conflicts: u32,
+        dropped: u32,
+        why: String,
+    },
 }
 
 struct W(Vec<u8>);
@@ -158,10 +188,13 @@ impl R<'_> {
         self.take(2).map(|b| u16::from_le_bytes([b[0], b[1]]))
     }
     fn u32(&mut self) -> Option<u32> {
-        self.take(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        self.take(4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
     fn u64(&mut self) -> Option<u64> {
-        self.take(8).and_then(|b| b.try_into().ok()).map(u64::from_le_bytes)
+        self.take(8)
+            .and_then(|b| b.try_into().ok())
+            .map(u64::from_le_bytes)
     }
     fn str(&mut self) -> Option<String> {
         let n = self.u16()? as usize;
@@ -181,7 +214,11 @@ impl Msg {
                 w.0.extend(key.to_le_bytes());
                 w.0.push(u8::from(*offering));
             }
-            Msg::HelloAck { campaign, matched, want_offer } => {
+            Msg::HelloAck {
+                campaign,
+                matched,
+                want_offer,
+            } => {
                 w.0.push(2);
                 w.0.extend(campaign.to_le_bytes());
                 w.0.push(u8::from(*matched) | (u8::from(*want_offer) << 1));
@@ -191,7 +228,13 @@ impl Msg {
                 w.0.extend(seq.to_le_bytes());
                 w.str(name);
             }
-            Msg::Chunk { kind, seq, idx, total, data } => {
+            Msg::Chunk {
+                kind,
+                seq,
+                idx,
+                total,
+                data,
+            } => {
                 w.0.push(4);
                 w.0.push(*kind);
                 w.0.extend(seq.to_le_bytes());
@@ -214,7 +257,13 @@ impl Msg {
                 w.0.push(7);
                 w.0.extend(campaign.to_le_bytes());
             }
-            Msg::OfferResult { seq, ok, conflicts, dropped, why } => {
+            Msg::OfferResult {
+                seq,
+                ok,
+                conflicts,
+                dropped,
+                why,
+            } => {
                 w.0.push(8);
                 w.0.extend(seq.to_le_bytes());
                 w.0.push(u8::from(*ok));
@@ -229,25 +278,53 @@ impl Msg {
     fn decode(b: &[u8]) -> Option<Msg> {
         let mut r = R(b);
         let m = match r.u8()? {
-            1 => Msg::Hello { key: r.u64()?, offering: r.u8()? != 0 },
+            1 => Msg::Hello {
+                key: r.u64()?,
+                offering: r.u8()? != 0,
+            },
             2 => {
                 let campaign = r.u64()?;
                 let f = r.u8()?;
-                Msg::HelloAck { campaign, matched: f & 1 != 0, want_offer: f & 2 != 0 }
+                Msg::HelloAck {
+                    campaign,
+                    matched: f & 1 != 0,
+                    want_offer: f & 2 != 0,
+                }
             }
-            3 => Msg::Order { seq: r.u32()?, name: r.str()? },
+            3 => Msg::Order {
+                seq: r.u32()?,
+                name: r.str()?,
+            },
             4 => {
                 let (kind, seq, idx, total) = (r.u8()?, r.u32()?, r.u16()?, r.u16()?);
                 let n = r.u16()? as usize;
                 if n > CHUNK_BYTES * 2 || total == 0 || idx >= total {
                     return None;
                 }
-                Msg::Chunk { kind, seq, idx, total, data: r.take(n)?.to_vec() }
+                Msg::Chunk {
+                    kind,
+                    seq,
+                    idx,
+                    total,
+                    data: r.take(n)?.to_vec(),
+                }
             }
-            5 => Msg::Refused { seq: r.u32()?, why: r.str()? },
-            6 => Msg::Stored { seq: r.u32()?, ok: r.u8()? != 0 },
+            5 => Msg::Refused {
+                seq: r.u32()?,
+                why: r.str()?,
+            },
+            6 => Msg::Stored {
+                seq: r.u32()?,
+                ok: r.u8()? != 0,
+            },
             7 => Msg::Reloaded { campaign: r.u64()? },
-            8 => Msg::OfferResult { seq: r.u32()?, ok: r.u8()? != 0, conflicts: r.u32()?, dropped: r.u32()?, why: r.str()? },
+            8 => Msg::OfferResult {
+                seq: r.u32()?,
+                ok: r.u8()? != 0,
+                conflicts: r.u32()?,
+                dropped: r.u32()?,
+                why: r.str()?,
+            },
             _ => return None,
         };
         r.0.is_empty().then_some(m)
@@ -276,7 +353,10 @@ impl Reasm {
         }
         self.parts.insert(idx, data);
         if self.parts.len() == total as usize {
-            let all: Vec<u8> = std::mem::take(&mut self.parts).into_values().flatten().collect();
+            let all: Vec<u8> = std::mem::take(&mut self.parts)
+                .into_values()
+                .flatten()
+                .collect();
             *self = Reasm::default();
             return Some(all);
         }
@@ -361,7 +441,10 @@ impl PartyLayer {
 }
 
 fn unix_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn chunks(kind: u8, seq: u32, bytes: &[u8]) -> Vec<Msg> {
@@ -370,7 +453,13 @@ fn chunks(kind: u8, seq: u32, bytes: &[u8]) -> Vec<Msg> {
         .map(|i| {
             let a = i as usize * CHUNK_BYTES;
             let b = (a + CHUNK_BYTES).min(bytes.len());
-            Msg::Chunk { kind, seq, idx: i, total, data: bytes[a..b].to_vec() }
+            Msg::Chunk {
+                kind,
+                seq,
+                idx: i,
+                total,
+                data: bytes[a..b].to_vec(),
+            }
         })
         .collect()
 }
@@ -380,16 +469,24 @@ impl Session {
 
     /// Host: turns the party layer on. `campaign` 0 starts a new campaign with a fresh id.
     pub fn party_host_setup(&mut self, campaign: u64, host_name: &str) {
-        let l = self.party.get_or_insert_with(|| Box::new(PartyLayer::new(Role::Host)));
+        let l = self
+            .party
+            .get_or_insert_with(|| Box::new(PartyLayer::new(Role::Host)));
         l.role = Role::Host;
-        l.campaign = if campaign == 0 { made_up_id() } else { campaign };
+        l.campaign = if campaign == 0 {
+            made_up_id()
+        } else {
+            campaign
+        };
         l.host_name = host_name.to_string();
     }
 
     /// Guest: turns the party layer on with this player's persistent id (never zero).
     /// `character_path` is where the guest keeps its own copy of every character save.
     pub fn party_guest_setup(&mut self, key: u64, character_path: Option<PathBuf>) {
-        let l = self.party.get_or_insert_with(|| Box::new(PartyLayer::new(Role::Guest)));
+        let l = self
+            .party
+            .get_or_insert_with(|| Box::new(PartyLayer::new(Role::Guest)));
         l.role = Role::Guest;
         l.key = key.max(1);
         l.char_path = character_path;
@@ -419,30 +516,54 @@ impl Session {
     /// Host: the characters of a loaded party save. Guests that hello with a matching key get
     /// theirs. Also adopts the save's campaign.
     pub fn party_host_load(&mut self, save: &PartySave) {
-        let l = self.party.get_or_insert_with(|| Box::new(PartyLayer::new(Role::Host)));
+        let l = self
+            .party
+            .get_or_insert_with(|| Box::new(PartyLayer::new(Role::Host)));
         l.campaign = save.campaign;
         l.loaded = save.guests.iter().map(|g| (g.key, g.clone())).collect();
         l.next_seq = l.next_seq.max(save.seq);
+        // the campaign keeps its rules unless the host's flags chose others
+        if !self.rules_given {
+            self.set_rules(save.rules);
+        }
     }
 
     /// Guest: F5 on a guest. Saves only this player's character, into the character file
     /// (`--coop-character`). No host involved.
     pub fn party_guest_save(&mut self, gs: &GameState) -> Result<PathBuf, String> {
         let name = self.name.clone();
-        let l = self.party.as_ref().filter(|l| l.role == Role::Guest).ok_or("not a co-op guest")?;
+        let l = self
+            .party
+            .as_ref()
+            .filter(|l| l.role == Role::Guest)
+            .ok_or("not a co-op guest")?;
         if gs.coop_save_blocked() {
             return Err("saving is held by a co-op scene".into());
         }
-        let shadow = gs.shadow_of(gs.active_slot()).ok_or("this session keeps no separate characters")?;
+        let shadow = gs
+            .shadow_of(gs.active_slot())
+            .ok_or("this session keeps no separate characters")?;
         let path = l.char_path.clone().ok_or("no character file is set")?;
-        let file = CharacterFile::new(l.key, &name, l.campaign, 0, unix_now(), &shadow, party_char::baseline_of(gs));
+        let file = CharacterFile::new(
+            l.key,
+            &name,
+            l.campaign,
+            0,
+            unix_now(),
+            &shadow,
+            party_char::baseline_of(gs),
+        );
         party_char::write_character(&path, &file).map_err(|e| e.to_string())?;
         Ok(path)
     }
 
     /// Guest: F9 on a guest. Restores only this player's character from the character file.
     pub fn party_guest_load_local(&mut self) -> Result<(), String> {
-        let l = self.party.as_ref().filter(|l| l.role == Role::Guest).ok_or("not a co-op guest")?;
+        let l = self
+            .party
+            .as_ref()
+            .filter(|l| l.role == Role::Guest)
+            .ok_or("not a co-op guest")?;
         let path = l.char_path.clone().ok_or("no character file is set")?;
         let file = party_char::read_character(&path).map_err(|e| e.to_string())?;
         self.party_guest_load(&file);
@@ -461,14 +582,24 @@ impl Session {
     /// Host: a save happened. Orders every guest to save its character, then writes the party
     /// folder `dir` with `world_text` (the host's world save) once they answered or the wait ran
     /// out. Returns the sequence number.
-    pub fn party_begin_save(&mut self, gs: &GameState, dir: PathBuf, world_text: String, unix: u64) -> Result<u32, String> {
+    pub fn party_begin_save(
+        &mut self,
+        gs: &GameState,
+        dir: PathBuf,
+        world_text: String,
+        unix: u64,
+    ) -> Result<u32, String> {
         if gs.coop_save_blocked() {
             return Err("saving is held by a co-op scene".into());
         }
         let now = self.now_ms;
-        let Some(h) = &self.host else { return Err("only the host saves a party".into()) };
+        let Some(h) = &self.host else {
+            return Err("only the host saves a party".into());
+        };
         let asked: BTreeSet<PlayerId> = h.peers.keys().copied().collect();
-        let Some(l) = &mut self.party else { return Err("party saves are not set up".into()) };
+        let Some(l) = &mut self.party else {
+            return Err("party saves are not set up".into());
+        };
         if l.pending.is_some() {
             return Err("the previous party save is still being collected".into());
         }
@@ -477,7 +608,10 @@ impl Session {
         }
         l.next_seq += 1;
         let seq = l.next_seq;
-        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         l.pending = Some(Pending {
             seq,
             dir,
@@ -489,7 +623,17 @@ impl Session {
             fallback: BTreeSet::new(),
         });
         for to in asked {
-            send_ext(&mut self.net, to, &Ext::Party(Msg::Order { seq, name: name.clone() }.encode()));
+            send_ext(
+                &mut self.net,
+                to,
+                &Ext::Party(
+                    Msg::Order {
+                        seq,
+                        name: name.clone(),
+                    }
+                    .encode(),
+                ),
+            );
         }
         self.log_event("party_order", &[("seq", V::U(seq as u64))]);
         Ok(seq)
@@ -502,7 +646,10 @@ impl Session {
 
     /// Events since the last call.
     pub fn take_party_events(&mut self) -> Vec<PartyEvent> {
-        self.party.as_mut().map(|l| std::mem::take(&mut l.events)).unwrap_or_default()
+        self.party
+            .as_mut()
+            .map(|l| std::mem::take(&mut l.events))
+            .unwrap_or_default()
     }
 
     /// Host: a save is being collected.
@@ -526,7 +673,9 @@ impl Session {
 
     /// Hook: once per frame, after the host collected its changes.
     pub(crate) fn party_tick(&mut self, gs: &mut GameState) {
-        let Some(mut l) = self.party.take() else { return };
+        let Some(mut l) = self.party.take() else {
+            return;
+        };
         match l.role {
             Role::Host => host_tick(self, &mut l, gs),
             Role::Guest => guest_tick(self, &mut l, gs),
@@ -542,11 +691,19 @@ fn send(s: &mut Session, to: PlayerId, m: &Msg) {
 // ---- host --------------------------------------------------------------
 
 fn name_of(s: &Session, slot: PlayerId) -> String {
-    s.host.as_ref().and_then(|h| h.peers.get(&slot)).and_then(|p| p.name.clone()).unwrap_or_else(|| format!("Guest {}", slot.0))
+    s.host
+        .as_ref()
+        .and_then(|h| h.peers.get(&slot))
+        .and_then(|p| p.name.clone())
+        .unwrap_or_else(|| format!("Guest {}", slot.0))
 }
 
 fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
-    let connected: BTreeSet<PlayerId> = s.host.as_ref().map(|h| h.peers.keys().copied().collect()).unwrap_or_default();
+    let connected: BTreeSet<PlayerId> = s
+        .host
+        .as_ref()
+        .map(|h| h.peers.keys().copied().collect())
+        .unwrap_or_default();
     // people who left stop being mapped; their claims stay so a rejoin finds its place
     l.keys.retain(|slot, _| connected.contains(slot));
     let inbox = std::mem::take(&mut l.inbox);
@@ -563,8 +720,18 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 }
                 host_hello(s, l, gs, from, key, offering);
             }
-            Msg::Chunk { kind, seq, idx, total, data } => {
-                let whole = l.asm.entry((from, kind, seq)).or_default().add(idx, total, data);
+            Msg::Chunk {
+                kind,
+                seq,
+                idx,
+                total,
+                data,
+            } => {
+                let whole = l
+                    .asm
+                    .entry((from, kind, seq))
+                    .or_default()
+                    .add(idx, total, data);
                 if let Some(bytes) = whole {
                     l.asm.remove(&(from, kind, seq));
                     host_character(s, l, gs, from, kind, seq, &bytes);
@@ -573,7 +740,10 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
             Msg::Refused { seq, why } => {
                 if let Some(p) = l.pending.as_mut().filter(|p| p.seq == seq) {
                     p.fallback.insert(from);
-                    s.log_event("party_refused", &[("from", V::U(from.0 as u64)), ("why", V::S(&why))]);
+                    s.log_event(
+                        "party_refused",
+                        &[("from", V::U(from.0 as u64)), ("why", V::S(&why))],
+                    );
                 }
             }
             _ => {}
@@ -591,7 +761,12 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
             for (slot, key) in slots {
                 if let Some(sc) = l.loaded.get(&key) {
                     if let Some(sh) = sc.shadow() {
-                        let plan = gs.coop.bank.plan.clone().unwrap_or_else(world::coop::ShadowPlan::all);
+                        let plan = gs
+                            .coop
+                            .bank
+                            .plan
+                            .clone()
+                            .unwrap_or_else(world::coop::ShadowPlan::all);
                         let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
                         party_char::install_for_slot(gs, slot.0, sh);
                         l.claimed.insert(key, slot);
@@ -604,13 +779,26 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     if l.notify_reload {
         l.notify_reload = false;
         for to in &connected {
-            send(s, *to, &Msg::Reloaded { campaign: l.campaign });
+            send(
+                s,
+                *to,
+                &Msg::Reloaded {
+                    campaign: l.campaign,
+                },
+            );
         }
     }
     host_pending(s, l, gs, &connected);
 }
 
-fn host_hello(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from: PlayerId, key: u64, offering: bool) {
+fn host_hello(
+    s: &mut Session,
+    l: &mut PartyLayer,
+    gs: &mut GameState,
+    from: PlayerId,
+    key: u64,
+    offering: bool,
+) {
     if key == 0 || from.is_host() {
         return;
     }
@@ -635,7 +823,12 @@ fn host_hello(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from: Pla
         None => {
             if let Some(sc) = l.loaded.get(&key) {
                 if let Some(sh) = sc.shadow() {
-                    let plan = gs.coop.bank.plan.clone().unwrap_or_else(world::coop::ShadowPlan::all);
+                    let plan = gs
+                        .coop
+                        .bank
+                        .plan
+                        .clone()
+                        .unwrap_or_else(world::coop::ShadowPlan::all);
                     let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
                     matched = party_char::install_for_slot(gs, from.0, sh);
                 }
@@ -649,30 +842,81 @@ fn host_hello(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from: Pla
         }
     }
     let want_offer = !matched && offering && l.eligible.contains(&key);
-    s.log_event("party_hello", &[("slot", V::U(from.0 as u64)), ("key", V::U(key)), ("matched", V::B(matched))]);
-    send(s, from, &Msg::HelloAck { campaign: l.campaign, matched, want_offer });
+    s.log_event(
+        "party_hello",
+        &[
+            ("slot", V::U(from.0 as u64)),
+            ("key", V::U(key)),
+            ("matched", V::B(matched)),
+        ],
+    );
+    send(
+        s,
+        from,
+        &Msg::HelloAck {
+            campaign: l.campaign,
+            matched,
+            want_offer,
+        },
+    );
 }
 
-fn host_character(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from: PlayerId, kind: u8, seq: u32, bytes: &[u8]) {
-    let Some(&key) = l.keys.get(&from) else { return };
+fn host_character(
+    s: &mut Session,
+    l: &mut PartyLayer,
+    gs: &mut GameState,
+    from: PlayerId,
+    kind: u8,
+    seq: u32,
+    bytes: &[u8],
+) {
+    let Some(&key) = l.keys.get(&from) else {
+        return;
+    };
     let file = match CharacterFile::from_bytes(bytes) {
         Ok(f) if f.key == key => f,
         _ => {
             if kind != 0 {
-                send(s, from, &Msg::OfferResult { seq, ok: false, conflicts: 0, dropped: 0, why: "the character file is damaged".into() });
+                send(
+                    s,
+                    from,
+                    &Msg::OfferResult {
+                        seq,
+                        ok: false,
+                        conflicts: 0,
+                        dropped: 0,
+                        why: "the character file is damaged".into(),
+                    },
+                );
             }
             return;
         }
     };
     let Some(shadow) = file.shadow() else { return };
     if kind == 0 {
-        if let Some(p) = l.pending.as_mut().filter(|p| p.seq == seq && p.asked.contains(&from)) {
+        if let Some(p) = l
+            .pending
+            .as_mut()
+            .filter(|p| p.seq == seq && p.asked.contains(&from))
+        {
             p.answers.insert(from, shadow);
         }
         return;
     }
     // an offered character: at join (once, only when the host has none) or a guest's own F9
-    let refuse = |s: &mut Session, why: &str| send(s, from, &Msg::OfferResult { seq, ok: false, conflicts: 0, dropped: 0, why: why.into() });
+    let refuse = |s: &mut Session, why: &str| {
+        send(
+            s,
+            from,
+            &Msg::OfferResult {
+                seq,
+                ok: false,
+                conflicts: 0,
+                dropped: 0,
+                why: why.into(),
+            },
+        )
+    };
     if kind == 1 && !l.eligible.contains(&key) {
         return refuse(s, "the host already has a character for you");
     }
@@ -682,8 +926,14 @@ fn host_character(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from:
     if !gs.coop.bank.enabled() {
         return refuse(s, "this session keeps no separate characters");
     }
-    let plan = gs.coop.bank.plan.clone().unwrap_or_else(world::coop::ShadowPlan::all);
-    let (sh, rep) = party_char::sanitize_offer(shadow, &plan, kind == 2 && file.campaign == l.campaign);
+    let plan = gs
+        .coop
+        .bank
+        .plan
+        .clone()
+        .unwrap_or_else(world::coop::ShadowPlan::all);
+    let (sh, rep) =
+        party_char::sanitize_offer(shadow, &plan, kind == 2 && file.campaign == l.campaign);
     let conflicts = party_char::baseline_diff(&file.baseline, gs).len() as u32;
     let ok = party_char::install_for_slot(gs, from.0, sh);
     if ok {
@@ -691,17 +941,38 @@ fn host_character(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, from:
     }
     s.log_event(
         "party_offer",
-        &[("slot", V::U(from.0 as u64)), ("kind", V::U(kind as u64)), ("ok", V::B(ok)), ("conflicts", V::U(conflicts as u64))],
+        &[
+            ("slot", V::U(from.0 as u64)),
+            ("kind", V::U(kind as u64)),
+            ("ok", V::B(ok)),
+            ("conflicts", V::U(conflicts as u64)),
+        ],
     );
-    send(s, from, &Msg::OfferResult { seq, ok, conflicts, dropped: rep.shared_quest_rows as u32, why: String::new() });
+    send(
+        s,
+        from,
+        &Msg::OfferResult {
+            seq,
+            ok,
+            conflicts,
+            dropped: rep.shared_quest_rows as u32,
+            why: String::new(),
+        },
+    );
 }
 
-fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connected: &BTreeSet<PlayerId>) {
+fn host_pending(
+    s: &mut Session,
+    l: &mut PartyLayer,
+    gs: &mut GameState,
+    connected: &BTreeSet<PlayerId>,
+) {
     let now = s.now_ms;
     let Some(p) = &mut l.pending else { return };
     let mut waiting = false;
     for slot in &p.asked {
-        let done = p.answers.contains_key(slot) || p.fallback.contains(slot) || !connected.contains(slot);
+        let done =
+            p.answers.contains_key(slot) || p.fallback.contains(slot) || !connected.contains(slot);
         waiting |= !done;
     }
     if waiting && now < p.deadline_ms {
@@ -711,7 +982,13 @@ fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connect
     let mut guests: BTreeMap<u64, GuestSidecar> = l.loaded.clone();
     let mut from_guests = 0;
     for slot in &p.asked {
-        let Some(&key) = l.keys.get(slot).or_else(|| l.claimed.iter().find(|(_, v)| *v == slot).map(|(k, _)| k)) else { continue };
+        let Some(&key) = l
+            .keys
+            .get(slot)
+            .or_else(|| l.claimed.iter().find(|(_, v)| *v == slot).map(|(k, _)| k))
+        else {
+            continue;
+        };
         let name = name_of(s, *slot);
         let (shadow, from_guest) = match p.answers.get(slot) {
             Some(sh) => (Some(sh.clone()), true),
@@ -719,7 +996,10 @@ fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connect
         };
         if let Some(sh) = shadow {
             from_guests += usize::from(from_guest);
-            guests.insert(key, GuestSidecar::from_shadow(key, &name, slot.0, from_guest, &sh));
+            guests.insert(
+                key,
+                GuestSidecar::from_shadow(key, &name, slot.0, from_guest, &sh),
+            );
         }
     }
     let save = PartySave {
@@ -729,6 +1009,7 @@ fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connect
         saved_unix: p.unix,
         world_text: p.world_text,
         guests: guests.into_values().collect(),
+        rules: s.rules().unwrap_or_default(),
     };
     let n = save.guests.len();
     let result = party_save::write_party(&p.dir, &save);
@@ -736,12 +1017,30 @@ fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connect
     match result {
         Ok(()) => {
             l.loaded = save.guests.iter().map(|g| (g.key, g.clone())).collect();
-            s.log_event("party_saved", &[("seq", V::U(p.seq as u64)), ("guests", V::U(n as u64)), ("from_guests", V::U(from_guests as u64))]);
-            l.events.push(PartyEvent::HostSaved { seq: p.seq, dir: p.dir.clone(), guests: n, from_guests });
+            s.log_event(
+                "party_saved",
+                &[
+                    ("seq", V::U(p.seq as u64)),
+                    ("guests", V::U(n as u64)),
+                    ("from_guests", V::U(from_guests as u64)),
+                ],
+            );
+            l.events.push(PartyEvent::HostSaved {
+                seq: p.seq,
+                dir: p.dir.clone(),
+                guests: n,
+                from_guests,
+            });
         }
         Err(e) => {
-            s.log_event("party_save_failed", &[("seq", V::U(p.seq as u64)), ("why", V::S(&e.to_string()))]);
-            l.events.push(PartyEvent::HostSaveFailed { seq: p.seq, why: e.to_string() });
+            s.log_event(
+                "party_save_failed",
+                &[("seq", V::U(p.seq as u64)), ("why", V::S(&e.to_string()))],
+            );
+            l.events.push(PartyEvent::HostSaveFailed {
+                seq: p.seq,
+                why: e.to_string(),
+            });
         }
     }
     for slot in connected.intersection(&p.asked) {
@@ -753,13 +1052,23 @@ fn host_pending(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, connect
 
 fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     let now = s.now_ms;
-    let connected = s.guest.as_ref().is_some_and(|g| g.ever_connected && !g.lost);
+    let connected = s
+        .guest
+        .as_ref()
+        .is_some_and(|g| g.ever_connected && !g.lost);
     for (_, m) in std::mem::take(&mut l.inbox) {
         match m {
-            Msg::HelloAck { campaign, matched, want_offer } => {
+            Msg::HelloAck {
+                campaign,
+                matched,
+                want_offer,
+            } => {
                 l.acked = true;
                 l.campaign = campaign;
-                l.events.push(PartyEvent::Campaign { id: campaign, matched });
+                l.events.push(PartyEvent::Campaign {
+                    id: campaign,
+                    matched,
+                });
                 if want_offer {
                     if let Some(f) = l.offer.take() {
                         l.offer_seq += 1;
@@ -780,8 +1089,19 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 }
                 l.events.push(PartyEvent::CharacterRestored);
             }
-            Msg::OfferResult { ok, conflicts, dropped, why, .. } => {
-                l.events.push(PartyEvent::OfferAnswered { ok, conflicts, dropped, why });
+            Msg::OfferResult {
+                ok,
+                conflicts,
+                dropped,
+                why,
+                ..
+            } => {
+                l.events.push(PartyEvent::OfferAnswered {
+                    ok,
+                    conflicts,
+                    dropped,
+                    why,
+                });
             }
             _ => {}
         }
@@ -791,9 +1111,20 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
         l.acked = false;
         return;
     }
-    if l.key != 0 && !l.acked && l.last_hello_ms.is_none_or(|t| now.saturating_sub(t) >= HELLO_EVERY_MS) {
+    if l.key != 0
+        && !l.acked
+        && l.last_hello_ms
+            .is_none_or(|t| now.saturating_sub(t) >= HELLO_EVERY_MS)
+    {
         l.last_hello_ms = Some(now);
-        send(s, PlayerId::HOST, &Msg::Hello { key: l.key, offering: l.offer.is_some() });
+        send(
+            s,
+            PlayerId::HOST,
+            &Msg::Hello {
+                key: l.key,
+                offering: l.offer.is_some(),
+            },
+        );
     }
     if let Some(o) = &l.order {
         let seq = o.seq;
@@ -802,7 +1133,14 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
             Ok(()) => l.order = None,
             Err(why) if waited >= GUEST_SAVE_WAIT_MS || why.starts_with("fatal:") => {
                 let why = why.trim_start_matches("fatal:").trim().to_string();
-                send(s, PlayerId::HOST, &Msg::Refused { seq, why: why.clone() });
+                send(
+                    s,
+                    PlayerId::HOST,
+                    &Msg::Refused {
+                        seq,
+                        why: why.clone(),
+                    },
+                );
                 l.events.push(PartyEvent::GuestSaveRefused { seq, why });
                 l.order = None;
             }
@@ -814,12 +1152,27 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     }
 }
 
-fn guest_save(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, seq: u32) -> Result<(), String> {
+fn guest_save(
+    s: &mut Session,
+    l: &mut PartyLayer,
+    gs: &mut GameState,
+    seq: u32,
+) -> Result<(), String> {
     if gs.coop_save_blocked() {
         return Err("saving is held by a scene".into());
     }
-    let Some(shadow) = gs.shadow_of(gs.active_slot()) else { return Err("fatal: this session keeps no separate characters".into()) };
-    let file = CharacterFile::new(l.key, &s.name, l.campaign, seq, unix_now(), &shadow, party_char::baseline_of(gs));
+    let Some(shadow) = gs.shadow_of(gs.active_slot()) else {
+        return Err("fatal: this session keeps no separate characters".into());
+    };
+    let file = CharacterFile::new(
+        l.key,
+        &s.name,
+        l.campaign,
+        seq,
+        unix_now(),
+        &shadow,
+        party_char::baseline_of(gs),
+    );
     let mut path = None;
     if let Some(p) = &l.char_path {
         // the guest keeps its own copy even if the host never gets the message
@@ -829,7 +1182,13 @@ fn guest_save(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState, seq: u32)
         }
     }
     l.outgoing.extend(chunks(0, seq, &file.to_bytes()));
-    s.log_event("party_char_saved", &[("seq", V::U(seq as u64)), ("level", V::U(shadow.level as u64))]);
+    s.log_event(
+        "party_char_saved",
+        &[
+            ("seq", V::U(seq as u64)),
+            ("level", V::U(shadow.level as u64)),
+        ],
+    );
     l.events.push(PartyEvent::GuestSaved { seq, path });
     Ok(())
 }
@@ -841,14 +1200,39 @@ mod tests {
     #[test]
     fn messages_round_trip() {
         let all = [
-            Msg::Hello { key: 9, offering: true },
-            Msg::HelloAck { campaign: 5, matched: true, want_offer: false },
-            Msg::Order { seq: 3, name: "Save 1.txt.partysave".into() },
-            Msg::Chunk { kind: 2, seq: 7, idx: 1, total: 3, data: vec![1, 2, 3] },
-            Msg::Refused { seq: 3, why: "scene".into() },
+            Msg::Hello {
+                key: 9,
+                offering: true,
+            },
+            Msg::HelloAck {
+                campaign: 5,
+                matched: true,
+                want_offer: false,
+            },
+            Msg::Order {
+                seq: 3,
+                name: "Save 1.txt.partysave".into(),
+            },
+            Msg::Chunk {
+                kind: 2,
+                seq: 7,
+                idx: 1,
+                total: 3,
+                data: vec![1, 2, 3],
+            },
+            Msg::Refused {
+                seq: 3,
+                why: "scene".into(),
+            },
             Msg::Stored { seq: 3, ok: true },
             Msg::Reloaded { campaign: 77 },
-            Msg::OfferResult { seq: 1, ok: false, conflicts: 4, dropped: 2, why: "no".into() },
+            Msg::OfferResult {
+                seq: 1,
+                ok: false,
+                conflicts: 4,
+                dropped: 2,
+                why: "no".into(),
+            },
         ];
         for m in all {
             assert_eq!(Msg::decode(&m.encode()), Some(m));
@@ -856,7 +1240,19 @@ mod tests {
         assert_eq!(Msg::decode(&[]), None);
         assert_eq!(Msg::decode(&[99]), None);
         assert_eq!(Msg::decode(&[6, 1, 0, 0, 0, 1, 9]), None, "trailing bytes");
-        assert_eq!(Msg::decode(&Msg::Chunk { kind: 0, seq: 1, idx: 5, total: 2, data: vec![] }.encode()), None);
+        assert_eq!(
+            Msg::decode(
+                &Msg::Chunk {
+                    kind: 0,
+                    seq: 1,
+                    idx: 5,
+                    total: 2,
+                    data: vec![]
+                }
+                .encode()
+            ),
+            None
+        );
     }
 
     #[test]
@@ -868,12 +1264,19 @@ mod tests {
         let mut r = Reasm::default();
         let mut out = None;
         for p in parts {
-            if let Msg::Chunk { idx, total, data, .. } = p {
+            if let Msg::Chunk {
+                idx, total, data, ..
+            } = p
+            {
                 out = r.add(idx, total, data);
             }
         }
         assert_eq!(out, Some(bytes));
-        assert_eq!(chunks(0, 1, &[]).len(), 1, "an empty character is one empty chunk");
+        assert_eq!(
+            chunks(0, 1, &[]).len(),
+            1,
+            "an empty character is one empty chunk"
+        );
         let mut r = Reasm::default();
         assert_eq!(r.add(0, 3000, vec![0; MAX_CHARACTER + 1]), None);
     }

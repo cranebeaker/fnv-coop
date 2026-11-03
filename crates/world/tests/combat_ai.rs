@@ -296,7 +296,15 @@ fn a_coop_player_holds_only_what_they_equipped() {
     state.set_authority(world::coop::Authority::Host);
     assert!(combat::weapon_in_hand(&order, &state, world::dialogue::PLAYER_REF).is_none());
     assert!(combat::weapon_equipped(&order, &state, world::dialogue::PLAYER_REF).is_none());
-    state.equipped.insert(world::dialogue::PLAYER_REF, vec![machete]);
-    assert_eq!(combat::weapon_equipped(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id), Some(machete));
-    assert_eq!(combat::weapon_in_hand(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id), Some(machete));
+    state
+        .equipped
+        .insert(world::dialogue::PLAYER_REF, vec![machete]);
+    assert_eq!(
+        combat::weapon_equipped(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id),
+        Some(machete)
+    );
+    assert_eq!(
+        combat::weapon_in_hand(&order, &state, world::dialogue::PLAYER_REF).map(|w| w.form_id),
+        Some(machete)
+    );
 }

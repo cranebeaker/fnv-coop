@@ -1,0 +1,69 @@
+{
+  "name": "twin_live_markers_reach_everyone",
+  "description": "MUTATION TWIN of live_markers_reach_everyone: the waypoints stay, but nobody pings. Each peer sees only the waypoints, so every count check fails. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 76,
+  "duration_s": 12,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop waypoint 10 20"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": []
+    },
+    {
+      "script": []
+    },
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop waypoint 40 50"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "host-sees-4",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 4,
+      "on": "host"
+    },
+    {
+      "id": "guest-sees-5",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 5,
+      "on": "guest"
+    },
+    {
+      "id": "guest2-sees-5",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 5,
+      "on": "guest2"
+    },
+    {
+      "id": "guest3-sees-4",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 4,
+      "on": "guest3"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

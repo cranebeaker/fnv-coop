@@ -1,6 +1,6 @@
 {
   "name": "live_pickup_world_item",
-  "description": "The host drops 2 of its 3 stimpaks into the world (the host mints the reference FD000001); the guest picks them up. First claim wins and the item exists once: the guest holds 2, the host 1, and the dropped reference is disabled on both peers.",
+  "description": "The host drops 2 of its 3 stimpaks into the world (the host mints the reference FD000001); the guest picks them up. First claim wins and the item exists once: the guest holds 2, the host 1, and the dropped reference is disabled on both peers. The item is Rad-X: no pre-order pack gives it, so the exact counts do not depend on the load order (the packs give the host 5 stimpaks at the start).",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 63,
@@ -10,11 +10,11 @@
     "script": [
       {
         "at": 2,
-        "run": "coop give 0 Stimpak 3"
+        "run": "coop give 0 RadX 3"
       },
       {
         "at": 4,
-        "run": "coop drop Stimpak 2"
+        "run": "coop drop RadX 2"
       }
     ]
   },
@@ -22,35 +22,35 @@
     "script": [
       {
         "at": 10,
-        "run": "coop pickup FD000001 Stimpak 2"
+        "run": "coop pickup FD000001 RadX 2"
       }
     ]
   },
   "expect": [
     {
       "id": "guest-has-host",
-      "path": "items.guest.Stimpak",
+      "path": "items.guest.RadX",
       "op": "eq",
       "value": 2,
       "on": "host"
     },
     {
       "id": "guest-has-guest",
-      "path": "items.guest.Stimpak",
+      "path": "items.guest.RadX",
       "op": "eq",
       "value": 2,
       "on": "guest"
     },
     {
       "id": "host-kept-host",
-      "path": "items.host.Stimpak",
+      "path": "items.host.RadX",
       "op": "eq",
       "value": 1,
       "on": "host"
     },
     {
       "id": "host-kept-guest",
-      "path": "items.host.Stimpak",
+      "path": "items.host.RadX",
       "op": "eq",
       "value": 1,
       "on": "guest"

@@ -99,11 +99,21 @@ mod tests {
 
     #[test]
     fn roundtrip_and_errors() {
-        let p = VoicePacket { flags: 3, codec: 1, speaker: 2, seq: 65535, timestamp: 99, payload: vec![1, 2, 3] };
+        let p = VoicePacket {
+            flags: 3,
+            codec: 1,
+            speaker: 2,
+            seq: 65535,
+            timestamp: 99,
+            payload: vec![1, 2, 3],
+        };
         let b = p.encode();
         assert_eq!(VoicePacket::decode(&b), Ok(p));
         assert_eq!(VoicePacket::decode(&b[..5]), Err(DecodeError::TooShort));
-        assert_eq!(VoicePacket::decode(&b[..b.len() - 1]), Err(DecodeError::BadLength));
+        assert_eq!(
+            VoicePacket::decode(&b[..b.len() - 1]),
+            Err(DecodeError::BadLength)
+        );
         let mut bad = b.clone();
         bad[0] = 9;
         assert_eq!(VoicePacket::decode(&bad), Err(DecodeError::BadVersion(9)));

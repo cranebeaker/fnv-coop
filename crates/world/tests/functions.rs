@@ -79,7 +79,10 @@ fn a_door_that_opens_itself_from_its_block_stops_after_five() {
     run(&order, &scripts, &mut state, "SelfDoorRef.SetOpenState 1");
     assert_eq!(state.globals[&FormId(VALUE)], 5.0);
     // The block never reached a real activation, so the door stayed shut.
-    assert_eq!(ask(&order, &scripts, &mut state, "SelfDoorRef.GetOpenState"), 3.0);
+    assert_eq!(
+        ask(&order, &scripts, &mut state, "SelfDoorRef.GetOpenState"),
+        3.0
+    );
 }
 
 #[test]

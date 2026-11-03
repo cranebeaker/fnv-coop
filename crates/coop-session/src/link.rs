@@ -28,7 +28,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 
 use coop_core::transport::Transport;
-use coop_net::{random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token, UdpBackend, UdpConfig};
+use coop_net::joinsvc::{Hosted, JoinService, SERVICE_ENV};
+use coop_net::{
+    random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token, UdpBackend,
+    UdpConfig,
+};
 
 use crate::net::{Link, LinkErrors, DIRECT_TOKEN};
 use crate::{Error, Role};
@@ -53,6 +57,10 @@ pub struct LinkRequest {
     pub token: Option<Token>,
     /// Where to look for `steam_api64.dll` (default: next to the exe).
     pub steam_dll: Option<PathBuf>,
+    /// The join service (`https://...` or `http://...`). Host: publish the join code
+    /// there and show its six character short code. Guest: resolve a short code
+    /// there (default: the `NVRS_JOIN_SERVICE` environment variable).
+    pub join_service: Option<String>,
 }
 
 impl LinkRequest {
@@ -67,6 +75,20 @@ impl LinkRequest {
             test_token: false,
             token: None,
             steam_dll: None,
+            join_service: None,
+        }
+    }
+
+    /// The join service a guest resolves short codes with: the request's, else
+    /// the environment's.
+    pub fn service(&self) -> Option<JoinService> {
+        match self
+            .join_service
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            Some(u) => Some(JoinService::at(u)),
+            None => JoinService::from_env(),
         }
     }
 }
@@ -82,12 +104,18 @@ pub struct Notice {
 
 impl Notice {
     pub(crate) fn new(ev: &'static str, fields: &[(&'static str, &str)]) -> Notice {
-        Notice { ev, fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect() }
+        Notice {
+            ev,
+            fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
+        }
     }
 
     /// The field `key`, if set.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.fields.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_str())
+        self.fields
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -101,6 +129,9 @@ pub struct Opened {
     pub kind: &'static str,
     /// Host: the join code to give friends.
     pub join_code: Option<String>,
+    /// Host: the join service's short code for `join_code`, with the secret that
+    /// removes it ([`remove_short_code`]).
+    pub short_code: Option<Hosted>,
     /// Log events to write once the session exists.
     pub notices: Vec<Notice>,
     /// Lines to print for the player.
@@ -111,12 +142,17 @@ pub struct Opened {
 }
 
 impl Opened {
-    pub(crate) fn new(transport: Box<dyn Transport>, errors: LinkErrors, kind: &'static str) -> Opened {
+    pub(crate) fn new(
+        transport: Box<dyn Transport>,
+        errors: LinkErrors,
+        kind: &'static str,
+    ) -> Opened {
         Opened {
             transport,
             errors,
             kind,
             join_code: None,
+            short_code: None,
             notices: Vec::new(),
             lines: Vec::new(),
             #[cfg(feature = "steam")]
@@ -175,7 +211,10 @@ fn resolve(addr: &str) -> Result<SocketAddr, Error> {
 }
 
 fn endpoint_cfg(req: &LinkRequest) -> EndpointConfig {
-    EndpointConfig { name: req.name.clone(), ..EndpointConfig::default() }
+    EndpointConfig {
+        name: req.name.clone(),
+        ..EndpointConfig::default()
+    }
 }
 
 /// Opens the transport the request asks for.
@@ -193,13 +232,22 @@ fn open_host(req: &LinkRequest) -> Result<Opened, Error> {
         match try_steam_host(req, token) {
             Ok(o) => return Ok(o),
             Err(why) => {
-                fallback = Some(Notice::new("transport_fallback", &[("from", "steam"), ("to", "udp"), ("reason", &why)]));
+                fallback = Some(Notice::new(
+                    "transport_fallback",
+                    &[("from", "steam"), ("to", "udp"), ("reason", &why)],
+                ));
             }
         }
     }
     let mut o = open_udp_host(req, token)?;
     if let Some(n) = fallback {
-        o.lines.insert(0, format!("Co-op: Steam is not available ({}); hosting on UDP instead.", n.get("reason").unwrap_or("")));
+        o.lines.insert(
+            0,
+            format!(
+                "Co-op: Steam is not available ({}); hosting on UDP instead.",
+                n.get("reason").unwrap_or("")
+            ),
+        );
         o.notices.insert(0, n);
     }
     Ok(o)
@@ -218,16 +266,24 @@ fn try_steam_host(_req: &LinkRequest, _token: Token) -> Result<Opened, String> {
 fn open_udp_host(req: &LinkRequest, token: Token) -> Result<Opened, Error> {
     let port = crate::target::parse_host_port(&req.addr).map_err(Error::Target)?;
     let bind = SocketAddr::from(([0, 0, 0, 0], port));
-    let b = UdpBackend::host(bind, token, UdpConfig::default()).map_err(|e| Error::Io(format!("{}: {e}", req.addr)))?;
+    let b = UdpBackend::host(bind, token, UdpConfig::default())
+        .map_err(|e| Error::Io(format!("{}: {e}", req.addr)))?;
     let errors = LinkErrors::default();
     let ep = Endpoint::host(b, token, endpoint_cfg(req));
-    let link = Link { ep, guest: false, errors: errors.clone(), retry_at: None };
+    let link = Link {
+        ep,
+        guest: false,
+        errors: errors.clone(),
+        retry_at: None,
+    };
     let mut o = Opened::new(Box::new(link), errors, "udp");
     let ip = guess_local_ip();
     let code = JoinCode::new(NetTarget::Direct(SocketAddr::new(ip, port)), token).to_string();
     o.lines.push(format!("Co-op: hosting on UDP port {port}."));
     if req.test_token {
-        o.lines.push("Co-op: test token in use; guests join by HOST:PORT with --coop-test-token.".into());
+        o.lines.push(
+            "Co-op: test token in use; guests join by HOST:PORT with --coop-test-token.".into(),
+        );
     } else {
         o.lines.push(format!(
             "Co-op: join code for this machine's address {ip}: {code} (for play over the internet, forward UDP port {port} and use your public address in the code)"
@@ -243,8 +299,65 @@ fn open_udp_host(req: &LinkRequest, token: Token) -> Result<Opened, Error> {
             ("test_token", if req.test_token { "true" } else { "false" }),
         ],
     ));
+    if let Some(url) = req.join_service.as_deref().filter(|u| !u.trim().is_empty()) {
+        publish_short_code(&mut o, url, &code);
+    }
     o.join_code = Some(code);
     Ok(o)
+}
+
+/// Host: publishes the join code to the join service at `url` and records its
+/// short code (`coop_short_code`), or why there is none (`coop_short_code_failed`;
+/// the `NVRS-` code still works). The secret stays in [`Opened::short_code`] only.
+fn publish_short_code(o: &mut Opened, url: &str, code: &str) {
+    match JoinService::at(url).host(code, None) {
+        Ok(h) => {
+            o.lines.push(format!(
+                "Co-op: short join code {} (from the join service, valid for {} minutes)",
+                h.code,
+                (h.ttl_s / 60).max(1)
+            ));
+            o.notices.push(Notice::new(
+                "coop_short_code",
+                &[
+                    ("code", &h.code),
+                    ("service", url),
+                    ("expires_at", &h.expires_at.to_string()),
+                ],
+            ));
+            o.short_code = Some(h);
+        }
+        Err(e) => {
+            o.lines.push(format!(
+                "Co-op: no short join code ({e}); give friends the NVRS- code"
+            ));
+            o.notices.push(Notice::new(
+                "coop_short_code_failed",
+                &[("service", url), ("reason", &e)],
+            ));
+        }
+    }
+}
+
+/// Host: takes the short code off the join service at session end (needs the
+/// secret it was given).
+pub fn remove_short_code(url: &str, h: &Hosted) -> Result<(), String> {
+    JoinService::at(url).remove(&h.code, &h.secret)
+}
+
+/// Guest: the `NVRS-` code a short code stands for, from the join service.
+pub fn resolve_short_code(req: &LinkRequest, code: &str) -> Result<JoinCode, Error> {
+    let svc = req.service().ok_or_else(|| {
+        Error::Target(format!(
+            "{code} is a short join code: it needs the join service, and none is set (pass its address, or set {SERVICE_ENV}); or use the host's NVRS- code"
+        ))
+    })?;
+    let blob = svc.resolve(code).map_err(Error::Target)?;
+    blob.parse::<JoinCode>().map_err(|e| {
+        Error::Target(format!(
+            "the join service gave {code} a code this build cannot read: {e}"
+        ))
+    })
 }
 
 fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
@@ -268,17 +381,31 @@ fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
                 _ => Err(Error::Target("this join code needs a newer build".into())),
             }
         }
-        crate::target::JoinTarget::Code(_) => Err(Error::Target(
-            "short join codes need the join service, which this build does not call; use an NVRS- code".into(),
-        )),
+        crate::target::JoinTarget::Code(c) => {
+            let code = resolve_short_code(req, &c)?;
+            let mut o = match code.target {
+                NetTarget::Direct(a) => udp_guest(req, a, code.token)?,
+                NetTarget::SteamLobby(_) => guest_steam(req, Some(code))?,
+                _ => return Err(Error::Target("this join code needs a newer build".into())),
+            };
+            o.notices
+                .push(Notice::new("coop_short_code_resolved", &[("code", &c)]));
+            Ok(o)
+        }
     }
 }
 
 fn udp_guest(req: &LinkRequest, target: SocketAddr, token: Token) -> Result<Opened, Error> {
-    let b = UdpBackend::guest(target, token, UdpConfig::default()).map_err(|e| Error::Io(format!("{target}: {e}")))?;
+    let b = UdpBackend::guest(target, token, UdpConfig::default())
+        .map_err(|e| Error::Io(format!("{target}: {e}")))?;
     let errors = LinkErrors::default();
     let ep = Endpoint::guest(b, token, endpoint_cfg(req));
-    let link = Link { ep, guest: true, errors: errors.clone(), retry_at: None };
+    let link = Link {
+        ep,
+        guest: true,
+        errors: errors.clone(),
+        retry_at: None,
+    };
     Ok(Opened::new(Box::new(link), errors, "udp"))
 }
 
@@ -331,7 +458,11 @@ mod tests {
     }
 
     fn free_port() -> u16 {
-        UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+        UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
     }
 
     #[test]
@@ -339,7 +470,11 @@ mod tests {
         let port = free_port();
         let o = open(&LinkRequest::new(Role::Host, "h", &port.to_string())).unwrap();
         let code = o.join_code.clone().expect("code");
-        let n = o.notices.iter().find(|n| n.ev == "coop_join_code").expect("coop_join_code notice");
+        let n = o
+            .notices
+            .iter()
+            .find(|n| n.ev == "coop_join_code")
+            .expect("coop_join_code notice");
         assert_eq!(n.get("code"), Some(code.as_str()));
         let parsed: JoinCode = code.parse().unwrap();
         assert_eq!(token_hex(&parsed.token), n.get("token").unwrap());
@@ -369,7 +504,8 @@ mod tests {
 
     #[test]
     fn steam_code_without_steam_is_a_clear_error() {
-        let code = JoinCode::new(NetTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
+        let code =
+            JoinCode::new(NetTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
         let mut r = LinkRequest::new(Role::Guest, "g", &code);
         r.steam_dll = Some(PathBuf::from("definitely-not-here/steam_api64.dll"));
         let e = open(&r).err().expect("no way to join");

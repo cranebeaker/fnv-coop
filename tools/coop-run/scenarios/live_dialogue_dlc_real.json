@@ -1,0 +1,52 @@
+{
+    "name": "live_dialogue_dlc_real",
+    "description": "Dead Money radio, in the Villa police station. Elijah's broadcast comes from the police station intercom, a talking activator: NVDLC01PSElijahREF.Say NVDLC01ElijahRadioPolice 1, the line of script 01013FC4, twice (its two say-once lines). Each call reaches GameState::coop_talk, and DialogueBridge::forced_frame says the line to everyone through a host session on the intercom. The host said two lines, and both peers played both. Real-game copy: the intercom's own trigger says the first say-once line when the host loads the cell, before the guest joins. The script's first Say gives the second line, and the guest hears that one. The script's second Say finds no line left.",
+    "cell": "NVDLC01PoliceStation",
+    "network": "good_wifi",
+    "seed": 90,
+    "duration_s": 20,
+    "settle_s": 6,
+    "host": {
+        "script": [
+            {
+                "at": 3,
+                "run": "NVDLC01PSElijahREF.Say NVDLC01ElijahRadioPolice 1"
+            },
+            {
+                "at": 11,
+                "run": "NVDLC01PSElijahREF.Say NVDLC01ElijahRadioPolice 1"
+            }
+        ]
+    },
+    "guest": {
+        "script": []
+    },
+    "expect": [
+        {
+            "id": "host-said-lines",
+            "path": "scene.talk.lines",
+            "op": "eq",
+            "value": 2,
+            "on": "host"
+        },
+        {
+            "id": "lines-host",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 2,
+            "on": "host"
+        },
+        {
+            "id": "lines-guest",
+            "path": "live.lines_played",
+            "op": "ge",
+            "value": 1,
+            "on": "guest"
+        },
+        {
+            "id": "shared-hash",
+            "path": "hash.shared",
+            "on": "equal"
+        }
+    ]
+}

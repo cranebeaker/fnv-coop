@@ -1,0 +1,45 @@
+{
+  "name": "twin_live_collar",
+  "description": "MUTATION TWIN of live_collar: the down names no quest, so it is an ordinary revivable down and the revive works. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 67,
+  "duration_s": 20,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop down 1"
+      },
+      {
+        "at": 6,
+        "run": "coop downrevive 1"
+      },
+      {
+        "at": 8,
+        "run": "coop revive 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "still-down",
+      "path": "campaign.down.guest",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "not-revived",
+      "path": "campaign.revived",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    }
+  ],
+  "expect_fail": true
+}

@@ -49,7 +49,8 @@ pub trait Transport {
     /// This endpoint's own peer id.
     fn local(&self) -> PlayerId;
     /// Queues a message to `to`.
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError>;
+    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>)
+        -> Result<(), TransportError>;
     /// Next received message, if any.
     fn recv(&mut self) -> Option<Packet>;
 }

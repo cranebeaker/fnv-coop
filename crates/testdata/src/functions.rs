@@ -323,7 +323,12 @@ End",
     plugin.extend(group(
         *b"SCPT",
         0,
-        &named(b"SCPT", SELF_DOOR_SCRIPT, "TestSelfDoorScript", &self_door_script),
+        &named(
+            b"SCPT",
+            SELF_DOOR_SCRIPT,
+            "TestSelfDoorScript",
+            &self_door_script,
+        ),
     ));
     plugin.extend(group(
         *b"CONT",

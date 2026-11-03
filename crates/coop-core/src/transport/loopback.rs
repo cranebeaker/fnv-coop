@@ -25,7 +25,10 @@ impl LoopbackNet {
     /// Creates (or re-creates, keeping queued packets) the endpoint for `id`.
     pub fn endpoint(&self, id: PlayerId) -> LoopbackEndpoint {
         self.inboxes.borrow_mut().entry(id).or_default();
-        LoopbackEndpoint { id, inboxes: self.inboxes.clone() }
+        LoopbackEndpoint {
+            id,
+            inboxes: self.inboxes.clone(),
+        }
     }
 
     /// Drops everything queued for `id` (simulates a dead connection).
@@ -48,13 +51,25 @@ impl Transport for LoopbackEndpoint {
         self.id
     }
 
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         if data.len() > channel.max_len() {
-            return Err(TransportError::TooLarge { len: data.len(), max: channel.max_len() });
+            return Err(TransportError::TooLarge {
+                len: data.len(),
+                max: channel.max_len(),
+            });
         }
         let mut boxes = self.inboxes.borrow_mut();
         let q = boxes.get_mut(&to).ok_or(TransportError::UnknownPeer(to))?;
-        q.push_back(Packet { from: self.id, channel, data });
+        q.push_back(Packet {
+            from: self.id,
+            channel,
+            data,
+        });
         Ok(())
     }
 
@@ -73,7 +88,8 @@ mod tests {
         let mut a = net.endpoint(PlayerId(0));
         let mut b = net.endpoint(PlayerId(1));
         for i in 0..5u8 {
-            a.send(PlayerId(1), Channel::ReliableOrdered, vec![i]).unwrap();
+            a.send(PlayerId(1), Channel::ReliableOrdered, vec![i])
+                .unwrap();
         }
         for i in 0..5u8 {
             let p = b.recv().unwrap();
@@ -88,10 +104,16 @@ mod tests {
     fn errors() {
         let net = LoopbackNet::new();
         let mut a = net.endpoint(PlayerId(0));
-        assert_eq!(a.send(PlayerId(9), Channel::Unreliable, vec![]), Err(TransportError::UnknownPeer(PlayerId(9))));
+        assert_eq!(
+            a.send(PlayerId(9), Channel::Unreliable, vec![]),
+            Err(TransportError::UnknownPeer(PlayerId(9)))
+        );
         let _b = net.endpoint(PlayerId(1));
         let big = vec![0; crate::proto::MAX_UNRELIABLE_BYTES + 1];
-        assert!(matches!(a.send(PlayerId(1), Channel::Unreliable, big), Err(TransportError::TooLarge { .. })));
+        assert!(matches!(
+            a.send(PlayerId(1), Channel::Unreliable, big),
+            Err(TransportError::TooLarge { .. })
+        ));
     }
 
     #[test]

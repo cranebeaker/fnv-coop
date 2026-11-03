@@ -37,7 +37,11 @@ impl LootView {
         let mut m = self.confirmed.clone();
         for op in &self.pending {
             let e = m.entry(op.item).or_insert(0);
-            *e = if op.take { e.saturating_sub(op.count) } else { e.saturating_add(op.count) };
+            *e = if op.take {
+                e.saturating_sub(op.count)
+            } else {
+                e.saturating_add(op.count)
+            };
         }
         m.retain(|_, c| *c > 0);
         m
@@ -74,7 +78,10 @@ pub struct LootClient {
 impl LootClient {
     /// Empty client.
     pub fn new() -> Self {
-        LootClient { next_txn: 1, ..Default::default() }
+        LootClient {
+            next_txn: 1,
+            ..Default::default()
+        }
     }
 
     /// The container view, if opened.
@@ -96,8 +103,18 @@ impl LootClient {
         }
         let txn = self.next_txn;
         self.next_txn += 1;
-        v.pending.push(Op { txn, take: true, item, count });
-        Some(LootMsg::Take { container, txn, item, count })
+        v.pending.push(Op {
+            txn,
+            take: true,
+            item,
+            count,
+        });
+        Some(LootMsg::Take {
+            container,
+            txn,
+            item,
+            count,
+        })
     }
 
     /// Puts items optimistically (the game checks our own inventory).
@@ -108,15 +125,28 @@ impl LootClient {
         }
         let txn = self.next_txn;
         self.next_txn += 1;
-        v.pending.push(Op { txn, take: false, item, count });
-        Some(LootMsg::Put { container, txn, item, count })
+        v.pending.push(Op {
+            txn,
+            take: false,
+            item,
+            count,
+        });
+        Some(LootMsg::Put {
+            container,
+            txn,
+            item,
+            count,
+        })
     }
 
     /// Closes the container, quoting what we see.
     pub fn close(&mut self, container: FormId) -> Option<LootMsg> {
         let v = self.views.get_mut(&container).filter(|v| v.leased)?;
         v.leased = false;
-        Some(LootMsg::Close { container, digest: digest(&v.visible()) })
+        Some(LootMsg::Close {
+            container,
+            digest: digest(&v.visible()),
+        })
     }
 
     /// Net amount of `item` moved into our inventory, pending operations
@@ -128,7 +158,13 @@ impl LootClient {
             .values()
             .flat_map(|v| v.pending.iter())
             .filter(|o| o.item == item)
-            .map(|o| if o.take { o.count as i64 } else { -(o.count as i64) })
+            .map(|o| {
+                if o.take {
+                    o.count as i64
+                } else {
+                    -(o.count as i64)
+                }
+            })
             .sum();
         confirmed + pending
     }
@@ -142,7 +178,11 @@ impl LootClient {
     /// Applies a host message.
     pub fn on_msg(&mut self, msg: LootMsg) {
         match msg {
-            LootMsg::Opened { container, rev, items } => {
+            LootMsg::Opened {
+                container,
+                rev,
+                items,
+            } => {
                 let v = self.views.entry(container).or_default();
                 self.busy.remove(&container);
                 if v.leased && rev <= v.rev {
@@ -158,9 +198,20 @@ impl LootClient {
             LootMsg::Busy { container, holder } => {
                 self.busy.insert(container, holder);
             }
-            LootMsg::TxnResult { container, txn, fail, rev, item, new_count } => {
-                let Some(v) = self.views.get_mut(&container) else { return };
-                let Some(i) = v.pending.iter().position(|o| o.txn == txn) else { return };
+            LootMsg::TxnResult {
+                container,
+                txn,
+                fail,
+                rev,
+                item,
+                new_count,
+            } => {
+                let Some(v) = self.views.get_mut(&container) else {
+                    return;
+                };
+                let Some(i) = v.pending.iter().position(|o| o.txn == txn) else {
+                    return;
+                };
                 let op = v.pending.remove(i);
                 match fail {
                     None => {
@@ -168,7 +219,11 @@ impl LootClient {
                             v.confirmed.insert(item, new_count);
                             v.rev = rev;
                         }
-                        let d = if op.take { op.count as i64 } else { -(op.count as i64) };
+                        let d = if op.take {
+                            op.count as i64
+                        } else {
+                            -(op.count as i64)
+                        };
                         *self.inv.entry(op.item).or_insert(0) += d;
                     }
                     Some(_) => {
@@ -180,7 +235,12 @@ impl LootClient {
                     }
                 }
             }
-            LootMsg::Changed { container, rev, item, new_count } => {
+            LootMsg::Changed {
+                container,
+                rev,
+                item,
+                new_count,
+            } => {
                 if let Some(v) = self.views.get_mut(&container) {
                     if rev > v.rev {
                         v.confirmed.insert(item, new_count);
@@ -188,7 +248,11 @@ impl LootClient {
                     }
                 }
             }
-            LootMsg::Resync { container, rev, items } => {
+            LootMsg::Resync {
+                container,
+                rev,
+                items,
+            } => {
                 if let Some(v) = self.views.get_mut(&container) {
                     v.confirmed = items.into_iter().collect();
                     v.rev = rev;
@@ -223,18 +287,31 @@ mod tests {
     const CAPS: FormId = FormId(0xCA);
 
     fn opened(c: &mut LootClient, n: u32) {
-        c.on_msg(LootMsg::Opened { container: BOX, rev: 1, items: vec![(CAPS, n)] });
+        c.on_msg(LootMsg::Opened {
+            container: BOX,
+            rev: 1,
+            items: vec![(CAPS, n)],
+        });
     }
 
     #[test]
     fn take_is_optimistic_and_confirms() {
         let mut c = LootClient::new();
         opened(&mut c, 10);
-        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else { panic!() };
+        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else {
+            panic!()
+        };
         assert_eq!(c.view(BOX).unwrap().count(CAPS), 6, "shown at once");
         assert_eq!(c.inventory_delta(CAPS), 4);
         assert_eq!(c.confirmed_inventory_delta(CAPS), 0);
-        c.on_msg(LootMsg::TxnResult { container: BOX, txn, fail: None, rev: 2, item: CAPS, new_count: 6 });
+        c.on_msg(LootMsg::TxnResult {
+            container: BOX,
+            txn,
+            fail: None,
+            rev: 2,
+            item: CAPS,
+            new_count: 6,
+        });
         assert_eq!(c.view(BOX).unwrap().count(CAPS), 6);
         assert_eq!(c.confirmed_inventory_delta(CAPS), 4);
         assert_eq!(c.view(BOX).unwrap().pending(), 0);
@@ -244,7 +321,9 @@ mod tests {
     fn refusal_rolls_back_and_adopts_truth() {
         let mut c = LootClient::new();
         opened(&mut c, 10);
-        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else { panic!() };
+        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else {
+            panic!()
+        };
         c.on_msg(LootMsg::TxnResult {
             container: BOX,
             txn,
@@ -263,10 +342,28 @@ mod tests {
         let mut c = LootClient::new();
         opened(&mut c, 10);
         c.take(BOX, CAPS, 3).unwrap();
-        c.on_msg(LootMsg::Changed { container: BOX, rev: 2, item: CAPS, new_count: 8 });
-        assert_eq!(c.view(BOX).unwrap().count(CAPS), 5, "host 8 minus our pending 3");
-        c.on_msg(LootMsg::Changed { container: BOX, rev: 2, item: CAPS, new_count: 1 });
-        assert_eq!(c.view(BOX).unwrap().count(CAPS), 5, "same or older revision ignored");
+        c.on_msg(LootMsg::Changed {
+            container: BOX,
+            rev: 2,
+            item: CAPS,
+            new_count: 8,
+        });
+        assert_eq!(
+            c.view(BOX).unwrap().count(CAPS),
+            5,
+            "host 8 minus our pending 3"
+        );
+        c.on_msg(LootMsg::Changed {
+            container: BOX,
+            rev: 2,
+            item: CAPS,
+            new_count: 1,
+        });
+        assert_eq!(
+            c.view(BOX).unwrap().count(CAPS),
+            5,
+            "same or older revision ignored"
+        );
     }
 
     #[test]
@@ -276,17 +373,26 @@ mod tests {
         opened(&mut c, 2);
         assert!(c.take(BOX, CAPS, 3).is_none());
         c.take(BOX, CAPS, 2).unwrap();
-        assert!(c.take(BOX, CAPS, 1).is_none(), "pending take already claimed it");
+        assert!(
+            c.take(BOX, CAPS, 1).is_none(),
+            "pending take already claimed it"
+        );
     }
 
     #[test]
     fn close_quotes_visible_digest_and_resync_replaces() {
         let mut c = LootClient::new();
         opened(&mut c, 5);
-        let Some(LootMsg::Close { digest: d, .. }) = c.close(BOX) else { panic!() };
+        let Some(LootMsg::Close { digest: d, .. }) = c.close(BOX) else {
+            panic!()
+        };
         assert_eq!(d, digest(&[(CAPS, 5)].into_iter().collect()));
         assert!(c.close(BOX).is_none());
-        c.on_msg(LootMsg::Resync { container: BOX, rev: 9, items: vec![(CAPS, 2)] });
+        c.on_msg(LootMsg::Resync {
+            container: BOX,
+            rev: 9,
+            items: vec![(CAPS, 2)],
+        });
         assert_eq!(c.view(BOX).unwrap().rev(), 9);
         assert_eq!(c.view(BOX).unwrap().count(CAPS), 2);
     }
@@ -306,17 +412,29 @@ mod tests {
     fn repeated_grant_keeps_operations_in_flight() {
         let mut c = LootClient::new();
         opened(&mut c, 10);
-        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else { panic!() };
+        let Some(LootMsg::Take { txn, .. }) = c.take(BOX, CAPS, 4) else {
+            panic!()
+        };
         opened(&mut c, 10); // the host answers a duplicate Open with the same grant
         assert_eq!(c.view(BOX).unwrap().pending(), 1);
-        c.on_msg(LootMsg::TxnResult { container: BOX, txn, fail: None, rev: 2, item: CAPS, new_count: 6 });
+        c.on_msg(LootMsg::TxnResult {
+            container: BOX,
+            txn,
+            fail: None,
+            rev: 2,
+            item: CAPS,
+            new_count: 6,
+        });
         assert_eq!(c.confirmed_inventory_delta(CAPS), 4);
     }
 
     #[test]
     fn busy_is_recorded_then_cleared_on_open() {
         let mut c = LootClient::new();
-        c.on_msg(LootMsg::Busy { container: BOX, holder: PlayerId(2) });
+        c.on_msg(LootMsg::Busy {
+            container: BOX,
+            holder: PlayerId(2),
+        });
         assert_eq!(c.busy[&BOX], PlayerId(2));
         opened(&mut c, 1);
         assert!(c.busy.is_empty());

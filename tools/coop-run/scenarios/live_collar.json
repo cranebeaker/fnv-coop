@@ -1,0 +1,44 @@
+{
+  "name": "live_collar",
+  "description": "A Dead Money collar death is not revivable. The guest dies of its collar: a down under NVDLC01BombCollarQuest, whose policy row says down until_checkpoint (coop down: campaign::downed::script_down, the path a collar script's KillActor on the player takes through downed::health_out). A teammate tries to revive it at 6 s (campaign revive) and at 8 s (live hold-to-revive). Both are refused (downed::revive refuses a held down), and the live window does not respawn it (the down is reported to the live rules as not revivable). The guest stays down until the party reaches a checkpoint cell.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 67,
+  "duration_s": 20,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop down 1 NVDLC01BombCollarQuest"
+      },
+      {
+        "at": 6,
+        "run": "coop downrevive 1"
+      },
+      {
+        "at": 8,
+        "run": "coop revive 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "still-down",
+      "path": "campaign.down.guest",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "not-revived",
+      "path": "campaign.revived",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    }
+  ]
+}

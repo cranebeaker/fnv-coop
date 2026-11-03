@@ -1,0 +1,53 @@
+{
+  "name": "twin_live_crime_witness",
+  "description": "MUTATION TWIN of live_crime_witness: the guest does not hit Sunny. Marked expect_fail.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "bad_wifi",
+  "seed": 71,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "attributed-once",
+      "path": "combat.crimes",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "faction-major-once",
+      "path": "crime.factions.GoodspringsFaction.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "militia-major-once",
+      "path": "crime.factions.GoodspringsMilitiaFaction.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "faction-enemy",
+      "path": "crime.factions.GoodspringsFaction.enemy",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "player-major-once",
+      "path": "crime.player.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

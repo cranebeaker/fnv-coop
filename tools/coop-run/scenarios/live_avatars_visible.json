@@ -1,6 +1,6 @@
 {
   "name": "live_avatars_visible",
-  "description": "Both players teleport, then walk with real keys (--walk, w / d held 1.5 s). Each avatar ends at least 150 units from the spawn point and at least 40 units from where it was teleported to (it really walked), and the other peer sees it within 40 units of the owner's own view.",
+  "description": "Both players teleport onto the floor of Doc Mitchell's house, then walk with real keys (--walk, held 1.5 s): the host a (along the hall), the guest w (across the front room). Each avatar ends at least 150 units from the spawn point and at least 40 units from where it was teleported to (it really walked). Each avatar stays within 1000 units of its teleport point in 3D, so a player who falls through the floor fails. The other peer sees each avatar within 40 units of the owner's own view. The old targets (2552,1603.6 for the host, 2152,1803.6 for the guest) were off the floor or in a corner: the host fell out of the world, and the guest was only pushed out of the furniture.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 51,
@@ -10,11 +10,11 @@
     "script": [
       {
         "at": 3,
-        "run": "coop teleport 2552 1603.6 7360.0"
+        "run": "coop teleport 2178 2300 7360.0"
       },
       {
         "at": 14,
-        "key": "w:1.5"
+        "key": "a:1.5"
       }
     ],
     "extra_args": [
@@ -25,11 +25,11 @@
     "script": [
       {
         "at": 3,
-        "run": "coop teleport 2152 1803.6 7360.0"
+        "run": "coop teleport 2289 1700 7360.0"
       },
       {
         "at": 14,
-        "key": "d:1.5"
+        "key": "w:1.5"
       }
     ],
     "extra_args": [
@@ -94,8 +94,8 @@
       "path": "positions.host",
       "op": "dist_from",
       "from": [
-        2552,
-        1603.6
+        2178.0,
+        2300.0
       ],
       "cmp": "ge",
       "value": 40,
@@ -106,12 +106,38 @@
       "path": "positions.guest",
       "op": "dist_from",
       "from": [
-        2152,
-        1803.6
+        2289.0,
+        1700.0
       ],
       "cmp": "ge",
       "value": 40,
       "on": "guest"
+    },
+    {
+      "id": "host-on-floor",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2178.0,
+        2300.0,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
+    },
+    {
+      "id": "guest-on-floor",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2289.0,
+        1700.0,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
     },
     {
       "id": "host-equal",

@@ -39,14 +39,57 @@ pub struct RulesBridge {
 
 /// Moves the local player to `place` (as a script's `MoveTo` does).
 pub fn warp_player(cx: Ctx, gs: &mut GameState, place: FormId) -> bool {
-    let Some((space, cell, position, heading)) = gs.place(cx.order, place) else { return false };
+    let Some((space, cell, position, heading)) = gs.place(cx.order, place) else {
+        return false;
+    };
     gs.player_world = (space != cell).then_some(space);
     gs.player_cell = Some(cell);
     gs.player_position = Some(position);
     gs.player_heading = heading;
     crate::script_functions::player_moved(gs);
-    gs.events.push(Event::MoveTo { what: PLAYER_REF, to: place });
+    gs.events.push(Event::MoveTo {
+        what: PLAYER_REF,
+        to: place,
+        at: None,
+    });
     true
+}
+
+/// The party slots a warp spreads over (the host and up to three guests).
+const PARTY_SLOTS: u8 = 4;
+
+/// After a party warp the local player `me` moves from the anchor to its own
+/// spot on the ring around it (`SceneModel::party_warp`). Warped players then
+/// stand neither on the anchor (where the player who set it stands) nor on
+/// each other.
+fn spread_on_ring(gs: &mut GameState, me: PlayerId) {
+    use coop_core::roam::{Placement, SceneModel};
+    let (Some(cell), Some(pos)) = (gs.player_cell, gs.player_position) else {
+        return;
+    };
+    let to = Placement {
+        cell: coop_core::ids::CellId(cell.0),
+        pos,
+        heading: gs.player_heading,
+    };
+    let party: Vec<PlayerId> = (0..PARTY_SLOTS).map(PlayerId).collect();
+    let spot = SceneModel::default()
+        .party_warp(&party, to)
+        .into_iter()
+        .find(|(p, _)| *p == me);
+    let Some((_, p)) = spot else {
+        return;
+    };
+    gs.player_position = Some(p.pos);
+    // the viewer moves the player on the warp's `MoveTo`: give it the spot
+    for e in gs.events.iter_mut().rev() {
+        if let Event::MoveTo { what, at, .. } = e {
+            if *what == PLAYER_REF {
+                *at = Some(p.pos);
+                break;
+            }
+        }
+    }
 }
 
 /// The local player's health to `pct` percent of full.
@@ -63,14 +106,32 @@ impl RulesBridge {
     }
 
     /// Host: starts the story tether at `anchor` (a placed reference).
-    pub fn start_tether(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive, anchor: FormId, now_ms: u64) {
+    pub fn start_tether(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &mut HostLive,
+        anchor: FormId,
+        now_ms: u64,
+    ) {
         self.anchor = Some(anchor);
-        if let Some((_, c, pos, heading)) = gs.place(cx.order, anchor) {
-            let zone = coop_core::roam::ZoneAnchor { cell: coop_core::ids::CellId(c.0), pos, radius: TETHER_RADIUS, heading };
+        // the zone is filed as the live layer files players: an interior
+        // cell, or outdoors the worldspace (`live::space_of_player`)
+        if let Some((space, _, pos, heading)) = gs.place(cx.order, anchor) {
+            let zone = coop_core::roam::ZoneAnchor {
+                cell: coop_core::ids::CellId(space.0),
+                pos,
+                radius: TETHER_RADIUS,
+                heading,
+            };
             live.roam.model.set_anchor(Some(zone));
         }
         let party = live.rules.party().to_vec();
-        let inside: Vec<PlayerId> = party.iter().copied().filter(|p| self.inside(cx, gs, live, anchor, *p)).collect();
+        let inside: Vec<PlayerId> = party
+            .iter()
+            .copied()
+            .filter(|p| self.inside(cx, gs, live, anchor, *p))
+            .collect();
         live.rules.tether.start(now_ms, anchor.0, &party, &inside);
         live.rules.tether_votes_fast_travel = true;
     }
@@ -83,17 +144,39 @@ impl RulesBridge {
         live.rules.tether_votes_fast_travel = false;
     }
 
-    fn inside(&self, cx: Ctx, gs: &GameState, live: &HostLive, anchor: FormId, p: PlayerId) -> bool {
-        let Some(_) = live.avatars.state(p) else { return true };
-        let Some((_, cell, pos, _)) = gs.place(cx.order, anchor) else { return true };
+    fn inside(
+        &self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &HostLive,
+        anchor: FormId,
+        p: PlayerId,
+    ) -> bool {
+        let Some(_) = live.avatars.state(p) else {
+            return true;
+        };
+        // outdoors the live layer files a player under the worldspace, not
+        // the grid cell: compare the anchor's place the same way, so every
+        // player in the open world is measured by distance alone
+        let Some((space, _, pos, _)) = gs.place(cx.order, anchor) else {
+            return true;
+        };
         // the scene model knows which cells each player has loaded: a grid
         // neighbour inside the radius is inside, another scene never is
-        live.roam.model.in_zone(p, coop_core::ids::CellId(cell.0), pos, TETHER_RADIUS)
+        live.roam
+            .model
+            .in_zone(p, coop_core::ids::CellId(space.0), pos, TETHER_RADIUS)
     }
 
     /// Host, every frame: party distance to the tether anchor, combat flag,
     /// and whether the story stage is held.
-    pub fn host_frame(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) -> Vec<(PlayerId, Msg)> {
+    pub fn host_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        now_ms: u64,
+    ) -> Vec<(PlayerId, Msg)> {
         let mut outs = Vec::new();
         if now_ms >= self.next_scaling_ms {
             // join-time announcements can reach a guest still syncing: repeat
@@ -102,20 +185,33 @@ impl RulesBridge {
             outs.extend(live.route_extern(o.aud, Msg::Rules(o.msg)));
         }
         live.rules.in_combat = !gs.combat.is_empty();
+        // the host's policy rows lock fast travel for every player
+        live.rules.fast_travel_locked = gs.coop_fast_travel_blocked();
+        gs.coop.live.rules_choice = Some((live.rules.mode(), live.rules.friendly_fire));
         gs.coop.live.stage_held = live.rules.tether.stage_held();
         if let (Some(anchor), true) = (self.anchor, now_ms >= self.next_zone_ms) {
             self.next_zone_ms = now_ms + ZONE_EVERY_MS;
+            let mut zone = Vec::new();
             for p in live.rules.party().to_vec() {
                 let inside = self.inside(cx, gs, live, anchor, p);
                 live.rules.tether.set_in_zone(p, inside, now_ms);
+                zone.push((p.0, inside));
             }
+            gs.coop.live.tether_zone = zone;
+        } else if self.anchor.is_none() {
+            gs.coop.live.tether_zone.clear();
         }
         self.events.extend(live.rules.take_events());
         outs
     }
 
     /// Host: opens a barrier for a game-defined transition; returns sends.
-    pub fn open_barrier(&mut self, live: &mut HostLive, tag: u32, now_ms: u64) -> (u32, Vec<(PlayerId, Msg)>) {
+    pub fn open_barrier(
+        &mut self,
+        live: &mut HostLive,
+        tag: u32,
+        now_ms: u64,
+    ) -> (u32, Vec<(PlayerId, Msg)>) {
         let (id, outs) = live.rules.open_barrier(tag, now_ms);
         let mut sends = Vec::new();
         for o in outs {
@@ -147,26 +243,40 @@ impl RulesBridge {
     /// Every machine, every frame: copies the scaling, reports the local
     /// player going down, and turns the client's notices into world changes.
     /// Returns messages for the host.
-    pub fn local_frame(&mut self, cx: Ctx, gs: &mut GameState, client: &mut RulesClient) -> Vec<Msg> {
+    pub fn local_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        client: &mut RulesClient,
+    ) -> Vec<Msg> {
         let mut out = Vec::new();
         gs.coop.live.scaling = Some(client.scaling);
+        // the host reads its own rules in `host_frame`
+        let host = gs.coop.authority == super::Authority::Host;
+        if let (Some(mode), false) = (client.mode, host) {
+            gs.coop.live.rules_choice = Some((mode, client.friendly_fire));
+        }
         if gs.coop.live.down_pending {
             gs.coop.live.down_pending = false;
             if !gs.coop.live.downed {
                 gs.coop.live.downed = true;
-                out.push(Msg::Rules(client.report_down(true)));
+                // the campaign's rule for this down (host): a collar death is not revivable
+                let revivable = super::campaign::downed::revivable(gs, gs.active_slot());
+                out.push(Msg::Rules(client.report_down(revivable)));
             }
         }
+        let me = client.me();
         for n in std::mem::take(&mut client.notices) {
-            self.apply_notice(cx, gs, n);
+            self.apply_notice(cx, gs, n, me);
         }
         out
     }
 
-    fn apply_notice(&mut self, cx: Ctx, gs: &mut GameState, n: Notice) {
+    fn apply_notice(&mut self, cx: Ctx, gs: &mut GameState, n: Notice, me: PlayerId) {
         match n {
             Notice::Warp(anchor) => {
                 if warp_player(cx, gs, FormId(anchor)) {
+                    spread_on_ring(gs, me);
                     self.warps.push(anchor);
                 }
             }
@@ -176,13 +286,23 @@ impl RulesBridge {
                 self.revives.push(pct);
             }
             Notice::Respawn => {
+                // a down the campaign holds until a checkpoint stays down here
+                if super::campaign::downed::held(gs, gs.active_slot()) {
+                    return;
+                }
                 heal_to(cx, gs, 100.0);
                 gs.coop.live.downed = false;
                 if let Some(a) = self.anchor {
-                    warp_player(cx, gs, a);
+                    if warp_player(cx, gs, a) {
+                        spread_on_ring(gs, me);
+                    }
                 }
             }
-            Notice::VoteDone { kind, param, approved } => apply_vote(&mut gs.coop.live, kind, param, approved),
+            Notice::VoteDone {
+                kind,
+                param,
+                approved,
+            } => apply_vote(&mut gs.coop.live, kind, param, approved),
             Notice::Wipe => {
                 gs.coop.live.wiped = true;
                 gs.coop.live.downed = false;
@@ -196,7 +316,7 @@ fn apply_vote(f: &mut LiveFacts, kind: VoteKind, param: u32, approved: bool) {
     if !approved {
         match kind {
             VoteKind::FastTravel => f.travel_requests.retain(|m| m.0 != param),
-            VoteKind::Fork => f.fork_result = Some((param, false)),
+            VoteKind::Fork | VoteKind::Consent => f.fork_result = Some((param, false)),
             _ => {}
         }
         return;
@@ -207,6 +327,6 @@ fn apply_vote(f: &mut LiveFacts, kind: VoteKind, param: u32, approved: bool) {
             f.time_skip_ok = Some(param);
             f.scene.time_approved.push((kind == VoteKind::Sleep, param));
         }
-        VoteKind::Fork => f.fork_result = Some((param, true)),
+        VoteKind::Fork | VoteKind::Consent => f.fork_result = Some((param, true)),
     }
 }

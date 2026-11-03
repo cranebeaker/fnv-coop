@@ -1,0 +1,52 @@
+{
+  "name": "story_topics_notes",
+  "description": "The host's script learns the topic DoctorMedical (AddTopic) and takes the note NVCGLog8Note (AddNote). The guest's own script line (run as the guest on the host) takes the note GSTrudyNote. Each peer reads its own game state: every peer knows the topic and holds both notes.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 74,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "player.AddTopic DoctorMedical"
+      },
+      {
+        "at": 3,
+        "run": "AddNote NVCGLog8Note"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 4,
+        "run": "AddNote GSTrudyNote"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "topic",
+      "path": "topics.DoctorMedical",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "host-note",
+      "path": "notes.NVCGLog8Note",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-note",
+      "path": "notes.GSTrudyNote",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    }
+  ]
+}

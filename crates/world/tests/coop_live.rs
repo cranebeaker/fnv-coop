@@ -49,22 +49,35 @@ impl<'a> Rig<'a> {
             host,
             guests,
             ha: LiveHostAdapter::new(),
-            gas: vec![LiveGuestAdapter::new(PlayerId(1)), LiveGuestAdapter::new(PlayerId(2))],
+            gas: vec![
+                LiveGuestAdapter::new(PlayerId(1)),
+                LiveGuestAdapter::new(PlayerId(2)),
+            ],
             hb,
             gbs: vec![GuestBridge::default(), GuestBridge::default()],
         };
-        let ok = r.sim.run_until(120_000, |s| s.guests.iter().all(|g| g.sync.phase() == GuestPhase::Active));
+        let ok = r.sim.run_until(120_000, |s| {
+            s.guests
+                .iter()
+                .all(|g| g.sync.phase() == GuestPhase::Active)
+        });
         assert!(ok, "guests never became active");
         r
     }
 
     fn cx(&self) -> Ctx<'a> {
-        Ctx { order: self.order, scripts: self.scripts }
+        Ctx {
+            order: self.order,
+            scripts: self.scripts,
+        }
     }
 
     /// Everyone stands in `cell` at the given x positions (host, g1, g2).
     fn stand(&mut self, cell: u32, xs: [f32; 3]) {
-        for (i, g) in std::iter::once(&mut self.host).chain(self.guests.iter_mut()).enumerate() {
+        for (i, g) in std::iter::once(&mut self.host)
+            .chain(self.guests.iter_mut())
+            .enumerate()
+        {
             g.player_cell = Some(FormId(cell));
             g.player_position = Some([xs[i], 1000.0, 0.0]);
         }
@@ -74,13 +87,32 @@ impl<'a> Rig<'a> {
         let cx = self.cx();
         let now = self.sim.clock.now();
         self.hb.collect(&mut self.host, &mut self.sim.host);
-        let outs = self.ha.frame(cx, &mut self.host, &mut self.sim.host.live, &mut self.sim.host.auth, now);
+        let outs = self.ha.frame(
+            cx,
+            &mut self.host,
+            &mut self.sim.host.live,
+            &mut self.sim.host.auth,
+            now,
+        );
         self.sim.host_emit(outs);
         for i in 0..2 {
             if self.sim.guests[i].sync.phase() == GuestPhase::Active {
-                let opts = Opts { present: true, ctx: Some(cx) };
-                self.gbs[i].sync(&mut self.guests[i], &self.sim.guests[i].sync.store, false, opts);
-                let msgs = self.gas[i].frame(cx, &mut self.guests[i], &mut self.sim.guests[i].sync.live, now);
+                let opts = Opts {
+                    present: true,
+                    ctx: Some(cx),
+                };
+                self.gbs[i].sync(
+                    &mut self.guests[i],
+                    &self.sim.guests[i].sync.store,
+                    false,
+                    opts,
+                );
+                let msgs = self.gas[i].frame(
+                    cx,
+                    &mut self.guests[i],
+                    &mut self.sim.guests[i].sync.live,
+                    now,
+                );
                 self.sim.guest_emit(i, msgs);
             }
         }
@@ -106,12 +138,17 @@ impl<'a> Rig<'a> {
     }
 
     fn all(&self) -> Vec<&GameState> {
-        std::iter::once(&self.host).chain(self.guests.iter()).collect()
+        std::iter::once(&self.host)
+            .chain(self.guests.iter())
+            .collect()
     }
 }
 
 fn died_events(g: &GameState, who: FormId) -> usize {
-    g.events.iter().filter(|e| matches!(e, Event::Died { who: w, .. } if *w == who)).count()
+    g.events
+        .iter()
+        .filter(|e| matches!(e, Event::Died { who: w, .. } if *w == who))
+        .count()
 }
 
 mod fighting {
@@ -124,11 +161,21 @@ mod fighting {
         (data, order)
     }
 
-    fn setup<'a>(order: &'a LoadOrder, scripts: &'a ScriptCache, profile: &str, seed: u64) -> Rig<'a> {
+    fn setup<'a>(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        profile: &str,
+        seed: u64,
+    ) -> Rig<'a> {
         let mut r = Rig::new(order, scripts, profile, seed);
         r.stand(CELL, [900.0, 900.0, 5000.0]);
         let cx = r.cx();
-        r.ha.track(cx, &r.host, &mut r.sim.host.live, &[FormId(GECKO_REF), FormId(GUARD_REF)]);
+        r.ha.track(
+            cx,
+            &r.host,
+            &mut r.sim.host.live,
+            &[FormId(GECKO_REF), FormId(GUARD_REF)],
+        );
         r
     }
 
@@ -140,25 +187,48 @@ mod fighting {
         let gecko = FormId(GECKO_REF);
         // the nearest player owns it: the host (x 900) and guest 1 tie at the gecko's x 0? no: g1 is nearest
         r.guests[0].player_position = Some([20.0, 1000.0, 0.0]);
-        assert!(r.until(30_000, |r| r.gas.len() == 2 && r.sim.guests[0].sync.live.owns_actor(CForm(GECKO_REF))));
+        assert!(r.until(30_000, |r| r.gas.len() == 2
+            && r.sim.guests[0].sync.live.owns_actor(CForm(GECKO_REF))));
         // the owner moves it; every other peer's world data follows
-        r.guests[0].positions.insert(gecko, ([123.0, 1000.0, 0.0], 1.0));
+        r.guests[0]
+            .positions
+            .insert(gecko, ([123.0, 1000.0, 0.0], 1.0));
         r.guests[0].combat.insert(gecko, FormId(GUARD_REF));
         r.guests[0].coop.live.anim.insert(gecko, 7);
-        assert!(r.until(10_000, |r| r.host.positions.get(&gecko).map(|p| p.0[0]) == Some(123.0)
-            && r.guests[1].positions.get(&gecko).map(|p| p.0[0]) == Some(123.0)));
-        assert!(r.until(5_000, |r| r.host.combat.get(&gecko) == Some(&FormId(GUARD_REF))
+        assert!(
+            r.until(10_000, |r| r.host.positions.get(&gecko).map(|p| p.0[0])
+                == Some(123.0)
+                && r.guests[1].positions.get(&gecko).map(|p| p.0[0])
+                    == Some(123.0))
+        );
+        assert!(r.until(5_000, |r| r.host.combat.get(&gecko)
+            == Some(&FormId(GUARD_REF))
             && r.guests[1].coop.live.remote_anim.get(&gecko) == Some(&7)));
         // guest 1 walks away, guest 2 arrives: ownership is handed over
         r.guests[0].player_position = Some([9000.0, 1000.0, 0.0]);
         r.guests[1].player_position = Some([30.0, 1000.0, 0.0]);
-        assert!(r.until(60_000, |r| r.sim.guests[1].sync.live.owns_actor(CForm(GECKO_REF))), "handoff");
-        r.guests[1].positions.insert(gecko, ([77.0, 1000.0, 0.0], 0.5));
-        assert!(r.until(10_000, |r| r.host.positions.get(&gecko).map(|p| p.0[0]) == Some(77.0)
-            && r.guests[0].positions.get(&gecko).map(|p| p.0[0]) == Some(77.0)));
+        assert!(
+            r.until(60_000, |r| r.sim.guests[1]
+                .sync
+                .live
+                .owns_actor(CForm(GECKO_REF))),
+            "handoff"
+        );
+        r.guests[1]
+            .positions
+            .insert(gecko, ([77.0, 1000.0, 0.0], 0.5));
+        assert!(
+            r.until(10_000, |r| r.host.positions.get(&gecko).map(|p| p.0[0])
+                == Some(77.0)
+                && r.guests[0].positions.get(&gecko).map(|p| p.0[0])
+                    == Some(77.0))
+        );
         // the host keeps a record and a puppet form for each player
         assert_eq!(r.ha.registry.iter().count(), 3);
-        assert_eq!(r.ha.registry.puppet(PlayerId(2)), Some(world::coop::facts::puppet_of(PlayerId(2))));
+        assert_eq!(
+            r.ha.registry.puppet(PlayerId(2)),
+            Some(world::coop::facts::puppet_of(PlayerId(2)))
+        );
     }
 
     #[test]
@@ -170,19 +240,38 @@ mod fighting {
         let gecko = FormId(GECKO_REF);
         // the gecko walks the open world; the players stand in different grid squares of it
         r.host.spaces.insert(gecko, (world_form, FormId(0x7001)));
-        for (i, g) in std::iter::once(&mut r.host).chain(r.guests.iter_mut()).enumerate() {
+        for (i, g) in std::iter::once(&mut r.host)
+            .chain(r.guests.iter_mut())
+            .enumerate()
+        {
             g.player_world = Some(world_form);
             g.player_cell = Some(FormId(0x7001 + i as u32));
             g.player_position = Some([[4000.0, 6000.0, 9000.0][i], 1000.0, 0.0]);
         }
         let cx = r.cx();
         r.ha.track(cx, &r.host, &mut r.sim.host.live, &[gecko]);
-        assert_eq!(world::coop::live::export_actor(&r.host, cx, gecko).cell.0, world_form.0);
+        assert_eq!(
+            world::coop::live::export_actor(&r.host, cx, gecko).cell.0,
+            world_form.0
+        );
         // the host is nearest to the gecko at x 0? no: x 4000 vs 6000 vs 9000
-        assert!(r.until(30_000, |r| r.sim.host.live.actors.own.get(CForm(GECKO_REF)).is_some_and(|a| a.owner == Some(PlayerId(0)))));
+        assert!(r.until(30_000, |r| r
+            .sim
+            .host
+            .live
+            .actors
+            .own
+            .get(CForm(GECKO_REF))
+            .is_some_and(|a| a.owner == Some(PlayerId(0)))));
         // the second guest becomes the nearest, in another grid square: ownership follows
         r.guests[1].player_position = Some([100.0, 1000.0, 0.0]);
-        assert!(r.until(60_000, |r| r.sim.guests[1].sync.live.owns_actor(CForm(GECKO_REF))), "handoff across grid squares");
+        assert!(
+            r.until(60_000, |r| r.sim.guests[1]
+                .sync
+                .live
+                .owns_actor(CForm(GECKO_REF))),
+            "handoff across grid squares"
+        );
     }
 
     #[test]
@@ -193,14 +282,33 @@ mod fighting {
         let gecko = FormId(GECKO_REF);
         // somebody owns it for a while, then everyone leaves its place
         r.run_ms(3_000);
-        assert!(r.guests[0].positions.contains_key(&gecko) || r.until(10_000, |r| r.sim.guests[0].sync.live.actors.get(CForm(GECKO_REF)).is_some()));
+        assert!(
+            r.guests[0].positions.contains_key(&gecko)
+                || r.until(10_000, |r| r.sim.guests[0]
+                    .sync
+                    .live
+                    .actors
+                    .get(CForm(GECKO_REF))
+                    .is_some())
+        );
         for g in std::iter::once(&mut r.host).chain(r.guests.iter_mut()) {
             g.player_cell = Some(FormId(0x7002));
         }
-        assert!(r.until(10_000, |r| r.sim.guests[0].sync.live.actors.get(CForm(GECKO_REF)).is_some_and(|a| a.owner.is_none())));
-        r.guests[0].positions.insert(gecko, ([555.0, 1000.0, 0.0], 1.0));
+        assert!(r.until(10_000, |r| r.sim.guests[0]
+            .sync
+            .live
+            .actors
+            .get(CForm(GECKO_REF))
+            .is_some_and(|a| a.owner.is_none())));
+        r.guests[0]
+            .positions
+            .insert(gecko, ([555.0, 1000.0, 0.0], 1.0));
         r.run_ms(3_000);
-        assert_eq!(r.guests[0].positions.get(&gecko).map(|p| p.0[0]), Some(555.0), "a dormant record is not applied over the local copy");
+        assert_eq!(
+            r.guests[0].positions.get(&gecko).map(|p| p.0[0]),
+            Some(555.0),
+            "a dormant record is not applied over the local copy"
+        );
     }
 
     #[test]
@@ -212,7 +320,13 @@ mod fighting {
             let gecko = FormId(GECKO_REF);
             r.run_ms(2_000);
             // a guest hit is a request: nothing changes locally
-            assert!(!world::combat::hurt(&order, &mut r.guests[0], gecko, 5.0, PLAYER_REF));
+            assert!(!world::combat::hurt(
+                &order,
+                &mut r.guests[0],
+                gecko,
+                5.0,
+                PLAYER_REF
+            ));
             assert!(r.guests[0].damage.is_empty());
             r.run_ms(3_000);
             let h = world::combat::health(&order, &r.host, gecko).unwrap();
@@ -220,7 +334,10 @@ mod fighting {
             // both guests finish it in the same moment
             world::combat::hurt(&order, &mut r.guests[0], gecko, 100.0, PLAYER_REF);
             world::combat::hurt(&order, &mut r.guests[1], gecko, 100.0, PLAYER_REF);
-            assert!(r.until(60_000, |r| r.all().iter().all(|g| g.dead.contains(&gecko))), "{profile}: dead everywhere");
+            assert!(
+                r.until(60_000, |r| r.all().iter().all(|g| g.dead.contains(&gecko))),
+                "{profile}: dead everywhere"
+            );
             r.run_ms(5_000);
             for g in r.all() {
                 assert_eq!(died_events(g, gecko), 1, "{profile}: one death");
@@ -236,13 +353,51 @@ mod fighting {
     }
 
     #[test]
+    fn a_guest_copy_of_an_npc_fight_stays_on_the_guest() {
+        let (_d, order) = order("live-npc-copy");
+        let scripts = ScriptCache::default();
+        let mut r = setup(&order, &scripts, "perfect", 23);
+        let gecko = FormId(GECKO_REF);
+        let guard = FormId(GUARD_REF);
+        r.run_ms(2_000);
+        let guard_full = world::combat::health(&order, &r.host, guard).unwrap();
+        // the guest's world runs its copy of a host fight: guard and gecko trade blows
+        world::combat::hurt(&order, &mut r.guests[0], gecko, 5.0, guard);
+        world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, gecko);
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(20.0));
+        assert_eq!(
+            world::combat::health(&order, &r.host, guard),
+            Some(guard_full)
+        );
+        assert_eq!(
+            r.host.coop.live.combat.stats.crimes, 0,
+            "no assault by the guest"
+        );
+        // the guest's own blow on the guard still goes, and it is the guest's crime
+        world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, PLAYER_REF);
+        assert!(
+            r.until(10_000, |r| world::combat::health(&order, &r.host, guard)
+                .unwrap()
+                < guard_full)
+        );
+        assert_eq!(r.host.coop.live.combat.stats.crimes, 1);
+    }
+
+    #[test]
     fn a_host_hit_goes_through_the_same_ledger() {
         let (_d, order) = order("live-host-kill");
         let scripts = ScriptCache::default();
         let mut r = setup(&order, &scripts, "perfect", 31);
         let gecko = FormId(GECKO_REF);
         r.run_ms(2_000);
-        assert!(world::combat::hurt(&order, &mut r.host, gecko, 100.0, PLAYER_REF));
+        assert!(world::combat::hurt(
+            &order,
+            &mut r.host,
+            gecko,
+            100.0,
+            PLAYER_REF
+        ));
         assert!(r.until(30_000, |r| r.guests.iter().all(|g| g.dead.contains(&gecko))));
         for g in r.all() {
             assert_eq!(died_events(g, gecko), 1);
@@ -255,11 +410,22 @@ mod fighting {
         let scripts = ScriptCache::default();
         let mut r = setup(&order, &scripts, "perfect", 41);
         let gecko = FormId(GECKO_REF);
-        assert!(r.until(10_000, |r| r.guests[0].coop.live.scaling.map_or(false, |s| s.toughness > 1.9)));
+        assert!(r.until(10_000, |r| r.guests[0]
+            .coop
+            .live
+            .scaling
+            .map_or(false, |s| s.toughness > 1.9)));
         world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, PLAYER_REF);
-        assert!(r.until(10_000, |r| world::combat::health(&order, &r.host, gecko).unwrap() < 20.0));
+        assert!(
+            r.until(10_000, |r| world::combat::health(&order, &r.host, gecko)
+                .unwrap()
+                < 20.0)
+        );
         let h = world::combat::health(&order, &r.host, gecko).unwrap();
-        assert!((h - 15.0).abs() < 1.01, "10 damage over toughness 2 leaves 15, got {h}");
+        assert!(
+            (h - 15.0).abs() < 1.01,
+            "10 damage over toughness 2 leaves 15, got {h}"
+        );
         let s = r.host.coop.live.scaling.unwrap();
         assert!(s.reward < 1.0 && s.damage_to_players > 1.0);
     }
@@ -268,7 +434,13 @@ mod fighting {
     fn single_player_is_unchanged() {
         let (_d, order) = order("live-single");
         let mut g = GameState::new(&order);
-        assert!(world::combat::hurt(&order, &mut g, FormId(GECKO_REF), 100.0, PLAYER_REF));
+        assert!(world::combat::hurt(
+            &order,
+            &mut g,
+            FormId(GECKO_REF),
+            100.0,
+            PLAYER_REF
+        ));
         assert!(g.coop.live.pending_hits.is_empty() && g.coop.live.hurts.is_empty());
         assert_eq!(g.coop.stats.effects, 0);
     }
@@ -282,9 +454,18 @@ mod fighting {
         r.host.stocked.insert(chest);
         r.host.items.insert((chest, item), 5);
         let cx = r.cx();
-        assert!(r.ha.loot.register(cx, &mut r.host, &mut r.sim.host.live, chest));
-        assert!(!r.ha.loot.register(cx, &mut r.host, &mut r.sim.host.live, chest), "rolled once");
-        r.ha.loot.register_drop(cx, &r.host, &mut r.sim.host.live, drop);
+        assert!(r
+            .ha
+            .loot
+            .register(cx, &mut r.host, &mut r.sim.host.live, chest));
+        assert!(
+            !r.ha
+                .loot
+                .register(cx, &mut r.host, &mut r.sim.host.live, chest),
+            "rolled once"
+        );
+        r.ha.loot
+            .register_drop(cx, &r.host, &mut r.sim.host.live, drop);
         r.run_ms(1_000);
         // both guests open at the same moment: one lease
         let m1 = r.gas[0].loot.open(&r.sim.guests[0].sync.live.loot, chest);
@@ -292,11 +473,28 @@ mod fighting {
         r.sim.guest_emit(0, vec![m1]);
         r.sim.guest_emit(1, vec![m2]);
         assert!(r.until(10_000, |r| {
-            let a = r.sim.guests[0].sync.live.loot.view(CForm(chest.0)).map_or(false, |v| v.visible().len() == 1);
-            let b = r.sim.guests[1].sync.live.loot.view(CForm(chest.0)).map_or(false, |v| v.visible().len() == 1);
-            a != b || r.sim.guests[0].sync.live.loot.busy.len() + r.sim.guests[1].sync.live.loot.busy.len() == 1
+            let a = r.sim.guests[0]
+                .sync
+                .live
+                .loot
+                .view(CForm(chest.0))
+                .map_or(false, |v| v.visible().len() == 1);
+            let b = r.sim.guests[1]
+                .sync
+                .live
+                .loot
+                .view(CForm(chest.0))
+                .map_or(false, |v| v.visible().len() == 1);
+            a != b
+                || r.sim.guests[0].sync.live.loot.busy.len()
+                    + r.sim.guests[1].sync.live.loot.busy.len()
+                    == 1
         }));
-        let winner = if r.sim.host.live.loot.holder(CForm(chest.0)) == Some(PlayerId(1)) { 0 } else { 1 };
+        let winner = if r.sim.host.live.loot.holder(CForm(chest.0)) == Some(PlayerId(1)) {
+            0
+        } else {
+            1
+        };
         let loser = 1 - winner;
         assert_eq!(r.sim.guests[loser].sync.live.loot.busy.len(), 1);
         // the winner takes everything; the loser cannot take at all
@@ -305,10 +503,24 @@ mod fighting {
             a.loot.take(g, chest, item, 5).expect("leased")
         };
         r.sim.guest_emit(winner, vec![take]);
-        assert!(r.sim.guests[loser].sync.live.loot.view(CForm(chest.0)).map_or(true, |v| !v.visible().contains_key(&CForm(item.0)) || true));
-        assert!(r.until(10_000, |r| r.guests[winner].items.get(&(PLAYER_REF, item)) == Some(&5)
-            && r.host.items.get(&(chest, item)).is_none()));
-        assert_eq!(r.ha.registry.get(PlayerId(winner as u8 + 1)).unwrap().gained[&item], 5);
+        assert!(r.sim.guests[loser]
+            .sync
+            .live
+            .loot
+            .view(CForm(chest.0))
+            .map_or(true, |v| !v.visible().contains_key(&CForm(item.0)) || true));
+        assert!(
+            r.until(10_000, |r| r.guests[winner].items.get(&(PLAYER_REF, item))
+                == Some(&5)
+                && r.host.items.get(&(chest, item)).is_none())
+        );
+        assert_eq!(
+            r.ha.registry
+                .get(PlayerId(winner as u8 + 1))
+                .unwrap()
+                .gained[&item],
+            5
+        );
         // the other guest has none, and its late attempt is refused or empty
         assert!(r.guests[loser].items.get(&(PLAYER_REF, item)).is_none());
         let none = {
@@ -322,10 +534,15 @@ mod fighting {
         r.sim.guest_emit(0, vec![c1]);
         r.sim.guest_emit(1, vec![c2]);
         assert!(r.until(10_000, |r| {
-            let n = |i: usize| r.sim.guests[i].sync.live.loot.drops_won.len() + r.sim.guests[i].sync.live.loot.drops_lost.len();
+            let n = |i: usize| {
+                r.sim.guests[i].sync.live.loot.drops_won.len()
+                    + r.sim.guests[i].sync.live.loot.drops_lost.len()
+            };
             n(0) + n(1) >= 2
         }));
-        let won: usize = (0..2).map(|i| r.sim.guests[i].sync.live.loot.drops_won.len()).sum();
+        let won: usize = (0..2)
+            .map(|i| r.sim.guests[i].sync.live.loot.drops_won.len())
+            .sum();
         assert_eq!(won, 1);
     }
 
@@ -338,14 +555,29 @@ mod fighting {
         r.run_ms(1_000);
         let cx = r.cx();
         let now = r.sim.clock.now();
-        r.ha.rules.start_tether(cx, &r.host, &mut r.sim.host.live, FormId(GUARD_REF), now);
+        r.ha.rules
+            .start_tether(cx, &r.host, &mut r.sim.host.live, FormId(GUARD_REF), now);
         r.run_ms(500);
-        assert!(r.host.coop.live.stage_held, "the story waits for the straggler");
+        assert!(
+            r.host.coop.live.stage_held,
+            "the story waits for the straggler"
+        );
         r.run_ms(100_000);
-        assert!(r.gas[1].rules.warps.is_empty(), "no warp before the timeout");
-        assert!(r.until(40_000, |r| !r.gas[1].rules.warps.is_empty()), "warped after the timeout");
+        assert!(
+            r.gas[1].rules.warps.is_empty(),
+            "no warp before the timeout"
+        );
+        assert!(
+            r.until(40_000, |r| !r.gas[1].rules.warps.is_empty()),
+            "warped after the timeout"
+        );
+        // the warp puts the straggler on its own spot of the ring around the anchor
         let p = r.guests[1].player_position.unwrap();
-        assert!(p[0].abs() < 1.0 && p[1].abs() < 1.0, "now at the anchor: {p:?}");
+        let d = p[0].hypot(p[1]);
+        assert!(
+            (d - coop_core::roam::model::WARP_SPREAD).abs() < 1.0,
+            "now on the ring around the anchor: {p:?}"
+        );
         assert!(r.gas[0].rules.warps.is_empty() && r.ha.rules.warps.is_empty());
         assert!(r.until(5_000, |r| !r.host.coop.live.stage_held));
     }
@@ -367,7 +599,12 @@ mod dialogue_world {
             a.open(c, npc)
         };
         r.sim.guest_emit(0, vec![msg]);
-        assert!(r.until(10_000, |r| (0..2).all(|i| r.sim.guests[i].sync.live.dialogue.view().is_some())));
+        assert!(r.until(10_000, |r| (0..2).all(|i| r.sim.guests[i]
+            .sync
+            .live
+            .dialogue
+            .view()
+            .is_some())));
     }
 
     #[test]
@@ -387,12 +624,22 @@ mod dialogue_world {
                 a.pick(c, FormId(BYE)).expect("pick")
             };
             r.sim.guest_emit(0, vec![pick]);
-            assert!(r.until(10_000, |r| r.ha.dialogue.begin_runs == 1), "{profile}: begin script ran");
+            assert!(
+                r.until(10_000, |r| r.ha.dialogue.begin_runs == 1),
+                "{profile}: begin script ran"
+            );
             let door = FormId(DOOR_OPEN);
             assert_eq!(r.host.globals.get(&door), Some(&1.0));
-            assert!(r.until(10_000, |r| r.guests.iter().all(|g| g.coop.live.lines.len() == 1)));
+            assert!(r.until(10_000, |r| r
+                .guests
+                .iter()
+                .all(|g| g.coop.live.lines.len() == 1)));
             for g in &r.guests {
-                assert_eq!(g.coop.live.lines[0], (1, FormId(BYE)), "spectators play the same line");
+                assert_eq!(
+                    g.coop.live.lines[0],
+                    (1, FormId(BYE)),
+                    "spectators play the same line"
+                );
             }
             // each peer reports its line done; the end script runs after the last
             for i in 0..2 {
@@ -402,10 +649,21 @@ mod dialogue_world {
                 };
                 r.sim.guest_emit(i, vec![m]);
             }
-            let m = r.ha.dialogue.line_done(&mut r.ha.own.dialogue).expect("host line done");
-            let outs = r.ha.on_local(&mut r.sim.host.live, &mut r.sim.host.auth, r.sim.clock.now(), m);
+            let m =
+                r.ha.dialogue
+                    .line_done(&mut r.ha.own.dialogue)
+                    .expect("host line done");
+            let outs = r.ha.on_local(
+                &mut r.sim.host.live,
+                &mut r.sim.host.auth,
+                r.sim.clock.now(),
+                m,
+            );
             r.sim.host_emit(outs);
-            assert!(r.until(30_000, |r| r.host.globals.get(&door) == Some(&2.0)), "{profile}: end script ran");
+            assert!(
+                r.until(30_000, |r| r.host.globals.get(&door) == Some(&2.0)),
+                "{profile}: end script ran"
+            );
             // close; nothing runs twice
             let close = {
                 let (c, a) = (&mut r.sim.guests[0].sync.live.dialogue, &r.gas[0].dialogue);
@@ -414,9 +672,17 @@ mod dialogue_world {
             r.sim.guest_emit(0, vec![close]);
             r.run_ms(5_000);
             assert_eq!((r.ha.dialogue.begin_runs, r.ha.dialogue.end_runs), (1, 1));
-            assert!(r.until(60_000, |r| r.guests.iter().all(|g| g.globals.get(&door) == Some(&2.0)
-                && g.said.contains(&FormId(BYE)))), "{profile}: peers converged");
-            assert_eq!(r.gas[0].dialogue.begin_runs + r.gas[1].dialogue.begin_runs, 0, "guests run nothing");
+            assert!(
+                r.until(60_000, |r| r.guests.iter().all(|g| g.globals.get(&door)
+                    == Some(&2.0)
+                    && g.said.contains(&FormId(BYE)))),
+                "{profile}: peers converged"
+            );
+            assert_eq!(
+                r.gas[0].dialogue.begin_runs + r.gas[1].dialogue.begin_runs,
+                0,
+                "guests run nothing"
+            );
             assert_eq!(r.guests[0].coop.stats.suppressed_runs, 0);
         }
     }
@@ -427,21 +693,41 @@ mod dialogue_world {
         let scripts = ScriptCache::default();
         let mut r = Rig::new(&order, &scripts, "perfect", 81);
         r.stand(0xB10, [0.0, 50.0, 100.0]);
-        r.guests[0].actor_values.insert((PLAYER_REF, world::combat::av::HEALTH), 200.0);
+        r.guests[0]
+            .actor_values
+            .insert((PLAYER_REF, world::combat::av::HEALTH), 200.0);
         let me = world::combat::max_health(&order, &r.guests[0], PLAYER_REF).unwrap_or(0.0);
         assert!(me > 10.0, "the test world has a player with health ({me})");
         r.run_ms(2_000);
         // a lethal blow downs the guest instead of killing them
-        world::combat::hurt(&order, &mut r.guests[0], PLAYER_REF, me * 10.0, FormId(0x555));
+        world::combat::hurt(
+            &order,
+            &mut r.guests[0],
+            PLAYER_REF,
+            me * 10.0,
+            FormId(0x555),
+        );
         assert!(!r.guests[0].dead.contains(&PLAYER_REF));
-        assert!(r.until(10_000, |r| r.sim.host.live.rules.revive.is_downed(PlayerId(1))));
+        assert!(r.until(10_000, |r| r
+            .sim
+            .host
+            .live
+            .rules
+            .revive
+            .is_downed(PlayerId(1))));
         assert!(r.guests[0].coop.live.downed);
         // guest 2 stands next to them and holds the revive key
         let begin = r.gas[1].rules.revive_begin(PlayerId(1));
         r.sim.guest_emit(1, vec![begin]);
-        assert!(r.until(30_000, |r| !r.gas[0].rules.revives.is_empty()), "revived");
+        assert!(
+            r.until(30_000, |r| !r.gas[0].rules.revives.is_empty()),
+            "revived"
+        );
         let now = world::combat::health(&order, &r.guests[0], PLAYER_REF).unwrap();
-        assert!((now - me * 0.3).abs() < 1.5, "30 percent health back: {now} of {me}");
+        assert!(
+            (now - me * 0.3).abs() < 1.5,
+            "30 percent health back: {now} of {me}"
+        );
         assert!(!r.guests[0].coop.live.downed);
     }
 
@@ -455,7 +741,8 @@ mod dialogue_world {
         let marker = FormId(0x4242);
         let cx = r.cx();
         let now = r.sim.clock.now();
-        r.ha.rules.start_tether(cx, &r.host, &mut r.sim.host.live, marker, now);
+        r.ha.rules
+            .start_tether(cx, &r.host, &mut r.sim.host.live, marker, now);
         let m = world::map::MapMarker {
             reference: marker,
             name: "Somewhere".into(),
@@ -475,8 +762,17 @@ mod dialogue_world {
         r.sim.guest_emit(1, vec![Msg::Rules(yes)]);
         assert!(r.until(10_000, |r| r.ha.own.rules.prompt.is_some()));
         let yes = r.ha.own.rules.answer(true).unwrap();
-        let outs = r.ha.on_local(&mut r.sim.host.live, &mut r.sim.host.auth, r.sim.clock.now(), Msg::Rules(yes));
+        let outs = r.ha.on_local(
+            &mut r.sim.host.live,
+            &mut r.sim.host.auth,
+            r.sim.clock.now(),
+            Msg::Rules(yes),
+        );
         r.sim.host_emit(outs);
-        assert!(r.until(10_000, |r| r.guests[0].coop.live.travel_allowed == Some(marker)), "approved");
+        assert!(
+            r.until(10_000, |r| r.guests[0].coop.live.travel_allowed
+                == Some(marker)),
+            "approved"
+        );
     }
 }

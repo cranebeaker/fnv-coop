@@ -142,7 +142,9 @@ impl VitalsHost {
     /// The player's own report (avatar stream): health, downed, dead. The
     /// host's mirror wins for a moment after it hurt the player.
     pub fn report(&mut self, p: PlayerId, now_ms: u64, hp: u16, downed: bool, dead: bool) {
-        let Some(v) = self.players.get_mut(&p) else { return };
+        let Some(v) = self.players.get_mut(&p) else {
+            return;
+        };
         if now_ms.saturating_sub(v.hurt_at) >= HURT_GUARD_MS || v.hurt_at == 0 {
             v.hp = hp;
         } else {
@@ -213,7 +215,11 @@ impl VitalsHost {
             self.stats.while_downed += 1;
             return vec![];
         }
-        let scaled = if kind.is_direct() { clamp16(f32::from(amount) * scaling.damage_to_players) } else { amount };
+        let scaled = if kind.is_direct() {
+            clamp16(f32::from(amount) * scaling.damage_to_players)
+        } else {
+            amount
+        };
         let scaled = scaled.clamp(1, MAX_PLAYER_HIT);
         let seq = self.next_seq();
         let v = self.players.get_mut(&victim).expect("checked");
@@ -221,7 +227,15 @@ impl VitalsHost {
         v.hurt_at = now_ms.max(1);
         let hp = v.hp;
         self.stats.applied += 1;
-        let mut out = vec![CombatMsg::PlayerHurt { victim, seq, amount: scaled, kind, limb, attacker, health: hp }];
+        let mut out = vec![CombatMsg::PlayerHurt {
+            victim,
+            seq,
+            amount: scaled,
+            kind,
+            limb,
+            attacker,
+            health: hp,
+        }];
         if kind.is_direct() && limb < LIMB_COUNT && limb != 1 {
             let d = v.limb_damage.entry(limb).or_insert(0);
             *d = d.saturating_add(scaled);
@@ -229,15 +243,38 @@ impl VitalsHost {
                 v.crippled |= 1 << limb;
                 self.stats.crippled += 1;
                 let seq = self.next_seq();
-                out.push(CombatMsg::PlayerEffect { victim, seq, effect: EffectKind::Cripple, amount: 0, limb, ms: 0 });
+                out.push(CombatMsg::PlayerEffect {
+                    victim,
+                    seq,
+                    effect: EffectKind::Cripple,
+                    amount: 0,
+                    limb,
+                    ms: 0,
+                });
             }
         }
         out
     }
 
     /// An NPC hit request from a peer (`from` owns the NPC).
-    pub fn on_npc_hit(&mut self, from: PlayerId, now_ms: u64, msg: &CombatMsg, scaling: &Scaling) -> Vec<CombatMsg> {
-        let CombatMsg::NpcHit { id, attacker, victim, amount, kind, limb } = *msg else { return vec![] };
+    pub fn on_npc_hit(
+        &mut self,
+        from: PlayerId,
+        now_ms: u64,
+        msg: &CombatMsg,
+        scaling: &Scaling,
+    ) -> Vec<CombatMsg> {
+        let CombatMsg::NpcHit {
+            id,
+            attacker,
+            victim,
+            amount,
+            kind,
+            limb,
+        } = *msg
+        else {
+            return vec![];
+        };
         if !self.fresh(from, id, now_ms) {
             return vec![];
         }
@@ -278,8 +315,22 @@ impl VitalsHost {
     }
 
     /// A player-versus-player request from a peer.
-    pub fn on_player_hit(&mut self, from: PlayerId, now_ms: u64, msg: &CombatMsg) -> Vec<CombatMsg> {
-        let CombatMsg::PlayerHit { id, victim, amount, kind, limb } = *msg else { return vec![] };
+    pub fn on_player_hit(
+        &mut self,
+        from: PlayerId,
+        now_ms: u64,
+        msg: &CombatMsg,
+    ) -> Vec<CombatMsg> {
+        let CombatMsg::PlayerHit {
+            id,
+            victim,
+            amount,
+            kind,
+            limb,
+        } = *msg
+        else {
+            return vec![];
+        };
         if !self.fresh(from, id, now_ms) {
             return vec![];
         }
@@ -287,8 +338,18 @@ impl VitalsHost {
     }
 
     /// A lasting effect from the world (radiation, poison, bleeding).
-    pub fn effect(&mut self, now_ms: u64, victim: PlayerId, effect: EffectKind, amount: u16, limb: u8, ms: u32) -> Vec<CombatMsg> {
-        let Some(v) = self.players.get_mut(&victim) else { return vec![] };
+    pub fn effect(
+        &mut self,
+        now_ms: u64,
+        victim: PlayerId,
+        effect: EffectKind,
+        amount: u16,
+        limb: u8,
+        ms: u32,
+    ) -> Vec<CombatMsg> {
+        let Some(v) = self.players.get_mut(&victim) else {
+            return vec![];
+        };
         if v.dead || (v.downed && effect != EffectKind::Cure) {
             return vec![];
         }
@@ -314,7 +375,14 @@ impl VitalsHost {
             }
         }
         let seq = self.next_seq();
-        vec![CombatMsg::PlayerEffect { victim, seq, effect, amount, limb, ms }]
+        vec![CombatMsg::PlayerEffect {
+            victim,
+            seq,
+            effect,
+            amount,
+            limb,
+            ms,
+        }]
     }
 
     /// Revive: back up at `pct` percent health, ailments cured.
@@ -333,7 +401,9 @@ impl VitalsHost {
         let ids: Vec<PlayerId> = self.players.keys().copied().collect();
         let mut out = Vec::new();
         for p in ids {
-            let Some(v) = self.players.get_mut(&p) else { continue };
+            let Some(v) = self.players.get_mut(&p) else {
+                continue;
+            };
             if v.dead || v.downed {
                 continue;
             }

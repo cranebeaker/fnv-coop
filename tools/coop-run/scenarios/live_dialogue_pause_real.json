@@ -1,0 +1,75 @@
+{
+    "name": "live_dialogue_pause_real",
+    "description": "The host's clock runs in the real Runner::update, gated by the viewer's scripts.rs time gate. A host script starts a conversation with Doc Mitchell, and the host's menu holds it open for 15 s, then closes it. The guest watches the host's session the whole time. The guest's frames run on through the hold, the host's dialogue stops the guest's world clock for at most one dialogue heartbeat (15 s, GameState::coop_conversation_stops_time) plus a tolerance, and the clock runs again on the guest after the hold. Real-game copy: the game's own Runner::update steps the clock, so the headless 'coop clock on' line is left out. Doc sits in his chair, and a seated person waits for the player to come within reach (200) instead of walking up (the conversation package, viewer ai.rs talk_frame). So the host first moves next to Doc with player.MoveTo DocMitchellREF. Before the talk the host runs set VCG01.bGiveTest to 1: without it Doc's greeting is the goodbye line 00107222 (We can chat later...), and the game closes the menu after it. With it Doc says 00107220 (Welcome back...) and the menu stays open on its topics. The real menu closes when the host picks the Goodbye. topic (coop topic Goodbye.), as a player does; coop close ends only the network session, not the game's menu.",
+    "cell": "GSDocMitchellHouse",
+    "network": "good_wifi",
+    "seed": 87,
+    "duration_s": 30,
+    "settle_s": 6,
+    "host": {
+        "script": [
+            {
+                "at": 2,
+                "run": "set VCG01.bGiveTest to 1"
+            },
+            {
+                "at": 3,
+                "run": "player.MoveTo DocMitchellREF"
+            },
+            {
+                "at": 4,
+                "run": "DocMitchellREF.StartConversation player"
+            },
+            {
+                "at": 19,
+                "run": "coop topic Goodbye."
+            }
+        ]
+    },
+    "guest": {
+        "script": []
+    },
+    "expect": [
+        {
+            "id": "guest-watched-hold",
+            "path": "scene.talk.watched_ms",
+            "op": "ge",
+            "value": 13000,
+            "on": "guest"
+        },
+        {
+            "id": "guest-frames-ran",
+            "path": "scene.talk.watched_frames",
+            "op": "ge",
+            "value": 300,
+            "on": "guest"
+        },
+        {
+            "id": "host-dialogue-held-time",
+            "path": "scene.talk.clock_lag_ms",
+            "op": "ge",
+            "value": 8000,
+            "on": "guest"
+        },
+        {
+            "id": "held-within-heartbeat",
+            "path": "scene.talk.clock_lag_ms",
+            "op": "le",
+            "value": 18000,
+            "on": "guest"
+        },
+        {
+            "id": "guest-clock-ran",
+            "path": "scene.talk.clock_ms",
+            "op": "ge",
+            "value": 5000,
+            "on": "guest"
+        },
+        {
+            "id": "same-clock",
+            "path": "globals.GameHour",
+            "on": "equal",
+            "tol": 0.05
+        }
+    ]
+}

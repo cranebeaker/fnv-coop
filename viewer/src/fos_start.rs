@@ -120,7 +120,8 @@ pub fn open(game: &Game, path: &Path) -> Result<FosStart, String> {
 /// opens it (`scripts::load_saved_world`), before the co-op session's first frame. The saved
 /// camera (a seated or scripted view) is not restored; the player starts standing.
 pub fn open_saved(game: &Game, path: &Path) -> Result<FosStart, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
     let (state, place) = world::save::load(&text)?;
     let order = &game.order;
     let place = place.ok_or_else(|| "the save doesn't say where the player is".to_string())?;

@@ -1,0 +1,183 @@
+{
+  "name": "twin_lab_clean",
+  "description": "MUTATION TWIN of lab_clean: both players also make planted glitches (a 1500 unit jump, 180 degree turns in one frame, and the host's walk key tapped). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 84,
+  "duration_s": 16,
+  "settle_s": 4,
+  "expect_fail": true,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "key": "w:3"
+      },
+      {
+        "at": 5,
+        "run": "coop teleport 3852 1603.6 7360.0"
+      },
+      {
+        "at": 8,
+        "run": "coop face 20"
+      },
+      {
+        "at": 8.5,
+        "run": "coop face 40"
+      },
+      {
+        "at": 9,
+        "run": "coop face 60"
+      },
+      {
+        "at": 9.5,
+        "key": "w:1.5"
+      },
+      {
+        "at": 11,
+        "run": "coop face 240"
+      },
+      {
+        "at": 11.5,
+        "run": "coop face 60"
+      },
+      {
+        "at": 12,
+        "run": "coop face 240"
+      },
+      {
+        "at": 12.5,
+        "key": "w:0.1"
+      },
+      {
+        "at": 12.7,
+        "key": "w:0.1"
+      },
+      {
+        "at": 12.9,
+        "key": "w:0.1"
+      },
+      {
+        "at": 13.1,
+        "key": "w:0.1"
+      },
+      {
+        "at": 13.3,
+        "key": "w:0.1"
+      },
+      {
+        "at": 13.5,
+        "key": "w:0.1"
+      }
+    ],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 4,
+        "key": "d:2.5"
+      },
+      {
+        "at": 7,
+        "run": "coop face 330"
+      },
+      {
+        "at": 7.5,
+        "run": "coop face 300"
+      },
+      {
+        "at": 10,
+        "run": "coop teleport 3852 1603.6 7360.0"
+      },
+      {
+        "at": 11,
+        "run": "coop face 150"
+      },
+      {
+        "at": 11.5,
+        "run": "coop face 330"
+      }
+    ],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "expect": [
+    {
+      "id": "host-no-pops",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "host-no-snaps",
+      "path": "live.glitch.snaps",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "host-no-flips",
+      "path": "live.glitch.flips",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "guest-no-pops",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "guest-no-snaps",
+      "path": "live.glitch.snaps",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "guest-no-flips",
+      "path": "live.glitch.flips",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-host-walk",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 300,
+      "on": "guest"
+    },
+    {
+      "id": "host-saw-guest-walk",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 250,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

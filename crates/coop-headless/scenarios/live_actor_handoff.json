@@ -1,0 +1,21 @@
+{
+  "name": "live_actor_handoff",
+  "description": "Actor ownership handoff. Both peers start in Doc Mitchell's house, and the host owns Doc Mitchell (the twin shows this: there the host stays and keeps him). At 6 s the host walks to the Prospector Saloon with the bot verb `coop cell`. The guest is now the only peer in the house, so the guest must own and run Doc, and the host must give him up: exactly one peer says it owns him. The host must not mirror Doc, and the host must count one guest-owned actor. The shared hash must agree. Headless only: the viewer bot has no `coop cell` verb.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 71,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 6, "run": "coop cell GSProspectorSaloonInterior"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "guest-took-over", "path": "actors.DocMitchellREF.owner", "op": "eq", "value": "me", "on": "guest"},
+    {"id": "host-let-go", "path": "actors.DocMitchellREF.owner", "op": "eq", "value": "other", "on": "host"},
+    {"id": "host-counts-guest-owned", "path": "live.roam.owned.guest", "op": "eq", "value": 1, "on": "host"},
+    {"id": "host-left-the-cell", "path": "live.roam.cells.host", "op": "eq", "value": 1073541, "on": "host"},
+    {"id": "host-mirrors-none", "path": "live.roam.remote_actors", "op": "eq", "value": 0, "on": "host"},
+    {"id": "shared-hash", "path": "hash.shared", "on": "equal"}
+  ]
+}

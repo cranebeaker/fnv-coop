@@ -1,0 +1,99 @@
+{
+    "name": "story_factions",
+    "description": "The host's script puts the player in GoodspringsBighornerFaction and makes it an enemy of VGoodspringsDialogueFaction (SetEnemy). The guest's own script lines (run as the guest on the host) raise the player's rank to 1 and make GoodspringsBighornerFaction an ally of Vault19PowderGangerFaction (SetAlly). Then the guest assaults Sunny Smiles in front of her, a crime. Each peer reads its own game state: the same membership, both relations both ways, and the same crime flags (one major crime for each of Sunny's crime-tracking factions, which now hold the player as an enemy, and one for the player). In the real game Sunny greets the host first, and console lines wait while her dialogue is open: the host closes it first. The host leaves Sunny's greeting by picking the Goodbye. topic (coop topic Goodbye.): coop close ends only the network session, not the game's menu, and the host's console lines wait until the menu closes. The guest's lines come after the host's lines.",
+    "cell": "GSProspectorSaloonInterior",
+    "network": "good_wifi",
+    "seed": 77,
+    "duration_s": 20,
+    "settle_s": 6,
+    "host": {
+        "script": [
+            {
+                "at": 0,
+                "run": "coop topic Goodbye."
+            },
+            {
+                "at": 2,
+                "run": "player.AddToFaction GoodspringsBighornerFaction 0"
+            },
+            {
+                "at": 3,
+                "run": "SetEnemy GoodspringsBighornerFaction VGoodspringsDialogueFaction"
+            }
+        ]
+    },
+    "guest": {
+        "script": [
+            {
+                "at": 10,
+                "run": "player.SetFactionRank GoodspringsBighornerFaction 1"
+            },
+            {
+                "at": 11,
+                "run": "SetAlly GoodspringsBighornerFaction Vault19PowderGangerFaction"
+            },
+            {
+                "at": 13,
+                "run": "coop hit SunnyRef 3"
+            }
+        ]
+    },
+    "expect": [
+        {
+            "id": "member-rank",
+            "path": "factions.GoodspringsBighornerFaction.player",
+            "op": "eq",
+            "value": 1,
+            "on": "both"
+        },
+        {
+            "id": "enemy",
+            "path": "faction_relations.GoodspringsBighornerFaction.VGoodspringsDialogueFaction",
+            "op": "eq",
+            "value": 1,
+            "on": "both"
+        },
+        {
+            "id": "enemy-back",
+            "path": "faction_relations.VGoodspringsDialogueFaction.GoodspringsBighornerFaction",
+            "op": "eq",
+            "value": 1,
+            "on": "both"
+        },
+        {
+            "id": "ally",
+            "path": "faction_relations.GoodspringsBighornerFaction.Vault19PowderGangerFaction",
+            "op": "eq",
+            "value": 2,
+            "on": "both"
+        },
+        {
+            "id": "ally-back",
+            "path": "faction_relations.Vault19PowderGangerFaction.GoodspringsBighornerFaction",
+            "op": "eq",
+            "value": 2,
+            "on": "both"
+        },
+        {
+            "id": "crime-faction",
+            "path": "crime.factions.GoodspringsFaction.major",
+            "op": "eq",
+            "value": 1,
+            "on": "both"
+        },
+        {
+            "id": "crime-enemy-flag",
+            "path": "crime.factions.GoodspringsFaction.enemy",
+            "op": "eq",
+            "value": true,
+            "on": "both"
+        },
+        {
+            "id": "crime-player",
+            "path": "crime.player.major",
+            "op": "eq",
+            "value": 1,
+            "on": "both"
+        }
+    ]
+}

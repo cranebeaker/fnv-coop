@@ -20,19 +20,35 @@ impl Value {
         }
     }
     pub fn as_str(&self) -> Option<&str> {
-        if let Value::Str(s) = self { Some(s) } else { None }
+        if let Value::Str(s) = self {
+            Some(s)
+        } else {
+            None
+        }
     }
     pub fn as_bool(&self) -> Option<bool> {
-        if let Value::Bool(b) = self { Some(*b) } else { None }
+        if let Value::Bool(b) = self {
+            Some(*b)
+        } else {
+            None
+        }
     }
     pub fn as_f64(&self) -> Option<f64> {
-        if let Value::Num(n) = self { Some(*n) } else { None }
+        if let Value::Num(n) = self {
+            Some(*n)
+        } else {
+            None
+        }
     }
 }
 
 /// Parses a JSON document.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = P { s: text.as_bytes(), i: 0, depth: 0 };
+    let mut p = P {
+        s: text.as_bytes(),
+        i: 0,
+        depth: 0,
+    };
     p.ws();
     let v = p.value()?;
     p.ws();
@@ -90,7 +106,12 @@ impl P<'_> {
     }
     fn number(&mut self) -> Result<Value, String> {
         let start = self.i;
-        while self.i < self.s.len() && matches!(self.s[self.i], b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E') {
+        while self.i < self.s.len()
+            && matches!(
+                self.s[self.i],
+                b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E'
+            )
+        {
             self.i += 1;
         }
         std::str::from_utf8(&self.s[start..self.i])
@@ -128,10 +149,14 @@ impl P<'_> {
                         b't' => '\t',
                         b'u' => {
                             let mut cp = self.hex4()?;
-                            if (0xD800..0xDC00).contains(&cp) && self.s[self.i..].starts_with(b"\\u") {
+                            if (0xD800..0xDC00).contains(&cp)
+                                && self.s[self.i..].starts_with(b"\\u")
+                            {
                                 self.i += 2;
                                 let lo = self.hex4()?;
-                                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo.wrapping_sub(0xDC00) & 0x3FF);
+                                cp = 0x10000
+                                    + ((cp - 0xD800) << 10)
+                                    + (lo.wrapping_sub(0xDC00) & 0x3FF);
                             }
                             char::from_u32(cp).unwrap_or('\u{fffd}')
                         }
@@ -277,7 +302,16 @@ mod tests {
 
     #[test]
     fn rejects_garbage() {
-        for bad in ["", "{", "{\"a\":}", "[1,]", "{\"a\":1} x", "\"abc", "nul", "{1:2}"] {
+        for bad in [
+            "",
+            "{",
+            "{\"a\":}",
+            "[1,]",
+            "{\"a\":1} x",
+            "\"abc",
+            "nul",
+            "{1:2}",
+        ] {
             assert!(parse(bad).is_err(), "{bad}");
         }
         assert!(parse(&"[".repeat(200)).is_err());
@@ -285,6 +319,9 @@ mod tests {
 
     #[test]
     fn surrogate_pair() {
-        assert_eq!(parse("\"\\ud83d\\ude00\"").unwrap().as_str().unwrap(), "\u{1F600}");
+        assert_eq!(
+            parse("\"\\ud83d\\ude00\"").unwrap().as_str().unwrap(),
+            "\u{1F600}"
+        );
     }
 }

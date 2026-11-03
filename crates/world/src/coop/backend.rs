@@ -49,7 +49,10 @@ fn hashes_of(f: &Fields) -> ShardHashes {
 
 impl WorldBackend for GameState {
     fn export_fields(&self) -> Vec<(CForm, Field)> {
-        export::export(self).into_iter().map(|(k, f)| (k.form, f)).collect()
+        export::export(self)
+            .into_iter()
+            .map(|(k, f)| (k.form, f))
+            .collect()
     }
 
     fn shard_hashes(&self) -> ShardHashes {
@@ -57,8 +60,11 @@ impl WorldBackend for GameState {
     }
 
     fn apply_delta(&mut self, d: &Delta, opts: Opts) -> ApplyReport {
-        let changes: Vec<Change> =
-            d.changes.iter().map(|c| (c.field.key(c.form), Some(c.field.clone()))).collect();
+        let changes: Vec<Change> = d
+            .changes
+            .iter()
+            .map(|c| (c.field.key(c.form), Some(c.field.clone())))
+            .collect();
         apply::apply_changes(self, &changes, opts)
     }
 

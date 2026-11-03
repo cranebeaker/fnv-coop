@@ -21,7 +21,14 @@ fn host() -> CombatHost {
 }
 
 fn npc_hit(id: u32, victim: PlayerId, amount: u16) -> CombatMsg {
-    CombatMsg::NpcHit { id, attacker: NPC, victim, amount, kind: DamageKind::Bullet, limb: 1 }
+    CombatMsg::NpcHit {
+        id,
+        attacker: NPC,
+        victim,
+        amount,
+        kind: DamageKind::Bullet,
+        limb: 1,
+    }
 }
 
 #[test]
@@ -30,7 +37,15 @@ fn npc_damage_reaches_the_victims_machine_scaled() {
     let out = h.on_msg(H, npc_hit(1, A, 20), 1000, None, None, &party(3));
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].aud, Audience::To(A));
-    let CombatMsg::PlayerHurt { amount, health, victim, .. } = out[0].msg else { panic!() };
+    let CombatMsg::PlayerHurt {
+        amount,
+        health,
+        victim,
+        ..
+    } = out[0].msg
+    else {
+        panic!()
+    };
     assert_eq!(victim, A);
     assert_eq!(amount, 24, "+20 percent for three players");
     assert_eq!(health, 76);
@@ -40,11 +55,19 @@ fn npc_damage_reaches_the_victims_machine_scaled() {
 #[test]
 fn duplicate_and_flooded_requests_are_refused() {
     let mut h = host();
-    assert_eq!(h.on_msg(H, npc_hit(1, A, 5), 0, None, None, &party(2)).len(), 1);
-    assert!(h.on_msg(H, npc_hit(1, A, 5), 1, None, None, &party(2)).is_empty());
+    assert_eq!(
+        h.on_msg(H, npc_hit(1, A, 5), 0, None, None, &party(2))
+            .len(),
+        1
+    );
+    assert!(h
+        .on_msg(H, npc_hit(1, A, 5), 1, None, None, &party(2))
+        .is_empty());
     let mut ok = 0;
     for i in 2..200 {
-        ok += h.on_msg(H, npc_hit(i, A, 1), 10, None, None, &party(2)).len();
+        ok += h
+            .on_msg(H, npc_hit(i, A, 1), 10, None, None, &party(2))
+            .len();
     }
     assert!(ok <= MAX_REQ_PER_SEC, "{ok}");
     assert!(h.vitals.stats.refused > 100);
@@ -54,13 +77,25 @@ fn duplicate_and_flooded_requests_are_refused() {
 fn downed_players_take_no_more_and_revive_restores() {
     let mut h = host();
     h.vitals.report(A, 0, 0, true, false);
-    assert!(h.on_msg(H, npc_hit(1, A, 50), 5000, None, None, &party(2)).is_empty());
+    assert!(h
+        .on_msg(H, npc_hit(1, A, 50), 5000, None, None, &party(2))
+        .is_empty());
     assert_eq!(h.vitals.stats.while_downed, 1);
     let out = CombatHost::deliver(h.vitals.revived(6000, A, 30));
     assert!(!h.vitals.get(A).unwrap().downed);
     assert_eq!(h.vitals.get(A).unwrap().hp, 30);
-    assert!(out.iter().any(|o| matches!(o.msg, CombatMsg::PlayerEffect { effect: EffectKind::Cure, .. })));
-    assert_eq!(h.on_msg(H, npc_hit(2, A, 5), 7000, None, None, &party(2)).len(), 1);
+    assert!(out.iter().any(|o| matches!(
+        o.msg,
+        CombatMsg::PlayerEffect {
+            effect: EffectKind::Cure,
+            ..
+        }
+    )));
+    assert_eq!(
+        h.on_msg(H, npc_hit(2, A, 5), 7000, None, None, &party(2))
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -68,7 +103,9 @@ fn friendly_fire_rule() {
     let mut v = VitalsHost::new();
     v.track(A, 100, 100);
     v.track(B, 100, 100);
-    assert!(v.player_vs_player(0, A, B, 30, DamageKind::Bullet, 1).is_empty());
+    assert!(v
+        .player_vs_player(0, A, B, 30, DamageKind::Bullet, 1)
+        .is_empty());
     assert_eq!(v.stats.friendly_blocked, 1);
     v.friendly = FriendlyFire::Scaled(0.5);
     let m = v.player_vs_player(10, A, B, 30, DamageKind::Bullet, 1);
@@ -90,7 +127,19 @@ fn limbs_cripple_and_cure_clears() {
     let mut effects = 0;
     for t in 0..4 {
         let m = v.hurt(t * 10, A, NPC, 20, DamageKind::Bullet, 4, &n);
-        effects += m.iter().filter(|m| matches!(m, CombatMsg::PlayerEffect { effect: EffectKind::Cripple, limb: 4, .. })).count();
+        effects += m
+            .iter()
+            .filter(|m| {
+                matches!(
+                    m,
+                    CombatMsg::PlayerEffect {
+                        effect: EffectKind::Cripple,
+                        limb: 4,
+                        ..
+                    }
+                )
+            })
+            .count();
     }
     assert_eq!(effects, 1, "crippled once");
     assert_eq!(v.get(A).unwrap().crippled, 1 << 4);
@@ -128,28 +177,45 @@ fn health_report_does_not_undo_a_fresh_hit() {
     v.track(A, 100, 100);
     v.hurt(5000, A, NPC, 40, DamageKind::Bullet, 1, &Scaling::NEUTRAL);
     v.report(A, 5200, 100, false, false);
-    assert_eq!(v.get(A).unwrap().hp, 60, "the hurt message has not landed yet");
+    assert_eq!(
+        v.get(A).unwrap().hp,
+        60,
+        "the hurt message has not landed yet"
+    );
     v.report(A, 7000, 55, false, false);
     assert_eq!(v.get(A).unwrap().hp, 55);
 }
 
 fn input(p: PlayerId, dist: f32) -> ThreatInput {
-    ThreatInput { player: p, dist, seen: true, downed: false, dead: false, same_cell: true }
+    ThreatInput {
+        player: p,
+        dist,
+        seen: true,
+        downed: false,
+        dead: false,
+        same_cell: true,
+    }
 }
 
 #[test]
 fn threat_prefers_near_and_sticks() {
     let mut d = ThreatDirector::new();
     let f = party(2).focus;
-    let t = d.choose(NPC, 0, f, &[input(A, 500.0), input(B, 1500.0)]).unwrap();
+    let t = d
+        .choose(NPC, 0, f, &[input(A, 500.0), input(B, 1500.0)])
+        .unwrap();
     assert_eq!(t.target, A);
     // B steps a little closer: no flicker
-    let t = d.choose(NPC, 1000, f, &[input(A, 700.0), input(B, 600.0)]).unwrap();
+    let t = d
+        .choose(NPC, 1000, f, &[input(A, 700.0), input(B, 600.0)])
+        .unwrap();
     assert_eq!(t.target, A);
     assert!(!t.switched);
     // B hurts it and is much closer, after the hold time
     d.damaged(NPC, B, 400.0);
-    let t = d.choose(NPC, 5000, f, &[input(A, 2500.0), input(B, 300.0)]).unwrap();
+    let t = d
+        .choose(NPC, 5000, f, &[input(A, 2500.0), input(B, 300.0)])
+        .unwrap();
     assert_eq!(t.target, B);
     assert!(t.switched);
 }
@@ -160,15 +226,30 @@ fn threat_skips_downed_and_spreads() {
     let f = party(2).focus;
     let mut a = input(A, 400.0);
     a.downed = true;
-    assert_eq!(d.choose(NPC, 0, f, &[a, input(B, 2000.0)]).unwrap().target, B);
+    assert_eq!(
+        d.choose(NPC, 0, f, &[a, input(B, 2000.0)]).unwrap().target,
+        B
+    );
     a.dead = true;
     let mut b = input(B, 1.0);
     b.downed = true;
-    assert!(d.choose(FormId(0x501), 0, f, &[a, b]).is_none(), "everyone down: no target");
+    assert!(
+        d.choose(FormId(0x501), 0, f, &[a, b]).is_none(),
+        "everyone down: no target"
+    );
     // five enemies equally placed do not all pick the same player
     let mut d = ThreatDirector::new();
     let picks: Vec<PlayerId> = (0..6)
-        .map(|i| d.choose(FormId(0x600 + i), 0, f, &[input(A, 1000.0), input(B, 1000.0)]).unwrap().target)
+        .map(|i| {
+            d.choose(
+                FormId(0x600 + i),
+                0,
+                f,
+                &[input(A, 1000.0), input(B, 1000.0)],
+            )
+            .unwrap()
+            .target
+        })
         .collect();
     assert!(picks.contains(&A) && picks.contains(&B), "{picks:?}");
 }
@@ -178,7 +259,12 @@ fn threat_other_cell_scores_nothing() {
     let mut d = ThreatDirector::new();
     let mut a = input(A, 10.0);
     a.same_cell = false;
-    assert_eq!(d.choose(NPC, 0, 1.0, &[a, input(B, 2900.0)]).unwrap().target, B);
+    assert_eq!(
+        d.choose(NPC, 0, 1.0, &[a, input(B, 2900.0)])
+            .unwrap()
+            .target,
+        B
+    );
 }
 
 #[test]
@@ -196,14 +282,24 @@ fn extras_are_deterministic_capped_and_cleared() {
     // the same ids decide the same way on another machine
     let mut q = ExtrasPlanner::new();
     let again: Vec<FormId> = (0..400u32)
-        .filter_map(|i| q.consider(&s, FormId(0xFF00_0000 + i), [0.0; 3], false).map(|x| x.origin))
+        .filter_map(|i| {
+            q.consider(&s, FormId(0xFF00_0000 + i), [0.0; 3], false)
+                .map(|x| x.origin)
+        })
         .collect();
     assert_eq!(again, plans.iter().map(|x| x.origin).collect::<Vec<_>>());
     assert!(!plans.is_empty());
-    assert!(p.alive() as u32 <= s.max_extras_alive, "{} <= {}", p.alive(), s.max_extras_alive);
+    assert!(
+        p.alive() as u32 <= s.max_extras_alive,
+        "{} <= {}",
+        p.alive(),
+        s.max_extras_alive
+    );
     // solo: never
     let mut solo = ExtrasPlanner::new();
-    assert!((0..400u32).all(|i| solo.consider(&Scaling::NEUTRAL, FormId(i), [0.0; 3], false).is_none()));
+    assert!((0..400u32).all(|i| solo
+        .consider(&Scaling::NEUTRAL, FormId(i), [0.0; 3], false)
+        .is_none()));
     // clear when far from everyone, keep when near
     let plan = plans[0];
     p.created_as(&plan, FormId(0xFF10_0000), CellId(1));
@@ -212,7 +308,9 @@ fn extras_are_deterministic_capped_and_cleared() {
     let far = p.to_clear(&[(A, [100.0 + CLEAR_DISTANCE + 10.0, 0.0, 0.0])], |_| None);
     assert_eq!(far, vec![FormId(0xFF10_0000)]);
     // an extra never breeds
-    assert!(p.consider(&s, FormId(0xFFFF_0001), [0.0; 3], true).is_none());
+    assert!(p
+        .consider(&s, FormId(0xFFFF_0001), [0.0; 3], true)
+        .is_none());
 }
 
 fn fire_event(id: u32) -> FireEvent {
@@ -232,15 +330,35 @@ fn fire_event(id: u32) -> FireEvent {
 #[test]
 fn fire_is_relayed_to_the_others_with_the_real_shooter() {
     let mut h = host();
-    let out = h.on_msg(A, CombatMsg::Fire(fire_event(1)), 0, Some([0.0; 3]), Some(CellId(1)), &party(2));
+    let out = h.on_msg(
+        A,
+        CombatMsg::Fire(fire_event(1)),
+        0,
+        Some([0.0; 3]),
+        Some(CellId(1)),
+        &party(2),
+    );
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].aud, Audience::CellExcept(CellId(1), A));
-    let CombatMsg::Fire(e) = out[0].msg else { panic!() };
+    let CombatMsg::Fire(e) = out[0].msg else {
+        panic!()
+    };
     assert_eq!(e.shooter, A, "a guest cannot name someone else");
-    assert!(h.on_msg(A, CombatMsg::Fire(fire_event(1)), 1, Some([0.0; 3]), None, &party(2)).is_empty());
+    assert!(h
+        .on_msg(
+            A,
+            CombatMsg::Fire(fire_event(1)),
+            1,
+            Some([0.0; 3]),
+            None,
+            &party(2)
+        )
+        .is_empty());
     let mut far = fire_event(2);
     far.hit = [16 * 90_000, 0, 0];
-    assert!(h.on_msg(A, CombatMsg::Fire(far), 2, Some([0.0; 3]), None, &party(2)).is_empty());
+    assert!(h
+        .on_msg(A, CombatMsg::Fire(far), 2, Some([0.0; 3]), None, &party(2))
+        .is_empty());
     assert_eq!(h.fire.fires_ok, 1);
     assert_eq!(h.fires.len(), 1);
 }
@@ -262,13 +380,38 @@ fn blast(id: u32, x: i32) -> BlastEvent {
 #[test]
 fn blasts_are_accepted_once_near_the_thrower_and_queued_for_the_world() {
     let mut h = host();
-    let out = h.on_msg(A, CombatMsg::Blast(blast(1, 16 * 200)), 0, Some([0.0; 3]), Some(CellId(1)), &party(2));
+    let out = h.on_msg(
+        A,
+        CombatMsg::Blast(blast(1, 16 * 200)),
+        0,
+        Some([0.0; 3]),
+        Some(CellId(1)),
+        &party(2),
+    );
     assert_eq!(out.len(), 1);
     assert_eq!(h.blasts.len(), 1);
     assert_eq!(h.blasts[0].source, A);
-    assert!(h.on_msg(A, CombatMsg::Blast(blast(1, 16 * 200)), 1, Some([0.0; 3]), None, &party(2)).is_empty());
+    assert!(h
+        .on_msg(
+            A,
+            CombatMsg::Blast(blast(1, 16 * 200)),
+            1,
+            Some([0.0; 3]),
+            None,
+            &party(2)
+        )
+        .is_empty());
     // a blast on the other side of the map is not the thrower's
-    assert!(h.on_msg(A, CombatMsg::Blast(blast(2, 16 * 50_000)), 2, Some([0.0; 3]), None, &party(2)).is_empty());
+    assert!(h
+        .on_msg(
+            A,
+            CombatMsg::Blast(blast(2, 16 * 50_000)),
+            2,
+            Some([0.0; 3]),
+            None,
+            &party(2)
+        )
+        .is_empty());
     assert_eq!(h.blasts.len(), 1);
 }
 
@@ -284,7 +427,13 @@ fn vats_never_freezes_the_shared_world() {
 }
 
 fn shot(cost: u16, chance: u16, damage: u16) -> VatsShot {
-    VatsShot { target: NPC, limb: 0, cost, chance, damage }
+    VatsShot {
+        target: NPC,
+        limb: 0,
+        cost,
+        chance,
+        damage,
+    }
 }
 
 #[test]
@@ -327,11 +476,20 @@ fn vats_chance_is_capped_and_rolls_are_stable() {
 fn vats_queue_message_produces_actor_hits_and_a_verdict() {
     let mut h = host();
     h.vats.known_ap.insert(A, 100);
-    let msg = CombatMsg::VatsQueue { id: 5, ap: 100, shots: vec![shot(10, 1000, 30); 4] };
+    let msg = CombatMsg::VatsQueue {
+        id: 5,
+        ap: 100,
+        shots: vec![shot(10, 1000, 30); 4],
+    };
     let out = h.on_msg(A, msg, 0, None, None, &party(2));
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].aud, Audience::To(A));
-    let CombatMsg::VatsDone { spent, ref results, .. } = out[0].msg else { panic!() };
+    let CombatMsg::VatsDone {
+        spent, ref results, ..
+    } = out[0].msg
+    else {
+        panic!()
+    };
     assert_eq!(spent, 40);
     assert_eq!(h.vats_hits.len(), results.iter().filter(|r| r.hit).count());
     let ids: std::collections::BTreeSet<u32> = h.vats_hits.iter().map(|x| x.hit).collect();
@@ -341,8 +499,20 @@ fn vats_queue_message_produces_actor_hits_and_a_verdict() {
 #[test]
 fn vats_marks_are_presentation_only_and_relayed() {
     let mut h = host();
-    let out = h.on_msg(A, CombatMsg::VatsMark { player: B, active: true }, 0, None, Some(CellId(1)), &party(2));
-    let CombatMsg::VatsMark { player, active } = out[0].msg else { panic!() };
+    let out = h.on_msg(
+        A,
+        CombatMsg::VatsMark {
+            player: B,
+            active: true,
+        },
+        0,
+        None,
+        Some(CellId(1)),
+        &party(2),
+    );
+    let CombatMsg::VatsMark { player, active } = out[0].msg else {
+        panic!()
+    };
     assert_eq!((player, active), (A, true), "the sender is the one in VATS");
     assert!(h.vats.active().any(|p| *p == A));
 }
@@ -375,9 +545,24 @@ fn client_applies_each_hurt_once_and_only_its_own() {
 #[test]
 fn insane_messages_are_rejected() {
     let mut h = host();
-    assert!(h.on_msg(A, npc_hit(1, B, 0), 0, None, None, &party(2)).is_empty());
-    assert!(h.on_msg(A, npc_hit(2, B, MAX_PLAYER_HIT + 1), 0, None, None, &party(2)).is_empty());
-    let big = CombatMsg::VatsQueue { id: 1, ap: 1, shots: vec![shot(1, 1, 1); MAX_VATS_SHOTS + 1] };
+    assert!(h
+        .on_msg(A, npc_hit(1, B, 0), 0, None, None, &party(2))
+        .is_empty());
+    assert!(h
+        .on_msg(
+            A,
+            npc_hit(2, B, MAX_PLAYER_HIT + 1),
+            0,
+            None,
+            None,
+            &party(2)
+        )
+        .is_empty());
+    let big = CombatMsg::VatsQueue {
+        id: 1,
+        ap: 1,
+        shots: vec![shot(1, 1, 1); MAX_VATS_SHOTS + 1],
+    };
     assert!(!big.is_sane());
 }
 

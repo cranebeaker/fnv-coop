@@ -1,0 +1,28 @@
+{
+  "name": "live_scene_cutscene",
+  "description": "The host's story starts a scripted camera sequence (a policy cinematic). The scene locks every control and shows for everyone: both peers are in the same playing cinematic scene with all controls locked.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 89,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 2, "run": "coop cinematic 77" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "active-host", "path": "scene.active", "op": "eq", "value": 1, "on": "host" },
+    { "id": "active-guest", "path": "scene.active", "op": "eq", "value": 1, "on": "guest" },
+    { "id": "playing-host", "path": "scene.phase", "op": "eq", "value": 2, "on": "host" },
+    { "id": "playing-guest", "path": "scene.phase", "op": "eq", "value": 2, "on": "guest" },
+    { "id": "cinematic-host", "path": "scene.kind", "op": "eq", "value": 2, "on": "host" },
+    { "id": "cinematic-guest", "path": "scene.kind", "op": "eq", "value": 2, "on": "guest" },
+    { "id": "locked-host", "path": "scene.locks", "op": "eq", "value": 127, "on": "host" },
+    { "id": "locked-guest", "path": "scene.locks", "op": "eq", "value": 127, "on": "guest" },
+    { "id": "guest-controls", "path": "scene.controls", "op": "eq", "value": 127, "on": "guest" },
+    { "id": "same-scene", "path": "scene.id", "on": "equal" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

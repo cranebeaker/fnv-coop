@@ -71,7 +71,10 @@ pub fn parse_libraryfolders(text: &str) -> Vec<String> {
             if key == "path" || (!key.is_empty() && key.chars().all(|c| c.is_ascii_digit())) {
                 let p = q[3].replace("\\\\", "\\");
                 let b = p.as_bytes();
-                let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+                let drive = b.len() >= 3
+                    && b[0].is_ascii_alphabetic()
+                    && b[1] == b':'
+                    && (b[2] == b'\\' || b[2] == b'/');
                 if drive || p.starts_with("\\\\") {
                     out.push(p);
                 }
@@ -112,12 +115,18 @@ pub struct Candidate {
 }
 
 fn norm(p: &Path) -> String {
-    p.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase()
+    p.to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
 }
 
 /// Accepts the game folder, its `Data` folder or the exe, and gives the game folder.
 pub fn normalize_game_dir(p: &Path) -> PathBuf {
-    let name = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     if name == GAME_EXE.to_ascii_lowercase() || name == "data" {
         if let Some(parent) = p.parent() {
             return parent.to_path_buf();
@@ -127,11 +136,18 @@ pub fn normalize_game_dir(p: &Path) -> PathBuf {
 }
 
 /// Every install found, best guess first, no duplicates. `drives` are roots like `C:\`.
-pub fn candidates(reg: &dyn Registry, env: &HashMap<String, String>, drives: &[PathBuf]) -> Vec<Candidate> {
+pub fn candidates(
+    reg: &dyn Registry,
+    env: &HashMap<String, String>,
+    drives: &[PathBuf],
+) -> Vec<Candidate> {
     let mut found: Vec<Candidate> = Vec::new();
     let mut add = |p: PathBuf, source: &'static str| {
         if p.join(GAME_EXE).is_file() && !found.iter().any(|c| norm(&c.game_dir) == norm(&p)) {
-            found.push(Candidate { game_dir: p, source });
+            found.push(Candidate {
+                game_dir: p,
+                source,
+            });
         }
     };
     let mut roots: Vec<PathBuf> = Vec::new();
@@ -159,7 +175,9 @@ pub fn candidates(reg: &dyn Registry, env: &HashMap<String, String>, drives: &[P
     for lib in &libs {
         let common = lib.join("steamapps").join("common");
         for id in STEAM_APPIDS {
-            if let Some(d) = parse_installdir(&read_text(&lib.join("steamapps").join(format!("appmanifest_{id}.acf")))) {
+            if let Some(d) = parse_installdir(&read_text(
+                &lib.join("steamapps").join(format!("appmanifest_{id}.acf")),
+            )) {
                 add(common.join(d), "steam");
             }
         }
@@ -168,11 +186,18 @@ pub fn candidates(reg: &dyn Registry, env: &HashMap<String, String>, drives: &[P
         }
     }
     for id in ["1454587428", "1454315831"] {
-        if let Some(v) = reg.get("HKLM", &format!(r"SOFTWARE\WOW6432Node\GOG.com\Games\{id}"), "path") {
+        if let Some(v) = reg.get(
+            "HKLM",
+            &format!(r"SOFTWARE\WOW6432Node\GOG.com\Games\{id}"),
+            "path",
+        ) {
             add(PathBuf::from(v), "gog");
         }
     }
-    for key in [r"SOFTWARE\WOW6432Node\Bethesda Softworks\FalloutNV", r"SOFTWARE\Bethesda Softworks\FalloutNV"] {
+    for key in [
+        r"SOFTWARE\WOW6432Node\Bethesda Softworks\FalloutNV",
+        r"SOFTWARE\Bethesda Softworks\FalloutNV",
+    ] {
         if let Some(v) = reg.get("HKLM", key, "Installed Path") {
             add(PathBuf::from(v), "retail");
         }
@@ -190,7 +215,12 @@ pub fn candidates(reg: &dyn Registry, env: &HashMap<String, String>, drives: &[P
                 add(d.join(rel).join(n), "common");
             }
         }
-        for rel in [r"GOG Games\Fallout New Vegas", r"Games\Fallout New Vegas", r"Games\GOG Games\Fallout New Vegas", r"Fallout New Vegas"] {
+        for rel in [
+            r"GOG Games\Fallout New Vegas",
+            r"Games\Fallout New Vegas",
+            r"Games\GOG Games\Fallout New Vegas",
+            r"Fallout New Vegas",
+        ] {
             add(d.join(rel), "common");
         }
     }
@@ -250,11 +280,15 @@ pub fn check(game_dir: &Path) -> Report {
     if !has_data {
         problems.push("There is no Data folder here.".to_string());
     } else if !has_esm {
-        problems.push("The Data folder has no FalloutNV.esm, so this is not a New Vegas install.".to_string());
+        problems.push(
+            "The Data folder has no FalloutNV.esm, so this is not a New Vegas install.".to_string(),
+        );
     }
     let mut version = None;
     if !has_exe {
-        problems.push(format!("{GAME_EXE} was not found, so the game version cannot be checked."));
+        problems.push(format!(
+            "{GAME_EXE} was not found, so the game version cannot be checked."
+        ));
     } else {
         match std::fs::read(&exe) {
             Err(e) => problems.push(format!("Could not read {GAME_EXE}: {e}")),
@@ -271,7 +305,15 @@ pub fn check(game_dir: &Path) -> Report {
             }
         }
     }
-    Report { game_dir: game_dir.to_path_buf(), data_dir, has_data, has_esm, has_exe, version, problems }
+    Report {
+        game_dir: game_dir.to_path_buf(),
+        data_dir,
+        has_data,
+        has_esm,
+        has_exe,
+        version,
+        problems,
+    }
 }
 
 #[cfg(test)]
@@ -313,21 +355,31 @@ mod tests {
     #[test]
     fn vdf_new_and_old_formats() {
         let new = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"C:\\\\Program Files (x86)\\\\Steam\"\n\t\t\"label\"\t\t\"\"\n\t}\n\t\"1\"\n\t{\n\t\t\"path\"\t\t\"E:\\\\Lib\"\n\t}\n}";
-        assert_eq!(parse_libraryfolders(new), vec![r"C:\Program Files (x86)\Steam", r"E:\Lib"]);
+        assert_eq!(
+            parse_libraryfolders(new),
+            vec![r"C:\Program Files (x86)\Steam", r"E:\Lib"]
+        );
         let old = "\"LibraryFolders\"\n{\n\t\"TimeNextStatsReport\"\t\"123\"\n\t\"1\"\t\t\"D:\\\\Old\"\n}";
         assert_eq!(parse_libraryfolders(old), vec![r"D:\Old"]);
     }
 
     #[test]
     fn manifest_installdir() {
-        assert_eq!(parse_installdir("\"AppState\"\n{\n\t\"installdir\"\t\t\"Fallout New Vegas\"\n}").as_deref(), Some("Fallout New Vegas"));
+        assert_eq!(
+            parse_installdir("\"AppState\"\n{\n\t\"installdir\"\t\t\"Fallout New Vegas\"\n}")
+                .as_deref(),
+            Some("Fallout New Vegas")
+        );
         assert_eq!(parse_installdir("nothing"), None);
     }
 
     #[test]
     fn reg_query_output() {
         let t = "\nHKEY_CURRENT_USER\\Software\\Valve\\Steam\n    SteamPath    REG_SZ    c:/program files (x86)/steam\n\n";
-        assert_eq!(parse_reg_query(t, "SteamPath").as_deref(), Some("c:/program files (x86)/steam"));
+        assert_eq!(
+            parse_reg_query(t, "SteamPath").as_deref(),
+            Some("c:/program files (x86)/steam")
+        );
         assert_eq!(parse_reg_query(t, "Other"), None);
     }
 
@@ -337,13 +389,26 @@ mod tests {
         let steam = root.join("Steam");
         let lib2 = root.join("Lib2");
         std::fs::create_dir_all(steam.join("steamapps")).unwrap();
-        let vdf = format!("\"libraryfolders\"\n{{\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}", lib2.to_string_lossy().replace('\\', "\\\\"));
+        let vdf = format!(
+            "\"libraryfolders\"\n{{\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}",
+            lib2.to_string_lossy().replace('\\', "\\\\")
+        );
         std::fs::write(steam.join("steamapps").join("libraryfolders.vdf"), vdf).unwrap();
         std::fs::create_dir_all(lib2.join("steamapps")).unwrap();
-        std::fs::write(lib2.join("steamapps").join("appmanifest_22380.acf"), "\"installdir\"\t\"FNV Custom\"").unwrap();
-        make_game(&lib2.join("steamapps").join("common").join("FNV Custom"), SUPPORTED);
+        std::fs::write(
+            lib2.join("steamapps").join("appmanifest_22380.acf"),
+            "\"installdir\"\t\"FNV Custom\"",
+        )
+        .unwrap();
+        make_game(
+            &lib2.join("steamapps").join("common").join("FNV Custom"),
+            SUPPORTED,
+        );
         let mut m = HashMap::new();
-        m.insert((r"Software\Valve\Steam".to_string(), "SteamPath".to_string()), steam.to_string_lossy().replace('\\', "/"));
+        m.insert(
+            (r"Software\Valve\Steam".to_string(), "SteamPath".to_string()),
+            steam.to_string_lossy().replace('\\', "/"),
+        );
         let found = candidates(&Fake(m), &HashMap::new(), &[]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].source, "steam");
@@ -355,7 +420,11 @@ mod tests {
     fn finds_common_folder_and_dedups() {
         let root = tmp("common");
         make_game(&root.join("Games").join("Fallout New Vegas"), SUPPORTED);
-        let found = candidates(&Fake(HashMap::new()), &HashMap::new(), &[root.clone(), root.clone()]);
+        let found = candidates(
+            &Fake(HashMap::new()),
+            &HashMap::new(),
+            &[root.clone(), root.clone()],
+        );
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].source, "common");
         let _ = std::fs::remove_dir_all(&root);
@@ -380,14 +449,19 @@ mod tests {
         assert_eq!(r.problems.len(), 2);
         let noesm = root.join("noesm");
         std::fs::create_dir_all(noesm.join("Data")).unwrap();
-        assert!(check(&noesm).problems.iter().any(|p| p.contains("FalloutNV.esm")));
+        assert!(check(&noesm)
+            .problems
+            .iter()
+            .any(|p| p.contains("FalloutNV.esm")));
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn version_parsing_skips_noise() {
         assert_eq!(exe_version(b"no version here"), None);
-        let mut b = vec![0xBD, 0x04, 0xEF, 0xFE, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0];
+        let mut b = vec![
+            0xBD, 0x04, 0xEF, 0xFE, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0,
+        ];
         b.extend(fake_exe([1, 4, 0, 525]));
         assert_eq!(exe_version(&b), Some([1, 4, 0, 525]));
         assert_eq!(exe_version(&[0xBD, 0x04, 0xEF, 0xFE]), None);
@@ -395,8 +469,17 @@ mod tests {
 
     #[test]
     fn normalizes_typed_paths() {
-        assert_eq!(normalize_game_dir(Path::new(r"D:\G\FNV\Data")), PathBuf::from(r"D:\G\FNV"));
-        assert_eq!(normalize_game_dir(Path::new(r"D:\G\FNV\FalloutNV.exe")), PathBuf::from(r"D:\G\FNV"));
-        assert_eq!(normalize_game_dir(Path::new(r"D:\G\FNV")), PathBuf::from(r"D:\G\FNV"));
+        assert_eq!(
+            normalize_game_dir(Path::new(r"D:\G\FNV\Data")),
+            PathBuf::from(r"D:\G\FNV")
+        );
+        assert_eq!(
+            normalize_game_dir(Path::new(r"D:\G\FNV\FalloutNV.exe")),
+            PathBuf::from(r"D:\G\FNV")
+        );
+        assert_eq!(
+            normalize_game_dir(Path::new(r"D:\G\FNV")),
+            PathBuf::from(r"D:\G\FNV")
+        );
     }
 }

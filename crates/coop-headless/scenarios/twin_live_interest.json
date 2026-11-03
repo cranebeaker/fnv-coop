@@ -1,0 +1,22 @@
+{
+  "name": "twin_live_interest",
+  "description": "MUTATION TWIN of live_interest: the guest stays in Doc Mitchell's house, so it sees the host's cell and gets the host's move. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 74,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 6, "run": "coop teleport 3352.0 1603.6 7360.0"},
+    {"at": 8, "run": "set CG03TestValue to 7"}
+  ] },
+  "guest": { "script": [] },
+  "expect": [
+    {"id": "host-moved", "path": "positions.host", "op": "dist_from", "from": [3352.0, 1603.6, 7360.0], "cmp": "le", "value": 50, "on": "host"},
+    {"id": "guest-got-no-move", "path": "positions.host", "op": "dist_from", "from": [3352.0, 1603.6, 7360.0], "cmp": "ge", "value": 900, "on": "guest"},
+    {"id": "guest-in-other-cell", "path": "live.roam.cells.guest", "op": "eq", "value": 1073541, "on": "host"},
+    {"id": "shared-still-flows", "path": "globals.CG03TestValue", "op": "eq", "value": 7, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

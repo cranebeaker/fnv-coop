@@ -45,6 +45,10 @@
 //! coop pvp SLOT DMG | fire WEAPON X Y Z | explode EXPL RADIUS DMG
 //! coop vats TARGET LIMB CHANCE DMG | vatsmark 0|1 | sneak 0|1
 //! coop cripple LIMB | rads N | cure | spawnenc BASE N   (see world::coop::combat_live)
+//! coop recruit|dismiss|command|down|downrevive|stash|level|objvar|fork|pcond|ffhit|hardcore ...
+//!                              the campaign verbs, host only
+//!                              (`world::coop::campaign::bot`), shared with the headless bot;
+//!                              `give SLOT ...` and `vote QUEST SLOT yes|no` are theirs too
 //! coop teleport X Y Z          put this machine's physical player at the
 //!                              feet position (game units), as arriving
 //!                              from a MoveTo or a door does
@@ -87,7 +91,9 @@ fn form(order: &esm::LoadOrder, word: &str) -> Option<FormId> {
     if word.eq_ignore_ascii_case("player") {
         return Some(PLAYER_REF);
     }
-    order.form_by_editor_id(word).or_else(|| u32::from_str_radix(word, 16).ok().map(FormId))
+    order
+        .form_by_editor_id(word)
+        .or_else(|| u32::from_str_radix(word, 16).ok().map(FormId))
 }
 
 /// Runs the lines that are due.
@@ -102,15 +108,22 @@ pub fn run(
     mut player: ResMut<crate::walk::Player>,
     mut book: ResMut<super::hud_social::Book>,
     mut live: ResMut<super::LiveNow>,
+    mut answers: ResMut<crate::game_menus::AnswerBoxes>,
+    mut say: ResMut<crate::dialogue::AutoSay>,
 ) {
     let t = time.elapsed_secs();
     if bot.queue.iter().all(|(at, _)| *at > t) {
         return;
     }
-    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut bot.queue).into_iter().partition(|(at, _)| *at <= t);
+    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut bot.queue)
+        .into_iter()
+        .partition(|(at, _)| *at <= t);
     bot.queue = later;
     let order = &game.0.order;
-    let cx = Ctx { order, scripts: &scripts.0 };
+    let cx = Ctx {
+        order,
+        scripts: &scripts.0,
+    };
     let gs = &mut state.0;
     for (_, line) in due {
         link.0.log_event("script", &[("line", V::S(&line))]);
@@ -118,9 +131,16 @@ pub fn run(
         let arg = |i: usize| words.get(i).copied();
         let f = |i: usize| arg(i).and_then(|w| form(order, w));
         let n = |i: usize| arg(i).and_then(|w| w.parse::<u32>().ok()).unwrap_or(1);
+        // the campaign verbs (down, give SLOT, level, objvar, pcond, hardcore ...), host only,
+        // shared with the headless simulator's bot
+        if world::coop::campaign::bot::bot_line(cx, gs, &words, &|w| form(order, w)) {
+            continue;
+        }
         match arg(1).map(str::to_ascii_lowercase).as_deref() {
             Some("hit") => {
-                if let (Some(who), Some(amount)) = (f(2), arg(3).and_then(|w| w.parse::<f64>().ok())) {
+                if let (Some(who), Some(amount)) =
+                    (f(2), arg(3).and_then(|w| w.parse::<f64>().ok()))
+                {
                     world::combat::hurt(order, gs, who, amount, PLAYER_REF);
                 }
             }
@@ -136,6 +156,11 @@ pub fn run(
             }
             Some("linedone") => link.0.live_intent(Intent::DialogueLineDone),
             Some("close") => link.0.live_intent(Intent::DialogueClose),
+            // `coop topic TEXT`: the local player picks a topic in the game's
+            // dialogue menu, the first offered one whose text contains TEXT,
+            // as soon as the menu offers topics (the `--say` pick, timed).
+            // `coop topic Goodbye.` ends a conversation as a player does.
+            Some("topic") if words.len() > 2 => say.0.push_back(words[2..].join(" ")),
             Some("lootopen") => {
                 if let Some(c) = f(2) {
                     gs.coop_loot(LootOp::Open(c));
@@ -143,12 +168,20 @@ pub fn run(
             }
             Some("loottake") => {
                 if let (Some(container), Some(item)) = (f(2), f(3)) {
-                    gs.coop_loot(LootOp::Take { container, item, n: n(4) });
+                    gs.coop_loot(LootOp::Take {
+                        container,
+                        item,
+                        n: n(4),
+                    });
                 }
             }
             Some("lootput") => {
                 if let (Some(container), Some(item)) = (f(2), f(3)) {
-                    gs.coop_loot(LootOp::Put { container, item, n: n(4) });
+                    gs.coop_loot(LootOp::Put {
+                        container,
+                        item,
+                        n: n(4),
+                    });
                 }
             }
             Some("lootclose") => {
@@ -158,18 +191,32 @@ pub fn run(
             }
             Some("give") => {
                 if let (Some(target), Some(item)) = (arg(2), f(3)) {
-                    world::coop::interact::bot_give(order, gs, target, item, n(4) as i32, form(order, target));
+                    world::coop::interact::bot_give(
+                        order,
+                        gs,
+                        target,
+                        item,
+                        n(4) as i32,
+                        form(order, target),
+                    );
                 }
             }
             Some("givefor") => {
-                let recipe = arg(3).and_then(|w| world::coop::interact::special_form(order, w).or_else(|| form(order, w)));
+                let recipe = arg(3).and_then(|w| {
+                    world::coop::interact::special_form(order, w).or_else(|| form(order, w))
+                });
                 if let (Some(slot), Some(recipe)) = (arg(2), recipe) {
                     world::coop::interact::bot_give_ingredients(order, gs, slot, recipe, n(4));
                 }
             }
             Some("attack") => {
-                let kind = arg(2).and_then(coop_session::ActionKind::parse).unwrap_or(coop_session::ActionKind::Swing);
-                gs.coop.live.local_actions.push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
+                let kind = arg(2)
+                    .and_then(coop_session::ActionKind::parse)
+                    .unwrap_or(coop_session::ActionKind::Swing);
+                gs.coop
+                    .live
+                    .local_actions
+                    .push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
             }
             Some("say") => link.0.live_intent(Intent::Say(words[2..].join(" "))),
             Some("ping") => {
@@ -191,7 +238,12 @@ pub fn run(
                 let x = arg(2).and_then(|w| w.parse::<f32>().ok()).unwrap_or(p[0]);
                 let y = arg(3).and_then(|w| w.parse::<f32>().ok()).unwrap_or(p[1]);
                 let st = link.0.status();
-                let m = book.0.waypoint(st.player, gs.player_cell.map_or(0, |c| c.0), [x, y, p[2]], "waypoint");
+                let m = book.0.waypoint(
+                    st.player,
+                    gs.player_cell.map_or(0, |c| c.0),
+                    [x, y, p[2]],
+                    "waypoint",
+                );
                 live.counters.pings += 1;
                 link.0.live_intent(Intent::Social(m));
             }
@@ -205,7 +257,9 @@ pub fn run(
             }
             Some("travel") => {
                 if let Some(m) = f(2) {
-                    let found = markers.as_ref().and_then(|ms| ms.list.iter().find(|x| x.reference == m).cloned());
+                    let found = markers
+                        .as_ref()
+                        .and_then(|ms| ms.list.iter().find(|x| x.reference == m).cloned());
                     let marker = found.unwrap_or_else(|| world::map::MapMarker {
                         reference: m,
                         name: String::new(),
@@ -224,17 +278,28 @@ pub fn run(
                 }
             }
             Some("untether") => link.0.live_tether(cx, gs, None),
-            Some("revive") => link.0.live_intent(Intent::ReviveBegin(PlayerId(n(2) as u8))),
+            Some("revive") => link
+                .0
+                .live_intent(Intent::ReviveBegin(PlayerId(n(2) as u8))),
             Some("movie") => {
                 if let Some(file) = arg(2) {
-                    let v = world::scripting::Video { file: file.to_string(), interruptable: arg(3) == Some("1"), mute_audio: true, pause_music: true, letterbox: true };
+                    let v = world::scripting::Video {
+                        file: file.to_string(),
+                        interruptable: arg(3) == Some("1"),
+                        mute_audio: true,
+                        pause_music: true,
+                        letterbox: true,
+                    };
                     if gs.coop.authority.replicates() {
                         gs.coop.live.scene.note_video(None, &v);
                     }
                 }
             }
             Some("lock") => {
-                let quest = arg(3).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok()).map(FormId);
+                // the policy row by editor id, else an editor id or a hex form id of the load order
+                let quest = arg(3)
+                    .and_then(|w| gs.coop_policy_quest(w))
+                    .or_else(|| f(3));
                 gs.coop_controls_begin();
                 for (i, c) in arg(2).unwrap_or("").chars().take(7).enumerate() {
                     gs.controls_off[i] = c == '1';
@@ -248,16 +313,38 @@ pub fn run(
             }
             Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
             Some("vote") => link.0.live_intent(Intent::Answer(arg(2) != Some("no"))),
+            // `coop button N`: the local player clicks button N of the message box
+            // (the open one, else the next one with more than one button). The
+            // click closes the menu, and `game_menus::message::after` sets the
+            // button that GetButtonPressed reads.
+            Some("button") => {
+                if let Some(b) = arg(2).and_then(|w| w.parse::<usize>().ok()) {
+                    answers.choices.push_back(b);
+                }
+            }
             Some("initiate") => {
-                let q = arg(2).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok());
+                let q = arg(2)
+                    .and_then(|w| gs.coop_policy_quest(w))
+                    .or_else(|| f(2))
+                    .map(|q| q.0);
                 if let (Some(q), Some(g)) = (q, gs.coop.gate.as_mut()) {
                     g.begin_interaction(FormId(q), n(3) as u8);
                 }
             }
             Some("wait") => world::living::sleep::begin(gs, n(2), false),
             Some("sleep") => world::living::sleep::begin(gs, n(2), true),
-            Some("cinematic") => gs.coop.live.scene.stage_notes.push((FormId(n(2)), coop_session::SceneKind::Cinematic)),
-            Some("ending") => gs.coop.live.scene.stage_notes.push((FormId(n(2)), coop_session::SceneKind::Ending)),
+            Some("cinematic") => gs
+                .coop
+                .live
+                .scene
+                .stage_notes
+                .push((FormId(n(2)), coop_session::SceneKind::Cinematic)),
+            Some("ending") => gs
+                .coop
+                .live
+                .scene
+                .stage_notes
+                .push((FormId(n(2)), coop_session::SceneKind::Ending)),
             Some("slide") => gs.coop_scene_slide(n(2) as u16),
             Some("endingdone") => gs.coop_scene_ending_done(),
             Some("sceneabort") => gs.coop_scene_abort(),
@@ -271,7 +358,8 @@ pub fn run(
             Some("ff") => link.0.live_friendly_fire(n(2) as u8),
             Some("spawnenc") => {
                 if let (Some(base), Some(cell)) = (f(2), gs.player_cell) {
-                    let base = world::more_functions::placed::base_now(order, gs, base).unwrap_or(base);
+                    let base =
+                        world::more_functions::placed::base_now(order, gs, base).unwrap_or(base);
                     let at = gs.player_position.unwrap_or([0.0; 3]);
                     link.0.live_spawn_encounter(base, cell, at, n(3), 20);
                 }
@@ -282,18 +370,31 @@ pub fn run(
                 // player-world interactions (barter, doors, locks, crafting ...)
                 let here = (
                     gs.player_cell.map_or(0, |c| c.0),
-                    gs.player_position.map_or([0; 3], |p| [p[0] as i32, p[1] as i32, p[2] as i32]),
+                    gs.player_position
+                        .map_or([0; 3], |p| [p[0] as i32, p[1] as i32, p[2] as i32]),
                 );
-                match world::coop::interact::parse_act(&words[1..], &|w| form(order, w).or_else(|| world::coop::interact::special_form(order, w)), here) {
+                match world::coop::interact::parse_act(
+                    &words[1..],
+                    &|w| form(order, w).or_else(|| world::coop::interact::special_form(order, w)),
+                    here,
+                ) {
                     Some(act) => {
                         let enter = match &act {
-                            coop_session::interact::Act::Transition { door, to, .. } => Some((*door, *to)),
+                            coop_session::interact::Act::Transition { door, to, .. } => {
+                                Some((*door, *to))
+                            }
                             _ => None,
                         };
                         gs.coop_do(cx, act);
                         // a bot has no door to walk through: it arrives as a door would
-                        if let (Some((door, to)), false) = (enter, gs.coop.authority == world::coop::Authority::Guest) {
-                            gs.coop.interact.follow = Some(coop_session::interact::Follow { door, to, leader: PlayerId(0) });
+                        if let (Some((door, to)), false) =
+                            (enter, gs.coop.authority == world::coop::Authority::Guest)
+                        {
+                            gs.coop.interact.follow = Some(coop_session::interact::Follow {
+                                door,
+                                to,
+                                leader: PlayerId(0),
+                            });
                         }
                     }
                     None => println!("Co-op bot: unknown line {other:?} in {line:?}"),

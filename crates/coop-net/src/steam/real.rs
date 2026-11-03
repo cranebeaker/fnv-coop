@@ -17,7 +17,8 @@ pub fn write_appid_files(dirs: &[&Path]) -> Result<(), SteamError> {
     for d in dirs {
         let p = d.join("steam_appid.txt");
         if !p.exists() {
-            std::fs::write(&p, SPACEWAR_APPID).map_err(|e| SteamError::AppId(format!("{}: {e}", p.display())))?;
+            std::fs::write(&p, SPACEWAR_APPID)
+                .map_err(|e| SteamError::AppId(format!("{}: {e}", p.display())))?;
         }
     }
     Ok(())
@@ -25,8 +26,15 @@ pub fn write_appid_files(dirs: &[&Path]) -> Result<(), SteamError> {
 
 /// Default DLL location: next to the executable, else the working directory.
 pub fn default_dll_path() -> PathBuf {
-    let name = if cfg!(windows) { "steam_api64.dll" } else { "libsteam_api.so" };
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+    let name = if cfg!(windows) {
+        "steam_api64.dll"
+    } else {
+        "libsteam_api.so"
+    };
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+    {
         let p = dir.join(name);
         if p.exists() {
             return p;
@@ -37,7 +45,9 @@ pub fn default_dll_path() -> PathBuf {
 
 /// Loads and initialises Steam. On any error the caller falls back to UDP.
 pub fn try_init(dll: Option<&Path>) -> Result<RealSteam, SteamError> {
-    let path = dll.map(|p| p.to_path_buf()).unwrap_or_else(default_dll_path);
+    let path = dll
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(default_dll_path);
     let lib = FlatLib::load(&path)?;
     // SAFETY: plain flat-API calls with valid arguments.
     unsafe {
@@ -45,7 +55,10 @@ pub fn try_init(dll: Option<&Path>) -> Result<RealSteam, SteamError> {
             return Err(SteamError::NotRunning);
         }
         let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+        if let Some(d) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+        {
             dirs.push(d);
         }
         if let Ok(d) = std::env::current_dir() {
@@ -76,10 +89,24 @@ pub fn try_init(dll: Option<&Path>) -> Result<RealSteam, SteamError> {
         let pipe = (lib.get_hsteam_pipe)();
         // Large messages: 32 MB buffers. A failure here is not fatal.
         let mut cfg_ok = true;
-        for c in [CFG_SEND_BUFFER_SIZE, CFG_RECV_BUFFER_SIZE, CFG_RECV_MAX_MESSAGE_SIZE] {
+        for c in [
+            CFG_SEND_BUFFER_SIZE,
+            CFG_RECV_BUFFER_SIZE,
+            CFG_RECV_MAX_MESSAGE_SIZE,
+        ] {
             cfg_ok &= (lib.utils_set_i32)(utils, c, 32 * 1024 * 1024);
         }
-        Ok(RealSteam { lib, mm, fr, msgs, pipe, me, sender_offset: None, config_ok: cfg_ok, probe_failures: 0 })
+        Ok(RealSteam {
+            lib,
+            mm,
+            fr,
+            msgs,
+            pipe,
+            me,
+            sender_offset: None,
+            config_ok: cfg_ok,
+            probe_failures: 0,
+        })
     }
 }
 
@@ -141,7 +168,12 @@ impl SteamApi for RealSteam {
         // SAFETY: standard manual-dispatch loop; param bytes are copied before FreeLastCallback.
         unsafe {
             (self.lib.md_run_frame)(self.pipe);
-            let mut msg = CallbackMsg { user: 0, callback: 0, param: std::ptr::null_mut(), param_size: 0 };
+            let mut msg = CallbackMsg {
+                user: 0,
+                callback: 0,
+                param: std::ptr::null_mut(),
+                param_size: 0,
+            };
             while (self.lib.md_get_next)(self.pipe, &mut msg) {
                 let params: Vec<u8> = if msg.param.is_null() || msg.param_size <= 0 {
                     Vec::new()
@@ -154,7 +186,14 @@ impl SteamApi for RealSteam {
                         if done.param_size <= 1 << 20 {
                             let mut buf = vec![0u8; done.param_size as usize];
                             let mut failed = false;
-                            let ok = (self.lib.md_get_result)(self.pipe, done.call, buf.as_mut_ptr() as *mut _, buf.len() as i32, done.callback, &mut failed);
+                            let ok = (self.lib.md_get_result)(
+                                self.pipe,
+                                done.call,
+                                buf.as_mut_ptr() as *mut _,
+                                buf.len() as i32,
+                                done.callback,
+                                &mut failed,
+                            );
                             if ok && !failed {
                                 out.extend(decode_callback(done.callback, &buf, &ident));
                             }
@@ -212,7 +251,9 @@ impl SteamApi for RealSteam {
     fn lobby_members(&self, lobby: LobbyId) -> Vec<SteamId> {
         unsafe {
             let n = (self.lib.mm_num_members)(self.mm, lobby).max(0);
-            (0..n).map(|i| (self.lib.mm_member_by_index)(self.mm, lobby, i)).collect()
+            (0..n)
+                .map(|i| (self.lib.mm_member_by_index)(self.mm, lobby, i))
+                .collect()
         }
     }
 
@@ -242,11 +283,25 @@ impl SteamApi for RealSteam {
                     let id = (self.lib.fr_friend_by_index)(self.fr, i, 4);
                     let online = (self.lib.fr_persona_state)(self.fr, id) != 0;
                     let name_p = (self.lib.fr_persona_name)(self.fr, id);
-                    let name = if name_p.is_null() { String::new() } else { CStr::from_ptr(name_p).to_string_lossy().into_owned() };
+                    let name = if name_p.is_null() {
+                        String::new()
+                    } else {
+                        CStr::from_ptr(name_p).to_string_lossy().into_owned()
+                    };
                     let mut info = FriendGameInfo::default();
                     let playing = (self.lib.fr_game_played)(self.fr, id, &mut info);
-                    let (playing_app, lobby) = if playing { (Some((info.game_id & 0xFF_FFFF) as u32), info.lobby) } else { (None, 0) };
-                    Friend { id, name, online, playing_app, lobby }
+                    let (playing_app, lobby) = if playing {
+                        (Some((info.game_id & 0xFF_FFFF) as u32), info.lobby)
+                    } else {
+                        (None, 0)
+                    };
+                    Friend {
+                        id,
+                        name,
+                        online,
+                        playing_app,
+                        lobby,
+                    }
                 })
                 .collect()
         }
@@ -255,7 +310,16 @@ impl SteamApi for RealSteam {
     fn send_message(&mut self, to: SteamId, channel: i32, flags: i32, data: &[u8]) -> SendResult {
         let ident = self.ident_of(to);
         // SAFETY: ident and data outlive the call; Steam copies the payload.
-        let r = unsafe { (self.lib.msgs_send)(self.msgs, ident.as_ptr() as *const _, data.as_ptr() as *const _, data.len() as u32, flags, channel) };
+        let r = unsafe {
+            (self.lib.msgs_send)(
+                self.msgs,
+                ident.as_ptr() as *const _,
+                data.as_ptr() as *const _,
+                data.len() as u32,
+                flags,
+                channel,
+            )
+        };
         match r {
             RESULT_OK => SendResult::Ok,
             RESULT_LIMIT_EXCEEDED => SendResult::BufferFull,
@@ -270,23 +334,31 @@ impl SteamApi for RealSteam {
         // SAFETY: Steam fills `n` message pointers; each is read within the
         // struct's known size (>= 168 bytes on x64) and released exactly once.
         unsafe {
-            let n = (self.lib.msgs_receive)(self.msgs, channel, ptrs.as_mut_ptr(), max as i32).max(0) as usize;
+            let n = (self.lib.msgs_receive)(self.msgs, channel, ptrs.as_mut_ptr(), max as i32)
+                .max(0) as usize;
             for &p in ptrs.iter().take(n) {
                 if p.is_null() {
                     continue;
                 }
                 let base = p as *const u8;
-                let data_ptr = std::ptr::read_unaligned(base.add(MSG_DATA_OFFSET) as *const *const u8);
+                let data_ptr =
+                    std::ptr::read_unaligned(base.add(MSG_DATA_OFFSET) as *const *const u8);
                 let size = std::ptr::read_unaligned(base.add(MSG_SIZE_OFFSET) as *const i32);
                 let head = std::slice::from_raw_parts(base, 16 + IDENTITY_SIZE + 8);
                 let ident = |b: &[u8]| self.decode_ident(b);
                 match probe_sender(head, self.sender_offset, &ident) {
                     Some((off, from)) => {
                         if self.sender_offset != Some(off) {
-                            eprintln!("coop-net steam: message sender identity decoded at offset {off}");
+                            eprintln!(
+                                "coop-net steam: message sender identity decoded at offset {off}"
+                            );
                             self.sender_offset = Some(off);
                         }
-                        let data = if data_ptr.is_null() || size < 0 { Vec::new() } else { std::slice::from_raw_parts(data_ptr, size as usize).to_vec() };
+                        let data = if data_ptr.is_null() || size < 0 {
+                            Vec::new()
+                        } else {
+                            std::slice::from_raw_parts(data_ptr, size as usize).to_vec()
+                        };
                         out.push(RecvMsg { from, data });
                     }
                     None => {
@@ -338,10 +410,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         write_appid_files(&[&dir]).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("steam_appid.txt")).unwrap(), "480");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("steam_appid.txt")).unwrap(),
+            "480"
+        );
         std::fs::write(dir.join("steam_appid.txt"), "999").unwrap();
         write_appid_files(&[&dir]).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("steam_appid.txt")).unwrap(), "999");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("steam_appid.txt")).unwrap(),
+            "999"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

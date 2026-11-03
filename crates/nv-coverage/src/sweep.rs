@@ -58,9 +58,23 @@ impl SweepReport {
     }
 
     fn note(&mut self, line: &str, cell: &str) {
-        let Some((kind, rest)) = classify(line) else { return };
-        let path = rest.split(" (x").next().unwrap_or(rest).split(": ").next().unwrap_or(rest).to_string();
-        *self.assets.entry(kind.to_string()).or_default().entry(path).or_default() += 1;
+        let Some((kind, rest)) = classify(line) else {
+            return;
+        };
+        let path = rest
+            .split(" (x")
+            .next()
+            .unwrap_or(rest)
+            .split(": ")
+            .next()
+            .unwrap_or(rest)
+            .to_string();
+        *self
+            .assets
+            .entry(kind.to_string())
+            .or_default()
+            .entry(path)
+            .or_default() += 1;
         let _ = cell;
     }
 }
@@ -70,7 +84,10 @@ pub fn classify(line: &str) -> Option<(&'static str, &str)> {
     for (prefix, kind) in [
         ("missing model: ", "missing model"),
         ("missing texture: ", "missing texture"),
-        ("unreadable model: ", "unreadable model (unsupported NIF or damaged)"),
+        (
+            "unreadable model: ",
+            "unreadable model (unsupported NIF or damaged)",
+        ),
         ("unreadable collision: ", "unreadable collision"),
         ("unreadable texture: ", "unreadable texture"),
         ("placed water ", "water"),
@@ -101,7 +118,9 @@ pub fn squares(order: &LoadOrder) -> BTreeMap<FormId, Vec<(i32, i32)>> {
     let xclc = FourCC::new(b"XCLC");
     let mut map: BTreeMap<FormId, Vec<(i32, i32)>> = BTreeMap::new();
     for rr in order.records_of_type(FourCC::new(b"CELL")) {
-        let Some(w) = order.world_of(&rr) else { continue };
+        let Some(w) = order.world_of(&rr) else {
+            continue;
+        };
         if rr.entry.header.is_deleted() {
             continue;
         }
@@ -120,11 +139,20 @@ pub fn squares(order: &LoadOrder) -> BTreeMap<FormId, Vec<(i32, i32)>> {
 }
 
 pub fn run(dir: &Path, order: &LoadOrder, mode: Mode, limits: Limits) -> SweepReport {
-    let mut rep = SweepReport { full: mode == Mode::Full, ..SweepReport::default() };
+    let mut rep = SweepReport {
+        full: mode == Mode::Full,
+        ..SweepReport::default()
+    };
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let game = if mode == Mode::Full {
-        match cellview::Game::open(dir, &cellview::Options { official: true, ..Default::default() }) {
+        match cellview::Game::open(
+            dir,
+            &cellview::Options {
+                official: true,
+                ..Default::default()
+            },
+        ) {
             Ok(g) => Some(g),
             Err(e) => {
                 rep.skipped = Some(format!("cannot open the full game data: {e}"));
@@ -136,10 +164,15 @@ pub fn run(dir: &Path, order: &LoadOrder, mode: Mode, limits: Limits) -> SweepRe
         None
     };
     let interiors = world::interior_cells(order).unwrap_or_default();
-    for c in interiors.iter().take(limits.max_interiors.unwrap_or(usize::MAX)) {
+    for c in interiors
+        .iter()
+        .take(limits.max_interiors.unwrap_or(usize::MAX))
+    {
         rep.interiors.tried += 1;
         let label = c.editor_id.clone().unwrap_or_else(|| c.form_id.to_string());
-        let out = catch_unwind(AssertUnwindSafe(|| load_one(order, game.as_ref(), c.form_id)));
+        let out = catch_unwind(AssertUnwindSafe(|| {
+            load_one(order, game.as_ref(), c.form_id)
+        }));
         record(&mut rep, true, "", &label, out);
     }
     let stride = limits.stride.max(1);
@@ -160,7 +193,9 @@ pub fn run(dir: &Path, order: &LoadOrder, mode: Mode, limits: Limits) -> SweepRe
         for s in list {
             rep.exteriors.entry(wname.clone()).or_default().tried += 1;
             let label = format!("{wname} ({},{})", s.0, s.1);
-            let out = catch_unwind(AssertUnwindSafe(|| load_square(order, game.as_ref(), &grid, s)));
+            let out = catch_unwind(AssertUnwindSafe(|| {
+                load_square(order, game.as_ref(), &grid, s)
+            }));
             record(&mut rep, false, &wname, &label, out);
         }
     }
@@ -172,12 +207,22 @@ type Outcome = Result<(Vec<String>, Vec<String>), String>;
 
 fn load_one(order: &LoadOrder, game: Option<&cellview::Game>, id: FormId) -> Outcome {
     match game {
-        Some(g) => g.load_cell(id).map(|s| (s.notes, Vec::new())).map_err(|e| e.to_string()),
-        None => world::load_cell(order, id).map(|c| summarise(&c)).map_err(|e| e.to_string()),
+        Some(g) => g
+            .load_cell(id)
+            .map(|s| (s.notes, Vec::new()))
+            .map_err(|e| e.to_string()),
+        None => world::load_cell(order, id)
+            .map(|c| summarise(&c))
+            .map_err(|e| e.to_string()),
     }
 }
 
-fn load_square(order: &LoadOrder, game: Option<&cellview::Game>, grid: &world::WorldGrid, s: (i32, i32)) -> Outcome {
+fn load_square(
+    order: &LoadOrder,
+    game: Option<&cellview::Game>,
+    grid: &world::WorldGrid,
+    s: (i32, i32),
+) -> Outcome {
     match game {
         Some(g) => match g.load_square(grid, s) {
             Ok(Some(v)) => Ok((v.notes, Vec::new())),
@@ -202,7 +247,13 @@ fn summarise(c: &world::LoadedCell) -> (Vec<String>, Vec<String>) {
     (problems, models)
 }
 
-fn record(rep: &mut SweepReport, interior: bool, world: &str, label: &str, out: Result<Outcome, Box<dyn std::any::Any + Send>>) {
+fn record(
+    rep: &mut SweepReport,
+    interior: bool,
+    world: &str,
+    label: &str,
+    out: Result<Outcome, Box<dyn std::any::Any + Send>>,
+) {
     fn counts<'a>(rep: &'a mut SweepReport, interior: bool, world: &str) -> &'a mut Counts {
         if interior {
             &mut rep.interiors
@@ -217,7 +268,10 @@ fn record(rep: &mut SweepReport, interior: bool, world: &str, label: &str, out: 
         }
         Ok(Err(e)) => {
             counts(rep, interior, world).failed += 1;
-            rep.fail(&format!("load error: {}", e.chars().take(80).collect::<String>()), label.to_string());
+            rep.fail(
+                &format!("load error: {}", e.chars().take(80).collect::<String>()),
+                label.to_string(),
+            );
         }
         Ok(Ok((notes, models))) => {
             counts(rep, interior, world).loaded += 1;
@@ -253,7 +307,10 @@ mod tests {
 
     #[test]
     fn classifies_notes() {
-        assert_eq!(classify("missing model: meshes\\a.nif (x3)").unwrap().0, "missing model");
+        assert_eq!(
+            classify("missing model: meshes\\a.nif (x3)").unwrap().0,
+            "missing model"
+        );
         assert!(classify("collision: 4 triangles").is_none());
     }
 }

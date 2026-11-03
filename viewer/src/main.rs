@@ -16,12 +16,12 @@ mod chatter;
 mod clutter;
 mod combat;
 mod companions;
+mod controls;
 mod coop;
 mod coop_control;
 mod coop_link;
 mod coop_live;
 mod coop_party;
-mod controls;
 mod crosshair;
 mod daylight;
 mod dialogue;
@@ -3452,7 +3452,11 @@ fn update_help(
         shown.0 = !shown.0;
     }
     if shown.is_changed() {
-        let vis = if shown.0 { Visibility::Inherited } else { Visibility::Hidden };
+        let vis = if shown.0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
         for (_, mut v) in &mut help {
             *v = vis;
         }

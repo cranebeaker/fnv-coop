@@ -63,13 +63,23 @@ impl<'a> Rig<'a> {
             host,
             guests,
             ha: LiveHostAdapter::new(),
-            gas: vec![LiveGuestAdapter::new(PlayerId(1)), LiveGuestAdapter::new(PlayerId(2))],
+            gas: vec![
+                LiveGuestAdapter::new(PlayerId(1)),
+                LiveGuestAdapter::new(PlayerId(2)),
+            ],
             hb,
             gbs: vec![GuestBridge::default(), GuestBridge::default()],
         };
-        let ok = r.sim.run_until(120_000, |s| s.guests.iter().all(|g| g.sync.phase() == GuestPhase::Active));
+        let ok = r.sim.run_until(120_000, |s| {
+            s.guests
+                .iter()
+                .all(|g| g.sync.phase() == GuestPhase::Active)
+        });
         assert!(ok, "guests never became active");
-        for (i, g) in std::iter::once(&mut r.host).chain(r.guests.iter_mut()).enumerate() {
+        for (i, g) in std::iter::once(&mut r.host)
+            .chain(r.guests.iter_mut())
+            .enumerate()
+        {
             g.player_cell = Some(f(0x100));
             g.player_position = Some([i as f32 * 10.0, 0.0, 0.0]);
         }
@@ -77,16 +87,38 @@ impl<'a> Rig<'a> {
     }
 
     fn step(&mut self) {
-        let cx = Ctx { order: self.order, scripts: self.scripts };
+        let cx = Ctx {
+            order: self.order,
+            scripts: self.scripts,
+        };
         let now = self.sim.clock.now();
         self.hb.collect(&mut self.host, &mut self.sim.host);
-        let outs = self.ha.frame(cx, &mut self.host, &mut self.sim.host.live, &mut self.sim.host.auth, now);
+        let outs = self.ha.frame(
+            cx,
+            &mut self.host,
+            &mut self.sim.host.live,
+            &mut self.sim.host.auth,
+            now,
+        );
         self.sim.host_emit(outs);
         for i in 0..2 {
             if self.sim.guests[i].sync.phase() == GuestPhase::Active {
-                let opts = Opts { present: true, ctx: Some(cx) };
-                self.gbs[i].sync(&mut self.guests[i], &self.sim.guests[i].sync.store, false, opts);
-                let msgs = self.gas[i].frame(cx, &mut self.guests[i], &mut self.sim.guests[i].sync.live, now);
+                let opts = Opts {
+                    present: true,
+                    ctx: Some(cx),
+                };
+                self.gbs[i].sync(
+                    &mut self.guests[i],
+                    &self.sim.guests[i].sync.store,
+                    false,
+                    opts,
+                );
+                let msgs = self.gas[i].frame(
+                    cx,
+                    &mut self.guests[i],
+                    &mut self.sim.guests[i].sync.live,
+                    now,
+                );
                 self.sim.guest_emit(i, msgs);
             }
         }
@@ -116,15 +148,28 @@ impl<'a> Rig<'a> {
     }
 
     fn held(&self, slot: u8, item: u32) -> i32 {
-        self.host.shadow_of(slot).and_then(|s| s.items.get(&f(item)).copied()).unwrap_or(0)
+        self.host
+            .shadow_of(slot)
+            .and_then(|s| s.items.get(&f(item)).copied())
+            .unwrap_or(0)
     }
 
     fn mine(&self, i: usize, item: u32) -> i32 {
-        self.guests[i].items.get(&(PLAYER_REF, f(item))).copied().unwrap_or(0)
+        self.guests[i]
+            .items
+            .get(&(PLAYER_REF, f(item)))
+            .copied()
+            .unwrap_or(0)
     }
 
     fn results(&self, i: usize) -> Vec<(String, bool, Why)> {
-        self.guests[i].coop.interact.results.iter().map(|r| (r.act.name().to_string(), r.ok, r.why)).collect()
+        self.guests[i]
+            .coop
+            .interact
+            .results
+            .iter()
+            .map(|r| (r.act.name().to_string(), r.ok, r.why))
+            .collect()
     }
 }
 
@@ -145,27 +190,78 @@ fn crafting_spends_the_crafters_own_ingredients_and_obeys_their_skill() {
         r.give(1, SCRAP, 3);
         r.give(1, FLOWER, 2);
         r.give(2, SCRAP, 1);
-        assert!(r.until(90_000, |r| r.mine(0, SCRAP) == 3 && r.mine(1, SCRAP) == 1), "{profile}: packs arrived");
+        assert!(
+            r.until(90_000, |r| r.mine(0, SCRAP) == 3 && r.mine(1, SCRAP) == 1),
+            "{profile}: packs arrived"
+        );
         // guest 1 makes rounds twice; guest 2 asks for more than they have
-        r.guests[0].coop_route(Act::Craft { bench: c(WORKBENCH), recipe: c(R_ROUNDS), times: 2 });
-        r.guests[1].coop_route(Act::Craft { bench: c(WORKBENCH), recipe: c(R_ROUNDS), times: 2 });
-        assert!(r.until(90_000, |r| r.held(1, ROUND) == 20 && r.results(1).iter().any(|x| x.0 == "craft")), "{profile}: made");
-        assert_eq!(r.held(1, SCRAP), 1, "{profile}: two scrap spent from guest 1");
+        r.guests[0].coop_route(Act::Craft {
+            bench: c(WORKBENCH),
+            recipe: c(R_ROUNDS),
+            times: 2,
+        });
+        r.guests[1].coop_route(Act::Craft {
+            bench: c(WORKBENCH),
+            recipe: c(R_ROUNDS),
+            times: 2,
+        });
+        assert!(
+            r.until(90_000, |r| r.held(1, ROUND) == 20
+                && r.results(1).iter().any(|x| x.0 == "craft")),
+            "{profile}: made"
+        );
+        assert_eq!(
+            r.held(1, SCRAP),
+            1,
+            "{profile}: two scrap spent from guest 1"
+        );
         assert_eq!(r.held(2, ROUND), 0, "{profile}: guest 2 made nothing");
         assert_eq!(r.held(2, SCRAP), 1, "{profile}: and lost nothing");
-        assert!(r.results(1).iter().any(|x| x.0 == "craft" && !x.1 && x.2 == Why::Insufficient), "{profile}: told why");
+        assert!(
+            r.results(1)
+                .iter()
+                .any(|x| x.0 == "craft" && !x.1 && x.2 == Why::Insufficient),
+            "{profile}: told why"
+        );
         assert_eq!(r.held(0, ROUND), 0, "{profile}: the host is not paid");
-        assert!(r.until(60_000, |r| r.mine(0, ROUND) == 20 && r.mine(1, ROUND) == 0), "{profile}: each sees their own result");
+        assert!(
+            r.until(60_000, |r| r.mine(0, ROUND) == 20 && r.mine(1, ROUND) == 0),
+            "{profile}: each sees their own result"
+        );
         // medicine skill 50 is missing: refused, nothing spent
-        r.guests[0].coop_route(Act::Craft { bench: c(WORKBENCH), recipe: c(R_STIMPAK), times: 1 });
-        assert!(r.until(60_000, |r| r.results(0).iter().any(|x| x.0 == "craft" && !x.1)), "{profile}: skill check");
+        r.guests[0].coop_route(Act::Craft {
+            bench: c(WORKBENCH),
+            recipe: c(R_STIMPAK),
+            times: 1,
+        });
+        assert!(
+            r.until(60_000, |r| r
+                .results(0)
+                .iter()
+                .any(|x| x.0 == "craft" && !x.1)),
+            "{profile}: skill check"
+        );
         assert_eq!(r.held(1, FLOWER), 2, "{profile}: flowers kept");
         // the host crafts through the same executor
         r.host.stocked.insert(PLAYER_REF);
         r.host.items.insert((PLAYER_REF, f(SCRAP)), 1);
-        let cx = Ctx { order: &order, scripts: &scripts };
-        r.host.coop_do(cx, Act::Craft { bench: c(WORKBENCH), recipe: c(R_ROUNDS), times: 1 });
-        assert_eq!(r.host.items.get(&(PLAYER_REF, f(ROUND))), Some(&10), "{profile}: host crafted");
+        let cx = Ctx {
+            order: &order,
+            scripts: &scripts,
+        };
+        r.host.coop_do(
+            cx,
+            Act::Craft {
+                bench: c(WORKBENCH),
+                recipe: c(R_ROUNDS),
+                times: 1,
+            },
+        );
+        assert_eq!(
+            r.host.items.get(&(PLAYER_REF, f(ROUND))),
+            Some(&10),
+            "{profile}: host crafted"
+        );
         r.run_ms(500);
     }
 }
@@ -181,17 +277,38 @@ fn an_aid_item_is_used_up_by_the_player_who_used_it() {
         r.give(1, FOOD, 2);
         r.give(1, STIMPAK, 1);
         r.give(2, FOOD, 1);
-        assert!(r.until(90_000, |r| r.mine(0, FOOD) == 2 && r.mine(1, FOOD) == 1), "{profile}");
+        assert!(
+            r.until(90_000, |r| r.mine(0, FOOD) == 2 && r.mine(1, FOOD) == 1),
+            "{profile}"
+        );
         r.guests[0].coop_route(Act::Use { item: c(FOOD) });
         r.guests[1].coop_route(Act::Use { item: c(NUKA_COLA) });
-        assert!(r.until(90_000, |r| r.held(1, FOOD) == 1 && r.results(1).iter().any(|x| x.0 == "use" && !x.1)), "{profile}");
+        assert!(
+            r.until(90_000, |r| r.held(1, FOOD) == 1
+                && r.results(1).iter().any(|x| x.0 == "use" && !x.1)),
+            "{profile}"
+        );
         assert_eq!(r.held(2, FOOD), 1, "{profile}: guest 2 keeps theirs");
-        assert!(r.until(60_000, |r| r.mine(0, FOOD) == 1), "{profile}: guest 1 sees it");
+        assert!(
+            r.until(60_000, |r| r.mine(0, FOOD) == 1),
+            "{profile}: guest 1 sees it"
+        );
         // an effect that was on guest 1 is not on guest 2 (rads from the food)
-        let rads = |r: &Rig, slot: u8| r.host.shadow_of(slot).map_or(0.0, |s| s.value_damage.values().sum::<f64>() + s.damage.unwrap_or(0.0));
+        let rads = |r: &Rig, slot: u8| {
+            r.host.shadow_of(slot).map_or(0.0, |s| {
+                s.value_damage.values().sum::<f64>() + s.damage.unwrap_or(0.0)
+            })
+        };
         let (a, b) = (rads(&r, 1), rads(&r, 2));
-        assert!(a != b || a == 0.0, "{profile}: effects stay with the user ({a} vs {b})");
-        assert!(r.results(0).iter().any(|x| x.0 == "use" && x.1), "{profile}: verdict");
+        assert!(
+            a != b || a == 0.0,
+            "{profile}: effects stay with the user ({a} vs {b})"
+        );
+        // the verdict travels apart from the item record: under loss it can come later
+        assert!(
+            r.until(60_000, |r| r.results(0).iter().any(|x| x.0 == "use" && x.1)),
+            "{profile}: verdict"
+        );
         r.run_ms(500);
     }
 }

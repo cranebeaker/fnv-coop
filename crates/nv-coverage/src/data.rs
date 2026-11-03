@@ -13,7 +13,10 @@ pub struct Data {
 
 /// The data folder: `--data`, else `FNV_ESM_DIR`.
 pub fn locate(arg: Option<&str>) -> Result<PathBuf, String> {
-    match arg.map(str::to_string).or_else(|| std::env::var("FNV_ESM_DIR").ok()) {
+    match arg
+        .map(str::to_string)
+        .or_else(|| std::env::var("FNV_ESM_DIR").ok())
+    {
         Some(d) => cellview::find_data_folder(Path::new(&d)).map_err(|e| e.to_string()),
         None => Err("no data folder: pass --data DIR or set FNV_ESM_DIR".into()),
     }
@@ -31,7 +34,11 @@ pub fn open(dir: &Path) -> Result<Data, String> {
                 })
             })
             .unwrap_or(false);
-    Ok(Data { order, dir: dir.to_path_buf(), has_meshes })
+    Ok(Data {
+        order,
+        dir: dir.to_path_buf(),
+        has_meshes,
+    })
 }
 
 /// A quest set the walk reports on.
@@ -64,10 +71,18 @@ pub const MAIN_PREFIXES: &[&str] = &["VMQ", "VCG", "CG0", "CGTutorial", "VEFR"];
 pub fn line_of(plugin: &str, editor: &str) -> Option<Line> {
     let p = plugin.to_ascii_lowercase();
     match p.as_str() {
-        "deadmoney.esm" if editor.to_ascii_uppercase().contains("MQ") => Some(Line::Dlc("Dead Money")),
-        "honesthearts.esm" if editor.to_ascii_uppercase().contains("MQ") => Some(Line::Dlc("Honest Hearts")),
-        "oldworldblues.esm" if editor.to_ascii_uppercase().contains("MQ") => Some(Line::Dlc("Old World Blues")),
-        "lonesomeroad.esm" if editor.to_ascii_uppercase().contains("MQ") => Some(Line::Dlc("Lonesome Road")),
+        "deadmoney.esm" if editor.to_ascii_uppercase().contains("MQ") => {
+            Some(Line::Dlc("Dead Money"))
+        }
+        "honesthearts.esm" if editor.to_ascii_uppercase().contains("MQ") => {
+            Some(Line::Dlc("Honest Hearts"))
+        }
+        "oldworldblues.esm" if editor.to_ascii_uppercase().contains("MQ") => {
+            Some(Line::Dlc("Old World Blues"))
+        }
+        "lonesomeroad.esm" if editor.to_ascii_uppercase().contains("MQ") => {
+            Some(Line::Dlc("Lonesome Road"))
+        }
         "falloutnv.esm" if editor.starts_with("VMS") => Some(Line::Vms),
         "falloutnv.esm" if MAIN_PREFIXES.iter().any(|m| editor.starts_with(m)) => Some(Line::Main),
         _ => None,
@@ -78,6 +93,12 @@ pub fn line_of(plugin: &str, editor: &str) -> Option<Line> {
 pub fn quests(order: &LoadOrder) -> Vec<(FormId, String, String)> {
     order
         .records_of_type(esm::FourCC::new(b"QUST"))
-        .map(|rr| (rr.form_id, rr.editor_id().ok().flatten().unwrap_or_default(), rr.plugin.name.clone()))
+        .map(|rr| {
+            (
+                rr.form_id,
+                rr.editor_id().ok().flatten().unwrap_or_default(),
+                rr.plugin.name.clone(),
+            )
+        })
         .collect()
 }

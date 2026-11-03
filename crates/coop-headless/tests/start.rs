@@ -35,10 +35,28 @@ fn scn(body: &str) -> Scenario {
 fn a_guest_makes_its_own_character_while_the_host_is_in_the_opening() {
     let (_t, d) = data("hl-start");
     let r = run(&scn(START), &d, &RunOpts::default());
-    assert_eq!(r.verdict.result, "pass", "{}\n{}", r.verdict.reason, r.dumps[1]);
-    assert!(r.dumps[1].contains("\"start\":{\"phase\":\"playing\""), "{}", r.dumps[1]);
-    let m = r.verdict.json.get("modelled").and_then(|m| m.as_arr()).unwrap();
-    assert!(m.iter().any(|x| x.as_str().is_some_and(|s| s.starts_with("character creation"))), "the menus are declared as stood in");
+    assert_eq!(
+        r.verdict.result, "pass",
+        "{}\n{}",
+        r.verdict.reason, r.dumps[1]
+    );
+    assert!(
+        r.dumps[1].contains("\"start\":{\"phase\":\"playing\""),
+        "{}",
+        r.dumps[1]
+    );
+    let m = r
+        .verdict
+        .json
+        .get("modelled")
+        .and_then(|m| m.as_arr())
+        .unwrap();
+    assert!(
+        m.iter().any(|x| x
+            .as_str()
+            .is_some_and(|s| s.starts_with("character creation"))),
+        "the menus are declared as stood in"
+    );
 }
 
 #[test]
@@ -46,6 +64,15 @@ fn the_twin_where_the_guest_skips_its_character_fails_as_expected() {
     let (_t, d) = data("hl-start-twin");
     // no new game and no character creation: the guest plays at once and never gets VCG rows
     let twin = START.replace(r#""new_game":true,"#, "");
-    let r = run(&scn(&format!(r#"{twin},"expect_fail":true"#)), &d, &RunOpts::default());
-    assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}", r.verdict.reason);
+    let r = run(
+        &scn(&format!(r#"{twin},"expect_fail":true"#)),
+        &d,
+        &RunOpts::default(),
+    );
+    assert_eq!(
+        (r.verdict.result.as_str(), r.verdict.class.as_str()),
+        ("pass", "twin"),
+        "{}",
+        r.verdict.reason
+    );
 }

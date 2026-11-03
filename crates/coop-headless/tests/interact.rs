@@ -27,7 +27,11 @@ fn world(tag: &str) -> TempData {
     let mut hedr = 1.34f32.to_le_bytes().to_vec();
     hedr.extend([0; 8]);
     let mut plugin = record(b"TES4", 0, &sub(b"HEDR", &hedr));
-    plugin.extend(group(*b"DOOR", 0, &named(b"DOOR", 0xA00, "IxDoor", &sub(b"FNAM", &[0]))));
+    plugin.extend(group(
+        *b"DOOR",
+        0,
+        &named(b"DOOR", 0xA00, "IxDoor", &sub(b"FNAM", &[0])),
+    ));
     let mut misc = named(b"MISC", 0xA10, "IxItemA", &[]);
     misc.extend(named(b"MISC", 0xA11, "IxScrap", &[]));
     misc.extend(named(b"MISC", 0xA12, "IxRound", &[]));
@@ -57,21 +61,43 @@ fn world(tag: &str) -> TempData {
         r[8..12].copy_from_slice(&0x400u32.to_le_bytes());
         r
     };
-    let plain = |id: u32, base: u32, name: &str, pos: [f32; 3]| placed(id, base, pos, [0.0; 3], &with_id(name));
-    let mut room = load_door(0xD50, "IxLoadDoor", [0.0, 0.0, 0.0], 0xD51, [500.0, 0.0, 0.0]);
+    let plain = |id: u32, base: u32, name: &str, pos: [f32; 3]| {
+        placed(id, base, pos, [0.0; 3], &with_id(name))
+    };
+    let mut room = load_door(
+        0xD50,
+        "IxLoadDoor",
+        [0.0, 0.0, 0.0],
+        0xD51,
+        [500.0, 0.0, 0.0],
+    );
     room.extend(plain(0xD10, 0xA00, "IxSwingDoor", [50.0, 0.0, 0.0]));
     room.extend(plain(0xD11, 0xA00, "IxLockedDoor", [100.0, 0.0, 0.0]));
     room.extend(plain(0xD20, 0xA20, "IxVendorREF", [0.0, 100.0, 0.0]));
     room.extend(plain(0xD40, 0xA20, "IxTerminalREF", [0.0, 300.0, 0.0]));
-    let other = load_door(0xD51, "IxOtherDoor", [500.0, 0.0, 0.0], 0xD50, [0.0, 0.0, 0.0]);
+    let other = load_door(
+        0xD51,
+        "IxOtherDoor",
+        [500.0, 0.0, 0.0],
+        0xD50,
+        [0.0, 0.0, 0.0],
+    );
     let cell = |id: u32, name: &str, refs: &[u8]| {
         let mut c = named(b"CELL", id, name, &sub(b"DATA", &[1]));
-        c.extend(group(id.to_le_bytes(), 6, &group(id.to_le_bytes(), 8, refs)));
+        c.extend(group(
+            id.to_le_bytes(),
+            6,
+            &group(id.to_le_bytes(), 8, refs),
+        ));
         c
     };
     let mut cells = cell(CELL, "IxRoom", &room);
     cells.extend(cell(OTHER, "IxOther", &other));
-    plugin.extend(group(*b"CELL", 0, &group([0; 4], 2, &group([0; 4], 3, &cells))));
+    plugin.extend(group(
+        *b"CELL",
+        0,
+        &group([0; 4], 2, &group([0; 4], 3, &cells)),
+    ));
     data.write("FalloutNV.esm", &plugin);
     data
 }
@@ -123,7 +149,12 @@ struct Case {
 }
 
 fn cases() -> Vec<Case> {
-    let both = |id: &str, path: &str, v: i64| vec![eq(&format!("{id}-host"), path, v, "host"), eq(&format!("{id}-guest"), path, v, "guest")];
+    let both = |id: &str, path: &str, v: i64| {
+        vec![
+            eq(&format!("{id}-host"), path, v, "host"),
+            eq(&format!("{id}-guest"), path, v, "guest"),
+        ]
+    };
     let mut barter_expect = both("bought", "items.guest.IxItemA", 2);
     barter_expect.extend(both("paid", "items.guest.Caps001", 20));
     barter_expect.extend(both("stock", "items.IxVendorREF.IxItemA", 3));
@@ -131,7 +162,11 @@ fn cases() -> Vec<Case> {
     barter_expect.push(ge("counted", "interact.barter", 1, "guest"));
     barter_expect.push(SHARED.into());
 
-    let mut door = vec![ge("guest-followed", "live.doors_followed", 1, "guest"), ge("guest-told", "interact.follows_in", 1, "guest"), ge("host-led", "interact.transition", 1, "host")];
+    let mut door = vec![
+        ge("guest-followed", "live.doors_followed", 1, "guest"),
+        ge("guest-told", "interact.follows_in", 1, "guest"),
+        ge("host-led", "interact.transition", 1, "host"),
+    ];
     door.push(r#"{"id":"together","path":"positions.guest","op":"near","value":[500,0],"tol":80,"dims":2,"on":"host"}"#.into());
     door.push(SHARED.into());
 
@@ -158,7 +193,10 @@ fn cases() -> Vec<Case> {
     vec![
         Case {
             name: "live_barter",
-            host: vec![line(2.0, "coop give IxVendorREF IxItemA 5"), line(2.0, "coop give 1 Caps001 50")],
+            host: vec![
+                line(2.0, "coop give IxVendorREF IxItemA 5"),
+                line(2.0, "coop give 1 Caps001 50"),
+            ],
             guest: vec![line(9.0, "coop barter IxVendorREF -30 buy:IxItemA:2")],
             twin_host: None,
             expect: barter_expect,
@@ -172,7 +210,10 @@ fn cases() -> Vec<Case> {
         },
         Case {
             name: "live_pickup_world_item",
-            host: vec![line(2.0, "coop give 0 IxItemA 3"), line(4.0, "coop drop IxItemA 2")],
+            host: vec![
+                line(2.0, "coop give 0 IxItemA 3"),
+                line(4.0, "coop drop IxItemA 2"),
+            ],
             guest: vec![line(10.0, "coop pickup FD000001 IxItemA 2")],
             twin_host: None,
             expect: pickup,
@@ -193,7 +234,10 @@ fn cases() -> Vec<Case> {
         },
         Case {
             name: "live_vendor_stock_shared",
-            host: vec![line(2.0, "coop give IxVendorREF IxItemA 5"), line(16.0, "coop barter IxVendorREF 0 buy:IxItemA:1")],
+            host: vec![
+                line(2.0, "coop give IxVendorREF IxItemA 5"),
+                line(16.0, "coop barter IxVendorREF 0 buy:IxItemA:1"),
+            ],
             guest: vec![line(9.0, "coop barter IxVendorREF 0 buy:IxItemA:2")],
             twin_host: Some(vec![line(2.0, "coop give IxVendorREF IxItemA 5")]),
             expect: vendor,
@@ -203,11 +247,24 @@ fn cases() -> Vec<Case> {
 
 fn build(c: &Case, network: &str, twin: bool) -> Scenario {
     let (host, guest) = if twin {
-        (c.twin_host.clone().unwrap_or_else(|| c.host.clone()), if c.twin_host.is_some() { c.guest.clone() } else { vec![] })
+        (
+            c.twin_host.clone().unwrap_or_else(|| c.host.clone()),
+            if c.twin_host.is_some() {
+                c.guest.clone()
+            } else {
+                vec![]
+            },
+        )
     } else {
         (c.host.clone(), c.guest.clone())
     };
-    let mut s = scn(c.name, network, &host.join(","), &guest.join(","), &c.expect.join(","));
+    let mut s = scn(
+        c.name,
+        network,
+        &host.join(","),
+        &guest.join(","),
+        &c.expect.join(","),
+    );
     s.expect_fail = twin;
     s
 }
@@ -217,7 +274,14 @@ fn every_interaction_scenario_passes_on_a_good_link() {
     for c in cases() {
         let (_t, d) = data(&format!("hl-{}", c.name));
         let r = run(&build(&c, "good_wifi", false), &d, &RunOpts::default());
-        assert_eq!(r.verdict.result, "pass", "{}: {}\n{}", c.name, r.verdict.reason, r.dumps.join("\n"));
+        assert_eq!(
+            r.verdict.result,
+            "pass",
+            "{}: {}\n{}",
+            c.name,
+            r.verdict.reason,
+            r.dumps.join("\n")
+        );
     }
 }
 
@@ -226,7 +290,13 @@ fn every_mutation_twin_fails_as_expected() {
     for c in cases() {
         let (_t, d) = data(&format!("hl-twin-{}", c.name));
         let r = run(&build(&c, "good_wifi", true), &d, &RunOpts::default());
-        assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{}: {}", c.name, r.verdict.reason);
+        assert_eq!(
+            (r.verdict.result.as_str(), r.verdict.class.as_str()),
+            ("pass", "twin"),
+            "{}: {}",
+            c.name,
+            r.verdict.reason
+        );
     }
 }
 
@@ -236,7 +306,14 @@ fn the_interaction_scenarios_hold_over_every_chaos_profile() {
         for profile in PROFILES {
             let (_t, d) = data(&format!("hl-soak-{}-{profile}", c.name));
             let r = run(&build(&c, profile, false), &d, &RunOpts::default());
-            assert_eq!(r.verdict.result, "pass", "{} on {profile}: {}\n{}", c.name, r.verdict.reason, r.dumps.join("\n"));
+            assert_eq!(
+                r.verdict.result,
+                "pass",
+                "{} on {profile}: {}\n{}",
+                c.name,
+                r.verdict.reason,
+                r.dumps.join("\n")
+            );
         }
     }
 }

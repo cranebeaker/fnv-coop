@@ -23,7 +23,10 @@ pub enum J {
 impl J {
     /// Parses a document.
     pub fn parse(text: &str) -> Result<J, String> {
-        let mut p = P { s: text.as_bytes(), i: 0 };
+        let mut p = P {
+            s: text.as_bytes(),
+            i: 0,
+        };
         p.ws();
         let v = p.value()?;
         p.ws();
@@ -252,7 +255,12 @@ impl P<'_> {
             Some(b'n') => self.lit("null", J::Null),
             Some(_) => {
                 let st = self.i;
-                while self.i < self.s.len() && matches!(self.s[self.i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
+                while self.i < self.s.len()
+                    && matches!(
+                        self.s[self.i],
+                        b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'
+                    )
+                {
                     self.i += 1;
                 }
                 std::str::from_utf8(&self.s[st..self.i])
@@ -283,8 +291,11 @@ impl P<'_> {
                         b'f' => out.push(12),
                         b'u' => {
                             let hex = self.s.get(self.i..self.i + 4).ok_or("bad \\u")?;
-                            let code = u32::from_str_radix(std::str::from_utf8(hex).map_err(|e| e.to_string())?, 16)
-                                .map_err(|e| e.to_string())?;
+                            let code = u32::from_str_radix(
+                                std::str::from_utf8(hex).map_err(|e| e.to_string())?,
+                                16,
+                            )
+                            .map_err(|e| e.to_string())?;
                             self.i += 4;
                             let ch = char::from_u32(code).unwrap_or('?');
                             let mut buf = [0u8; 4];

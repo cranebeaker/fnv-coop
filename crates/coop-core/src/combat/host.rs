@@ -77,10 +77,15 @@ impl CombatHost {
     fn to_victims(out: &mut Vec<COut>, msgs: Vec<CombatMsg>) {
         for m in msgs {
             let victim = match &m {
-                CombatMsg::PlayerHurt { victim, .. } | CombatMsg::PlayerEffect { victim, .. } => *victim,
+                CombatMsg::PlayerHurt { victim, .. } | CombatMsg::PlayerEffect { victim, .. } => {
+                    *victim
+                }
                 _ => continue,
             };
-            out.push(COut { aud: Audience::To(victim), msg: m });
+            out.push(COut {
+                aud: Audience::To(victim),
+                msg: m,
+            });
         }
     }
 
@@ -117,13 +122,19 @@ impl CombatHost {
             }
             CombatMsg::Fire(e) => {
                 if let Some(e) = self.fire.on_fire(from, now_ms, at, e) {
-                    out.push(COut { aud: Audience::CellExcept(e.cell, from), msg: CombatMsg::Fire(e) });
+                    out.push(COut {
+                        aud: Audience::CellExcept(e.cell, from),
+                        msg: CombatMsg::Fire(e),
+                    });
                     self.fires.push(e);
                 }
             }
             CombatMsg::Blast(b) => {
                 if let Some(b) = self.fire.on_blast(from, now_ms, at, b) {
-                    out.push(COut { aud: Audience::CellExcept(b.cell, from), msg: CombatMsg::Blast(b) });
+                    out.push(COut {
+                        aud: Audience::CellExcept(b.cell, from),
+                        msg: CombatMsg::Blast(b),
+                    });
                     self.blasts.push(b);
                 }
             }
@@ -139,12 +150,21 @@ impl CombatHost {
                         });
                     }
                 }
-                out.push(COut { aud: Audience::To(from), msg: CombatMsg::VatsDone { id, results, spent } });
+                out.push(COut {
+                    aud: Audience::To(from),
+                    msg: CombatMsg::VatsDone { id, results, spent },
+                });
             }
             CombatMsg::VatsMark { active, .. } => {
                 self.vats.mark(from, active);
                 let aud = cell.map_or(Audience::AllExcept(from), |c| Audience::CellExcept(c, from));
-                out.push(COut { aud, msg: CombatMsg::VatsMark { player: from, active } });
+                out.push(COut {
+                    aud,
+                    msg: CombatMsg::VatsMark {
+                        player: from,
+                        active,
+                    },
+                });
             }
             _ => {}
         }

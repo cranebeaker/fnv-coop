@@ -33,15 +33,13 @@ use std::collections::BTreeSet;
 use esm::FormId;
 
 pub mod apply;
-pub mod combat_live;
 pub mod backend;
 pub mod bridge;
 pub mod campaign;
-pub mod export;
-pub mod policy_gate;
-pub mod shadow;
+pub mod combat_live;
 pub mod dialogue;
 pub mod env;
+pub mod export;
 pub mod facts;
 pub mod interact;
 pub mod interact_acts;
@@ -50,9 +48,12 @@ pub mod loot;
 pub mod party_char;
 pub mod party_save;
 pub mod players;
-pub mod rules;
+pub mod policy_gate;
+pub mod presentation;
 pub mod roam_ops;
+pub mod rules;
 pub mod scene;
+pub mod shadow;
 
 pub use backend::WorldBackend;
 pub use bridge::{CollectReport, GuestBridge, HostBridge};
@@ -131,6 +132,11 @@ pub enum Domain {
     MapMarker,
     /// `faction_changes`.
     Faction,
+    /// `faction_relations` (`SetEnemy`, `SetAlly`).
+    FactionRelation,
+    /// Crime (`world::crime`): `crime_enemies`, `faction_crimes`, the
+    /// player's crime counts, steal warnings and murderer flag.
+    Crime,
     /// A player's shadow (`shadow::shadow_form`).
     Shadow,
 }

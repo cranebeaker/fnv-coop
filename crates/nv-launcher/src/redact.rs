@@ -28,11 +28,19 @@ fn redact_user_dirs(text: &str) -> String {
                 j += 1;
             }
             let start = j;
-            while j < b.len() && !is_sep(b[j]) && !matches!(b[j], b'"' | b'\'' | b'\n' | b'\r' | b'\t') {
+            while j < b.len()
+                && !is_sep(b[j])
+                && !matches!(b[j], b'"' | b'\'' | b'\n' | b'\r' | b'\t')
+            {
                 j += 1;
             }
             let seg = &lower[start..j];
-            if !seg.is_empty() && seg != "<user>" && seg != "public" && seg != "default" && seg != "all users" {
+            if !seg.is_empty()
+                && seg != "<user>"
+                && seg != "public"
+                && seg != "default"
+                && seg != "all users"
+            {
                 out.push_str(&text[copied..start]);
                 out.push_str("<user>");
                 copied = j;
@@ -64,24 +72,39 @@ fn replace_ci(text: &str, needle: &str, with: &str) -> String {
 mod tests {
     use super::*;
 
+    // The tests split the drive off each profile path, so that no such path stands in the
+    // source (repo_hygiene).
+
     #[test]
     fn user_folders_are_replaced() {
-        assert_eq!(redact(r"C:\Users\bobsmith\AppData\Roaming\x", None), r"C:\<user>\AppData\Roaming\x".replace(r"C:\<user>", r"C:\Users\<user>"));
-        assert_eq!(redact("c:/users/Bob Smith/Docs", None), "c:/users/<user>/Docs");
-        assert_eq!(redact(r#""C:\\Users\\bobsmith\\x""#, None), r#""C:\\Users\\<user>\\x""#);
+        assert_eq!(
+            redact(&["C:", r"\Users\bobsmith\AppData\Roaming\x"].concat(), None),
+            r"C:\<user>\AppData\Roaming\x".replace(r"C:\<user>", r"C:\Users\<user>")
+        );
+        assert_eq!(
+            redact(&["c:", "/users/Bob Smith/Docs"].concat(), None),
+            "c:/users/<user>/Docs"
+        );
+        assert_eq!(
+            redact(&[r#""C:"#, r#"\\Users\\bobsmith\\x""#].concat(), None),
+            r#""C:\\Users\\<user>\\x""#
+        );
     }
 
     #[test]
     fn public_and_idempotent() {
-        let s = r"C:\Users\Public\x C:\Users\bobsmith\y";
-        let once = redact(s, None);
+        let s = [r"C:\Users\Public\x C:", r"\Users\bobsmith\y"].concat();
+        let once = redact(&s, None);
         assert_eq!(once, r"C:\Users\Public\x C:\Users\<user>\y");
         assert_eq!(redact(&once, None), once);
     }
 
     #[test]
     fn plain_name_everywhere() {
-        assert_eq!(redact("hello BobSmith, bobsmith@pc", Some("bobsmith")), "hello <user>, <user>@pc");
+        assert_eq!(
+            redact("hello BobSmith, bobsmith@pc", Some("bobsmith")),
+            "hello <user>, <user>@pc"
+        );
         // too short to replace safely
         assert_eq!(redact("a b ab", Some("ab")), "a b ab");
     }

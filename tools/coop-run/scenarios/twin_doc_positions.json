@@ -85,6 +85,32 @@
       "op": "ge",
       "value": 1,
       "on": "both"
+    },
+    {
+      "id": "host-on-floor",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2178.0,
+        2300.0,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
+    },
+    {
+      "id": "guest-on-floor",
+      "path": "positions.guest",
+      "op": "dist_from",
+      "from": [
+        2152.0,
+        1803.6,
+        7360.0
+      ],
+      "cmp": "le",
+      "value": 1000,
+      "on": "both"
     }
   ],
   "expect_fail": true

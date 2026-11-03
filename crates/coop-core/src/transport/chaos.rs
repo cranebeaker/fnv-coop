@@ -10,7 +10,7 @@
 //! retransmit latency, and a partition holds them until the link heals.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, BTreeMap};
+use std::collections::{BTreeMap, BinaryHeap};
 
 use super::{ChaosProfile, Packet, SeededRng, Transport, TransportError, VirtualClock};
 use crate::ids::PlayerId;
@@ -118,7 +118,13 @@ impl<T: Transport> ChaosTransport<T> {
 
     fn schedule(&mut self, at: u64, to: PlayerId, channel: Channel, data: Vec<u8>) {
         self.order += 1;
-        self.queue.push(Pending { at, order: self.order, to, channel, data });
+        self.queue.push(Pending {
+            at,
+            order: self.order,
+            to,
+            channel,
+            data,
+        });
     }
 
     fn delay(&mut self) -> u64 {
@@ -131,9 +137,17 @@ impl<T: Transport> Transport for ChaosTransport<T> {
         self.inner.local()
     }
 
-    fn send(&mut self, to: PlayerId, channel: Channel, data: Vec<u8>) -> Result<(), TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        channel: Channel,
+        data: Vec<u8>,
+    ) -> Result<(), TransportError> {
         if data.len() > channel.max_len() {
-            return Err(TransportError::TooLarge { len: data.len(), max: channel.max_len() });
+            return Err(TransportError::TooLarge {
+                len: data.len(),
+                max: channel.max_len(),
+            });
         }
         self.pump();
         self.stats.sent += 1;
@@ -196,7 +210,14 @@ mod tests {
     const A: PlayerId = PlayerId(0);
     const B: PlayerId = PlayerId(1);
 
-    fn pair(profile: ChaosProfile, seed: u64) -> (ChaosTransport<crate::transport::LoopbackEndpoint>, crate::transport::LoopbackEndpoint, VirtualClock) {
+    fn pair(
+        profile: ChaosProfile,
+        seed: u64,
+    ) -> (
+        ChaosTransport<crate::transport::LoopbackEndpoint>,
+        crate::transport::LoopbackEndpoint,
+        VirtualClock,
+    ) {
         let net = LoopbackNet::new();
         let clock = VirtualClock::new();
         let a = ChaosTransport::new(net.endpoint(A), clock.clone(), profile, seed);
@@ -222,7 +243,13 @@ mod tests {
 
     #[test]
     fn latency_holds_messages_until_clock_advances() {
-        let (mut a, mut b, c) = pair(ChaosProfile { latency_ms: 100, ..ChaosProfile::PERFECT }, 1);
+        let (mut a, mut b, c) = pair(
+            ChaosProfile {
+                latency_ms: 100,
+                ..ChaosProfile::PERFECT
+            },
+            1,
+        );
         a.send(B, Channel::ReliableOrdered, vec![1]).unwrap();
         a.pump();
         assert!(drain(&mut b).is_empty());
@@ -238,13 +265,17 @@ mod tests {
     fn unreliable_loss_dup_reorder_happen() {
         let (mut a, mut b, c) = pair(ChaosProfile::FLAKY, 7);
         for i in 0..2000u32 {
-            a.send(B, Channel::Unreliable, i.to_le_bytes().to_vec()).unwrap();
+            a.send(B, Channel::Unreliable, i.to_le_bytes().to_vec())
+                .unwrap();
             c.advance(5);
             a.pump();
         }
         c.advance(10_000);
         a.pump();
-        let got: Vec<u32> = drain(&mut b).iter().map(|p| u32::from_le_bytes(p.data[..4].try_into().unwrap())).collect();
+        let got: Vec<u32> = drain(&mut b)
+            .iter()
+            .map(|p| u32::from_le_bytes(p.data[..4].try_into().unwrap()))
+            .collect();
         let s = a.stats();
         assert!(s.dropped > 200, "{s:?}");
         assert!(s.duplicated > 20, "{s:?}");
@@ -258,13 +289,17 @@ mod tests {
         for name in PROFILE_NAMES {
             let (mut a, mut b, c) = pair(ChaosProfile::by_name(name).unwrap(), 99);
             for i in 0..500u32 {
-                a.send(B, Channel::ReliableOrdered, i.to_le_bytes().to_vec()).unwrap();
+                a.send(B, Channel::ReliableOrdered, i.to_le_bytes().to_vec())
+                    .unwrap();
                 c.advance(7);
                 a.pump();
             }
             c.advance(60_000);
             a.pump();
-            let got: Vec<u32> = drain(&mut b).iter().map(|p| u32::from_le_bytes(p.data[..4].try_into().unwrap())).collect();
+            let got: Vec<u32> = drain(&mut b)
+                .iter()
+                .map(|p| u32::from_le_bytes(p.data[..4].try_into().unwrap()))
+                .collect();
             assert_eq!(got, (0..500).collect::<Vec<_>>(), "profile {name}");
         }
     }
@@ -291,13 +326,17 @@ mod tests {
         let run = |seed| {
             let (mut a, mut b, c) = pair(ChaosProfile::BAD_WIFI, seed);
             for i in 0..300u32 {
-                a.send(B, Channel::Unreliable, i.to_le_bytes().to_vec()).unwrap();
+                a.send(B, Channel::Unreliable, i.to_le_bytes().to_vec())
+                    .unwrap();
                 c.advance(3);
                 a.pump();
             }
             c.advance(5_000);
             a.pump();
-            drain(&mut b).into_iter().map(|p| p.data).collect::<Vec<_>>()
+            drain(&mut b)
+                .into_iter()
+                .map(|p| p.data)
+                .collect::<Vec<_>>()
         };
         assert_eq!(run(5), run(5));
         assert_ne!(run(5), run(6));

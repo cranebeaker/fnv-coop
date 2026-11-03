@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::ActorState;
-use crate::authority::{AuthorityTable, Authority};
+use crate::authority::{Authority, AuthorityTable};
 use crate::avatar::dequant_pos;
 use crate::ids::{CellId, Epoch, FormId, PlayerId, Seq};
 
@@ -84,7 +84,10 @@ pub struct Ownership {
 }
 
 fn dist(state: &ActorState, loc: &PlayerLoc) -> f32 {
-    (0..3).map(|i| (dequant_pos(state.pos[i]) - loc.pos[i]).powi(2)).sum::<f32>().sqrt()
+    (0..3)
+        .map(|i| (dequant_pos(state.pos[i]) - loc.pos[i]).powi(2))
+        .sum::<f32>()
+        .sqrt()
 }
 
 impl Ownership {
@@ -158,9 +161,16 @@ impl Ownership {
                     Some((*p, dist(&rec.state, l) + rank))
                 })
                 .collect();
-            let best = here.iter().min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0))).map(|b| *b);
-            let cur = rec.owner.and_then(|o| here.iter().find(|(p, _)| *p == o).copied());
-            let follower = rec.follower_of.and_then(|f| here.iter().find(|(p, _)| *p == f).copied());
+            let best = here
+                .iter()
+                .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
+                .map(|b| *b);
+            let cur = rec
+                .owner
+                .and_then(|o| here.iter().find(|(p, _)| *p == o).copied());
+            let follower = rec
+                .follower_of
+                .and_then(|f| here.iter().find(|(p, _)| *p == f).copied());
             let want = if let Some(f) = follower {
                 Some(f.0)
             } else {
@@ -196,7 +206,12 @@ impl Ownership {
                 Some(p) => rec.epoch = auth.claim_actor(*actor, p),
                 None => auth.release_actor(*actor),
             }
-            out.push(OwnerChange { actor: *actor, old, new: want, epoch: rec.epoch });
+            out.push(OwnerChange {
+                actor: *actor,
+                old,
+                new: want,
+                epoch: rec.epoch,
+            });
         }
         out
     }
@@ -211,7 +226,9 @@ impl Ownership {
         seq: Seq,
         state: ActorState,
     ) -> StateVerdict {
-        let Some(rec) = self.actors.get_mut(&actor) else { return StateVerdict::Unknown };
+        let Some(rec) = self.actors.get_mut(&actor) else {
+            return StateVerdict::Unknown;
+        };
         match auth.authority_of(actor) {
             Authority::Actor { owner, epoch: cur } if owner == from => {
                 if cur != epoch {
@@ -241,13 +258,23 @@ mod tests {
     use crate::avatar::quant_pos;
 
     fn at(cell: u32, x: f32) -> ActorState {
-        ActorState { cell: CellId(cell), pos: [quant_pos(x), 0, 0], health: 100, ..Default::default() }
+        ActorState {
+            cell: CellId(cell),
+            pos: [quant_pos(x), 0, 0],
+            health: 100,
+            ..Default::default()
+        }
     }
     fn loc(cell: u32, x: f32) -> PlayerLoc {
-        PlayerLoc { cell: CellId(cell), pos: [x, 0.0, 0.0] }
+        PlayerLoc {
+            cell: CellId(cell),
+            pos: [x, 0.0, 0.0],
+        }
     }
     fn players(v: &[(u8, u32, f32)]) -> BTreeMap<PlayerId, PlayerLoc> {
-        v.iter().map(|(p, c, x)| (PlayerId(*p), loc(*c, *x))).collect()
+        v.iter()
+            .map(|(p, c, x)| (PlayerId(*p), loc(*c, *x)))
+            .collect()
     }
     const A: FormId = FormId(0x100);
 
@@ -255,18 +282,26 @@ mod tests {
     fn nearest_in_same_cell_owns() {
         let (mut o, mut auth) = (Ownership::new(), AuthorityTable::new());
         o.register(A, at(1, 0.0));
-        let ch = o.evaluate(0, &players(&[(0, 1, 900.0), (1, 1, 100.0), (2, 2, 0.0)]), &mut auth);
+        let ch = o.evaluate(
+            0,
+            &players(&[(0, 1, 900.0), (1, 1, 100.0), (2, 2, 0.0)]),
+            &mut auth,
+        );
         assert_eq!(ch.len(), 1);
         assert_eq!(ch[0].new, Some(PlayerId(1)));
         assert_eq!(o.get(A).unwrap().owner, Some(PlayerId(1)));
-        assert!(o.evaluate(10, &players(&[(0, 1, 900.0), (1, 1, 100.0)]), &mut auth).is_empty());
+        assert!(o
+            .evaluate(10, &players(&[(0, 1, 900.0), (1, 1, 100.0)]), &mut auth)
+            .is_empty());
     }
 
     #[test]
     fn dormant_when_nobody_in_cell() {
         let (mut o, mut auth) = (Ownership::new(), AuthorityTable::new());
         o.register(A, at(1, 0.0));
-        assert!(o.evaluate(0, &players(&[(1, 2, 0.0)]), &mut auth).is_empty());
+        assert!(o
+            .evaluate(0, &players(&[(1, 2, 0.0)]), &mut auth)
+            .is_empty());
         assert_eq!(o.get(A).unwrap().owner, None);
     }
 
@@ -275,16 +310,28 @@ mod tests {
         let (mut o, mut auth) = (Ownership::new(), AuthorityTable::new());
         o.register(A, at(1, 0.0));
         let c1 = o.evaluate(0, &players(&[(1, 1, 50.0), (2, 1, 500.0)]), &mut auth)[0];
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, c1.epoch, Seq(1), at(1, 1.0)), StateVerdict::Accepted);
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, c1.epoch, Seq(1), at(1, 1.0)),
+            StateVerdict::Accepted
+        );
         // player 1 leaves the cell: immediate handoff despite the hold time
         let c2 = o.evaluate(10, &players(&[(1, 2, 0.0), (2, 1, 500.0)]), &mut auth)[0];
         assert_eq!((c2.old, c2.new), (Some(PlayerId(1)), Some(PlayerId(2))));
         assert!(c2.epoch > c1.epoch);
         // late sample from the old owner is fenced
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, c1.epoch, Seq(2), at(1, 2.0)), StateVerdict::StaleEpoch);
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, c1.epoch, Seq(2), at(1, 2.0)),
+            StateVerdict::StaleEpoch
+        );
         assert_eq!(o.stale_rejected, 1);
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, c2.epoch, Seq(3), at(1, 2.0)), StateVerdict::NotOwner);
-        assert_eq!(o.on_state(&auth, PlayerId(2), A, c2.epoch, Seq(1), at(1, 2.0)), StateVerdict::Accepted);
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, c2.epoch, Seq(3), at(1, 2.0)),
+            StateVerdict::NotOwner
+        );
+        assert_eq!(
+            o.on_state(&auth, PlayerId(2), A, c2.epoch, Seq(1), at(1, 2.0)),
+            StateVerdict::Accepted
+        );
     }
 
     #[test]
@@ -293,14 +340,22 @@ mod tests {
         o.register(A, at(1, 0.0));
         o.evaluate(0, &players(&[(1, 1, 100.0), (2, 1, 600.0)]), &mut auth);
         // player 2 becomes slightly nearer: no change
-        assert!(o.evaluate(5000, &players(&[(1, 1, 400.0), (2, 1, 350.0)]), &mut auth).is_empty());
+        assert!(o
+            .evaluate(5000, &players(&[(1, 1, 400.0), (2, 1, 350.0)]), &mut auth)
+            .is_empty());
         // much nearer but too soon after the last change
         let mut o2 = Ownership::new();
         let mut a2 = AuthorityTable::new();
         o2.register(A, at(1, 0.0));
         o2.evaluate(100, &players(&[(1, 1, 100.0), (2, 1, 600.0)]), &mut a2);
-        assert!(o2.evaluate(200, &players(&[(1, 1, 900.0), (2, 1, 50.0)]), &mut a2).is_empty());
-        assert_eq!(o2.evaluate(1200, &players(&[(1, 1, 900.0), (2, 1, 50.0)]), &mut a2).len(), 1);
+        assert!(o2
+            .evaluate(200, &players(&[(1, 1, 900.0), (2, 1, 50.0)]), &mut a2)
+            .is_empty());
+        assert_eq!(
+            o2.evaluate(1200, &players(&[(1, 1, 900.0), (2, 1, 50.0)]), &mut a2)
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -329,10 +384,22 @@ mod tests {
         let (mut o, mut auth) = (Ownership::new(), AuthorityTable::new());
         o.register(A, at(1, 0.0));
         let e = o.evaluate(0, &players(&[(1, 1, 0.0)]), &mut auth)[0].epoch;
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, e, Seq(5), at(1, 0.0)), StateVerdict::Accepted);
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, e, Seq(5), at(1, 0.0)), StateVerdict::Old);
-        assert_eq!(o.on_state(&auth, PlayerId(1), A, e, Seq(4), at(1, 0.0)), StateVerdict::Old);
-        assert_eq!(o.on_state(&auth, PlayerId(1), FormId(9), e, Seq(9), at(1, 0.0)), StateVerdict::Unknown);
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, e, Seq(5), at(1, 0.0)),
+            StateVerdict::Accepted
+        );
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, e, Seq(5), at(1, 0.0)),
+            StateVerdict::Old
+        );
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), A, e, Seq(4), at(1, 0.0)),
+            StateVerdict::Old
+        );
+        assert_eq!(
+            o.on_state(&auth, PlayerId(1), FormId(9), e, Seq(9), at(1, 0.0)),
+            StateVerdict::Unknown
+        );
     }
 
     proptest::proptest! {

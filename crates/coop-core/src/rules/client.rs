@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use super::difficulty::Scaling;
+use super::difficulty::{Mode, Scaling};
 use super::{CancelReason, RulesMsg, VoteKind};
 use crate::ids::PlayerId;
 
@@ -70,11 +70,20 @@ pub struct RulesClient {
     pub reviving: Vec<(PlayerId, PlayerId)>,
     /// Latest host scaling.
     pub scaling: Scaling,
+    /// The host's campaign mode (`None` until the first scaling announcement).
+    pub mode: Option<Mode>,
+    /// The host's friendly-fire choice, from the same announcement.
+    pub friendly_fire: bool,
     /// Pending notices for the game.
     pub notices: Vec<Notice>,
 }
 
 impl RulesClient {
+    /// The player this client belongs to.
+    pub fn me(&self) -> PlayerId {
+        self.me
+    }
+
     /// A client for player `me`.
     pub fn new(me: PlayerId) -> Self {
         RulesClient {
@@ -83,6 +92,8 @@ impl RulesClient {
             downed: BTreeSet::new(),
             reviving: Vec::new(),
             scaling: Scaling::NEUTRAL,
+            mode: None,
+            friendly_fire: false,
             notices: Vec::new(),
         }
     }
@@ -90,7 +101,11 @@ impl RulesClient {
     /// Answers the open prompt.
     pub fn answer(&mut self, yes: bool) -> Option<RulesMsg> {
         match self.prompt.take()? {
-            Prompt::Barrier { id, .. } => Some(if yes { RulesMsg::BarrierReady { id } } else { RulesMsg::BarrierDecline { id } }),
+            Prompt::Barrier { id, .. } => Some(if yes {
+                RulesMsg::BarrierReady { id }
+            } else {
+                RulesMsg::BarrierDecline { id }
+            }),
             Prompt::Vote { id, .. } => Some(RulesMsg::VoteCast { id, yes }),
         }
     }
@@ -110,7 +125,12 @@ impl RulesClient {
                     self.prompt = Some(Prompt::Barrier { id, tag });
                 }
             }
-            RulesMsg::BarrierResult { id, tag, released, reason } => {
+            RulesMsg::BarrierResult {
+                id,
+                tag,
+                released,
+                reason,
+            } => {
                 if matches!(self.prompt, Some(Prompt::Barrier { id: i, .. }) if i == id) {
                     self.prompt = None;
                 }
@@ -120,21 +140,42 @@ impl RulesClient {
                     Notice::BarrierCancelled(tag, reason.unwrap_or(CancelReason::Timeout))
                 });
             }
-            RulesMsg::VoteOpen { id, kind, param, proposer } => {
+            RulesMsg::VoteOpen {
+                id,
+                kind,
+                param,
+                proposer,
+            } => {
                 if proposer != self.me {
-                    self.prompt = Some(Prompt::Vote { id, kind, param, proposer });
+                    self.prompt = Some(Prompt::Vote {
+                        id,
+                        kind,
+                        param,
+                        proposer,
+                    });
                 }
             }
-            RulesMsg::VoteResult { id, kind, param, approved } => {
+            RulesMsg::VoteResult {
+                id,
+                kind,
+                param,
+                approved,
+            } => {
                 if matches!(self.prompt, Some(Prompt::Vote { id: i, .. }) if i == id) {
                     self.prompt = None;
                 }
-                self.notices.push(Notice::VoteDone { kind, param, approved });
+                self.notices.push(Notice::VoteDone {
+                    kind,
+                    param,
+                    approved,
+                });
             }
             RulesMsg::Downed { player } => {
                 self.downed.insert(player);
             }
-            RulesMsg::Revived { player, health_pct, .. } => {
+            RulesMsg::Revived {
+                player, health_pct, ..
+            } => {
                 self.downed.remove(&player);
                 if player == self.me {
                     self.notices.push(Notice::Revived(health_pct));
@@ -154,7 +195,15 @@ impl RulesClient {
                 }
             }
             RulesMsg::Wipe => self.notices.push(Notice::Wipe),
-            RulesMsg::ScalingSet { players, mode } => self.scaling = Scaling::for_party(players as u32, mode),
+            RulesMsg::ScalingSet {
+                players,
+                mode,
+                friendly_fire,
+            } => {
+                self.scaling = Scaling::for_party(players as u32, mode);
+                self.mode = Some(mode);
+                self.friendly_fire = friendly_fire;
+            }
             _ => {}
         }
     }
@@ -167,21 +216,42 @@ mod tests {
     #[test]
     fn barrier_prompt_and_answer() {
         let mut c = RulesClient::new(PlayerId(1));
-        c.on_msg(RulesMsg::BarrierOpen { id: 3, tag: 9, required: vec![PlayerId(0), PlayerId(1)] });
+        c.on_msg(RulesMsg::BarrierOpen {
+            id: 3,
+            tag: 9,
+            required: vec![PlayerId(0), PlayerId(1)],
+        });
         assert_eq!(c.answer(true), Some(RulesMsg::BarrierReady { id: 3 }));
         assert!(c.answer(true).is_none());
-        c.on_msg(RulesMsg::BarrierOpen { id: 4, tag: 9, required: vec![PlayerId(1)] });
+        c.on_msg(RulesMsg::BarrierOpen {
+            id: 4,
+            tag: 9,
+            required: vec![PlayerId(1)],
+        });
         assert_eq!(c.answer(false), Some(RulesMsg::BarrierDecline { id: 4 }));
     }
 
     #[test]
     fn not_required_gets_no_prompt_and_result_clears_it() {
         let mut c = RulesClient::new(PlayerId(5));
-        c.on_msg(RulesMsg::BarrierOpen { id: 1, tag: 1, required: vec![PlayerId(0)] });
+        c.on_msg(RulesMsg::BarrierOpen {
+            id: 1,
+            tag: 1,
+            required: vec![PlayerId(0)],
+        });
         assert!(c.prompt.is_none());
         let mut c = RulesClient::new(PlayerId(0));
-        c.on_msg(RulesMsg::BarrierOpen { id: 1, tag: 1, required: vec![PlayerId(0)] });
-        c.on_msg(RulesMsg::BarrierResult { id: 1, tag: 1, released: true, reason: None });
+        c.on_msg(RulesMsg::BarrierOpen {
+            id: 1,
+            tag: 1,
+            required: vec![PlayerId(0)],
+        });
+        c.on_msg(RulesMsg::BarrierResult {
+            id: 1,
+            tag: 1,
+            released: true,
+            reason: None,
+        });
         assert!(c.prompt.is_none());
         assert_eq!(c.notices, vec![Notice::BarrierPassed(1)]);
     }
@@ -189,23 +259,49 @@ mod tests {
     #[test]
     fn proposer_is_not_prompted() {
         let mut c = RulesClient::new(PlayerId(1));
-        c.on_msg(RulesMsg::VoteOpen { id: 1, kind: VoteKind::Sleep, param: 8, proposer: PlayerId(1) });
+        c.on_msg(RulesMsg::VoteOpen {
+            id: 1,
+            kind: VoteKind::Sleep,
+            param: 8,
+            proposer: PlayerId(1),
+        });
         assert!(c.prompt.is_none());
-        c.on_msg(RulesMsg::VoteOpen { id: 2, kind: VoteKind::Sleep, param: 8, proposer: PlayerId(0) });
-        assert_eq!(c.answer(true), Some(RulesMsg::VoteCast { id: 2, yes: true }));
+        c.on_msg(RulesMsg::VoteOpen {
+            id: 2,
+            kind: VoteKind::Sleep,
+            param: 8,
+            proposer: PlayerId(0),
+        });
+        assert_eq!(
+            c.answer(true),
+            Some(RulesMsg::VoteCast { id: 2, yes: true })
+        );
     }
 
     #[test]
     fn downed_revive_respawn_tracking() {
         let mut c = RulesClient::new(PlayerId(1));
-        c.on_msg(RulesMsg::Downed { player: PlayerId(1) });
-        c.on_msg(RulesMsg::ReviveProgress { target: PlayerId(1), helper: Some(PlayerId(0)) });
+        c.on_msg(RulesMsg::Downed {
+            player: PlayerId(1),
+        });
+        c.on_msg(RulesMsg::ReviveProgress {
+            target: PlayerId(1),
+            helper: Some(PlayerId(0)),
+        });
         assert_eq!(c.reviving, vec![(PlayerId(1), PlayerId(0))]);
-        c.on_msg(RulesMsg::Revived { player: PlayerId(1), helper: PlayerId(0), health_pct: 30 });
+        c.on_msg(RulesMsg::Revived {
+            player: PlayerId(1),
+            helper: PlayerId(0),
+            health_pct: 30,
+        });
         assert!(c.downed.is_empty());
         assert_eq!(c.notices, vec![Notice::Revived(30)]);
-        c.on_msg(RulesMsg::Downed { player: PlayerId(0) });
-        c.on_msg(RulesMsg::Respawn { player: PlayerId(0) });
+        c.on_msg(RulesMsg::Downed {
+            player: PlayerId(0),
+        });
+        c.on_msg(RulesMsg::Respawn {
+            player: PlayerId(0),
+        });
         assert!(c.downed.is_empty());
         assert_eq!(c.notices.len(), 1, "only our own respawn notifies");
     }

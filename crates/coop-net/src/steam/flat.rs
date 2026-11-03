@@ -117,15 +117,21 @@ pub const LEN_LOBBY_ENTER: usize = 24;
 pub const LEN_LOBBY_CHAT_UPDATE: usize = 32;
 
 fn u64_at(b: &[u8], off: usize) -> Option<u64> {
-    b.get(off..off + 8).map(|s| u64::from_le_bytes(s.try_into().unwrap()))
+    b.get(off..off + 8)
+        .map(|s| u64::from_le_bytes(s.try_into().unwrap()))
 }
 fn u32_at(b: &[u8], off: usize) -> Option<u32> {
-    b.get(off..off + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+    b.get(off..off + 4)
+        .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
 }
 
 /// Decodes a `SteamAPICallCompleted_t` block.
 pub fn decode_call_completed(b: &[u8]) -> Option<ApiCallCompleted> {
-    Some(ApiCallCompleted { call: u64_at(b, 0)?, callback: u32_at(b, 8)? as i32, param_size: u32_at(b, 12)? })
+    Some(ApiCallCompleted {
+        call: u64_at(b, 0)?,
+        callback: u32_at(b, 8)? as i32,
+        param_size: u32_at(b, 12)?,
+    })
 }
 
 /// Pure fallback decoder of a `SteamNetworkingIdentity` holding a SteamID
@@ -141,27 +147,44 @@ pub fn identity_steam_id(b: &[u8]) -> u64 {
 /// Decodes one callback by id. `ident` extracts a SteamID64 from identity bytes.
 pub fn decode_callback(id: i32, b: &[u8], ident: &dyn Fn(&[u8]) -> u64) -> Option<SteamEvent> {
     match id {
-        CB_LOBBY_CREATED if b.len() >= LEN_LOBBY_CREATED => {
-            Some(SteamEvent::LobbyCreated { result: u32_at(b, 0)? as i32, lobby: u64_at(b, LOBBY_CREATED_LOBBY)? })
-        }
-        CB_LOBBY_ENTER if b.len() >= LEN_LOBBY_ENTER => {
-            Some(SteamEvent::LobbyEnter { lobby: u64_at(b, 0)?, response: u32_at(b, LOBBY_ENTER_RESPONSE)? })
-        }
-        CB_LOBBY_CHAT_UPDATE if b.len() >= LEN_LOBBY_CHAT_UPDATE => Some(SteamEvent::LobbyChatUpdate {
-            lobby: u64_at(b, 0)?,
-            user_changed: u64_at(b, 8)?,
-            making_change: u64_at(b, 16)?,
-            state: u32_at(b, CHAT_UPDATE_STATE)?,
+        CB_LOBBY_CREATED if b.len() >= LEN_LOBBY_CREATED => Some(SteamEvent::LobbyCreated {
+            result: u32_at(b, 0)? as i32,
+            lobby: u64_at(b, LOBBY_CREATED_LOBBY)?,
         }),
-        CB_GAME_LOBBY_JOIN_REQUESTED if b.len() >= 16 => Some(SteamEvent::JoinRequested { lobby: u64_at(b, 0)?, friend: u64_at(b, 8)? }),
+        CB_LOBBY_ENTER if b.len() >= LEN_LOBBY_ENTER => Some(SteamEvent::LobbyEnter {
+            lobby: u64_at(b, 0)?,
+            response: u32_at(b, LOBBY_ENTER_RESPONSE)?,
+        }),
+        CB_LOBBY_CHAT_UPDATE if b.len() >= LEN_LOBBY_CHAT_UPDATE => {
+            Some(SteamEvent::LobbyChatUpdate {
+                lobby: u64_at(b, 0)?,
+                user_changed: u64_at(b, 8)?,
+                making_change: u64_at(b, 16)?,
+                state: u32_at(b, CHAT_UPDATE_STATE)?,
+            })
+        }
+        CB_GAME_LOBBY_JOIN_REQUESTED if b.len() >= 16 => Some(SteamEvent::JoinRequested {
+            lobby: u64_at(b, 0)?,
+            friend: u64_at(b, 8)?,
+        }),
         CB_RICH_PRESENCE_JOIN_REQUESTED if b.len() >= 16 => {
             let s = &b[8..];
             let end = s.iter().position(|&c| c == 0).unwrap_or(s.len()).min(256);
-            Some(SteamEvent::RichPresenceJoin { friend: u64_at(b, 0)?, connect: String::from_utf8_lossy(&s[..end]).into_owned() })
+            Some(SteamEvent::RichPresenceJoin {
+                friend: u64_at(b, 0)?,
+                connect: String::from_utf8_lossy(&s[..end]).into_owned(),
+            })
         }
-        CB_LOBBY_INVITE if b.len() >= 16 => Some(SteamEvent::LobbyInvite { inviter: u64_at(b, 0)?, lobby: u64_at(b, 8)? }),
-        CB_SESSION_REQUEST if b.len() >= IDENTITY_SIZE => Some(SteamEvent::SessionRequest { from: ident(&b[..IDENTITY_SIZE]) }),
-        CB_SESSION_FAILED if b.len() >= IDENTITY_SIZE => Some(SteamEvent::SessionFailed { from: ident(&b[..IDENTITY_SIZE]) }),
+        CB_LOBBY_INVITE if b.len() >= 16 => Some(SteamEvent::LobbyInvite {
+            inviter: u64_at(b, 0)?,
+            lobby: u64_at(b, 8)?,
+        }),
+        CB_SESSION_REQUEST if b.len() >= IDENTITY_SIZE => Some(SteamEvent::SessionRequest {
+            from: ident(&b[..IDENTITY_SIZE]),
+        }),
+        CB_SESSION_FAILED if b.len() >= IDENTITY_SIZE => Some(SteamEvent::SessionFailed {
+            from: ident(&b[..IDENTITY_SIZE]),
+        }),
         _ => None,
     }
 }
@@ -177,8 +200,14 @@ pub const MSG_SIZE_OFFSET: usize = 8;
 
 /// Probes `msg` (the message struct bytes) for a non-zero sender SteamID,
 /// trying `preferred` first, then the candidates. Returns `(offset, id)`.
-pub fn probe_sender(msg: &[u8], preferred: Option<usize>, ident: &dyn Fn(&[u8]) -> u64) -> Option<(usize, u64)> {
-    let order = preferred.into_iter().chain(SENDER_OFFSET_CANDIDATES.iter().copied());
+pub fn probe_sender(
+    msg: &[u8],
+    preferred: Option<usize>,
+    ident: &dyn Fn(&[u8]) -> u64,
+) -> Option<(usize, u64)> {
+    let order = preferred
+        .into_iter()
+        .chain(SENDER_OFFSET_CANDIDATES.iter().copied());
     for off in order {
         if let Some(slice) = msg.get(off..off + IDENTITY_SIZE) {
             let id = ident(slice);
@@ -231,7 +260,8 @@ pub struct FlatLib {
     pub fr_game_played: unsafe extern "C" fn(P, u64, *mut FriendGameInfo) -> bool,
     pub ident_set_steam_id: unsafe extern "C" fn(*mut c_void, u64),
     pub ident_get_steam_id: unsafe extern "C" fn(*const c_void) -> u64,
-    pub msgs_send: unsafe extern "C" fn(P, *const c_void, *const c_void, u32, c_int, c_int) -> c_int,
+    pub msgs_send:
+        unsafe extern "C" fn(P, *const c_void, *const c_void, u32, c_int, c_int) -> c_int,
     pub msgs_receive: unsafe extern "C" fn(P, c_int, *mut *mut c_void, c_int) -> c_int,
     pub msgs_accept: unsafe extern "C" fn(P, *const c_void) -> bool,
     pub msgs_close: unsafe extern "C" fn(P, *const c_void) -> bool,
@@ -257,7 +287,8 @@ impl FlatLib {
             return Err(SteamError::DllMissing(path.to_path_buf()));
         }
         // SAFETY: loading Valve's DLL runs its DllMain; that is the point.
-        let lib = unsafe { Library::new(path) }.map_err(|e| SteamError::LoadFailed(e.to_string()))?;
+        let lib =
+            unsafe { Library::new(path) }.map_err(|e| SteamError::LoadFailed(e.to_string()))?;
         // SAFETY: every symbol type below matches the flat API declarations.
         unsafe {
             Ok(FlatLib {
@@ -289,7 +320,10 @@ impl FlatLib {
                 mm_invite: sym(&lib, "SteamAPI_ISteamMatchmaking_InviteUserToLobby")?,
                 fr_set_rich_presence: sym(&lib, "SteamAPI_ISteamFriends_SetRichPresence")?,
                 fr_clear_rich_presence: sym(&lib, "SteamAPI_ISteamFriends_ClearRichPresence")?,
-                fr_overlay_invite: sym(&lib, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog")?,
+                fr_overlay_invite: sym(
+                    &lib,
+                    "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog",
+                )?,
                 fr_friend_count: sym(&lib, "SteamAPI_ISteamFriends_GetFriendCount")?,
                 fr_friend_by_index: sym(&lib, "SteamAPI_ISteamFriends_GetFriendByIndex")?,
                 fr_persona_state: sym(&lib, "SteamAPI_ISteamFriends_GetFriendPersonaState")?,
@@ -298,11 +332,23 @@ impl FlatLib {
                 ident_set_steam_id: sym(&lib, "SteamAPI_SteamNetworkingIdentity_SetSteamID64")?,
                 ident_get_steam_id: sym(&lib, "SteamAPI_SteamNetworkingIdentity_GetSteamID64")?,
                 msgs_send: sym(&lib, "SteamAPI_ISteamNetworkingMessages_SendMessageToUser")?,
-                msgs_receive: sym(&lib, "SteamAPI_ISteamNetworkingMessages_ReceiveMessagesOnChannel")?,
-                msgs_accept: sym(&lib, "SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser")?,
-                msgs_close: sym(&lib, "SteamAPI_ISteamNetworkingMessages_CloseSessionWithUser")?,
+                msgs_receive: sym(
+                    &lib,
+                    "SteamAPI_ISteamNetworkingMessages_ReceiveMessagesOnChannel",
+                )?,
+                msgs_accept: sym(
+                    &lib,
+                    "SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser",
+                )?,
+                msgs_close: sym(
+                    &lib,
+                    "SteamAPI_ISteamNetworkingMessages_CloseSessionWithUser",
+                )?,
                 msg_release: sym(&lib, "SteamAPI_SteamNetworkingMessage_t_Release")?,
-                utils_set_i32: sym(&lib, "SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32")?,
+                utils_set_i32: sym(
+                    &lib,
+                    "SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32",
+                )?,
                 _lib: lib,
             })
         }
@@ -346,12 +392,24 @@ mod tests {
         let mut b = vec![0u8; 16];
         b[0..4].copy_from_slice(&1u32.to_le_bytes());
         b[8..16].copy_from_slice(&0x1234_5678_9abc_def0u64.to_le_bytes());
-        assert_eq!(decode_callback(CB_LOBBY_CREATED, &b, &identity_steam_id), Some(SteamEvent::LobbyCreated { result: 1, lobby: 0x1234_5678_9abc_def0 }));
+        assert_eq!(
+            decode_callback(CB_LOBBY_CREATED, &b, &identity_steam_id),
+            Some(SteamEvent::LobbyCreated {
+                result: 1,
+                lobby: 0x1234_5678_9abc_def0
+            })
+        );
 
         let mut e = vec![0u8; 24];
         e[0..8].copy_from_slice(&77u64.to_le_bytes());
         e[16..20].copy_from_slice(&1u32.to_le_bytes());
-        assert_eq!(decode_callback(CB_LOBBY_ENTER, &e, &identity_steam_id), Some(SteamEvent::LobbyEnter { lobby: 77, response: 1 }));
+        assert_eq!(
+            decode_callback(CB_LOBBY_ENTER, &e, &identity_steam_id),
+            Some(SteamEvent::LobbyEnter {
+                lobby: 77,
+                response: 1
+            })
+        );
 
         let mut c = vec![0u8; 32];
         c[0..8].copy_from_slice(&5u64.to_le_bytes());
@@ -360,10 +418,18 @@ mod tests {
         c[24..28].copy_from_slice(&4u32.to_le_bytes());
         assert_eq!(
             decode_callback(CB_LOBBY_CHAT_UPDATE, &c, &identity_steam_id),
-            Some(SteamEvent::LobbyChatUpdate { lobby: 5, user_changed: 6, making_change: 7, state: 4 })
+            Some(SteamEvent::LobbyChatUpdate {
+                lobby: 5,
+                user_changed: 6,
+                making_change: 7,
+                state: 4
+            })
         );
         // Short blocks are ignored, not panicked on.
-        assert_eq!(decode_callback(CB_LOBBY_ENTER, &e[..10], &identity_steam_id), None);
+        assert_eq!(
+            decode_callback(CB_LOBBY_ENTER, &e[..10], &identity_steam_id),
+            None
+        );
         assert_eq!(decode_callback(9999, &e, &identity_steam_id), None);
     }
 
@@ -372,15 +438,30 @@ mod tests {
         let mut b = vec![0u8; 16];
         b[0..8].copy_from_slice(&11u64.to_le_bytes());
         b[8..16].copy_from_slice(&22u64.to_le_bytes());
-        assert_eq!(decode_callback(CB_GAME_LOBBY_JOIN_REQUESTED, &b, &identity_steam_id), Some(SteamEvent::JoinRequested { lobby: 11, friend: 22 }));
-        assert_eq!(decode_callback(CB_LOBBY_INVITE, &b, &identity_steam_id), Some(SteamEvent::LobbyInvite { inviter: 11, lobby: 22 }));
+        assert_eq!(
+            decode_callback(CB_GAME_LOBBY_JOIN_REQUESTED, &b, &identity_steam_id),
+            Some(SteamEvent::JoinRequested {
+                lobby: 11,
+                friend: 22
+            })
+        );
+        assert_eq!(
+            decode_callback(CB_LOBBY_INVITE, &b, &identity_steam_id),
+            Some(SteamEvent::LobbyInvite {
+                inviter: 11,
+                lobby: 22
+            })
+        );
         let mut r = vec![0u8; 264];
         r[0..8].copy_from_slice(&9u64.to_le_bytes());
         let s = b"+connect_lobby 12345";
         r[8..8 + s.len()].copy_from_slice(s);
         assert_eq!(
             decode_callback(CB_RICH_PRESENCE_JOIN_REQUESTED, &r, &identity_steam_id),
-            Some(SteamEvent::RichPresenceJoin { friend: 9, connect: "+connect_lobby 12345".into() })
+            Some(SteamEvent::RichPresenceJoin {
+                friend: 9,
+                connect: "+connect_lobby 12345".into()
+            })
         );
     }
 
@@ -388,8 +469,14 @@ mod tests {
     fn decode_session_callbacks_use_identity_at_zero() {
         let mut b = ident_buf(4242);
         b.resize(IDENTITY_SIZE + 8, 0);
-        assert_eq!(decode_callback(CB_SESSION_REQUEST, &b, &identity_steam_id), Some(SteamEvent::SessionRequest { from: 4242 }));
-        assert_eq!(decode_callback(CB_SESSION_FAILED, &b, &identity_steam_id), Some(SteamEvent::SessionFailed { from: 4242 }));
+        assert_eq!(
+            decode_callback(CB_SESSION_REQUEST, &b, &identity_steam_id),
+            Some(SteamEvent::SessionRequest { from: 4242 })
+        );
+        assert_eq!(
+            decode_callback(CB_SESSION_FAILED, &b, &identity_steam_id),
+            Some(SteamEvent::SessionFailed { from: 4242 })
+        );
     }
 
     #[test]
@@ -398,7 +485,14 @@ mod tests {
         b[0..8].copy_from_slice(&99u64.to_le_bytes());
         b[8..12].copy_from_slice(&513i32.to_le_bytes());
         b[12..16].copy_from_slice(&16u32.to_le_bytes());
-        assert_eq!(decode_call_completed(&b), Some(ApiCallCompleted { call: 99, callback: 513, param_size: 16 }));
+        assert_eq!(
+            decode_call_completed(&b),
+            Some(ApiCallCompleted {
+                call: 99,
+                callback: 513,
+                param_size: 16
+            })
+        );
         assert_eq!(decode_call_completed(&b[..8]), None);
     }
 
@@ -413,7 +507,10 @@ mod tests {
         m[12..12 + IDENTITY_SIZE].copy_from_slice(&ident_buf(888));
         assert_eq!(probe_sender(&m, None, &identity_steam_id), Some((12, 888)));
         // A remembered winner is tried first.
-        assert_eq!(probe_sender(&m, Some(12), &identity_steam_id), Some((12, 888)));
+        assert_eq!(
+            probe_sender(&m, Some(12), &identity_steam_id),
+            Some((12, 888))
+        );
         // Neither: no sender, the message must be dropped and logged by the caller.
         assert_eq!(probe_sender(&[0u8; 200], None, &identity_steam_id), None);
         assert_eq!(probe_sender(&[0u8; 10], None, &identity_steam_id), None);

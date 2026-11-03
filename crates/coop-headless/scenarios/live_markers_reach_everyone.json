@@ -1,0 +1,86 @@
+{
+  "name": "live_markers_reach_everyone",
+  "description": "Four peers. The host and the third guest set waypoints early. At 10 s every peer pings. A ping lives 8 s, so the pings are still up at the final dump (6 s later). The party has six markers. Each peer sees all markers but its own: the host and the third guest see 4 (one waypoint and three pings), the first and second guests see 5 (two waypoints and three pings).",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 76,
+  "duration_s": 12,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop waypoint 10 20"
+      },
+      {
+        "at": 10,
+        "run": "coop ping 300"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "script": [
+        {
+          "at": 10,
+          "run": "coop ping 400"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 10,
+          "run": "coop ping 500"
+        }
+      ]
+    },
+    {
+      "script": [
+        {
+          "at": 4,
+          "run": "coop waypoint 40 50"
+        },
+        {
+          "at": 10,
+          "run": "coop ping 200"
+        }
+      ]
+    }
+  ],
+  "expect": [
+    {
+      "id": "host-sees-4",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 4,
+      "on": "host"
+    },
+    {
+      "id": "guest-sees-5",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 5,
+      "on": "guest"
+    },
+    {
+      "id": "guest2-sees-5",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 5,
+      "on": "guest2"
+    },
+    {
+      "id": "guest3-sees-4",
+      "path": "live.markers",
+      "op": "eq",
+      "value": 4,
+      "on": "guest3"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

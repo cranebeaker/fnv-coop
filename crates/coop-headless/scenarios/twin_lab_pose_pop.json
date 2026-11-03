@@ -1,0 +1,43 @@
+{
+  "name": "twin_lab_pose_pop",
+  "description": "MUTATION TWIN of lab_pose_pop: the host never jumps (no planted glitch). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 14,
+  "settle_s": 4,
+  "expect_fail": true,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-pop",
+      "path": "live.glitch.pops",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-host-jump",
+      "path": "positions.host",
+      "op": "dist_from",
+      "from": [
+        2352.0,
+        1603.6,
+        7360.0
+      ],
+      "cmp": "ge",
+      "value": 1000,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

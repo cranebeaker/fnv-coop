@@ -1242,7 +1242,7 @@ pub fn play(
             Event::PlayerControls(on) => {
                 format!("player controls {}", if *on { "on" } else { "off" })
             }
-            Event::MoveTo { what, to } => format!(
+            Event::MoveTo { what, to, .. } => format!(
                 "{} moved to {}",
                 describe_id(order, *what),
                 describe_id(order, *to)

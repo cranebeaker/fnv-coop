@@ -1,0 +1,39 @@
+{
+  "name": "twin_live_guest_hits_essential",
+  "description": "MUTATION TWIN of live_guest_hits_essential: the guest sends no hits, so the guest's hit count stays 0. Marked expect_fail. The alive checks cannot fail here: live_guest_kills_npc (same 100000 hits, a gecko that is not essential) shows that these hits kill a person who has no protection.",
+  "expect_fail": true,
+  "cell": "NellisMuseum",
+  "network": "good_wifi",
+  "seed": 53,
+  "duration_s": 16,
+  "settle_s": 5,
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "alive-host",
+      "path": "dead.NellisPeteREF",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "alive-guest",
+      "path": "dead.NellisPeteREF",
+      "op": "absent",
+      "on": "guest"
+    },
+    {
+      "id": "hits",
+      "path": "live.hits_sent",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

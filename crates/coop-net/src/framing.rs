@@ -80,7 +80,11 @@ impl Default for Reassembler {
 impl Reassembler {
     /// A reassembler capping messages at `max_message` bytes.
     pub fn new(max_message: usize) -> Self {
-        Reassembler { buf: Vec::new(), active: false, max_message }
+        Reassembler {
+            buf: Vec::new(),
+            active: false,
+            max_message,
+        }
     }
 
     /// True while a fragmented message is half received.
@@ -136,7 +140,10 @@ impl Reassembler {
 /// Frames an unreliable payload: 4-byte little endian sequence then data.
 pub fn encode_unreliable(seq: u32, data: &[u8]) -> Result<Vec<u8>, FrameError> {
     if data.len() > MAX_UNRELIABLE {
-        return Err(FrameError::UnreliableTooLarge { len: data.len(), max: MAX_UNRELIABLE });
+        return Err(FrameError::UnreliableTooLarge {
+            len: data.len(),
+            max: MAX_UNRELIABLE,
+        });
     }
     let mut f = Vec::with_capacity(data.len() + 4);
     f.extend_from_slice(&seq.to_le_bytes());
@@ -149,7 +156,10 @@ pub fn decode_unreliable(frame: &[u8]) -> Result<(u32, &[u8]), FrameError> {
     if frame.len() < 4 {
         return Err(FrameError::Malformed);
     }
-    Ok((u32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]), &frame[4..]))
+    Ok((
+        u32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]),
+        &frame[4..],
+    ))
 }
 
 /// Serial-number comparison: true if `a` is newer than `b` (wrapping).
@@ -195,7 +205,12 @@ mod tests {
 
     #[test]
     fn exact_multiple_boundaries() {
-        for len in [MAX_FRAGMENT - 1, MAX_FRAGMENT, MAX_FRAGMENT + 1, 2 * MAX_FRAGMENT] {
+        for len in [
+            MAX_FRAGMENT - 1,
+            MAX_FRAGMENT,
+            MAX_FRAGMENT + 1,
+            2 * MAX_FRAGMENT,
+        ] {
             let msg: Vec<u8> = (0..len).map(|i| i as u8).collect();
             let mut r = Reassembler::default();
             let mut out = None;
@@ -241,7 +256,10 @@ mod tests {
     #[test]
     fn unreliable_limit() {
         assert!(encode_unreliable(1, &[0; MAX_UNRELIABLE]).is_ok());
-        assert!(matches!(encode_unreliable(1, &[0; MAX_UNRELIABLE + 1]), Err(FrameError::UnreliableTooLarge { .. })));
+        assert!(matches!(
+            encode_unreliable(1, &[0; MAX_UNRELIABLE + 1]),
+            Err(FrameError::UnreliableTooLarge { .. })
+        ));
         let f = encode_unreliable(0xdead_beef, b"xyz").unwrap();
         assert_eq!(decode_unreliable(&f).unwrap(), (0xdead_beef, &b"xyz"[..]));
         assert!(decode_unreliable(&[1, 2]).is_err());

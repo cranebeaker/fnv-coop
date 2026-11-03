@@ -1,0 +1,85 @@
+{
+  "name": "twin_live_npc_targets_players",
+  "description": "MUTATION TWIN of live_npc_targets_players: the guest stays far from both geckos and never hits gecko 2, so both geckos keep attending to the host. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 69,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2,
+        "run": "VCG02Gecko2REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "coop teleport 2289 1700 7360"
+      },
+      {
+        "at": 4,
+        "run": "VCG02Gecko2REF.MoveTo player"
+      },
+      {
+        "at": 4.5,
+        "run": "VCG02Gecko1REF.ForceActorValue Health 5000"
+      },
+      {
+        "at": 4.5,
+        "run": "VCG02Gecko2REF.ForceActorValue Health 5000"
+      },
+      {
+        "at": 5,
+        "run": "VCG02Gecko1REF.StartCombat player"
+      },
+      {
+        "at": 5,
+        "run": "VCG02Gecko2REF.StartCombat player"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2289 3700 7360"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "distance-gecko1-on-guest",
+      "path": "combat.targets.VCG02Gecko1REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "both"
+    },
+    {
+      "id": "threat-gecko2-on-guest",
+      "path": "combat.targets.VCG02Gecko2REF",
+      "op": "eq",
+      "value": "guest",
+      "on": "both"
+    },
+    {
+      "id": "gecko2-alive",
+      "path": "dead.VCG02Gecko2REF",
+      "op": "absent",
+      "on": "host"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

@@ -650,7 +650,8 @@ pub fn animate_actors(
         .is_some_and(|c| c.0.as_ref().is_some_and(|t| !t.is_line_only()));
     if menu_stops_animation(
         menus.as_ref().is_some_and(|m| m.is_open()) && crate::coop_live::menus_freeze_time(),
-        menus.as_ref().is_some_and(|m| m.only_game_menus()) && crate::coop_live::menus_freeze_time(),
+        menus.as_ref().is_some_and(|m| m.only_game_menus())
+            && crate::coop_live::menus_freeze_time(),
         in_dialogue,
         drawn.as_ref().map_or(&[][..], |d| &d.1[..]),
     ) {

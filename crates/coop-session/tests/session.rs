@@ -73,21 +73,46 @@ fn cfg(name: &str, t: Box<dyn Transport>, chaos: Option<(&'static str, u64)>) ->
 }
 
 impl<'a> Rig<'a> {
-    fn new(order: &'a LoadOrder, scripts: &'a ScriptCache, profile: Option<&'static str>) -> Rig<'a> {
+    fn new(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        profile: Option<&'static str>,
+    ) -> Rig<'a> {
         let net = LoopbackNet::new();
         let cut = Rc::new(Cell::new(false));
-        let ep = Cut { inner: net.endpoint(PlayerId::HOST), cut: cut.clone() };
+        let ep = Cut {
+            inner: net.endpoint(PlayerId::HOST),
+            cut: cut.clone(),
+        };
         let s = Session::host(cfg("Host", Box::new(ep), profile.map(|p| (p, 1)))).unwrap();
-        Rig { order, scripts, net, host: Peer { s, gs: GameState::new(order), cut }, guests: vec![], profile }
+        Rig {
+            order,
+            scripts,
+            net,
+            host: Peer {
+                s,
+                gs: GameState::new(order),
+                cut,
+            },
+            guests: vec![],
+            profile,
+        }
     }
 
     fn add_guest(&mut self, name: &str) -> usize {
         let id = PlayerId(self.guests.len() as u8 + 1);
         let cut = Rc::new(Cell::new(false));
-        let ep = Cut { inner: self.net.endpoint(id), cut: cut.clone() };
+        let ep = Cut {
+            inner: self.net.endpoint(id),
+            cut: cut.clone(),
+        };
         let chaos = self.profile.map(|p| (p, 10 + id.0 as u64));
         let s = Session::join(cfg(name, Box::new(ep), chaos)).unwrap();
-        self.guests.push(Peer { s, gs: GameState::new(self.order), cut });
+        self.guests.push(Peer {
+            s,
+            gs: GameState::new(self.order),
+            cut,
+        });
         self.guests.len() - 1
     }
 
@@ -110,7 +135,9 @@ impl<'a> Rig<'a> {
 
     fn same(&self) -> bool {
         let h = self.host.gs.shard_hashes();
-        self.guests.iter().all(|g| g.s.is_connected() && g.gs.shard_hashes() == h)
+        self.guests
+            .iter()
+            .all(|g| g.s.is_connected() && g.gs.shard_hashes() == h)
     }
 
     fn settle(&mut self) -> bool {
@@ -145,8 +172,12 @@ fn host_and_two_guests_converge_on_a_perfect_link() {
     rig.add_guest("Bo");
     rig.frames(20);
     rig.host_plays();
-    rig.host.gs.move_item(&order, PLAYER_REF, FormId(DOC_REF), FormId(CAPS), 5);
-    rig.host.gs.emit(world::coop::Domain::Items, FormId(DOC_REF));
+    rig.host
+        .gs
+        .move_item(&order, PLAYER_REF, FormId(DOC_REF), FormId(CAPS), 5);
+    rig.host
+        .gs
+        .emit(world::coop::Domain::Items, FormId(DOC_REF));
     assert!(rig.settle());
     for g in &rig.guests {
         assert_eq!(g.gs.stages.get(&FormId(QUEST)), Some(&20));
@@ -160,9 +191,23 @@ fn host_and_two_guests_converge_on_a_perfect_link() {
     assert_eq!(names, ["Host", "Ann", "Bo"]);
     assert_eq!(rig.guests[0].s.status().peers.len(), 2);
     let ev = rig.host.s.drain_events();
-    assert_eq!(ev.iter().filter(|e| matches!(e, Event::PeerJoined(..))).count(), 2);
-    assert!(rig.guests[0].s.status().line().starts_with("CO-OP guest | ping"));
-    assert!(rig.host.s.status().line().starts_with("CO-OP host | 2 guests"));
+    assert_eq!(
+        ev.iter()
+            .filter(|e| matches!(e, Event::PeerJoined(..)))
+            .count(),
+        2
+    );
+    assert!(rig.guests[0]
+        .s
+        .status()
+        .line()
+        .starts_with("CO-OP guest | ping"));
+    assert!(rig
+        .host
+        .s
+        .status()
+        .line()
+        .starts_with("CO-OP host | 2 guests"));
 }
 
 #[test]
@@ -176,7 +221,11 @@ fn converges_under_chaos_profiles() {
         rig.frames(40);
         rig.host_plays();
         assert!(rig.settle(), "profile {profile} did not settle");
-        assert_eq!(rig.guests[1].gs.stages.get(&FormId(QUEST)), Some(&20), "{profile}");
+        assert_eq!(
+            rig.guests[1].gs.stages.get(&FormId(QUEST)),
+            Some(&20),
+            "{profile}"
+        );
     }
 }
 
@@ -195,7 +244,10 @@ fn late_joiner_catches_up_and_gets_the_place() {
     assert!(rig.settle());
     assert_eq!(rig.guests[i].gs.stages.get(&FormId(QUEST)), Some(&20));
     assert_eq!(rig.guests[i].s.host_place().map(|p| p.cell), Some(CELL));
-    assert!(rig.guests[i].gs.events.is_empty(), "the join snapshot must not replay the journal");
+    assert!(
+        rig.guests[i].gs.events.is_empty(),
+        "the join snapshot must not replay the journal"
+    );
     assert!(rig.guests[0].gs.events.is_empty());
 }
 
@@ -222,7 +274,10 @@ fn guest_reconnects_after_a_short_and_a_long_cut() {
         assert!(ev.contains(&Event::Reconnected), "{tag}: {ev:?}");
         if secs > 10.0 {
             let host_ev = rig.host.s.drain_events();
-            assert!(host_ev.iter().any(|e| matches!(e, Event::PeerLeft(..))), "{tag}");
+            assert!(
+                host_ev.iter().any(|e| matches!(e, Event::PeerLeft(..))),
+                "{tag}"
+            );
         }
     }
 }
@@ -234,8 +289,12 @@ fn guest_commands_run_on_the_host_exactly_once() {
     let mut rig = Rig::new(&order, &scripts, Some("flaky"));
     rig.add_guest("Ann");
     // queued before the guest is even connected
-    rig.guests[0].s.send_command(Command::Stage("TestQuest".into(), 10));
-    rig.guests[0].s.send_command(Command::Line("set TestGlobal to 9".into()));
+    rig.guests[0]
+        .s
+        .send_command(Command::Stage("TestQuest".into(), 10));
+    rig.guests[0]
+        .s
+        .send_command(Command::Line("set TestGlobal to 9".into()));
     let mut got = Vec::new();
     for _ in 0..4000 {
         rig.frame();
@@ -251,7 +310,10 @@ fn guest_commands_run_on_the_host_exactly_once() {
     got.extend(rig.host.s.take_commands().into_iter().map(|(_, c)| c));
     assert_eq!(
         got,
-        [Command::Stage("TestQuest".into(), 10), Command::Line("set TestGlobal to 9".into())]
+        [
+            Command::Stage("TestQuest".into(), 10),
+            Command::Line("set TestGlobal to 9".into())
+        ]
     );
     assert_eq!(rig.guests[0].s.status().pending_commands, 0);
     // apply them the way the viewer does and watch the guest follow
@@ -346,7 +408,10 @@ fn real_udp_on_localhost() {
         h.post_frame(&mut hs, 0.01);
         g.post_frame(&mut gs, 0.01);
         std::thread::sleep(std::time::Duration::from_millis(10));
-        if played && gs.stages.get(&FormId(QUEST)) == Some(&20) && hs.shard_hashes() == gs.shard_hashes() {
+        if played
+            && gs.stages.get(&FormId(QUEST)) == Some(&20)
+            && hs.shard_hashes() == gs.shard_hashes()
+        {
             ok = true;
             break;
         }
@@ -373,7 +438,10 @@ fn a_mismatched_build_is_refused() {
         g.post_frame(&mut gs, DT);
     }
     assert!(matches!(g.status().state, State::Rejected(_)));
-    assert!(g.drain_events().iter().any(|e| matches!(e, Event::Rejected(_))));
+    assert!(g
+        .drain_events()
+        .iter()
+        .any(|e| matches!(e, Event::Rejected(_))));
     assert!(!g.is_connected());
 }
 
@@ -389,9 +457,32 @@ fn harness_dump_has_the_contract_keys_and_ready_is_reported() {
     assert!(rig.settle());
     assert!(rig.host.s.is_ready() && rig.guests[0].s.is_ready());
     let root = |p: &Peer| coop_session::Session::state_root(&p.gs);
-    let h = coop_session::dump::state_json(&rig.host.gs, &order, coop_session::Role::Host, 1.5, 3, root(&rig.host));
-    let g = coop_session::dump::state_json(&rig.guests[0].gs, &order, coop_session::Role::Guest, 1.5, 3, root(&rig.guests[0]));
-    for key in ["\"schema\":1", "\"role\":\"host\"", "\"TestQuest\":{\"stage\":20", "\"quests\"", "\"globals\"", "\"items\"", "\"positions\"", "\"hash\":{\"shared\":"] {
+    let h = coop_session::dump::state_json(
+        &rig.host.gs,
+        &order,
+        coop_session::Role::Host,
+        1.5,
+        3,
+        root(&rig.host),
+    );
+    let g = coop_session::dump::state_json(
+        &rig.guests[0].gs,
+        &order,
+        coop_session::Role::Guest,
+        1.5,
+        3,
+        root(&rig.guests[0]),
+    );
+    for key in [
+        "\"schema\":1",
+        "\"role\":\"host\"",
+        "\"TestQuest\":{\"stage\":20",
+        "\"quests\"",
+        "\"globals\"",
+        "\"items\"",
+        "\"positions\"",
+        "\"hash\":{\"shared\":",
+    ] {
         assert!(h.contains(key), "{key} missing in {h}");
     }
     let hash = |s: &str| s.split("\"shared\":\"").nth(1).unwrap()[..16].to_string();

@@ -73,21 +73,51 @@ impl SocialBot {
 
     /// True for the verbs this bot owns.
     pub fn owns(line: &str) -> bool {
-        let w: Vec<String> = line.split_whitespace().take(2).map(str::to_ascii_lowercase).collect();
+        let w: Vec<String> = line
+            .split_whitespace()
+            .take(2)
+            .map(str::to_ascii_lowercase)
+            .collect();
         w.first().map(String::as_str) == Some("coop")
-            && matches!(w.get(1).map(String::as_str), Some("ping" | "waypoint" | "unwaypoint" | "voice" | "mute" | "unmute" | "deafen" | "undeafen" | "say"))
+            && matches!(
+                w.get(1).map(String::as_str),
+                Some(
+                    "ping"
+                        | "waypoint"
+                        | "unwaypoint"
+                        | "voice"
+                        | "mute"
+                        | "unmute"
+                        | "deafen"
+                        | "undeafen"
+                        | "say"
+                )
+            )
     }
 
     /// Runs a line. `me` is this peer's slot, `pos`/`heading` where it stands.
     #[allow(clippy::too_many_arguments)]
-    pub fn handle(&mut self, line: &str, t: f64, me: PlayerId, cell: u32, pos: [f32; 3], heading: f32, s: &mut Session) {
+    pub fn handle(
+        &mut self,
+        line: &str,
+        t: f64,
+        me: PlayerId,
+        cell: u32,
+        pos: [f32; 3],
+        heading: f32,
+        s: &mut Session,
+    ) {
         let w: Vec<&str> = line.split_whitespace().collect();
         let num = |i: usize| w.get(i).and_then(|x| x.parse::<f32>().ok());
         let now_ms = (t * 1000.0) as u64;
         match w.get(1).map(|x| x.to_ascii_lowercase()).as_deref() {
             Some("ping") => {
                 let d = num(2).unwrap_or(600.0);
-                let at = [pos[0] + heading.sin() * d, pos[1] + heading.cos() * d, pos[2]];
+                let at = [
+                    pos[0] + heading.sin() * d,
+                    pos[1] + heading.cos() * d,
+                    pos[2],
+                ];
                 if let Some(msgs) = self.book.ping(me, cell, at, "ping", now_ms) {
                     self.pings += 1;
                     for m in msgs {
@@ -96,7 +126,12 @@ impl SocialBot {
                 }
             }
             Some("waypoint") => {
-                let m = self.book.waypoint(me, cell, [num(2).unwrap_or(0.0), num(3).unwrap_or(0.0), pos[2]], "waypoint");
+                let m = self.book.waypoint(
+                    me,
+                    cell,
+                    [num(2).unwrap_or(0.0), num(3).unwrap_or(0.0), pos[2]],
+                    "waypoint",
+                );
                 self.pings += 1;
                 s.live_intent(Intent::Social(m));
             }
@@ -108,7 +143,9 @@ impl SocialBot {
             Some("voice") => {
                 let secs = f64::from(num(2).unwrap_or(1.0));
                 self.talk_until = t + secs;
-                let tx = self.tx.get_or_insert_with(|| VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk));
+                let tx = self.tx.get_or_insert_with(|| {
+                    VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk)
+                });
                 tx.set_ptt(true);
                 self.talking = true;
             }
@@ -118,8 +155,18 @@ impl SocialBot {
                     s.live_intent(Intent::Say(text));
                 }
             }
-            Some("mute") => self.tx.get_or_insert_with(|| VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk)).set_muted(true),
-            Some("unmute") => self.tx.get_or_insert_with(|| VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk)).set_muted(false),
+            Some("mute") => self
+                .tx
+                .get_or_insert_with(|| {
+                    VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk)
+                })
+                .set_muted(true),
+            Some("unmute") => self
+                .tx
+                .get_or_insert_with(|| {
+                    VoiceTx::with_default_codec(me.0, MIC_RATE, Activation::PushToTalk)
+                })
+                .set_muted(false),
             Some("deafen") => self.rx.set_deafened(true),
             Some("undeafen") => self.rx.set_deafened(false),
             _ => {}
@@ -157,7 +204,10 @@ impl SocialBot {
             if let Some(p) = v.avatars.first() {
                 // the first remote avatar stands for everyone in the model
                 self.rx.positions.listener = ([0.0; 3], 0.0, p.cell);
-                self.rx.positions.speakers.insert(p.player.0, (p.pos, p.cell));
+                self.rx
+                    .positions
+                    .speakers
+                    .insert(p.player.0, (p.pos, p.cell));
             }
             for f in &v.voice {
                 if self.rx.on_bytes(f.speaker.0, &f.bytes, now_ms) {

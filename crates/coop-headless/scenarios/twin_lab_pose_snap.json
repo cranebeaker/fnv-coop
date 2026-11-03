@@ -1,0 +1,37 @@
+{
+  "name": "twin_lab_pose_snap",
+  "description": "MUTATION TWIN of lab_pose_snap: the host never turns (no planted glitch). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 82,
+  "duration_s": 14,
+  "settle_s": 4,
+  "expect_fail": true,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-snap",
+      "path": "live.glitch.snaps",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-no-pop",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

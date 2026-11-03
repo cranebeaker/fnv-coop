@@ -1,0 +1,33 @@
+{
+  "name": "twin_doc_flaky_items",
+  "description": "MUTATION TWIN of doc_flaky_items: nobody adds any stimpaks, so the exact counts cannot hold. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails. The item is Rad-X: no pre-order pack gives it, so the exact counts do not depend on the load order (the packs give the host 5 stimpaks at the start).",
+  "cell": "GSDocMitchellHouse",
+  "network": "flaky",
+  "seed": 41,
+  "duration_s": 20,
+  "settle_s": 8,
+  "max_repairs": 10,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-radx",
+      "path": "items.host.RadX",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "guest-radx",
+      "path": "items.guest.RadX",
+      "op": "eq",
+      "value": 4,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

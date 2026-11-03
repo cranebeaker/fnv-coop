@@ -726,7 +726,8 @@ pub fn move_actors(
     // the process lists then (`0086e650`, `00702360`), as the scripts'
     // time stands still in them (`scripts`). The hardcore question after
     // Doc Mitchell's farewell is one.
-    let menu_mode = menus.as_deref().is_some_and(crate::menus::Menus::is_open) && crate::coop_live::menus_freeze_time();
+    let menu_mode = menus.as_deref().is_some_and(crate::menus::Menus::is_open)
+        && crate::coop_live::menus_freeze_time();
     let frozen = frozen_ai.0 || in_menu || menu_mode;
     let speaker = conversation.0.as_ref().map(|t| t.speaker());
     let menu_speaker = speaker.filter(|_| in_menu);

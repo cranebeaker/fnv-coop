@@ -1,0 +1,80 @@
+{
+  "name": "lab_anim_flip",
+  "description": "Lab room, animation flip-flop detector. From 4 s to 6 s the host taps the walk key ten times (w held 0.1 s every 0.2 s), so the host's animation id goes walk, idle, walk, idle. The guest's glitch watch over the drawn animation id must count a flip-flop. The animation id is the stream's id, not the skeleton pose.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 83,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 4.0,
+        "key": "w:0.1"
+      },
+      {
+        "at": 4.2,
+        "key": "w:0.1"
+      },
+      {
+        "at": 4.4,
+        "key": "w:0.1"
+      },
+      {
+        "at": 4.6,
+        "key": "w:0.1"
+      },
+      {
+        "at": 4.8,
+        "key": "w:0.1"
+      },
+      {
+        "at": 5.0,
+        "key": "w:0.1"
+      },
+      {
+        "at": 5.2,
+        "key": "w:0.1"
+      },
+      {
+        "at": 5.4,
+        "key": "w:0.1"
+      },
+      {
+        "at": 5.6,
+        "key": "w:0.1"
+      },
+      {
+        "at": 5.8,
+        "key": "w:0.1"
+      }
+    ],
+    "extra_args": [
+      "--walk"
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-flip",
+      "path": "live.glitch.flips",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-no-pop",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

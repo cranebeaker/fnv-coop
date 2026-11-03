@@ -17,7 +17,11 @@ fn data(tag: &str) -> (testdata::TempData, Arc<Data>) {
 }
 
 fn scn(duration: u32, body: &str) -> Scenario {
-    Scenario::parse(&format!(r#"{{"cell":"TestFightCell","duration_s":{duration},"settle_s":4,{body}}}"#), "t").unwrap()
+    Scenario::parse(
+        &format!(r#"{{"cell":"TestFightCell","duration_s":{duration},"settle_s":4,{body}}}"#),
+        "t",
+    )
+    .unwrap()
 }
 
 const NPC_ATTACKS: &str = r#""name":"live_npc_attacks_remote_player","network":"good_wifi","seed":11,
@@ -99,7 +103,13 @@ fn every_combat_scenario_passes_and_its_twin_fails() {
         assert_ne!(twin, body, "{}: the twin changes something", s.name);
         let t = scn(secs, &format!(r#"{twin},"expect_fail":true"#));
         let r = run(&t, &d, &RunOpts::default());
-        assert_eq!((r.verdict.result.as_str(), r.verdict.class.as_str()), ("pass", "twin"), "{} twin: {}", s.name, r.verdict.reason);
+        assert_eq!(
+            (r.verdict.result.as_str(), r.verdict.class.as_str()),
+            ("pass", "twin"),
+            "{} twin: {}",
+            s.name,
+            r.verdict.reason
+        );
     }
 }
 
@@ -107,17 +117,32 @@ fn every_combat_scenario_passes_and_its_twin_fails() {
 fn the_dump_carries_the_combat_counters() {
     let (_t, d) = data("combat-dump");
     let r = run(&scn(9, NPC_ATTACKS), &d, &RunOpts::default());
-    assert!(r.dumps.iter().all(|x| x.contains("\"combat\":{\"npc_hits_sent\":")), "{}", r.dumps[0]);
+    assert!(
+        r.dumps
+            .iter()
+            .all(|x| x.contains("\"combat\":{\"npc_hits_sent\":")),
+        "{}",
+        r.dumps[0]
+    );
 }
 
 #[test]
 fn soak_over_every_chaos_profile() {
     let (_t, d) = data("combat-soak");
-    let scns: Vec<(String, Scenario)> = all().into_iter().map(|(b, secs, _)| (format!("c{secs}.json"), scn(secs + 6, b))).collect();
+    let scns: Vec<(String, Scenario)> = all()
+        .into_iter()
+        .map(|(b, secs, _)| (format!("c{secs}.json"), scn(secs + 6, b)))
+        .collect();
     let jobs = plan(&scns, Some(&[1, 2]), true, None);
     let done = run_jobs(&d, jobs, 3, None, true, None, false, false);
-    assert!(done.iter().all(|x| x.hash2 == Some(x.hash)), "every run is deterministic");
-    let failed: Vec<String> = done.iter().filter(|x| x.result != "pass").map(|x| format!("{} [{}] {}", x.scenario, x.net, x.line)).collect();
+    assert!(
+        done.iter().all(|x| x.hash2 == Some(x.hash)),
+        "every run is deterministic"
+    );
+    let failed: Vec<String> = done
+        .iter()
+        .filter(|x| x.result != "pass")
+        .map(|x| format!("{} [{}] {}", x.scenario, x.net, x.line))
+        .collect();
     assert!(failed.is_empty(), "{failed:#?}");
 }
-

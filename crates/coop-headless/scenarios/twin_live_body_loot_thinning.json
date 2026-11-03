@@ -1,0 +1,102 @@
+{
+  "name": "twin_live_body_loot_thinning",
+  "description": "MUTATION TWIN of live_body_loot_thinning: the gecko still dies, but nobody opens the body, so its supplies are never registered or thinned. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 26,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Stimpak 3"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem WaterPurified 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Psycho 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem RadAway 2"
+      },
+      {
+        "at": 3,
+        "run": "VCG02Gecko1REF.AddItem Buffout 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit VCG02Gecko1REF 3"
+      },
+      {
+        "at": 12,
+        "run": "coop hit VCG02Gecko1REF 100000"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "thinned",
+      "path": "items.VCG02Gecko1REF.Psycho",
+      "op": "absent",
+      "on": "both"
+    },
+    {
+      "id": "kept-water",
+      "path": "items.VCG02Gecko1REF.WaterPurified",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "kept-radaway",
+      "path": "items.VCG02Gecko1REF.RadAway",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "kept-stimpak",
+      "path": "items.VCG02Gecko1REF.Stimpak",
+      "op": "eq",
+      "value": 3,
+      "on": "both"
+    },
+    {
+      "id": "kept-buffout",
+      "path": "items.VCG02Gecko1REF.Buffout",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

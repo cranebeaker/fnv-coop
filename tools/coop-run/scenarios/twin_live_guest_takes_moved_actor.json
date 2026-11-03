@@ -1,0 +1,30 @@
+{
+  "name": "twin_live_guest_takes_moved_actor",
+  "description": "MUTATION TWIN of live_guest_takes_moved_actor: the host enables the gecko but does not move it to Doc Mitchell. The gecko stays in its Goodsprings cell, which no player has loaded. Nobody owns it, the guest's hits do not reach it, and it lives. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 2, "run": "VCG02Gecko1REF.Enable" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 1, "run": "coop teleport 2290 2200 7360" },
+      { "at": 9, "run": "coop hit VCG02Gecko1REF 3" },
+      { "at": 13, "run": "coop hit VCG02Gecko1REF 100000" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-owns", "path": "actors.VCG02Gecko1REF.owner", "op": "eq", "value": "me", "on": "guest" },
+    { "id": "guest-has-it-at-doc", "path": "actors.VCG02Gecko1REF.cell", "op": "eq", "value": 1064441, "on": "guest" },
+    { "id": "guest-hits-sent", "path": "live.hits_sent", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "dead-host", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "host" },
+    { "id": "dead-guest", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "guest" },
+    { "id": "guest-paid", "path": "campaign.xp.guest", "op": "ge", "value": 1, "on": "host" }
+  ]
+}

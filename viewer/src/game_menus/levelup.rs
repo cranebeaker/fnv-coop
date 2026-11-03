@@ -191,9 +191,18 @@ pub fn after(screen: &mut Screen, game: &Game, state: &mut GameState) -> Vec<For
                 Request::Skill { av, by } => {
                     let points = state.skill_points.entry(av).or_insert(0);
                     *points = points.saturating_add_signed(by);
+                    *state.coop.campaign.levelup_draft.entry(av).or_insert(0) += by;
                     changed = true;
                 }
                 Request::Close { perk } => {
+                    // co-op: the host runs the same choices in this player's own rows
+                    // (a guest's are the host's to keep; the result comes back)
+                    let draft = std::mem::take(&mut state.coop.campaign.levelup_draft);
+                    let skills: Vec<(u16, i32)> = draft.into_iter().collect();
+                    state.coop_route(world::coop::interact::levelup_act(
+                        &skills,
+                        perk.map(FormId),
+                    ));
                     if let Some(p) = perk.map(FormId) {
                         world::perks::add(order, state, p);
                         let name = order

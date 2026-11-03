@@ -1,0 +1,29 @@
+{
+  "name": "live_door",
+  "description": "A guest opens a door and changes cell, and locks are shared. Both peers start in Doc Mitchell's house. At 2 s the host (the party leader) takes the front door out to Goodsprings, and the guest follows. At 5 s the guest walks back into the house (`coop cell`). At 6 s the host locks the front door (level 2, test setup). At 8 s the guest activates the locked door: the host must refuse it. At 10 s the guest picks the lock (the bot reports a win): the lock must read unlocked (-1) on both peers. At 12 s the guest takes the door out to the leader's worldspace (WastelandNV, 000DA726). The guest must be outside on both peers (the host files an outdoor peer under the worldspace, the guest reports the grid cell under its feet, as the viewer does: Goodsprings 000DAEBB). Headless only: the viewer bot has no `coop cell` verb.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 75,
+  "duration_s": 20,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 2, "run": "coop enter GSDocMitchellHouseIntDoorREF GSDocMitchellHouse 00000001"},
+    {"at": 6, "run": "coop setlock GSDocMitchellHouseIntDoorREF 2"}
+  ] },
+  "guest": { "script": [
+    {"at": 5, "run": "coop cell GSDocMitchellHouse"},
+    {"at": 8, "run": "coop door GSDocMitchellHouseIntDoorREF"},
+    {"at": 10, "run": "coop lockpick GSDocMitchellHouseIntDoorREF won 2"},
+    {"at": 12, "run": "coop enter GSDocMitchellHouseIntDoorREF GSDocMitchellHouse 000DA726"}
+  ] },
+  "expect": [
+    {"id": "locked-door-refused", "path": "interact.refused", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "picked", "path": "interact.lockpick", "op": "ge", "value": 1, "on": "guest"},
+    {"id": "unlocked-host", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "host"},
+    {"id": "unlocked-guest", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "guest"},
+    {"id": "guest-outside-own", "path": "live.roam.cells.guest", "op": "eq", "value": 896699, "on": "guest"},
+    {"id": "guest-outside-host-view", "path": "live.roam.cells.guest", "op": "eq", "value": 894758, "on": "host"},
+    {"id": "guest-took-the-door", "path": "interact.transition", "op": "ge", "value": 1, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

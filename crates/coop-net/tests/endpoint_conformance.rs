@@ -6,14 +6,24 @@ use coop_core::proto::Channel;
 use coop_core::transport::{Transport, TransportError};
 use coop_net::mem::{MemBackend, MemNet};
 use coop_net::{
-    random_token, Backend, Clock, Endpoint, EndpointConfig, LeaveReason, ManualClock, NetEvent, RejectCode, UdpBackend, UdpConfig,
+    random_token, Backend, Clock, Endpoint, EndpointConfig, LeaveReason, ManualClock, NetEvent,
+    RejectCode, UdpBackend, UdpConfig,
 };
 
 fn cfg(clock: &Clock, name: &str) -> EndpointConfig {
-    EndpointConfig { name: name.into(), clock: clock.clone(), ..Default::default() }
+    EndpointConfig {
+        name: name.into(),
+        clock: clock.clone(),
+        ..Default::default()
+    }
 }
 
-fn mem_pair() -> (ManualClock, MemNet, Endpoint<MemBackend>, Endpoint<MemBackend>) {
+fn mem_pair() -> (
+    ManualClock,
+    MemNet,
+    Endpoint<MemBackend>,
+    Endpoint<MemBackend>,
+) {
     let mc = ManualClock::new();
     let clock = Clock::Manual(mc.clone());
     let net = MemNet::new();
@@ -36,16 +46,37 @@ fn handshake_and_all_channels() {
     settle(&mut host, &mut guest);
     assert!(guest.is_connected());
     assert_eq!(guest.local(), PlayerId(1));
-    assert_eq!(host.events(), vec![NetEvent::PeerJoined { player: PlayerId(1), name: "g".into() }]);
-    assert_eq!(guest.events(), vec![NetEvent::Connected { local: PlayerId(1) }]);
+    assert_eq!(
+        host.events(),
+        vec![NetEvent::PeerJoined {
+            player: PlayerId(1),
+            name: "g".into()
+        }]
+    );
+    assert_eq!(
+        guest.events(),
+        vec![NetEvent::Connected { local: PlayerId(1) }]
+    );
 
-    host.send(PlayerId(1), Channel::ReliableOrdered, b"r1".to_vec()).unwrap();
-    host.send(PlayerId(1), Channel::Unreliable, b"u1".to_vec()).unwrap();
-    guest.send(PlayerId(0), Channel::ReliableOrdered, b"r2".to_vec()).unwrap();
+    host.send(PlayerId(1), Channel::ReliableOrdered, b"r1".to_vec())
+        .unwrap();
+    host.send(PlayerId(1), Channel::Unreliable, b"u1".to_vec())
+        .unwrap();
+    guest
+        .send(PlayerId(0), Channel::ReliableOrdered, b"r2".to_vec())
+        .unwrap();
     settle(&mut host, &mut guest);
-    let mut got: Vec<_> = std::iter::from_fn(|| guest.recv()).map(|p| (p.from, p.channel, p.data)).collect();
+    let mut got: Vec<_> = std::iter::from_fn(|| guest.recv())
+        .map(|p| (p.from, p.channel, p.data))
+        .collect();
     got.sort_by_key(|x| x.2.clone());
-    assert_eq!(got, vec![(PlayerId(0), Channel::ReliableOrdered, b"r1".to_vec()), (PlayerId(0), Channel::Unreliable, b"u1".to_vec())]);
+    assert_eq!(
+        got,
+        vec![
+            (PlayerId(0), Channel::ReliableOrdered, b"r1".to_vec()),
+            (PlayerId(0), Channel::Unreliable, b"u1".to_vec())
+        ]
+    );
     let p = host.recv().unwrap();
     assert_eq!((p.from, p.data), (PlayerId(1), b"r2".to_vec()));
 }
@@ -55,8 +86,10 @@ fn big_message_is_fragmented_and_reassembled() {
     let (_mc, _net, mut host, mut guest) = mem_pair();
     settle(&mut host, &mut guest);
     let blob: Vec<u8> = (0..5_000_000u32).map(|i| (i % 251) as u8).collect();
-    host.send(PlayerId(1), Channel::ReliableOrdered, blob.clone()).unwrap();
-    host.send(PlayerId(1), Channel::ReliableOrdered, b"after".to_vec()).unwrap();
+    host.send(PlayerId(1), Channel::ReliableOrdered, blob.clone())
+        .unwrap();
+    host.send(PlayerId(1), Channel::ReliableOrdered, b"after".to_vec())
+        .unwrap();
     settle(&mut host, &mut guest);
     assert_eq!(guest.recv().unwrap().data, blob);
     assert_eq!(guest.recv().unwrap().data, b"after");
@@ -66,11 +99,22 @@ fn big_message_is_fragmented_and_reassembled() {
 fn size_limits() {
     let (_mc, _net, mut host, mut guest) = mem_pair();
     settle(&mut host, &mut guest);
-    assert!(host.send(PlayerId(1), Channel::Unreliable, vec![0; 1100]).is_ok());
-    assert!(matches!(host.send(PlayerId(1), Channel::Unreliable, vec![0; 1101]), Err(TransportError::TooLarge { max: 1100, .. })));
-    assert_eq!(host.send(PlayerId(9), Channel::Unreliable, vec![]), Err(TransportError::UnknownPeer(PlayerId(9))));
+    assert!(host
+        .send(PlayerId(1), Channel::Unreliable, vec![0; 1100])
+        .is_ok());
+    assert!(matches!(
+        host.send(PlayerId(1), Channel::Unreliable, vec![0; 1101]),
+        Err(TransportError::TooLarge { max: 1100, .. })
+    ));
+    assert_eq!(
+        host.send(PlayerId(9), Channel::Unreliable, vec![]),
+        Err(TransportError::UnknownPeer(PlayerId(9)))
+    );
     // Guests can only reach the host.
-    assert_eq!(guest.send(PlayerId(2), Channel::Unreliable, vec![]), Err(TransportError::UnknownPeer(PlayerId(2))));
+    assert_eq!(
+        guest.send(PlayerId(2), Channel::Unreliable, vec![]),
+        Err(TransportError::UnknownPeer(PlayerId(2)))
+    );
 }
 
 #[test]
@@ -78,10 +122,13 @@ fn unreliable_arrives_in_sequence() {
     let (_mc, _net, mut host, mut guest) = mem_pair();
     settle(&mut host, &mut guest);
     for i in 0..5u8 {
-        host.send(PlayerId(1), Channel::Unreliable, vec![i]).unwrap();
+        host.send(PlayerId(1), Channel::Unreliable, vec![i])
+            .unwrap();
     }
     settle(&mut host, &mut guest);
-    let v: Vec<u8> = std::iter::from_fn(|| guest.recv()).map(|p| p.data[0]).collect();
+    let v: Vec<u8> = std::iter::from_fn(|| guest.recv())
+        .map(|p| p.data[0])
+        .collect();
     assert_eq!(v, vec![0, 1, 2, 3, 4]);
 }
 
@@ -107,7 +154,13 @@ fn silent_peer_times_out_after_20s_and_keepalives_prevent_it() {
     assert!(host.events().is_empty());
     mc.advance(2000);
     settle(&mut host, &mut guest);
-    assert_eq!(host.events(), vec![NetEvent::PeerLeft { player: PlayerId(1), reason: LeaveReason::Timeout }]);
+    assert_eq!(
+        host.events(),
+        vec![NetEvent::PeerLeft {
+            player: PlayerId(1),
+            reason: LeaveReason::Timeout
+        }]
+    );
     assert!(host.players().is_empty());
 }
 
@@ -118,7 +171,13 @@ fn goodbye_and_kick() {
     host.events();
     guest.leave();
     settle(&mut host, &mut guest);
-    assert_eq!(host.events(), vec![NetEvent::PeerLeft { player: PlayerId(1), reason: LeaveReason::Goodbye }]);
+    assert_eq!(
+        host.events(),
+        vec![NetEvent::PeerLeft {
+            player: PlayerId(1),
+            reason: LeaveReason::Goodbye
+        }]
+    );
 
     let (_mc, _net, mut host, mut guest) = mem_pair();
     settle(&mut host, &mut guest);
@@ -126,7 +185,13 @@ fn goodbye_and_kick() {
     guest.events();
     host.kick(PlayerId(1), "afk");
     settle(&mut host, &mut guest);
-    assert_eq!(guest.events(), vec![NetEvent::PeerLeft { player: PlayerId(0), reason: LeaveReason::Kicked("afk".into()) }]);
+    assert_eq!(
+        guest.events(),
+        vec![NetEvent::PeerLeft {
+            player: PlayerId(0),
+            reason: LeaveReason::Kicked("afk".into())
+        }]
+    );
     assert!(!guest.is_connected());
 }
 
@@ -135,10 +200,19 @@ fn bad_token_full_and_rejoin() {
     let mc = ManualClock::new();
     let clock = Clock::Manual(mc.clone());
     let net = MemNet::new();
-    let mut host = Endpoint::host(net.host(), [1; 16], EndpointConfig { max_guests: 1, ..cfg(&clock, "h") });
+    let mut host = Endpoint::host(
+        net.host(),
+        [1; 16],
+        EndpointConfig {
+            max_guests: 1,
+            ..cfg(&clock, "h")
+        },
+    );
     let mut bad = Endpoint::guest(net.guest(), [2; 16], cfg(&clock, "bad"));
     settle(&mut host, &mut bad);
-    assert!(bad.events().contains(&NetEvent::Rejected(RejectCode::BadToken)));
+    assert!(bad
+        .events()
+        .contains(&NetEvent::Rejected(RejectCode::BadToken)));
     let mut a = Endpoint::guest(net.guest(), [1; 16], cfg(&clock, "a"));
     let mut b = Endpoint::guest(net.guest(), [1; 16], cfg(&clock, "b"));
     settle(&mut host, &mut a);
@@ -177,18 +251,28 @@ fn guest_join_fails_when_host_never_answers() {
         mc.advance(1000);
         g.pump();
     }
-    assert!(g.events().iter().any(|e| matches!(e, NetEvent::JoinFailed(_))));
+    assert!(g
+        .events()
+        .iter()
+        .any(|e| matches!(e, NetEvent::JoinFailed(_))));
 }
 
 #[test]
 fn udp_backend_passes_the_same_basics() {
     let tok = random_token();
     let clock = Clock::system();
-    let ucfg = UdpConfig { min_rto_ms: 10, ..Default::default() };
+    let ucfg = UdpConfig {
+        min_rto_ms: 10,
+        ..Default::default()
+    };
     let hb = UdpBackend::host("127.0.0.1:0".parse().unwrap(), tok, ucfg.clone()).unwrap();
     let addr = hb.local_addr().unwrap();
     let mut host = Endpoint::host(hb, tok, cfg(&clock, "h"));
-    let mut guest = Endpoint::guest(UdpBackend::guest(addr, tok, ucfg).unwrap(), tok, cfg(&clock, "g"));
+    let mut guest = Endpoint::guest(
+        UdpBackend::guest(addr, tok, ucfg).unwrap(),
+        tok,
+        cfg(&clock, "g"),
+    );
     let t0 = std::time::Instant::now();
     while !guest.is_connected() && t0.elapsed().as_secs() < 5 {
         host.pump();
@@ -197,9 +281,13 @@ fn udp_backend_passes_the_same_basics() {
     }
     assert!(guest.is_connected());
     let blob = vec![0xABu8; 300_000];
-    host.send(PlayerId(1), Channel::ReliableOrdered, blob.clone()).unwrap();
-    guest.send(PlayerId(0), Channel::ReliableOrdered, b"ping".to_vec()).unwrap();
-    host.send(PlayerId(1), Channel::Unreliable, b"pos".to_vec()).unwrap();
+    host.send(PlayerId(1), Channel::ReliableOrdered, blob.clone())
+        .unwrap();
+    guest
+        .send(PlayerId(0), Channel::ReliableOrdered, b"ping".to_vec())
+        .unwrap();
+    host.send(PlayerId(1), Channel::Unreliable, b"pos".to_vec())
+        .unwrap();
     let (mut got_blob, mut got_ping, mut got_pos) = (false, false, false);
     while t0.elapsed().as_secs() < 10 && !(got_blob && got_ping && got_pos) {
         host.pump();
@@ -219,7 +307,10 @@ fn udp_backend_passes_the_same_basics() {
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    assert!(got_blob && got_ping && got_pos, "blob {got_blob} ping {got_ping} pos {got_pos}");
+    assert!(
+        got_blob && got_ping && got_pos,
+        "blob {got_blob} ping {got_ping} pos {got_pos}"
+    );
     assert!(host.rtt_ms(PlayerId(1)).is_some());
     // Clean leave reaches the host over UDP.
     guest.leave();
@@ -227,7 +318,15 @@ fn udp_backend_passes_the_same_basics() {
     let mut left = false;
     while t1.elapsed().as_secs() < 5 && !left {
         guest.pump();
-        left = host.events().iter().any(|e| matches!(e, NetEvent::PeerLeft { reason: LeaveReason::Goodbye, .. }));
+        left = host.events().iter().any(|e| {
+            matches!(
+                e,
+                NetEvent::PeerLeft {
+                    reason: LeaveReason::Goodbye,
+                    ..
+                }
+            )
+        });
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     assert!(left, "goodbye did not reach the host");

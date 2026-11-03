@@ -1,0 +1,53 @@
+{
+  "name": "twin_story_kill_xp",
+  "description": "MUTATION TWIN of story_kill_xp: the guest does not attack Sunny. Marked expect_fail.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.SunnyRef",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-paid",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-not-paid",
+      "path": "campaign.xp.host",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "paid-once",
+      "path": "campaign.paid",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "party-karma",
+      "path": "karma",
+      "op": "eq",
+      "value": -100,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

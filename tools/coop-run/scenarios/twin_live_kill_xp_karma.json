@@ -1,0 +1,44 @@
+{
+  "name": "twin_live_kill_xp_karma",
+  "description": "MUTATION TWIN of live_kill_xp_karma: the guest does not strike, so the host's one hit leaves Sunny alive. Marked expect_fail.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "good_wifi",
+  "seed": 62,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit SunnyRef 3"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.SunnyRef",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "killer-paid-xp",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "killer-karma-once",
+      "path": "karma",
+      "op": "eq",
+      "value": -100,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

@@ -1,0 +1,36 @@
+{
+  "name": "live_dialogue_skill_check",
+  "description": "The guest tags Lockpick and talks to Doc Mitchell. The guest picks two lines. Doc's line 001057E8 gives 12 lockpicks to a player who tags Lockpick, else 6. Doc's line 001674AD takes 100 caps from the player. The host runs both result scripts as the guest. The guest gets 12 lockpicks and pays the caps. The host gets nothing and pays nothing.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 81,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 1, "run": "coop give 0 Caps001 150" },
+      { "at": 1, "run": "coop give 1 Caps001 150" }
+    ]
+  },
+  "guest": {
+    "script": [
+      { "at": 2, "run": "SetPlayerTagSkill Lockpick 0" },
+      { "at": 4, "run": "coop talk DocMitchellREF" },
+      { "at": 6, "run": "coop pick 001057E8" },
+      { "at": 9, "run": "coop linedone" },
+      { "at": 12, "run": "coop pick 001674AD" },
+      { "at": 15, "run": "coop linedone" },
+      { "at": 18, "run": "coop close" }
+    ]
+  },
+  "expect": [
+    { "id": "guest-tag-check-host", "path": "items.guest.Lockpick", "op": "eq", "value": 12, "on": "host" },
+    { "id": "guest-tag-check-guest", "path": "items.guest.Lockpick", "op": "eq", "value": 12, "on": "guest" },
+    { "id": "guest-paid-host", "path": "items.guest.Caps001", "op": "eq", "value": 68, "on": "host" },
+    { "id": "guest-paid-guest", "path": "items.guest.Caps001", "op": "eq", "value": 68, "on": "guest" },
+    { "id": "host-no-lockpicks", "path": "items.host.Lockpick", "op": "absent", "on": "both" },
+    { "id": "host-did-not-pay", "path": "items.host.Caps001", "op": "eq", "value": 150, "on": "both" },
+    { "id": "lines-host", "path": "live.lines_played", "op": "ge", "value": 2, "on": "host" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "name": "twin_live_explosion_each_victim_once",
+  "description": "MUTATION TWIN of live_explosion_each_victim_once: nobody sets off a blast (both explode lines are removed). Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 65,
+  "duration_s": 22,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 4,
+        "run": "coop ff 1"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "host-hurt-once",
+      "path": "combat.hurts_applied",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-full-points",
+      "path": "combat.hurt_points",
+      "op": "eq",
+      "value": 60,
+      "on": "host"
+    },
+    {
+      "id": "guest-hurt-once",
+      "path": "combat.hurts_applied",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-full-points",
+      "path": "combat.hurt_points",
+      "op": "eq",
+      "value": 60,
+      "on": "guest"
+    },
+    {
+      "id": "host-shown-once",
+      "path": "combat.blasts_seen",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-shown-once",
+      "path": "combat.blasts_seen",
+      "op": "eq",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "gecko-dead",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "kill-settled-once",
+      "path": "campaign.kills_settled",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "guest-paid-for-kill",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

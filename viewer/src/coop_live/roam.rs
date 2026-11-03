@@ -23,11 +23,15 @@ pub fn register_grid(
     game: Res<GameFiles>,
     mut done: Local<HashSet<u32>>,
 ) {
-    let Some(w) = state.0.player_world else { return };
+    let Some(w) = state.0.player_world else {
+        return;
+    };
     if done.contains(&w.0) {
         return;
     }
-    let Some(graph) = link.0.live_roam_graph() else { return };
+    let Some(graph) = link.0.live_roam_graph() else {
+        return;
+    };
     match world::WorldGrid::load(&game.0.order, w) {
         Ok(grid) => {
             world::coop::roam_ops::register_world_grid(graph, &grid);
@@ -52,7 +56,9 @@ pub fn apply_place(
     if pending.0.is_some() || pending_exterior.0.is_some() {
         return;
     }
-    let Some(place) = now.view.as_mut().and_then(|v| v.roam.place.take()) else { return };
+    let Some(place) = now.view.as_mut().and_then(|v| v.roam.place.take()) else {
+        return;
+    };
     let gs: &GameState = &state.0;
     let order = &game.0.order;
     let cell = FormId(place.cell.0);

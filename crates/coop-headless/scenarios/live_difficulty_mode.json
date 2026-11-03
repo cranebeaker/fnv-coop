@@ -1,0 +1,103 @@
+{
+  "name": "live_difficulty_mode",
+  "description": "The host picks Normal mode with friendly fire on (the viewer flags --coop-difficulty normal and --coop-friendly-fire on, which the launcher passes as --difficulty and --friendly-fire). The choice reaches the rules: a forty creature encounter brings no extras, and the host's blow on the guest lands. The host saves the party at 9 s. At 12 s both peers start again, and the host loads the party save without any rules flag. The choice holds from the save: on both peers the dump shows rules.mode normal and rules.friendly_fire on, a second forty creature encounter brings no extras, and a second blow on the guest lands. Headless only (the restart needs both processes under the harness's control).",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 85,
+  "headless_only": true,
+  "duration_s": 12,
+  "settle_s": 4,
+  "timeout_s": 240,
+  "party": {
+    "key": 4343,
+    "restart_at": 12,
+    "host_loads": true,
+    "guest_same_key": true,
+    "second": {
+      "duration_s": 16,
+      "host": {
+        "script": [
+          {
+            "at": 2,
+            "run": "VCG02Gecko1REF.Enable"
+          },
+          {
+            "at": 2.5,
+            "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+          },
+          {
+            "at": 10,
+            "run": "coop spawnenc VCG02Gecko1REF 40"
+          },
+          {
+            "at": 12,
+            "run": "coop pvp 1 20"
+          }
+        ]
+      }
+    }
+  },
+  "host": {
+    "extra_args": [
+      "--coop-difficulty",
+      "normal",
+      "--coop-friendly-fire",
+      "on"
+    ],
+    "script": [
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 5,
+        "run": "coop spawnenc VCG02Gecko1REF 40"
+      },
+      {
+        "at": 7,
+        "run": "coop pvp 1 20"
+      },
+      {
+        "at": 9,
+        "run": "coop psave"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "mode",
+      "path": "rules.mode",
+      "op": "eq",
+      "value": "normal",
+      "on": "both"
+    },
+    {
+      "id": "ff",
+      "path": "rules.friendly_fire",
+      "op": "eq",
+      "value": "on",
+      "on": "both"
+    },
+    {
+      "id": "no-extras",
+      "path": "combat.extras_made",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "guest-hurt",
+      "path": "combat.hurts_applied",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    }
+  ]
+}

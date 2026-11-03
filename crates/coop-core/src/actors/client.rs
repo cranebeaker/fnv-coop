@@ -77,20 +77,35 @@ impl ActorClient {
 
     /// True when this machine currently owns the actor and may publish it.
     pub fn owns(&self, actor: FormId) -> bool {
-        self.actors.get(&actor).map_or(false, |a| a.owner == Some(self.me))
+        self.actors
+            .get(&actor)
+            .map_or(false, |a| a.owner == Some(self.me))
     }
 
     /// Actors this machine owns.
     pub fn owned(&self) -> Vec<FormId> {
-        self.actors.iter().filter(|(_, a)| a.owner == Some(self.me)).map(|(f, _)| *f).collect()
+        self.actors
+            .iter()
+            .filter(|(_, a)| a.owner == Some(self.me))
+            .map(|(f, _)| *f)
+            .collect()
     }
 
     /// Publishes an owned actor; `None` when we do not own it.
     pub fn publish(&mut self, actor: FormId, state: ActorState) -> Option<ActorMsg> {
-        let epoch = self.actors.get(&actor).filter(|a| a.owner == Some(self.me))?.epoch;
+        let epoch = self
+            .actors
+            .get(&actor)
+            .filter(|a| a.owner == Some(self.me))?
+            .epoch;
         let seq = self.out_seq.entry(actor).or_insert(0);
         *seq += 1;
-        Some(ActorMsg::State { actor, epoch, seq: Seq(*seq), state })
+        Some(ActorMsg::State {
+            actor,
+            epoch,
+            seq: Seq(*seq),
+            state,
+        })
     }
 
     /// A hit request with a fresh id.
@@ -101,10 +116,27 @@ impl ActorClient {
     }
 
     /// A spawn request; returns its id and the message.
-    pub fn request_spawn(&mut self, site: FormId, base: FormId, cell: crate::ids::CellId, pos: [i32; 3], health: u16) -> (u32, ActorMsg) {
+    pub fn request_spawn(
+        &mut self,
+        site: FormId,
+        base: FormId,
+        cell: crate::ids::CellId,
+        pos: [i32; 3],
+        health: u16,
+    ) -> (u32, ActorMsg) {
         let req = self.next_req;
         self.next_req += 1;
-        (req, ActorMsg::SpawnReq { req, site, base, cell, pos, health })
+        (
+            req,
+            ActorMsg::SpawnReq {
+                req,
+                site,
+                base,
+                cell,
+                pos,
+                health,
+            },
+        )
     }
 
     /// A report of the actors this machine has loaded, for the host to track
@@ -120,18 +152,34 @@ impl ActorClient {
     pub fn request_leveled(&mut self, list: FormId, key: u32, pick: FormId) -> ActorMsg {
         let req = self.next_req;
         self.next_req += 1;
-        ActorMsg::LeveledReq { req, list, key, pick }
+        ActorMsg::LeveledReq {
+            req,
+            list,
+            key,
+            pick,
+        }
     }
 
     /// Applies a host message.
     pub fn on_msg(&mut self, msg: ActorMsg) {
         match msg {
-            ActorMsg::Assign { actor, owner, epoch, seed } => {
+            ActorMsg::Assign {
+                actor,
+                owner,
+                epoch,
+                seed,
+            } => {
                 if self.actors.get(&actor).map_or(false, |a| a.epoch > epoch) {
                     return; // an older assignment arriving late
                 }
                 let alive = self.actors.get(&actor).map_or(true, |a| a.alive);
-                let mut rec = RemoteActor { owner, epoch, state: seed, alive, seq: Seq(0) };
+                let mut rec = RemoteActor {
+                    owner,
+                    epoch,
+                    state: seed,
+                    alive,
+                    seq: Seq(0),
+                };
                 if let Some((e, s, st)) = self.early.remove(&actor) {
                     if e == epoch {
                         rec.state = Some(st);
@@ -141,10 +189,17 @@ impl ActorClient {
                 self.actors.insert(actor, rec);
                 self.out_seq.insert(actor, 0);
             }
-            ActorMsg::State { actor, epoch, seq, state } => match self.actors.get_mut(&actor) {
+            ActorMsg::State {
+                actor,
+                epoch,
+                seq,
+                state,
+            } => match self.actors.get_mut(&actor) {
                 None => {
                     // beat its assignment: keep the newest per actor
-                    let newer = self.early.get(&actor).map_or(true, |(e, s, _)| epoch > *e || (epoch == *e && seq.is_newer_than(*s)));
+                    let newer = self.early.get(&actor).map_or(true, |(e, s, _)| {
+                        epoch > *e || (epoch == *e && seq.is_newer_than(*s))
+                    });
                     if newer {
                         self.early.insert(actor, (epoch, seq, state));
                     }
@@ -155,13 +210,20 @@ impl ActorClient {
                     } else if epoch > a.epoch {
                         // a newer assignment is on its way
                         self.early.insert(actor, (epoch, seq, state));
-                    } else if a.owner != Some(self.me) && (a.seq == Seq(0) || seq.is_newer_than(a.seq)) {
+                    } else if a.owner != Some(self.me)
+                        && (a.seq == Seq(0) || seq.is_newer_than(a.seq))
+                    {
                         a.seq = seq;
                         a.state = Some(state);
                     }
                 }
             },
-            ActorMsg::Damaged { actor, health, by, amount } => {
+            ActorMsg::Damaged {
+                actor,
+                health,
+                by,
+                amount,
+            } => {
                 if self.damage_log.len() < 256 {
                     self.damage_log.push((actor, by, amount));
                 }
@@ -169,6 +231,11 @@ impl ActorClient {
                     if let Some(s) = a.state.as_mut() {
                         s.health = health;
                     }
+                }
+            }
+            ActorMsg::Healed { actor, health } => {
+                if let Some(s) = self.actors.get_mut(&actor).and_then(|a| a.state.as_mut()) {
+                    s.health = health;
                 }
             }
             ActorMsg::Died { actor, .. } => {
@@ -179,7 +246,13 @@ impl ActorClient {
             ActorMsg::SpawnReply { req, outcome } => {
                 self.spawn_results.insert(req, outcome);
             }
-            ActorMsg::Spawned { id, base, cell, pos, .. } => {
+            ActorMsg::Spawned {
+                id,
+                base,
+                cell,
+                pos,
+                ..
+            } => {
                 self.spawned.insert(id, base);
                 self.spawn_at.insert(id, (cell, pos));
             }
@@ -189,7 +262,9 @@ impl ActorClient {
                 self.actors.remove(&id);
                 self.early.remove(&id);
             }
-            ActorMsg::LeveledReply { list, key, pick, .. } => {
+            ActorMsg::LeveledReply {
+                list, key, pick, ..
+            } => {
                 self.leveled.insert((list, key), pick);
             }
             _ => {}
@@ -203,13 +278,27 @@ mod tests {
 
     const A: FormId = FormId(0x100);
     fn st(x: i32) -> ActorState {
-        ActorState { pos: [x, 0, 0], health: 10, ..Default::default() }
+        ActorState {
+            pos: [x, 0, 0],
+            health: 10,
+            ..Default::default()
+        }
     }
     fn assign(owner: u8, epoch: u32) -> ActorMsg {
-        ActorMsg::Assign { actor: A, owner: Some(PlayerId(owner)), epoch: Epoch(epoch), seed: Some(st(0)) }
+        ActorMsg::Assign {
+            actor: A,
+            owner: Some(PlayerId(owner)),
+            epoch: Epoch(epoch),
+            seed: Some(st(0)),
+        }
     }
     fn state(epoch: u32, seq: u32, x: i32) -> ActorMsg {
-        ActorMsg::State { actor: A, epoch: Epoch(epoch), seq: Seq(seq), state: st(x) }
+        ActorMsg::State {
+            actor: A,
+            epoch: Epoch(epoch),
+            seq: Seq(seq),
+            state: st(x),
+        }
     }
 
     #[test]
@@ -220,7 +309,14 @@ mod tests {
         assert!(c.owns(A));
         let m1 = c.publish(A, st(1)).unwrap();
         let m2 = c.publish(A, st(2)).unwrap();
-        assert!(matches!(m1, ActorMsg::State { epoch: Epoch(3), seq: Seq(1), .. }));
+        assert!(matches!(
+            m1,
+            ActorMsg::State {
+                epoch: Epoch(3),
+                seq: Seq(1),
+                ..
+            }
+        ));
         assert!(matches!(m2, ActorMsg::State { seq: Seq(2), .. }));
         c.on_msg(assign(2, 4));
         assert!(!c.owns(A));
@@ -254,7 +350,11 @@ mod tests {
         let mut c = ActorClient::new(PlayerId(0));
         c.on_msg(state(1, 7, 77));
         c.on_msg(assign(1, 2));
-        assert_eq!(c.get(A).unwrap().state.unwrap().pos[0], 0, "seed, not the old epoch's sample");
+        assert_eq!(
+            c.get(A).unwrap().state.unwrap().pos[0],
+            0,
+            "seed, not the old epoch's sample"
+        );
     }
 
     #[test]
@@ -269,9 +369,17 @@ mod tests {
     fn damage_and_death_update_the_copy() {
         let mut c = ActorClient::new(PlayerId(0));
         c.on_msg(assign(1, 1));
-        c.on_msg(ActorMsg::Damaged { actor: A, by: PlayerId(1), amount: 4, health: 6 });
+        c.on_msg(ActorMsg::Damaged {
+            actor: A,
+            by: PlayerId(1),
+            amount: 4,
+            health: 6,
+        });
         assert_eq!(c.get(A).unwrap().state.unwrap().health, 6);
-        c.on_msg(ActorMsg::Died { actor: A, killer: None });
+        c.on_msg(ActorMsg::Died {
+            actor: A,
+            killer: None,
+        });
         assert!(!c.get(A).unwrap().alive);
         c.on_msg(assign(2, 2));
         assert!(!c.get(A).unwrap().alive, "death survives a handoff");
@@ -281,13 +389,22 @@ mod tests {
     fn spawned_refs_remember_where_and_go_with_despawn() {
         let mut c = ActorClient::new(PlayerId(1));
         let id = FormId(0xFF00_0001);
-        c.on_msg(ActorMsg::Spawned { id, base: FormId(7), site: id, cell: crate::ids::CellId(4), pos: [16, 32, 0] });
+        c.on_msg(ActorMsg::Spawned {
+            id,
+            base: FormId(7),
+            site: id,
+            cell: crate::ids::CellId(4),
+            pos: [16, 32, 0],
+        });
         assert_eq!(c.spawned[&id], FormId(7));
         assert_eq!(c.spawn_at[&id], (crate::ids::CellId(4), [16, 32, 0]));
         c.on_msg(ActorMsg::Despawn { id });
         assert!(c.spawned.is_empty() && c.spawn_at.is_empty());
         assert!(c.report(vec![]).is_none());
-        assert!(matches!(c.report(vec![(A, st(0))]), Some(ActorMsg::Track { .. })));
+        assert!(matches!(
+            c.report(vec![(A, st(0))]),
+            Some(ActorMsg::Track { .. })
+        ));
     }
 
     #[test]
@@ -296,12 +413,26 @@ mod tests {
         let (r1, _) = c.request_spawn(FormId(1), FormId(2), crate::ids::CellId(1), [0; 3], 5);
         let (r2, _) = c.request_spawn(FormId(1), FormId(2), crate::ids::CellId(1), [0; 3], 5);
         assert_ne!(r1, r2);
-        c.on_msg(ActorMsg::SpawnReply { req: r1, outcome: SpawnOutcome::Granted { id: FormId(0xFF00_0000) } });
+        c.on_msg(ActorMsg::SpawnReply {
+            req: r1,
+            outcome: SpawnOutcome::Granted {
+                id: FormId(0xFF00_0000),
+            },
+        });
         assert!(c.spawn_results.contains_key(&r1));
-        let ActorMsg::Hit { hit: h1, .. } = c.hit(A, 5) else { panic!() };
-        let ActorMsg::Hit { hit: h2, .. } = c.hit(A, 5) else { panic!() };
+        let ActorMsg::Hit { hit: h1, .. } = c.hit(A, 5) else {
+            panic!()
+        };
+        let ActorMsg::Hit { hit: h2, .. } = c.hit(A, 5) else {
+            panic!()
+        };
         assert!(h2 > h1);
-        c.on_msg(ActorMsg::LeveledReply { req: 1, list: FormId(1), key: 2, pick: FormId(3) });
+        c.on_msg(ActorMsg::LeveledReply {
+            req: 1,
+            list: FormId(1),
+            key: 2,
+            pick: FormId(3),
+        });
         assert_eq!(c.leveled[&(FormId(1), 2)], FormId(3));
     }
 }

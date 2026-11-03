@@ -54,7 +54,11 @@ impl<'a> Rig<'a> {
             host.register_player(s);
             host.with_player(s, |g| g.stock(order, PLAYER_REF));
         }
-        host.coop.gate.as_mut().unwrap().set_present((0..=n).map(PlayerId));
+        host.coop
+            .gate
+            .as_mut()
+            .unwrap()
+            .set_present((0..=n).map(PlayerId));
         let guests = (1..=n)
             .map(|s| {
                 let mut g = GameState::new(order);
@@ -86,7 +90,13 @@ impl<'a> Rig<'a> {
         self.sim.step();
         for i in 0..self.guests.len() {
             if self.sim.guests[i].sync.phase() == GuestPhase::Active {
-                let opts = Opts { present: true, ctx: Some(Ctx { order: self.order, scripts: self.scripts }) };
+                let opts = Opts {
+                    present: true,
+                    ctx: Some(Ctx {
+                        order: self.order,
+                        scripts: self.scripts,
+                    }),
+                };
                 let store = &self.sim.guests[i].sync.store;
                 self.gbs[i].sync(&mut self.guests[i], store, false, opts);
             }
@@ -124,7 +134,12 @@ impl<'a> Rig<'a> {
 }
 
 fn held(gs: &GameState, slot: u8, item: u32) -> i32 {
-    gs.shadow_of(slot).unwrap().items.get(&FormId(item)).copied().unwrap_or(0)
+    gs.shadow_of(slot)
+        .unwrap()
+        .items
+        .get(&FormId(item))
+        .copied()
+        .unwrap_or(0)
 }
 
 #[test]
@@ -150,18 +165,38 @@ fn coop_shadow_inventories_diverge_while_shared_state_converges() {
     assert!(rig.settle(), "did not converge");
     let base = held(&rig.host, 2, CAPS);
     assert_eq!(held(&rig.host, 1, CAPS), base + 7);
-    assert!(held(&rig.host, 0, CAPS) > base, "the quest script paid the host player only");
+    assert!(
+        held(&rig.host, 0, CAPS) > base,
+        "the quest script paid the host player only"
+    );
     // Each guest holds its own rows live and mirrors the others.
-    assert_eq!(rig.guests[0].items.get(&(PLAYER_REF, FormId(CAPS))), Some(&(base + 7)));
+    assert_eq!(
+        rig.guests[0].items.get(&(PLAYER_REF, FormId(CAPS))),
+        Some(&(base + 7))
+    );
     assert_eq!(rig.guests[0].skill_points.get(&32), Some(&5));
-    assert_eq!(rig.guests[1].items.get(&(PLAYER_REF, FormId(CAPS))).copied().unwrap_or(0), base);
+    assert_eq!(
+        rig.guests[1]
+            .items
+            .get(&(PLAYER_REF, FormId(CAPS)))
+            .copied()
+            .unwrap_or(0),
+        base
+    );
     assert!(rig.guests[1].skill_points.is_empty());
-    assert_eq!(held(&rig.guests[1], 1, CAPS), base + 7, "guest 2 mirrors guest 1");
+    assert_eq!(
+        held(&rig.guests[1], 1, CAPS),
+        base + 7,
+        "guest 2 mirrors guest 1"
+    );
     for g in &rig.guests {
         assert_eq!(g.stages.get(&FormId(QUEST)), Some(&20));
         assert!(g.topics.contains(&FormId(TOPIC_SECRET)));
     }
-    assert!(rig.host.skill_points.is_empty(), "host player's skills are untouched");
+    assert!(
+        rig.host.skill_points.is_empty(),
+        "host player's skills are untouched"
+    );
 }
 
 #[test]
@@ -171,17 +206,32 @@ fn coop_policy_reward_reaches_every_player_exactly_once() {
     let mut rig = Rig::new(&order, &scripts, table(""));
     let before: Vec<i32> = (0..3).map(|s| held(&rig.host, s, CAPS)).collect();
     let id = reward_id(FormId(QUEST), 20, 0);
-    let grant = Grant::Item { item: FormId(CAPS), count: 10 };
+    let grant = Grant::Item {
+        item: FormId(CAPS),
+        count: 10,
+    };
     let out = rig.gate(|g, gs| g.route_reward(gs, &order, FormId(QUEST), id, grant.clone()));
     assert_eq!(out.applied.len(), 3);
     let again = rig.gate(|g, gs| g.route_reward(gs, &order, FormId(QUEST), id, grant.clone()));
-    assert!(matches!(again.decision, Decision::Reject { reason: Reject::AlreadyGranted }));
+    assert!(matches!(
+        again.decision,
+        Decision::Reject {
+            reason: Reject::AlreadyGranted
+        }
+    ));
     assert!(again.applied.is_empty());
     assert!(rig.settle());
     for s in 0..3u8 {
-        assert_eq!(held(&rig.host, s, CAPS), before[s as usize] + 10, "slot {s}");
+        assert_eq!(
+            held(&rig.host, s, CAPS),
+            before[s as usize] + 10,
+            "slot {s}"
+        );
     }
-    assert_eq!(rig.guests[1].items.get(&(PLAYER_REF, FormId(CAPS))), Some(&(before[2] + 10)));
+    assert_eq!(
+        rig.guests[1].items.get(&(PLAYER_REF, FormId(CAPS))),
+        Some(&(before[2] + 10))
+    );
 }
 
 #[test]
@@ -191,8 +241,21 @@ fn coop_policy_split_reward_divides_between_players() {
     let mut rig = Rig::new(&order, &scripts, table(r#","reward":"split""#));
     let before: Vec<i32> = (0..3).map(|s| held(&rig.host, s, CAPS)).collect();
     let id = reward_id(FormId(QUEST), 20, 1);
-    rig.gate(|g, gs| g.route_reward(gs, &order, FormId(QUEST), id, Grant::Item { item: FormId(CAPS), count: 10 }));
-    let got: Vec<i32> = (0..3).map(|s| held(&rig.host, s, CAPS) - before[s as usize]).collect();
+    rig.gate(|g, gs| {
+        g.route_reward(
+            gs,
+            &order,
+            FormId(QUEST),
+            id,
+            Grant::Item {
+                item: FormId(CAPS),
+                count: 10,
+            },
+        )
+    });
+    let got: Vec<i32> = (0..3)
+        .map(|s| held(&rig.host, s, CAPS) - before[s as usize])
+        .collect();
     assert_eq!(got, vec![4, 3, 3]);
 }
 
@@ -236,13 +299,23 @@ fn coop_policy_rejects_host_only_events_from_a_guest() {
     let scripts = ScriptCache::default();
     let mut rig = Rig::new(&order, &scripts, table(""));
     let d = rig.gate(|g, gs| g.intent_set_stage(gs, 1, FormId(QUEST), 10));
-    assert_eq!(d, Decision::Reject { reason: Reject::NotHost });
+    assert_eq!(
+        d,
+        Decision::Reject {
+            reason: Reject::NotHost
+        }
+    );
     let ok = rig.gate(|g, gs| g.guest_script_allowed(gs, FormId(QUEST), FormId(QUEST_SCRIPT), 1));
     assert!(!ok);
     // A player who is not counted cannot act at all.
     rig.gate(|g, _| g.set_present([PlayerId(0)]));
     let d = rig.gate(|g, gs| g.intent_set_stage(gs, 2, FormId(QUEST), 10));
-    assert_eq!(d, Decision::Reject { reason: Reject::NotPresent });
+    assert_eq!(
+        d,
+        Decision::Reject {
+            reason: Reject::NotPresent
+        }
+    );
 }
 
 #[test]
@@ -263,12 +336,20 @@ fn coop_shadow_swap_leaves_hash_unchanged_and_is_panic_safe() {
     assert_eq!(gs.items, items);
 
     // Karma is shared: not swapped.
-    gs.actor_values.insert((PLAYER_REF, world::reputation::KARMA), 40.0);
+    gs.actor_values
+        .insert((PLAYER_REF, world::reputation::KARMA), 40.0);
     gs.with_player(1, |g| {
-        assert_eq!(g.actor_values.get(&(PLAYER_REF, world::reputation::KARMA)), Some(&40.0));
-        g.actor_values.insert((PLAYER_REF, world::reputation::KARMA), 45.0);
+        assert_eq!(
+            g.actor_values.get(&(PLAYER_REF, world::reputation::KARMA)),
+            Some(&40.0)
+        );
+        g.actor_values
+            .insert((PLAYER_REF, world::reputation::KARMA), 45.0);
     });
-    assert_eq!(gs.actor_values.get(&(PLAYER_REF, world::reputation::KARMA)), Some(&45.0));
+    assert_eq!(
+        gs.actor_values.get(&(PLAYER_REF, world::reputation::KARMA)),
+        Some(&45.0)
+    );
 
     // A panic inside the scope still restores the previous owner and keeps
     // the work done for the other player.
@@ -300,18 +381,87 @@ fn a_per_player_quest_variable_reaches_its_owner_and_nobody_else() {
     // the host's script run for player 1 (the host's quest variables exist; the guests' do not)
     rig.host.variables.insert(FormId(QUEST), base);
     rig.host.with_player(1, |g| {
-        assert!(g.variables.get_mut(&FormId(QUEST)).unwrap().set("bRunTimer", 1.0));
+        assert!(g
+            .variables
+            .get_mut(&FormId(QUEST))
+            .unwrap()
+            .set("bRunTimer", 1.0));
     });
     assert!(rig.settle(), "shared state converges");
-    let var = |gs: &GameState| gs.variables.get(&FormId(QUEST)).and_then(|l| l.get("bRunTimer")).unwrap_or(0.0);
-    assert_eq!(var(&rig.guests[0]), 1.0, "player 1's own rows hold the variable");
+    let var = |gs: &GameState| {
+        gs.variables
+            .get(&FormId(QUEST))
+            .and_then(|l| l.get("bRunTimer"))
+            .unwrap_or(0.0)
+    };
+    assert_eq!(
+        var(&rig.guests[0]),
+        1.0,
+        "player 1's own rows hold the variable"
+    );
     assert_eq!(var(&rig.guests[1]), 0.0, "player 2 does not");
     assert_eq!(var(&rig.host), 0.0, "the host's own rows do not");
-    assert_eq!(rig.host.shadow_of(1).unwrap().quest_vars.len(), 1, "the host keeps a copy for slot 1");
+    assert_eq!(
+        rig.host.shadow_of(1).unwrap().quest_vars.len(),
+        1,
+        "the host keeps a copy for slot 1"
+    );
     assert_eq!(rig.guests[0].shadow_of(1), rig.host.shadow_of(1));
-    assert!(rig.guests[1].shadow_of(1).unwrap().quest_vars.len() == 1, "everyone holds every player's copy");
+    assert!(
+        rig.guests[1].shadow_of(1).unwrap().quest_vars.len() == 1,
+        "everyone holds every player's copy"
+    );
     // the variable is not in the shared rows
-    assert!(!world::coop::export::export(&rig.host).values().any(|f| matches!(f, coop_core::schema::Field::ScriptVar { bits, .. } if *bits != 0)));
+    assert!(!world::coop::export::export(&rig.host)
+        .values()
+        .any(|f| matches!(f, coop_core::schema::Field::ScriptVar { bits, .. } if *bits != 0)));
+}
+
+/// Each machine runs its own copy of a per-player quest's script, so the script's variables
+/// stay on that machine. Before, the host shared them: the guest's copy of a timer was
+/// overwritten with the host's, and the next guest frame wrote its own value again (a desync).
+#[test]
+fn a_per_player_quest_keeps_its_script_variables_on_each_machine() {
+    let (_d, order) = order("coop-own-quest-var");
+    let scripts = ScriptCache::default();
+    let t = table(r#","scope":"per_player""#);
+    assert!(ShadowPlan::from_policy(&t).quests.contains(&FormId(QUEST)));
+    let mut rig = Rig::new(&order, &scripts, t);
+    let base = {
+        let s = world::scripting::script_of(&order, FormId(QUEST)).expect("quest script");
+        script::interp::Locals::new(&scripts.script(&order, s).expect("script"))
+    };
+    let timer = |gs: &mut GameState, v: f64| {
+        gs.variables.entry(FormId(QUEST)).or_insert(base.clone());
+        assert!(gs
+            .variables
+            .get_mut(&FormId(QUEST))
+            .unwrap()
+            .set("fTimer", v));
+    };
+    timer(&mut rig.host, 10.93);
+    timer(&mut rig.guests[0], 9.93);
+    assert!(rig.settle(), "shared state converges");
+    let var = |gs: &GameState| {
+        gs.variables
+            .get(&FormId(QUEST))
+            .and_then(|l| l.get("fTimer"))
+            .unwrap_or(0.0)
+    };
+    assert_eq!(var(&rig.host), 10.93);
+    assert_eq!(
+        var(&rig.guests[0]),
+        9.93,
+        "the host's timer does not reach the guest"
+    );
+    assert_eq!(var(&rig.guests[1]), 0.0);
+    let q = world::coop::export::cf(FormId(QUEST));
+    assert!(
+        !world::coop::export::export(&rig.host)
+            .iter()
+            .any(|(k, f)| k.form == q && matches!(f, coop_core::schema::Field::ScriptVar { .. })),
+        "the quest's variables are not in the shared rows"
+    );
 }
 
 #[test]

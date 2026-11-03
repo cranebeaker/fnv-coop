@@ -218,9 +218,17 @@ impl StartFlow {
         StartFlow {
             role: Role::Host,
             own: OwnCharacter::Create,
-            phase: if new_game { Phase::CharacterCreation } else { Phase::Playing },
+            phase: if new_game {
+                Phase::CharacterCreation
+            } else {
+                Phase::Playing
+            },
             venue: Venue::HostPlace,
-            opening: Some(if new_game { Opening::InProgress } else { Opening::Over }),
+            opening: Some(if new_game {
+                Opening::InProgress
+            } else {
+                Opening::Over
+            }),
             step: 0,
             opened: false,
             finished: false,
@@ -260,7 +268,9 @@ impl StartFlow {
 
     /// The menu being made (guest), if any.
     pub fn step(&self) -> Option<Step> {
-        (self.phase == Phase::CharacterCreation && self.role == Role::Guest).then(|| STEPS.get(self.step).copied()).flatten()
+        (self.phase == Phase::CharacterCreation && self.role == Role::Guest)
+            .then(|| STEPS.get(self.step).copied())
+            .flatten()
     }
 
     /// Host: the opening's progress from the host's own quest rows. `CharacterCreation` ends when
@@ -296,7 +306,11 @@ impl StartFlow {
                 self.phase = Phase::Arriving;
             }
             OwnCharacter::Create => {
-                self.venue = if o == Opening::InProgress { Venue::HostPlace } else { Venue::LocalRoom };
+                self.venue = if o == Opening::InProgress {
+                    Venue::HostPlace
+                } else {
+                    Venue::LocalRoom
+                };
                 self.phase = Phase::CharacterCreation;
             }
         }
@@ -312,7 +326,10 @@ impl StartFlow {
     pub fn follow_ok(&self) -> bool {
         match self.role {
             Role::Host => true,
-            Role::Guest => !(self.phase == Phase::Joining || (self.phase == Phase::CharacterCreation && self.venue == Venue::LocalRoom)),
+            Role::Guest => {
+                !(self.phase == Phase::Joining
+                    || (self.phase == Phase::CharacterCreation && self.venue == Venue::LocalRoom))
+            }
         }
     }
 
@@ -400,7 +417,8 @@ impl Sheet {
             gs.player_female = self.female;
         }
         for (i, av) in SPECIAL.iter().enumerate() {
-            gs.actor_values.insert((PLAYER_REF, *av), f64::from(self.special[i]));
+            gs.actor_values
+                .insert((PLAYER_REF, *av), f64::from(self.special[i]));
         }
         gs.tag_skills = self.tags.iter().copied().collect::<BTreeSet<u16>>();
         for p in &self.perks {
@@ -485,7 +503,8 @@ impl StartSide {
 /// The host's opening from its own quest rows.
 pub fn opening_of(gs: &GameState, new_game: bool) -> Opening {
     let st = |q: FormId| gs.stages.get(&q).copied();
-    let finished = st(VCG01).is_some_and(|s| s >= OPENING_OVER_STAGE) || gs.completed.contains(&VCG01);
+    let finished =
+        st(VCG01).is_some_and(|s| s >= OPENING_OVER_STAGE) || gs.completed.contains(&VCG01);
     if finished {
         return Opening::Over;
     }
@@ -545,7 +564,9 @@ impl Session {
     }
 
     fn at_host_place(&self, gs: &GameState) -> bool {
-        let Some(p) = self.host_place_for_start() else { return false };
+        let Some(p) = self.host_place_for_start() else {
+            return false;
+        };
         if p.world != 0 {
             gs.player_world.map(|w| w.0) == Some(p.world)
         } else {
@@ -579,7 +600,10 @@ impl Session {
         if self.start.logged != Some(phase) {
             self.start.logged = Some(phase);
             let venue = self.start.flow.venue();
-            self.log_ev("start_phase", &[("phase", V::S(phase.name())), ("venue", V::S(venue.name()))]);
+            self.log_ev(
+                "start_phase",
+                &[("phase", V::S(phase.name())), ("venue", V::S(venue.name()))],
+            );
         }
         match act {
             Some(Action::OpenMenu(s)) => Some(s),
@@ -617,7 +641,13 @@ impl Session {
             return;
         }
         send_ext(&mut self.net, from, &Ext::SheetAck);
-        if self.start.applied.get(&from) != Some(&sheet) && !self.start.pending.iter().any(|(p, s)| *p == from && *s == sheet) {
+        if self.start.applied.get(&from) != Some(&sheet)
+            && !self
+                .start
+                .pending
+                .iter()
+                .any(|(p, s)| *p == from && *s == sheet)
+        {
             self.start.pending.push((from, sheet));
         }
     }
@@ -637,7 +667,11 @@ impl Session {
         }
         let o = opening_of(gs, self.start.cfg.new_game);
         self.start.flow.host_opening(o);
-        let peers: Vec<PlayerId> = self.host.as_ref().map(|h| h.peers.keys().copied().collect()).unwrap_or_default();
+        let peers: Vec<PlayerId> = self
+            .host
+            .as_ref()
+            .map(|h| h.peers.keys().copied().collect())
+            .unwrap_or_default();
         self.start.told.retain(|p, _| peers.contains(p));
         for p in peers {
             if self.start.told.get(&p) != Some(&o) {
@@ -658,7 +692,10 @@ impl Session {
                 // one shared player: there is no row of its own to keep a character in
                 continue;
             }
-            self.log_ev("character", &[("player", V::U(slot as u64)), ("name", V::S(&name))]);
+            self.log_ev(
+                "character",
+                &[("player", V::U(slot as u64)), ("name", V::S(&name))],
+            );
             self.start.applied.insert(from, sheet);
         }
     }
@@ -666,7 +703,10 @@ impl Session {
     /// Guest, once per tick: resends an unacknowledged sheet.
     pub(crate) fn guest_start_tick(&mut self) {
         let now = self.now_ms;
-        let active = self.guest.as_ref().is_some_and(|g| g.sync.phase() == coop_core::sync::GuestPhase::Active);
+        let active = self
+            .guest
+            .as_ref()
+            .is_some_and(|g| g.sync.phase() == coop_core::sync::GuestPhase::Active);
         if !active || self.start.flow.acked {
             return;
         }
@@ -713,7 +753,10 @@ mod tests {
     #[test]
     fn host_without_a_new_game_plays_at_once() {
         let f = StartFlow::host(false);
-        assert_eq!((f.phase(), f.opening()), (Phase::Playing, Some(Opening::Over)));
+        assert_eq!(
+            (f.phase(), f.opening()),
+            (Phase::Playing, Some(Opening::Over))
+        );
         assert!(f.follow_ok());
     }
 
@@ -735,7 +778,10 @@ mod tests {
         assert_eq!(f.poll(false, false), None, "nothing while joining");
         assert!(!f.follow_ok());
         f.guest_joined(Opening::InProgress);
-        assert_eq!((f.phase(), f.venue()), (Phase::CharacterCreation, Venue::HostPlace));
+        assert_eq!(
+            (f.phase(), f.venue()),
+            (Phase::CharacterCreation, Venue::HostPlace)
+        );
         assert!(f.follow_ok(), "already at the host's place");
         let (f, opened) = run_guest(f, 3, 0);
         assert_eq!(opened, STEPS.to_vec());
@@ -746,8 +792,14 @@ mod tests {
     fn guest_joining_after_the_opening_uses_a_local_room_and_then_arrives() {
         let mut f = StartFlow::guest(OwnCharacter::Create);
         f.guest_joined(Opening::Over);
-        assert_eq!((f.phase(), f.venue()), (Phase::CharacterCreation, Venue::LocalRoom));
-        assert!(!f.follow_ok(), "the guest stays in the room while it makes its character");
+        assert_eq!(
+            (f.phase(), f.venue()),
+            (Phase::CharacterCreation, Venue::LocalRoom)
+        );
+        assert!(
+            !f.follow_ok(),
+            "the guest stays in the room while it makes its character"
+        );
         // arrives only after the menus; "at host" turns true at frame 50
         let mut g = f.clone();
         let mut seen = Vec::new();
@@ -816,12 +868,19 @@ mod tests {
 
     #[test]
     fn the_venue_follows_the_hosts_opening_at_the_time_of_joining() {
-        for (o, v) in [(Opening::InProgress, Venue::HostPlace), (Opening::Over, Venue::LocalRoom)] {
+        for (o, v) in [
+            (Opening::InProgress, Venue::HostPlace),
+            (Opening::Over, Venue::LocalRoom),
+        ] {
             let mut f = StartFlow::guest(OwnCharacter::Create);
             f.guest_joined(o);
             assert_eq!(f.venue(), v);
             // a later change of the host's opening does not move a guest that already began
-            f.guest_joined(if o == Opening::Over { Opening::InProgress } else { Opening::Over });
+            f.guest_joined(if o == Opening::Over {
+                Opening::InProgress
+            } else {
+                Opening::Over
+            });
             assert_eq!(f.venue(), v);
         }
     }
@@ -831,7 +890,11 @@ mod tests {
         let (_d, order) = order();
         let mut gs = GameState::new(&order);
         assert_eq!(opening_of(&gs, false), Opening::Over, "no opening ran");
-        assert_eq!(opening_of(&gs, true), Opening::InProgress, "a new game, before the first stage");
+        assert_eq!(
+            opening_of(&gs, true),
+            Opening::InProgress,
+            "a new game, before the first stage"
+        );
         gs.stages.insert(VCG00, 0);
         assert_eq!(opening_of(&gs, false), Opening::InProgress);
         gs.stages.insert(VCG01, 90);
@@ -856,7 +919,14 @@ mod tests {
         assert_eq!(s.tags, vec![32, 40, 41]);
         let mut b = GameState::new(&order);
         s.apply(&mut b);
-        assert_eq!(Sheet { perks: vec![0x1234], ..s.clone() }.perks, vec![0x1234]);
+        assert_eq!(
+            Sheet {
+                perks: vec![0x1234],
+                ..s.clone()
+            }
+            .perks,
+            vec![0x1234]
+        );
         assert_eq!(b.player_name.as_deref(), Some("Bo"));
         assert_eq!(b.actor_values.get(&(PLAYER_REF, 11)), Some(&9.0));
         assert!(b.perks.contains(&FormId(0x1234)));
@@ -870,7 +940,13 @@ mod tests {
 
     #[test]
     fn the_dump_object_names_the_phase() {
-        let i = StartInfo { phase: Phase::CharacterCreation, venue: Venue::LocalRoom, opening: Some(Opening::Over), sheet_acked: false, step: Some(Step::Special) };
+        let i = StartInfo {
+            phase: Phase::CharacterCreation,
+            venue: Venue::LocalRoom,
+            opening: Some(Opening::Over),
+            sheet_acked: false,
+            step: Some(Step::Special),
+        };
         assert_eq!(
             i.json(),
             "{\"phase\":\"character_creation\",\"venue\":\"local_room\",\"opening\":\"over\",\"sheet_acked\":false,\"step\":\"special\"}"

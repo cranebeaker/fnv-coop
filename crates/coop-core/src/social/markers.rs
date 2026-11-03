@@ -43,7 +43,10 @@ impl MarkerTable {
 
     /// Markers owned by `p`.
     pub fn of(&self, p: PlayerId) -> Vec<&Marker> {
-        self.owners.get(&p).map(|m| m.values().filter_map(|s| s.marker.as_ref()).collect()).unwrap_or_default()
+        self.owners
+            .get(&p)
+            .map(|m| m.values().filter_map(|s| s.marker.as_ref()).collect())
+            .unwrap_or_default()
     }
 
     /// Total markers.
@@ -58,7 +61,10 @@ impl MarkerTable {
 
     fn limited(&mut self, p: PlayerId, now_ms: u64) -> bool {
         let q = self.recent.entry(p).or_default();
-        while q.front().map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS) {
+        while q
+            .front()
+            .map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
+        {
             q.pop_front();
         }
         if q.len() >= RATE_OPS {
@@ -86,8 +92,17 @@ impl MarkerTable {
             return vec![];
         }
         let expires_ms = (marker.ttl_ms > 0).then(|| now_ms + marker.ttl_ms as u64);
-        slots.insert(marker.id, Slot { marker: Some(marker.clone()), expires_ms });
-        vec![MarkerOut { aud: Audience::AllExcept(owner), msg: SocialMsg::MarkerShown { owner, marker } }]
+        slots.insert(
+            marker.id,
+            Slot {
+                marker: Some(marker.clone()),
+                expires_ms,
+            },
+        );
+        vec![MarkerOut {
+            aud: Audience::AllExcept(owner),
+            msg: SocialMsg::MarkerShown { owner, marker },
+        }]
     }
 
     /// A player clears a marker.
@@ -95,9 +110,16 @@ impl MarkerTable {
         if self.limited(owner, now_ms) {
             return vec![];
         }
-        let removed = self.owners.get_mut(&owner).and_then(|m| m.remove(&id)).is_some();
+        let removed = self
+            .owners
+            .get_mut(&owner)
+            .and_then(|m| m.remove(&id))
+            .is_some();
         if removed {
-            vec![MarkerOut { aud: Audience::AllExcept(owner), msg: SocialMsg::MarkerGone { owner, id } }]
+            vec![MarkerOut {
+                aud: Audience::AllExcept(owner),
+                msg: SocialMsg::MarkerGone { owner, id },
+            }]
         } else {
             vec![]
         }
@@ -107,11 +129,17 @@ impl MarkerTable {
     pub fn tick(&mut self, now_ms: u64) -> Vec<MarkerOut> {
         let mut v = Vec::new();
         for (owner, slots) in self.owners.iter_mut() {
-            let gone: Vec<u16> =
-                slots.iter().filter(|(_, s)| s.expires_ms.map_or(false, |e| now_ms >= e)).map(|(i, _)| *i).collect();
+            let gone: Vec<u16> = slots
+                .iter()
+                .filter(|(_, s)| s.expires_ms.map_or(false, |e| now_ms >= e))
+                .map(|(i, _)| *i)
+                .collect();
             for id in gone {
                 slots.remove(&id);
-                v.push(MarkerOut { aud: Audience::All, msg: SocialMsg::MarkerGone { owner: *owner, id } });
+                v.push(MarkerOut {
+                    aud: Audience::All,
+                    msg: SocialMsg::MarkerGone { owner: *owner, id },
+                });
             }
         }
         v
@@ -124,7 +152,10 @@ impl MarkerTable {
             .remove(&p)
             .map(|m| {
                 m.keys()
-                    .map(|id| MarkerOut { aud: Audience::All, msg: SocialMsg::MarkerGone { owner: p, id: *id } })
+                    .map(|id| MarkerOut {
+                        aud: Audience::All,
+                        msg: SocialMsg::MarkerGone { owner: p, id: *id },
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -152,7 +183,14 @@ mod tests {
     const B: PlayerId = PlayerId(2);
 
     fn mk(id: u16, ttl: u32) -> Marker {
-        Marker { id, kind: 1, cell: CellId(1), pos: [0; 3], label: "camp".into(), ttl_ms: ttl }
+        Marker {
+            id,
+            kind: 1,
+            cell: CellId(1),
+            pos: [0; 3],
+            label: "camp".into(),
+            ttl_ms: ttl,
+        }
     }
 
     #[test]

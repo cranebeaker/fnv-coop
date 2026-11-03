@@ -12,7 +12,12 @@ use crate::scripting::GameState;
 
 /// Runs `f` as player `slot` (shadow rows and attribution), after telling the
 /// gate that `slot` started an interaction on `quest`.
-pub fn as_initiator<R>(gs: &mut GameState, slot: u8, quest: Option<FormId>, f: impl FnOnce(&mut GameState) -> R) -> R {
+pub fn as_initiator<R>(
+    gs: &mut GameState,
+    slot: u8,
+    quest: Option<FormId>,
+    f: impl FnOnce(&mut GameState) -> R,
+) -> R {
     if let (Some(q), Some(g)) = (quest, gs.coop.gate.as_mut()) {
         g.begin_interaction(q, slot);
     }
@@ -29,13 +34,26 @@ struct Where {
 }
 
 fn wheres(gs: &GameState) -> Vec<Where> {
-    let Some(g) = gs.coop.gate.as_ref() else { return Vec::new() };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return Vec::new();
+    };
     (0..8u8)
         .filter(|s| g.present.contains(*s))
         .filter_map(|slot| {
             let sh = gs.shadow_of(slot)?;
-            let pos = sh.position.map(|p| [f32::from_bits(p[0]), f32::from_bits(p[1]), f32::from_bits(p[2])]);
-            Some(Where { slot, cell: sh.cell, world: sh.world, pos })
+            let pos = sh.position.map(|p| {
+                [
+                    f32::from_bits(p[0]),
+                    f32::from_bits(p[1]),
+                    f32::from_bits(p[2]),
+                ]
+            });
+            Some(Where {
+                slot,
+                cell: sh.cell,
+                world: sh.world,
+                pos,
+            })
         })
         .collect()
 }
@@ -54,7 +72,8 @@ fn inside(order: &LoadOrder, gs: &GameState, t: &coop_policy::Tether, w: &Where)
             if let Some((_, cell, at, _)) = gs.place(order, anchor) {
                 // same place (cell) or the outdoors
                 let same = w.cell == Some(cell) || w.world.is_some();
-                let d = ((p[0] - at[0]).powi(2) + (p[1] - at[1]).powi(2) + (p[2] - at[2]).powi(2)).sqrt();
+                let d = ((p[0] - at[0]).powi(2) + (p[1] - at[1]).powi(2) + (p[2] - at[2]).powi(2))
+                    .sqrt();
                 return same && d <= r as f32;
             }
         }
@@ -65,7 +84,9 @@ fn inside(order: &LoadOrder, gs: &GameState, t: &coop_policy::Tether, w: &Where)
 /// Recomputes `in_zone` of every tethered quest and the barrier passes that
 /// follow from it. Call each frame (cheap: only rows with a tether).
 pub fn update_zones(order: &LoadOrder, gs: &mut GameState) {
-    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else { return };
+    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else {
+        return;
+    };
     let ws = wheres(gs);
     if ws.is_empty() {
         return;
@@ -112,14 +133,23 @@ pub fn update_zones(order: &LoadOrder, gs: &mut GameState) {
 /// An INFO ended: when a row lists it for a ready check, starts one (the
 /// player who finished the line has said yes).
 pub fn ready_if_listed(cx: Ctx, gs: &mut GameState, info: &Info) {
-    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else { return };
+    let Some(table) = gs.coop.gate.as_ref().map(|g| g.table_arc()) else {
+        return;
+    };
     for row in table.rows() {
         let Some(r) = &row.ready else { continue };
-        let hit = r.infos.iter().any(|s| resolve(cx.order, s) == Some(info.form_id));
+        let hit = r
+            .infos
+            .iter()
+            .any(|s| resolve(cx.order, s) == Some(info.form_id));
         if !hit {
             continue;
         }
-        let q = gs.coop.gate.as_ref().map_or(FormId(row.id), |g| g.lid(row.id));
+        let q = gs
+            .coop
+            .gate
+            .as_ref()
+            .map_or(FormId(row.id), |g| g.lid(row.id));
         let who = gs.coop.gate.as_ref().and_then(|g| g.initiator());
         gs.coop.campaign.ready.insert(q, info.form_id.0);
         if let Some(g) = gs.coop.gate.as_mut() {
@@ -133,7 +163,12 @@ pub fn ready_if_listed(cx: Ctx, gs: &mut GameState, info: &Info) {
 
 /// Ready checks in flight: (quest, info).
 pub fn ready_open(gs: &GameState) -> Vec<(FormId, u32)> {
-    gs.coop.campaign.ready.iter().map(|(q, i)| (*q, *i)).collect()
+    gs.coop
+        .campaign
+        .ready
+        .iter()
+        .map(|(q, i)| (*q, *i))
+        .collect()
 }
 
 /// A player answers the ready check of `quest`.
@@ -164,5 +199,8 @@ pub fn frame(cx: Ctx, gs: &mut GameState) {
 
 /// Everyone present (for tests and diagnostics).
 pub fn present(gs: &GameState) -> PlayerMask {
-    gs.coop.gate.as_ref().map_or(PlayerMask::NONE, |g| g.present)
+    gs.coop
+        .gate
+        .as_ref()
+        .map_or(PlayerMask::NONE, |g| g.present)
 }

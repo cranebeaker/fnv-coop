@@ -24,6 +24,9 @@ pub struct Data {
 pub struct Place {
     /// The cell record.
     pub cell: FormId,
+    /// The worldspace of an exterior cell (`None` for an interior): the
+    /// viewer starts an exterior cell in its worldspace.
+    pub world: Option<FormId>,
     /// Where the player arrives (feet).
     pub spawn: [f32; 3],
     /// Arrival heading, radians.
@@ -43,14 +46,30 @@ impl Data {
             .map_err(|e| format!("cannot read the load order in {}: {e}", dir.display()))?;
         let has_meshes = dir.join("Meshes").is_dir()
             || std::fs::read_dir(dir)
-                .map(|d| d.flatten().any(|f| f.file_name().to_string_lossy().to_ascii_lowercase().contains("meshes") && f.file_name().to_string_lossy().ends_with(".bsa")))
+                .map(|d| {
+                    d.flatten().any(|f| {
+                        f.file_name()
+                            .to_string_lossy()
+                            .to_ascii_lowercase()
+                            .contains("meshes")
+                            && f.file_name().to_string_lossy().ends_with(".bsa")
+                    })
+                })
                 .unwrap_or(false);
-        Ok(Data { order, scripts: ScriptCache::default(), dir: dir.to_path_buf(), has_meshes })
+        Ok(Data {
+            order,
+            scripts: ScriptCache::default(),
+            dir: dir.to_path_buf(),
+            has_meshes,
+        })
     }
 
     /// The data folder: `--data`, else `FNV_ESM_DIR`.
     pub fn locate(arg: Option<&str>) -> Result<PathBuf, String> {
-        match arg.map(str::to_string).or_else(|| std::env::var("FNV_ESM_DIR").ok()) {
+        match arg
+            .map(str::to_string)
+            .or_else(|| std::env::var("FNV_ESM_DIR").ok())
+        {
             Some(d) => Ok(PathBuf::from(d)),
             None => Err("no data folder: pass --data DIR or set FNV_ESM_DIR".into()),
         }
@@ -61,7 +80,9 @@ impl Data {
         if word.eq_ignore_ascii_case("player") {
             return Some(world::dialogue::PLAYER_REF);
         }
-        self.order.form_by_editor_id(word).or_else(|| u32::from_str_radix(word, 16).ok().map(FormId))
+        self.order
+            .form_by_editor_id(word)
+            .or_else(|| u32::from_str_radix(word, 16).ok().map(FormId))
     }
 
     /// The base record of a placed person (`ACHR` / `ACRE`), or `None` for any other reference.
@@ -74,7 +95,10 @@ impl Data {
         let rec = rr.record().ok()?;
         let name = rec.get(esm::sig::NAME)?;
         let raw = name.data.get(..4)?;
-        Some(rr.plugin.to_global(FormId(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))))
+        Some(
+            rr.plugin
+                .to_global(FormId(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))),
+        )
     }
 
     /// Looks up a cell by editor id.
@@ -83,12 +107,37 @@ impl Data {
             .ok()
             .and_then(|v| v.into_iter().next())
             .ok_or_else(|| format!("cell {name} is not in this load order"))?;
-        let loaded = world::load_cell(&self.order, cell).map_err(|e| format!("cell {name}: {e}"))?;
-        let (spawn, heading) = loaded.arrivals.first().map_or(([0.0; 3], 0.0), |a| (a.position, a.rotation[2]));
-        let mut actors: Vec<(FormId, FormId)> = loaded.actors.iter().map(|a| (a.form_id, a.base)).collect();
+        let loaded =
+            world::load_cell(&self.order, cell).map_err(|e| format!("cell {name}: {e}"))?;
+        let (spawn, heading) = loaded
+            .arrivals
+            .first()
+            .map_or(([0.0; 3], 0.0), |a| (a.position, a.rotation[2]));
+        let mut actors: Vec<(FormId, FormId)> =
+            loaded.actors.iter().map(|a| (a.form_id, a.base)).collect();
         // people a script may enable later are left out of the first load
         let people = |t: esm::FourCC| t.as_bytes() == b"ACHR" || t.as_bytes() == b"ACRE";
-        actors.extend(loaded.left_out.iter().filter(|l| people(l.record_type) && l.reason.starts_with("disabled")).filter_map(|l| l.base.map(|b| (l.form_id, b))));
-        Ok(Place { cell, spawn, heading, actors })
+        actors.extend(
+            loaded
+                .left_out
+                .iter()
+                .filter(|l| people(l.record_type) && l.reason.starts_with("disabled"))
+                .filter_map(|l| l.base.map(|b| (l.form_id, b))),
+        );
+        Ok(Place {
+            cell,
+            world: self.world_of_cell(cell),
+            spawn,
+            heading,
+            actors,
+        })
+    }
+
+    /// The worldspace an exterior cell belongs to (`None` for an interior).
+    pub fn world_of_cell(&self, cell: FormId) -> Option<FormId> {
+        let rr = self.order.get(cell)?;
+        (rr.entry.header.kind.as_bytes() == b"CELL")
+            .then(|| self.order.world_of(&rr))
+            .flatten()
     }
 }

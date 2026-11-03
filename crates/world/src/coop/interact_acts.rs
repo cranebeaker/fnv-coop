@@ -10,7 +10,8 @@
 
 use coop_core::ids::{CellId, FormId as CForm, PlayerId};
 use coop_core::interact::{
-    Act, CompanionCmd, LockState, MinePhase, Outcome, PipOp, Shared, StealMode, TrapOutcome, Why, DROP_BASE,
+    Act, CompanionCmd, LockState, MinePhase, Outcome, PipOp, Shared, StealMode, TrapOutcome, Why,
+    DROP_BASE,
 };
 use esm::FormId;
 
@@ -33,7 +34,12 @@ pub(crate) fn wf(f: CForm) -> FormId {
 
 /// Runs `f` as player `who`; what it says to the screen is dropped unless
 /// `who` is the host (their screen is this machine's).
-fn personal<R>(order: &esm::LoadOrder, gs: &mut GameState, who: PlayerId, f: impl FnOnce(&mut GameState) -> R) -> R {
+fn personal<R>(
+    order: &esm::LoadOrder,
+    gs: &mut GameState,
+    who: PlayerId,
+    f: impl FnOnce(&mut GameState) -> R,
+) -> R {
     gs.with_player(who.0, |g| {
         // a new player's pack is the record's until it is first touched
         g.stock(order, PLAYER_REF);
@@ -50,12 +56,19 @@ fn personal<R>(order: &esm::LoadOrder, gs: &mut GameState, who: PlayerId, f: imp
 /// (`companion.owner = party`): any player's commands move it, no player owns it.
 fn party_companion(order: &esm::LoadOrder, gs: &GameState, npc: FormId) -> bool {
     use coop_policy::CompanionOwner;
-    let Some(gate) = gs.coop.gate.as_ref() else { return false };
+    let Some(gate) = gs.coop.gate.as_ref() else {
+        return false;
+    };
     let base = crate::scripting::base_of(order, npc).unwrap_or(npc);
-    let edid = order.get(base).and_then(|r| r.record().ok()).and_then(|r| r.editor_id());
+    let edid = order
+        .get(base)
+        .and_then(|r| r.record().ok())
+        .and_then(|r| r.editor_id());
     let Some(edid) = edid else { return false };
     gate.table().rows().iter().any(|row| {
-        row.companion.as_ref().is_some_and(|c| c.owner == CompanionOwner::Party && c.npcs.iter().any(|n| n.eq_ignore_ascii_case(&edid)))
+        row.companion.as_ref().is_some_and(|c| {
+            c.owner == CompanionOwner::Party && c.npcs.iter().any(|n| n.eq_ignore_ascii_case(&edid))
+        })
     })
 }
 
@@ -71,7 +84,10 @@ fn has_on_activate(cx: Ctx, obj: FormId) -> bool {
 pub fn snapshot_obj(cx: Ctx, gs: &GameState, obj: FormId) -> Vec<Shared> {
     let mut v = Vec::new();
     if crate::doors::open_state(cx.order, gs, obj) != crate::doors::OpenState::None {
-        v.push(Shared::Door { door: cf(obj), open: crate::doors::is_open(cx.order, gs, obj) });
+        v.push(Shared::Door {
+            door: cf(obj),
+            open: crate::doors::is_open(cx.order, gs, obj),
+        });
     }
     if gs.locks.contains_key(&obj) || gs.broken_locks.contains_key(&obj) {
         v.push(Shared::Lock {
@@ -83,12 +99,22 @@ pub fn snapshot_obj(cx: Ctx, gs: &GameState, obj: FormId) -> Vec<Shared> {
         });
     }
     if let Some(t) = gs.terminal_states.get(&obj) {
-        v.push(Shared::Terminal { obj: cf(obj), hacked: t.hacked, lockouts: t.lockouts });
+        v.push(Shared::Terminal {
+            obj: cf(obj),
+            hacked: t.hacked,
+            lockouts: t.lockouts,
+        });
     }
     if gs.more.mines.gone.contains(&obj) {
-        v.push(Shared::Mine { obj: cf(obj), phase: MinePhase::Gone });
+        v.push(Shared::Mine {
+            obj: cf(obj),
+            phase: MinePhase::Gone,
+        });
     } else if gs.more.mines.disarmed.contains(&obj) {
-        v.push(Shared::Mine { obj: cf(obj), phase: MinePhase::Disarmed });
+        v.push(Shared::Mine {
+            obj: cf(obj),
+            phase: MinePhase::Disarmed,
+        });
     }
     v
 }
@@ -102,10 +128,18 @@ pub fn world_shared(cx: Ctx, gs: &GameState) -> Vec<Shared> {
     let mut v = Vec::new();
     for (door, open) in &gs.set_by_scripts.open {
         if crate::doors::open_state(cx.order, gs, *door) != crate::doors::OpenState::None {
-            v.push(Shared::Door { door: cf(*door), open: *open });
+            v.push(Shared::Door {
+                door: cf(*door),
+                open: *open,
+            });
         }
     }
-    let locked: std::collections::BTreeSet<FormId> = gs.locks.keys().chain(gs.broken_locks.keys()).copied().collect();
+    let locked: std::collections::BTreeSet<FormId> = gs
+        .locks
+        .keys()
+        .chain(gs.broken_locks.keys())
+        .copied()
+        .collect();
     for obj in locked {
         v.push(Shared::Lock {
             obj: cf(obj),
@@ -116,13 +150,29 @@ pub fn world_shared(cx: Ctx, gs: &GameState) -> Vec<Shared> {
         });
     }
     for (obj, t) in &gs.terminal_states {
-        v.push(Shared::Terminal { obj: cf(*obj), hacked: t.hacked, lockouts: t.lockouts });
+        v.push(Shared::Terminal {
+            obj: cf(*obj),
+            hacked: t.hacked,
+            lockouts: t.lockouts,
+        });
     }
     for obj in &gs.more.mines.gone {
-        v.push(Shared::Mine { obj: cf(*obj), phase: MinePhase::Gone });
+        v.push(Shared::Mine {
+            obj: cf(*obj),
+            phase: MinePhase::Gone,
+        });
     }
-    for obj in gs.more.mines.disarmed.iter().filter(|o| !gs.more.mines.gone.contains(o)) {
-        v.push(Shared::Mine { obj: cf(*obj), phase: MinePhase::Disarmed });
+    for obj in gs
+        .more
+        .mines
+        .disarmed
+        .iter()
+        .filter(|o| !gs.more.mines.gone.contains(o))
+    {
+        v.push(Shared::Mine {
+            obj: cf(*obj),
+            phase: MinePhase::Disarmed,
+        });
     }
     v
 }
@@ -134,7 +184,13 @@ fn done_with(cx: Ctx, gs: &GameState, obj: FormId) -> Outcome {
 /// Executes `act` for player `who`. `mint` makes a fresh form for an item
 /// dropped into the world. A [`Act::Transition`] is the host bridge's to
 /// decide and is refused here.
-pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut dyn FnMut() -> CForm) -> Outcome {
+pub fn execute(
+    cx: Ctx,
+    gs: &mut GameState,
+    who: PlayerId,
+    act: &Act,
+    mint: &mut dyn FnMut() -> CForm,
+) -> Outcome {
     let order = cx.order;
     match act {
         Act::World(s) => {
@@ -157,7 +213,10 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                     if !who.is_host() {
                         // the screen messages were meant for the activator
                         let tail: Vec<Event> = g.events.split_off(mark);
-                        g.events.extend(tail.into_iter().filter(|e| !matches!(e, Event::Message { .. })));
+                        g.events.extend(
+                            tail.into_iter()
+                                .filter(|e| !matches!(e, Event::Message { .. })),
+                        );
                     }
                 });
             }
@@ -183,8 +242,11 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 if has_on_activate(cx, door) {
                     let before = g.events.len();
                     Runner::new(order, cx.scripts, g).run_event(door, "onactivate", PLAYER_REF);
-                    let went = g.events[before..].iter().any(|e| matches!(e, Event::Activate { what, .. } if *what == door));
-                    g.events.retain(|e| !matches!(e, Event::Activate { what, .. } if *what == door));
+                    let went = g.events[before..]
+                        .iter()
+                        .any(|e| matches!(e, Event::Activate { what, .. } if *what == door));
+                    g.events
+                        .retain(|e| !matches!(e, Event::Activate { what, .. } if *what == door));
                     if !went {
                         return false;
                     }
@@ -231,7 +293,12 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
             }
             Outcome::done()
         }
-        Act::Drop { item, count, cell, pos } => {
+        Act::Drop {
+            item,
+            count,
+            cell,
+            pos,
+        } => {
             let item = wf(*item);
             if *count == 0 {
                 return Outcome::refused(Why::Invalid);
@@ -248,14 +315,27 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                     g.unequip_item(order, PLAYER_REF, item);
                 }
             });
-            let s = Shared::Placed { drop: cf(drop), item: cf(item), count: *count, cell: *cell, space: CellId(space), pos: *pos };
+            let s = Shared::Placed {
+                drop: cf(drop),
+                item: cf(item),
+                count: *count,
+                cell: *cell,
+                space: CellId(space),
+                pos: *pos,
+            };
             apply_shared(cx, gs, &s);
             Outcome::done().with_shared(vec![s])
         }
-        Act::Barter { vendor, buys, sells, total } => {
+        Act::Barter {
+            vendor,
+            buys,
+            sells,
+            total,
+        } => {
             let vendor = wf(*vendor);
             let buys: Vec<(FormId, i32)> = buys.iter().map(|(i, n)| (wf(*i), *n as i32)).collect();
-            let sells: Vec<(FormId, i32)> = sells.iter().map(|(i, n)| (wf(*i), *n as i32)).collect();
+            let sells: Vec<(FormId, i32)> =
+                sells.iter().map(|(i, n)| (wf(*i), *n as i32)).collect();
             if buys.iter().chain(sells.iter()).any(|(_, n)| *n <= 0) {
                 return Outcome::refused(Why::Invalid);
             }
@@ -263,13 +343,18 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
             for h in &holders {
                 gs.stock(order, *h);
             }
-            let in_stock = |gs: &GameState, item: FormId| -> i32 { holders.iter().map(|h| gs.item_count(order, *h, item)).sum() };
+            let in_stock = |gs: &GameState, item: FormId| -> i32 {
+                holders.iter().map(|h| gs.item_count(order, *h, item)).sum()
+            };
             if buys.iter().any(|(i, n)| in_stock(gs, *i) < *n) {
                 return Outcome::refused(Why::Insufficient);
             }
             let caps = crate::barter::caps(order);
             let ok = personal(order, gs, who, |g| {
-                if sells.iter().any(|(i, n)| g.item_count(order, PLAYER_REF, *i) < *n) {
+                if sells
+                    .iter()
+                    .any(|(i, n)| g.item_count(order, PLAYER_REF, *i) < *n)
+                {
                     return false;
                 }
                 // what he pays with: the caps he has, or the ones he gets from the sale
@@ -285,7 +370,12 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 Outcome::refused(Why::Insufficient)
             }
         }
-        Act::Steal { target, item, count, mode } => {
+        Act::Steal {
+            target,
+            item,
+            count,
+            mode,
+        } => {
             let (target, item) = (wf(*target), wf(*item));
             if *count == 0 || target == PLAYER_REF || player_of(target).is_some() {
                 return Outcome::refused(Why::Policy);
@@ -297,7 +387,9 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
             }
             gs.stock(order, target);
             let moved = personal(order, gs, who, |g| match mode {
-                StealMode::Pickpocket | StealMode::Loot => g.move_item(order, target, PLAYER_REF, item, n),
+                StealMode::Pickpocket | StealMode::Loot => {
+                    g.move_item(order, target, PLAYER_REF, item, n)
+                }
                 StealMode::Plant => g.move_item(order, PLAYER_REF, target, item, n),
             });
             if moved == 0 {
@@ -316,7 +408,10 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 if !crate::crafting::has_skill(order, g, PLAYER_REF, &r) {
                     return false;
                 }
-                if r.ingredients.iter().any(|c| g.item_count(order, PLAYER_REF, c.item) < (c.count * times) as i32) {
+                if r.ingredients
+                    .iter()
+                    .any(|c| g.item_count(order, PLAYER_REF, c.item) < (c.count * times) as i32)
+                {
                     return false;
                 }
                 crate::crafting::make(order, g, PLAYER_REF, &r, times).is_some()
@@ -327,7 +422,12 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 Outcome::refused(Why::Insufficient)
             }
         }
-        Act::Repair { item, part, vendor, cost } => {
+        Act::Repair {
+            item,
+            part,
+            vendor,
+            cost,
+        } => {
             let (item, part, vendor) = (wf(*item), wf(*part), wf(*vendor));
             let ok = personal(order, gs, who, |g| {
                 if g.item_count(order, PLAYER_REF, item) <= 0 {
@@ -357,7 +457,9 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
         }
         Act::Use { item } => {
             let item = wf(*item);
-            let used = personal(order, gs, who, |g| crate::items::use_item(order, g, PLAYER_REF, item));
+            let used = personal(order, gs, who, |g| {
+                crate::items::use_item(order, g, PLAYER_REF, item)
+            });
             if used.is_some() {
                 Outcome::done()
             } else {
@@ -407,7 +509,9 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 if slot >= 8 {
                     return Outcome::refused(Why::Invalid);
                 }
-                personal(order, gs, who, |g| g.hotkeys[slot as usize] = (item.0 != 0).then(|| wf(item)));
+                personal(order, gs, who, |g| {
+                    g.hotkeys[slot as usize] = (item.0 != 0).then(|| wf(item))
+                });
                 Outcome::done()
             }
             PipOp::Note(n) => {
@@ -425,7 +529,10 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 return Outcome::refused(Why::Policy);
             }
             if *cmd == CompanionCmd::Recruit {
-                let taken = (0..=8u8).filter(|s| *s != who.0).any(|s| gs.shadow_of(s).is_some_and(|sh| sh.teammates.contains(&npc)));
+                let taken = (0..=8u8).filter(|s| *s != who.0).any(|s| {
+                    gs.shadow_of(s)
+                        .is_some_and(|sh| sh.teammates.contains(&npc))
+                });
                 if taken {
                     return Outcome::refused(Why::Busy);
                 }
@@ -455,11 +562,23 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                         true
                     }
                     CompanionCmd::Switch(which, on) => {
-                        let name = ["FollowerSwitchAggressive", "Waiting", "IsFollowingLong", "CombatStyleRanged"]
-                            .get(usize::from(*which))
-                            .copied();
+                        let name = [
+                            "FollowerSwitchAggressive",
+                            "Waiting",
+                            "IsFollowingLong",
+                            "CombatStyleRanged",
+                        ]
+                        .get(usize::from(*which))
+                        .copied();
                         name.is_some_and(|n| {
-                            crate::companions::set_variable(order, cx.scripts, g, npc, n, if *on { 1.0 } else { 0.0 });
+                            crate::companions::set_variable(
+                                order,
+                                cx.scripts,
+                                g,
+                                npc,
+                                n,
+                                if *on { 1.0 } else { 0.0 },
+                            );
                             true
                         })
                     }
@@ -472,14 +591,20 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
                 Outcome::refused(Why::Insufficient)
             }
         }
-        Act::Lockpick { obj, won, pins, broke } => {
+        Act::Lockpick {
+            obj,
+            won,
+            pins,
+            broke,
+        } => {
             let obj = wf(*obj);
             personal(order, gs, who, |g| {
                 for _ in 0..(*pins).min(10) {
                     crate::lockpick::use_up_pin(order, g);
                 }
                 if *won {
-                    let difficulty = crate::locks::lock_now(order, g, obj).map_or(1, |l| l.difficulty(order).0);
+                    let difficulty =
+                        crate::locks::lock_now(order, g, obj).map_or(1, |l| l.difficulty(order).0);
                     crate::lockpick::picked(order, g, obj, difficulty);
                 } else if *broke {
                     crate::lockpick::break_lock(g, obj);
@@ -490,7 +615,8 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
         Act::Key { obj, key } => {
             let (obj, key) = (wf(*obj), wf(*key));
             let ok = personal(order, gs, who, |g| {
-                let fits = crate::locks::lock_now(order, g, obj).is_some_and(|l| l.key == Some(key));
+                let fits =
+                    crate::locks::lock_now(order, g, obj).is_some_and(|l| l.key == Some(key));
                 fits && g.item_count(order, PLAYER_REF, key) > 0
             });
             if !ok {
@@ -545,6 +671,45 @@ pub fn execute(cx: Ctx, gs: &mut GameState, who: PlayerId, act: &Act, mint: &mut
             Outcome::done()
         }
         Act::Transition { .. } => Outcome::refused(Why::Invalid),
+        // a player's own progress and ledgers (`campaign::progress`), in their shadow
+        Act::LevelUp { skills, perk } => {
+            let r = personal(order, gs, who, |g| {
+                super::campaign::progress::level_up(order, g, skills, wf(*perk))
+            });
+            match r {
+                Ok(_) => Outcome::done(),
+                Err(why) => Outcome::refused(why),
+            }
+        }
+        Act::Caravan { npc, stake, won } => {
+            personal(order, gs, who, |g| {
+                super::campaign::progress::caravan_played(order, g, wf(*npc), *stake, *won)
+            });
+            Outcome::done()
+        }
+        Act::Casino {
+            casino,
+            chips,
+            winnings,
+            level,
+            new_level,
+        } => {
+            let r = personal(order, gs, who, |g| {
+                super::campaign::progress::casino_closed(
+                    order,
+                    g,
+                    wf(*casino),
+                    *chips,
+                    *winnings,
+                    *level,
+                    *new_level,
+                )
+            });
+            match r {
+                Ok(()) => Outcome::done(),
+                Err(why) => Outcome::refused(why),
+            }
+        }
     }
 }
 
@@ -566,7 +731,11 @@ pub fn apply_shared(cx: Ctx, gs: &mut GameState, s: &Shared) {
                 gs.broken_locks.insert(obj, 1);
             }
         }
-        Shared::Terminal { obj, hacked, lockouts } => {
+        Shared::Terminal {
+            obj,
+            hacked,
+            lockouts,
+        } => {
             let t = gs.terminal_states.entry(wf(*obj)).or_default();
             t.hacked = *hacked;
             t.lockouts = *lockouts;
@@ -586,8 +755,21 @@ pub fn apply_shared(cx: Ctx, gs: &mut GameState, s: &Shared) {
                 }
             }
         }
-        Shared::Placed { drop, item, count, cell, space, pos } => {
-            let note = super::interact::PlacedNote { drop: wf(*drop), item: wf(*item), count: *count, cell: CellId(cell.0), pos: *pos };
+        Shared::Placed {
+            drop,
+            item,
+            count,
+            cell,
+            space,
+            pos,
+        } => {
+            let note = super::interact::PlacedNote {
+                drop: wf(*drop),
+                item: wf(*item),
+                count: *count,
+                cell: CellId(cell.0),
+                pos: *pos,
+            };
             if gs.coop.interact.seen_drops.insert(note.drop) {
                 // a dropped item is a made reference like any the player drops alone
                 let at = [pos[0] as f32, pos[1] as f32, pos[2] as f32];
@@ -602,9 +784,17 @@ pub fn apply_shared(cx: Ctx, gs: &mut GameState, s: &Shared) {
                         count: *count as i32,
                     },
                 );
-                gs.events.push(crate::scripting::Event::More(crate::more_functions::Shown::Placed { reference: note.drop }));
+                gs.events.push(crate::scripting::Event::More(
+                    crate::more_functions::Shown::Placed {
+                        reference: note.drop,
+                    },
+                ));
                 let at = [pos[0] as f32, pos[1] as f32, pos[2] as f32];
-                gs.coop.live.spawns.push(super::facts::SpawnNote { id: note.drop, base: Some(note.item), pos: at });
+                gs.coop.live.spawns.push(super::facts::SpawnNote {
+                    id: note.drop,
+                    base: Some(note.item),
+                    pos: at,
+                });
                 gs.coop.interact.placed.push(note);
             }
         }

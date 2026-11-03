@@ -1,0 +1,25 @@
+{
+  "name": "live_creature_spawn_shared",
+  "description": "A made creature appears once for everyone. At 2 s a host script makes one gecko next to Doc Mitchell (DocMitchellREF.PlaceAtMe VCG02CrGecko 1). The host announces it once, so both peers must count one spawn and one creature entity under the same id (FF000001, the first made form). At 7 s the guest hits it for 100000, so it must be dead once on both peers. Headless folder: the made id FF000001 is the simulator's first dynamic id.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 11,
+  "duration_s": 16,
+  "settle_s": 5,
+  "host": { "script": [
+    {"at": 2, "run": "DocMitchellREF.PlaceAtMe VCG02CrGecko 1"}
+  ] },
+  "guest": { "script": [
+    {"at": 7, "run": "coop hit FF000001 100000"}
+  ] },
+  "expect": [
+    {"id": "spawned-once-host", "path": "live.spawned", "op": "eq", "value": 1, "on": "host"},
+    {"id": "spawned-once-guest", "path": "live.spawned", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "one-creature-host", "path": "live.creature_entities", "op": "eq", "value": 1, "on": "host"},
+    {"id": "one-creature-guest", "path": "live.creature_entities", "op": "eq", "value": 1, "on": "guest"},
+    {"id": "same-id-on-guest", "path": "actors.FF000001.creature", "op": "eq", "value": true, "on": "guest"},
+    {"id": "dead-host", "path": "dead.FF000001", "op": "eq", "value": true, "on": "host"},
+    {"id": "dead-guest", "path": "dead.FF000001", "op": "eq", "value": true, "on": "guest"},
+    {"id": "h", "path": "hash.shared", "on": "equal"}
+  ]
+}

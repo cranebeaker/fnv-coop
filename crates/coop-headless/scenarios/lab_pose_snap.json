@@ -1,0 +1,53 @@
+{
+  "name": "lab_pose_snap",
+  "description": "Lab room, heading snap detector. From 4 s to 7 s the host's player turns 180 degrees in one frame, four times (coop face). The guest's glitch watch over the drawn avatar stream must count a heading snap, and no position pop (the player does not move). Rendered pixels and the skeleton pose are not read.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 82,
+  "duration_s": 14,
+  "settle_s": 4,
+  "host": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop face 180"
+      },
+      {
+        "at": 5,
+        "run": "coop face 0"
+      },
+      {
+        "at": 6,
+        "run": "coop face 180"
+      },
+      {
+        "at": 7,
+        "run": "coop face 0"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "guest-saw-snap",
+      "path": "live.glitch.snaps",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
+    {
+      "id": "guest-saw-no-pop",
+      "path": "live.glitch.pops",
+      "op": "eq",
+      "value": 0,
+      "on": "guest"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

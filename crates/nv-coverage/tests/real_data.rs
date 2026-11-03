@@ -5,7 +5,12 @@ use nv_coverage::{data, dialogue, funcs, graph, quests, scan};
 
 #[test]
 fn measures_the_real_game_data() {
-    let Some(d) = data::locate(None).ok().and_then(|dir| data::open(&dir).ok()) else { return };
+    let Some(d) = data::locate(None)
+        .ok()
+        .and_then(|dir| data::open(&dir).ok())
+    else {
+        return;
+    };
 
     // Script functions.
     let sources = scan::sources(&d.order);
@@ -24,7 +29,10 @@ fn measures_the_real_game_data() {
     let lines = quests::walk(&d.order);
     let main = lines.get(&data::Line::Main).expect("main line");
     assert!(main.stages.iter().any(|s| s.editor == "VCG02"));
-    assert!(main.clean() * 10 > main.stages.len() * 5, "most main stages should run");
+    assert!(
+        main.clean() * 10 > main.stages.len() * 5,
+        "most main stages should run"
+    );
     assert!(main.targets > 100);
 
     // Dialogue and the stage graph.

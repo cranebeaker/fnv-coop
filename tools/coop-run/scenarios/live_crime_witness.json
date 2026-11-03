@@ -1,0 +1,57 @@
+{
+  "name": "live_crime_witness",
+  "description": "The guest hits Sunny Smiles in the Prospector Saloon, in front of her, on a bad link. The host attributes the assault to the guest's slot once and runs the game's assault crime as the guest (world::crime::assault: the witnesses are the people who see the guest). Each of Sunny's crime-tracking factions (GoodspringsFaction, GoodspringsMilitiaFaction) counts one major crime, once, and holds the player as an enemy. The player counts one major crime. Every peer reads the same counts from its own game state.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "bad_wifi",
+  "seed": 71,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 6,
+        "run": "coop hit SunnyRef 3"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "attributed-once",
+      "path": "combat.crimes",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "faction-major-once",
+      "path": "crime.factions.GoodspringsFaction.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "militia-major-once",
+      "path": "crime.factions.GoodspringsMilitiaFaction.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "faction-enemy",
+      "path": "crime.factions.GoodspringsFaction.enemy",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "player-major-once",
+      "path": "crime.player.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    }
+  ]
+}

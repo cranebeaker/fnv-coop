@@ -18,7 +18,11 @@ pub struct EnergyVad {
 
 impl EnergyVad {
     pub fn new(threshold: f32, hangover_frames: u32) -> Self {
-        Self { threshold, hangover_frames, left: 0 }
+        Self {
+            threshold,
+            hangover_frames,
+            left: 0,
+        }
     }
 
     pub fn process(&mut self, frame: &[i16]) -> bool {
@@ -51,7 +55,11 @@ pub struct Gate {
 
 impl Gate {
     pub fn new(mode: Mode, vad: EnergyVad) -> Self {
-        Self { mode, ptt_down: false, vad }
+        Self {
+            mode,
+            ptt_down: false,
+            vad,
+        }
     }
 
     pub fn set_ptt(&mut self, down: bool) {

@@ -244,7 +244,9 @@ pub fn place_at_me(
     let kind = kind_of(order, base)?;
     // A co-op guest never makes people or creatures of its own (no random
     // pick of its own either): the host decides and announces them.
-    if runner.state.is_guest() && matches!(kind, k if k == LVLC || k == LVLN || k == NPC_ || k == CREA) {
+    if runner.state.is_guest()
+        && matches!(kind, k if k == LVLC || k == LVLN || k == NPC_ || k == CREA)
+    {
         return None;
     }
     let mut last = None;

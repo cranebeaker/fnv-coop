@@ -1,0 +1,22 @@
+{
+  "name": "live_dialogue_dlc_ulysses",
+  "description": "Lonesome Road's Ulysses, in his temple. Ulysses says two of his combat lines, as script 0100C796 has him say them: NVDLC04UlyssesREF.Say NVDLC04UlyssesCombatTaunt01, then NVDLC04UlyssesREF.Say NVDLC04UlyssesFriendTaunt01. Each call reaches GameState::coop_talk, and DialogueBridge::forced_frame says the line to everyone through a host session on Ulysses. The host said two lines, and both peers played both. Needs LonesomeRoad.esm.",
+  "cell": "NVDLC04DivideUlyssesTemple",
+  "network": "good_wifi",
+  "seed": 92,
+  "duration_s": 20,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      { "at": 3, "run": "NVDLC04UlyssesREF.Say NVDLC04UlyssesCombatTaunt01" },
+      { "at": 11, "run": "NVDLC04UlyssesREF.Say NVDLC04UlyssesFriendTaunt01" }
+    ]
+  },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-said-lines", "path": "scene.talk.lines", "op": "eq", "value": 2, "on": "host" },
+    { "id": "lines-host", "path": "live.lines_played", "op": "ge", "value": 2, "on": "host" },
+    { "id": "lines-guest", "path": "live.lines_played", "op": "ge", "value": 2, "on": "guest" },
+    { "id": "shared-hash", "path": "hash.shared", "on": "equal" }
+  ]
+}

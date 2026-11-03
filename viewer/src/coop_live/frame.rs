@@ -67,11 +67,22 @@ pub fn run(
     }
     gs.coop.live.local_anim = anim;
     gs.coop.live.local_flags = flags;
-    gs.coop.live.local_weapon = world::combat::weapon_equipped(order, gs, PLAYER_REF).map_or(0, |w| w.form_id.0);
-    let cx = Ctx { order, scripts: &scripts.0 };
+    gs.coop.live.local_weapon =
+        world::combat::weapon_equipped(order, gs, PLAYER_REF).map_or(0, |w| w.form_id.0);
+    let cx = Ctx {
+        order,
+        scripts: &scripts.0,
+    };
     let view = link.0.live_frame(gs, cx, time.delta_secs()).cloned();
     now.counters.hits_sent = u64::from(link.0.live_hits_sent());
     now.counters.tracked = link.0.live_tracked() as u64;
+    // the glitch detectors over the remote avatars as this machine draws them
+    if let Some(v) = view.as_ref() {
+        now.glitch.frame(v.now_ms, &v.avatars);
+    }
+    let counts = now.glitch.counts;
+    now.counters.glitch = counts;
+    now.counters.full_refused = u64::from(link.0.full_refusals());
     // scenes: the movie the scene layer starts (at its scene time), stops, and reports done
     if let Some(m) = gs.coop.live.scene.movie_start.take() {
         movies.offset_ms = m.offset_ms;
@@ -92,7 +103,11 @@ pub fn run(
     }
     // a wait or sleep the party agreed to has passed (the host ran the hours once)
     if let Some(shown) = gs.coop.live.scene.time_shown.take() {
-        let text = if shown.hours == 1 { "1 hour passes.".to_string() } else { format!("{} hours pass.", shown.hours) };
+        let text = if shown.hours == 1 {
+            "1 hour passes.".to_string()
+        } else {
+            format!("{} hours pass.", shown.hours)
+        };
         if messages.on {
             messages.queue.push(HudMessage::from(text));
         } else {

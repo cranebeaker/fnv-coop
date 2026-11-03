@@ -25,7 +25,12 @@ fn main() {
     if cmd == "object-worker" {
         // Internal: `object-worker --data DIR --from N`, see `objects::worker`.
         let rest: Vec<String> = args.collect();
-        let val = |k: &str| rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).cloned();
+        let val = |k: &str| {
+            rest.iter()
+                .position(|a| a == k)
+                .and_then(|i| rest.get(i + 1))
+                .cloned()
+        };
         let dir = data::locate(val("--data").as_deref()).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(1)
@@ -36,13 +41,23 @@ fn main() {
         });
         let from = val("--from").and_then(|v| v.parse().ok()).unwrap_or(0);
         let stdout = std::io::stdout();
-        nv_coverage::objects::worker(&d.order, &nv_coverage::funcs::handled_set(), from, &mut stdout.lock());
+        nv_coverage::objects::worker(
+            &d.order,
+            &nv_coverage::funcs::handled_set(),
+            from,
+            &mut stdout.lock(),
+        );
         return;
     }
     if cmd == "gamefacts" {
         // `nv-coverage gamefacts [--data DIR] [--out FILE]`: the measurements the GAME rows are made from.
         let rest: Vec<String> = args.collect();
-        let val = |k: &str| rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).cloned();
+        let val = |k: &str| {
+            rest.iter()
+                .position(|a| a == k)
+                .and_then(|i| rest.get(i + 1))
+                .cloned()
+        };
         let dir = data::locate(val("--data").as_deref()).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(1)
@@ -83,7 +98,10 @@ fn main() {
             eprintln!("{e}");
             std::process::exit(1)
         });
-        for s in nv_coverage::scan::sources(&d.order).iter().filter(|s| s.editor.eq_ignore_ascii_case(&name)) {
+        for s in nv_coverage::scan::sources(&d.order)
+            .iter()
+            .filter(|s| s.editor.eq_ignore_ascii_case(&name))
+        {
             println!("; {} {} ({})\n{}", s.record, s.form, s.plugin, s.text);
         }
         return;
@@ -93,10 +111,12 @@ fn main() {
     let mut sweep_given = false;
     let mut opts = Options::everything();
     while let Some(a) = args.next() {
-        let mut val = |name: &str| args.next().unwrap_or_else(|| {
-            eprintln!("{name} needs a value");
-            usage()
-        });
+        let mut val = |name: &str| {
+            args.next().unwrap_or_else(|| {
+                eprintln!("{name} needs a value");
+                usage()
+            })
+        };
         match a.as_str() {
             "--data" => dir = Some(val("--data")),
             "--out" => out = Some(PathBuf::from(val("--out"))),
@@ -111,8 +131,14 @@ fn main() {
                 };
             }
             "--stride" => opts.limits.stride = val("--stride").parse().unwrap_or_else(|_| usage()),
-            "--max-interiors" => opts.limits.max_interiors = Some(val("--max-interiors").parse().unwrap_or_else(|_| usage())),
-            "--max-squares" => opts.limits.max_squares_per_world = Some(val("--max-squares").parse().unwrap_or_else(|_| usage())),
+            "--max-interiors" => {
+                opts.limits.max_interiors =
+                    Some(val("--max-interiors").parse().unwrap_or_else(|_| usage()))
+            }
+            "--max-squares" => {
+                opts.limits.max_squares_per_world =
+                    Some(val("--max-squares").parse().unwrap_or_else(|_| usage()))
+            }
             _ => usage(),
         }
     }
@@ -141,14 +167,21 @@ fn main() {
             Some("dialogue")
         }
         "sweep" => {
-            (opts.functions, opts.quests, opts.dialogue, opts.objects) = (false, false, false, false);
+            (opts.functions, opts.quests, opts.dialogue, opts.objects) =
+                (false, false, false, false);
             if !sweep_given {
                 opts.sweep = Some(None);
             }
             Some("load_sweep")
         }
         "checklist" => {
-            (opts.functions, opts.quests, opts.dialogue, opts.objects, opts.sweep) = (false, false, false, false, None);
+            (
+                opts.functions,
+                opts.quests,
+                opts.dialogue,
+                opts.objects,
+                opts.sweep,
+            ) = (false, false, false, false, None);
             Some("system_checklist")
         }
         _ => usage(),
@@ -164,7 +197,10 @@ fn main() {
     match key {
         Some(k) => {
             let J::Obj(fields) = json else { unreachable!() };
-            let part = fields.into_iter().find(|(n, _)| n == k).map_or(J::Null, |(_, v)| v);
+            let part = fields
+                .into_iter()
+                .find(|(n, _)| n == k)
+                .map_or(J::Null, |(_, v)| v);
             print!("{}", part.pretty());
         }
         None => {

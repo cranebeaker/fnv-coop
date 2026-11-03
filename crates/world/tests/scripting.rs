@@ -1804,7 +1804,8 @@ fn scripts_move_the_player() {
     assert!(
         state.events.contains(&Event::MoveTo {
             what: PLAYER_REF,
-            to: FormId(DOC_REF)
+            to: FormId(DOC_REF),
+            at: None
         }),
         "{:?}",
         state.events

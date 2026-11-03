@@ -27,7 +27,10 @@ pub fn scope(ip: IpAddr) -> Scope {
             let o = a.octets();
             if a.is_loopback() {
                 Scope::Loopback
-            } else if a.is_private() || a.is_link_local() || (o[0] == 100 && (64..128).contains(&o[1])) {
+            } else if a.is_private()
+                || a.is_link_local()
+                || (o[0] == 100 && (64..128).contains(&o[1]))
+            {
                 Scope::Lan
             } else {
                 Scope::Public
@@ -51,7 +54,10 @@ pub fn scope(ip: IpAddr) -> Scope {
 pub fn local_address() -> Option<IpAddr> {
     let s = UdpSocket::bind("0.0.0.0:0").ok()?;
     s.connect("192.0.2.1:9").ok()?;
-    s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_unspecified())
+    s.local_addr()
+        .ok()
+        .map(|a| a.ip())
+        .filter(|ip| !ip.is_unspecified())
 }
 
 /// Can this program listen on UDP `port`?
@@ -76,7 +82,11 @@ pub fn bind_test(port: u16) -> Check {
 /// firewall or router.
 pub fn loopback_test(port: u16) -> Check {
     let name = "Local round trip";
-    let fail = |d: String| Check { name, ok: false, detail: d };
+    let fail = |d: String| Check {
+        name,
+        ok: false,
+        detail: d,
+    };
     let server = match UdpSocket::bind(("127.0.0.1", port)) {
         Ok(s) => s,
         Err(e) => return fail(format!("Could not bind 127.0.0.1:{port}: {e}")),
@@ -91,17 +101,30 @@ pub fn loopback_test(port: u16) -> Check {
     }
     let mut buf = [0u8; 64];
     match server.recv_from(&mut buf) {
-        Ok((n, _)) if &buf[..n] == MAGIC => Check { name, ok: true, detail: "A packet sent to this machine arrived.".into() },
+        Ok((n, _)) if &buf[..n] == MAGIC => Check {
+            name,
+            ok: true,
+            detail: "A packet sent to this machine arrived.".into(),
+        },
         Ok(_) => fail("Received something unexpected.".into()),
-        Err(e) => fail(format!("The packet never arrived ({e}). Security software may be blocking this program.")),
+        Err(e) => fail(format!(
+            "The packet never arrived ({e}). Security software may be blocking this program."
+        )),
     }
 }
 
 /// Listens on `port` for `secs` and answers every probe. Returns the number answered and the
 /// sources seen. `now` ticks are real time; `stop` can end it early.
-pub fn listen_echo(port: u16, secs: u64, stop: &dyn Fn() -> bool, on_hit: &mut dyn FnMut(SocketAddr)) -> Result<usize, String> {
-    let s = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| format!("Could not listen on UDP {port}: {e}"))?;
-    s.set_read_timeout(Some(Duration::from_millis(250))).map_err(|e| e.to_string())?;
+pub fn listen_echo(
+    port: u16,
+    secs: u64,
+    stop: &dyn Fn() -> bool,
+    on_hit: &mut dyn FnMut(SocketAddr),
+) -> Result<usize, String> {
+    let s = UdpSocket::bind(("0.0.0.0", port))
+        .map_err(|e| format!("Could not listen on UDP {port}: {e}"))?;
+    s.set_read_timeout(Some(Duration::from_millis(250)))
+        .map_err(|e| e.to_string())?;
     let end = Instant::now() + Duration::from_secs(secs);
     let mut hits = 0;
     let mut buf = [0u8; 64];
@@ -120,10 +143,20 @@ pub fn listen_echo(port: u16, secs: u64, stop: &dyn Fn() -> bool, on_hit: &mut d
 /// Sends a probe to `target` and waits for the echo from a listening launcher.
 pub fn probe(target: SocketAddr, wait: Duration) -> Check {
     let name = "Reach the other machine";
-    let bind = if target.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+    let bind = if target.is_ipv4() {
+        "0.0.0.0:0"
+    } else {
+        "[::]:0"
+    };
     let s = match UdpSocket::bind(bind) {
         Ok(s) => s,
-        Err(e) => return Check { name, ok: false, detail: format!("Could not open a socket: {e}") },
+        Err(e) => {
+            return Check {
+                name,
+                ok: false,
+                detail: format!("Could not open a socket: {e}"),
+            }
+        }
     };
     let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
     let end = Instant::now() + wait;
@@ -132,7 +165,13 @@ pub fn probe(target: SocketAddr, wait: Duration) -> Check {
         let _ = s.send_to(MAGIC, target);
         if let Ok((n, _)) = s.recv_from(&mut buf) {
             if &buf[..n] == MAGIC {
-                return Check { name, ok: true, detail: format!("{target} answered. Direct play to that address and port should work.") };
+                return Check {
+                    name,
+                    ok: true,
+                    detail: format!(
+                        "{target} answered. Direct play to that address and port should work."
+                    ),
+                };
             }
         }
     }
@@ -165,7 +204,11 @@ mod tests {
     use super::*;
 
     fn free_port() -> u16 {
-        UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+        UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
     }
 
     #[test]
@@ -205,11 +248,17 @@ mod tests {
             (r, seen)
         });
         std::thread::sleep(Duration::from_millis(300));
-        let c = probe(SocketAddr::from(([127, 0, 0, 1], p)), Duration::from_secs(2));
+        let c = probe(
+            SocketAddr::from(([127, 0, 0, 1], p)),
+            Duration::from_secs(2),
+        );
         assert!(c.ok, "{}", c.detail);
         let (r, seen) = h.join().unwrap();
         assert!(r.unwrap() >= 1 && seen >= 1);
-        let dead = probe(SocketAddr::from(([127, 0, 0, 1], free_port())), Duration::from_millis(800));
+        let dead = probe(
+            SocketAddr::from(([127, 0, 0, 1], free_port())),
+            Duration::from_millis(800),
+        );
         assert!(!dead.ok);
     }
 

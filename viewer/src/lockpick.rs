@@ -591,20 +591,26 @@ pub fn pick_locks(
             }
             Effect::Opened => {
                 world::lockpick::picked(order, state, reference, difficulty);
-                state.coop_route(world::coop::interact::lockpick_act(reference, true, 0, false));
+                state.coop_route(world::coop::interact::lockpick_act(
+                    reference, true, 0, false,
+                ));
                 println!("Picked the lock.");
                 lockpicking.again = Some(reference);
             }
             Effect::PinBroken => {
                 world::lockpick::use_up_pin(order, state);
-                state.coop_route(world::coop::interact::lockpick_act(reference, false, 1, false));
+                state.coop_route(world::coop::interact::lockpick_act(
+                    reference, false, 1, false,
+                ));
                 if let Some(open) = lockpicking.open.as_mut() {
                     open.menu.set_pins(&mut open.ui, open.picking.pins);
                 }
             }
             Effect::LockBroken => {
                 world::lockpick::break_lock(state, reference);
-                state.coop_route(world::coop::interact::lockpick_act(reference, false, 0, true));
+                state.coop_route(world::coop::interact::lockpick_act(
+                    reference, false, 0, true,
+                ));
                 println!("The lock is broken: only its key opens it now.");
             }
             Effect::Close => close = true,

@@ -45,14 +45,22 @@ impl RemapReport {
     /// A one-line summary for logs, naming the plugins with unmatched rows.
     pub fn describe(&self) -> String {
         if self.unmatched.is_empty() {
-            return format!("policy ids: all {} rows resolved ({} moved)", self.resolved, self.moved);
+            return format!(
+                "policy ids: all {} rows resolved ({} moved)",
+                self.resolved, self.moved
+            );
         }
         let mut by: BTreeMap<&str, usize> = BTreeMap::new();
         for (p, _) in &self.unmatched {
             *by.entry(p.as_str()).or_default() += 1;
         }
         let list: Vec<String> = by.iter().map(|(p, n)| format!("{p}: {n}")).collect();
-        format!("policy ids: {} rows resolved, {} not in the load order ({})", self.resolved, self.unmatched.len(), list.join(", "))
+        format!(
+            "policy ids: {} rows resolved, {} not in the load order ({})",
+            self.resolved,
+            self.unmatched.len(),
+            list.join(", ")
+        )
     }
 }
 
@@ -73,7 +81,8 @@ impl PolicyTable {
     }
 
     pub fn from_json(text: &str) -> Result<PolicyTable, LoadError> {
-        let file: PolicyFile = serde_json::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))?;
+        let file: PolicyFile =
+            crate::json::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))?;
         PolicyTable::from_file(file)
     }
 
@@ -91,20 +100,33 @@ impl PolicyTable {
         let mut group_of = HashMap::new();
         let mut group_members = Vec::new();
         for (gi, g) in file.groups.iter().enumerate() {
-            let ids: Vec<FormId> = g.members.iter().map(|m| file.quests[by_edid[m]].id).collect();
+            let ids: Vec<FormId> = g
+                .members
+                .iter()
+                .map(|m| file.quests[by_edid[m]].id)
+                .collect();
             for id in &ids {
                 group_of.insert(*id, gi);
             }
             group_members.push(ids);
         }
-        Ok(PolicyTable { file, by_id, by_edid, group_of, group_members })
+        Ok(PolicyTable {
+            file,
+            by_id,
+            by_edid,
+            group_of,
+            group_members,
+        })
     }
 
     /// A copy of the table with every row keyed by the id `resolve(row)` gives it (its runtime
     /// form id in the actual load order). Rows `resolve` returns `None` for are quests that
     /// are not loaded: they are dropped and listed in the report, never an error. Synthetic
     /// rows (no record) keep the id they have.
-    pub fn remap(&self, mut resolve: impl FnMut(&QuestRow) -> Option<FormId>) -> Result<(PolicyTable, RemapReport), LoadError> {
+    pub fn remap(
+        &self,
+        mut resolve: impl FnMut(&QuestRow) -> Option<FormId>,
+    ) -> Result<(PolicyTable, RemapReport), LoadError> {
         let mut file = self.file.clone();
         let mut rep = RemapReport::default();
         let mut kept = Vec::with_capacity(file.quests.len());
@@ -158,22 +180,38 @@ impl PolicyTable {
     /// Other members of the exclusive group `id` belongs to (excluding `id`).
     pub fn group_rivals(&self, id: FormId) -> Vec<FormId> {
         match self.group_of.get(&id) {
-            Some(&g) => self.group_members[g].iter().copied().filter(|m| *m != id).collect(),
+            Some(&g) => self.group_members[g]
+                .iter()
+                .copied()
+                .filter(|m| *m != id)
+                .collect(),
             None => vec![],
         }
     }
 
     pub fn residence(&self, class: ShadowClass) -> Residence {
-        self.file.shadow_classes.get(&class).copied().unwrap_or(Residence::Shared)
+        self.file
+            .shadow_classes
+            .get(&class)
+            .copied()
+            .unwrap_or(Residence::Shared)
     }
 
     /// Rows still marked `default` (never reviewed by hand).
     pub fn unreviewed(&self) -> impl Iterator<Item = &QuestRow> {
-        self.file.quests.iter().filter(|q| q.status == Status::Default)
+        self.file
+            .quests
+            .iter()
+            .filter(|q| q.status == Status::Default)
     }
 
     pub fn counts(&self) -> (usize, usize) {
-        let c = self.file.quests.iter().filter(|q| q.status == Status::Confirmed).count();
+        let c = self
+            .file
+            .quests
+            .iter()
+            .filter(|q| q.status == Status::Confirmed)
+            .count();
         (c, self.file.quests.len() - c)
     }
 }
@@ -211,7 +249,10 @@ fn validate(f: &PolicyFile) -> Vec<String> {
             e.push(format!("{n}: duplicate edid"));
         }
         if q.local > 0x00FF_FFFF {
-            e.push(format!("{n}: local id 0x{:08X} has a load index byte", q.local));
+            e.push(format!(
+                "{n}: local id 0x{:08X} has a load index byte",
+                q.local
+            ));
         }
         if q.plugin.is_empty() {
             e.push(format!("{n}: empty plugin"));

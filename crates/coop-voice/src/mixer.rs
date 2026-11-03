@@ -18,8 +18,12 @@ pub trait Spatializer {
 /// Everyone at full volume, centered.
 pub struct Flat;
 impl Spatializer for Flat {
-    fn gain(&self, _: u8) -> f32 { 1.0 }
-    fn pan(&self, _: u8) -> f32 { 0.0 }
+    fn gain(&self, _: u8) -> f32 {
+        1.0
+    }
+    fn pan(&self, _: u8) -> f32 {
+        0.0
+    }
 }
 
 struct Speaker {
@@ -66,10 +70,16 @@ impl Mixer {
 
     pub fn receive(&mut self, p: VoicePacket) {
         if !self.speakers.contains_key(&p.speaker) {
-            let Some(codec) = (self.make_codec)(p.codec) else { return };
+            let Some(codec) = (self.make_codec)(p.codec) else {
+                return;
+            };
             self.speakers.insert(
                 p.speaker,
-                Speaker { jitter: JitterBuffer::new(self.jitter_target, self.jitter_max), codec, scratch: Vec::new() },
+                Speaker {
+                    jitter: JitterBuffer::new(self.jitter_target, self.jitter_max),
+                    codec,
+                    scratch: Vec::new(),
+                },
             );
         }
         let sp = self.speakers.get_mut(&p.speaker).unwrap();
@@ -88,7 +98,12 @@ impl Mixer {
 
     /// Produce one frame of interleaved stereo into `out` (cleared first).
     /// Returns the number of speakers that contributed.
-    pub fn mix_frame(&mut self, frame_samples: usize, spatial: &dyn Spatializer, out: &mut Vec<f32>) -> usize {
+    pub fn mix_frame(
+        &mut self,
+        frame_samples: usize,
+        spatial: &dyn Spatializer,
+        out: &mut Vec<f32>,
+    ) -> usize {
         out.clear();
         out.resize(frame_samples * 2, 0.0);
         let mut active = 0;
@@ -134,7 +149,14 @@ pub struct Sender {
 
 impl Sender {
     pub fn new(speaker: u8, codec: Box<dyn Codec>, gate: Gate) -> Self {
-        Self { gate, codec, speaker, seq: 0, timestamp: 0, talking: false }
+        Self {
+            gate,
+            codec,
+            speaker,
+            seq: 0,
+            timestamp: 0,
+            talking: false,
+        }
     }
 
     /// Feed one capture frame. Returns a packet to send, if any. On the
@@ -142,15 +164,28 @@ impl Sender {
     pub fn process(&mut self, pcm: &[i16]) -> Option<VoicePacket> {
         let open = self.gate.open(pcm);
         let ts = self.timestamp;
-        self.timestamp = self.timestamp.wrapping_add(self.codec.frame_samples() as u32);
+        self.timestamp = self
+            .timestamp
+            .wrapping_add(self.codec.frame_samples() as u32);
         if open {
             self.talking = true;
             let mut payload = Vec::new();
             self.codec.encode(pcm, &mut payload);
             let seq = self.seq;
             self.seq = self.seq.wrapping_add(1);
-            let flags = if self.gate.ptt_down() { FLAG_PTT_ACTIVE } else { 0 };
-            Some(VoicePacket { flags, codec: self.codec.id(), speaker: self.speaker, seq, timestamp: ts, payload })
+            let flags = if self.gate.ptt_down() {
+                FLAG_PTT_ACTIVE
+            } else {
+                0
+            };
+            Some(VoicePacket {
+                flags,
+                codec: self.codec.id(),
+                speaker: self.speaker,
+                seq,
+                timestamp: ts,
+                payload,
+            })
         } else if self.talking {
             self.talking = false;
             // the end marker has its own sequence number: the next utterance must not reuse it
@@ -182,12 +217,22 @@ mod tests {
 
     struct Hard;
     impl Spatializer for Hard {
-        fn gain(&self, _: u8) -> f32 { 1.0 }
-        fn pan(&self, s: u8) -> f32 { if s == 1 { -1.0 } else { 1.0 } }
+        fn gain(&self, _: u8) -> f32 {
+            1.0
+        }
+        fn pan(&self, s: u8) -> f32 {
+            if s == 1 {
+                -1.0
+            } else {
+                1.0
+            }
+        }
     }
 
     fn tone() -> Vec<i16> {
-        (0..320).map(|i| ((i as f32 * 0.2).sin() * 10000.0) as i16).collect()
+        (0..320)
+            .map(|i| ((i as f32 * 0.2).sin() * 10000.0) as i16)
+            .collect()
     }
 
     #[test]

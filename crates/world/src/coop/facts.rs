@@ -89,6 +89,10 @@ pub struct LiveFacts {
     pub hurts: Vec<HurtRecord>,
     /// The scaling in force (copied from the rules each frame).
     pub scaling: Option<Scaling>,
+    /// The host's campaign rules in force: the difficulty mode and friendly
+    /// fire (copied from the rules each frame; a guest learns them from the
+    /// scaling announcement).
+    pub rules_choice: Option<(coop_core::rules::Mode, bool)>,
     /// Animation ids of actors this machine owns (the viewer writes them).
     pub anim: HashMap<FormId, u16>,
     /// Animation ids of actors owned elsewhere (the viewer reads them).
@@ -105,6 +109,9 @@ pub struct LiveFacts {
     pub downed: bool,
     /// Set while a tether holds the story stage.
     pub stage_held: bool,
+    /// Host: each party member's tether zone membership (slot, inside),
+    /// empty while no tether runs.
+    pub tether_zone: Vec<(u8, bool)>,
     /// Cells the host has loaded (`None` until the session reports them).
     /// Script commands that need a live entity wait for these
     /// ([`super::roam_ops`]).
@@ -146,7 +153,9 @@ fn player_side(f: FormId) -> bool {
 /// Damage after the party scaling: players hit enemies for less, enemies hit
 /// players for more.
 pub fn scaled_damage(state: &GameState, who: FormId, by: FormId, amount: f64) -> f64 {
-    let Some(s) = state.coop.live.scaling else { return amount };
+    let Some(s) = state.coop.live.scaling else {
+        return amount;
+    };
     if who != PLAYER_REF && player_side(by) {
         amount / f64::from(s.toughness)
     } else if who == PLAYER_REF && !player_side(by) {
@@ -185,19 +194,28 @@ pub(crate) fn hurt_hooked(
         let left = crate::combat::health(order, state, who).unwrap_or(f64::MAX);
         if amount >= left {
             amount = (left - 1.0).max(0.0);
-            state.coop.live.down_pending = true;
+            // whose down, and under which quest's row (a collar's script)
+            super::campaign::downed::health_out(state);
         }
         return amount > 0.0 && crate::combat::hurt_core(order, state, who, amount, by);
     }
     if state.coop.authority == Authority::Guest {
-        state.coop.live.pending_hits.push(PendingHit { who, amount, by });
+        state
+            .coop
+            .live
+            .pending_hits
+            .push(PendingHit { who, amount, by });
         return false;
     }
     let before = state.damage.get(&who).copied().unwrap_or(0.0);
     let killed = crate::combat::hurt_core(order, state, who, amount, by);
     let dealt = state.damage.get(&who).copied().unwrap_or(0.0) - before;
     if dealt > 0.0 {
-        state.coop.live.hurts.push(HurtRecord { who, amount: dealt, by });
+        state.coop.live.hurts.push(HurtRecord {
+            who,
+            amount: dealt,
+            by,
+        });
     }
     killed
 }

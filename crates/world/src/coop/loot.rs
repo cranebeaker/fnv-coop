@@ -73,17 +73,33 @@ impl HostLoot {
     /// scaling, once, and the thinned contents are written back to the world.
     /// A living person's stock (a vendor, Doc Mitchell) and a chest are not
     /// thinned: that would delete their items from the world.
-    pub fn register(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, container: FormId) -> bool {
+    pub fn register(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        container: FormId,
+    ) -> bool {
         gs.stock(cx.order, container);
         let cell = gs.place(cx.order, container).map_or(0, |p| p.1 .0);
-        let scaling = gs.coop.live.scaling.filter(|_| gs.dead.contains(&container));
+        let scaling = gs
+            .coop
+            .live
+            .scaling
+            .filter(|_| gs.dead.contains(&container));
         let items = gs.inventory(cx.order, container);
         let kept: Vec<(CForm, u32)> = items
             .iter()
-            .filter(|(i, _)| scaling.map_or(true, |s| s.keeps_loot(CForm(container.0 ^ i.0.rotate_left(13)))))
+            .filter(|(i, _)| {
+                scaling.map_or(true, |s| {
+                    s.keeps_loot(CForm(container.0 ^ i.0.rotate_left(13)))
+                })
+            })
             .map(|(i, n)| (cf(*i), *n as u32))
             .collect();
-        let won = live.loot.register(cf(container), CellId(cell), || kept.clone());
+        let won = live
+            .loot
+            .register(cf(container), CellId(cell), || kept.clone());
         if won {
             for (i, _) in &items {
                 if !kept.iter().any(|(k, _)| wf(*k) == *i) {
@@ -91,7 +107,8 @@ impl HostLoot {
                 }
             }
             self.containers.insert(container);
-            self.seen.insert(container, digest(&world_items(gs, container)));
+            self.seen
+                .insert(container, digest(&world_items(gs, container)));
         }
         won
     }
@@ -103,21 +120,36 @@ impl HostLoot {
     }
 
     /// Makes ledger and world agree; returns the sends.
-    pub fn reconcile(&mut self, gs: &mut GameState, live: &mut HostLive, reg: &mut PlayerRegistry) -> Vec<(PlayerId, Msg)> {
+    pub fn reconcile(
+        &mut self,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        reg: &mut PlayerRegistry,
+    ) -> Vec<(PlayerId, Msg)> {
         let mut outs = Vec::new();
         for &c in &self.containers.clone() {
             if let Some(h) = live.loot.holder(cf(c)) {
                 self.holder.insert(c, h);
             }
-            let Some(ledger) = live.loot.items(cf(c)).cloned() else { continue };
+            let Some(ledger) = live.loot.items(cf(c)).cloned() else {
+                continue;
+            };
             let world = world_items(gs, c);
             let (dl, dw) = (digest(&ledger), digest(&world));
             let seen = self.seen.get(&c).copied().unwrap_or(dl);
             if dl != seen {
                 // a guest transaction: the world follows the ledger
                 let who = self.holder.get(&c).copied();
-                for item in ledger.keys().chain(world.keys()).copied().collect::<BTreeSet<_>>() {
-                    let (have, want) = (world.get(&item).copied().unwrap_or(0), ledger.get(&item).copied().unwrap_or(0));
+                for item in ledger
+                    .keys()
+                    .chain(world.keys())
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                {
+                    let (have, want) = (
+                        world.get(&item).copied().unwrap_or(0),
+                        ledger.get(&item).copied().unwrap_or(0),
+                    );
                     if have == want {
                         continue;
                     }
@@ -136,8 +168,16 @@ impl HostLoot {
                 self.seen.insert(c, dl);
             } else if dw != dl {
                 // the host's own change: the ledger and the peers follow
-                for item in ledger.keys().chain(world.keys()).copied().collect::<BTreeSet<_>>() {
-                    let (have, want) = (ledger.get(&item).copied().unwrap_or(0), world.get(&item).copied().unwrap_or(0));
+                for item in ledger
+                    .keys()
+                    .chain(world.keys())
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                {
+                    let (have, want) = (
+                        ledger.get(&item).copied().unwrap_or(0),
+                        world.get(&item).copied().unwrap_or(0),
+                    );
                     if have != want {
                         for o in live.loot.host_set(cf(c), item, want) {
                             outs.extend(live.route_extern(o.aud, Msg::Loot(o.msg)));
@@ -152,7 +192,9 @@ impl HostLoot {
 
     /// The host player's own open (takes the lease so guests see it busy).
     pub fn host_open(&self, container: FormId) -> Msg {
-        Msg::Loot(LootMsg::Open { container: cf(container) })
+        Msg::Loot(LootMsg::Open {
+            container: cf(container),
+        })
     }
 }
 
@@ -177,13 +219,25 @@ impl GuestLoot {
     }
 
     /// Takes items from a leased container (optimistic).
-    pub fn take(&mut self, client: &mut LootClient, container: FormId, item: FormId, n: u32) -> Option<Msg> {
+    pub fn take(
+        &mut self,
+        client: &mut LootClient,
+        container: FormId,
+        item: FormId,
+        n: u32,
+    ) -> Option<Msg> {
         self.items_watched.insert(item);
         client.take(cf(container), cf(item), n).map(Msg::Loot)
     }
 
     /// Puts items into a leased container (optimistic).
-    pub fn put(&mut self, client: &mut LootClient, container: FormId, item: FormId, n: u32) -> Option<Msg> {
+    pub fn put(
+        &mut self,
+        client: &mut LootClient,
+        container: FormId,
+        item: FormId,
+        n: u32,
+    ) -> Option<Msg> {
         self.items_watched.insert(item);
         client.put(cf(container), cf(item), n).map(Msg::Loot)
     }
@@ -203,9 +257,16 @@ impl GuestLoot {
     /// gain in the player's inventory.
     pub fn apply(&mut self, gs: &mut GameState, client: &LootClient) {
         for &c in &self.watched {
-            let Some(v) = client.view(cf(c)) else { continue };
+            let Some(v) = client.view(cf(c)) else {
+                continue;
+            };
             let vis = v.visible();
-            let old: Vec<FormId> = gs.items.keys().filter(|(h, _)| *h == c).map(|(_, i)| *i).collect();
+            let old: Vec<FormId> = gs
+                .items
+                .keys()
+                .filter(|(h, _)| *h == c)
+                .map(|(_, i)| *i)
+                .collect();
             for i in old {
                 if !vis.contains_key(&cf(i)) {
                     gs.items.remove(&(c, i));

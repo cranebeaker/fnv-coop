@@ -21,13 +21,17 @@ pub enum DownOutcome {
 pub fn down_outcome(t: &PolicyTable, row: Option<&QuestRow>) -> DownOutcome {
     if let Some(sh) = row.and_then(|r| r.shadow.as_ref()) {
         if sh.down.is_some() {
-            return DownOutcome::UntilCheckpoint { checkpoints: sh.checkpoint.clone() };
+            return DownOutcome::UntilCheckpoint {
+                checkpoints: sh.checkpoint.clone(),
+            };
         }
     }
     let d = &t.policy().death;
     match d.mode {
         DeathMode::Normal => DownOutcome::Die,
-        DeathMode::Downed => DownOutcome::Downed { revive_s: d.revive_s },
+        DeathMode::Downed => DownOutcome::Downed {
+            revive_s: d.revive_s,
+        },
         DeathMode::Respawn => DownOutcome::Respawn,
     }
 }
@@ -72,7 +76,11 @@ pub fn join_plan(t: &PolicyTable, scene_active: bool) -> JoinPlan {
 
 /// Slots whose revive window (`revive_s`) ran out.
 pub fn expired(down_since: &[(Slot, u32)], revive_s: u32) -> Vec<Slot> {
-    down_since.iter().filter(|(_, e)| *e >= revive_s).map(|(s, _)| *s).collect()
+    down_since
+        .iter()
+        .filter(|(_, e)| *e >= revive_s)
+        .map(|(s, _)| *s)
+        .collect()
 }
 
 #[cfg(test)]
@@ -81,9 +89,15 @@ mod tests {
     #[test]
     fn bundled_table_outcomes() {
         let t = PolicyTable::bundled().unwrap();
-        assert!(matches!(down_outcome(&t, None), DownOutcome::Downed { .. } | DownOutcome::Respawn | DownOutcome::Die));
+        assert!(matches!(
+            down_outcome(&t, None),
+            DownOutcome::Downed { .. } | DownOutcome::Respawn | DownOutcome::Die
+        ));
         let r = t.row_by_edid("NVDLC01MQ02").unwrap();
-        assert!(matches!(down_outcome(&t, Some(r)), DownOutcome::UntilCheckpoint { .. }));
+        assert!(matches!(
+            down_outcome(&t, Some(r)),
+            DownOutcome::UntilCheckpoint { .. }
+        ));
         let both = PlayerMask::of(0).or(PlayerMask::of(1));
         assert!(is_wipe(both, both));
         assert!(!is_wipe(both, PlayerMask::of(1)));

@@ -33,7 +33,10 @@ pub fn loot(
     if gs.coop.live.loot_ops.is_empty() {
         return;
     }
-    let cx = Ctx { order: &game.0.order, scripts: &scripts.0 };
+    let cx = Ctx {
+        order: &game.0.order,
+        scripts: &scripts.0,
+    };
     link.0.live_loot_ops(cx, gs);
 }
 
@@ -87,7 +90,9 @@ pub fn tap_dialogue(
         }
     }
     let d = now.view.as_ref().and_then(|v| v.dialogue.as_ref());
-    let Some((intent, since)) = tap.queue.front().cloned() else { return };
+    let Some((intent, since)) = tap.queue.front().cloned() else {
+        return;
+    };
     let ready = match &intent {
         Intent::DialogueOpen(_) => link.0.is_ready(),
         Intent::DialoguePick(_) => d.is_some_and(|d| d.mine && d.playing.is_none()),
@@ -163,7 +168,9 @@ pub fn follow_place(
     if link.0.role() != Role::Guest || !link.0.is_ready() {
         return;
     }
-    let Some(place) = link.0.host_place() else { return };
+    let Some(place) = link.0.host_place() else {
+        return;
+    };
     // making its own character in a local room: not yet (`coop_session::start`)
     if !link.0.start_follow_ok() {
         return;
@@ -184,10 +191,18 @@ pub fn follow_place(
     } else {
         gs.player_world.is_none() && gs.player_cell.map(|c| c.0) == Some(place.cell)
     };
-    let Some(pos) = place.pos.filter(|_| !there) else { return };
+    let Some(pos) = place.pos.filter(|_| !there) else {
+        return;
+    };
     let order = &game.0.order;
-    let space = FormId(if place.world != 0 { place.world } else { place.cell });
-    let interior = order.get(space).is_some_and(|r| r.entry.header.kind == esm::sig::CELL);
+    let space = FormId(if place.world != 0 {
+        place.world
+    } else {
+        place.cell
+    });
+    let interior = order
+        .get(space)
+        .is_some_and(|r| r.entry.header.kind == esm::sig::CELL);
     if !interior {
         match world::WorldGrid::load(order, space) {
             Ok(grid) => {
@@ -228,8 +243,12 @@ pub fn travel(
     markers: Option<Res<crate::map::MapMarkers>>,
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
 ) {
-    let Some(marker) = now.view.as_ref().and_then(|v| v.flags.travel_allowed) else { return };
-    let found = markers.as_ref().and_then(|ms| ms.list.iter().find(|m| m.reference == marker).cloned());
+    let Some(marker) = now.view.as_ref().and_then(|v| v.flags.travel_allowed) else {
+        return;
+    };
+    let found = markers
+        .as_ref()
+        .and_then(|ms| ms.list.iter().find(|m| m.reference == marker).cloned());
     let m = found.unwrap_or_else(|| world::map::MapMarker {
         reference: marker,
         name: String::new(),

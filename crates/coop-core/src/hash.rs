@@ -119,7 +119,10 @@ pub struct HashHistory {
 impl HashHistory {
     /// Remembers the last `cap` hash points.
     pub fn new(cap: usize) -> Self {
-        HashHistory { cap: cap.max(1), items: VecDeque::new() }
+        HashHistory {
+            cap: cap.max(1),
+            items: VecDeque::new(),
+        }
     }
 
     /// Records (or replaces) the hashes at `rev`.
@@ -145,7 +148,10 @@ mod tests {
     fn filled(n: u32) -> StateStore {
         let mut s = StateStore::new();
         for i in 0..n {
-            s.write_local(FormId(0x0200_0000 + i), Field::QuestStage { stage: i as u16 });
+            s.write_local(
+                FormId(0x0200_0000 + i),
+                Field::QuestStage { stage: i as u16 },
+            );
         }
         s
     }
@@ -157,7 +163,10 @@ mod tests {
         let mut b = StateStore::new();
         for i in (0..300u32).rev() {
             b.write_local(FormId(0x0200_0000 + i), Field::QuestStage { stage: 0 });
-            b.write_local(FormId(0x0200_0000 + i), Field::QuestStage { stage: i as u16 });
+            b.write_local(
+                FormId(0x0200_0000 + i),
+                Field::QuestStage { stage: i as u16 },
+            );
         }
         assert_ne!(a.rev(), b.rev());
         let (ha, hb) = (ShardHashes::compute(&a), ShardHashes::compute(&b));
@@ -193,7 +202,10 @@ mod tests {
         let rep = ShardHashes::compute(&host).diff(&ShardHashes::compute(&guest));
         assert!(!rep.is_clean());
         let repair = Repair::build(&host, &rep);
-        assert!(repair.entries.len() < host.len() / 2, "repair must be partial");
+        assert!(
+            repair.entries.len() < host.len() / 2,
+            "repair must be partial"
+        );
         assert!(repair.shards.len() <= 4 + bad.len());
         repair.apply(&mut guest);
         assert_eq!(ShardHashes::compute(&host), ShardHashes::compute(&guest));

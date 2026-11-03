@@ -1,6 +1,6 @@
 {
   "name": "live_vendor_stock_shared",
-  "description": "Doc Mitchell's stock is one stock for the party: the host puts 5 stimpaks on him, the guest buys 2, then the host buys 1. Both peers end with the same stock (Doc's own starting stock differs between data sets, so it is compared between peers, and the purchases are checked by what each player holds), the guest has 2 and the host 1.",
+  "description": "Doc Mitchell's stock is one stock for the party: the host puts 5 stimpaks on him, the guest buys 2, then the host buys 1. Both peers end with the same stock (Doc's own starting stock differs between data sets, so it is compared between peers, and the purchases are checked by what each player holds), the guest has 2 and the host 1. The item is Rad-X: no pre-order pack gives it, so the exact counts do not depend on the load order (the packs give the host 5 stimpaks at the start).",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 66,
@@ -10,11 +10,11 @@
     "script": [
       {
         "at": 2,
-        "run": "coop give DocMitchellREF Stimpak 5"
+        "run": "coop give DocMitchellREF RadX 5"
       },
       {
         "at": 16,
-        "run": "coop barter DocMitchellREF 0 buy:Stimpak:1"
+        "run": "coop barter DocMitchellREF 0 buy:RadX:1"
       }
     ]
   },
@@ -22,35 +22,35 @@
     "script": [
       {
         "at": 9,
-        "run": "coop barter DocMitchellREF 0 buy:Stimpak:2"
+        "run": "coop barter DocMitchellREF 0 buy:RadX:2"
       }
     ]
   },
   "expect": [
     {
       "id": "guest-host",
-      "path": "items.guest.Stimpak",
+      "path": "items.guest.RadX",
       "op": "eq",
       "value": 2,
       "on": "host"
     },
     {
       "id": "guest-guest",
-      "path": "items.guest.Stimpak",
+      "path": "items.guest.RadX",
       "op": "eq",
       "value": 2,
       "on": "guest"
     },
     {
       "id": "host-host",
-      "path": "items.host.Stimpak",
+      "path": "items.host.RadX",
       "op": "eq",
       "value": 1,
       "on": "host"
     },
     {
       "id": "host-guest",
-      "path": "items.host.Stimpak",
+      "path": "items.host.RadX",
       "op": "eq",
       "value": 1,
       "on": "guest"

@@ -1,0 +1,41 @@
+{
+  "name": "twin_story_endings",
+  "description": "MUTATION TWIN of story_endings: the host's story never begins House's final battle, so no rival is committed and the Independent final battle begins. Marked expect_fail.",
+  "expect_fail": true,
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 73,
+  "duration_s": 12,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 5,
+        "run": "SetStage VHDIndependentBattle 10"
+      }
+    ]
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "ending-committed",
+      "path": "quests.VHDHouseBattle.stage",
+      "op": "eq",
+      "value": 10,
+      "on": "both"
+    },
+    {
+      "id": "rival-locked",
+      "path": "quests.VHDIndependentBattle.stage",
+      "op": "absent",
+      "on": "both"
+    },
+    {
+      "id": "shared-hash",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ]
+}

@@ -23,7 +23,13 @@ struct Rig<'a> {
 }
 
 impl<'a> Rig<'a> {
-    fn new(order: &'a LoadOrder, scripts: &'a ScriptCache, n: u8, profile: &str, seed: u64) -> Rig<'a> {
+    fn new(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        n: u8,
+        profile: &str,
+        seed: u64,
+    ) -> Rig<'a> {
         let mut host = GameState::new(order);
         host.set_authority(Authority::Host);
         let guests = (0..n)
@@ -47,7 +53,13 @@ impl<'a> Rig<'a> {
     }
 
     fn opts(&self) -> Opts<'a> {
-        Opts { present: true, ctx: Some(Ctx { order: self.order, scripts: self.scripts }) }
+        Opts {
+            present: true,
+            ctx: Some(Ctx {
+                order: self.order,
+                scripts: self.scripts,
+            }),
+        }
     }
 
     fn tick(&mut self) {
@@ -125,7 +137,12 @@ fn coop_single_player_is_unchanged_and_records_nothing() {
 
 #[test]
 fn coop_host_and_guests_converge_under_every_profile() {
-    for (profile, seed) in [("perfect", 1u64), ("bad_wifi", 2), ("flaky", 3), ("partition", 4)] {
+    for (profile, seed) in [
+        ("perfect", 1u64),
+        ("bad_wifi", 2),
+        ("flaky", 3),
+        ("partition", 4),
+    ] {
         let (_d, order) = order(&format!("coop-conv-{profile}"));
         let scripts = ScriptCache::default();
         let mut rig = Rig::new(&order, &scripts, 3, profile, seed);
@@ -135,18 +152,25 @@ fn coop_host_and_guests_converge_under_every_profile() {
         rig.ticks(20);
         rig.host_plays_quest();
         // other host-side changes through game paths
-        rig.host.move_item(&order, PLAYER_REF, FormId(DOC_REF), FormId(CAPS), 5);
+        rig.host
+            .move_item(&order, PLAYER_REF, FormId(DOC_REF), FormId(CAPS), 5);
         rig.host.topics.insert(FormId(TOPIC_SECRET));
         rig.host.emit(Domain::Topic, FormId(TOPIC_SECRET));
         assert!(rig.settle(&[0, 1, 2]), "profile {profile} did not settle");
         let h = &rig.host;
         for g in &rig.guests {
             assert_eq!(g.stages.get(&FormId(QUEST)), Some(&20));
-            assert_eq!(g.globals.get(&FormId(GLOBAL)), h.globals.get(&FormId(GLOBAL)));
+            assert_eq!(
+                g.globals.get(&FormId(GLOBAL)),
+                h.globals.get(&FormId(GLOBAL))
+            );
             assert!(g.completed.contains(&FormId(QUEST)));
             assert_eq!(g.item_count(&order, FormId(DOC_REF), FormId(CAPS)), 5);
             assert!(g.topics.contains(&FormId(TOPIC_SECRET)));
-            assert_eq!(g.disabled.get(&FormId(DOOR_REF)), h.disabled.get(&FormId(DOOR_REF)));
+            assert_eq!(
+                g.disabled.get(&FormId(DOOR_REF)),
+                h.disabled.get(&FormId(DOOR_REF))
+            );
             assert_eq!(g.objectives, h.objectives);
             assert_eq!(g.stages_done, h.stages_done);
         }
@@ -215,7 +239,10 @@ fn coop_guest_host_trait_refuses_script_writes() {
     let call = script::Call {
         function: i as u16,
         on: None,
-        args: vec![script::Arg::Word("TestQuest".into()), script::Arg::Number(10.0)],
+        args: vec![
+            script::Arg::Word("TestQuest".into()),
+            script::Arg::Number(10.0),
+        ],
     };
     assert_eq!(r.call(&call, None, &mut locals), Some(0.0));
     assert!(guest.stages.is_empty());
@@ -236,7 +263,10 @@ fn coop_late_join_gets_a_snapshot_without_announcements() {
     assert!(rig.settle(&[0, 1]));
     assert_eq!(rig.sim.guests[1].sync.snapshots_loaded, 1);
     assert_eq!(rig.guests[1].stages.get(&FormId(QUEST)), Some(&20));
-    assert!(rig.guests[1].events.is_empty(), "join snapshot must not replay the journal");
+    assert!(
+        rig.guests[1].events.is_empty(),
+        "join snapshot must not replay the journal"
+    );
     assert!(rig.guests[0].events.is_empty());
 }
 
@@ -251,7 +281,10 @@ fn coop_live_changes_show_local_presentation_on_the_guest() {
     rig.host_plays_quest();
     assert!(rig.settle(&[0]));
     let ev = &rig.guests[0].events;
-    assert!(ev.contains(&Event::Journal { quest: FormId(QUEST), text: "Done.".into() }));
+    assert!(ev.contains(&Event::Journal {
+        quest: FormId(QUEST),
+        text: "Done.".into()
+    }));
     assert!(ev.iter().any(|e| matches!(e, Event::QuestText(_))));
     assert!(ev.iter().any(|e| matches!(e, Event::Objective { .. })));
     // and the guest ran nothing itself
@@ -320,7 +353,11 @@ fn coop_backstop_reports_writers_that_emit_no_effect() {
     rig.host_plays_quest();
     let covered = rig.hb.collect(&mut rig.host, &mut rig.sim.host);
     assert!(covered.written > 0);
-    assert!(covered.uncovered.is_empty(), "semantic sites cover quest play: {:?}", covered.uncovered);
+    assert!(
+        covered.uncovered.is_empty(),
+        "semantic sites cover quest play: {:?}",
+        covered.uncovered
+    );
     // a raw writer that forgot to emit
     rig.host.reputations.insert(FormId(0x77), (3.0, 1.0));
     rig.host.map_markers.insert(FormId(0x78));
@@ -330,7 +367,10 @@ fn coop_backstop_reports_writers_that_emit_no_effect() {
     // it still replicates (the backstop catches it)
     assert!(rig.settle(&[0]));
     assert!(rig.guests[0].map_markers.contains(&FormId(0x78)));
-    assert_eq!(rig.guests[0].reputations.get(&FormId(0x77)), Some(&(3.0, 1.0)));
+    assert_eq!(
+        rig.guests[0].reputations.get(&FormId(0x77)),
+        Some(&(3.0, 1.0))
+    );
 }
 
 #[test]
@@ -342,10 +382,16 @@ fn coop_removals_replicate_as_tombstones() {
     rig.host.items.insert((FormId(0x50), FormId(CAPS)), 4);
     rig.host.destroyed.insert(FormId(0x51));
     assert!(rig.settle(&[0]));
-    assert_eq!(rig.guests[0].items.get(&(FormId(0x50), FormId(CAPS))), Some(&4));
+    assert_eq!(
+        rig.guests[0].items.get(&(FormId(0x50), FormId(CAPS))),
+        Some(&4)
+    );
     rig.host.items.remove(&(FormId(0x50), FormId(CAPS)));
     rig.host.destroyed.clear();
     assert!(rig.settle(&[0]));
-    assert!(rig.guests[0].items.get(&(FormId(0x50), FormId(CAPS))).is_none());
+    assert!(rig.guests[0]
+        .items
+        .get(&(FormId(0x50), FormId(CAPS)))
+        .is_none());
     assert!(rig.guests[0].destroyed.is_empty());
 }

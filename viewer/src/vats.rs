@@ -673,7 +673,9 @@ pub fn run_vats(
                 vats.reloading = None;
                 vats.player_mult = cam.player_time_mult;
                 attack.sped_up = Some(cam.player_time_mult);
-            } else if vats.phase == Phase::Off && world::coop::combat_live::world_clock_may_change(state) {
+            } else if vats.phase == Phase::Off
+                && world::coop::combat_live::world_clock_may_change(state)
+            {
                 virt.unpause();
                 virt.set_relative_speed(1.0);
             }
@@ -701,7 +703,11 @@ pub fn run_vats(
             } else {
                 // The world's pace for the next frame (`00aa4db0`).
                 let shared = !world::coop::combat_live::world_clock_may_change(state);
-                virt.set_relative_speed(if shared { 1.0 } else { vats.playback.world_mult.max(1e-4) });
+                virt.set_relative_speed(if shared {
+                    1.0
+                } else {
+                    vats.playback.world_mult.max(1e-4)
+                });
             }
         }
     }

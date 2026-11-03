@@ -363,3 +363,40 @@ fn terrain_quarters_become_meshes_in_world_space() {
     );
     assert_eq!(mesh.colors[0], [128.0 / 255.0, 64.0 / 255.0, 32.0 / 255.0]);
 }
+
+#[test]
+fn a_guests_map_marker_find_is_kept_once_and_the_partys_find_unlocks_travel() {
+    use world::coop::Authority;
+    use world::scripting::GameState;
+    let (_data, order) = order("map-guest");
+    let grid = WorldGrid::load(&order, FormId(0xC00)).unwrap();
+    let markers = world::map::markers(&order, grid.persistent.unwrap());
+    let well = &markers[0];
+    let at = testdata::MAP_MARKER_AT;
+    let mut guest = GameState::new(&order);
+    guest.set_authority(Authority::Guest);
+    // a guest's find goes to the host: it is kept here once, not written
+    // into the shared state the host's copy replaces
+    assert_eq!(
+        world::map::discover(&order, &mut guest, &markers, at).len(),
+        1
+    );
+    assert!(!guest.discovered.contains(&well.reference));
+    assert_eq!(
+        world::map::discover(&order, &mut guest, &markers, at).len(),
+        0
+    );
+    // the host finds it (no ShowMap reveal): the shared found bit alone
+    // unlocks fast travel on the guest
+    let mut host = GameState::new(&order);
+    host.set_authority(Authority::Host);
+    assert_eq!(
+        world::map::discover(&order, &mut host, &markers, at).len(),
+        1
+    );
+    assert!(!host.map_markers.contains(&well.reference));
+    let fields = world::coop::export::export(&host);
+    world::coop::apply::reconcile(&mut guest, &fields, Default::default());
+    assert!(world::map::can_travel(&guest, well));
+    assert!(world::map::shown(&guest, well));
+}

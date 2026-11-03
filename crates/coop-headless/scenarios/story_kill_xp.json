@@ -1,0 +1,61 @@
+{
+  "name": "story_kill_xp",
+  "description": "The guest kills Sunny Smiles, a very good-karma resident of the Prospector Saloon in a faction that tracks crime. The kill is paid by slot on the host: the guest's own shadow earns the experience, the host player does not, and it is paid once. Karma is one value for the party: murdering a very good person costs fKarmaModMurderingVeryGoodNPC (-100) once, and every peer reads karma -100 from its own game state.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 9,
+        "run": "coop hit SunnyRef 3"
+      },
+      {
+        "at": 13,
+        "run": "coop hit SunnyRef 100000"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "dead",
+      "path": "dead.SunnyRef",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "guest-paid",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "host-not-paid",
+      "path": "campaign.xp.host",
+      "op": "eq",
+      "value": 0,
+      "on": "host"
+    },
+    {
+      "id": "paid-once",
+      "path": "campaign.paid",
+      "op": "eq",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "party-karma",
+      "path": "karma",
+      "op": "eq",
+      "value": -100,
+      "on": "both"
+    }
+  ]
+}

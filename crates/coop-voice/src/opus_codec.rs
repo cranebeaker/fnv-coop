@@ -13,7 +13,8 @@ impl OpusCodec {
     pub const FRAME: usize = 960;
 
     pub fn new() -> Result<Self, opus::Error> {
-        let mut enc = opus::Encoder::new(Self::RATE, opus::Channels::Mono, opus::Application::Voip)?;
+        let mut enc =
+            opus::Encoder::new(Self::RATE, opus::Channels::Mono, opus::Application::Voip)?;
         enc.set_bitrate(opus::Bitrate::Bits(24_000))?;
         let dec = opus::Decoder::new(Self::RATE, opus::Channels::Mono)?;
         Ok(Self { enc, dec })
@@ -21,9 +22,15 @@ impl OpusCodec {
 }
 
 impl Codec for OpusCodec {
-    fn id(&self) -> u8 { CODEC_OPUS }
-    fn sample_rate(&self) -> u32 { Self::RATE }
-    fn frame_samples(&self) -> usize { Self::FRAME }
+    fn id(&self) -> u8 {
+        CODEC_OPUS
+    }
+    fn sample_rate(&self) -> u32 {
+        Self::RATE
+    }
+    fn frame_samples(&self) -> usize {
+        Self::FRAME
+    }
 
     fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) {
         let mut buf = [0u8; 1200];
@@ -35,7 +42,10 @@ impl Codec for OpusCodec {
     fn decode(&mut self, data: Option<&[u8]>, out: &mut Vec<i16>) -> Result<(), CodecError> {
         let mut buf = [0i16; Self::FRAME];
         // An empty input slice asks libopus for packet loss concealment.
-        let n = self.dec.decode(data.unwrap_or(&[]), &mut buf, false).map_err(|_| CodecError::BadFrame)?;
+        let n = self
+            .dec
+            .decode(data.unwrap_or(&[]), &mut buf, false)
+            .map_err(|_| CodecError::BadFrame)?;
         if n != Self::FRAME {
             return Err(CodecError::BadFrame);
         }

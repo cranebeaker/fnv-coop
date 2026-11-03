@@ -70,7 +70,11 @@ fn crc16(data: &[u8]) -> u16 {
     for &b in data {
         crc ^= (b as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -103,7 +107,10 @@ fn b32_decode(s: &str) -> Result<Vec<u8>, JoinError> {
             'I' | 'L' => '1',
             x => x,
         };
-        let v = ALPHABET.iter().position(|&a| a as char == c).ok_or(JoinError::BadChar(c))? as u32;
+        let v = ALPHABET
+            .iter()
+            .position(|&a| a as char == c)
+            .ok_or(JoinError::BadChar(c))? as u32;
         acc = (acc << 5) | v;
         bits += 5;
         if bits >= 8 {
@@ -162,10 +169,17 @@ impl FromStr for JoinCode {
     type Err = JoinError;
     fn from_str(s: &str) -> Result<Self, JoinError> {
         let s = s.trim();
-        let Some(rest) = s.get(..4).filter(|p| p.eq_ignore_ascii_case("NVRS")).map(|_| &s[4..]) else {
+        let Some(rest) = s
+            .get(..4)
+            .filter(|p| p.eq_ignore_ascii_case("NVRS"))
+            .map(|_| &s[4..])
+        else {
             return Err(JoinError::BadPrefix);
         };
-        let body: String = rest.chars().filter(|c| *c != '-' && !c.is_whitespace()).collect();
+        let body: String = rest
+            .chars()
+            .filter(|c| *c != '-' && !c.is_whitespace())
+            .collect();
         let bytes = b32_decode(&body)?;
         if bytes.len() < 2 + TOKEN_LEN + 2 {
             return Err(JoinError::Truncated);
@@ -201,12 +215,18 @@ impl FromStr for JoinCode {
             1 => JoinTarget::SteamLobby(u64::from_le_bytes(t.try_into().unwrap())),
             2 => {
                 let ip = Ipv4Addr::new(t[0], t[1], t[2], t[3]);
-                JoinTarget::Direct(SocketAddr::new(IpAddr::V4(ip), u16::from_le_bytes([t[4], t[5]])))
+                JoinTarget::Direct(SocketAddr::new(
+                    IpAddr::V4(ip),
+                    u16::from_le_bytes([t[4], t[5]]),
+                ))
             }
             _ => {
                 let mut o = [0u8; 16];
                 o.copy_from_slice(&t[..16]);
-                JoinTarget::Direct(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(o)), u16::from_le_bytes([t[16], t[17]])))
+                JoinTarget::Direct(SocketAddr::new(
+                    IpAddr::V6(Ipv6Addr::from(o)),
+                    u16::from_le_bytes([t[16], t[17]]),
+                ))
             }
         };
         let mut token = [0u8; TOKEN_LEN];
@@ -221,7 +241,10 @@ impl FromStr for JoinCode {
 pub fn random_token() -> Token {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let rs = RandomState::new();
     let mut out = [0u8; TOKEN_LEN];
     for (i, chunk) in out.chunks_mut(8).enumerate() {
@@ -252,20 +275,33 @@ mod tests {
 
     #[test]
     fn typo_detected() {
-        let c = JoinCode::new(JoinTarget::Direct("192.168.1.5:7777".parse().unwrap()), random_token());
+        let c = JoinCode::new(
+            JoinTarget::Direct("192.168.1.5:7777".parse().unwrap()),
+            random_token(),
+        );
         let s = c.to_string();
         let mut chars: Vec<char> = s.chars().collect();
-        let i = chars.iter().rposition(|c| c.is_ascii_alphanumeric()).unwrap() - 8;
+        let i = chars
+            .iter()
+            .rposition(|c| c.is_ascii_alphanumeric())
+            .unwrap()
+            - 8;
         chars[i] = if chars[i] == 'A' { 'B' } else { 'A' };
         let bad: String = chars.into_iter().collect();
-        assert!(matches!(bad.parse::<JoinCode>(), Err(JoinError::BadChecksum)));
+        assert!(matches!(
+            bad.parse::<JoinCode>(),
+            Err(JoinError::BadChecksum)
+        ));
     }
 
     #[test]
     fn errors() {
         assert_eq!("hello".parse::<JoinCode>(), Err(JoinError::BadPrefix));
         assert_eq!("NVRS-0000".parse::<JoinCode>(), Err(JoinError::Truncated));
-        assert!(matches!("NVRS-0!".parse::<JoinCode>(), Err(JoinError::BadChar('!'))));
+        assert!(matches!(
+            "NVRS-0!".parse::<JoinCode>(),
+            Err(JoinError::BadChar('!'))
+        ));
     }
 
     #[test]

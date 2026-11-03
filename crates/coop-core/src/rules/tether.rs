@@ -60,7 +60,11 @@ impl Tether {
         self.active = true;
         self.anchor = anchor;
         self.members = members.iter().copied().collect();
-        self.in_zone = in_zone.iter().copied().filter(|p| self.members.contains(p)).collect();
+        self.in_zone = in_zone
+            .iter()
+            .copied()
+            .filter(|p| self.members.contains(p))
+            .collect();
         self.since_ms = None;
         self.warned = false;
         self.held = false;
@@ -102,7 +106,11 @@ impl Tether {
         if !self.active {
             return vec![];
         }
-        self.members.iter().filter(|p| !self.in_zone.contains(p)).copied().collect()
+        self.members
+            .iter()
+            .filter(|p| !self.in_zone.contains(p))
+            .copied()
+            .collect()
     }
 
     /// True while the story stage must wait for the party.
@@ -137,18 +145,26 @@ impl Tether {
 
     /// Advances the clock: warns, then warps.
     pub fn tick(&mut self, now_ms: u64) -> Vec<TetherEvent> {
-        let Some(since) = self.since_ms.filter(|_| self.active) else { return vec![] };
+        let Some(since) = self.since_ms.filter(|_| self.active) else {
+            return vec![];
+        };
         let waited = now_ms.saturating_sub(since);
         let stragglers = self.stragglers();
         if waited >= TIMEOUT_MS {
             // the game moves them; if they somehow stay out the clock restarts
             self.since_ms = Some(now_ms);
             self.warned = false;
-            return vec![TetherEvent::Warp { players: stragglers, anchor: self.anchor }];
+            return vec![TetherEvent::Warp {
+                players: stragglers,
+                anchor: self.anchor,
+            }];
         }
         if waited >= TIMEOUT_MS - WARN_LEAD_MS && !self.warned {
             self.warned = true;
-            return vec![TetherEvent::Warn { players: stragglers, in_ms: TIMEOUT_MS - waited }];
+            return vec![TetherEvent::Warn {
+                players: stragglers,
+                in_ms: TIMEOUT_MS - waited,
+            }];
         }
         vec![]
     }
@@ -170,10 +186,22 @@ mod tests {
         assert_eq!(t.stragglers(), vec![C]);
         assert!(t.tick(1000 + TIMEOUT_MS - WARN_LEAD_MS - 1).is_empty());
         let w = t.tick(1000 + TIMEOUT_MS - WARN_LEAD_MS);
-        assert_eq!(w, vec![TetherEvent::Warn { players: vec![C], in_ms: WARN_LEAD_MS }]);
+        assert_eq!(
+            w,
+            vec![TetherEvent::Warn {
+                players: vec![C],
+                in_ms: WARN_LEAD_MS
+            }]
+        );
         assert!(t.tick(1000 + TIMEOUT_MS - 1).is_empty(), "warn only once");
         let w = t.tick(1000 + TIMEOUT_MS);
-        assert_eq!(w, vec![TetherEvent::Warp { players: vec![C], anchor: 7 }]);
+        assert_eq!(
+            w,
+            vec![TetherEvent::Warp {
+                players: vec![C],
+                anchor: 7
+            }]
+        );
     }
 
     #[test]
@@ -186,7 +214,10 @@ mod tests {
         // stepping out again starts a fresh clock
         t.set_in_zone(B, false, 200_000);
         assert!(t.tick(200_000 + TIMEOUT_MS - 1).len() <= 1);
-        assert!(matches!(t.tick(200_000 + TIMEOUT_MS)[0], TetherEvent::Warp { .. }));
+        assert!(matches!(
+            t.tick(200_000 + TIMEOUT_MS)[0],
+            TetherEvent::Warp { .. }
+        ));
     }
 
     #[test]
@@ -204,7 +235,10 @@ mod tests {
         t.tick(TIMEOUT_MS - WARN_LEAD_MS);
         assert!(matches!(t.tick(TIMEOUT_MS)[0], TetherEvent::Warp { .. }));
         assert!(t.tick(TIMEOUT_MS + 1).is_empty());
-        assert!(matches!(t.tick(2 * TIMEOUT_MS)[0], TetherEvent::Warp { .. }));
+        assert!(matches!(
+            t.tick(2 * TIMEOUT_MS)[0],
+            TetherEvent::Warp { .. }
+        ));
     }
 
     #[test]

@@ -427,7 +427,9 @@ pub fn walk(
     }
     let len = (wish[0] * wish[0] + wish[1] * wish[1]).sqrt();
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    let sneak = player.sneaking;
+    // The test bot's `coop sneak 1` sneaks as the key does (else this frame
+    // clears the flag again before anyone asks who notices the player).
+    let sneak = player.sneaking || state.0.coop.live.combat.bot_sneak == Some(true);
     let settings = settings.get_or_insert_with(|| SpeedSettings::read(order));
     let over_encumbered = state.0.over_encumbered(order, player_ref);
     // With Always Run on, Shift (Run) walks; off, it runs. Not
@@ -708,7 +710,11 @@ pub fn doors(
                 &mut lockpicking.request,
             ) {
                 // co-op: a guest asks; the swing arrives as a shared fact
-                if state.0.coop_route(world::coop::interact::door_act(reference)) == world::coop::interact::Route::Remote {
+                if state
+                    .0
+                    .coop_route(world::coop::interact::door_act(reference))
+                    == world::coop::interact::Route::Remote
+                {
                     return;
                 }
                 let player = world::dialogue::PLAYER_REF;
@@ -755,7 +761,11 @@ pub fn doors(
     // rest stay in the leader's cell group); a guest waits for the answer
     {
         let from = state.0.player_cell.map_or(0, |c| c.0);
-        if state.0.coop_route(world::coop::interact::enter_act(reference, from, cell)) == world::coop::interact::Route::Remote {
+        if state
+            .0
+            .coop_route(world::coop::interact::enter_act(reference, from, cell))
+            == world::coop::interact::Route::Remote
+        {
             return;
         }
     }

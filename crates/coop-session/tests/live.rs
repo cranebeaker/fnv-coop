@@ -29,7 +29,11 @@ struct Rig<'a> {
     chaos: Option<&'static str>,
 }
 
-fn cfg(name: &str, t: Box<dyn coop_core::transport::Transport>, chaos: Option<(&'static str, u64)>) -> SessionConfig {
+fn cfg(
+    name: &str,
+    t: Box<dyn coop_core::transport::Transport>,
+    chaos: Option<(&'static str, u64)>,
+) -> SessionConfig {
     SessionConfig {
         name: name.into(),
         session_id: 0xABCD,
@@ -41,7 +45,12 @@ fn cfg(name: &str, t: Box<dyn coop_core::transport::Transport>, chaos: Option<(&
 }
 
 impl<'a> Rig<'a> {
-    fn new(order: &'a LoadOrder, scripts: &'a ScriptCache, cell: u32, chaos: Option<&'static str>) -> Rig<'a> {
+    fn new(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        cell: u32,
+        chaos: Option<&'static str>,
+    ) -> Rig<'a> {
         Self::with_guest(order, scripts, cell, chaos, |ep| Box::new(ep))
     }
 
@@ -50,26 +59,59 @@ impl<'a> Rig<'a> {
         scripts: &'a ScriptCache,
         cell: u32,
         chaos: Option<&'static str>,
-        wrap: impl FnOnce(coop_core::transport::LoopbackEndpoint) -> Box<dyn coop_core::transport::Transport>,
+        wrap: impl FnOnce(
+            coop_core::transport::LoopbackEndpoint,
+        ) -> Box<dyn coop_core::transport::Transport>,
     ) -> Rig<'a> {
         let net = LoopbackNet::new();
-        let hs = Session::host(cfg("Host", Box::new(net.endpoint(PlayerId::HOST)), chaos.map(|p| (p, 1)))).unwrap();
-        let gsn = Session::join(cfg("Ann", wrap(net.endpoint(PlayerId(1))), chaos.map(|p| (p, 2)))).unwrap();
-        let mk = |s| Peer { s, gs: GameState::new(order), pos: [0.0, 0.0, 0.0], cell };
-        let mut r = Rig { order, scripts, net, host: mk(hs), guest: mk(gsn), chaos };
+        let hs = Session::host(cfg(
+            "Host",
+            Box::new(net.endpoint(PlayerId::HOST)),
+            chaos.map(|p| (p, 1)),
+        ))
+        .unwrap();
+        let gsn = Session::join(cfg(
+            "Ann",
+            wrap(net.endpoint(PlayerId(1))),
+            chaos.map(|p| (p, 2)),
+        ))
+        .unwrap();
+        let mk = |s| Peer {
+            s,
+            gs: GameState::new(order),
+            pos: [0.0, 0.0, 0.0],
+            cell,
+        };
+        let mut r = Rig {
+            order,
+            scripts,
+            net,
+            host: mk(hs),
+            guest: mk(gsn),
+            chaos,
+        };
         r.host.pos = [900.0, 1000.0, 0.0];
         r.guest.pos = [900.0, 1000.0, 0.0];
         r
     }
 
     fn cx(&self) -> Ctx<'a> {
-        Ctx { order: self.order, scripts: self.scripts }
+        Ctx {
+            order: self.order,
+            scripts: self.scripts,
+        }
     }
 
     fn frame(&mut self) {
         let cx = self.cx();
         for p in [&mut self.host, &mut self.guest] {
-            p.s.pre_frame_with(&mut p.gs, Opts { present: true, ctx: Some(cx) });
+            p.s.pre_frame_with(
+                &mut p.gs,
+                Opts {
+                    present: true,
+                    ctx: Some(cx),
+                },
+            );
             p.gs.player_cell = Some(FormId(p.cell));
             p.gs.player_position = Some(p.pos);
             p.s.live_frame(&mut p.gs, cx, DT);
@@ -94,14 +136,19 @@ impl<'a> Rig<'a> {
     }
 
     fn settled(&mut self) {
-        let ok = self.until(8000, |r| r.guest.s.is_connected() && r.host.s.is_ready() && r.guest.s.is_ready());
+        let ok = self.until(8000, |r| {
+            r.guest.s.is_connected() && r.host.s.is_ready() && r.guest.s.is_ready()
+        });
         assert!(ok, "never connected ({:?})", self.chaos);
         self.frames(60);
     }
 }
 
 fn died(g: &GameState, who: FormId) -> usize {
-    g.events.iter().filter(|e| matches!(e, Event::Died { who: w, .. } if *w == who)).count()
+    g.events
+        .iter()
+        .filter(|e| matches!(e, Event::Died { who: w, .. } if *w == who))
+        .count()
 }
 
 mod fighting {
@@ -121,10 +168,16 @@ mod fighting {
         let mut r = Rig::new(&order, &scripts, CELL, None);
         r.settled();
         assert!(r.host.gs.coop.gate.is_some(), "host has the policy gate");
-        assert!(r.host.gs.coop.bank.enabled() && r.guest.gs.coop.bank.enabled(), "shadows on both");
+        assert!(
+            r.host.gs.coop.bank.enabled() && r.guest.gs.coop.bank.enabled(),
+            "shadows on both"
+        );
         assert_eq!(r.host.gs.active_slot(), 0);
         assert_eq!(r.guest.gs.active_slot(), 1);
-        assert!(r.host.gs.coop.bank.parked.contains_key(&1), "host registered the guest");
+        assert!(
+            r.host.gs.coop.bank.parked.contains_key(&1),
+            "host registered the guest"
+        );
         assert!(r.host.gs.coop.gate.as_ref().unwrap().present.contains(1));
     }
 
@@ -152,16 +205,30 @@ mod fighting {
             r.guest.gs.coop.live.local_anim = 9;
             r.guest.gs.coop.live.local_weapon = 0x1234;
             r.guest.gs.coop.live.local_flags = coop_core::avatar::FLAG_DRAWN;
-            r.guest.s.set_local_parts(vec![(3, FormId(0x77))], vec![1, 2, 3]);
+            r.guest
+                .s
+                .set_local_parts(vec![(3, FormId(0x77))], vec![1, 2, 3]);
             let ok = r.until(2000, |r| {
                 r.host.s.live_view().is_some_and(|v| {
-                    v.avatars.iter().any(|a| a.anim == 9 && a.weapon == 0x1234 && a.drawn && a.equipment == vec![(3, FormId(0x77))])
+                    v.avatars.iter().any(|a| {
+                        a.anim == 9
+                            && a.weapon == 0x1234
+                            && a.drawn
+                            && a.equipment == vec![(3, FormId(0x77))]
+                    })
                 })
             });
             assert!(ok, "{chaos:?}: anim, weapon, drawn flag and equipment");
             // leaving removes the avatar
-            r.guest.s = Session::join(cfg("x", Box::new(r.net.endpoint(PlayerId(2))), None)).unwrap();
-            let ok = r.until(4000, |r| r.host.s.live_view().is_some_and(|v| !v.left.is_empty()) || r.host.s.live_view().is_some_and(|v| v.avatars.iter().all(|a| a.player != PlayerId(1))));
+            r.guest.s =
+                Session::join(cfg("x", Box::new(r.net.endpoint(PlayerId(2))), None)).unwrap();
+            let ok = r.until(4000, |r| {
+                r.host.s.live_view().is_some_and(|v| !v.left.is_empty())
+                    || r.host
+                        .s
+                        .live_view()
+                        .is_some_and(|v| v.avatars.iter().all(|a| a.player != PlayerId(1)))
+            });
             assert!(ok, "{chaos:?}: the avatar goes when the guest goes");
         }
     }
@@ -176,7 +243,15 @@ mod fighting {
         r.guest.pos = [0.0, 250.0, 0.0];
         r.frames(200);
         let root = Session::state_root(&r.guest.gs);
-        let text = coop_session::dump::state_json_live(&r.guest.gs, &order, coop_session::Role::Guest, 1.0, 1, root, r.guest.s.live_view());
+        let text = coop_session::dump::state_json_live(
+            &r.guest.gs,
+            &order,
+            coop_session::Role::Guest,
+            1.0,
+            1,
+            root,
+            r.guest.s.live_view(),
+        );
         let host_at = text.find("\"host\":[100").is_some();
         let guest_at = text.find("\"guest\":[0,250").is_some();
         assert!(host_at && guest_at, "{text}");
@@ -193,21 +268,51 @@ mod fighting {
             r.settled();
             r.frames(60);
             // the guest swings three times, shoots once, and dies
-            r.guest.gs.coop.live.local_actions.push((ActionKind::Swing, 32));
-            r.guest.gs.coop.live.local_actions.push((ActionKind::Swing, 33));
-            r.guest.gs.coop.live.local_actions.push((ActionKind::Shoot, 40));
-            r.guest.gs.coop.live.local_actions.push((ActionKind::Death, 0));
+            r.guest
+                .gs
+                .coop
+                .live
+                .local_actions
+                .push((ActionKind::Swing, 32));
+            r.guest
+                .gs
+                .coop
+                .live
+                .local_actions
+                .push((ActionKind::Swing, 33));
+            r.guest
+                .gs
+                .coop
+                .live
+                .local_actions
+                .push((ActionKind::Shoot, 40));
+            r.guest
+                .gs
+                .coop
+                .live
+                .local_actions
+                .push((ActionKind::Death, 0));
             let mut seen: Vec<(ActionKind, u32)> = Vec::new();
             let ok = r.until(4000, |r| {
                 if let Some(v) = r.host.s.live_view() {
-                    seen.extend(v.actions.iter().filter(|(p, _)| *p == PlayerId(1)).map(|(_, a)| (a.kind, a.arg)));
+                    seen.extend(
+                        v.actions
+                            .iter()
+                            .filter(|(p, _)| *p == PlayerId(1))
+                            .map(|(_, a)| (a.kind, a.arg)),
+                    );
                 }
                 seen.len() >= 4
             });
             assert!(ok, "{chaos:?}: {seen:?}");
             assert_eq!(
                 seen,
-                vec![(ActionKind::Swing, 32), (ActionKind::Swing, 33), (ActionKind::Shoot, 40), (ActionKind::Death, 0)],
+                vec![
+                    (ActionKind::Swing, 32),
+                    (ActionKind::Swing, 33),
+                    (ActionKind::Shoot, 40),
+                    (ActionKind::Death, 0)
+                ],
                 "{chaos:?}"
             );
         }
@@ -227,7 +332,9 @@ mod fighting {
             // a hit on the guest is a request, nothing changes at once
             world::combat::hurt(&order, &mut r.guest.gs, gecko, 100.0, PLAYER_REF);
             assert!(r.guest.gs.damage.is_empty());
-            let ok = r.until(4000, |r| r.host.gs.dead.contains(&gecko) && r.guest.gs.dead.contains(&gecko));
+            let ok = r.until(4000, |r| {
+                r.host.gs.dead.contains(&gecko) && r.guest.gs.dead.contains(&gecko)
+            });
             assert!(ok, "{chaos:?}: dead on both");
             r.frames(200);
             assert_eq!(died(&r.host.gs, gecko), 1);
@@ -252,12 +359,24 @@ mod fighting {
         let cx = r.cx();
         r.host.s.live_track(cx, &r.host.gs, &[gecko]);
         // the nearest player (the guest) is given the actor
-        let ok = r.until(4000, |r| r.guest.s.live_view().is_some_and(|v| v.owned_actors.contains(&gecko)));
+        let ok = r.until(4000, |r| {
+            r.guest
+                .s
+                .live_view()
+                .is_some_and(|v| v.owned_actors.contains(&gecko))
+        });
         assert!(ok, "ownership handed to the nearest player");
-        r.guest.gs.positions.insert(gecko, ([321.0, 1000.0, 0.0], 1.0));
+        r.guest
+            .gs
+            .positions
+            .insert(gecko, ([321.0, 1000.0, 0.0], 1.0));
         r.guest.gs.coop.live.anim.insert(gecko, 5);
         let ok = r.until(4000, |r| {
-            r.host.s.live_view().is_some_and(|v| v.remote_actors.iter().any(|a| a.id == gecko && (a.pos[0] - 321.0).abs() < 1.0 && a.anim == 5))
+            r.host.s.live_view().is_some_and(|v| {
+                v.remote_actors
+                    .iter()
+                    .any(|a| a.id == gecko && (a.pos[0] - 321.0).abs() < 1.0 && a.anim == 5)
+            })
         });
         assert!(ok, "the host sees the guest-owned actor move");
     }
@@ -277,18 +396,39 @@ mod dialogue_world {
         let npc = FormId(0x1299);
         r.guest.s.live_intent(Intent::DialogueOpen(npc));
         let ok = r.until(2000, |r| {
-            r.host.s.live_view().is_some_and(|v| v.dialogue.as_ref().is_some_and(|d| !d.mine && d.npc == npc))
-                && r.guest.s.live_view().is_some_and(|v| v.dialogue.as_ref().is_some_and(|d| d.mine))
+            r.host
+                .s
+                .live_view()
+                .is_some_and(|v| v.dialogue.as_ref().is_some_and(|d| !d.mine && d.npc == npc))
+                && r.guest
+                    .s
+                    .live_view()
+                    .is_some_and(|v| v.dialogue.as_ref().is_some_and(|d| d.mine))
         });
         assert!(ok, "both see the session, the guest picks");
         r.guest.s.live_intent(Intent::DialoguePick(FormId(BYE)));
         let door = FormId(DOOR_OPEN);
-        assert!(r.until(2000, |r| r.host.gs.globals.get(&door) == Some(&1.0)), "the begin script ran on the host");
+        assert!(
+            r.until(2000, |r| r.host.gs.globals.get(&door) == Some(&1.0)),
+            "the begin script ran on the host"
+        );
         let mut host_lines = Vec::new();
         let mut guest_lines = Vec::new();
         let ok = r.until(2000, |r| {
-            host_lines.extend(r.host.s.live_view().map(|v| v.lines.clone()).unwrap_or_default());
-            guest_lines.extend(r.guest.s.live_view().map(|v| v.lines.clone()).unwrap_or_default());
+            host_lines.extend(
+                r.host
+                    .s
+                    .live_view()
+                    .map(|v| v.lines.clone())
+                    .unwrap_or_default(),
+            );
+            guest_lines.extend(
+                r.guest
+                    .s
+                    .live_view()
+                    .map(|v| v.lines.clone())
+                    .unwrap_or_default(),
+            );
             !host_lines.is_empty() && !guest_lines.is_empty()
         });
         assert!(ok, "both peers get the line to play");
@@ -296,7 +436,10 @@ mod dialogue_world {
         assert_eq!(host_lines[0].1, FormId(BYE));
         r.guest.s.live_intent(Intent::DialogueLineDone);
         r.host.s.live_intent(Intent::DialogueLineDone);
-        assert!(r.until(3000, |r| r.host.gs.globals.get(&door) == Some(&2.0)), "the end script ran once");
+        assert!(
+            r.until(3000, |r| r.host.gs.globals.get(&door) == Some(&2.0)),
+            "the end script ran once"
+        );
         r.guest.s.live_intent(Intent::DialogueClose);
         r.frames(100);
         assert_eq!(r.host.gs.globals.get(&door), Some(&2.0));
@@ -313,13 +456,26 @@ mod dialogue_world {
         r.guest.s.live_intent(Intent::Say("hello host".into()));
         let mut got = Vec::new();
         assert!(r.until(1000, |r| {
-            got.extend(r.host.s.live_view().map(|v| v.chat.clone()).unwrap_or_default());
-            got.iter().any(|c| c.text == "hello host" && c.name == "Ann")
+            got.extend(
+                r.host
+                    .s
+                    .live_view()
+                    .map(|v| v.chat.clone())
+                    .unwrap_or_default(),
+            );
+            got.iter()
+                .any(|c| c.text == "hello host" && c.name == "Ann")
         }));
         r.host.s.live_intent(Intent::Say("hello guest".into()));
         let mut back = Vec::new();
         assert!(r.until(1000, |r| {
-            back.extend(r.guest.s.live_view().map(|v| v.chat.clone()).unwrap_or_default());
+            back.extend(
+                r.guest
+                    .s
+                    .live_view()
+                    .map(|v| v.chat.clone())
+                    .unwrap_or_default(),
+            );
             back.iter().any(|c| c.text == "hello guest")
         }));
     }
@@ -336,7 +492,12 @@ impl coop_core::transport::Transport for Unassigned {
     fn local(&self) -> PlayerId {
         PlayerId(255)
     }
-    fn send(&mut self, to: PlayerId, c: coop_core::proto::Channel, d: Vec<u8>) -> Result<(), coop_core::transport::TransportError> {
+    fn send(
+        &mut self,
+        to: PlayerId,
+        c: coop_core::proto::Channel,
+        d: Vec<u8>,
+    ) -> Result<(), coop_core::transport::TransportError> {
         self.inner.send(to, c, d)
     }
     fn recv(&mut self) -> Option<coop_core::transport::Packet> {
@@ -356,16 +517,27 @@ fn a_delayed_welcome_never_creates_slot_255_rows() {
         let scripts = ScriptCache::default();
         let deaf = std::rc::Rc::new(std::cell::Cell::new(true));
         let d2 = deaf.clone();
-        let mut r = Rig::with_guest(&order, &scripts, testdata::fighting::ids::CELL, chaos, move |inner| {
-            Box::new(Unassigned { inner, deaf: d2 })
-        });
+        let mut r = Rig::with_guest(
+            &order,
+            &scripts,
+            testdata::fighting::ids::CELL,
+            chaos,
+            move |inner| Box::new(Unassigned { inner, deaf: d2 }),
+        );
         let check = |r: &Rig| {
             let b = &r.guest.gs.coop.bank;
             assert_ne!(b.active, 255, "no live rows under slot 255");
-            assert!(!b.parked.contains_key(&255), "no parked rows under slot 255");
+            assert!(
+                !b.parked.contains_key(&255),
+                "no parked rows under slot 255"
+            );
             assert!(r.guest.gs.shadow_of(255).is_none());
             if b.enabled() {
-                assert_ne!(r.guest.s.status().player.0, 255, "shadows only once the slot is assigned");
+                assert_ne!(
+                    r.guest.s.status().player.0,
+                    255,
+                    "shadows only once the slot is assigned"
+                );
             }
         };
         for i in 0..400 {
@@ -375,14 +547,22 @@ fn a_delayed_welcome_never_creates_slot_255_rows() {
                 deaf.set(false);
             }
         }
-        assert!(r.until(12_000, |r| r.guest.s.is_connected() && r.guest.s.is_ready()), "{chaos:?}: connected");
+        assert!(
+            r.until(12_000, |r| r.guest.s.is_connected() && r.guest.s.is_ready()),
+            "{chaos:?}: connected"
+        );
         for _ in 0..400 {
             r.frame();
             check(&r);
         }
-        assert!(r.guest.gs.coop.bank.enabled(), "shadows on after the Welcome");
+        assert!(
+            r.guest.gs.coop.bank.enabled(),
+            "shadows on after the Welcome"
+        );
         assert_ne!(r.guest.gs.active_slot(), 255);
-        let ok = r.until(12_000, |r| r.host.gs.shard_hashes() == r.guest.gs.shard_hashes());
+        let ok = r.until(12_000, |r| {
+            r.host.gs.shard_hashes() == r.guest.gs.shard_hashes()
+        });
         assert!(ok, "{chaos:?}: the shared shards agree");
     }
 }
