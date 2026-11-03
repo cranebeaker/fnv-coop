@@ -615,7 +615,10 @@ impl Session {
                 sh.quest_stage.get(&VCG00).copied(),
                 sh.quest_stage.get(&VCG01).copied(),
             ),
-            _ => (gs.stages.get(&VCG00).copied(), gs.stages.get(&VCG01).copied()),
+            _ => (
+                gs.stages.get(&VCG00).copied(),
+                gs.stages.get(&VCG01).copied(),
+            ),
         }
     }
 
