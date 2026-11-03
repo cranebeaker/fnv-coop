@@ -9,6 +9,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-purple.svg)](docs/PLAYTESTING.md)
 [![Status](https://img.shields.io/badge/Status-experimental-lightgrey.svg)](docs/MILESTONES.md)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/pn5kjZJJxx)
 
 **Fallout: New Vegas, rebuilt in Rust, aiming to play exactly like the
 original.**
@@ -49,7 +50,9 @@ Experimental. Almost all of the original program is translated, and the game's
 own code now runs: it starts a new game, plays the opening in Doc Mitchell's
 house (Doc's speech, character creation, the Vit-o-Matic and his questions),
 and lets you walk around, talk to Doc, use the Pip-Boy and draw, aim and fire
-weapons, with the original graphics and sound.
+weapons, with the original graphics and sound. In the play build, if the game's code
+stops on something not supported yet, the log names where and the game closes,
+instead of leaving a frozen window.
 
 <table>
   <tr>
@@ -148,6 +151,8 @@ Contributions are welcome, from people and their AI agents alike:
 
 The most useful help right now: testing builds and reporting differences from
 the original, platform support and research into how the original behaves.
+
+**Chat with us** on the project's [Discord](https://discord.gg/pn5kjZJJxx).
 
 **Curious how it works?** Start with
 [docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md) and
