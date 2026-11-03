@@ -120,7 +120,7 @@ pub fn play_lines(
     mut now: ResMut<LiveNow>,
     mut link: NonSendMut<CoopLink>,
     mut lines: ResMut<Lines>,
-    (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
+    mut subtitles: ResMut<crate::subtitles::Subtitles>,
 ) {
     let t = time.elapsed_secs();
     let Some(view) = now.view.clone() else { return };
@@ -134,12 +134,14 @@ pub fn play_lines(
             .and_then(|i| i.responses.first().map(|r| r.text.clone()))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("(line {info})"));
-        if messages.on {
-            messages.queue.push(HudMessage::from(text));
-        } else {
-            notices.push(text, t);
-        }
-        lines.due.push(t + READ_SECONDS);
+        let who = view
+            .dialogue
+            .as_ref()
+            .map(|d| crate::subtitles::speaker_name(&game.0.order, d.npc))
+            .unwrap_or_default();
+        let secs = crate::subtitles::seconds(&text, READ_SECONDS);
+        subtitles.show(&who, &text, t, secs);
+        lines.due.push(t + secs);
     }
     if view.dialogue.is_none() {
         lines.due.clear();

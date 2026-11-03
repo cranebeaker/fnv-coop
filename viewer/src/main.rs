@@ -69,6 +69,7 @@ mod shared_light;
 mod sight;
 mod sitting;
 mod sounds;
+mod subtitles;
 mod swaps;
 mod terrain;
 mod test_keys;
@@ -448,6 +449,7 @@ fn main() {
         .init_resource::<ai::Starts>()
         .init_resource::<ai::PlayerHello>()
         .init_resource::<chatter::Lines>()
+        .init_resource::<subtitles::Subtitles>()
         .init_resource::<anim_library::AnimLibrary>()
         .init_resource::<menus::Menus>()
         .init_resource::<map::MapMarkers>()

@@ -109,6 +109,15 @@ pub fn play(
     };
     match kind {
         ActionKind::Swing | ActionKind::Shoot => {
+            // The picker drops an attack asked for while its weapon is not
+            // drawn. A swinger with bare fists demonstrably has them up, but
+            // the fists have no equip to play, so the picker may never have
+            // learned it: raise them now, or the swing is lost and the
+            // puppet stands with its arms down.
+            if fists_only(rig) {
+                rig.want_drawn = true;
+                rig.picker.drawn = true;
+            }
             rig.attack_group = attack_group(arg);
             rig.attack_at = Some(now);
         }
@@ -128,4 +137,9 @@ pub fn play(
         // no third-person animation of their own to start here
         ActionKind::Aim | ActionKind::Block => {}
     }
+}
+
+/// The puppet holds nothing (bare fists), as far as its dressing has said.
+pub fn fists_only(rig: &ActorRig) -> bool {
+    matches!(rig.held_weapon, Some(None))
 }

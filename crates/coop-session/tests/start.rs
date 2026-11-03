@@ -205,3 +205,84 @@ fn a_guest_joining_after_the_opening_makes_its_character_in_a_local_room_first()
         "and then arrived at the host's place"
     );
 }
+
+#[test]
+fn the_hosts_copy_of_the_guests_rows_does_not_undo_the_menus_while_they_run() {
+    // Raising a stat in the Vit-o-Matic was undone (and the points seemed to drain) because each
+    // store change made the guest take the host's stale copy of its own shadow back.
+    let (_d, order) = order("st-hold");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, true);
+    r.host.gs.stages.insert(VCG00, 0);
+    r.host.gs.stages.insert(VCG01, 10);
+    let special = coop_session::start::SPECIAL;
+    let mut seen_special = false;
+    let mut frames_after = 0;
+    for i in 0..600u16 {
+        // the host's world keeps changing, so the store keeps changing
+        r.host.gs.stages.insert(FormId(0x7777), i % 50 + 1);
+        r.frame();
+        if r.opened.contains(&Step::Special) {
+            seen_special = true;
+            let gs = &r.guest.gs;
+            for (j, av) in special.iter().enumerate() {
+                assert_eq!(
+                    gs.actor_values.get(&(PLAYER_REF, *av)),
+                    Some(&((3 + j) as f64)),
+                    "frame {i}, attribute {av} after the menu set it"
+                );
+            }
+            frames_after += 1;
+        }
+        if r.guest.s.start_phase() == Phase::Playing {
+            break;
+        }
+    }
+    assert!(seen_special && frames_after > 10);
+    assert_eq!(r.guest.s.start_phase(), Phase::Playing);
+    // after the host stored the sheet the guest's rows are the host's copy, which is the same
+    let sh = r.host.gs.shadow_of(1).expect("guest shadow");
+    assert_eq!(sh.actor_values.get(&special[0]), Some(&3.0));
+    assert_eq!(r.guest.gs.player_name.as_deref(), Some("Ann the Courier"));
+    assert!(r.guest.gs.perks.contains(&FormId(0x4242)));
+}
+
+#[test]
+fn the_guest_watches_the_hosts_intro_before_its_first_menu() {
+    let (_d, order) = order("st-watch");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, true);
+    // the host is still in the intro: VCG00 running, VCG01 not begun
+    r.host.gs.stages.insert(VCG00, 0);
+    for _ in 0..400 {
+        r.frame();
+    }
+    assert!(r.opened.is_empty(), "no menu before the host's name box");
+    assert_eq!(r.guest.s.start_phase(), Phase::CharacterCreation);
+    // Doc's first lines
+    r.host.gs.stages.insert(VCG01, 3);
+    for _ in 0..100 {
+        r.frame();
+    }
+    assert!(r.opened.is_empty());
+    // the host's name box
+    r.host.gs.stages.insert(VCG01, 10);
+    assert!(r.until(400, |r| !r.opened.is_empty()));
+    assert_eq!(r.opened[0], Step::Name);
+}
+
+#[test]
+fn a_scene_or_movie_playing_on_the_guest_holds_its_menus_back() {
+    let (_d, order) = order("st-movie");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, true);
+    r.host.gs.stages.insert(VCG01, 10);
+    // the host's intro movie is on the guest's screen
+    r.guest.gs.coop.live.scene.movie_busy = true;
+    for _ in 0..300 {
+        r.frame();
+    }
+    assert!(r.opened.is_empty(), "the guest sat through the movie");
+    r.guest.gs.coop.live.scene.movie_busy = false;
+    assert!(r.until(400, |r| !r.opened.is_empty()));
+}

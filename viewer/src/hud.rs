@@ -656,6 +656,8 @@ pub struct HudState<'w, 's> {
     /// Co-op: teammates and pings for the compass (absent in single player).
     coop_now: Option<Res<'w, crate::coop_live::LiveNow>>,
     coop_book: Option<Res<'w, crate::coop_live::Book>>,
+    /// What someone is saying, for the subtitles at the bottom centre.
+    subtitles: Res<'w, crate::subtitles::Subtitles>,
 }
 
 impl HudState<'_, '_> {
@@ -873,7 +875,10 @@ impl HudState<'_, '_> {
             // Hidden with the sights' node kept (`00771700` clears the
             // reticle's bit when player +0xe34 is set in first person).
             crosshair: !dead && !self.sighting.0 && self.scoped.0.is_none(),
-            subtitle: None,
+            subtitle: self
+                .subtitles
+                .current(self.time.elapsed_secs())
+                .map(str::to_string),
             experience: Some(experience),
             menu_open: self.menu_hides_xp(),
             quest_gate: self.quest_gate(),

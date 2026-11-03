@@ -569,6 +569,10 @@ pub struct ShadowBank {
     pub parked: BTreeMap<u8, PlayerShadow>,
     /// Slots changed since the last [`GameState::take_shadow_dirty`].
     pub dirty: BTreeSet<u8>,
+    /// The live owner's rows are being made here (a guest's character making, until the host
+    /// stored the sheet): the host's copy of the owner's own shadow does not replace them. Without
+    /// this the host's stale copy undoes each menu's result on the next store change or recheck.
+    pub hold_own: bool,
 }
 
 impl ShadowBank {
@@ -1152,6 +1156,9 @@ pub fn apply_changes(gs: &mut GameState, changes: &[(Key, Option<Field>)]) -> BT
             continue;
         };
         if slot == gs.coop.bank.active {
+            if gs.coop.bank.hold_own {
+                continue;
+            }
             let old = PlayerShadow::read(gs, &plan);
             PlayerShadow::clear(gs, &plan);
             shadow.local = old.local.clone();

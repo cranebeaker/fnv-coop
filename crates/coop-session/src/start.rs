@@ -46,6 +46,9 @@ pub const VCG01: FormId = FormId(0x0010_4C1C);
 pub const VCG00_DONE: u16 = 100;
 /// `VCG01` stage from which the character is made (Doc's farewell transition, after the traits).
 pub const OPENING_OVER_STAGE: u16 = 105;
+/// `VCG01` stage at which the host's own name box opens (`GetPlayerName`, docs/OPENING.md): a
+/// guest watching the host's opening starts its own menus from here.
+pub const NAME_STAGE: u16 = 10;
 /// Where a guest makes its character when the host's opening is over.
 pub const LOCAL_ROOM: &str = "GSDocMitchellHouse";
 /// SPECIAL points the Vit-o-Matic hands out (`ShowLoveTesterMenuParams 40`).
@@ -333,9 +336,31 @@ impl StartFlow {
         }
     }
 
+    /// True while a guest's own player rows are being made here, so the host's copy of its
+    /// shadow must not replace them: from the first menu until the host stored the sheet (a
+    /// character that came from a save has nothing to protect).
+    pub fn holds_own_rows(&self) -> bool {
+        self.role == Role::Guest
+            && self.own == OwnCharacter::Create
+            && (self.phase == Phase::CharacterCreation
+                || (self.phase == Phase::Arriving && !self.acked))
+    }
+
     /// One frame. `menu_busy`: some menu is up or queued here. `at_host`: the guest is in the
     /// host's place. Returns what to do now.
     pub fn poll(&mut self, menu_busy: bool, at_host: bool) -> Option<Action> {
+        self.poll_gated(menu_busy, at_host, true)
+    }
+
+    /// [`Self::poll`] with `host_ready`: false while the guest should still be watching the host's
+    /// opening (its intro movie, the scene it is held in, Doc's speech up to the host's own name
+    /// box), so the first menu does not open yet.
+    pub fn poll_gated(
+        &mut self,
+        menu_busy: bool,
+        at_host: bool,
+        host_ready: bool,
+    ) -> Option<Action> {
         if self.role != Role::Guest {
             return None;
         }
@@ -351,7 +376,7 @@ impl StartFlow {
                     self.finished = true;
                     return Some(Action::Finished);
                 }
-                if !self.opened && !menu_busy {
+                if !self.opened && !menu_busy && host_ready {
                     self.opened = true;
                     return Some(Action::OpenMenu(STEPS[self.step]));
                 }
@@ -478,8 +503,15 @@ pub(crate) struct StartSide {
     pub pending: Vec<(PlayerId, Sheet)>,
     /// Host: the sheet last applied per peer (a repeat is only acknowledged).
     pub applied: BTreeMap<PlayerId, Sheet>,
+    /// Host: peers whose sheet was applied last frame; their acknowledgement goes out once the
+    /// applied rows are in the store (so the guest takes its own rows back from a current copy).
+    pub ack_after: Vec<PlayerId>,
     /// The last phase logged.
     pub logged: Option<Phase>,
+    /// Both roles: the character names chosen in the name box, per player (host: gathered; guest: told).
+    pub char_names: BTreeMap<PlayerId, String>,
+    /// Host: the names each peer was last told.
+    pub names_told: BTreeMap<PlayerId, BTreeMap<PlayerId, String>>,
 }
 
 impl StartSide {
@@ -495,7 +527,10 @@ impl StartSide {
             told: BTreeMap::new(),
             pending: Vec::new(),
             applied: BTreeMap::new(),
+            ack_after: Vec::new(),
             logged: None,
+            char_names: BTreeMap::new(),
+            names_told: BTreeMap::new(),
         }
     }
 }
@@ -578,6 +613,44 @@ impl Session {
         self.guest.as_ref().and_then(|g| g.place)
     }
 
+    /// The host's opening quest stages as this machine sees them (its row of the shadow when the
+    /// quests are per player, else the shared rows): (`VCG00`, `VCG01`).
+    fn host_opening_stages(gs: &GameState) -> (Option<u16>, Option<u16>) {
+        match gs.shadow_of(0) {
+            Some(sh) if gs.coop.bank.active != 0 => (
+                sh.quest_stage.get(&VCG00).copied(),
+                sh.quest_stage.get(&VCG01).copied(),
+            ),
+            _ => (
+                gs.stages.get(&VCG00).copied(),
+                gs.stages.get(&VCG01).copied(),
+            ),
+        }
+    }
+
+    /// Guest: false while it should still watch the host's opening instead of making its
+    /// character: a scene or movie is running here (the intro, `FNVIntro`), or the host's opening
+    /// has not reached its own name box ([`NAME_STAGE`]). An opening whose stages this machine
+    /// cannot see (no quest rows at all) never holds the guest back.
+    fn host_opening_ready(&self, gs: &GameState) -> bool {
+        let sc = &gs.coop.live.scene;
+        if sc.view.is_some() || sc.movie_start.is_some() || sc.movie_busy {
+            return false;
+        }
+        let f = &self.start.flow;
+        if f.venue() != Venue::HostPlace || f.opening() != Some(Opening::InProgress) {
+            return true;
+        }
+        if f.step != 0 {
+            return true;
+        }
+        let (a, b) = Self::host_opening_stages(gs);
+        if a.is_none() && b.is_none() {
+            return true;
+        }
+        b.unwrap_or(0) >= NAME_STAGE
+    }
+
     /// Guest: once per frame, after the world is loaded. `menu_busy`: a menu is up or queued.
     /// Returns the menu to open now (local only), if any. The host always gets `None`.
     pub fn start_poll(&mut self, gs: &GameState, menu_busy: bool) -> Option<Step> {
@@ -595,7 +668,8 @@ impl Session {
             }
         }
         let at = self.at_host_place(gs);
-        let act = self.start.flow.poll(menu_busy, at);
+        let ready = self.host_opening_ready(gs);
+        let act = self.start.flow.poll_gated(menu_busy, at, ready);
         let phase = self.start.flow.phase();
         if self.start.logged != Some(phase) {
             self.start.logged = Some(phase);
@@ -640,13 +714,17 @@ impl Session {
         if self.host.is_none() {
             return;
         }
-        send_ext(&mut self.net, from, &Ext::SheetAck);
-        if self.start.applied.get(&from) != Some(&sheet)
-            && !self
-                .start
-                .pending
-                .iter()
-                .any(|(p, s)| *p == from && *s == sheet)
+        if self.start.applied.get(&from) == Some(&sheet) {
+            // a repeat of what is stored already (the ack was lost)
+            send_ext(&mut self.net, from, &Ext::SheetAck);
+            return;
+        }
+        // a new sheet is acknowledged once it is applied and in the store (`host_start_frame`)
+        if !self
+            .start
+            .pending
+            .iter()
+            .any(|(p, s)| *p == from && *s == sheet)
         {
             self.start.pending.push((from, sheet));
         }
@@ -673,23 +751,43 @@ impl Session {
             .map(|h| h.peers.keys().copied().collect())
             .unwrap_or_default();
         self.start.told.retain(|p, _| peers.contains(p));
+        self.start.names_told.retain(|p, _| peers.contains(p));
+        let peers_now = peers.clone();
         for p in peers {
             if self.start.told.get(&p) != Some(&o) {
                 self.start.told.insert(p, o);
                 send_ext(&mut self.net, p, &Ext::Opening(o));
             }
         }
+        for p in std::mem::take(&mut self.start.ack_after) {
+            send_ext(&mut self.net, p, &Ext::SheetAck);
+        }
+        match gs.player_name.as_deref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                self.start.char_names.insert(PlayerId::HOST, n.to_string());
+            }
+            None => {
+                self.start.char_names.remove(&PlayerId::HOST);
+            }
+        }
+        self.start
+            .char_names
+            .retain(|p, _| p.is_host() || peers_now.contains(p));
         for (from, sheet) in std::mem::take(&mut self.start.pending) {
             if from.is_host() {
                 continue;
             }
             let slot = from.0;
             let name = sheet.name.clone();
+            if !name.is_empty() {
+                self.start.char_names.insert(from, name.clone());
+            }
             if gs.coop.bank.enabled() {
                 gs.register_player(slot);
                 gs.with_player(slot, |g| sheet.apply(g));
             } else {
                 // one shared player: there is no row of its own to keep a character in
+                send_ext(&mut self.net, from, &Ext::SheetAck);
                 continue;
             }
             self.log_ev(
@@ -697,7 +795,29 @@ impl Session {
                 &[("player", V::U(slot as u64)), ("name", V::S(&name))],
             );
             self.start.applied.insert(from, sheet);
+            self.start.ack_after.push(from);
         }
+        let names = self.start.char_names.clone();
+        for p in peers_now {
+            if self.start.names_told.get(&p) != Some(&names) {
+                self.start.names_told.insert(p, names.clone());
+                let list: Vec<(PlayerId, String)> =
+                    names.iter().map(|(k, v)| (*k, v.clone())).collect();
+                send_ext(&mut self.net, p, &Ext::CharNames(list));
+            }
+        }
+    }
+
+    /// Guest: the host told the character names.
+    pub(crate) fn on_char_names(&mut self, list: Vec<(PlayerId, String)>) {
+        if self.role == Role::Guest {
+            self.start.char_names = list.into_iter().filter(|(_, n)| !n.is_empty()).collect();
+        }
+    }
+
+    /// The in-game character name a player chose, when known.
+    pub fn character_name(&self, p: PlayerId) -> Option<&str> {
+        self.start.char_names.get(&p).map(String::as_str)
     }
 
     /// Guest, once per tick: resends an unacknowledged sheet.

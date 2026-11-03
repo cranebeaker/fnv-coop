@@ -27,6 +27,8 @@ const RESPAWN_AFTER: f32 = 4.0;
 /// Units a second above which a puppet walks, and runs.
 const WALK_SPEED: f32 = 5.0;
 const RUN_SPEED: f32 = 220.0;
+/// Seconds a drawn player's picker may take to draw before it is forced.
+const RAISE_GRACE: f32 = 0.5;
 /// Units per metre (for the name tags).
 // not read yet: the name tags do not show the distance (the f71db09 feature merge)
 #[allow(dead_code)]
@@ -41,6 +43,8 @@ pub struct Puppets {
     asked: HashMap<PlayerId, f32>,
     /// Name tag entities.
     tags: HashMap<PlayerId, Entity>,
+    /// Health bar entities of the name tags.
+    bars: HashMap<PlayerId, Entity>,
 }
 
 /// A name tag above a remote player.
@@ -122,6 +126,7 @@ pub fn sync(
         gs.equipped.remove(&form);
         gs.more.alerted.remove(&form);
         gs.more.forced_sneak.remove(&form);
+        gs.stand(form);
     }
     // new ones
     for (p, a) in &shown {
@@ -144,7 +149,12 @@ pub fn sync(
         println!("Co-op: {} ({}) comes into view.", a.name, a.puppet);
         let scene = game.0.made_scene(vec![placement]);
         let lighting = spawner.place_lighting.get();
-        spawner.spawn_with(&scene, lighting);
+        // Marked at once: a frame as an unmarked actor would let the AI park
+        // and hide it (beyond the attached cells while the squares load), and
+        // nothing would ever bring it back.
+        for e in spawner.spawn_with(&scene, lighting) {
+            commands.entity(e).insert(CoopPuppet(Some(*p)));
+        }
         puppets.asked.insert(*p, t);
     }
 }
@@ -191,13 +201,23 @@ pub fn drive(
     now: Res<LiveNow>,
     mut motion: Local<Motion>,
     mut dressed: Local<HashMap<PlayerId, (u32, u32)>>,
-    mut puppets: Query<(&CoopPuppet, &mut Walker, &mut ActorRig, &mut Transform)>,
+    mut raising: Local<HashMap<PlayerId, f32>>,
+    mut seats: ResMut<crate::sitting::Seats>,
+    moves: Res<crate::ai::Moves>,
+    mut puppets: Query<(
+        &CoopPuppet,
+        &mut Walker,
+        &mut crate::sitting::Life,
+        &mut ActorRig,
+        &mut Transform,
+        &mut Visibility,
+    )>,
 ) {
     let Some(view) = &now.view else { return };
     let order = &game.0.order;
     let gs = &mut state.0;
     let dt = time.delta_secs();
-    for (mark, mut walker, mut rig, mut transform) in &mut puppets {
+    for (mark, mut walker, mut life, mut rig, mut transform, mut visibility) in &mut puppets {
         let Some(p) = mark.0 else { continue };
         let Some(a) = view.avatars.iter().find(|a| a.player == p) else {
             continue;
@@ -251,6 +271,20 @@ pub fn drive(
             );
         }
         let weapon = world::combat::weapon_equipped(order, gs, me);
+        // Bare fists have no equip animation to bring the picker to
+        // "drawn": a player with the fists up that the picker still has
+        // down (after the grace for a real equip) gets them up, else its
+        // attacks are dropped and the stance stays the holstered one.
+        let now_s = time.elapsed_secs();
+        if a.drawn && weapon.is_none() && !rig.picker.drawn && rig.picker.action.is_none() {
+            let since = *raising.entry(p).or_insert(now_s);
+            if now_s - since > RAISE_GRACE {
+                rig.picker.drawn = true;
+                rig.want_drawn = true;
+            }
+        } else {
+            raising.remove(&p);
+        }
         rig.character = true;
         rig.still = rig.ragdoll.is_some();
         rig.walking = speed > WALK_SPEED;
@@ -262,7 +296,48 @@ pub fn drive(
         rig.weapon_kind = weapon
             .as_ref()
             .map(|w| world::animation::groups::weapon_kind(w.animation));
+        // In furniture the other machine says it is using: the seat's marker
+        // is theirs here too, and the puppet takes the seated pose, sits
+        // down and gets up through the same procedure everyone else uses.
+        let seat = FormId(a.seat);
+        let wants = a.seat != 0 && !a.dead && !a.downed;
+        if wants && gs.furniture.get(&me) != Some(&seat) {
+            gs.stand(me);
+            gs.furniture.insert(me, seat);
+        } else if wants {
+            if let Some(s) = gs.sitters.get_mut(&me) {
+                s.stand_requested = false;
+            }
+        } else if let Some(s) = gs.sitters.get_mut(&me) {
+            s.stand_up();
+        } else {
+            gs.stand(me);
+        }
+        if gs.furniture.contains_key(&me) || gs.sitters.contains_key(&me) {
+            let mesh = world::ai::NavMesh::default();
+            let mut ctx = crate::sitting::Ctx {
+                game: &game.0,
+                state: &mut *gs,
+                seats: &mut seats,
+                mesh: &mesh,
+                moves: &moves.settings,
+                now: time.elapsed_secs(),
+                dt,
+                fighting: false,
+                talking: false,
+            };
+            if crate::sitting::furniture_frame(&mut ctx, &mut walker, &mut life, &mut rig) {
+                rig.walking = false;
+                rig.running = false;
+                rig.speed = 0.0;
+            }
+        }
         *transform = placed(&walker);
+        // whether it is shown is `in_view`'s call (`sync`), never the AI's
+        walker.parked = false;
+        if *visibility == Visibility::Hidden {
+            *visibility = Visibility::Inherited;
+        }
     }
 }
 
@@ -275,6 +350,7 @@ pub fn name_tags(
     mut puppets: ResMut<Puppets>,
     cameras: Query<(&Camera, &GlobalTransform), With<crate::FlyCamera>>,
     mut tags: Query<(&mut Node, &mut Text, &mut Visibility, &mut TextColor), With<NameTag>>,
+    mut bars: Query<&mut super::hud_bars::HealthBar>,
 ) {
     let Some(view) = &now.view else { return };
     let Ok((camera, camera_at)) = cameras.single() else {
@@ -296,9 +372,12 @@ pub fn name_tags(
         if let Some(e) = puppets.tags.remove(&p) {
             commands.entity(e).despawn();
         }
+        if let Some(e) = puppets.bars.remove(&p) {
+            commands.entity(e).despawn();
+        }
     }
     for a in view.avatars.iter().filter(|a| wanted.contains(&a.player)) {
-        let (label, color) =
+        let (label, color, bar) =
             super::hud_social::tag_text(&now, &state.0, a, super::voice::is_speaking(a.player.0));
         let Some(tag) = puppets.tags.get(&a.player).copied() else {
             let e = commands
@@ -318,6 +397,8 @@ pub fn name_tags(
                 ))
                 .id();
             puppets.tags.insert(a.player, e);
+            let b = super::hud_bars::spawn_bar(&mut commands);
+            puppets.bars.insert(a.player, b);
             continue;
         };
         let Ok((mut node, mut text, mut vis, mut tint)) = tags.get_mut(tag) else {
@@ -327,8 +408,25 @@ pub fn name_tags(
             tint.0 = color;
         }
         let head = Vec3::from(space::point([a.pos[0], a.pos[1], a.pos[2] + 190.0]));
+        let bar_entity = puppets.bars.get(&a.player).copied();
+        let mut set_bar = |at: Option<Vec2>, frac: f32| {
+            if let Some(mut b) = bar_entity.and_then(|e| bars.get_mut(e).ok()) {
+                b.at = at;
+                b.frac = frac;
+            }
+        };
         match camera.world_to_viewport(camera_at, head) {
             Ok(at) => {
+                match bar {
+                    Some(frac) => set_bar(
+                        Some(Vec2::new(
+                            at.x - super::hud_bars::BAR_W / 2.0,
+                            at.y - 10.0 - super::hud_bars::BAR_H - 3.0,
+                        )),
+                        frac,
+                    ),
+                    None => set_bar(None, 0.0),
+                }
                 node.left = Val::Px(at.x - 40.0);
                 node.top = Val::Px(at.y - 10.0);
                 if text.0 != label {
@@ -336,7 +434,10 @@ pub fn name_tags(
                 }
                 *vis = Visibility::Inherited;
             }
-            Err(_) => *vis = Visibility::Hidden,
+            Err(_) => {
+                *vis = Visibility::Hidden;
+                set_bar(None, 0.0);
+            }
         }
     }
 }

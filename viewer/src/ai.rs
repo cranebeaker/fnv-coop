@@ -213,7 +213,7 @@ pub struct Walker {
     long: Option<LongPlan>,
     /// Hidden here because they stand outdoors beyond the attached cells
     /// (the game's lower processes; [`move_offstage`] moves them).
-    parked: bool,
+    pub(crate) parked: bool,
     /// Their character controller: the game builds one for every actor
     /// whose 3D is set up (`00930c70` → `00c741e0`), the player's kind
     /// (`physics::Character`), and moves them through the cell's collision

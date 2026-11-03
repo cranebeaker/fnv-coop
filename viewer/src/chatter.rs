@@ -154,7 +154,7 @@ impl Lines {
 
 /// How long a response stays without a voice: the dialogue's reading pace
 /// (a guess there too).
-fn reading_time(text: &str) -> f32 {
+pub(crate) fn reading_time(text: &str) -> f32 {
     (text.split_whitespace().count() as f32 * 0.35).max(2.0)
 }
 
@@ -216,7 +216,17 @@ pub fn say_lines(
     mut lines: ResMut<Lines>,
     mut audio: ResMut<Assets<crate::sounds::PcmSound>>,
     voices: Query<(), With<AudioPlayer<crate::sounds::PcmSound>>>,
+    mut subtitles: ResMut<crate::subtitles::Subtitles>,
+    coop: Option<Res<crate::coop_live::LiveNow>>,
 ) {
+    // The game's general subtitles are off by default; in co-op the lines are
+    // shown so both players read the same.
+    let show = coop.is_some()
+        || game
+            .0
+            .settings
+            .get("GamePlay", "bGeneralSubtitles")
+            .is_some_and(|v| v.trim() != "0");
     let now = time.elapsed_secs();
     let lines = &mut *lines;
     lines.done.clear();
@@ -252,6 +262,10 @@ pub fn say_lines(
             0,
         );
         if let Some(r) = info.responses.first() {
+            if show && crate::subtitles::heard(&game.0.order, &state.0, request.speaker) {
+                let who = crate::subtitles::speaker_name(&game.0.order, request.speaker);
+                subtitles.show(&who, &r.text, now, crate::subtitles::seconds(&r.text, 2.0));
+            }
             lines.started.push(ResponseStarted {
                 speaker: request.speaker,
                 listener: request.listener,
@@ -292,6 +306,11 @@ pub fn say_lines(
         saying.response += 1;
         saying.since = now;
         if saying.response < saying.info.responses.len() {
+            if show && crate::subtitles::heard(&game.0.order, &state.0, speaker) {
+                let r = &saying.info.responses[saying.response];
+                let who = crate::subtitles::speaker_name(&game.0.order, speaker);
+                subtitles.show(&who, &r.text, now, crate::subtitles::seconds(&r.text, 2.0));
+            }
             started.push(ResponseStarted {
                 speaker,
                 listener: saying.listener,

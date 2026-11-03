@@ -9,8 +9,8 @@
 //!   HUD's own compass input in `hud::HudState::input`.
 //! * Maps: teammates and pings in the player's place are added to the
 //!   world map and local map as extra objective marks (`party_points`).
-//! * Name tags: `tag_text` builds the label with a health bar; the tag turns
-//!   green while that player is speaking.
+//! * Name tags: `tag_text` builds the label and the health fraction for the
+//!   graphical bar (`hud_bars`); the tag turns green while that player is speaking.
 //! * Off-screen hints: pins behind the player are listed as "< Ann 40 m" at the
 //!   top of the screen.
 
@@ -371,13 +371,14 @@ pub fn ping_input(
     }
 }
 
-/// The label of a name tag: name, distance, and a health bar when hurt or near.
+/// The label of a name tag (name, distance), its colour, and the health
+/// fraction for the bar when the player is hurt or near.
 pub fn tag_text(
     now: &LiveNow,
     gs: &world::scripting::GameState,
     a: &coop_session::RemoteAvatarView,
     speaking: bool,
-) -> (String, Color) {
+) -> (String, Color, Option<f32>) {
     let me = gs.player_position.unwrap_or([0.0; 3]);
     let l = c::Listener {
         cell: a.cell,
@@ -397,15 +398,11 @@ pub fn tag_text(
     let metres = ((a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) / 70.0).round();
     let mut text = format!("{}{} {metres} m", if speaking { "> " } else { "" }, a.name);
     let mut tone = 0;
+    let mut bar = None;
     if let Some(t) = c::name_tag(&l, &pin, speaking) {
         tone = t.tone;
         if t.show_bar {
-            let filled = (t.health * 10.0).round() as usize;
-            text.push_str(&format!(
-                "\n{}{}",
-                "#".repeat(filled.min(10)),
-                "-".repeat(10 - filled.min(10))
-            ));
+            bar = Some(t.health);
         }
         if a.downed {
             text.push_str("\ndown");
@@ -421,7 +418,7 @@ pub fn tag_text(
             _ => Color::srgb(0.9, 0.95, 0.7),
         }
     };
-    (text, color)
+    (text, color, bar)
 }
 
 /// Couch mode: puts the window where `--coop-window` says, once.

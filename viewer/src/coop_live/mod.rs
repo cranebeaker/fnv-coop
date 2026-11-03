@@ -27,7 +27,9 @@ mod actions;
 mod actors;
 mod bot;
 mod chat;
+mod enemy_health;
 mod frame;
+mod hud_bars;
 mod hud_social;
 mod intents;
 mod interact;
@@ -90,7 +92,10 @@ impl Plugin for LivePlugin {
             .init_resource::<chat::ChatLog>()
             .init_resource::<chat::Typing>()
             .init_resource::<hud_social::Book>()
-            .add_systems(Startup, (chat::setup, hud_social::setup))
+            .add_systems(
+                Startup,
+                (chat::setup, hud_social::setup, enemy_health::setup),
+            )
             .add_systems(
                 Update,
                 (
@@ -109,6 +114,11 @@ impl Plugin for LivePlugin {
                     (
                         puppets::sync,
                         puppets::name_tags,
+                        hud_bars::npc_bars,
+                        hud_bars::render_bars
+                            .after(puppets::name_tags)
+                            .after(hud_bars::npc_bars),
+                        enemy_health::show,
                         actors::track,
                         actors::publish,
                         actors::adopt_remote,

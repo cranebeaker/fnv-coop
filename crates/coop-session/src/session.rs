@@ -825,6 +825,8 @@ impl Session {
         self.ensure_authority(gs);
         self.recv_all();
         self.live_setup(gs, opts.ctx.map(|c| c.order));
+        // a guest making its character keeps its own rows: the host's copy of them is stale
+        gs.coop.bank.hold_own = self.start.flow.holds_own_rows();
         let now = self.now_ms;
         let mut drift = None;
         if let Some(g) = &mut self.guest {
@@ -1102,6 +1104,9 @@ impl Session {
             }
             Ext::SheetAck => {
                 self.on_sheet_ack();
+            }
+            Ext::CharNames(list) => {
+                self.on_char_names(list);
             }
             Ext::Roster(list) => {
                 let me = g.sync.player;

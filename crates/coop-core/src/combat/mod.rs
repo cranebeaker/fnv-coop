@@ -37,7 +37,7 @@ pub use fire::{FireHub, MAX_SHOT_RANGE};
 pub use host::{Attribution, COut, CombatHost, VatsHit};
 pub use threat::{Threat, ThreatDirector, ThreatInput};
 pub use vats::{vats_scales, TimeScales, VatsHost, VatsLimits};
-pub use vitals::{FriendlyFire, Vitals, VitalsHost, VitalsStats, LIMB_MAX_DAMAGE};
+pub use vitals::{FriendlyFire, PvpDown, Vitals, VitalsHost, VitalsStats, LIMB_MAX_DAMAGE};
 
 /// Largest damage in one request.
 pub const MAX_PLAYER_HIT: u16 = 5000;

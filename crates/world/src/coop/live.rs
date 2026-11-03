@@ -75,6 +75,7 @@ pub fn avatar_of(gs: &GameState, cx: Ctx) -> AvatarState {
         flags,
         anim: gs.coop.live.local_anim,
         weapon: gs.coop.live.local_weapon,
+        seat: gs.furniture.get(&PLAYER_REF).map_or(0, |f| f.0),
         ..Default::default()
     }
 }
@@ -122,6 +123,38 @@ fn target_in(t: u32, me: PlayerId) -> FormId {
 /// Damage to the ledger's unit: whole points, at least one.
 fn hit_points(amount: f64) -> u16 {
     amount.ceil().clamp(1.0, f64::from(MAX_HIT)) as u16
+}
+
+/// The part of a point a guest's blows have dealt that no request has
+/// carried yet, per victim. Rounding every frame's blow up to a whole point
+/// (the ledger counts whole points) made a fast weapon or a fist do twice
+/// its damage on some frames and the same on others.
+#[derive(Debug, Default)]
+struct HitCarry(BTreeMap<FormId, f64>);
+
+impl HitCarry {
+    /// Adds `amount` for `who`; the whole points to send now (`None`: less
+    /// than one point so far). `left` is what the victim has left here: a
+    /// blow that would finish it always counts as at least a point.
+    fn take(&mut self, who: FormId, amount: f64, left: Option<f64>) -> Option<u16> {
+        let total = self.0.get(&who).copied().unwrap_or(0.0) + amount;
+        let mut pts = total.floor();
+        if pts < 1.0 && left.is_some_and(|l| total + 0.5 >= l) {
+            pts = 1.0;
+        }
+        if pts < 1.0 {
+            self.0.insert(who, total);
+            return None;
+        }
+        let pts = pts.min(f64::from(MAX_HIT));
+        let rest = (total - pts).max(0.0);
+        if rest > 0.0 {
+            self.0.insert(who, rest);
+        } else {
+            self.0.remove(&who);
+        }
+        Some(pts as u16)
+    }
 }
 
 /// Sums the hits of one frame per victim (one request each).
@@ -746,6 +779,8 @@ pub struct LiveGuestAdapter {
     tracked: BTreeSet<FormId>,
     report: Vec<(CForm, ActorState)>,
     realized: BTreeSet<FormId>,
+    carry: HitCarry,
+    npc_carry: HitCarry,
 }
 
 impl LiveGuestAdapter {
@@ -764,6 +799,8 @@ impl LiveGuestAdapter {
             tracked: BTreeSet::new(),
             report: Vec::new(),
             realized: BTreeSet::new(),
+            carry: HitCarry::default(),
+            npc_carry: HitCarry::default(),
         }
     }
 
@@ -867,12 +904,21 @@ impl LiveGuestAdapter {
             .into_iter()
             .partition(|h| h.by == PLAYER_REF || gs.teammates.contains(&h.by));
         for (npc, hits) in [(false, mine), (true, npcs)] {
+            // the part points of a player's blows and of NPC blows are kept apart
+            let carry = if npc {
+                &mut self.npc_carry
+            } else {
+                &mut self.carry
+            };
             for (who, amount) in coalesce(hits) {
                 if who == PLAYER_REF || puppet_of(self.me) == who {
                     continue;
                 }
+                let left = crate::combat::health(cx.order, gs, who);
+                let Some(pts) = carry.take(who, amount, left) else {
+                    continue;
+                };
                 self.stats.hits_sent += 1;
-                let pts = hit_points(amount);
                 let m = if npc {
                     live.actors.npc_hit(cf(who), pts)
                 } else {
@@ -901,5 +947,26 @@ impl LiveGuestAdapter {
         out.extend(self.interact.frame(cx, gs, live));
         out.extend(self.combat.guest_frame(cx, gs, live, self.me, now_ms));
         out
+    }
+}
+
+#[cfg(test)]
+mod carry_tests {
+    use super::*;
+
+    #[test]
+    fn small_blows_add_up_instead_of_each_rounding_to_a_point() {
+        let mut c = HitCarry::default();
+        let a = FormId(0x100);
+        // three blows of 0.4: nothing, nothing, one point (1.2 dealt)
+        assert_eq!(c.take(a, 0.4, Some(50.0)), None);
+        assert_eq!(c.take(a, 0.4, Some(50.0)), None);
+        assert_eq!(c.take(a, 0.4, Some(50.0)), Some(1));
+        // 0.2 carried: 3.9 more makes 4.1, four points
+        assert_eq!(c.take(a, 3.9, Some(50.0)), Some(4));
+        // a blow that finishes the victim counts at once
+        assert_eq!(c.take(a, 0.3, Some(0.4)), Some(1));
+        // victims are counted apart
+        assert_eq!(c.take(FormId(0x200), 2.5, None), Some(2));
     }
 }
