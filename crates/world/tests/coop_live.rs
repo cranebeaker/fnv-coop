@@ -729,6 +729,55 @@ mod dialogue_world {
         }
     }
 
+    /// A script's second `SayTo` comes while the guests still read the
+    /// first line. The host says the second line when the first one ends.
+    #[test]
+    fn a_forced_line_that_comes_while_another_plays_waits_its_turn() {
+        let (_d, order) = order("live-forced-queue");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 93);
+        r.stand(0xB10, [0.0, 0.0, 0.0]);
+        r.run_ms(1_000);
+        // the doctor stands here (a made reference: the world places no one)
+        let npc = FormId(0x1299);
+        let made = world::more_functions::placed::Made {
+            base: FormId(DOC),
+            space: FormId(0xB10),
+            cell: FormId(0xB10),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            count: 1,
+        };
+        r.host.more.placed.refs.insert(npc, made);
+        let topic = Some(FormId(GOODBYE));
+        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        assert!(
+            r.until(10_000, |r| r
+                .guests
+                .iter()
+                .all(|g| g.coop.live.lines.len() == 1)),
+            "the first line plays for the guests: {:?}",
+            r.host.coop.live.scene.talk
+        );
+        // the guests have not read the first line yet
+        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        let both = r.until(30_000, |r| {
+            for i in 0..2 {
+                let m = {
+                    let (c, a) = (&mut r.sim.guests[i].sync.live.dialogue, &r.gas[i].dialogue);
+                    a.line_done(c)
+                };
+                if let Some(m) = m {
+                    r.sim.guest_emit(i, vec![m]);
+                }
+            }
+            r.guests.iter().all(|g| g.coop.live.lines.len() == 2)
+        });
+        let t = r.host.coop.live.scene.talk;
+        assert!(both, "both lines reach both guests: {t:?}");
+        assert_eq!((t.notes, t.lines, t.dropped), (2, 2, 0));
+    }
+
     #[test]
     fn a_downed_player_is_revived_and_gets_health_back() {
         let (_d, order) = order("live-revive");

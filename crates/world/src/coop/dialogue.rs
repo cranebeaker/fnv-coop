@@ -7,7 +7,7 @@
 //! reports `line_done`. Guests never run a line's effects: `line_begins` is a
 //! no-op on a guest and the `Runner` refuses scripts there.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use coop_core::authority::AuthorityTable;
 use coop_core::dialogue::{DialogueClient, DialogueEvent, DialogueMsg};
@@ -30,8 +30,11 @@ fn cf(f: FormId) -> CForm {
 /// Longest a script's conversation waits for the host's menu to open its
 /// session (the speaker walks up first) before its dialogue scene ends.
 pub const FORCED_OPEN_MS: u64 = 60_000;
-/// Longest a forced line waits for its session and its step (ms).
+/// Longest a forced line waits for its session and its step (ms). A line
+/// that waits in the queue behind another line waits this long at most too.
 pub const FORCED_LINE_MS: u64 = 40_000;
+/// Most forced lines that wait behind the line the host says now.
+pub const FORCED_QUEUE_MAX: usize = 8;
 /// Longest a dialogue scene lasts when nothing ends it (ms).
 pub const FORCED_SCENE_LIMIT_MS: u32 = coop_core::dialogue::LEASE_MS as u32;
 /// Longest the host's conversation stops everyone's time after its last
@@ -97,6 +100,9 @@ pub struct DialogueBridge {
     forced_scenes: BTreeMap<u32, ForcedScene>,
     /// Host: the line a script made someone say, in progress.
     forced_line: Option<ForcedLine>,
+    /// Host: one-line talk notes that came while the host talked, with the
+    /// time each came (ms). The host says them in turn when it is free.
+    forced_queue: VecDeque<(super::scene::Talk, u64)>,
     /// Host: guest picks that wait for the line's conditions check.
     held_picks: Vec<(PlayerId, Msg)>,
     /// Host: its own conversation's (session, step) and since when (ms).
@@ -289,12 +295,22 @@ impl DialogueBridge {
                 }
                 continue;
             }
-            // one line: the host says it only while it talks to no one
-            if self.forced_line.is_some() || own.view().is_some() {
+            // one line: it waits in turn while the host talks
+            if self.forced_queue.len() >= FORCED_QUEUE_MAX {
                 gs.coop.live.scene.talk.dropped += 1;
                 continue;
             }
-            let Some(info) = line_of(cx, gs, t.speaker, t.topic) else {
+            self.forced_queue.push_back((t, now_ms));
+        }
+        // the host says the next waiting line only while it talks to no one
+        while self.forced_line.is_none() && own.view().is_none() {
+            let Some((t, came_ms)) = self.forced_queue.pop_front() else {
+                break;
+            };
+            // the line is picked now: a say-once line said before is skipped
+            let line = line_of(cx, gs, t.speaker, t.topic);
+            let (Some(info), false) = (line, now_ms.saturating_sub(came_ms) >= FORCED_LINE_MS)
+            else {
                 gs.coop.live.scene.talk.dropped += 1;
                 continue;
             };
@@ -307,6 +323,15 @@ impl DialogueBridge {
                 picked: false,
                 since_ms: now_ms,
             });
+        }
+        // lines that waited too long go
+        while self
+            .forced_queue
+            .front()
+            .is_some_and(|(_, came)| now_ms.saturating_sub(*came) >= FORCED_LINE_MS)
+        {
+            self.forced_queue.pop_front();
+            gs.coop.live.scene.talk.dropped += 1;
         }
         outs.extend(self.forced_line_step(gs, live, auth, own, now_ms));
         // the host's own conversation stops everyone's time until a heartbeat
