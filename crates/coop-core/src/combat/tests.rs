@@ -221,6 +221,29 @@ fn threat_prefers_near_and_sticks() {
 }
 
 #[test]
+fn threat_takes_over_a_target_the_game_set() {
+    let mut d = ThreatDirector::new();
+    let f = party(2).focus;
+    assert!(
+        !d.adopt(NPC, B, 0),
+        "no pick yet: the first choice stays free"
+    );
+    assert_eq!(d.current(NPC), None);
+    let near = [input(A, 500.0), input(B, 1500.0)];
+    assert_eq!(d.choose(NPC, 0, f, &near).unwrap().target, A);
+    // a script turns the enemy on B: the director holds B from now on
+    assert!(d.adopt(NPC, B, 1000));
+    assert!(!d.adopt(NPC, B, 1000), "already B");
+    assert_eq!(d.current(NPC), Some(B));
+    let t = d.choose(NPC, 2000, f, &near).unwrap();
+    assert_eq!((t.target, t.switched), (B, false), "inside the hold time");
+    // A hurts it hard after the hold time: the director turns it back to A
+    d.damaged(NPC, A, 400.0);
+    let t = d.choose(NPC, 5000, f, &near).unwrap();
+    assert_eq!((t.target, t.switched), (A, true));
+}
+
+#[test]
 fn threat_skips_downed_and_spreads() {
     let mut d = ThreatDirector::new();
     let f = party(2).focus;

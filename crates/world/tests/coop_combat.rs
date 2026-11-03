@@ -481,6 +481,56 @@ fn enemy_attention_moves_to_the_player_who_hurts_it_and_skips_the_downed() {
 }
 
 #[test]
+fn the_director_starts_from_a_target_the_game_set() {
+    let (_d, order) = order("cc-adopt");
+    let mut gs = GameState::new(&order);
+    gs.set_authority(Authority::Host);
+    gs.player_cell = Some(FormId(CELL));
+    gs.player_position = Some([1500.0, 0.0, 0.0]);
+    let gecko = FormId(GECKO_REF);
+    gs.positions.insert(gecko, ([0.0, 0.0, 0.0], 0.0));
+    gs.combat.insert(gecko, PLAYER_REF);
+    let mut b = CombatBridge::new();
+    let g1 = |flags: u16| Remote {
+        player: G1,
+        cell: CELL,
+        pos: [400.0, 0.0, 0.0],
+        heading: 0.0,
+        vel: [0.0; 3],
+        flags,
+    };
+    let down = coop_core::avatar::FLAG_DOWNED;
+    // guest 1 is down: the director picks the host player
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(down)]);
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 0);
+    assert_eq!(gs.combat.get(&gecko), Some(&PLAYER_REF));
+    // guest 1 stands up and a script turns the gecko on guest 1 (inside the
+    // hold time, so the director does not choose again here)
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(0)]);
+    gs.combat.insert(gecko, puppet_of(G1));
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 1_000);
+    assert_eq!(gs.combat.get(&gecko), Some(&puppet_of(G1)));
+    // guest 1 goes down again: the gecko must turn to the host player. Before
+    // the fix, the director still held its old pick (the host), saw no change
+    // and never wrote, so the gecko stayed on the downed guest.
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(down)]);
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 20_000);
+    assert_eq!(
+        gs.combat.get(&gecko),
+        Some(&PLAYER_REF),
+        "{:?}",
+        gs.coop.live.combat.threat_log
+    );
+    assert!(gs
+        .coop
+        .live
+        .combat
+        .threat_log
+        .iter()
+        .any(|l| l.contains("game set")));
+}
+
+#[test]
 fn area_blasts_hit_players_and_npcs_and_show_on_the_other_machines() {
     let (_d, order) = order("cc-blast");
     let scripts = ScriptCache::default();

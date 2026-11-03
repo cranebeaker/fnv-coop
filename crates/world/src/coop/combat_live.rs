@@ -941,7 +941,23 @@ impl CombatBridge {
                     .unwrap_or_default();
                 consider(*p, *form, s.downed, s.dead, gs);
             }
-            let first = self.threat.current(cf(enemy)).is_none();
+            // the game may have turned the enemy since the last choice (a script's
+            // StartCombat): the director starts from what the enemy really does
+            let had = self.threat.current(cf(enemy));
+            let actual = forms.iter().find(|(_, f)| **f == cur).map(|(p, _)| *p);
+            if let (Some(a), Some(h)) = (actual, had) {
+                if self.threat.adopt(cf(enemy), a, now_ms) {
+                    let log = &mut gs.coop.live.combat.threat_log;
+                    log.push(format!(
+                        "{now_ms} {:08X} game set {:08X} (director had {})",
+                        enemy.0, cur.0, h.0
+                    ));
+                    if log.len() > THREAT_LOG_MAX {
+                        log.remove(0);
+                    }
+                }
+            }
+            let first = had.is_none();
             let Some(Threat { target, switched }) =
                 self.threat.choose(cf(enemy), now_ms, focus, &inputs)
             else {
