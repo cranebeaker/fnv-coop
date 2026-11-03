@@ -79,12 +79,21 @@ pub fn hk_char_controller_shape_get_aabb(
     radius: f32,
     out: Ptr,
 ) {
+    // `ADDPS other, this` (00cd7d38), `ADDPS radius, extents` (00cd7d44), `SUBPS centre,
+    // extent` (00cd7d4a), `ADDPS extent, centre` (00cd7d4d): the destination's NaN wins (#269).
+    // The registers are 16-byte aligned (`MOVAPS`), so lane by lane reads what the exe reads.
     for lane in 0..4u32 {
-        let centre =
-            e.mem.f32(other.addr() + 0x30 + 4 * lane) + e.mem.f32(this.addr() + 0x30 + 4 * lane);
-        let extent = radius + e.mem.f32(this.addr() + 0x20 + 4 * lane);
-        e.mem.set_f32(out.addr() + 4 * lane, centre - extent);
-        e.mem.set_f32(out.addr() + 0x10 + 4 * lane, extent + centre);
+        let centre = crate::sse::add(
+            e.mem.f32(other.addr() + 0x30 + 4 * lane),
+            e.mem.f32(this.addr() + 0x30 + 4 * lane),
+        );
+        let extent = crate::sse::add(radius, e.mem.f32(this.addr() + 0x20 + 4 * lane));
+        e.mem
+            .set_f32(out.addr() + 4 * lane, crate::sse::sub(centre, extent));
+        e.mem.set_f32(
+            out.addr() + 0x10 + 4 * lane,
+            crate::sse::add(extent, centre),
+        );
     }
 }
 
@@ -385,6 +394,35 @@ mod tests {
             [16, 20, 24, 28].map(|o| read(&e, o)),
             [11.5, 22.5, 33.5, 44.5]
         );
+    }
+
+    /// #269: with a NaN in every input, each `ADDPS`/`SUBPS` keeps its destination's NaN:
+    /// the centre is `other`'s, the extent the radius's, the minimum the centre's and the
+    /// maximum the extent's.
+    #[test]
+    fn hk_char_controller_shape_get_aabb_keeps_the_destinations_nan() {
+        let mut e = Engine::new();
+        let this = e.mem.alloc(0x40);
+        let other = e.mem.alloc(0x40);
+        let out = e.mem.alloc(0x20);
+        for lane in 0..4u32 {
+            e.mem.set_u32(this + 0x30 + 4 * lane, 0x7fc0_00a1);
+            e.mem.set_u32(other + 0x30 + 4 * lane, 0xffc0_00b2);
+            e.mem.set_u32(this + 0x20 + 4 * lane, 0x7fc0_00c3);
+        }
+        e.call(
+            0x00cd_7d20,
+            &args![
+                Ptr::<()>::new(this),
+                Ptr::<()>::new(other),
+                f32::from_bits(0xffc0_00d4),
+                Ptr::<()>::new(out)
+            ],
+        );
+        for lane in 0..4u32 {
+            assert_eq!(e.mem.u32(out + 4 * lane), 0xffc0_00b2);
+            assert_eq!(e.mem.u32(out + 0x10 + 4 * lane), 0xffc0_00d4);
+        }
     }
 
     #[test]

@@ -240,16 +240,24 @@ fn maxps(a: Vec4, b: Vec4) -> Vec4 {
     [0, 1, 2, 3].map(|i| if a[i] > b[i] { a[i] } else { b[i] })
 }
 
+// The lane arithmetic keeps the SSE NaN rules (`crate::sse`): the first operand is the
+// instruction's destination (`ADDPS a, b` is `add4(a, b)`), whose NaN wins over the source's.
+// Host `+`/`*` leave the choice of NaN to LLVM, which may swap the operands of a commutative
+// operation (#269: `getExtents` kept the source's NaN).
+
+/// `ADDPS a, b`.
 fn add4(a: Vec4, b: Vec4) -> Vec4 {
-    [0, 1, 2, 3].map(|i| a[i] + b[i])
+    crate::sse::addps(a, b)
 }
 
+/// `SUBPS a, b`.
 fn sub4(a: Vec4, b: Vec4) -> Vec4 {
-    [0, 1, 2, 3].map(|i| a[i] - b[i])
+    crate::sse::subps(a, b)
 }
 
+/// `MULPS a, b`.
 fn mul4(a: Vec4, b: Vec4) -> Vec4 {
-    [0, 1, 2, 3].map(|i| a[i] * b[i])
+    crate::sse::mulps(a, b)
 }
 
 /// `XORPS v, mask` on the bit patterns.
@@ -569,13 +577,17 @@ pub fn fn_00d10d10(e: &mut Engine, _unused_1: u32, nodes: u32, count: u32, remov
 // Translated from 00d10e10 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkp3AxisSweep::getExtents` (Xbox PDB): `low` is the negated float offset, `high` is
 /// `low + 65532 / scale` (a refined `RCPPS` of the scale, its `w` taken from the constants).
+/// `high` holds the reciprocal (00d10e54), then the scaled reciprocal (00d10e66), before `low`
+/// is read back (00d10e69), so a `high` that is `low` sums the scaled reciprocal twice.
 pub fn get_extents(e: &mut Engine, this: Ptr<Hkp3AxisSweep>, low: u32, high: u32) {
     let sign = load_mask(e, SIGN_MASK);
     let offset = load_vec4(e, this.addr() + OFFSET_LOW);
     store_vec4(e, low, xor4(offset, sign));
     let inverse = refined_reciprocal(e, this.addr() + SCALE);
+    store_vec4(e, high, inverse);
     let scale: f32 = e.global(SCALE_FLOAT);
     let scaled = mul4([scale; 4], inverse);
+    store_vec4(e, high, scaled);
     let low_now = load_vec4(e, low);
     store_vec4(e, high, add4(low_now, scaled));
 }
@@ -4963,6 +4975,43 @@ mod tests {
         assert!(close(high[0], -100.0 + 65532.0 / 2.0));
         assert!(close(high[1], -50.0 + 65532.0 / 4.0));
         assert!(close(high[2], 20.0 + 65532.0 / 8.0));
+    }
+
+    /// #269: `ADDPS low, scaled` (00d10e6c) keeps `low`'s NaN when both are NaNs: an all-ones
+    /// offset negates to `0x7fffffff`, an all-ones scale gives `0xffffffff` scaled reciprocals.
+    #[test]
+    fn extents_keep_the_negated_offsets_nan() {
+        let mut e = setup();
+        let this = e.new_object::<Hkp3AxisSweep>();
+        let me = this.addr();
+        for lane in 0..4 {
+            e.mem.set_u32(me + OFFSET_LOW + 4 * lane, u32::MAX);
+            e.mem.set_u32(me + SCALE + 4 * lane, u32::MAX);
+        }
+        let low = e.mem.alloc(16);
+        let high = e.mem.alloc(16);
+        get_extents(&mut e, this, low, high);
+        for lane in 0..4 {
+            assert_eq!(e.mem.u32(low + 4 * lane), 0x7fff_ffff);
+            assert_eq!(e.mem.u32(high + 4 * lane), 0x7fff_ffff);
+        }
+    }
+
+    /// `high` is written twice before `low` is read back (00d10e54, 00d10e66, 00d10e69): one
+    /// buffer for both holds the scaled reciprocal summed with itself.
+    #[test]
+    fn extents_into_one_buffer_read_the_scaled_reciprocal_back() {
+        let mut e = setup();
+        let this = e.new_object::<Hkp3AxisSweep>();
+        let me = this.addr();
+        store_vec4(&mut e, me + OFFSET_LOW, [100.0, 50.0, -20.0, 0.0]);
+        store_vec4(&mut e, me + SCALE, [2.0, 4.0, 8.0, 1.0]);
+        let both = e.mem.alloc(16);
+        get_extents(&mut e, this, both, both);
+        let v = load_vec4(&e, both);
+        assert!(close(v[0], 65532.0));
+        assert!(close(v[1], 65532.0 / 2.0));
+        assert!(close(v[2], 65532.0 / 4.0));
     }
 
     #[test]

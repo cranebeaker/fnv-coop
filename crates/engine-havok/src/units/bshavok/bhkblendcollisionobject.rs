@@ -977,11 +977,13 @@ fn blend_into_node(e: &mut Engine, this: u32, node: u32, hk: u32, flag: bool, so
     let translation = transform + 0x24;
     let scale = x87_quiet(e.global::<f32>(POSITION_SCALE));
     let state_word = e.tls() + TLS_UPDATE_STATE;
-    e.with_stack(0xb0, |e, frame| {
+    e.with_stack(0xd0, |e, frame| {
         let f = frame.addr();
         // Frame: 0 scaled position, 0x10 and 0x20 quaternion and position blend, 0x30 and
         // 0x40 two more quaternions, 0x50 the Havok position, 0x60 a 0x40-byte record whose
-        // last vector (0x90) is the position, 0xa0 the rotation buffer.
+        // last vector (0x90) is the position, 0xa0 the 0x30-byte hkRotation: three hkVector4
+        // columns, all written by 0056dff0 (the exe's local at [ESP+0xd0] after its three
+        // pushes, 0x3c bytes below its cookie).
         let scaled = f;
         let blended_quaternion = f + 0x10;
         let blended_position = f + 0x20;
@@ -1004,7 +1006,13 @@ fn blend_into_node(e: &mut Engine, this: u32, node: u32, hk: u32, flag: bool, so
         let ones = lanes(e, ONES_VECTOR);
         let position = lanes(e, havok_position);
         let own = lanes(e, scaled);
-        let mixed = [0, 1, 2, 3].map(|i| (ones[i] - blend) * position[i] + own[i] * blend);
+        // The exe's SSE in its operand order, so where both operands are NaN the destination's
+        // NaN is kept: SUBPS ones, the splatted blend (00c82089); MULPS that, the Havok
+        // position (00c8208c); MULPS the scaled position, the blend (00c8209d); ADDPS the
+        // first, the second (00c820a1).
+        let splat = [blend; 4];
+        let havok_side = crate::sse::mulps(crate::sse::subps(ones, splat), position);
+        let mixed = crate::sse::addps(havok_side, crate::sse::mulps(own, splat));
         set_lanes(e, blended_position, mixed);
         let blend_bits = x87_quiet_bits(e.mem.u32(this + 0x18));
         e.call(
@@ -2558,6 +2566,77 @@ mod tests {
         assert_eq!(seen[1], [2.75, 5.5, 8.25, 3.0]);
         // State 0: virtual slot 0xB8 gets the transform.
         assert_eq!(calls(&s.e, 0x0900_00b8), [[s.this, transform]]);
+    }
+
+    /// `0056dff0` stores a whole hkRotation into the rotation buffer: three 16-byte columns
+    /// (`00553fc0` at `out + 0x10 * i`, i = 0..2), 0x30 bytes. The exe's local at `[ESP+0xd0]`
+    /// (after its three pushes) has 0x3c bytes below its cookie. With the block check every
+    /// frame is a guarded heap block, so a frame too small for it stops here.
+    #[test]
+    fn hkto_ni_transform_rotation_buffer_holds_the_three_columns() {
+        let mut s = blend_setup(0.25, 5.0, 0, 1, 0);
+        s.e.register_double(TRANSFORM_ROTATION_OUT, |e, a| {
+            for word in 0..12u32 {
+                e.mem.set_u32(a[0] + 4 * word, 0x3f00_0000 + word);
+            }
+            Ret::default()
+        });
+        let words_seen: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(vec![]));
+        let seen = words_seen.clone();
+        s.e.register_double(QUATERNION_SET, move |e, a| {
+            seen.borrow_mut()
+                .extend((0..12u32).map(|word| e.mem.u32(a[1] + 4 * word)));
+            Ret::default()
+        });
+        s.e.mem.enable_block_check(true, true);
+        s.e.call(0x00c81e30, &args![s.this]);
+        let expected: Vec<u32> = (0..12u32).map(|word| 0x3f00_0000 + word).collect();
+        assert_eq!(*words_seen.borrow(), expected);
+    }
+
+    /// Answers slot 0xD4 (the Havok position) with `havok`, and records each blended
+    /// position handed to `00c8de20`, as words.
+    fn blended_position_words(s: &mut Blend, havok: [u32; 4]) -> Rc<RefCell<Vec<[u32; 4]>>> {
+        s.e.register_double(0x0900_00d4, move |e, a| {
+            for (lane, bits) in havok.into_iter().enumerate() {
+                e.mem.set_u32(a[1] + 4 * lane as u32, bits);
+            }
+            Ret::default()
+        });
+        let seen: Rc<RefCell<Vec<[u32; 4]>>> = Rc::new(RefCell::new(vec![]));
+        let into = seen.clone();
+        s.e.register_double(UPDATE_FROM_BLEND, move |e, a| {
+            into.borrow_mut()
+                .push([0, 1, 2, 3].map(|i| e.mem.u32(a[1] + 4 * i)));
+            Ret::default()
+        });
+        seen
+    }
+
+    /// Blend mode 0's blended position is the exe's SSE: `SUBPS` ones, the blend
+    /// (`00c82089`); `MULPS` that, the Havok position (`00c8208c`); `MULPS` the scaled node
+    /// position, the blend (`00c8209d`); `ADDPS` the first, the second (`00c820a1`). Where
+    /// both operands are NaN each keeps its destination's NaN.
+    #[test]
+    fn hkto_ni_transform_blend_keeps_the_destinations_nan() {
+        // A NaN blend (the third arm, blend mode 0 in state 0) and a NaN node x: the blend's
+        // NaN wins the subtraction, the multiply by the Havok position (lane 1 is a NaN of its
+        // own) and the sum; the node's NaN wins only the second multiply.
+        let mut s = blend_setup(f32::from_bits(0x7fc0_0002), 5.0, 0, 1, 0);
+        s.e.mem.set_u32(s.node + 0x8c, 0x7fc0_0001);
+        let havok = [0x3f80_0000, 0x7fc0_0003, 0x4040_0000, 0x4080_0000];
+        let seen = blended_position_words(&mut s, havok);
+        s.e.call(0x00c81e30, &args![s.this]);
+        assert_eq!(*seen.borrow(), [[0x7fc0_0002u32; 4]]);
+        // Blend 0.25, a NaN in lane 0 of both the Havok position and the node's position: the
+        // sum keeps the Havok side's (its destination).
+        let mut s = blend_setup(0.25, 5.0, 0, 1, 0);
+        s.e.mem.set_u32(s.node + 0x8c, 0x7fc0_0001);
+        let havok = [0x7fc0_0003, 0x4000_0000, 0x4040_0000, 0x4080_0000];
+        let seen = blended_position_words(&mut s, havok);
+        s.e.call(0x00c81e30, &args![s.this]);
+        let rest = [5.5f32, 8.25, 3.0].map(f32::to_bits);
+        assert_eq!(*seen.borrow(), [[0x7fc0_0003, rest[0], rest[1], rest[2]]]);
     }
 
     #[test]

@@ -33,10 +33,15 @@ const ABSOLUTE_MASK: u32 = 0x0101_7d10;
 const HALF_VECTOR: u32 = 0x010c_71d0;
 
 /// The distance sum the code forms from `first * second` lane by lane (the order of the
-/// multiplication is the exe's): `(p.z + plane_offset) + (p.y + p.x)`.
+/// multiplication is the exe's): `(p.z + plane_offset) + (p.y + p.x)`. `MULPS first, second`,
+/// `ADDSS p.z, plane_offset`, `ADDSS p.y, p.x`, then `ADDPS` of the two in that order
+/// (00d55000, 00d55160, 00d552f0): the destination's NaN wins (#269).
 fn plane_distance(first: Vec4, second: Vec4, plane_offset: f32) -> f32 {
-    let p = zip_with(first, second, |a, b| a * b);
-    (p[2] + plane_offset) + (p[1] + p[0])
+    let p = crate::sse::mulps(first, second);
+    crate::sse::add(
+        crate::sse::add(p[2], plane_offset),
+        crate::sse::add(p[1], p[0]),
+    )
 }
 
 /// Whether `(1 - t) * from + to * t` lies inside the shape's box: `|point - centre| <= half
@@ -167,12 +172,16 @@ pub fn plane_shape_collide_spheres(e: &mut Engine, this: Ptr, spheres: u32, outp
             let plane = load_vec(e, shape + PLANE);
             let centre = load_vec(e, sphere);
             let distance = plane_distance(centre, plane, plane[3]);
-            let radius = e.mem.f32(sphere + 0xc);
-            let result = (f64::from(distance) - f64::from(x87_quiet(radius))) as f32;
+            // `FLD` of the sum, `FSUB dword [sphere + 0xc]` (00d551b8): the radius is a memory
+            // operand (a signalling NaN in it stays signalling), and the x87 picks the NaN.
+            let result = x87_store32(x87_sub(
+                x87_load32(distance.to_bits()),
+                x87_m32(e.mem.u32(sphere + 0xc)),
+            ));
             out = out.wrapping_add(0x10);
             sphere = sphere.wrapping_add(0x10);
             remaining = remaining.wrapping_sub(1);
-            e.mem.set_f32(out.wrapping_sub(4), result);
+            e.mem.set_u32(out.wrapping_sub(4), result);
             if remaining < 0 {
                 break;
             }
@@ -197,17 +206,16 @@ pub fn fn_00d551d0(e: &mut Engine, this: Ptr, plane: u32, aabb: u32) -> Ptr {
     let min = load_vec(e, aabb);
     let max = load_vec(e, aabb + 0x10);
     let half = load_vec(e, HALF_VECTOR);
-    let sum = zip_with(max, min, |a, b| a + b);
-    store_vec(e, shape + CENTRE, zip_with(sum, half, |a, b| a * b));
+    // `ADDPS max, min` (00d55209), `MULPS sum, half` (00d55213); the same NaN rule as
+    // `00d55240` (#269).
+    let sum = crate::sse::addps(max, min);
+    store_vec(e, shape + CENTRE, crate::sse::mulps(sum, half));
     let min = load_vec(e, aabb);
     let max = load_vec(e, aabb + 0x10);
     let half = load_vec(e, HALF_VECTOR);
-    let difference = zip_with(max, min, |a, b| a - b);
-    store_vec(
-        e,
-        shape + HALF_EXTENTS,
-        zip_with(difference, half, |a, b| a * b),
-    );
+    // `SUBPS max, min` (00d55221), `MULPS difference, half` (00d5522b).
+    let difference = crate::sse::subps(max, min);
+    store_vec(e, shape + HALF_EXTENTS, crate::sse::mulps(difference, half));
     this
 }
 
@@ -226,8 +234,10 @@ pub fn fn_00d55240(e: &mut Engine, this: Ptr, normal: u32, centre: u32, half_ext
     store_vec(e, shape + PLANE, vector);
     let vector = load_vec(e, normal);
     let centre_vector = load_vec(e, centre);
-    let p = zip_with(vector, centre_vector, |a, b| a * b);
-    let sum = p[2] + (p[1] + p[0]);
+    // `MULPS normal, centre` (00d5527e), `ADDSS p.y, p.x` (00d5528b), `ADDSS p.z, that`
+    // (00d55293): the destination's NaN wins (#269).
+    let p = crate::sse::mulps(vector, centre_vector);
+    let sum = crate::sse::add(p[2], crate::sse::add(p[1], p[0]));
     e.mem.set_f32(shape + 0x1c, -x87_quiet(sum));
     let centre_vector = load_vec(e, centre);
     store_vec(e, shape + CENTRE, centre_vector);
@@ -553,6 +563,74 @@ mod a05_plane_shape_tests {
         assert_eq!(load_vec(&e, shape + PLANE), [0.0, 1.0, 0.0, -3.0]);
         assert_eq!(load_vec(&e, shape + CENTRE), [1.0, 3.0, 2.0, 0.0]);
         assert_eq!(load_vec(&e, shape + HALF_EXTENTS), [5.0, 6.0, 7.0, 8.0]);
+    }
+
+    /// #269: `ADDSS p.y, p.x` keeps `p.y`'s NaN, so two NaN centre lanes give minus the
+    /// second one's NaN as the plane offset.
+    #[test]
+    fn the_centre_constructor_keeps_the_destinations_nan() {
+        let mut e = world();
+        let shape = e.mem.alloc(0x40);
+        let normal = e.mem.alloc(0x10);
+        set_vec(&mut e, normal, [1.0, 1.0, 1.0, 0.0]);
+        let centre = e.mem.alloc(0x10);
+        for (lane, word) in [0xffff_ffaa, 0xffff_ffab, 0, 0].into_iter().enumerate() {
+            e.mem.set_u32(centre + 4 * lane as u32, word);
+        }
+        let half = e.mem.alloc(0x10);
+        e.call(0x00d5_5240, &args![shape, normal, centre, half]);
+        assert_eq!(e.mem.u32(shape + 0x1c), 0x7fff_ffab);
+    }
+
+    /// `ADDPS max, min` and `SUBPS max, min` keep the maximum's NaN (00d55209, 00d55221).
+    #[test]
+    fn the_box_constructor_keeps_the_maximums_nan() {
+        let mut e = world();
+        let shape = e.mem.alloc(0x40);
+        let plane = e.mem.alloc(0x10);
+        let aabb = e.mem.alloc(0x20);
+        for lane in 0..4 {
+            e.mem.set_u32(aabb + 4 * lane, 0xffff_ffaa);
+            e.mem.set_u32(aabb + 0x10 + 4 * lane, 0x7fc0_0011);
+        }
+        e.call(0x00d5_51d0, &args![shape, plane, aabb]);
+        for lane in 0..4 {
+            assert_eq!(e.mem.u32(shape + CENTRE + 4 * lane), 0x7fc0_0011);
+            assert_eq!(e.mem.u32(shape + HALF_EXTENTS + 4 * lane), 0x7fc0_0011);
+        }
+    }
+
+    /// The distance sum keeps `p.y`'s NaN (`ADDSS p.y, p.x`, 00d551a7); `FSUB dword
+    /// [sphere + 0xc]` (00d551b8) then keeps the NaN with the larger significand: the radius's
+    /// in the first sphere, the sum's where the radius is a number.
+    #[test]
+    fn collide_spheres_keeps_the_exes_nan() {
+        let mut e = world();
+        let shape = plane_shape(&mut e);
+        set_vec(&mut e, shape + PLANE, [1.0, 1.0, 1.0, 0.0]);
+        let data = e.mem.alloc(0x20);
+        for (at, word) in [
+            0xffc0_00aa,
+            0xffc0_00ab,
+            0,
+            0x7fc0_00f0,
+            0xffc0_00aa,
+            0xffc0_00ab,
+            0,
+            0x3f80_0000,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            e.mem.set_u32(data + 4 * at as u32, word);
+        }
+        let spheres = e.mem.alloc(8);
+        e.mem.set_u32(spheres, data);
+        e.mem.set_u32(spheres + 4, 2);
+        let output = e.mem.alloc(0x20);
+        e.call(0x00d5_5160, &args![shape, spheres, output]);
+        assert_eq!(e.mem.u32(output + 0xc), 0x7fc0_00f0);
+        assert_eq!(e.mem.u32(output + 0x1c), 0xffc0_00ab);
     }
 
     #[test]
