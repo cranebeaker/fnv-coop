@@ -333,6 +333,13 @@ pub struct PlayerMovement {
     main_thread: Option<engine::thread_host::MainThread>,
     pub main_frames: u64,
     main_stage: Stage<()>,
+    /// The line [`PlayerMovement::finish_main_frame`] printed when main's frames ended, one of
+    /// `Game's main stopped in frame N: why (in ..)`, `Game's main returned C in frame N` and
+    /// `The game ended its process in frame N: ExitProcess(C) (in ..)`
+    /// ([`PlayerMovement::main_end`] says which).
+    pub main_stop: Option<String>,
+    /// How main's frames ended, once they did ([`PlayerMovement::main_end`]).
+    main_end: Option<MainEnd>,
     /// When the status line ([`PlayerMovement::summary`]) was last printed from [`PlayerMovement::main_frame`].
     main_reported: Option<std::time::Instant>,
     /// Frames the AI threads (and the world step on thread 2) ran, and
@@ -370,6 +377,8 @@ impl Default for PlayerMovement {
             main_thread: None,
             main_frames: 0,
             main_stage: Stage::NotTried,
+            main_stop: None,
+            main_end: None,
             main_reported: None,
             world_frames: 0,
             world_fallback_frames: 0,
@@ -377,6 +386,51 @@ impl Default for PlayerMovement {
             frame_guard: None,
         }
     }
+}
+
+/// How the game's `main` ended its frames ([`PlayerMovement::main_end`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainEnd {
+    /// `main` returned this. The exe's startup hands it to `exit` (`00ecc479`, `PUSH EAX;
+    /// CALL 00eccec5`), which ends the process with it.
+    Returned(u32),
+    /// The game ended its own process: `ExitProcess` with this code, as the warning menu's exit
+    /// does (`0086a530`, `PUSH 0; CALL [00fdf0ec]` at `0086a56a`). The platform's `ExitProcess`
+    /// does not end the process: it stops the engine with its own text, which the host
+    /// recognises (`exit_process_stop`).
+    ExitProcess(u32),
+    /// It stopped: a fault, an untranslated function, a call the platform does not provide, or
+    /// a game thread's stop (which reaches main as one).
+    Stopped,
+}
+
+impl MainEnd {
+    /// The process's exit status for this end: the game's own code for a return or for its
+    /// `ExitProcess`, as the original's process ends with; 3 for a stop (the host's code, not
+    /// the exe's; 1 and 2 are the viewer's start-up and argument errors).
+    pub fn status(self) -> i32 {
+        match self {
+            MainEnd::Returned(code) | MainEnd::ExitProcess(code) => code as i32,
+            MainEnd::Stopped => 3,
+        }
+    }
+
+    /// Whether the game ended by itself (a return or its `ExitProcess`), not by a stop.
+    pub fn clean(self) -> bool {
+        !matches!(self, MainEnd::Stopped)
+    }
+}
+
+/// The code and the rest (where it was, `(in ..)`) of a stop that is the game's own
+/// `ExitProcess`: the platform's `ExitProcess` (`engine::units::platform::window::exit_process`)
+/// stops the engine with `ExitProcess(C): the game ended its process (not provided)` at the start
+/// of the stop's text, also through the CRT's `___crtExitProcess` (`00eccca9`, which calls it
+/// first) and from a game thread (whose stop reaches main with its text first).
+fn exit_process_stop(why: &str) -> Option<(u32, &str)> {
+    let rest = why.strip_prefix("ExitProcess(")?;
+    let (code, rest) = rest.split_once("): the game ended its process")?;
+    let code = code.parse().ok()?;
+    Some((code, rest.strip_prefix(" (not provided)").unwrap_or(rest)))
 }
 
 /// What a guarded run reached: untranslated addresses with their nearest
@@ -1191,20 +1245,18 @@ impl PlayerMovement {
         let Some(mut main) = self.main_thread.take() else {
             return false;
         };
+        // What main returned, when it did: its end goes through the stop's bookkeeping below
+        // (the trace, the stops table), but it is reported as a return, not as a stop.
+        let mut returned = None;
         let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             match engine::thread_host::finish_main_frame(e, &mut main) {
                 engine::thread_host::MainTurn::Frame => Ok(()),
                 engine::thread_host::MainTurn::Finished(code) => {
                     // The exe's startup (`00ecc35d`, which the host stands in for by calling
                     // main itself) hands main's answer to `exit` (`00ecc479`), which ends the
-                    // process: with the game's own window (the play build, `NV_D3D9=real`) the
-                    // run ends here too, as when its window is closed. Without that window (tests,
-                    // the viewer's own renderer) it is reported as main's end.
-                    #[cfg(windows)]
-                    if engine::units::platform::d3d9real::wanted() {
-                        eprintln!("The game's main returned {code}: the run ends");
-                        std::process::exit(code as i32);
-                    }
+                    // process. Here it is main's end ([`MainEnd::Returned`]); whoever runs the
+                    // host ends the run with it ([`crate::Host::at_main_end`]).
+                    returned = Some(code);
                     Err(format!("main returned {code}"))
                 }
                 engine::thread_host::MainTurn::Stopped(why) => Err(why),
@@ -1261,10 +1313,56 @@ impl PlayerMovement {
                 true
             }
             Err(why) => {
+                // Main's frames end here for good. Once: after `Failed` no frame is handed over
+                // again. Main's coroutine caught the end (`thread_host::start_main_thread`; a
+                // stop's message `quiet_game_panics` kept quiet), and the game's window would
+                // keep its last frame, so the line goes to the log always, not only to
+                // `NV_MOVE_TRACE`'s file. The host does not end the process: whoever runs it
+                // does, with [`MainEnd::status`] ([`crate::Host::at_main_end`]).
+                let frame = self.main_frames;
+                let (end, line) = match (returned, exit_process_stop(&why)) {
+                    // Main returned: a clean end, said as one.
+                    (Some(code), _) => (
+                        MainEnd::Returned(code),
+                        format!("Game's main returned {code} in frame {frame}"),
+                    ),
+                    // The game's own `ExitProcess`: a clean end with the game's code.
+                    (None, Some((code, place))) => (
+                        MainEnd::ExitProcess(code),
+                        format!(
+                            "The game ended its process in frame {frame}: \
+                             ExitProcess({code}){place}"
+                        ),
+                    ),
+                    // A stop (a fault, an untranslated function, a call the platform does not
+                    // provide; a game thread's stop reaches main as one).
+                    (None, None) => (
+                        MainEnd::Stopped,
+                        format!("Game's main stopped in frame {frame}: {why}"),
+                    ),
+                };
+                // `NV_SAVE_OUT` (a test aid): at a clean end the saves once more, so one written
+                // since the last status line is kept. Not at a stop: a save the stop cut short
+                // would be copied part-way and never completed. Before the line, which ends the
+                // log when the run ends here.
+                if end.clean() {
+                    for name in crate::save_out::copy_saves(e) {
+                        println!("NV_SAVE_OUT: copied {name}");
+                    }
+                }
+                eprintln!("{line}");
+                self.main_stop = Some(line);
+                self.main_end = Some(end);
                 self.main_stage = Stage::Failed(why);
                 false
             }
         }
+    }
+
+    /// How the game's `main` ended its frames ([`MainEnd`]); `None` while they go on (or before
+    /// it started).
+    pub fn main_end(&self) -> Option<MainEnd> {
+        self.main_end
     }
 
     /// Whether the stages are made, as a line.
@@ -1285,10 +1383,14 @@ impl PlayerMovement {
             return format!(
                 "Game's movement: main {} frames; {}; {} untranslated addresses reached.",
                 self.main_frames,
-                match &self.main_stage {
-                    Stage::Failed(why) => format!("stopped ({why})"),
-                    Stage::Done(()) => "running".to_string(),
-                    Stage::NotTried => "not started".to_string(),
+                match (&self.main_stage, self.main_end) {
+                    (_, Some(MainEnd::Returned(code))) => format!("returned {code}"),
+                    (_, Some(MainEnd::ExitProcess(code))) => {
+                        format!("ended its process (ExitProcess({code}))")
+                    }
+                    (Stage::Failed(why), _) => format!("stopped ({why})"),
+                    (Stage::Done(()), _) => "running".to_string(),
+                    (Stage::NotTried, _) => "not started".to_string(),
                 },
                 self.misses.len()
             );
@@ -1425,7 +1527,24 @@ impl crate::Host {
     /// ([`PlayerMovement::main_frame`]); false when it doesn't run or stopped.
     pub fn main_frame(&mut self) -> bool {
         self.join();
-        self.movement.main_frame(&mut self.engine)
+        let framed = self.movement.main_frame(&mut self.engine);
+        self.end_if_main_ended();
+        framed
+    }
+
+    /// Hands the end of main's frames ([`PlayerMovement::main_end`]) to
+    /// [`crate::Host::at_main_end`] when they ended and it is set; it is taken, so it is called
+    /// once. [`crate::Host::main_frame`] and [`crate::Host::finish_main_frame`] (so every
+    /// [`crate::Host::join`]) do this, from the call in which the frames ended; whoever sets it
+    /// after [`crate::Host::start`] (which runs main's first frame) calls this too, for an end
+    /// in the start-up.
+    pub fn end_if_main_ended(&mut self) {
+        let Some(end) = self.movement.main_end() else {
+            return;
+        };
+        if let Some(at_end) = self.at_main_end.take() {
+            at_end(self, end);
+        }
     }
 
     /// Hands the engine to the game's `main` for its next frame and returns at once (the
@@ -1440,7 +1559,9 @@ impl crate::Host {
     /// Waits for the frame [`crate::Host::begin_main_frame`] handed over; true when it ended a
     /// frame, false without one in flight.
     pub fn finish_main_frame(&mut self) -> bool {
-        self.movement.finish_main_frame(&mut self.engine)
+        let framed = self.movement.finish_main_frame(&mut self.engine);
+        self.end_if_main_ended();
+        framed
     }
 
     /// Waits for a frame of main's in flight, if there is one: every use of the engine
@@ -2061,5 +2182,214 @@ mod tests {
         let ((stage, why), n) = m.stops.iter().next().unwrap();
         assert_eq!((*stage, *n), ("frame", 1));
         assert!(why.contains("00001000"), "{why}");
+    }
+
+    /// A stop of the game's `main` (here an untranslated function `WinMain`, `0086a850`, calls)
+    /// is reported as one line with the frame it stopped in and where, whatever `NV_MOVE_TRACE`
+    /// says; main isn't resumed after it, so the line comes once. (The play build reported
+    /// nothing: the game's window kept its last frame, a freeze to the player.)
+    #[test]
+    fn a_stop_on_main_is_reported_once() {
+        let mut e = Engine::new();
+        e.register(WIN_MAIN, |e, _| e.call(0x00ab_cdef, &[]));
+        let mut m = PlayerMovement::default();
+        // Its start-up is its first frame (frame 0): the stop is there.
+        m.start_main(&mut e);
+        assert_eq!(m.main_frames, 0);
+        let line = m.main_stop.clone().expect("the stop reported");
+        assert!(
+            line.starts_with("Game's main stopped in frame 0: open function 00abcdef"),
+            "{line}"
+        );
+        assert!(line.ends_with("(in 0086a850)"), "{line}");
+        assert!(m.summary().contains("stopped (open function 00abcdef"));
+        assert_eq!(m.main_end(), Some(MainEnd::Stopped));
+        assert_eq!(MainEnd::Stopped.status(), 3);
+        // Stopped: no frame is handed over again, and nothing more is reported.
+        assert!(!m.main_frame(&mut e));
+        assert!(!m.begin_main_frame(&mut e));
+        assert!(!m.finish_main_frame(&mut e));
+        assert_eq!(m.main_stop.as_deref(), Some(line.as_str()));
+    }
+
+    /// A clean return of the game's `main` (here `WinMain` returns 7 in its start-up) is said as
+    /// a return, not as a stop: one line with what it returned and the frame, and the status
+    /// line says it returned. Its frames end there too, so the line comes once. The host does
+    /// not end the process (it did with `NV_D3D9=real` in the environment, which ended this
+    /// test's binary).
+    #[test]
+    fn a_return_of_main_is_reported_as_a_return() {
+        let mut e = Engine::new();
+        e.register(WIN_MAIN, |_, _| Ret {
+            eax: 7,
+            ..Ret::default()
+        });
+        let mut m = PlayerMovement::default();
+        m.start_main(&mut e);
+        assert_eq!(m.main_frames, 0);
+        assert_eq!(
+            m.main_stop.as_deref(),
+            Some("Game's main returned 7 in frame 0")
+        );
+        let summary = m.summary();
+        assert!(summary.contains("main 0 frames; returned 7;"), "{summary}");
+        assert!(!summary.contains("stopped"), "{summary}");
+        assert_eq!(m.main_end(), Some(MainEnd::Returned(7)));
+        assert_eq!(MainEnd::Returned(7).status(), 7);
+        // Ended: no frame is handed over again, and nothing more is reported.
+        assert!(!m.main_frame(&mut e));
+        assert!(!m.begin_main_frame(&mut e));
+        assert!(!m.finish_main_frame(&mut e));
+        assert_eq!(
+            m.main_stop.as_deref(),
+            Some("Game's main returned 7 in frame 0")
+        );
+    }
+
+    /// The game ending its own process (here `WinMain` does what the warning menu's exit does,
+    /// `0086a56a`: `PUSH 0; CALL [ExitProcess]`, the import slot `00fdf0ec`, with the
+    /// platform's `ExitProcess`) is a clean end with the game's own code, not a stop: one line
+    /// with the code, the frame and where, and the status line says so, never "stopped".
+    #[test]
+    fn the_games_own_exit_process_is_an_end_with_its_code() {
+        /// KERNEL32's `ExitProcess` import slot (`00fdf0ec`).
+        const EXIT_PROCESS: u32 = 0x00fd_f0ec;
+        let mut e = Engine::new();
+        e.register(EXIT_PROCESS, |e, words| {
+            engine::units::platform::window::exit_process(e, words[0]);
+            Ret::default()
+        });
+        e.register(WIN_MAIN, |e, _| e.call(EXIT_PROCESS, &[0]));
+        let mut m = PlayerMovement::default();
+        m.start_main(&mut e);
+        assert_eq!(m.main_frames, 0);
+        let line = m.main_stop.clone().expect("the end reported");
+        assert!(
+            line.starts_with("The game ended its process in frame 0: ExitProcess(0) (in "),
+            "{line}"
+        );
+        assert!(line.contains("0086a850"), "{line}");
+        let summary = m.summary();
+        assert!(
+            summary.contains("main 0 frames; ended its process (ExitProcess(0));"),
+            "{summary}"
+        );
+        assert!(!summary.contains("stopped"), "{summary}");
+        // The original's process ends with the code: 0 here.
+        assert_eq!(m.main_end(), Some(MainEnd::ExitProcess(0)));
+        assert_eq!(MainEnd::ExitProcess(0).status(), 0);
+        // Ended: no frame is handed over again, and nothing more is reported.
+        assert!(!m.main_frame(&mut e));
+        assert_eq!(m.main_stop.as_deref(), Some(line.as_str()));
+    }
+
+    /// The platform's `ExitProcess` text is recognised at the start of a stop, with the code and
+    /// where: as main's own stop, as a game thread's (it reaches main with the thread's place
+    /// and main's after it) and through the CRT's `___crtExitProcess` (`00eccca9` calls the
+    /// import first). Any other stop is not an `ExitProcess`.
+    #[test]
+    fn the_platforms_exit_process_text_gives_its_code() {
+        let mut e = Engine::new();
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine::units::platform::window::exit_process(&mut e, 255)
+        }))
+        .expect_err("ExitProcess does not return");
+        let text = payload.downcast_ref::<String>().expect("its text").clone();
+        assert_eq!(exit_process_stop(&text), Some((255, "")));
+        let thread = format!(
+            "{text} (in 00fdf0ec < 00eccca9) (in game thread 3, start 00abc000) (in 0086a850)"
+        );
+        assert_eq!(
+            exit_process_stop(&thread),
+            Some((
+                255,
+                " (in 00fdf0ec < 00eccca9) (in game thread 3, start 00abc000) (in 0086a850)"
+            ))
+        );
+        assert_eq!(
+            exit_process_stop("open function 00abcdef (in 0086a850)"),
+            None
+        );
+        assert_eq!(
+            exit_process_stop("read of unmapped memory at 00000008 (in 0044ddc0)"),
+            None
+        );
+    }
+
+    /// Main's end goes to `Host::at_main_end` once, with how it ended, from the host call in
+    /// which main's frames ended (here a `Host::join` of a frame begun with
+    /// `Host::begin_main_frame`); later calls do not call it again. An end in the start-up
+    /// (`Host::start` runs main's first frame, before the hook can be set) is handed over by
+    /// `Host::end_if_main_ended`.
+    #[test]
+    fn main_end_goes_to_the_host_hook_once() {
+        const EXIT_PROCESS: u32 = 0x00fd_f0ec;
+        type Ends = Rc<RefCell<Vec<(MainEnd, Option<String>)>>>;
+        fn host_with(start: engine::AbiFn) -> crate::Host {
+            // Boxed before main starts: its coroutine keeps the engine's address.
+            let mut e = Box::new(Engine::new());
+            e.register(EXIT_PROCESS, |e, words| {
+                engine::units::platform::window::exit_process(e, words[0]);
+                Ret::default()
+            });
+            e.register(WIN_MAIN, start);
+            let mut movement = PlayerMovement::default();
+            movement.start_main(&mut e);
+            crate::Host {
+                engine: e,
+                exe: Default::default(),
+                static_init: Default::default(),
+                quests: Default::default(),
+                movement,
+                ni_init: None,
+                at_main_end: None,
+            }
+        }
+        fn hook(host: &mut crate::Host) -> Ends {
+            let ends = Ends::default();
+            let seen = ends.clone();
+            host.at_main_end = Some(Box::new(move |host: &crate::Host, end| {
+                seen.borrow_mut()
+                    .push((end, host.movement.main_stop.clone()));
+            }));
+            ends
+        }
+
+        // Two frames, then the game's `ExitProcess(0)` in the third.
+        let mut host = host_with(|e, _| {
+            engine::thread_host::end_main_frame(e);
+            engine::thread_host::end_main_frame(e);
+            e.call(EXIT_PROCESS, &[0])
+        });
+        let ends = hook(&mut host);
+        host.end_if_main_ended();
+        assert!(ends.borrow().is_empty(), "main's frames go on");
+        assert!(host.main_frame());
+        assert!(host.begin_main_frame());
+        assert!(ends.borrow().is_empty(), "the frame is in flight");
+        host.join();
+        {
+            let ends = ends.borrow();
+            assert_eq!(ends.len(), 1);
+            assert_eq!(ends[0].0, MainEnd::ExitProcess(0));
+            let line = ends[0].1.as_deref().expect("the line, before the hook");
+            assert!(
+                line.starts_with("The game ended its process in frame 2: ExitProcess(0)"),
+                "{line}"
+            );
+        }
+        assert!(!host.main_frame());
+        assert!(!host.finish_main_frame());
+        host.end_if_main_ended();
+        assert_eq!(ends.borrow().len(), 1, "once");
+
+        // A stop in the start-up, with the hook set after it.
+        let mut host = host_with(|e, _| e.call(0x00ab_cdef, &[]));
+        let ends = hook(&mut host);
+        host.end_if_main_ended();
+        host.end_if_main_ended();
+        assert!(!host.main_frame());
+        assert_eq!(ends.borrow().len(), 1, "once");
+        assert_eq!(ends.borrow()[0].0, MainEnd::Stopped);
     }
 }

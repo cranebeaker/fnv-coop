@@ -105,15 +105,27 @@ impl Movement {
             if let Some(host) = host {
                 println!("{}", host.movement.summary());
                 if let Some(path) = &self.missing {
-                    let _ = std::fs::write(path, host.movement.missing_tsv(&|_| None));
-                    let _ =
-                        std::fs::write(path.with_extension("stops.tsv"), host.movement.stops_tsv());
-                    let _ =
-                        std::fs::write(path.with_extension("static.tsv"), host.static_skips_tsv());
+                    write_lists(host, path);
                 }
             }
         }
     }
+}
+
+/// `--movement-missing`'s lists, each rewritten whole: the untranslated addresses reached
+/// (`path`), the stops (`.stops.tsv`) and the static initializers skipped (`.static.tsv`).
+/// Every 5 s ([`Movement::record`]), and once more when the run ends with the game's `main`
+/// (`host::Host::at_main_end`, set in `main`), so they hold that end.
+pub fn write_lists(host: &host::Host, path: &std::path::Path) {
+    let _ = std::fs::write(path, host.movement.missing_tsv(&|_| None));
+    let _ = std::fs::write(path.with_extension("stops.tsv"), host.movement.stops_tsv());
+    let _ = std::fs::write(path.with_extension("static.tsv"), host.static_skips_tsv());
+}
+
+/// Whether the game draws in its own window (`NV_D3D9=real`, any case: the same test as the real
+/// device's, `d3d9real::wanted`).
+pub fn game_window_real() -> bool {
+    std::env::var("NV_D3D9").is_ok_and(|v| v.eq_ignore_ascii_case("real"))
 }
 
 /// The current cell's solid surfaces.
@@ -954,7 +966,7 @@ pub fn finish_game_main_frame(host: Option<NonSendMut<host::Host>>) {
 fn game_frame_overlaps_viewer() -> bool {
     static OVERLAP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *OVERLAP.get_or_init(|| {
-        let real = std::env::var("NV_D3D9").is_ok_and(|v| v.eq_ignore_ascii_case("real"));
+        let real = game_window_real();
         let shown = std::env::var("NV_VIEWER_WINDOW").is_ok_and(|v| v == "1");
         let last = std::env::var("NV_GAME_FRAME_JOIN").is_ok_and(|v| v == "last");
         real && !shown && !last && !game_frame_in_step()

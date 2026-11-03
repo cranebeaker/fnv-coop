@@ -223,6 +223,27 @@ fn main() {
     // `--movement-probe`: the movement code goes on past untranslated
     // functions to list more of them (`host::player_move`).
     game_code.movement.probe = args.movement_probe;
+    // With the game's own window (`NV_D3D9=real`, the play build) the run ends where the game's
+    // `main` ends its frames (`host::Host::at_main_end`), as the original's process does: with
+    // main's answer when it returned (the startup's `exit`, `00ecc479`), with the game's own code
+    // when it called `ExitProcess`, and with status 3 when it stopped (a fault, a function not
+    // translated, a call the platform does not provide; the host's code), so the window closes
+    // instead of keeping its last frame and the host's line naming the end is the log's last.
+    // `--movement-missing`'s lists are written first, so they hold that end. Without that
+    // window (the viewer's own renderer) the run goes on after it.
+    if cfg!(windows) && walk::game_window_real() {
+        let lists = args.movement_missing.clone();
+        game_code.at_main_end = Some(Box::new(
+            move |game: &host::Host, end: host::player_move::MainEnd| {
+                if let Some(path) = &lists {
+                    walk::write_lists(game, path);
+                }
+                std::process::exit(end.status());
+            },
+        ));
+        // An end in the start-up (`Host::start` runs main's first frame).
+        game_code.end_if_main_ended();
+    }
     let movement = match walk::Movement::new(
         args.movement,
         args.movement_log.as_deref(),

@@ -48,10 +48,19 @@ pub struct Host {
     /// not (not translated yet, or where it stopped; its misses are in
     /// [`Host::movement`] under the stage `niinit`).
     pub ni_init: Option<String>,
+    /// What runs when the game's `main` ends its frames (it returned, it called `ExitProcess`, it
+    /// stopped: [`player_move::MainEnd`]): called once, from the host call in which they ended
+    /// ([`Host::end_if_main_ended`]). The host itself never ends the process; the viewer sets
+    /// this to end the run as the original's process ends, with the game's own window.
+    pub at_main_end: Option<AtMainEnd>,
 }
 
+/// [`Host::at_main_end`]: given the host and how main's frames ended.
+pub type AtMainEnd = Box<dyn FnOnce(&Host, player_move::MainEnd)>;
+
 /// A frame of main's still in flight ([`Host::begin_main_frame`]) ends before the engine goes:
-/// main's OS thread holds its address until then.
+/// main's OS thread holds its address until then. An end of main's frames found there goes to
+/// [`Host::at_main_end`] as from any other [`Host::join`].
 impl Drop for Host {
     fn drop(&mut self) {
         self.join();
@@ -169,6 +178,7 @@ impl Host {
             quests: quest_vm::QuestVm::default(),
             movement,
             ni_init,
+            at_main_end: None,
         })
     }
 
