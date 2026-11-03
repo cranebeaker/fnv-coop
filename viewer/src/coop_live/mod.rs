@@ -28,6 +28,7 @@ mod actors;
 mod bot;
 mod chat;
 mod frame;
+mod hud_bars;
 mod hud_social;
 mod intents;
 mod interact;
@@ -109,6 +110,8 @@ impl Plugin for LivePlugin {
                     (
                         puppets::sync,
                         puppets::name_tags,
+                        hud_bars::npc_bars,
+                        hud_bars::render_bars.after(puppets::name_tags).after(hud_bars::npc_bars),
                         actors::track,
                         actors::publish,
                         actors::adopt_remote,

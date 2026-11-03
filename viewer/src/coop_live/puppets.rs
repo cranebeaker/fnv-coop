@@ -39,6 +39,8 @@ pub struct Puppets {
     asked: HashMap<PlayerId, f32>,
     /// Name tag entities.
     tags: HashMap<PlayerId, Entity>,
+    /// Health bar entities of the name tags.
+    bars: HashMap<PlayerId, Entity>,
 }
 
 /// A name tag above a remote player.
@@ -273,6 +275,7 @@ pub fn name_tags(
     mut puppets: ResMut<Puppets>,
     cameras: Query<(&Camera, &GlobalTransform), With<crate::FlyCamera>>,
     mut tags: Query<(&mut Node, &mut Text, &mut Visibility, &mut TextColor), With<NameTag>>,
+    mut bars: Query<&mut super::hud_bars::HealthBar>,
 ) {
     let Some(view) = &now.view else { return };
     let Ok((camera, camera_at)) = cameras.single() else {
@@ -295,9 +298,12 @@ pub fn name_tags(
         if let Some(e) = puppets.tags.remove(&p) {
             commands.entity(e).despawn();
         }
+        if let Some(e) = puppets.bars.remove(&p) {
+            commands.entity(e).despawn();
+        }
     }
     for a in view.avatars.iter().filter(|a| wanted.contains(&a.player)) {
-        let (label, color) =
+        let (label, color, bar) =
             super::hud_social::tag_text(&now, &state.0, a, super::voice::is_speaking(a.player.0));
         let Some(tag) = puppets.tags.get(&a.player).copied() else {
             let e = commands
@@ -317,6 +323,8 @@ pub fn name_tags(
                 ))
                 .id();
             puppets.tags.insert(a.player, e);
+            let b = super::hud_bars::spawn_bar(&mut commands);
+            puppets.bars.insert(a.player, b);
             continue;
         };
         let Ok((mut node, mut text, mut vis, mut tint)) = tags.get_mut(tag) else {
@@ -326,8 +334,25 @@ pub fn name_tags(
             tint.0 = color;
         }
         let head = Vec3::from(space::point([a.pos[0], a.pos[1], a.pos[2] + 190.0]));
+        let bar_entity = puppets.bars.get(&a.player).copied();
+        let mut set_bar = |at: Option<Vec2>, frac: f32| {
+            if let Some(mut b) = bar_entity.and_then(|e| bars.get_mut(e).ok()) {
+                b.at = at;
+                b.frac = frac;
+            }
+        };
         match camera.world_to_viewport(camera_at, head) {
             Ok(at) => {
+                match bar {
+                    Some(frac) => set_bar(
+                        Some(Vec2::new(
+                            at.x - super::hud_bars::BAR_W / 2.0,
+                            at.y - 10.0 - super::hud_bars::BAR_H - 3.0,
+                        )),
+                        frac,
+                    ),
+                    None => set_bar(None, 0.0),
+                }
                 node.left = Val::Px(at.x - 40.0);
                 node.top = Val::Px(at.y - 10.0);
                 if text.0 != label {
@@ -335,7 +360,10 @@ pub fn name_tags(
                 }
                 *vis = Visibility::Inherited;
             }
-            Err(_) => *vis = Visibility::Hidden,
+            Err(_) => {
+                *vis = Visibility::Hidden;
+                set_bar(None, 0.0);
+            }
         }
     }
 }
