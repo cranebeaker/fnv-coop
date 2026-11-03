@@ -97,7 +97,10 @@ mod tests {
 
     #[test]
     fn the_meter_shows_name_bar_and_points() {
-        assert_eq!(meter_text("Gecko", 60.0, 120.0), "Gecko\n######------  60/120");
+        assert_eq!(
+            meter_text("Gecko", 60.0, 120.0),
+            "Gecko\n######------  60/120"
+        );
         assert!(meter_text("Gecko", 0.4, 120.0).contains("#-----------"));
         assert!(meter_text("Gecko", 500.0, 120.0).starts_with("Gecko\n############"));
     }
