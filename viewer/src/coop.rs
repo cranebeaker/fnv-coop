@@ -213,6 +213,13 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         },
         log: c.log.clone(),
         rules: c.rules,
+        // debug: with COOP_FIELDS_DUMP set, every shared field goes to `<state dump>.fields.txt`
+        // (two peers' files diff line by line, so a desync names its field)
+        fields_dump: c
+            .state_dump
+            .as_ref()
+            .filter(|_| std::env::var_os("COOP_FIELDS_DUMP").is_some())
+            .map(|p| p.with_extension("fields.txt")),
         ..SessionConfig::default()
     };
     // Transport: UDP or Steam, random per-session token (see coop_link, coop_session::link).
@@ -545,6 +552,15 @@ fn write_dump(
     };
     let text = dump_text(s, run, state, game, now, live);
     coop_session::out::write_atomic(&path, &text);
+    // debug: the world's own shared fields at the moment of this dump (`hash.shared` hashes
+    // them), as `<state dump>.world.txt` (the session's field dump follows the store instead)
+    if std::env::var_os("COOP_FIELDS_DUMP").is_some() {
+        let mut lines = format!("root {:016x}\n", Session::state_root(state));
+        for (f, v) in world::coop::WorldBackend::export_fields(state).iter() {
+            lines.push_str(&format!("{:08X} {v:?}\n", f.0));
+        }
+        coop_session::out::write_atomic(&path.with_extension("world.txt"), &lines);
+    }
     s.log_event(
         "state_dump",
         &[

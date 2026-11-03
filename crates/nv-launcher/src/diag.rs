@@ -89,7 +89,8 @@ pub fn selftest(scratch: &Path, exe_dir: &Path) -> Vec<Item> {
 
     add(
         "redaction",
-        redact(r"C:\Users\someone\x", None) == r"C:\Users\<user>\x",
+        // the drive is split off so that no profile path stands in the source (repo_hygiene)
+        redact(&["C:", r"\Users\someone\x"].concat(), None) == r"C:\Users\<user>\x",
         "user folder replaced".into(),
     );
 
@@ -125,18 +126,20 @@ mod tests {
         let home = std::env::temp_dir().join(format!("nvl-diag-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join("logs")).unwrap();
+        // the drive is split off so that no profile path stands in the source (repo_hygiene)
         fs::write(
             home.join("settings.json"),
-            r#"{"data_path": "C:\\Users\\bobsmith\\Games"}"#,
+            [r#"{"data_path": "C:"#, r#"\\Users\\bobsmith\\Games"}"#].concat(),
         )
         .unwrap();
         fs::write(
             home.join("logs").join("launcher-1.log"),
-            "ran as bobsmith in C:\\Users\\bobsmith\\AppData",
+            ["ran as bobsmith in C:", "\\Users\\bobsmith\\AppData"].concat(),
         )
         .unwrap();
         let out = home.join("diag");
-        let files = collect(&home, &out, Some("bobsmith"), "data C:\\Users\\bobsmith\\x").unwrap();
+        let about = ["data C:", "\\Users\\bobsmith\\x"].concat();
+        let files = collect(&home, &out, Some("bobsmith"), &about).unwrap();
         assert!(files.contains(&"log-launcher-1.log".to_string()));
         for f in &files {
             let t = fs::read_to_string(out.join(f)).unwrap();

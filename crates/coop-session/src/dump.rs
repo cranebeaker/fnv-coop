@@ -549,13 +549,15 @@ pub fn state_json_full(
                 creatures_alive += 1;
             }
         }
-        // the cell this machine has the actor in (0: nowhere known)
-        let cell = gs.place(order, r.id).map_or(0, |p| p.1 .0);
+        // the cell this machine has the actor in (0: nowhere known), and where it stands
+        let place = gs.place(order, r.id);
+        let cell = place.map_or(0, |p| p.1 .0);
+        let (pos, heading) = place.map_or(([0.0; 3], 0.0), |p| (p.2, p.3));
         actor_rows.insert(
             name(order, r.id),
             format!(
-                "{{\"alive\":{},\"owner\":\"{who}\",\"creature\":{creature},\"cell\":{cell}}}",
-                !dead
+                "{{\"alive\":{},\"owner\":\"{who}\",\"creature\":{creature},\"cell\":{cell},\"pos\":[{:.0},{:.0},{:.0}],\"heading\":{:.2}}}",
+                !dead, pos[0], pos[1], pos[2], heading
             ),
         );
     }

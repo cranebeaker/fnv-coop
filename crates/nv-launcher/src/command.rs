@@ -195,16 +195,14 @@ mod tests {
             new_game: false,
         });
         p.load = Some(PathBuf::from(
-            r"C:\home\savesb\host-ann
-v-rs-quicksave.txt",
+            r"C:\home\saves\ab\host-ann\nv-rs-quicksave.txt",
         ));
         let s = build(&p);
         assert_eq!(
             &s.args[1..3],
             [
                 "--coop-load",
-                r"C:\home\savesb\host-ann
-v-rs-quicksave.txt"
+                r"C:\home\saves\ab\host-ann\nv-rs-quicksave.txt"
             ]
         );
         assert_eq!(s.args[3], "--coop-host");

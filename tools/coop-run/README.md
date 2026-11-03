@@ -265,13 +265,11 @@ The test PC needs Python 3.11 (path via `-Python`, default `C:\Program Files\Pyt
 viewer, and a Data folder. Several `-Scenarios` run one after another, never in parallel, because two copies of the
 game already fill the PC.
 
-`remote
-un_list.ps1` is the same as `run_suite.ps1` but reads the scenario names from a file, one per line
-(`C:nv\coop-run\list-<tag>.txt`, `#` comments allowed) and `n` and `python` from `run-<tag>.json`. Use it for long
+`remote\run_list.ps1` is the same as `run_suite.ps1` but reads the scenario names from a file, one per line
+(`C:\fnv\coop-run\list-<tag>.txt`, `#` comments allowed) and `n` and `python` from `run-<tag>.json`. Use it for long
 lists: a scheduled-task command line is cut at 261 characters, which turned a long `-Scenarios` list into a
 truncated name (`No such file: ...live_rec.json`). Start it with
-`task.ps1 -Script C:nv\coop-run
-un_list.ps1 -Tag <tag>`; it names the first missing scenario file in `done-<tag>.txt`.
+`task.ps1 -Script C:\fnv\coop-run\run_list.ps1 -Tag <tag>`; it names the first missing scenario file in `done-<tag>.txt`.
 `push.ps1` uploads it with the other remote scripts.
 
 ### Hard safety rules (encoded in the scripts, checked by `test_safety.py`)

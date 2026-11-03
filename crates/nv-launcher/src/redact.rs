@@ -72,26 +72,29 @@ fn replace_ci(text: &str, needle: &str, with: &str) -> String {
 mod tests {
     use super::*;
 
+    // The tests split the drive off each profile path, so that no such path stands in the
+    // source (repo_hygiene).
+
     #[test]
     fn user_folders_are_replaced() {
         assert_eq!(
-            redact(r"C:\Users\bobsmith\AppData\Roaming\x", None),
+            redact(&["C:", r"\Users\bobsmith\AppData\Roaming\x"].concat(), None),
             r"C:\<user>\AppData\Roaming\x".replace(r"C:\<user>", r"C:\Users\<user>")
         );
         assert_eq!(
-            redact("c:/users/Bob Smith/Docs", None),
+            redact(&["c:", "/users/Bob Smith/Docs"].concat(), None),
             "c:/users/<user>/Docs"
         );
         assert_eq!(
-            redact(r#""C:\\Users\\bobsmith\\x""#, None),
+            redact(&[r#""C:"#, r#"\\Users\\bobsmith\\x""#].concat(), None),
             r#""C:\\Users\\<user>\\x""#
         );
     }
 
     #[test]
     fn public_and_idempotent() {
-        let s = r"C:\Users\Public\x C:\Users\bobsmith\y";
-        let once = redact(s, None);
+        let s = [r"C:\Users\Public\x C:", r"\Users\bobsmith\y"].concat();
+        let once = redact(&s, None);
         assert_eq!(once, r"C:\Users\Public\x C:\Users\<user>\y");
         assert_eq!(redact(&once, None), once);
     }

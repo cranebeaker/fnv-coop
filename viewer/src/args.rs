@@ -1062,7 +1062,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
         coop.new_game = new_game;
         if coop_load.is_some() {
             if new_game || load_fos.is_some() || stage.is_some() {
-                return Err("--coop-load starts from the save; leave out --new-game, --load-fos and --stage".into());
+                return Err("--coop-load starts from the party save or nv-rs save; leave out --new-game, --load-fos and --stage".into());
             }
             coop.load = coop_load.take();
         }
