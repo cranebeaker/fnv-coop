@@ -1964,7 +1964,8 @@ pub fn fn_009afef0(e: &mut Engine, this: Ptr) {
     e.mem.set_u8(this.addr() + 0xd7, 1);
 }
 
-// Translated from 009b0920 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 009b0920 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
+// Translation incomplete: 009b0920 - compiler security-cookie check 00ec408c omitted.
 /// Applies linear and angular impulses to a non-null rigid body when the
 /// explosion's force magnitude is strictly above the global threshold.
 /// Intermediate x87 values are rounded where the native code stores floats.
@@ -1981,11 +1982,12 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         return;
     }
 
-    // The exe's vectors are separate 12-byte locals: the impulse at EBP-0x70, its scaled copy
-    // at EBP-0x64, the torque at EBP-0x7c, the angular intermediate at EBP-0x88 and the scaled
-    // torque at EBP-0x94 (Ghidra prints the last two as `EBP + 0xffffff78` and `0xffffff6c`).
-    // The angular intermediate and the scaled torque get their own slots past the others here
-    // instead of +0x78 and +0x6c, where they lay over the torque and the impulse.
+    // The exe's locals: the target vector at EBP-0x20, the direction at EBP-0x2c, the position
+    // at EBP-0x38, the two filter out words at EBP-0x3c (009b09c6) and EBP-0x58 (009b0a6d), the
+    // impulse at EBP-0x70 and its scaled copy at EBP-0x64, the torque at EBP-0x7c, the angular
+    // product at EBP-0x94 (`EBP + 0xffffff6c`, 009b0b9d) and the scaled torque at EBP-0x88
+    // (`EBP + 0xffffff78`, 009b0b8f). Each gets a slot of its own here, in another order; no
+    // local is reached through another's address.
     e.with_stack(0xbc, |e, frame| {
         let target_vector = Ptr::<()>::new(frame.addr());
         let direction = Ptr::<()>::new(frame.addr() + 0x20);
@@ -1996,6 +1998,7 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         let angular_intermediate = Ptr::<()>::new(frame.addr() + 0xa4);
         let scaled_torque = Ptr::<()>::new(frame.addr() + 0xb0);
         let output = Ptr::<()>::new(frame.addr() + 0x98);
+        let second_output = Ptr::<()>::new(frame.addr() + 0x9c);
         e.call(0x0068_15c0, &args![target_vector]);
         e.call(0x0068_15c0, &args![direction]);
         let target_vector_object = e
@@ -2004,10 +2007,10 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         e.call(0x0045_8620, &args![direction, target_vector_object]);
 
         let position_vector = e.vcall(this.addr(), 0x1f4, &args![]).u32();
-        let transformed = e
-            .call(0x0043_9ef0, &args![direction, position, position_vector])
-            .u32();
-        e.call(0x004a_0c10, &args![transformed]);
+        e.call(0x0043_9ef0, &args![direction, position, position_vector]);
+        // 009b09be: the normalise runs on the local (`LEA ECX,[EBP-0x38]`), not on the pointer
+        // `00439ef0` answers.
+        e.call(0x004a_0c10, &args![position]);
 
         let filter = e.call(0x0043_b4f0, &args![rigid_body, output]).u32();
         if e.call(0x0062_4070, &args![filter]).bool() {
@@ -2028,7 +2031,7 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
             };
             let reference = e.call(0x0056_f930, &args![node]).u32();
             if reference != 0 && reference == fn_009ad610(e, this).addr() {
-                let filter = e.call(0x0043_b4f0, &args![rigid_body, output]).u32();
+                let filter = e.call(0x0043_b4f0, &args![rigid_body, second_output]).u32();
                 if e.call(0x0043_b4d0, &args![filter]).u32() == 0x14 {
                     e.vcall(rigid_body.addr(), 0xe4, &args![1u32]);
                 }
@@ -2049,33 +2052,35 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         }
 
         let linear_scale = e.call(0x0040_3e20, &args![0x011c_ff64u32]).u32();
+        // 009b0afa: the setting's value is read before either multiply.
+        let linear_scale = e.mem.f32(linear_scale);
         let scaled_direction = e.call(0x0045_bb20, &args![position, impulse, magnitude]);
         let scaled_direction = e.call(
             0x0045_bb20,
-            &args![
-                scaled_direction.u32(),
-                scaled_impulse,
-                e.mem.f32(linear_scale)
-            ],
+            &args![scaled_direction.u32(), scaled_impulse, linear_scale],
         );
         fn_009b0bf0(e, rigid_body, Ptr::new(scaled_direction.u32()));
 
-        let mut random = [0.0f32; 3];
-        for component in &mut random {
+        // 009b0b26..009b0b7a: three `RandomFloat(lower, 1)` draws (00476b70, the lower bound
+        // read from 01012054 before each). Each result is stored into the argument slot left
+        // on the stack, so the first draw is the last word of `00416870` (z, stored at +8 at
+        // 0041688e), the second y and the third x: MSVC evaluates the arguments right to left.
+        let draw = |e: &mut Engine| {
             let lower = e.global::<f32>(0x0101_2054);
-            *component = e.call(0x0047_6b70, &args![lower, 1.0f32]).f32();
-        }
-        e.call(0x0041_6870, &args![torque, random[0], random[1], random[2]]);
+            e.call(0x0047_6b70, &args![lower, 1.0f32]).f32()
+        };
+        let z = draw(e);
+        let y = draw(e);
+        let x = draw(e);
+        e.call(0x0041_6870, &args![torque, x, y, z]);
         let angular_scale = e.call(0x0040_3e20, &args![0x011d_02ecu32]).u32();
+        // 009b0b8a: the setting's value is read before either multiply.
+        let angular_scale = e.mem.f32(angular_scale);
         let angular_magnitude =
             e.call(0x0045_bb20, &args![torque, angular_intermediate, magnitude]);
         let scaled_torque = e.call(
             0x0045_bb20,
-            &args![
-                angular_magnitude.u32(),
-                scaled_torque,
-                e.mem.f32(angular_scale)
-            ],
+            &args![angular_magnitude.u32(), scaled_torque, angular_scale],
         );
         fn_009b0c90(e, rigid_body, Ptr::new(scaled_torque.u32()));
     });
@@ -7381,6 +7386,7 @@ mod tests {
 
     #[test]
     fn rigid_body_impulse_scales_linear_and_random_angular_vectors() {
+        use crate::units::fallout_shared::bgsdestructibleobjectform::random_float;
         let mut e = list_engine();
         e.set_global(0x0101_2060, 0.0f64);
         e.set_global(0x0101_2054, -1.0f32);
@@ -7463,16 +7469,28 @@ mod tests {
             scaled_calls.set(scaled_calls.get() + 1);
             a[1].into_ret()
         });
-        e.register(0x0047_6b70, |_, a| {
+        // The game's generator (`RandomFloat` over `BSRandom`), seeded, so the three draws
+        // differ and their order shows.
+        seed_random_generator(&mut e, 0x2468_ace1);
+        let draws = {
+            let mut copy = Engine::new();
+            seed_random_generator(&mut copy, 0x2468_ace1);
+            [(); 3].map(|_| random_float(&mut copy, -1.0, 1.0).to_bits())
+        };
+        assert!(draws[0] != draws[1] && draws[1] != draws[2] && draws[0] != draws[2]);
+        e.register(0x0047_6b70, |e, a| {
             assert_eq!(a, &[(-1.0f32).to_bits(), 1.0f32.to_bits()]);
-            0.5f32.into_ret()
+            random_float(e, f32::from_bits(a[0]), f32::from_bits(a[1])).into_ret()
         });
-        e.register(0x0041_6870, |e, a| {
+        let torque = Rc::new(Cell::new([0u32; 3]));
+        let torque_by_double = Rc::clone(&torque);
+        e.register_double(0x0041_6870, move |e, a| {
             assert_eq!(a.len(), 4);
             for (index, value) in a[1..].iter().copied().enumerate() {
                 e.mem
                     .set_f32(a[0] + index as u32 * 4, f32::from_bits(value));
             }
+            torque_by_double.set([a[1], a[2], a[3]]);
             a[0].into_ret()
         });
         e.register(0x004a_3e00, |_, a| {
@@ -7490,6 +7508,32 @@ mod tests {
         let calls = e.call_log.unwrap();
         assert_eq!(calls.iter().filter(|call| call.0 == 0x0045_bb20).count(), 4);
         assert_eq!(calls.iter().filter(|call| call.0 == 0x0047_6b70).count(), 3);
+        // `00416870` stores its first word at +0 (x) and its third at +8 (z) (`0041688e`).
+        // The exe pushes the first draw's result first (`009b0b26`..`009b0b3e`), so it is the
+        // third word: the draws are z, y, x in that order (`009b0b26`..`009b0b7a`).
+        assert_eq!(torque.get(), [draws[2], draws[1], draws[0]]);
+    }
+
+    /// The static `BSRandom` of `RandomFloat` (`00476c00`) marked constructed and seeded with
+    /// `seed` (`00aa5170`), with the constants a draw reads (2^32 at `0101a6b8`, the
+    /// twister's `mag01` pair at `011ac3b0`) and `BSRandom::UnsignedInt` (`00aa5230`).
+    fn seed_random_generator(e: &mut Engine, seed: u32) {
+        use crate::units::fallout_shared::bgsdestructibleobjectform::{
+            RANDOM_GENERATOR, RANDOM_GENERATOR_INITIALIZED, TWO_POW_32,
+        };
+        for page in [0x0101_a000, 0x011a_c000, 0x011c_4000] {
+            e.map(page, 0x1000);
+        }
+        e.set_global(TWO_POW_32, 4294967296.0f64);
+        e.set_global(0x011a_c3b0, 0u32);
+        e.set_global(0x011a_c3b4, 0x9908_b0dfu32);
+        e.set_global(RANDOM_GENERATOR_INITIALIZED, 1u32);
+        crate::units::bscore::bsrandom::fn_00aa5170(e, Ptr::new(RANDOM_GENERATOR), seed);
+        for (address, f) in crate::units::bscore::bsrandom::funcs() {
+            if address == 0x00aa_5230 {
+                e.register(address, f);
+            }
+        }
     }
 
     #[test]

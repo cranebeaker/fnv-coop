@@ -1728,9 +1728,17 @@ fn wait_for_multiple_objects(
 }
 
 // Platform: replaces KERNEL32.DLL CloseHandle (import)
-/// Closes a handle from this table; 0 for one that is not open.
+/// Closes a handle from this table; 0 for one that is not open. A file handle that wrote
+/// publishes the file's size and times to its directory entry ([`files::closed`]).
 fn close_handle(e: &mut Engine, handle: u32) -> i32 {
-    e.kernel.objects.remove(&handle).is_some() as i32
+    match e.kernel.objects.remove(&handle) {
+        Some(KernelObject::File(file)) => {
+            files::closed(e, &file);
+            1
+        }
+        Some(_) => 1,
+        None => 0,
+    }
 }
 
 // Platform: replaces KERNEL32.DLL GetCurrentThread (import)
