@@ -21,7 +21,7 @@ use coop_core::sync::{GuestLive, HostLive};
 use esm::FormId;
 
 use super::apply::Ctx;
-use super::interact_acts::{apply_shared, cf, execute, snapshot_obj};
+use super::interact_acts::{apply_shared, cf, door_lets_through, execute, snapshot_obj};
 use super::live::Outs;
 use super::Authority;
 use crate::scripting::GameState;
@@ -537,8 +537,14 @@ impl HostInteract {
         }
         // guests' requests, each exactly once
         for (p, txn, act) in live.interact.take_queue() {
-            let outcome = if let Act::Transition { .. } = act {
-                self.decide(live, &mut outs, p, Some(txn), &act, now_ms)
+            let outcome = if let Act::Transition { door, .. } = act {
+                // the guest's world checked the lock, but the host decides: a
+                // transition moves the party along
+                if door_lets_through(cx.order, gs, p, FormId(door.0)) {
+                    self.decide(live, &mut outs, p, Some(txn), &act, now_ms)
+                } else {
+                    Some(Outcome::refused(Why::Locked))
+                }
             } else {
                 let mut mint = || live.interact.mint_drop();
                 Some(execute(cx, gs, p, &act, &mut mint))

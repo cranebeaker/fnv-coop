@@ -52,6 +52,25 @@ fn personal<R>(
     })
 }
 
+/// Whether a load door lets player `who` through on the host's world: it is
+/// not locked, or `who` carries its key (the key unlocks it for everyone,
+/// as `locks::try_open` does). A picked lock is open already, because the
+/// guest's `Lockpick` request comes first.
+pub(super) fn door_lets_through(
+    order: &esm::LoadOrder,
+    gs: &mut GameState,
+    who: PlayerId,
+    door: FormId,
+) -> bool {
+    personal(order, gs, who, |g| {
+        use crate::locks::Opening;
+        matches!(
+            crate::locks::try_open(order, g, door),
+            Opening::Open | Opening::WithKey
+        )
+    })
+}
+
 /// Whether the policy table makes `npc` a plot companion of the whole party
 /// (`companion.owner = party`): any player's commands move it, no player owns it.
 fn party_companion(order: &esm::LoadOrder, gs: &GameState, npc: FormId) -> bool {

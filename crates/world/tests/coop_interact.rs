@@ -32,6 +32,7 @@ mod ids {
     pub const CELL: u32 = 0xD00;
     pub const SWING: u32 = 0xD10;
     pub const LOCKED: u32 = 0xD11;
+    pub const KEYED: u32 = 0xD12;
     pub const PILE: u32 = 0xD20;
     pub const MINE: u32 = 0xD30;
     pub const TERMINAL: u32 = 0xD40;
@@ -77,6 +78,17 @@ fn world(tag: &str) -> TempData {
     plugin.extend(group(*b"STAT", 0, &stat(0xA20, "IxStat", "")));
     let mut refs = placed(SWING, DOOR, [0.0, 0.0, 0.0], [0.0; 3], &[]);
     refs.extend(placed(LOCKED, DOOR, [100.0, 0.0, 0.0], [0.0; 3], &[]));
+    // placed locked (level 50) with its key, as `XLOC` says
+    let mut xloc = vec![50u8, 0, 0, 0];
+    xloc.extend(KEY.to_le_bytes());
+    xloc.extend([0u8; 12]);
+    refs.extend(placed(
+        KEYED,
+        DOOR,
+        [100.0, 50.0, 0.0],
+        [0.0; 3],
+        &sub(b"XLOC", &xloc),
+    ));
     refs.extend(placed(PILE, ITEM_A, [0.0, 100.0, 0.0], [0.0; 3], &[]));
     refs.extend(placed(MINE, 0xA20, [0.0, 200.0, 0.0], [0.0; 3], &[]));
     refs.extend(placed(TERMINAL, 0xA20, [0.0, 300.0, 0.0], [0.0; 3], &[]));
@@ -751,6 +763,49 @@ fn the_party_follows_the_leader_through_a_load_door_and_non_leaders_are_kept_in_
         .iter()
         .any(|x| x.0 == "transition" && !x.1 && x.2 == Why::Policy)));
     assert!(r.guests[1].coop.interact.follow.is_none());
+}
+
+/// A guest asks to go through a load door that is locked on the host's
+/// world: the host refuses it unless the guest carries the key. Before, the
+/// host checked only the party rules, and the party followed the guest
+/// through a locked door.
+#[test]
+fn a_guest_goes_through_a_locked_load_door_only_with_its_key() {
+    let (_d, order) = load("ix-transit-lock");
+    let scripts = ScriptCache::default();
+    let mut r = setup(&order, &scripts, "good_wifi", 73);
+    r.stand(1, [0.0, 10.0, 20.0]);
+    r.sim.host.live.interest.link(CellId(1), CellId(2));
+    r.run_ms(1_000);
+    // the guest's world takes the door as open (a `coop enter` skips the
+    // local check): only the host's lock decides
+    r.guests[0].locks.insert(f(KEYED), None);
+    let through = |r: &mut Rig| {
+        r.guests[0].coop_route(Act::Transition {
+            door: c(KEYED),
+            from: CellId(1),
+            to: CellId(2),
+            one_way: false,
+        });
+    };
+    through(&mut r);
+    assert!(
+        r.until(60_000, |r| r
+            .results(0)
+            .iter()
+            .any(|x| x.0 == "transition" && !x.1 && x.2 == Why::Locked)),
+        "a locked door without the key"
+    );
+    assert!(r.guests[0].coop.interact.follow.is_none());
+    // with the key the door opens, and it stays open for everyone
+    r.give(1, KEY, 1);
+    through(&mut r);
+    assert!(
+        r.until(60_000, |r| r.guests[0].coop.interact.follow.is_some()),
+        "the key opens the door: {:?}",
+        r.results(0)
+    );
+    assert_eq!(r.host.locks.get(&f(KEYED)), Some(&None));
 }
 
 #[test]
