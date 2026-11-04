@@ -274,7 +274,12 @@ impl ActorHost {
         };
         // the sender stands in the victim's cell or has that cell loaded: a
         // peer owns the actors there too (an NPC's blow in that cell, or a
-        // shot into the next exterior cell)
+        // shot into the next exterior cell). The host works out the loaded
+        // cells itself, from where the sender's player stands (the grid
+        // square around its avatar, `SceneModel::update_peer`). No tighter
+        // limit by distance: the game's projectiles go 10000 units (most
+        // bullets) to 53000 (.308) and 60000 (Gauss), and the square reaches
+        // about 14500 units from the player.
         let near = attacker_cell == Some(rec.state.cell)
             || self
                 .own
@@ -883,5 +888,55 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// The cells that count for a sender are the grid square around where its
+    /// player stands, as the host works it out: a hit counts on an actor inside
+    /// that square and on no actor beyond it, whatever the sender sends.
+    #[test]
+    fn a_hit_counts_only_inside_the_square_around_the_senders_player() {
+        use crate::roam::graph::CELL_SIZE;
+        use crate::roam::model::SceneModel;
+        let mut model = SceneModel::new();
+        for x in 0..10 {
+            for y in 0..10 {
+                model
+                    .graph
+                    .register_exterior(CellId(1000 + (x * 10 + y) as u32), 0x3C, x, y);
+            }
+        }
+        let world = CellId(0x3C);
+        let at = |x: f32| [x * CELL_SIZE, 5.5 * CELL_SIZE, 0.0];
+        // player 1 stands in square (5, 5)
+        model.update_peer(PlayerId(1), world, at(5.5));
+        let mut h = ActorHost::new();
+        let mut auth = AuthorityTable::new();
+        // two squares east, and three
+        let (near, far) = (FormId(0x201), FormId(0x202));
+        for (a, cell) in [(near, 1075), (far, 1085)] {
+            let state = ActorState {
+                cell: CellId(cell),
+                health: 100,
+                ..Default::default()
+            };
+            h.register(a, state);
+        }
+        model.apply_ownership(&mut h.own);
+        let mut shot = |h: &mut ActorHost, actor, id| {
+            let m = ActorMsg::Hit {
+                actor,
+                hit: id,
+                amount: 5,
+                npc: false,
+            };
+            h.on_msg(PlayerId(1), m, 0, Some(world), &mut auth).len()
+        };
+        assert_eq!(shot(&mut h, near, 1), 1, "two squares away: in the square");
+        assert_eq!(shot(&mut h, far, 2), 0, "three squares away: outside");
+        // the player walks two squares east: now the far actor is in the square
+        model.update_peer(PlayerId(1), world, at(7.5));
+        model.apply_ownership(&mut h.own);
+        assert_eq!(shot(&mut h, far, 3), 1);
+        assert_eq!(h.own.get(far).unwrap().state.health, 95);
     }
 }
