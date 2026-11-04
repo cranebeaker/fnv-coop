@@ -1169,8 +1169,10 @@ fn queue(root: &Path, funcs: &[Func], args: &[String]) {
     let mut rows: Vec<_> = per.into_iter().collect();
     rows.sort_by(|a, b| b.1 .1.cmp(&a.1 .1).then(a.0.cmp(&b.0)));
     for ((sub, unit), (n, bytes)) in rows {
-        let (file, krate) = units::unit_path(root, unit, sub);
-        println!("{unit}\t{sub}\t{n}\t{bytes}\t{file}\t{krate}");
+        match units::unit_path(root, unit, sub) {
+            Ok((file, krate)) => println!("{unit}\t{sub}\t{n}\t{bytes}\t{file}\t{krate}"),
+            Err(e) => println!("{unit}\t{sub}\t{n}\t{bytes}\t-\t({e})"),
+        }
     }
 }
 

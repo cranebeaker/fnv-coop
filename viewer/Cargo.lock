@@ -2004,7 +2004,18 @@ version = "0.1.0"
 dependencies = [
  "engine-bs",
  "engine-core",
- "engine-fallout",
+ "engine-fallout-ai",
+ "engine-fallout-cell",
+ "engine-fallout-env",
+ "engine-fallout-facegen",
+ "engine-fallout-forms",
+ "engine-fallout-interface",
+ "engine-fallout-magic",
+ "engine-fallout-misc",
+ "engine-fallout-pathfinding",
+ "engine-fallout-script",
+ "engine-fallout-unplaced-a",
+ "engine-fallout-unplaced-b",
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
@@ -2029,11 +2040,150 @@ dependencies = [
 ]
 
 [[package]]
-name = "engine-fallout"
+name = "engine-fallout-ai"
 version = "0.1.0"
 dependencies = [
  "engine-bs",
  "engine-core",
+ "engine-fallout-cell",
+ "engine-fallout-facegen",
+ "engine-fallout-forms",
+ "engine-fallout-pathfinding",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-cell"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-facegen",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-env"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-facegen"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-forms"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-cell",
+ "engine-fallout-facegen",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-interface"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-magic"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-cell",
+ "engine-fallout-facegen",
+ "engine-fallout-forms",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-misc"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-ai",
+ "engine-fallout-cell",
+ "engine-fallout-facegen",
+ "engine-fallout-forms",
+ "engine-fallout-interface",
+ "engine-fallout-pathfinding",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-pathfinding"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-script"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-unplaced-a"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-facegen",
+ "engine-gamebryo",
+ "engine-havok",
+ "engine-speedtree",
+]
+
+[[package]]
+name = "engine-fallout-unplaced-b"
+version = "0.1.0"
+dependencies = [
+ "engine-bs",
+ "engine-core",
+ "engine-fallout-facegen",
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",

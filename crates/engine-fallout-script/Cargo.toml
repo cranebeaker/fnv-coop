@@ -1,0 +1,32 @@
+[package]
+name = "engine-fallout-script"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FalloutNV.exe translated function by function: scripts, conditions and quests (fallout shared)"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-gamebryo = { path = "../engine-gamebryo" }
+engine-bs = { path = "../engine-bs" }
+engine-havok = { path = "../engine-havok" }
+engine-speedtree = { path = "../engine-speedtree" }
+
+[dev-dependencies]
+# The form-constructor checker of units::crt (ctor_test) for this crate's tests.
+engine-core = { path = "../engine-core", features = ["test-support"] }
+# Phase A of the split by area (docs/ENGINE_CRATE.md, "The fallout crates"): every other
+# fallout crate, so this crate's tests register every translated function as before the
+# split. Phase B removes the ones no test needs.
+engine-fallout-facegen = { path = "../engine-fallout-facegen" }
+engine-fallout-pathfinding = { path = "../engine-fallout-pathfinding" }
+engine-fallout-env = { path = "../engine-fallout-env" }
+engine-fallout-cell = { path = "../engine-fallout-cell" }
+engine-fallout-forms = { path = "../engine-fallout-forms" }
+engine-fallout-magic = { path = "../engine-fallout-magic" }
+engine-fallout-interface = { path = "../engine-fallout-interface" }
+engine-fallout-ai = { path = "../engine-fallout-ai" }
+engine-fallout-unplaced-a = { path = "../engine-fallout-unplaced-a" }
+engine-fallout-unplaced-b = { path = "../engine-fallout-unplaced-b" }
+engine-fallout-misc = { path = "../engine-fallout-misc" }

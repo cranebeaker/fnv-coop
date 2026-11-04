@@ -1039,7 +1039,7 @@ mod tests {
         e
     }
 
-    /// `__allshl` (`00ec7810`) is an unplaced unit of `engine-fallout`, which this
+    /// `__allshl` (`00ec7810`) is an unplaced unit of `engine-fallout-unplaced-b`, which this
     /// crate's tests do not link since the engine split: a double with its result
     /// (the 64-bit value shifted left by the count; 0 from a count of 64 on).
     fn allshl_double(e: &mut Engine) {

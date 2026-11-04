@@ -15,7 +15,7 @@ const FREE_HEAD: u32 = 0x1c;
 const FREE_COUNT: u32 = 0x20;
 const NODE_POINTER: u32 = 0x08;
 
-/// `0044dd60` (unit `run_0044d8c0` in `engine-fallout`, `thiscall`): the
+/// `0044dd60` (unit `run_0044d8c0` in `engine-fallout-forms`, `thiscall`): the
 /// release of the object a node points to.
 const RELEASE_POINTED: u32 = 0x0044_dd60;
 /// `00c42960` (`thiscall`): run when the free count reaches the limit.

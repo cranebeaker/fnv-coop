@@ -14,7 +14,8 @@
 //! The engine is split into crates so a compile fits the machine
 //! (docs/ENGINE_CRATE.md, "The engine crates"): `engine-core` (the model,
 //! the CRT and platform units) and the part crates `engine-gamebryo`,
-//! `engine-bs`, `engine-havok`, `engine-speedtree` and `engine-fallout`. This
+//! `engine-bs`, `engine-havok`, `engine-speedtree` and the twelve `engine-fallout-*`
+//! crates of the game's own units, by area ("The fallout crates"). This
 //! crate assembles them: everything is reachable as `engine::...` as before
 //! the split, and [`Engine::new`] registers every translated function.
 //!
@@ -64,4 +65,29 @@ pub use engine_core::{
 };
 pub use engine_core::{args, entry, layout};
 pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, OpenHandler, Ptr, Ret, Scalar};
-pub use engine_fallout::{extra_data, reference};
+pub use engine_fallout_cell::{extra_data, reference};
+
+#[cfg(test)]
+mod tests {
+    /// Every exe address is registered by one engine crate only (`Engine::new()` stops on an
+    /// address registered twice); this names the two crates when it happens, so the order in
+    /// which the facade takes the crates never decides which translation runs.
+    #[test]
+    fn no_address_is_registered_by_two_crates() {
+        let mut by: std::collections::HashMap<u32, &str> = std::collections::HashMap::new();
+        let mut twice = Vec::new();
+        for &(name, funcs) in crate::units::PARTS {
+            let mut list = Vec::new();
+            funcs(&mut list);
+            for (addr, _) in list {
+                if let Some(first) = by.insert(addr, name) {
+                    twice.push(format!("{addr:08x}: {first} and {name}"));
+                }
+            }
+        }
+        assert!(twice.is_empty(), "registered twice: {twice:?}");
+        let mut all = Vec::new();
+        crate::units::funcs(&mut all);
+        assert_eq!(all.len(), by.len());
+    }
+}

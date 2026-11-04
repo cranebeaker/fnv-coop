@@ -121,7 +121,7 @@ pub fn exit_table(e: &mut Engine) {
         e.mem.set_u32(INITIAL_LOCALE_INFO + offset, value);
     }
     // `__init_pointers` stores the encoded null through `00ec7af9`, whose translation is in
-    // engine-fallout (`unplaced/run_00ec7ad2.rs`); without that crate the same store stands
+    // engine-fallout-unplaced-b (`unplaced/run_00ec7ad2.rs`); without that crate the same store stands
     // in for it.
     if !e.is_registered(INIT_POINTER_0126FD9C) {
         e.register(INIT_POINTER_0126FD9C, |e, a| {

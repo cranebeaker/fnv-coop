@@ -63,7 +63,7 @@ crates under it; the graph has no cycles:
 | `engine-bs` | `bsaudio`, `bscore`, `bsmain`, `bsmenu`, `bsmovie`, `bsshader`, `bssystem` | core, gamebryo |
 | `engine-havok` | `havok_sdk`, `bshavok` | core, gamebryo |
 | `engine-speedtree` | `speedtree` | core |
-| `engine-fallout` | every `fallout_*` subsystem, `unplaced`, `facegen`, `d3dx9`, `remotelog`; the `extra_data` and `reference` adapters | all of the above |
+| `engine-fallout-*` (twelve crates, [below](#the-fallout-crates)) | the game's own units: every `fallout_*` subsystem, `unplaced`, `facegen`, `d3dx9`, `remotelog`, split by area; the `extra_data` and `reference` adapters (in `engine-fallout-cell`) | all of the above, and the fallout crates below them |
 | `engine` | nothing of its own: re-exports every crate (`engine::units::<subsystem>`, `engine::prelude`, ...) and registers every function | all |
 
 The grouping follows the code: Rust references between subsystems (layouts,
@@ -75,7 +75,7 @@ run (`fabs_restores_the_control_word_through_ctrlfp` from `crt.rs` to
 `fallout_shared_magic/effectsetting.rs`, the scrap-heap buffer test from
 `platform.rs` to `bscore/scrapheap.rs`, the allocator start-up test from
 `nisystem/allocator_support.rs` to `unplaced/run_00aa1010.rs`), and four
-double a callee in `engine-fallout` (`__allshl` in two tests of
+double a callee in the game's own units (then `engine-fallout`: `__allshl` in two tests of
 `havok_sdk/hkbinarytagfilereader.rs`, `memmove_s` in
 `speedtree/run_00b23f10.rs`, four small helpers in
 `bshavok/bhkblendcontroller.rs`).
@@ -91,7 +91,8 @@ double a callee in `engine-fallout` (`__allshl` in two tests of
   program defines it): the `engine` crate assembles every part crate, so
   the full engine has every translated function. A part crate's own unit
   tests assemble that crate and the crates below it (generated into its
-  `units/mod.rs` under `cfg(test)`), so a test there reaches exactly those
+  `units/mod.rs` under `cfg(test)`; a fallout crate also every other fallout
+  crate, [below](#the-fallout-crates)), so a test there reaches exactly those
   functions; a call into a crate above stops with `open function <addr>`
   like an untranslated one, and the test doubles it. A program that links
   `engine-core` without an `assemble!` does not link.
@@ -100,12 +101,100 @@ double a callee in `engine-fallout` (`__allshl` in two tests of
 - `engine-core`'s `test-support` feature exposes the form-constructor
   checker (`units::crt::ctor_test`) to the other crates' tests.
 
+### The fallout crates
+
+The game's own units (2.1 million lines, 1,749 files) were one crate,
+`engine-fallout`, until 2026-11-03: any fix in them recompiled all of it. They
+are now twelve crates by area, so a fix recompiles its own area and re-checks
+the few crates above it. Measured on the laptop with the build queue's settings
+(one crate at a time), one statement added to a function of five typical units,
+2026-11-03:
+
+| | Before (one crate) | After (twelve) |
+| --- | --- | --- |
+| Play build after the fix (`--profile play`, incremental) | 134-469 s, median 419 s; one rustc at 8.6 GB | 18-52 s, median 30 s; no rustc above 2.8 GB |
+| Unit tests of the fixed unit (`cargo test -p <crate> --lib <unit>`, not incremental), `fallout_ai/highprocess` | 525 s, one rustc at 23.4 GB | 132 s (`engine-fallout-ai`), 5.1 GB |
+| Every unit test of the game's units, built and run | 727 s, 23.6 GB | 861 s, 5.2 GB |
+
+Other agents' builds ran beside both series. The before median (419 s) is 2.4 times the 178 s
+median of 16 earlier play builds after an engine-fallout edit (2026-10-23 to 10-29, the queue
+at one job); against that figure the play build is about 6 times faster, not 14.
+
+The crates:
+
+| Crate | Holds | Fallout crates its code needs |
+| --- | --- | --- |
+| `engine-fallout-facegen` | `facegen`, `fallout_shared_facegen`, `unplaced/run_00649ba0` | - |
+| `engine-fallout-script` | `fallout_shared`: scripts, script functions, conditions, the compiler, quests; `unplaced/run_005c8a50` | - |
+| `engine-fallout-pathfinding` | `fallout_shared_pathfinding`; `unplaced/run_006f50b0` | - |
+| `engine-fallout-env` | `fallout_shared_sky`, `_distant_terrain_system`, `_region_system`, `_speedtree`, `_havok`; `unplaced/run_00664440`, `run_006271b0` | - |
+| `engine-fallout-interface` | `fallout_interface`, `fallout_dialogue` | - |
+| `engine-fallout-cell` | `fallout_shared`: references, cells, `TES`, extra data, model loading, animation, land, water, worldspaces, decals; the `extra_data` and `reference` adapters | facegen |
+| `engine-fallout-forms` | `fallout_shared`: the form classes, the data handler, `TESFile`, inventory, save game, packages, formulas and the folder's other runs; seven `unplaced` runs whose layouts are forms | cell, facegen |
+| `engine-fallout-magic` | `fallout_magic`, `fallout_shared_magic`, `fallout_shared_tempeffects` | forms |
+| `engine-fallout-ai` | `fallout_ai`; `unplaced/run_008a81e0`, `run_00988750` | forms, pathfinding |
+| `engine-fallout-misc` | `fallout_misc` (the main loop, save and load), `fallout_audio`, `fallout_debug`, `fallout_shared_settings`, `remotelog`, `xapilib`, `d3dx9`; `unplaced/run_0070bbe0` | ai, interface, cell |
+| `engine-fallout-unplaced-a` | the other `unplaced` runs below 0x00800000 | facegen |
+| `engine-fallout-unplaced-b` | the other `unplaced` runs from 0x00800000 | facegen |
+
+Each `Cargo.toml` also names every fallout crate under these (ai: forms,
+pathfinding, cell, facegen), because the generated `units/mod.rs` re-exports
+every crate below and Rust reaches only a direct dependency by name. A fix in
+one crate re-checks the crates above it: facegen seven, cell four (forms, magic,
+ai, misc), forms three, pathfinding two, ai and interface one (misc); script,
+env, magic, misc and the two unplaced crates none.
+
+- **Where a unit goes:** `scripts/ledger/fallout_crates.tsv`, one row per
+  (folder, unit) pattern, first match wins; part files (`actor_p3`) follow
+  their unit. Two folders are split by unit between several crates:
+  `fallout_shared` (cell, forms, script) and `unplaced` (nine crates). `ledger
+  units` refuses to run while a file sits in another crate than the rules
+  say, and `ledger scaffold` places new units with them; a new fallout folder
+  needs a row first.
+- **Paths stay.** A split folder keeps its one name: each crate's
+  `units/<folder>/mod.rs` also re-exports, by name, that folder's units in the
+  crates below it, and a crate that holds none of a split folder gets an
+  inline `units::<folder>` module that re-exports them. So `super::<unit>` and
+  `crate::units::fallout_shared::<unit>` reach a unit in a crate below, and
+  `engine::units::fallout_shared::<unit>` reaches every one. The translations
+  did not change, except that five items became `pub` for a crate above
+  (`extradatalist::list_item`, `list_next`; the `bsfacegenmodel::face_check`
+  module, its `enabled` and `shader_textures`), the `FISTP` helpers
+  `x87_truncate_i32/i64` became `engine_core::x87::fistp_chop`/`fistp_chop64`,
+  and FaceGen's speech check got a redirect for its tests (below: its five
+  hooks called from other crates, `linked`, `removing`, `removed`,
+  `node_freeing` and `node_allocated`, first read a `OnceLock` that only its
+  tests set; diagnostic code only, no effect on the game).
+- **Calls between the crates** go by address through `Engine`, as before; the
+  facade registers all twelve (`units::PARTS`; a facade test checks that no
+  address is registered by two crates, so the order never matters).
+- **Tests (phase A).** Each fallout crate names every other fallout crate
+  under `[dev-dependencies]`, and its generated `cfg(test)` assemble
+  registers them, so its tests reach every translated function exactly as
+  before the split (the same tests, under the same names). A dev-dependency
+  that depends on the crate under test links that crate a second time (the
+  library beside the test build); nothing in these crates is `#[no_mangle]`,
+  and calls between them go by address, so that is harmless, except that the
+  test build's statics are not the ones the other crates' code sees: FaceGen's
+  speech check (`bsfacegenkeyframe::speech_check`) keeps its state in statics
+  and is called from cell, forms and unplaced-a, so its tests send the library
+  build's hooks to the test build's own (`speech_check::redirect`). Phase B
+  (later) drops the dev-dependencies a crate's tests do not need, so a test
+  build compiles its own crate only.
+- **Rebasing a branch from before the split:** `git rebase origin/main`
+  carries edits of existing files (every carve commit moves its files as
+  exact renames; five unit files are edited in commits of their own).
+  A branch that adds unit files or edits a generated `mod.rs` replays its
+  patches with the paths rewritten (`git format-patch`, then the rename map
+  `crates/engine-fallout/... -> crates/engine-fallout-<area>/...`, then `git am
+  -3`), and runs `ledger units`.
+
 ## One unit, one file, one owner
 
 Translations live in `crates/<crate>/src/units/<subsystem>/<unit>.rs`, one
 file per source unit of the Xbox 360 prototype (Xbox PDB, ADR-0002): for
 example `fallout/ai/processlists.cpp` is
-`crates/engine-fallout/src/units/fallout_ai/processlists.rs`. `ledger queue`
+`crates/engine-fallout-ai/src/units/fallout_ai/processlists.rs`. `ledger queue`
 prints each unit's file and crate.
 The lead creates the files (`ledger scaffold <unit or subsystem>`); the
 `mod.rs` files are generated (`ledger units`) and never edited by hand.

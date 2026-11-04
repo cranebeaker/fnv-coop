@@ -198,7 +198,7 @@ pub struct Engine {
     pub call_hook: Option<fn(&mut Engine, u32, bool)>,
     /// Diagnostic only (not exe behaviour): runs as a heap block is freed through the game's
     /// `MemoryManager::Deallocate` (`00aa4060`) or the CRT's `free`, given the block (not 0),
-    /// before it is freed. Lets a check see who frees what (`NV_SPEECH_CHECK`, engine-fallout's
+    /// before it is freed. Lets a check see who frees what (`NV_SPEECH_CHECK`, engine-fallout-facegen's
     /// `bsfacegenkeyframe.rs`). `None` in normal runs.
     pub free_hook: Option<fn(&mut Engine, u32)>,
     /// The import slots [`Engine::register_imports`] gave a platform function: the calls at

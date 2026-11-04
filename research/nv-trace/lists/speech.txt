@@ -5,13 +5,13 @@
 #
 # Main::OnIdle: the recorder counts frames by it (the key script); recorded like the others.
 0086e650 frame    p               void Main::OnIdle
-# BSFaceGenAnimationData (Xbox PDB names), crates/engine-fallout/.../run_00649ba0.rs
+# BSFaceGenAnimationData (Xbox PDB names), crates/engine-fallout-facegen/.../run_00649ba0.rs
 0064aa00 thiscall ppf             void BSFaceGenAnimationData::AddPhonemeKeyframe
 0064ab40 thiscall ppf             void BSFaceGenAnimationData::AddModifiersKeyframe
 0064ad20 thiscall pwfw            void BSFaceGenAnimationData::AddSpeechEmptyKeyframe
 0064aec0 thiscall pbbbb           void BSFaceGenAnimationData::ClearSpeechKeyframeLists
 0064ca60 cdecl    fppb            u8   BSFaceGenAnimationData::UpdateKeyframeList
-# BSFaceGenKeyframeMultiple, crates/engine-fallout/.../bsfacegenkeyframe.rs
+# BSFaceGenKeyframeMultiple, crates/engine-fallout-facegen/.../bsfacegenkeyframe.rs
 0064ed60 thiscall pp              u8   BSFaceGenKeyframeMultiple::AddToList
 0064ebe0 thiscall pw              ptr  BSFaceGenKeyframeMultiple::scalar_deleting_destructor
 # LipSynchAnim play (fallout_shared/run_004d5930.rs)

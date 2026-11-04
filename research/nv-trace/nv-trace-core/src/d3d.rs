@@ -30,7 +30,7 @@ pub const D3DX_TEXTURE: u32 = 0x00fd_f3fc;
 pub const D3DX_CUBE: u32 = 0x00fd_f400;
 pub const D3DX_VOLUME: u32 = 0x00fd_f404;
 /// The exe's texture-from-file function (`__thiscall`, w1 the file name): `00e68a80`, unnamed in
-/// the symbols (`crates/engine-fallout/src/units/unplaced/run_00e673f0.rs`).
+/// the symbols (`crates/engine-fallout-unplaced-b/src/units/unplaced/run_00e673f0.rs`).
 pub const TEXTURE_FROM_FILE: u32 = 0x00e6_8a80;
 
 /// `IDirect3DDevice9` slots (d3d9.h order).

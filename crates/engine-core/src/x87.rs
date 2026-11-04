@@ -531,6 +531,17 @@ pub fn fistp_chop(value: f64) -> i32 {
     }
 }
 
+/// The same for a 64-bit store (`FISTP qword` under rounding toward zero): the integer
+/// indefinite 0x8000000000000000 for NaN and values out of range (2^63 and above, below
+/// -2^63).
+pub fn fistp_chop64(value: f64) -> i64 {
+    if value.is_nan() || value >= 9.223_372_036_854_776e18 || value < -9.223_372_036_854_776e18 {
+        i64::MIN
+    } else {
+        value as i64
+    }
+}
+
 /// The `CMPEQSS`/`RSQRTSS` pair of the Havok normalizer: the hardware
 /// estimate of `1 / sqrt(x)` on x86, exact elsewhere.
 #[cfg(target_arch = "x86_64")]
@@ -2114,6 +2125,34 @@ mod tests {
         assert_eq!(fistp_chop(-2147483648.9), i32::MIN);
         assert_eq!(fistp_chop(-2147483649.0), i32::MIN);
         assert_eq!(fistp_chop(f64::NAN), i32::MIN);
+    }
+
+    #[test]
+    fn fistp_chop_edges_and_its_64_bit_store() {
+        // The edges of the 32-bit store, as `bgsdestructibleobjectform` wrote them before it
+        // used this helper (out of range: at or above 2^31, at or below -2^31 - 1).
+        assert_eq!(fistp_chop(2147483647.999), i32::MAX);
+        assert_eq!(fistp_chop(-2147483648.0), i32::MIN);
+        assert_eq!(fistp_chop(-2147483648.999), i32::MIN);
+        assert_eq!(fistp_chop(f64::INFINITY), i32::MIN);
+        assert_eq!(fistp_chop(f64::NEG_INFINITY), i32::MIN);
+        assert_eq!(fistp_chop(-0.0), 0);
+        assert_eq!(fistp_chop64(2.9), 2);
+        assert_eq!(fistp_chop64(-2.9), -2);
+        assert_eq!(fistp_chop64(4294967296.5), 4294967296);
+        assert_eq!(
+            fistp_chop64(9.223_372_036_854_775e18),
+            9_223_372_036_854_774_784
+        );
+        assert_eq!(fistp_chop64(9.223_372_036_854_776e18), i64::MIN);
+        assert_eq!(fistp_chop64(-9.223_372_036_854_776e18), i64::MIN);
+        assert_eq!(
+            fistp_chop64(-9.223_372_036_854_775e18),
+            -9_223_372_036_854_774_784
+        );
+        assert_eq!(fistp_chop64(-9.223_372_036_854_778e18), i64::MIN);
+        assert_eq!(fistp_chop64(f64::NAN), i64::MIN);
+        assert_eq!(fistp_chop64(f64::INFINITY), i64::MIN);
     }
 
     #[test]

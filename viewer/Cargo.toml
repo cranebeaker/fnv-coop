@@ -43,7 +43,7 @@ opt-level = 1
 opt-level = 3
 
 # The play-build loop's viewers (`cargo build --profile play`, exe in target/play/): the engine
-# crates and host at opt-level 1 (their time is almost all code generation: engine-fallout 370
+# crates and host at opt-level 1 (their time is almost all code generation: engine-fallout (one crate then) 370
 # of 448 s, engine-havok 290 of 321 s at opt-level 3, 2026-10-23), dependencies as in release.
 # Packaging the play copy stays on `--release`.
 [profile.play]
@@ -69,7 +69,43 @@ opt-level = 1
 [profile.play.package.engine-speedtree]
 opt-level = 1
 
-[profile.play.package.engine-fallout]
+[profile.play.package.engine-fallout-facegen]
+opt-level = 1
+
+[profile.play.package.engine-fallout-script]
+opt-level = 1
+
+[profile.play.package.engine-fallout-pathfinding]
+opt-level = 1
+
+[profile.play.package.engine-fallout-env]
+opt-level = 1
+
+[profile.play.package.engine-fallout-cell]
+opt-level = 1
+
+[profile.play.package.engine-fallout-forms]
+opt-level = 1
+# More modules (412) than the default 256 code-generation units: one unit each, so a
+# one-file fix re-generates one unit.
+codegen-units = 512
+
+[profile.play.package.engine-fallout-magic]
+opt-level = 1
+
+[profile.play.package.engine-fallout-interface]
+opt-level = 1
+
+[profile.play.package.engine-fallout-ai]
+opt-level = 1
+
+[profile.play.package.engine-fallout-unplaced-a]
+opt-level = 1
+
+[profile.play.package.engine-fallout-unplaced-b]
+opt-level = 1
+
+[profile.play.package.engine-fallout-misc]
 opt-level = 1
 
 [profile.play.package.engine]
@@ -102,9 +138,46 @@ opt-level = 3
 [profile.play-fast.package.engine-speedtree]
 opt-level = 3
 
-# engine-fallout at opt-level 1 (2026-10-27): it is most of the build time and little of the run
-# time (dispatch is in engine-core); fixes made during a play loop go to crates/play-patch.
-[profile.play-fast.package.engine-fallout]
+# The engine-fallout-* crates (one crate until 2026-11-03) at opt-level 1 (2026-10-27): they are
+# most of the build time and little of the run time (dispatch is in engine-core); fixes made
+# during a play loop go to crates/play-patch.
+[profile.play-fast.package.engine-fallout-facegen]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-script]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-pathfinding]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-env]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-cell]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-forms]
+opt-level = 1
+# More modules (412) than the default 256 code-generation units: one unit each, so a
+# one-file fix re-generates one unit.
+codegen-units = 512
+
+[profile.play-fast.package.engine-fallout-magic]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-interface]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-ai]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-unplaced-a]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-unplaced-b]
+opt-level = 1
+
+[profile.play-fast.package.engine-fallout-misc]
 opt-level = 1
 
 [profile.play-fast.package.engine]

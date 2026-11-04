@@ -1,0 +1,25 @@
+# Which engine-fallout-* crate each unit file of the game's own folders lives in
+# (docs/ENGINE_CRATE.md, "The fallout crates"). The first row whose folder and stem match wins.
+# `ledger units` checks every file under crates/engine-fallout-* against it and places new
+# units with it; a new fallout folder needs a row here first.
+# folder	stem (ERE, whole name, part suffix _pN stripped)	crate
+unplaced	run_00649ba0	engine-fallout-facegen
+unplaced	run_004012a0|run_00471400|run_004726f0|run_0059b270|run_00601750|run_00854ea0|run_00856380	engine-fallout-forms
+unplaced	run_005c8a50	engine-fallout-script
+unplaced	run_006f50b0	engine-fallout-pathfinding
+unplaced	run_008a81e0|run_00988750	engine-fallout-ai
+unplaced	run_0070bbe0	engine-fallout-misc
+unplaced	run_00664440|run_006271b0	engine-fallout-env
+unplaced	run_00[4-7][0-9a-f]{5}	engine-fallout-unplaced-a
+unplaced	.*	engine-fallout-unplaced-b
+facegen	.*	engine-fallout-facegen
+fallout_shared_facegen	.*	engine-fallout-facegen
+fallout_shared	extradatalist|extradataobjects|extra_data_support|extradatacell|containeritemextra|tesobjectrefr|tesobjectcell|tes|gridcell|gridarray|exteriorcellloader|modelloader|animation|bipedanim|bsanimgroupsequence|bsanimnotereceiver|bsbipnode|bsclonepool|tesanimgroup|lipsynchanim|tesland|teswater|tesworldspace|renderer|bgsdecalmanager|bgsdecalnode|decaldata|bgsautowater|bgsprimitive|imagespacemodifierinstance|screensplatter|screencustomsplatter|bgsloadedreferencecollection|multiboundmarkerdata|teleportdata|doorlock|testerrainlodmanager|ragdolldata|audiomarkerdata|mapmarkerdata|niformarray|run_0049fc80|run_004a3c20|run_004ba280|run_004d50e0|run_004d5930	engine-fallout-cell
+fallout_shared	tesscript|tesscriptfunctions|tesscriptcompiler|tesscriptrunmanager|tesscriptvariable|tescondition|tesconditionfunctions|tesconditionitem|foscriptfunctions|tesquest|tesqueststage|tesquesttarget|run_0060bef0|run_0060f240|run_0060f3a0|run_0060f4a0|run_0060f5f0|run_0060ff70|run_00610210|run_005b4550|run_00681220|run_00681600	engine-fallout-script
+fallout_shared	.*	engine-fallout-forms
+fallout_shared_pathfinding	.*	engine-fallout-pathfinding
+fallout_ai	.*	engine-fallout-ai
+fallout_interface|fallout_dialogue	.*	engine-fallout-interface
+fallout_magic|fallout_shared_magic|fallout_shared_tempeffects	.*	engine-fallout-magic
+fallout_shared_sky|fallout_shared_distant_terrain_system|fallout_shared_region_system|fallout_shared_speedtree|fallout_shared_havok	.*	engine-fallout-env
+fallout_misc|fallout_audio|fallout_debug|fallout_shared_settings|remotelog|xapilib|d3dx9	.*	engine-fallout-misc

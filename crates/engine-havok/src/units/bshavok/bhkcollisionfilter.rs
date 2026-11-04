@@ -1458,7 +1458,7 @@ mod tests {
         assert_eq!(e.mem.u32(0x0126_802c), 0);
     }
 
-    /// `__allshl` (`00ec7810`) is an unplaced unit of `engine-fallout`, which this crate's tests
+    /// `__allshl` (`00ec7810`) is an unplaced unit of `engine-fallout-unplaced-b`, which this crate's tests
     /// do not link: a double (the 64-bit value shifted left by the count; 0 from 64 on).
     fn allshl_double(e: &mut Engine) {
         e.register(SHIFT_LEFT_64, |_, a| {

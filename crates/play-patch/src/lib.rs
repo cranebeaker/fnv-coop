@@ -1,9 +1,9 @@
 //! The play loop's patch crate.
 //!
 //! A stop in a play-build run is usually one function translated wrong or not at all. Fixing it
-//! in its home file rebuilds that engine crate and everything after it (engine-fallout at
-//! opt-level 3 takes many minutes). A fix written here instead rebuilds only this crate, the
-//! host and the link: [`funcs`] is registered over the engine's own table at start-up
+//! in its home file rebuilds that engine crate and everything after it (engine-havok or the
+//! larger engine-fallout-* crates at opt-level 3 take minutes). A fix written here instead
+//! rebuilds only this crate, the host and the link: [`funcs`] is registered over the engine's own table at start-up
 //! (`host::Host::start`, right after the exe is mapped), so an entry here replaces the one with
 //! the same address.
 //!

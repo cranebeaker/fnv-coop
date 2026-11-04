@@ -15,7 +15,18 @@ engine-gamebryo = { path = "../engine-gamebryo" }
 engine-bs = { path = "../engine-bs" }
 engine-havok = { path = "../engine-havok" }
 engine-speedtree = { path = "../engine-speedtree" }
-engine-fallout = { path = "../engine-fallout" }
+engine-fallout-facegen = { path = "../engine-fallout-facegen" }
+engine-fallout-script = { path = "../engine-fallout-script" }
+engine-fallout-pathfinding = { path = "../engine-fallout-pathfinding" }
+engine-fallout-env = { path = "../engine-fallout-env" }
+engine-fallout-cell = { path = "../engine-fallout-cell" }
+engine-fallout-forms = { path = "../engine-fallout-forms" }
+engine-fallout-magic = { path = "../engine-fallout-magic" }
+engine-fallout-interface = { path = "../engine-fallout-interface" }
+engine-fallout-ai = { path = "../engine-fallout-ai" }
+engine-fallout-unplaced-a = { path = "../engine-fallout-unplaced-a" }
+engine-fallout-unplaced-b = { path = "../engine-fallout-unplaced-b" }
+engine-fallout-misc = { path = "../engine-fallout-misc" }
 
 [dev-dependencies]
 # The opt-in real-script run (`tests/real_scda.rs`) reads the player's

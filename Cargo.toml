@@ -2,7 +2,7 @@
 resolver = "2"
 # The Bevy viewer is its own workspace (see viewer/Cargo.toml).
 exclude = ["viewer"]
-members = ["crates/engine", "crates/engine-core", "crates/engine-gamebryo", "crates/engine-bs", "crates/engine-havok", "crates/engine-speedtree", "crates/engine-fallout", "crates/host", "crates/play-patch", "crates/esm", "crates/bsa", "crates/nif", "crates/dds", "crates/assets", "crates/world", "crates/preview", "crates/cellview", "crates/testdata", "crates/shaders", "crates/nvinspect", "crates/physics", "crates/script", "crates/scriptgen", "crates/mp3", "crates/vorbis", "crates/bink", "crates/ui", "crates/speedtree", "crates/fos"]
+members = ["crates/engine", "crates/engine-core", "crates/engine-gamebryo", "crates/engine-bs", "crates/engine-havok", "crates/engine-speedtree", "crates/engine-fallout-facegen", "crates/engine-fallout-script", "crates/engine-fallout-pathfinding", "crates/engine-fallout-env", "crates/engine-fallout-cell", "crates/engine-fallout-forms", "crates/engine-fallout-magic", "crates/engine-fallout-interface", "crates/engine-fallout-ai", "crates/engine-fallout-unplaced-a", "crates/engine-fallout-unplaced-b", "crates/engine-fallout-misc", "crates/host", "crates/play-patch", "crates/esm", "crates/bsa", "crates/nif", "crates/dds", "crates/assets", "crates/world", "crates/preview", "crates/cellview", "crates/testdata", "crates/shaders", "crates/nvinspect", "crates/physics", "crates/script", "crates/scriptgen", "crates/mp3", "crates/vorbis", "crates/bink", "crates/ui", "crates/speedtree", "crates/fos"]
 
 [workspace.package]
 edition = "2021"

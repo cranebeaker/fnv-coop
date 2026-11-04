@@ -144,7 +144,7 @@ mod swap_tests {
 
     fn engine() -> Engine {
         let mut e = Engine::new();
-        // 00ec3bda is in engine-fallout: a double that swaps the low 16 bits.
+        // 00ec3bda is in engine-fallout-unplaced-b: a double that swaps the low 16 bits.
         e.register(BYTESWAP_USHORT, |_, a| {
             u32::from((a[0] as u16).swap_bytes()).into_ret()
         });

@@ -3366,7 +3366,7 @@ mod tests {
     #[test]
     fn words_are_moved_with_memmove_s_and_the_end_returned() {
         let mut e = engine();
-        // `memmove_s` (`00ec7ce3`) is an unplaced unit of `engine-fallout`, which this
+        // `memmove_s` (`00ec7ce3`) is an unplaced unit of `engine-fallout-unplaced-b`, which this
         // crate's tests do not link since the engine split: a double with its body for
         // the moves made here (a size of 0 succeeds; valid pointers with room move
         // through `memmove`, `00ec7230`).

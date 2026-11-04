@@ -2692,7 +2692,7 @@ mod tests {
     #[test]
     fn node_get_up_refreshes_the_body_under_the_first_grandchild() {
         let mut e = engine();
-        // Four small functions of `engine-fallout` this test passes through, which this
+        // Four small functions of the `engine-fallout-*` crates this test passes through, which this
         // crate's tests do not link since the engine split: doubles with the bodies of
         // their translations for the case reached here. `0044ddc0`: the word at +8;
         // `00620b80`: `0044ddc0(this)`; `008c71b0`: stores the word and answers the
