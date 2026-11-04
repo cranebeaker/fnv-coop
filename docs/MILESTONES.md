@@ -1,10 +1,38 @@
 # nv-rs milestones
 
-Updated 2026-11-03. The active plan and how each step is judged done. Keep
+Updated 2026-11-04. The active plan and how each step is judged done. Keep
 this file short: per-session detail goes in docs/HANDOFF.md, per-function
 status in [LEDGER.md](LEDGER.md), and the full list of systems in
 [SYSTEMS.md](SYSTEMS.md). The log up to 2026-10-14 is in
 [history/milestones-2026-10-14.md](history/milestones-2026-10-14.md).
+
+## Direction (maintainer, 2026-11-04; [ADR-0012](adr/0012-modern-64-bit-engine.md))
+
+The game looks and plays exactly like the original; what players do not see or
+feel may be different. The original (the exe, fnv_decomp, recordings) is the
+reference every change is tested against, not the way it has to be built.
+Today the translated code runs inside a model of the 32-bit program (one 4 GB
+address space, the x87 FPU modelled); the game's systems move one by one to
+typed, native 64-bit Rust (from fnv_decomp's typed C++, through a handle
+boundary so the game stays playable), and the modern systems below are built on
+them.
+
+Order: Rust pinned (done) -> the platform crate split -> the fnv_decomp audit and
+crash fixes (4 GB guest heap alongside) -> the typed 64-bit migration, the hottest
+systems first (culling, shader setup, the AI tasks), which is also the main speed
+work, with the quick wins that outlive it (a render thread, PGO, the light-view
+wait) -> the modern systems. Deep optimisation of the address-level translation
+(guard pages, generated direct calls) is skipped where typed code replaces it.
+
+| Area | Goal |
+| --- | --- |
+| Memory and loading | No 4 GB limit (big mod lists, 4K/8K textures); more of the world loaded; memory-mapped archives, background loading, cached cells; per-thread allocators |
+| CPU | A job system on every core (AI, animation, physics, culling, scene, LOD, sound, scripts) with results proven identical; pipelined frames; cache-friendly data and SIMD culling; scripts compiled to native code |
+| Smoothness | 200+ fps: a fixed-rate simulation with interpolated rendering (none of the original's high-frame-rate physics and timing bugs); precompiled shaders |
+| Graphics | wgpu (the only backend): a render thread, GPU-driven drawing; switchable real-time shadows, modern AA, HDR, upscaling, more lights, longer draw distance |
+| Stability | Memory- and thread-safe code; crash reports with the exact place; optional safety autosaves; safe background saves |
+| Modding | A built-in script extender (xNVSE, JIP commands); more than 255 plugins with existing mods unchanged; a better console, hot reload, clear errors |
+| Platforms | One 64-bit codebase: Windows, Linux, macOS, ARM, consoles |
 
 ## The plan
 
@@ -55,7 +83,9 @@ These were the original milestones. The engine port now delivers them.
 ## Rules that hold throughout
 
 - Nothing is invented or tuned by eye. Behaviour comes from the exe, its
-  data and recordings of the original ([METHODOLOGY.md](METHODOLOGY.md)).
+  data, fnv_decomp and recordings of the original ([METHODOLOGY.md](METHODOLOGY.md)).
+- What players see and feel stays the original's; internals may change when a
+  recording or comparison shows no observable difference.
 - The original behaviour stays available. Any later bug fixes go in a
   switchable fixes layer.
 - Completion needs a reproducible run of the play build compared with the original,

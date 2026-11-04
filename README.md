@@ -15,9 +15,10 @@
 original.**
 
 nv-rs is a new engine for Fallout: New Vegas, written in Rust. It runs the
-game from your own copy's files, and its goal is a faithful 1:1 match, down
-to the original's quirks. Not a remake that feels close: the same game, on a
-modern, open-source engine that can be fixed, ported and extended.
+game from your own copy's files. The goal: the game looks and plays exactly
+like the original, while everything you don't see or feel is rebuilt as a
+modern 64-bit engine: no 4 GB memory limit, every CPU core in use, 200+ fps,
+fast loading, far fewer crashes, built-in modding and more platforms.
 
 > [!IMPORTANT]
 > nv-rs is an independent project, not affiliated with or endorsed by
@@ -34,8 +35,13 @@ modern, open-source engine that can be fixed, ported and extended.
   the original. Nothing is tuned by eye.
 - **Your game, your files.** nv-rs reads the game's own plugins, meshes,
   textures, sounds and menus from your installation and never changes them.
-- **Built to last.** Open source and memory-safe, so fixes, new platforms and
-  optional improvements are possible later.
+- **Modern underneath.** The original's look and play are the reference every
+  change is tested against; the internals (memory, threads, data structures,
+  maths, rendering) are rebuilt natively in 64-bit Rust. Rust's memory and
+  thread safety rule out whole classes of the original's crashes.
+- **Better where it doesn't change the game.** Fixes and upgrades (shadows,
+  HDR, longer draw distance and more) are switchable; the original stays
+  available.
 - **Mods keep working.** Regular `.esp` and `.esm` mods load the way they do
   in the original.
 
@@ -50,9 +56,8 @@ stops on something not supported yet, the log names where and the game closes,
 instead of leaving a frozen window.
 
 Not yet: a full playthrough, the open world, script-extender (NVSE) plugins,
-other platforms than Windows, and VR. Speed is the current focus: the goal
-is to run as fast as the original without changing how it plays (faster, optional
-systems of our own come later).
+other platforms than Windows, and VR. Next: an audit of the translated code against fnv_decomp, then speed (200+ fps)
+and the move of the game's systems to native 64-bit code ([docs/MILESTONES.md](docs/MILESTONES.md)).
 
 ## Progress
 

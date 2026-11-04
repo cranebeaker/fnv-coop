@@ -17,3 +17,4 @@ A later decision that changes an earlier one says so and links back.
 | [0009](0009-fnv-decomp.md) | The community's matching decompilation (fnv_decomp) may be used | Accepted (maintainer, 2026-11-02, with the authors' permission) |
 | [0010](0010-fallout-crates-by-area.md) | The game's own units are split by area into twelve crates | Proposed (lead, 2026-11-03) |
 | [0011](0011-old-layer-removed.md) | The hand-written reimplementation is removed; nv-viewer runs the engine port only | Accepted (maintainer, 2026-11-03) |
+| [0012](0012-modern-64-bit-engine.md) | Look and play exactly like the original; a modern 64-bit engine underneath | Accepted (maintainer, 2026-11-04) |
