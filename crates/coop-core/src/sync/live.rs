@@ -2,7 +2,7 @@
 //! social, glued to the session. Pure: messages in, addressed messages out.
 //! Messages addressed to the host player itself land in a local inbox.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::actors::{ActorHost, PlayerLoc};
 use crate::authority::AuthorityTable;
@@ -19,6 +19,12 @@ use crate::scene::SceneHost;
 use crate::social::{ChatHost, MarkerTable, SocialMsg, VoiceHub};
 
 type Outs = Vec<(PlayerId, Msg)>;
+
+/// Avatar samples that a peer still gets after a player's cell left its
+/// view. The first sample moves its copy of the player out of the old
+/// cell. The others cover a lost packet (samples use the unreliable
+/// channel, one every 50 ms).
+const AVATAR_FAREWELL: u8 = 10;
 
 /// All host-side live state.
 pub struct HostLive {
@@ -50,6 +56,11 @@ pub struct HostLive {
     pub combat: CombatHost,
     members: Vec<PlayerId>,
     local_inbox: Vec<Msg>,
+    /// Per player: the peers that got its last avatar sample.
+    avatar_seen: BTreeMap<PlayerId, BTreeSet<PlayerId>>,
+    /// Per player: the peers that lost sight of its cell, and how many
+    /// more samples each gets ([`AVATAR_FAREWELL`]).
+    avatar_farewell: BTreeMap<PlayerId, BTreeMap<PlayerId, u8>>,
 }
 
 impl HostLive {
@@ -71,6 +82,8 @@ impl HostLive {
             combat: CombatHost::new(),
             members: vec![PlayerId::HOST],
             local_inbox: Vec::new(),
+            avatar_seen: BTreeMap::new(),
+            avatar_farewell: BTreeMap::new(),
         };
         l.rules.on_join(PlayerId::HOST, 0);
         l.chat.set_name(PlayerId::HOST, "");
@@ -294,7 +307,33 @@ impl HostLive {
                 {
                     self.route(a, m, out);
                 }
-                Audience::CellExcept(c, from)
+                // A peer that saw the player's last sample but does not see
+                // its new cell gets a few more samples, with the new cell: its
+                // copy of the player then leaves the old cell. Before, the
+                // copy stayed at the door that the player went through.
+                let aud = Audience::CellExcept(c, from);
+                let now: BTreeSet<PlayerId> = self
+                    .interest
+                    .resolve(aud, &self.members)
+                    .into_iter()
+                    .collect();
+                let before = self
+                    .avatar_seen
+                    .insert(from, now.clone())
+                    .unwrap_or_default();
+                let bye = self.avatar_farewell.entry(from).or_default();
+                for p in before.difference(&now) {
+                    bye.insert(*p, AVATAR_FAREWELL);
+                }
+                bye.retain(|p, n| *n > 0 && !now.contains(p));
+                let extra: Vec<PlayerId> = bye.keys().copied().collect();
+                for n in bye.values_mut() {
+                    *n -= 1;
+                }
+                for p in extra {
+                    self.route(Audience::To(p), Msg::Avatar(relay.msg.clone()), out);
+                }
+                aud
             }
             None => Audience::AllExcept(from),
         };
@@ -477,6 +516,35 @@ mod tests {
         let out = l.on_msg(PlayerId(1), av(1, 2, 1, 6.0), 20, &mut auth);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].0, PlayerId(2));
+    }
+
+    /// A player walks into a cell that a peer does not see: the peer still
+    /// gets the next samples, with the new cell, so its copy of the player
+    /// leaves the old cell. Then the samples stop.
+    #[test]
+    fn a_peer_gets_the_samples_that_move_a_player_out_of_its_view() {
+        let (mut l, mut auth) = live3();
+        l.on_msg(PlayerId(0), av(0, 1, 1, 0.0), 0, &mut auth);
+        l.on_msg(PlayerId(1), av(1, 1, 1, 0.0), 0, &mut auth);
+        let out = l.on_msg(PlayerId(2), av(2, 1, 1, 0.0), 0, &mut auth);
+        assert!(
+            out.iter().any(|o| o.0 == PlayerId(1)),
+            "both guests in cell 1"
+        );
+        // guest 2 goes through a door into cell 2
+        let mut got = 0;
+        for q in 2..40 {
+            let out = l.on_msg(PlayerId(2), av(2, q, 2, 0.0), u64::from(q) * 50, &mut auth);
+            for (to, m) in out {
+                assert_eq!(to, PlayerId(1));
+                let Msg::Avatar(AvatarMsg::State { state, .. }) = m else {
+                    panic!("{m:?}")
+                };
+                assert_eq!(state.cell, CellId(2), "the sample with the new cell");
+                got += 1;
+            }
+        }
+        assert_eq!(u32::from(AVATAR_FAREWELL), got, "a few samples, then none");
     }
 
     #[test]

@@ -51,16 +51,18 @@ pub struct Puppets {
 #[derive(Component)]
 pub struct NameTag;
 
-/// Whether the local player can see a remote avatar's place: the same cell,
-/// or outdoors near enough (the loaded squares).
+/// Whether the local player can see a remote avatar's place: the same
+/// interior, or outdoors the same worldspace and near enough (the loaded
+/// squares). A sample's cell is the worldspace outdoors
+/// (`space_of_player`). Before, outdoors only the distance counted, so a
+/// player in an interior with near coordinates stood outdoors.
 fn in_view(gs: &GameState, a: &RemoteAvatarView) -> bool {
-    let cell = gs.player_cell.map_or(0, |c| c.0);
-    if a.cell != 0 && a.cell == cell {
-        return true;
+    let here = world::coop::live::space_of_player(gs);
+    if a.cell == 0 || a.cell != here {
+        return false;
     }
-    a.cell != 0
-        && gs.player_world.is_some()
-        && gs
+    gs.player_world.is_none()
+        || gs
             .player_position
             .is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) <= REACH)
 }
@@ -439,5 +441,44 @@ pub fn name_tags(
                 set_bar(None, 0.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(cell: u32, x: f32) -> RemoteAvatarView {
+        RemoteAvatarView {
+            cell,
+            pos: [x, 0.0, 0.0],
+            ..Default::default()
+        }
+    }
+
+    /// A remote player shows only in the local player's own place: the same
+    /// interior, or outdoors the same worldspace and near enough.
+    #[test]
+    fn a_remote_player_shows_only_in_the_same_place() {
+        let mut gs = GameState::default();
+        // outdoors in worldspace 0x3C, at the origin
+        gs.player_world = Some(FormId(0x3C));
+        gs.player_cell = Some(FormId(0x1234));
+        gs.player_position = Some([0.0; 3]);
+        assert!(in_view(&gs, &at(0x3C, 100.0)), "near, same worldspace");
+        assert!(!in_view(&gs, &at(0x3C, REACH * 2.0)), "far away");
+        assert!(
+            !in_view(&gs, &at(0x5000, 100.0)),
+            "an interior with near coordinates"
+        );
+        assert!(!in_view(&gs, &at(0, 100.0)), "no place yet");
+        // indoors in interior 0x5000
+        gs.player_world = None;
+        gs.player_cell = Some(FormId(0x5000));
+        assert!(in_view(&gs, &at(0x5000, 100.0)), "the same interior");
+        assert!(
+            !in_view(&gs, &at(0x3C, 100.0)),
+            "outdoors with near coordinates"
+        );
     }
 }
