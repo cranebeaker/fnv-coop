@@ -337,8 +337,9 @@ impl Msg {
             9 => {
                 let has = r.u8()? != 0;
                 let d = f64::from_bits(r.u64()?);
-                // a damage that is not a number is a bad message, not a full heal
-                if has && !d.is_finite() {
+                // a damage that is not a number, or is under 0, is a bad message:
+                // health over the full value is not a thing
+                if has && (!d.is_finite() || d < 0.0) {
                     return None;
                 }
                 Msg::Health {
@@ -785,12 +786,7 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                     host_character(s, l, gs, from, kind, seq, &bytes);
                 }
             }
-            Msg::Health { damage } => {
-                // a local field of the shadow: it stays out of the shared hash
-                if let Some(sh) = gs.coop.bank.parked.get_mut(&from.0) {
-                    sh.damage = damage;
-                }
-            }
+            Msg::Health { damage } => host_health(l, gs, from, damage),
             Msg::Refused { seq, why } => {
                 if let Some(p) = l.pending.as_mut().filter(|p| p.seq == seq) {
                     p.fallback.insert(from);
@@ -843,6 +839,23 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
         }
     }
     host_pending(s, l, gs, &connected);
+}
+
+/// A guest's health report goes on the host's copy of that guest's character.
+fn host_health(l: &PartyLayer, gs: &mut GameState, from: PlayerId, damage: Option<f64>) {
+    // only a slot that a hello bound to the character it holds: the parked
+    // character of a slot that no hello bound may be a player who left
+    let bound = l
+        .keys
+        .get(&from)
+        .is_some_and(|k| l.claimed.get(k) == Some(&from));
+    if !bound {
+        return;
+    }
+    // a local field of the shadow: it stays out of the shared hash
+    if let Some(sh) = gs.coop.bank.parked.get_mut(&from.0) {
+        sh.damage = damage;
+    }
 }
 
 fn host_hello(
@@ -1313,7 +1326,7 @@ mod tests {
         }
         assert_eq!(Msg::decode(&[]), None);
         assert_eq!(Msg::decode(&[99]), None);
-        for bad in [f64::NAN, f64::INFINITY] {
+        for bad in [f64::NAN, f64::INFINITY, -1.0] {
             let m = Msg::Health { damage: Some(bad) }.encode();
             assert_eq!(Msg::decode(&m), None, "a damage of {bad} is refused");
         }
@@ -1357,5 +1370,29 @@ mod tests {
         );
         let mut r = Reasm::default();
         assert_eq!(r.add(0, 3000, vec![0; MAX_CHARACTER + 1]), None);
+    }
+
+    /// The host keeps a guest's health on the character that guest's hello bound to
+    /// its slot. A report from a slot that no hello bound does not touch the parked
+    /// character there (it may be a player who left).
+    #[test]
+    fn a_health_report_counts_only_from_a_slot_its_hello_bound() {
+        let mut gs = GameState::default();
+        gs.coop
+            .bank
+            .parked
+            .insert(1, world::coop::shadow::PlayerShadow::fresh());
+        let mut l = PartyLayer::new(Role::Host);
+        let damage = |gs: &GameState| gs.coop.bank.parked[&1].damage;
+        host_health(&l, &mut gs, PlayerId(1), Some(5.0));
+        assert_eq!(damage(&gs), None, "no hello bound slot 1 yet");
+        // the key's character now lives in another slot
+        l.keys.insert(PlayerId(1), 42);
+        l.claimed.insert(42, PlayerId(2));
+        host_health(&l, &mut gs, PlayerId(1), Some(6.0));
+        assert_eq!(damage(&gs), None, "slot 1 does not hold key 42's character");
+        l.claimed.insert(42, PlayerId(1));
+        host_health(&l, &mut gs, PlayerId(1), Some(7.0));
+        assert_eq!(damage(&gs), Some(7.0), "a bound slot's report counts");
     }
 }
