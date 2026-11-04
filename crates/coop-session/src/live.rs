@@ -408,7 +408,11 @@ impl Session {
                 return;
             }
             if l.guest.as_ref().map(|x| x.0) != Some(me) && !me.is_host() {
-                g.sync.live = GuestLive::new(me);
+                // the Welcome made the live state for this slot: keep what
+                // arrived while the viewer loaded the cell
+                if g.sync.live.me() != me {
+                    g.sync.live = GuestLive::new(me);
+                }
                 l.guest = Some((me, LiveGuestAdapter::new(me)));
             }
         }

@@ -566,3 +566,106 @@ fn a_delayed_welcome_never_creates_slot_255_rows() {
         assert!(ok, "{chaos:?}: the shared shards agree");
     }
 }
+
+impl Rig<'_> {
+    /// A frame in which the guest's viewer still loads the cell: the host plays,
+    /// the guest only polls the link (`poll`), or does nothing with `deaf`.
+    fn frame_loading(&mut self, guest_polls: bool) {
+        let cx = self.cx();
+        let p = &mut self.host;
+        p.s.pre_frame_with(
+            &mut p.gs,
+            Opts {
+                present: true,
+                ctx: Some(cx),
+            },
+        );
+        p.gs.player_cell = Some(FormId(p.cell));
+        p.gs.player_position = Some(p.pos);
+        p.s.live_frame(&mut p.gs, cx, DT);
+        p.s.post_frame(&mut p.gs, DT);
+        if guest_polls {
+            self.guest.s.poll(DT);
+        }
+    }
+}
+
+/// The guest's viewer joins with `poll` only, then loads the cell for 12 s
+/// without touching the link. The host says a line during the load. The host
+/// keeps the guest, and the line shows once the guest plays. Before, the host
+/// dropped the guest after 8 s, and the guest's first full frame made a fresh
+/// live state that dropped what had arrived.
+#[test]
+fn a_line_said_while_the_guest_loads_still_arrives() {
+    let data = testdata::dialogue::world("sl-chat-load");
+    let order = LoadOrder::from_data_dir(data.path(), &ActivePlugins::OfficialOnly).unwrap();
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, 0xB10, None);
+    let mut joined = false;
+    for _ in 0..2000 {
+        r.frame_loading(true);
+        if r.guest.s.host_place().is_some() && r.guest.s.is_connected() {
+            joined = true;
+            break;
+        }
+    }
+    assert!(joined, "the guest joined with polls only");
+    r.frame_loading(true);
+    r.host
+        .s
+        .live_intent(Intent::Say("said during your load".into()));
+    for _ in 0..(12.0 / DT) as u32 {
+        r.frame_loading(false);
+    }
+    let left = r
+        .host
+        .s
+        .drain_events()
+        .into_iter()
+        .any(|e| matches!(e, coop_session::Event::PeerLeft(..)));
+    assert!(!left, "the host kept the loading guest");
+    let mut got = Vec::new();
+    assert!(
+        r.until(2000, |r| {
+            got.extend(
+                r.guest
+                    .s
+                    .live_view()
+                    .map(|v| v.chat.clone())
+                    .unwrap_or_default(),
+            );
+            got.iter().any(|c| c.text == "said during your load")
+        }),
+        "the line reached the guest's view"
+    );
+}
+
+/// The guest is told the host's place with its feet on its own spot beside
+/// the host, also after the host moves to another cell. Before, the guest
+/// got the host's exact feet, and it started or followed onto the host.
+#[test]
+fn a_guest_is_told_a_spot_beside_the_host() {
+    let data = testdata::dialogue::world("sl-place-ring");
+    let order = LoadOrder::from_data_dir(data.path(), &ActivePlugins::OfficialOnly).unwrap();
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, 0xB10, None);
+    r.settled();
+    let ring = coop_core::roam::model::WARP_SPREAD;
+    let pl = r.guest.s.host_place().expect("the host's place");
+    let p = pl.pos.expect("the host's feet");
+    let d = (p[0] - 900.0).hypot(p[1] - 1000.0);
+    assert!((d - ring).abs() < 1.0, "beside the host, not on it ({d})");
+    r.host.cell = 0xB11;
+    r.host.pos = [100.0, 200.0, 0.0];
+    assert!(r.until(400, |r| r
+        .guest
+        .s
+        .host_place()
+        .is_some_and(|p| p.cell == 0xB11)));
+    let p = r.guest.s.host_place().unwrap().pos.unwrap();
+    let d = (p[0] - 100.0).hypot(p[1] - 200.0);
+    assert!(
+        (d - ring).abs() < 1.0,
+        "beside the host in the new cell ({d})"
+    );
+}

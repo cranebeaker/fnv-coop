@@ -346,6 +346,33 @@ pub(crate) struct Peer {
     pub(crate) seen_ms: u64,
     pub(crate) announced: bool,
     pub(crate) cmds_seen: BTreeSet<u32>,
+    /// True once the peer sent an avatar sample with a cell: it plays. Before
+    /// that its viewer may still load the cell and not poll (see
+    /// [`LOAD_TIMEOUT_MS`]).
+    pub(crate) in_game: bool,
+}
+
+/// How long the host waits for a live peer that has not played yet (no
+/// avatar sample with a cell). A
+/// viewer loads its first cell without polling the link, and the normal
+/// timeout (`peer_timeout_ms`, 8 s) dropped a guest on a slow load. The
+/// host then lost the messages it sent during the load.
+pub(crate) const LOAD_TIMEOUT_MS: u64 = 45_000;
+
+/// The host's place as guest `to` gets it: the feet on the guest's own spot
+/// beside the host (`SceneModel::ring_spot`). A guest that starts there or
+/// follows the host there then does not stand on the host.
+fn place_for(pl: Place, to: PlayerId) -> Place {
+    use coop_core::roam::{Placement, SceneModel};
+    let pos = pl.pos.map(|p| {
+        let at = Placement {
+            cell: coop_core::ids::CellId(pl.cell),
+            pos: p,
+            heading: 0.0,
+        };
+        SceneModel::ring_spot(at, to).pos
+    });
+    Place { pos, ..pl }
 }
 
 pub(crate) struct HostSide {
@@ -923,6 +950,12 @@ impl Session {
                 },
                 None => m,
             };
+            // a sample from a placed player: a guest that still loads its
+            // first cell sends samples with no cell (the sync tick sends them)
+            let avatar = matches!(
+                &m,
+                Msg::Avatar(coop_core::avatar::AvatarMsg::State { state, .. }) if state.cell.0 != 0
+            );
             let replies = h.sync.on_msg(from, m);
             for note in std::mem::take(&mut h.sync.compat_log) {
                 let who = format!("Player {}", note.player.0);
@@ -946,12 +979,14 @@ impl Session {
                     seen_ms: now,
                     announced: false,
                     cmds_seen: BTreeSet::new(),
+                    in_game: false,
                 });
                 p.last_heard_ms = now;
+                p.in_game |= avatar;
                 if fresh {
                     h.roster_dirty = true;
                     if let Some(pl) = h.place {
-                        send_ext(&mut self.net, from, &Ext::Place(pl));
+                        send_ext(&mut self.net, from, &Ext::Place(place_for(pl, from)));
                     }
                 }
             }
@@ -978,7 +1013,16 @@ impl Session {
             Msg::Delta { .. } | Msg::Snapshot(_) | Msg::Hash { .. } | Msg::Repair(_) => {
                 g.last_state_ms = now
             }
-            Msg::Welcome { player, .. } => g.sync.player = *player,
+            Msg::Welcome { player, .. } => {
+                // a new slot gets a fresh live state now, before the replays
+                // that follow the snapshot. `live_setup` made it on the first
+                // full frame, after the viewer loaded the cell, and so dropped
+                // what arrived during the load (chat, markers, scenes, votes).
+                if g.sync.player != *player {
+                    g.sync.live = coop_core::sync::GuestLive::new(*player);
+                }
+                g.sync.player = *player
+            }
             _ => {}
         }
         let incompat = matches!(m, Msg::Incompat(_));
@@ -1152,7 +1196,7 @@ impl Session {
         h.place = Some(now_place);
         if moved {
             for to in h.peers.keys() {
-                send_ext(&mut self.net, *to, &Ext::Place(now_place));
+                send_ext(&mut self.net, *to, &Ext::Place(place_for(now_place, *to)));
             }
             self.log_ev(
                 "place",
@@ -1212,14 +1256,19 @@ impl Session {
         self.guest_start_tick();
         let now = self.now_ms;
         let mut logs: Vec<(&'static str, Vec<(String, String)>)> = Vec::new();
+        let live = self.live.is_some();
         if let Some(h) = &mut self.host {
             let alive = h.sync.players();
             let gone: Vec<PlayerId> = h
                 .peers
                 .iter()
                 .filter(|(id, p)| {
-                    !alive.contains(id)
-                        || now.saturating_sub(p.last_heard_ms) > self.peer_timeout_ms
+                    let limit = if live && !p.in_game {
+                        self.peer_timeout_ms.max(LOAD_TIMEOUT_MS)
+                    } else {
+                        self.peer_timeout_ms
+                    };
+                    !alive.contains(id) || now.saturating_sub(p.last_heard_ms) > limit
                 })
                 .map(|(id, _)| *id)
                 .collect();
