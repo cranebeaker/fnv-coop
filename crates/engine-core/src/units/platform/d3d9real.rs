@@ -25,6 +25,9 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARA
 use windows::Win32::Graphics::Direct3D9::*;
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::LibraryLoader::GetModuleHandleA;
+use windows::Win32::UI::HiDpi::{
+    SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
 use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, MOUSE_MOVE_ABSOLUTE, RAWINPUT,
     RAWINPUTDEVICE, RAWINPUTDEVICE_FLAGS, RAWINPUTHEADER, RID_INPUT, RIM_TYPEMOUSE,
@@ -519,7 +522,10 @@ fn shown_in_background() -> bool {
 
 /// Whether the game's window is borderless and covers the primary monitor (`NV_BORDERLESS`, the
 /// play launcher's setting; not the original's: its windowed mode keeps the frame). Direct3D
-/// stretches the back buffer, at the game's own resolution, over it.
+/// stretches the back buffer, at the game's own resolution, over it. The window thread is then
+/// DPI aware, so the window covers the monitor's real pixels (with display scaling, an unaware
+/// one is told the scaled size: 2048x1152 for 2560x1440 at 125%), and the game's child window
+/// (the one it draws in, made at its resolution) is sized to fill it.
 fn borderless() -> bool {
     std::env::var("NV_BORDERLESS").is_ok_and(|v| v == "1")
 }
@@ -538,6 +544,9 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
         ..Default::default()
     };
     RegisterClassA(&class);
+    if borderless() {
+        SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     loop {
         while let Ok(request) = rx.try_recv() {
             let mut title = request.title;
@@ -547,6 +556,9 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
             // A top-level window is shown afterwards (activated, or in the background for the
             // scripted runs: [`shown_in_background`]).
             let borderless = !child && borderless();
+            let fills = child
+                && request.parent != 0
+                && request.parent == BORDERLESS_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
             let style = if child {
                 request.style
             } else if borderless {
@@ -554,7 +566,7 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
             } else {
                 request.style & !WS_VISIBLE.0
             };
-            let (left, top, right, bottom) = if borderless {
+            let (left, top, right, bottom) = if borderless || fills {
                 (
                     0,
                     0,
@@ -679,7 +691,13 @@ pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
     let Some(window) = real_window(e, handle) else {
         return;
     };
-    if window == BORDERLESS_WINDOW.load(std::sync::atomic::Ordering::Relaxed) {
+    let borderless = BORDERLESS_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    // The borderless window and the child filling it keep the monitor's size.
+    if borderless != 0
+        && (window == borderless
+            || unsafe { GetParent(HWND(window as *mut _)) }
+                .is_ok_and(|p| p.0 as isize == borderless))
+    {
         return;
     }
     let [left, top, right, bottom] = rect;

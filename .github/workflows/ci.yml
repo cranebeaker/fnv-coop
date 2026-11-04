@@ -21,11 +21,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install stable Rust tools
+      - name: Install the pinned Rust tools (rust-toolchain.toml)
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          rustup default stable
+          rustup toolchain install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       # Reuse compiled dependencies between runs. Only pushes to main save the
       # cache, so pull requests restore main's build without filling the store.

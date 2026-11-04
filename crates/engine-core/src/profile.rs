@@ -2734,10 +2734,15 @@ mod native {
             ".seh_endproc",
         );
 
+        // (These two chained fixtures assemble only where `.seh_startchained` is known: Rust 1.99's
+
+        // assembler rejects it, so they are built with `--cfg nv_chained_unwind_asm`.)
+
         // A function in two parts, the second with chained unwind information: the second ends
         // in a jump back into the first, out of its own range but within the same function.
         // (The assembler gives the first part's entry the whole function's range, so the jump
         // that leaves its part's range is the second part's.)
+        #[cfg(nv_chained_unwind_asm)]
         std::arch::global_asm!(
             ".globl nv_profile_test_split",
             ".globl nv_profile_test_split_cold",
@@ -2762,6 +2767,7 @@ mod native {
 
         // A function in two parts whose second (chained) part ends in `pop rbx` and a jump to
         // the function's own start: a recursive tail call (never called).
+        #[cfg(nv_chained_unwind_asm)]
         std::arch::global_asm!(
             ".globl nv_profile_test_recurse",
             ".globl nv_profile_test_recurse_pop",
@@ -2836,10 +2842,15 @@ mod native {
             fn nv_profile_test_lea_epilogue();
             fn nv_profile_test_tail_epilogue();
             fn nv_profile_test_bnd_tail_epilogue();
+            #[cfg(nv_chained_unwind_asm)]
             fn nv_profile_test_split();
+            #[cfg(nv_chained_unwind_asm)]
             fn nv_profile_test_split_jump();
+            #[cfg(nv_chained_unwind_asm)]
             fn nv_profile_test_split_cold();
+            #[cfg(nv_chained_unwind_asm)]
             fn nv_profile_test_recurse();
+            #[cfg(nv_chained_unwind_asm)]
             fn nv_profile_test_recurse_pop();
             fn nv_profile_test_r12_pop();
             fn nv_profile_test_fpreg();
@@ -3029,6 +3040,7 @@ mod native {
         /// part's) into another part of the same function is no tail call, and
         /// `RtlVirtualUnwind` could tell only by looking the target up: the walk ends there as a
         /// bad frame. The two parts have two unwind entries and one function start.
+        #[cfg(nv_chained_unwind_asm)]
         #[test]
         fn a_jump_to_another_part_of_the_function_ends_the_walk() {
             let mut s = Sampler::new();
@@ -3058,6 +3070,7 @@ mod native {
         /// first part's start, and only a jump elsewhere in the function for none. The walk
         /// unwinds such a frame itself, to the registers the system gives (asked here directly,
         /// with nothing suspended); with one word less the walk ends as a bad frame.
+        #[cfg(nv_chained_unwind_asm)]
         #[test]
         fn a_jump_to_the_functions_own_start_is_a_tail_call() {
             let mut s = Sampler::new();

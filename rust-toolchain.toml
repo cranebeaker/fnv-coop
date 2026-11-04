@@ -1,0 +1,7 @@
+# The one Rust compiler every build uses: this machine, agents and CI (2026-11-04: CI's "stable"
+# moved to 1.99.1 while builds here were on 1.98.1, and an assembler change failed CI only).
+# Move it on in a PR of its own.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
