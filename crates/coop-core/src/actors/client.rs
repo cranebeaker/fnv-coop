@@ -121,19 +121,20 @@ impl ActorClient {
             actor,
             hit,
             amount,
-            npc: false,
+            npc: None,
         }
     }
 
-    /// A hit request for an NPC's blow with a fresh id (see `ActorMsg::Hit::npc`).
-    pub fn npc_hit(&mut self, actor: FormId, amount: u16) -> ActorMsg {
+    /// A hit request for the blow of NPC `by` with a fresh id (see
+    /// `ActorMsg::Hit::npc`).
+    pub fn npc_hit(&mut self, actor: FormId, by: FormId, amount: u16) -> ActorMsg {
         let hit = self.next_hit;
         self.next_hit += 1;
         ActorMsg::Hit {
             actor,
             hit,
             amount,
-            npc: true,
+            npc: Some(by),
         }
     }
 

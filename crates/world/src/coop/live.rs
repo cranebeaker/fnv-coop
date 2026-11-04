@@ -162,6 +162,16 @@ impl HitCarry {
     }
 }
 
+/// Sums the NPC blows of one frame per victim and striker (one request
+/// each: the host checks the NPC that struck).
+fn coalesce_npc(hits: Vec<PendingHit>) -> Vec<((FormId, FormId), f64)> {
+    let mut by: BTreeMap<(FormId, FormId), f64> = BTreeMap::new();
+    for h in hits {
+        *by.entry((h.who, h.by)).or_insert(0.0) += h.amount;
+    }
+    by.into_iter().collect()
+}
+
 /// Sums the hits of one frame per victim (one request each).
 fn coalesce(hits: Vec<PendingHit>) -> Vec<(FormId, f64)> {
     let mut by: BTreeMap<FormId, f64> = BTreeMap::new();
@@ -629,7 +639,7 @@ impl LiveHostAdapter {
             if super::campaign::ffguard::allow_hit(cx.order, gs, from.0, wf(*actor)) {
                 pass.push((from, m));
             } else {
-                let (actor, npc) = (*actor, *npc);
+                let (actor, npc) = (*actor, npc.is_some());
                 blocked.push((from, Msg::Actor(ActorMsg::HitBlocked { actor, npc })));
             }
         }
@@ -685,8 +695,8 @@ impl LiveHostAdapter {
         });
         // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
         // credits no player: no XP and no threat for the host
-        for (who, amount) in coalesce(npcs) {
-            let m = self.own.actors.npc_hit(cf(who), hit_points(amount));
+        for ((who, by), amount) in coalesce_npc(npcs) {
+            let m = self.own.actors.npc_hit(cf(who), cf(by), hit_points(amount));
             self.stats.hits_sent += 1;
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
@@ -944,7 +954,17 @@ impl LiveGuestAdapter {
             } else {
                 &mut self.carry
             };
-            for (who, amount) in coalesce(hits) {
+            // an NPC's blow names the NPC that struck
+            let groups = if npc {
+                coalesce_npc(hits)
+            } else {
+                let none = FormId(0);
+                coalesce(hits)
+                    .into_iter()
+                    .map(|(w, a)| ((w, none), a))
+                    .collect()
+            };
+            for ((who, by), amount) in groups {
                 if who == PLAYER_REF || puppet_of(self.me) == who {
                     continue;
                 }
@@ -960,7 +980,7 @@ impl LiveGuestAdapter {
                 };
                 self.stats.hits_sent += 1;
                 let m = if npc {
-                    live.actors.npc_hit(cf(who), pts)
+                    live.actors.npc_hit(cf(who), cf(by), pts)
                 } else {
                     live.actors.hit(cf(who), pts)
                 };

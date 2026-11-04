@@ -81,9 +81,12 @@ pub enum ActorMsg {
         /// keeps the part points). The host's friendly-fire guard counts it,
         /// and the ledger takes no health for it.
         amount: u16,
-        /// An NPC's blow (Doc Mitchell on a gecko): no player and no follower
-        /// struck it. The host applies it but credits no player.
-        npc: bool,
+        /// An NPC's blow (Doc Mitchell on a gecko): the NPC that struck. No
+        /// player and no follower struck it. The host applies it but credits
+        /// no player. A guest's NPC blow counts only when the host's ledger
+        /// tracks that NPC alive near the victim, and the guest owns that NPC
+        /// or the victim. `None`: a blow of the sender's player or follower.
+        npc: Option<FormId>,
     },
     /// Host: damage applied.
     Damaged {
