@@ -336,6 +336,41 @@ fn a_players_killing_blow_after_an_npcs_blow_in_one_frame_gets_the_kill() {
     );
 }
 
+/// A script changes who is essential (`SetEssential`, `SetActorRefEssential`):
+/// the ledger's protection follows. Before, the host set it only when it
+/// started to track the actor. A quest that made an NPC killable left it
+/// protected in the ledger, and players could not kill it.
+#[test]
+fn the_ledgers_protection_follows_a_script_that_changes_essential() {
+    let (_d, order) = order("cc-essential");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let protected = |r: &Rig| {
+        r.sim
+            .host
+            .live
+            .actors
+            .is_protected(coop_core::ids::FormId(GECKO_REF))
+    };
+    assert!(!protected(&r), "a plain gecko");
+    // SetEssential on the gecko's base
+    r.host.more.essential_bases.insert(FormId(GECKO), true);
+    r.run_ms(200);
+    assert!(protected(&r), "SetEssential 1");
+    r.host.more.essential_bases.insert(FormId(GECKO), false);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetEssential 0");
+    // SetActorRefEssential on the gecko itself
+    r.host.more.essential_refs.insert(gecko);
+    r.run_ms(200);
+    assert!(protected(&r), "SetActorRefEssential 1");
+    r.host.more.essential_refs.remove(&gecko);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetActorRefEssential 0");
+}
+
 #[test]
 fn a_flood_of_npc_blows_is_coalesced_and_bounded() {
     let (_d, order) = order("cc-flood");

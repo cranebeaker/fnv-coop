@@ -66,6 +66,11 @@ impl ActorHost {
         }
     }
 
+    /// True when players cannot kill the actor (see [`set_protected`](Self::set_protected)).
+    pub fn is_protected(&self, actor: FormId) -> bool {
+        self.protected.contains(&actor)
+    }
+
     /// True once the actor died.
     pub fn is_dead(&self, actor: FormId) -> bool {
         self.dead.contains(&actor)

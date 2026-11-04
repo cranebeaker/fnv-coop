@@ -9,7 +9,7 @@
 //!
 //! Single player never constructs an adapter and pays nothing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use coop_core::actors::{ActorClient, ActorMsg, ActorState, MAX_HIT};
 use coop_core::authority::AuthorityTable;
@@ -447,7 +447,19 @@ pub struct LiveHostAdapter {
     last_health: BTreeMap<FormId, f64>,
     /// Raised health the ledger has not taken yet (less than a point).
     heal_carry: BTreeMap<FormId, f64>,
+    /// What decided the ledger's protection last (see `follow_essential`).
+    essential_seen: Option<EssentialInputs>,
 }
+
+/// The script state that says who is essential (`more_functions::is_essential`):
+/// `SetEssential` per base, `SetActorRefEssential` per reference, the
+/// teammates and the hardcore mode.
+type EssentialInputs = (
+    HashMap<FormId, bool>,
+    HashSet<FormId>,
+    HashSet<FormId>,
+    bool,
+);
 
 impl Default for LiveHostAdapter {
     fn default() -> Self {
@@ -475,6 +487,7 @@ impl LiveHostAdapter {
             held_hits: Vec::new(),
             last_health: BTreeMap::new(),
             heal_carry: BTreeMap::new(),
+            essential_seen: None,
         }
     }
 
@@ -517,6 +530,32 @@ impl LiveHostAdapter {
             self.tracked.insert(wf(id));
             let essential = crate::more_functions::is_essential(cx.order, gs, wf(id));
             live.actors.set_protected(id, essential);
+        }
+    }
+
+    /// A script changed who is essential (`SetEssential 0` on a quest NPC,
+    /// a new teammate): the ledger's protection of every tracked actor
+    /// follows. `track` sets it only once, when it starts to track an actor.
+    fn follow_essential(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive) {
+        let m = &gs.more;
+        let same = self.essential_seen.as_ref().is_some_and(|(b, r, t, h)| {
+            *b == m.essential_bases
+                && *r == m.essential_refs
+                && *t == gs.teammates
+                && *h == gs.living.hardcore
+        });
+        if same {
+            return;
+        }
+        self.essential_seen = Some((
+            m.essential_bases.clone(),
+            m.essential_refs.clone(),
+            gs.teammates.clone(),
+            gs.living.hardcore,
+        ));
+        for &a in &self.tracked {
+            let essential = crate::more_functions::is_essential(cx.order, gs, a);
+            live.actors.set_protected(cf(a), essential);
         }
     }
 
@@ -716,6 +755,7 @@ impl LiveHostAdapter {
         // a guest's dialogue picks: the line's conditions as the picker, then the sessions
         outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));
         self.adopt_reported(cx, gs, live);
+        self.follow_essential(cx, gs, live);
         outs.extend(self.announce_made(cx, gs, live));
         for m in self
             .pump
