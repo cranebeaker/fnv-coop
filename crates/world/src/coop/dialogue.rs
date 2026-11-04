@@ -266,6 +266,15 @@ impl DialogueBridge {
         now_ms: u64,
     ) -> Vec<(PlayerId, Msg)> {
         let mut outs = Vec::new();
+        // lines that waited too long go first: they do not count against the cap
+        while self
+            .forced_queue
+            .front()
+            .is_some_and(|(_, came)| now_ms.saturating_sub(*came) >= FORCED_LINE_MS)
+        {
+            self.forced_queue.pop_front();
+            gs.coop.live.scene.talk.dropped += 1;
+        }
         for t in std::mem::take(&mut gs.coop.live.scene.talk_notes) {
             gs.coop.live.scene.talk.notes += 1;
             if t.conversation {
@@ -323,15 +332,6 @@ impl DialogueBridge {
                 picked: false,
                 since_ms: now_ms,
             });
-        }
-        // lines that waited too long go
-        while self
-            .forced_queue
-            .front()
-            .is_some_and(|(_, came)| now_ms.saturating_sub(*came) >= FORCED_LINE_MS)
-        {
-            self.forced_queue.pop_front();
-            gs.coop.live.scene.talk.dropped += 1;
         }
         outs.extend(self.forced_line_step(gs, live, auth, own, now_ms));
         // the host's own conversation stops everyone's time until a heartbeat

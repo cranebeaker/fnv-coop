@@ -761,6 +761,14 @@ mod dialogue_world {
         );
         // the guests have not read the first line yet
         r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        r.step();
+        for g in r.guests.iter() {
+            assert_eq!(
+                g.coop.live.lines.len(),
+                1,
+                "the second line waits for the first"
+            );
+        }
         let both = r.until(30_000, |r| {
             for i in 0..2 {
                 let m = {
@@ -776,6 +784,61 @@ mod dialogue_world {
         let t = r.host.coop.live.scene.talk;
         assert!(both, "both lines reach both guests: {t:?}");
         assert_eq!((t.notes, t.lines, t.dropped), (2, 2, 0));
+    }
+
+    /// Lines that waited too long leave the queue before a new line is counted
+    /// against the queue's limit: a full queue of old lines does not drop a new one.
+    #[test]
+    fn a_new_line_is_not_dropped_for_a_full_queue_of_lines_that_waited_too_long() {
+        use world::coop::dialogue::{FORCED_LINE_MS, FORCED_QUEUE_MAX};
+        let (_d, order) = order("live-forced-expire");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 94);
+        r.stand(0xB10, [0.0, 0.0, 0.0]);
+        r.run_ms(1_000);
+        let npc = FormId(0x1299);
+        let made = world::more_functions::placed::Made {
+            base: FormId(DOC),
+            space: FormId(0xB10),
+            cell: FormId(0xB10),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            count: 1,
+        };
+        r.host.more.placed.refs.insert(npc, made);
+        let topic = Some(FormId(GOODBYE));
+        // a guest's conversation is open (no pick): the host's lines wait
+        open_a_session(&mut r, npc);
+        assert!(
+            r.until(5_000, |r| r.ha.own.dialogue.view().is_some()),
+            "the host sees the conversation"
+        );
+        for _ in 0..FORCED_QUEUE_MAX {
+            r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        }
+        let came = r.sim.clock.now();
+        r.step();
+        assert_eq!(
+            r.host.coop.live.scene.talk.dropped, 0,
+            "the queue takes 8 lines"
+        );
+        // the last frame before the queued lines wait too long
+        while r.sim.clock.now() < came + FORCED_LINE_MS {
+            r.step();
+        }
+        assert!(
+            r.ha.own.dialogue.view().is_some(),
+            "the conversation is still open"
+        );
+        // a new line comes in the frame where all the queued lines wait too long
+        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        r.step();
+        let t = r.host.coop.live.scene.talk;
+        assert_eq!(t.notes, FORCED_QUEUE_MAX as u32 + 1, "{t:?}");
+        assert_eq!(
+            t.dropped, FORCED_QUEUE_MAX as u32,
+            "only the old lines go: {t:?}"
+        );
     }
 
     #[test]
