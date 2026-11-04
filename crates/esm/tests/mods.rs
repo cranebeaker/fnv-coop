@@ -1,10 +1,12 @@
-//! The mod setups of `testdata::mods` that concern plugins, checked
+//! The mod setups of `mod_cases::cases` that concern plugins, checked
 //! against what the game does with them (docs/MODS.md).
 
 use esm::load_order::{game_load_order, parse_plugins_txt};
 use esm::{sig, ActivePlugins, FormId, LoadOrder};
-use testdata::mods::{case, Case};
-use testdata::TempData;
+mod mod_cases;
+
+use mod_cases::cases::{case, Case};
+use mod_cases::TempData;
 
 fn written(name: &str) -> TempData {
     let dir = TempData::empty(&format!("esm-mods-{name}"));
@@ -133,7 +135,7 @@ fn renumbers_form_ids_and_lets_the_last_plugin_win() {
 
 #[test]
 fn engine_forms_keep_their_ids() {
-    use testdata::mods::{main_master, named, PluginFile};
+    use mod_cases::cases::{main_master, named, PluginFile};
     // Mod.esp's only master is Dlc.esm (00), so its 00 means Dlc.esm, but
     // IDs 1 to 0x7FF are the engine's own forms (00484b40): a reference to
     // 00000014 (the player) stays 00000014, and a record changing the

@@ -1,5 +1,7 @@
 # Decompilation and rewrite methodology
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Written 2026-10-05. This is the recommended method for reading `FalloutNV.exe` and reimplementing it faithfully in Rust and Bevy. The tools for its first steps are in `research/`; see "Tools in this repository" at the end. This is not legal advice.
 
 ## Evidence limits
@@ -574,14 +576,14 @@ The default is **excluded**. Any change needs a written policy amendment that na
 18. https://en.wikipedia.org/wiki/Computer_Associates_International,_Inc._v._Altai,_Inc.
 19. https://eur-lex.europa.eu/eli/dir/2009/24/oj
 20. https://github.com/hedge-dev/XenonRecomp
-21. docs/OPENING.md (nv-rs)
+21. docs/OPENING.md (nv-rs) (removed 2026-11-03; [history](history/README.md))
 22. https://github.com/xNVSE/NVSE/blob/master/nvse/loader_common/IdentifyEXE.cpp
 23. https://github.com/xNVSE/NVSE/blob/master/README.md
 24. https://www.law.cornell.edu/uscode/text/17/1201
 25. https://github.com/atom0s/Steamless
 26. https://raw.githubusercontent.com/MicrosoftDocs/win32/docs/desktop-src/direct3d9/d3dcreate.md
 27. AGENTS.md (nv-rs)
-28. docs/ENGINE_REFERENCE.md (nv-rs)
+28. docs/ENGINE_REFERENCE.md (nv-rs) (removed 2026-11-03; [history](history/README.md))
 29. https://github.com/NationalSecurityAgency/ghidra/issues/8896
 30. https://github.com/xNVSE/NVSE/blob/master/nvse/nvse/CommandTable.cpp
 31. https://github.com/jazzisparis/JIP-LN-NVSE
@@ -602,7 +604,7 @@ The default is **excluded**. Any change needs a written policy amendment that na
 46. https://raw.githubusercontent.com/frida/frida-website/main/_i18n/en/_docs/javascript-api.md
 47. https://github.com/BurnoutDecomp/BP-Decomp_Workflow/blob/HEAD/STRATEGY.md
 48. https://github.com/NationalSecurityAgency/ghidra/issues/3935
-49. docs/OPENING_LOOK_IK.md (nv-rs)
+49. docs/OPENING_LOOK_IK.md (nv-rs) (removed 2026-11-03; [history](history/README.md))
 50. https://github.com/mrexodia/dumpulator
 51. https://raw.githubusercontent.com/unicorn-engine/unicorn/master/qemu/target/i386/unicorn.c
 52. https://raw.githubusercontent.com/unicorn-engine/unicorn/master/qemu/target/i386/ops_sse.h
@@ -621,7 +623,7 @@ The default is **excluded**. Any change needs a written policy amendment that na
 65. https://raw.githubusercontent.com/rust-lang/rfcs/master/text/3514-float-semantics.md
 66. https://github.com/doitsujin/dxvk/pull/5943
 67. https://raw.githubusercontent.com/freeqaz/c2-rs/HEAD/CLAUDE.md
-68. docs/TECHNICAL_REFERENCE.md (nv-rs)
+68. docs/TECHNICAL_REFERENCE.md (nv-rs) (removed 2026-11-03; [history](history/README.md))
 69. https://github.com/sourcefrog/cargo-mutants
 70. crates/nvinspect/src/coverage_table.rs (nv-rs)
 71. https://github.com/carxt/New-Vegas-Tick-Fix
@@ -658,7 +660,7 @@ The default is **excluded**. Any change needs a written policy amendment that na
 102. https://github.com/RustAudio/rodio/issues/775
 103. https://crates.io/crates/bevy_kira_audio
 104. https://docs.rs/kira/0.12.5/kira/sound/static_sound/struct.StaticSoundHandle.html
-105. docs/PERSISTENCE.md (nv-rs), Bevy 0.16.1 / Rodio 0.20.1 probe note
+105. docs/PERSISTENCE.md (nv-rs), Bevy 0.16.1 / Rodio 0.20.1 probe note (removed 2026-11-03; [history](history/README.md))
 106. https://raw.githubusercontent.com/apitrace/apitrace/master/retrace/retrace_main.cpp
 107. https://raw.githubusercontent.com/apitrace/apitrace/master/cli/cli_dump_images.cpp
 108. https://raw.githubusercontent.com/apitrace/apitrace/master/retrace/d3d9state_formats.cpp

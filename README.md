@@ -5,9 +5,9 @@
 <h1 align="center">nv-rs</h1>
 
 [![Rust](https://img.shields.io/badge/Rust-2021_edition-orange.svg)](https://www.rust-lang.org/)
-[![Engine](https://img.shields.io/badge/Engine-Bevy_0.16-blue.svg)](https://bevyengine.org/)
+[![Engine](https://img.shields.io/badge/Engine-the_original,_translated-blue.svg)](docs/ENGINE_PORT_PLAN.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-purple.svg)](docs/PLAYTESTING.md)
+[![Platform](https://img.shields.io/badge/Platform-Windows-purple.svg)](docs/PLAYTESTING.md)
 [![Status](https://img.shields.io/badge/Status-experimental-lightgrey.svg)](docs/MILESTONES.md)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/pn5kjZJJxx)
 
@@ -18,11 +18,6 @@ nv-rs is a new engine for Fallout: New Vegas, written in Rust. It runs the
 game from your own copy's files, and its goal is a faithful 1:1 match, down
 to the original's quirks. Not a remake that feels close: the same game, on a
 modern, open-source engine that can be fixed, ported and extended.
-
-<p align="center">
-  <img src="docs/media/goodsprings-aerial.jpg" alt="Goodsprings from above, rendered by nv-rs" width="100%">
-  <br><sub><i>Goodsprings, rendered by nv-rs from the game's own files.</i></sub>
-</p>
 
 > [!IMPORTANT]
 > nv-rs is an independent project, not affiliated with or endorsed by
@@ -54,19 +49,8 @@ weapons, with the original graphics and sound. In the play build, if the game's 
 stops on something not supported yet, the log names where and the game closes,
 instead of leaving a frozen window.
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/media/doc-mitchell.jpg" alt="Doc Mitchell in his chair"></td>
-    <td width="50%"><img src="docs/media/ghost-town-gunfight.jpg" alt="Ghost Town Gunfight"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><i>Waking up in Doc Mitchell's house.</i></sub></td>
-    <td align="center"><sub><i>Ghost Town Gunfight: the Powder Gangers come to town.</i></sub></td>
-  </tr>
-</table>
-
 Not yet: a full playthrough, the open world, script-extender (NVSE) plugins,
-packaged Linux and macOS builds, and VR. Speed is the current focus: the goal
+other platforms than Windows, and VR. Speed is the current focus: the goal
 is to run as fast as the original without changing how it plays (faster, optional
 systems of our own come later).
 
@@ -99,27 +83,31 @@ platforms. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
 
 ## Try it
 
-1. Download the latest Windows build from
-   [Releases](https://github.com/slaterain/nv-rs/releases).
-2. Extract it and run `Play.cmd`.
-3. Point it at your own `Fallout New Vegas\Data` folder.
-
-nv-rs needs Fallout: New Vegas version 1.4.0.525 installed. If anything behaves
-differently from the original game, that's a bug worth reporting; tips are in
-[docs/PLAYTESTING.md](docs/PLAYTESTING.md).
+nv-rs needs Fallout: New Vegas version 1.4.0.525 installed, and for now a Windows PC and a
+build from source: the game's code answers Windows' questions from tables measured on the
+machine it runs on, and the packages do not make them yet
+([docs/PLAYTESTING.md](docs/PLAYTESTING.md)). The packages on
+[Releases](https://github.com/slaterain/nv-rs/releases) from before November 2026 are of the
+earlier hand-written viewer, which has been removed.
 
 ### Build from source
 
 Install stable Rust, then:
 
 ```sh
-cargo build --release && cargo test --workspace
-cd viewer
-cargo run --release -- "<path to Fallout New Vegas\Data>" GSDocMitchellHouse
+cargo build --profile play -p nv-viewer
 ```
 
-The viewer also builds on macOS (Metal) and Linux (Vulkan, Wayland or X11);
-see [docs/PLAYTESTING.md](docs/PLAYTESTING.md) for the packages each needs.
+Make the machine's tables (`scripts/d3d9-capture`, `scripts/dsound-capture`; see
+[docs/PLAYTESTING.md](docs/PLAYTESTING.md)), then in PowerShell:
+
+```powershell
+$env:NV_D3D9 = 'real'; $env:NV_SOUND = 'out'
+.\target\play\nv-viewer.exe "<path to Fallout New Vegas\Data>"
+```
+
+The game starts in its own window with its own menus. If anything behaves differently from
+the original game, that's a bug worth reporting.
 
 ---
 
@@ -132,8 +120,8 @@ the code.
 
 What keeps it honest is the method. Agents don't get to invent behaviour:
 every piece of logic is translated from the original game's program and
-marked with where it came from, then checked by automated tests, automated
-play-throughs and recordings of the original game. Anything that can't be
+marked with where it came from, then checked by automated tests, the oracle
+(translated functions run against the original's own code) and recordings of the original game. Anything that can't be
 traced to the original doesn't go in. Everything is in the open, so judge it by
 how it plays.
 
@@ -157,7 +145,7 @@ the original, platform support and research into how the original behaves.
 **Curious how it works?** Start with
 [docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md) and
 [docs/METHODOLOGY.md](docs/METHODOLOGY.md); every other document is linked
-from [docs/](docs/).
+from [docs/README.md](docs/README.md).
 
 Final decisions rest with the maintainer, **slaterain**
 ([docs/GOVERNANCE.md](docs/GOVERNANCE.md)).

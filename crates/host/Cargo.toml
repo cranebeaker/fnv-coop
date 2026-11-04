@@ -1,7 +1,7 @@
 [package]
 name = "host"
 version = "0.1.0"
-description = "Starts the game's own translated code (the engine crate) on the player's FalloutNV.exe and connects it to the world"
+description = "Starts the game's own translated code (the engine crate) on the player's FalloutNV.exe and runs its frames"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -11,10 +11,5 @@ engine = { path = "../engine" }
 # The play loop's patched functions, registered over the engine's own at start-up
 # (crates/play-patch; empty on main).
 play-patch = { path = "../play-patch" }
-# The record a script form is made from, and the world's variables of a
-# script instance.
+# The load order the game's forms are read from (`player_move`).
 esm = { path = "../esm" }
-script = { path = "../script" }
-# The world's quest runner hook (`world::scripting::QuestVm`) the host
-# implements; the world doesn't depend on the engine.
-world = { path = "../world" }

@@ -1,0 +1,10 @@
+[package]
+name = "frame-model"
+version = "0.1.0"
+description = "The game's frame (Main::OnIdle) as a model: its calls in order, their gates and their wiring (Phase 1's gate)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]

@@ -12,17 +12,14 @@
 //! any form exists.
 //!
 //! The engine is not `Send`, `Sync` or `Clone` (its memory and test doubles
-//! are `Rc<RefCell<..>>`); a [`Host`] is owned by one thread and handed to
-//! the world as plain owned data. What it is connected to: docs/ENGINE_CRATE.md
+//! are `Rc<RefCell<..>>`); a [`Host`] is owned by one thread (nv-viewer's main
+//! thread). What it is connected to: docs/ENGINE_CRATE.md
 //! ("In the running game").
 
+pub mod form_types;
 pub mod game_file;
-pub mod global_form;
 pub mod player_move;
-pub mod quest_form;
-pub mod quest_vm;
 pub mod save_out;
-pub mod script_form;
 pub mod uncap;
 
 use engine::Engine;
@@ -38,9 +35,6 @@ pub struct Host {
     pub exe: PathBuf,
     /// What the static initializers' run did (entries run, skipped).
     pub static_init: engine::static_init::Report,
-    /// The quests run through the game's interpreter for the world
-    /// ([`quest_vm`]).
-    pub quests: quest_vm::QuestVm,
     /// The player's movement through the game's code, and what it
     /// reached that isn't translated ([`player_move`]).
     pub movement: player_move::PlayerMovement,
@@ -175,7 +169,6 @@ impl Host {
             engine,
             exe,
             static_init,
-            quests: quest_vm::QuestVm::default(),
             movement,
             ni_init,
             at_main_end: None,

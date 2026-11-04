@@ -12086,11 +12086,11 @@ mod tests {
 
     // ---- the frame's model (docs/FRAME_SKELETON.md, PR 5) ----
 
-    /// The callees of a log as `world::frame::world_time` names them: the
+    /// The callees of a log as `frame_model::world_time` names them: the
     /// import slot and the callback double by what they are, the rest
     /// direct.
-    fn model_callees(log: &CallLog) -> Vec<world::frame::world_time::Callee> {
-        use world::frame::world_time::Callee;
+    fn model_callees(log: &CallLog) -> Vec<frame_model::world_time::Callee> {
+        use frame_model::world_time::Callee;
         log.iter()
             .map(|(a, _)| match *a {
                 IMPORT_SEND_INPUT => Callee::Import(IMPORT_SEND_INPUT),
@@ -12104,7 +12104,7 @@ mod tests {
     /// `TES::RunAnimations` (`00455640`) follows the model, indoors and out.
     #[test]
     fn run_animations_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, Callee, WorldState};
+        use frame_model::world_time::{follows, function, Callee, WorldState};
         let model = function(0x0045_5640).expect("modelled");
         for interior in [false, true] {
             let (mut e, tes, _, _) = buffers_engine(1, &[0; 3], &[0; 3]);
@@ -12137,7 +12137,7 @@ mod tests {
     /// with an interior loaded.
     #[test]
     fn update_current_grid_cell_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, Callee, GridMove, WorldState};
+        use frame_model::world_time::{follows, function, Callee, GridMove, WorldState};
         let model = function(0x0045_2580).expect("modelled");
         // Called as Rust functions, so not in the log: the texture clean-up,
         // the first load, the loading flag and the grid array's load.
@@ -12212,7 +12212,7 @@ mod tests {
     /// the model, with and without the logging.
     #[test]
     fn test_all_cells_turn_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, Callee, WorldState};
+        use frame_model::world_time::{follows, function, Callee, WorldState};
         let model = function(0x0045_56d0).expect("modelled");
         for logging in [false, true] {
             let (_, _, _, log, _) = visit_run_with(0, logging, |e, tes| {
@@ -12248,7 +12248,7 @@ mod tests {
     /// and more, indoors and out, in dialogue.
     #[test]
     fn update_cell_animations_follows_the_frame_model() {
-        use world::frame::ai_stage::{follows, function, AiState, Callee};
+        use frame_model::ai_stage::{follows, function, AiState, Callee};
         let model = function(0x0045_3550).expect("modelled");
         for threads in [1, 2, 4] {
             for interior in [false, true] {
@@ -12286,7 +12286,7 @@ mod tests {
     /// `TES::UpdateCellMainThread` (`004537c0`) follows the model.
     #[test]
     fn update_cell_main_thread_follows_the_frame_model() {
-        use world::frame::ai_stage::{follows, function, AiState};
+        use frame_model::ai_stage::{follows, function, AiState};
         let model = function(0x0045_37c0).expect("modelled");
         for dialog in [false, true] {
             let (mut e, tes) = frame_engine(2);

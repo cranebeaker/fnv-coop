@@ -2002,10 +2002,10 @@ mod tests {
 
     // ---- the frame's model (docs/FRAME_SKELETON.md, PR 5) ----
 
-    /// The logged callees as `world::frame::world_time` names them (the
+    /// The logged callees as `frame_model::world_time` names them (the
     /// references' destructor double is their vtable slot +0x10).
-    fn model_callees(e: &Engine) -> Vec<world::frame::world_time::Callee> {
-        use world::frame::world_time::Callee;
+    fn model_callees(e: &Engine) -> Vec<frame_model::world_time::Callee> {
+        use frame_model::world_time::Callee;
         e.call_log
             .as_ref()
             .unwrap()
@@ -2031,10 +2031,10 @@ mod tests {
         0x0086_9510,
     ];
 
-    fn rust_called() -> Vec<world::frame::world_time::Callee> {
+    fn rust_called() -> Vec<frame_model::world_time::Callee> {
         RUST_CALLED
             .iter()
-            .map(|&a| world::frame::world_time::Callee::Direct(a))
+            .map(|&a| frame_model::world_time::Callee::Direct(a))
             .collect()
     }
 
@@ -2042,7 +2042,7 @@ mod tests {
     /// queue that can come first.
     #[test]
     fn update_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, Garbage, WorldState};
+        use frame_model::world_time::{follows, function, Garbage, WorldState};
         let model = function(0x0086_8850).expect("modelled");
         let cases: [(Garbage, bool); 8] = [
             (Garbage::None, true),
@@ -2088,7 +2088,7 @@ mod tests {
     /// `GarbageCollector::ClearTempEffects` (`00868d10`) follows the model.
     #[test]
     fn clear_temp_effects_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, WorldState};
+        use frame_model::world_time::{follows, function, WorldState};
         let model = function(0x0086_8d10).expect("modelled");
         for (queued, free) in [(false, true), (true, false), (true, true)] {
             let mut e = gc_engine();

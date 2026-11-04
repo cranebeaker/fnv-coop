@@ -1,9 +1,6 @@
 [CmdletBinding()]
 param(
     [string]$DataPath = $env:NV_RS_DATA,
-    [string]$Place = 'GSDocMitchellHouse',
-    [switch]$NewGame,
-    [switch]$UseActivePlugins,
     [switch]$ValidateOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -15,19 +12,13 @@ if (!(Test-Path -LiteralPath (Join-Path $DataPath 'FalloutNV.esm') -PathType Lea
 $DataPath = (Resolve-Path -LiteralPath $DataPath).Path
 $executable = Join-Path $PSScriptRoot 'app/nv-viewer.exe'
 if (!(Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'app/nv-viewer.exe is missing. Extract the entire playtest ZIP.' }
-$viewerArguments = @($DataPath)
-if ($NewGame) { $viewerArguments += '--new-game' } else { $viewerArguments += $Place }
-if (!$UseActivePlugins) { $viewerArguments += '--official' }
+# The game draws in its own window through Direct3D 9 and plays its sound through DirectSound.
+$env:NV_D3D9 = 'real'
+$env:NV_SOUND = 'out'
 if ($ValidateOnly) {
-    [pscustomobject]@{ Executable=$executable; Arguments=$viewerArguments; SaveFolder=(Join-Path $PSScriptRoot 'userdata') }
+    [pscustomobject]@{ Executable=$executable; Arguments=@($DataPath); NV_D3D9=$env:NV_D3D9; NV_SOUND=$env:NV_SOUND }
     return
 }
-$userFolder = Join-Path $PSScriptRoot 'userdata'
-New-Item -ItemType Directory -Force -Path $userFolder | Out-Null
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'BUILD.txt')) { Get-Content -LiteralPath (Join-Path $PSScriptRoot 'BUILD.txt') }
-Push-Location $userFolder
-try {
-    & $executable @viewerArguments
-    $viewerExitCode = $LASTEXITCODE
-} finally { Pop-Location }
-exit $viewerExitCode
+& $executable $DataPath
+exit $LASTEXITCODE

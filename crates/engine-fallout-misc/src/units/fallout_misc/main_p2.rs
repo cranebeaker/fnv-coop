@@ -6489,20 +6489,20 @@ mod tests {
     }
 
     /// `log` (without the function's own entry) as the frame model's callees.
-    fn model_log(log: &Log) -> Vec<world::frame::interface::Callee> {
+    fn model_log(log: &Log) -> Vec<frame_model::interface::Callee> {
         addrs(log)
             .into_iter()
-            .map(world::frame::interface::Callee::Direct)
+            .map(frame_model::interface::Callee::Direct)
             .collect()
     }
 
     fn check_model(
         address: u32,
-        s: &world::frame::interface::InterfaceState,
+        s: &frame_model::interface::InterfaceState,
         log: &Log,
         direct: &[u32],
     ) {
-        use world::frame::interface::{follows, function};
+        use frame_model::interface::{follows, function};
         let model = function(address).expect("modelled");
         let log = model_log(log);
         // Same-unit Rust calls do not pass through Engine::call. Check their
@@ -6510,17 +6510,17 @@ mod tests {
         let direct: Vec<_> = direct
             .iter()
             .copied()
-            .map(world::frame::interface::Callee::Direct)
+            .map(frame_model::interface::Callee::Direct)
             .collect();
         follows(model, s, &log, &direct).unwrap_or_else(|why| panic!("{address:08x} {s:?}: {why}"));
     }
 
     /// `Main::PostSwapProcess` (`008705d0`) and `Main::OnIdle_PostThreadsProcess`
-    /// (`00870610`) follow `world::frame::interface`'s model for one and more threads
+    /// (`00870610`) follow `frame_model::interface`'s model for one and more threads
     /// (docs/FRAME_SKELETON.md, PR 7).
     #[test]
     fn post_swap_and_post_threads_follow_the_frame_model() {
-        use world::frame::interface::InterfaceState;
+        use frame_model::interface::InterfaceState;
         for threads in [1u32, 2] {
             let s = InterfaceState {
                 threads: threads as i32,
@@ -6552,7 +6552,7 @@ mod tests {
     /// 3D; else the world drawn once under the menus' modifier.
     #[test]
     fn menu_background_follows_the_frame_model() {
-        use world::frame::interface::InterfaceState;
+        use frame_model::interface::InterfaceState;
         let hidden = InterfaceState {
             player_shown: false,
             ..InterfaceState::default()

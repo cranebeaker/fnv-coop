@@ -1,5 +1,7 @@
 # Mods and plugins (M8, milestone M5)
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 How New Vegas picks and orders plugins and archives, when a loose file
 beats an archived one, and which script extender functions mods call;
 what nv-rs does for each. Everything below was traced in FalloutNV.exe

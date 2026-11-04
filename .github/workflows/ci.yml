@@ -9,25 +9,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  linux-viewer:
-    name: check (viewer, Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install native viewer dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - name: Install stable Rust
-        run: rustup toolchain install stable --profile minimal
-      - name: Check Linux viewer
-        working-directory: viewer
-        run: cargo check --locked
   check:
-    name: check (${{ matrix.workspace }})
+    name: check
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        workspace: [core, viewer]
     env:
       # CI builds once from a cache; incremental state and debug info only cost time.
       CARGO_INCREMENTAL: 0
@@ -47,33 +31,14 @@ jobs:
       # cache, so pull requests restore main's build without filling the store.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: ${{ matrix.workspace == 'viewer' && 'viewer -> target' || '. -> target' }}
-          shared-key: ${{ matrix.workspace }}
+          workspaces: '. -> target'
+          shared-key: core
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check formatting, tests and lints
-        env:
-          WORKSPACE: ${{ matrix.workspace }}
         run: |
-          if ($env:WORKSPACE -eq 'viewer') { Set-Location viewer }
           cargo fmt --all -- --check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test --locked --workspace
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo clippy --locked --workspace --all-targets -- -D warnings
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-  # On pushes to main only (2026-10-30): on pull requests the hosted macOS runners often never
-  # picked the job up, and GitHub cancelled it after 15 minutes without a single step, which
-  # marked the pull request failed. The Windows and Linux checks gate pull requests.
-  check-macos-viewer:
-    name: check viewer (macOS)
-    if: github.event_name == 'push'
-    runs-on: macos-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-      - name: Check the macOS viewer
-        run: cargo check --locked --manifest-path viewer/Cargo.toml

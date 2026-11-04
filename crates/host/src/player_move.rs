@@ -917,7 +917,7 @@ impl PlayerMovement {
             .get(id)
             .ok_or_else(|| format!("form {id}: not in the load order"))?;
         let kind = record.entry.header.kind;
-        let form_type = world::more_functions::form_type_number(kind)
+        let form_type = crate::form_types::form_type_number(kind)
             .ok_or_else(|| format!("form {id}: record type {kind} has no form type"))?;
         let file = self.file(e, order, record.plugin)?;
         let plugin = record.plugin;
@@ -2339,7 +2339,6 @@ mod tests {
                 engine: e,
                 exe: Default::default(),
                 static_init: Default::default(),
-                quests: Default::default(),
                 movement,
                 ni_init: None,
                 at_main_end: None,

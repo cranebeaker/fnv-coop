@@ -8,7 +8,7 @@ Describe the source evidence and provenance. For game behavior, include the exec
 
 ## Verification
 
-List the checks run and their results. Include the core workspace and viewer workspace checks as applicable. For behavior fixes, describe the regression case and any original-game comparison.
+List the checks run and their results. Include the workspace checks (fmt, tests, clippy) and, for game behavior, a play-build run. For behavior fixes, describe the regression case and any original-game comparison (a recording, the oracle).
 
 ## AI assistance
 

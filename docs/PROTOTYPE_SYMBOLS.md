@@ -228,7 +228,7 @@ is unmeasured.
 
 `symbols.txt` names the look-IK controller class `bhkRagdollController`
 (`bshavok/bhkRagdollController.cpp`). The PC functions already traced in
-[OPENING_LOOK_IK.md](OPENING_LOOK_IK.md) appear in the same order as these
+OPENING_LOOK_IK.md (removed 2026-11-03; [history](history/README.md)) appear in the same order as these
 Xbox functions, which suggests the pairs below. **The pairs are unverified.**
 
 | PC address | Xbox function (Xbox PDB) |

@@ -115,7 +115,7 @@ pub(crate) const LEVELED_LOCK_SETTING: u32 = 0x011c_39b4;
 /// The integer settings that hold the top of each lock difficulty bracket
 /// (very easy, easy, average, hard, very hard), and the one `00430bc0` also
 /// knows for the enumeration value 5 (key only). See
-/// `crates/world/src/locks.rs`.
+/// the removed `crates/world/src/locks.rs` (git history, 93922e5a).
 pub(crate) const LOCK_LEVEL_SETTINGS: [u32; 6] = [
     0x011c_3a4c,
     0x011c_3a30,

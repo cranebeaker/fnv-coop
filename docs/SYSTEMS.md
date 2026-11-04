@@ -1,5 +1,7 @@
 # Systems tracker
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Every system the port must cover, so nothing is left out. Built from the
 engine map (`research/engine-map/engine_map.tsv`, 66,259 functions in
 FalloutNV.exe 1.4.0.525) and the translation markers on 2026-10-14. The
@@ -9,10 +11,8 @@ systems and says what "done" means for each one.
 A system is done when three things are true:
 1. **Translated:** every function in its units carries a `Translated from`
    marker (or `Platform: replaces` for library code).
-2. **Switched on:** the viewer runs the translation in play instead of the
-   nv-rs rewrite.
-3. **Verified:** an acceptance route or a recording from the original game
-   matches.
+2. **Running:** the play build (`nv-viewer`) reaches it in play without a stop.
+3. **Verified:** a recording from the original game, or the oracle, matches.
 
 ## Order (maintainer, 2026-10-14)
 
@@ -72,7 +72,6 @@ functions (ledger of 2026-10-28). Regenerate the numbers before relying on them.
 - **Audio.** The `BSAudio` manager, 3D sound, footsteps, weapon and impact sounds, music, the radio, voice and ambient region sounds. Audio threads use the stepped-thread seam, and decoding uses platform replacements (`crates/mp3`, ogg, wav).
 
 ### Phase B: how it looks
-- **Bevy upgrade**, one version per PR, before the renderer work.
 - **Scene graph** (`NiMain`, `BSMain`): node updates, culling, LOD.
 - **Renderer** (`NiXenonRenderer`, `BSShader`): translate the Gamebryo Direct3D 9 renderer, the shader classes and passes, render targets, image space and HDR; their Direct3D 9 calls go to our own Direct3D 9 layer (ADR-0007, "Renderer units" below).
 - **Sky and weather**: sun, clouds, fog, precipitation, transitions.

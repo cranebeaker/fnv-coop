@@ -1,5 +1,7 @@
 # Engine-owned state: Phase 2
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Phase 2's gate remains a real `.fos` round trip, compared change form by
 change form. The first bounded step is `engine::extra_data::ExtraList`:
 a handle to a list in an explicitly supplied `Engine`. It is not yet used

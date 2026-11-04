@@ -14262,10 +14262,10 @@ mod tests {
 
     // ---- the frame's model (docs/FRAME_SKELETON.md, PR 5) ----
 
-    /// The callees of the engine's log as `world::frame::world_time` names
+    /// The callees of the engine's log as `frame_model::world_time` names
     /// them: the slot doubles as vtable calls, the rest direct.
-    fn model_callees(e: &Engine) -> Vec<world::frame::world_time::Callee> {
-        use world::frame::world_time::Callee;
+    fn model_callees(e: &Engine) -> Vec<frame_model::world_time::Callee> {
+        use frame_model::world_time::Callee;
         e.call_log
             .as_ref()
             .unwrap()
@@ -14277,14 +14277,14 @@ mod tests {
             .collect()
     }
 
-    fn model(address: u32) -> &'static world::frame::world_time::Function {
-        world::frame::world_time::function(address).expect("modelled")
+    fn model(address: u32) -> &'static frame_model::world_time::Function {
+        frame_model::world_time::function(address).expect("modelled")
     }
 
     /// `ProcessLists::RunActorScripts` (`00978550`) follows the model.
     #[test]
     fn run_actor_scripts_follows_the_frame_model() {
-        use world::frame::world_time::{follows, WorldState};
+        use frame_model::world_time::{follows, WorldState};
         let mut e = fixture();
         let (lists, _, _) = actor_world(&mut e);
         stubs(&mut e, &[0x0056_5870]);
@@ -14304,7 +14304,7 @@ mod tests {
     /// a source, the sources ended, no iterator.
     #[test]
     fn radiation_follows_the_frame_model() {
-        use world::frame::world_time::{follows, Callee, WorldState};
+        use frame_model::world_time::{follows, Callee, WorldState};
         let f = model(0x0097_77a0);
         // `00977c90` (the level kept) is called as a Rust function.
         let ignore = [Callee::Direct(0x0097_7c90)];
@@ -14347,7 +14347,7 @@ mod tests {
     /// model: nothing but the rest test while the player rests.
     #[test]
     fn change_levels_follows_the_frame_model() {
-        use world::frame::world_time::{follows, WorldState};
+        use frame_model::world_time::{follows, WorldState};
         let f = model(0x0096_eb40);
         let (mut e, lists, _, _) = change_scene();
         stub(&mut e, 0x0094_df60, 1);
@@ -14367,7 +14367,7 @@ mod tests {
     /// `ProcessLists::UpdateFollowerTempList` (`0096e9b0`) follows the model.
     #[test]
     fn followers_follow_the_frame_model() {
-        use world::frame::world_time::{follows, WorldState};
+        use frame_model::world_time::{follows, WorldState};
         let mut e = fixture();
         let objects: Vec<u32> = (0..2).map(|_| object(&mut e)).collect();
         let lists: Ptr<ProcessLists> = e.new_object();

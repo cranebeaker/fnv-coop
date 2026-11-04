@@ -6,7 +6,7 @@ use forks and pull requests; no collaborator invitations are needed.
 ## Accepting changes
 
 Main requires a pull request, code-owner approval, resolved conversations and
-the two CI jobs: `check (core)` and `check (viewer)`. New pushes dismiss old
+the CI job `check` (fmt, tests and clippy on Windows). New pushes dismiss old
 approvals. Force pushes and deletion are blocked. CODEOWNERS includes workflows.
 The owner has a PR-only ruleset bypass for their own changes (GitHub cannot
 accept a self-approval); use it deliberately, after checks pass. No other
@@ -19,11 +19,11 @@ privileged pull_request_target workflow. Inspect workflow changes carefully.
 
 ## Releasing a playtest
 
-1. Merge a checked source commit and compare the relevant route against the
+1. Merge a checked source commit and compare a play-build run against the
    original game. Record outstanding limitations, not just screenshots.
 2. From a clean Windows checkout with stable Rust, run:
    `./scripts/package-playtest.ps1 -Version experimental-YYYY-MM-DD.N`.
-   It builds the viewer with the lockfile and packages only approved files.
+   It builds nv-viewer with the lockfile and packages only approved files.
 3. Test the extracted ZIP with Play.ps1 -ValidateOnly and a live launch. Test
    paths containing spaces and an invalid Data folder. Verify SHA256 and BUILD.txt.
 4. Create a release tag at that exact source commit. Create a draft pre-release,

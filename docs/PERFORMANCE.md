@@ -1,5 +1,7 @@
 # Performance: measurements and review notes
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 The viewer's performance work (PR #12, `claude/perf-latest`) and its
 follow-ups (`claude/perf-streaming`). The rule throughout: nothing drawn or
 played may change; every change is measured before and after, and

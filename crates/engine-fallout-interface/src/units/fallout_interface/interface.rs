@@ -2975,28 +2975,28 @@ mod tests {
     }
 
     /// The calls logged so far, as the frame model's callees.
-    fn model_log(e: &Engine) -> Vec<world::frame::interface::Callee> {
+    fn model_log(e: &Engine) -> Vec<frame_model::interface::Callee> {
         e.call_log
             .as_ref()
             .unwrap()
             .iter()
-            .map(|(a, _)| world::frame::interface::Callee::Direct(*a))
+            .map(|(a, _)| frame_model::interface::Callee::Direct(*a))
             .collect()
     }
 
-    fn check_model(address: u32, s: &world::frame::interface::InterfaceState, e: &Engine) {
-        use world::frame::interface::{follows, function};
+    fn check_model(address: u32, s: &frame_model::interface::InterfaceState, e: &Engine) {
+        use frame_model::interface::{follows, function};
         let model = function(address).expect("modelled");
         follows(model, s, &model_log(e), &[])
             .unwrap_or_else(|why| panic!("{address:08x} {s:?}: {why}"));
     }
 
     /// The interface idle's wrappers and `Interface::LastMinuteUpdate` follow
-    /// `world::frame::interface`'s model with the manager ready, not ready, and
+    /// `frame_model::interface`'s model with the manager ready, not ready, and
     /// missing (docs/FRAME_SKELETON.md, PR 7).
     #[test]
     fn wrappers_follow_the_frame_model() {
-        use world::frame::interface::InterfaceState;
+        use frame_model::interface::InterfaceState;
         for (wrapper, callee) in [
             (0x0070_27e0u32, 0x0070_b8f0u32),
             (0x0070_2810, 0x0070_c4a0),
@@ -3029,7 +3029,7 @@ mod tests {
     /// (`00703e10`) follow the model.
     #[test]
     fn sleeping_and_the_console_follow_the_frame_model() {
-        use world::frame::interface::InterfaceState;
+        use frame_model::interface::InterfaceState;
         for (class, ready) in [(0x3f4i32, true), (0x3eb, true), (0x3f4, false)] {
             let (mut e, manager, _) = menu_object_world(class, SLEEP_WAIT_MENU_TYPE);
             stub!(e, SLEEP_UPDATE_SLEEPING, 1);

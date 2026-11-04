@@ -946,7 +946,7 @@ fn render_wiring(table: &str) -> String {
         };
         counts[depth - 1][status] += 1;
     }
-    let mut out = String::from("\n### Frame system wiring\n\nEvery depth-1 and depth-2 call is listed in [frame_wiring.tsv](../research/engine-map/frame_wiring.tsv), generated and checked by `world::frame::coverage`. Partial means some behavior exists, with its placement or missing work stated in the row; it does not mean the function is fully executed in play. Queries and unsupported calls stay open. Translation counts above are separate.\n\n| Depth | system | partial | open |\n| ---: | ---: | ---: | ---: |\n");
+    let mut out = String::from("\n### Frame system wiring\n\nEvery depth-1 and depth-2 call is listed in [frame_wiring.tsv](../research/engine-map/frame_wiring.tsv), generated and checked by `frame_model::coverage`. Partial means some behavior exists, with its placement or missing work stated in the row; it does not mean the function is fully executed in play. Queries and unsupported calls stay open. Translation counts above are separate.\n\n| Depth | system | partial | open |\n| ---: | ---: | ---: | ---: |\n");
     for (depth, c) in counts.iter().enumerate() {
         let _ = writeln!(out, "| {} | {} | {} | {} |", depth + 1, c[0], c[1], c[2]);
     }

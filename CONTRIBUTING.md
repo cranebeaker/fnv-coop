@@ -11,8 +11,7 @@ The short version:
 2. Open an issue saying what you want to do, and wait for the maintainer's
    go-ahead before you start.
 3. Trace every behaviour in the original game. No invented behaviour.
-4. Open a small pull request against `main` that passes the checks and
-   the acceptance routes.
+4. Open a small pull request against `main` that passes the checks.
 
 ## Where help is needed now
 
@@ -20,12 +19,11 @@ Since 2026-10-09 the project is porting `FalloutNV.exe` system by system
 ([docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md)). Every function of
 the executable is listed in [docs/LEDGER.md](docs/LEDGER.md) and is
 translated into Rust in the engine crates (`crates/engine*`), marked with
-its address. The hand-written systems in `world` and the other game
-crates are being replaced by that translated code, one whole system at a time. The
-translation itself is done by the maintainer's sessions, so new
-hand-written gameplay code is likely to be replaced, and translations
-from contributors can't be merged (they would collide with the
-maintainer's queue).
+its address, and `nv-viewer` runs that code in play. The hand-written
+reimplementation that came before it (the `world` crate, its menus, physics and the Bevy
+viewer) was removed on 2026-11-03 ([ADR-0011](docs/adr/0011-old-layer-removed.md)). The
+translation itself is done by the maintainer's sessions, so translations from
+contributors can't be merged (they would collide with the maintainer's queue).
 
 Where help is useful, in order:
 
@@ -36,17 +34,17 @@ Where help is useful, in order:
    that don't have them yet needs only your own copy of the game. Commit
    the test cases and addresses, never the executable or its output.
    Report a mismatch as an issue with the address and the inputs.
-2. **Play test builds and report differences.** Each play build switches a
-   system over to the original's code
-   ([docs/MILESTONES.md](docs/MILESTONES.md)). Anything that behaves
+2. **Play test builds and report differences.** The play build runs the
+   original's code ([docs/PLAYTESTING.md](docs/PLAYTESTING.md),
+   [docs/MILESTONES.md](docs/MILESTONES.md)). Anything that behaves
    differently from the original game is a bug worth an issue: say where,
    what you did, and what the original does.
 3. **Compare with the original game.** Recording the original game and
    comparing it with nv-rs automatically is the most valuable check the
    port can have. Propose a plan in an issue before building tools for
    it.
-4. **Platforms.** The Linux port (#61) and the macOS/Metal port are open.
-   Check the open pull requests first and build on them.
+4. **Platforms.** The engine's platform layer (`crates/engine-core/src/units/platform`)
+   is Windows-only; a Linux build of it (#61) is open. Discuss it in the issue first.
 
 Not open for contributions, because the maintainer's sessions are doing
 them and parallel versions would conflict: translating the executable
@@ -90,9 +88,8 @@ before anything else:
 
 Work that changes how the game behaves without tracing it (tuned
 constants, "feels better" camera or AI changes, procedural effects the
-game doesn't have) can't be merged, however good it looks. If your fork
-has some, keep it behind `NV_GUESSES=1` (`world::guesses`) or leave it
-out, and say in the pull request which parts are traced.
+game doesn't have) can't be merged, however good it looks. Leave it out, and say in
+the pull request which parts are traced.
 
 ## Claiming a task
 
@@ -113,27 +110,11 @@ pull request.
 
 ## Areas
 
-Who owns what. Ask the owner on GitHub before changing their area in a
-large way; small fixes anywhere are welcome with a test. The hand-written
-areas below stay with their owners until the engine port switches that
-system over to the translated code.
-
 | Area | Owner | Notes |
 | --- | --- | --- |
-| Opening (VCG01), Doc Mitchell's house, character creation, look-IK | maintainer | Face editor and opening still open. |
-| Goodsprings routes: Back in the Saddle (VCG02), Ghost Town Gunfight (VMS16) | maintainer | Acceptance routes; see docs/GOODSPRINGS_ROUTE.md. |
-| NPC AI: packages, pathing, combat, animation, dialogue behaviour | maintainer | PACKAGES, PATHING, NPC_COMBAT, ANIMATION, DIALOGUE. |
-| Player: movement, actions, sneaking, aiming, furniture, physics | maintainer | MOVEMENT, PLAYER_ACTIONS, FURNITURE, PHYSICS. |
-| Weapon effects and impacts | maintainer | WEAPON_EFFECTS. |
-| Pip-Boy (except Repair and weapon mods), start menu, radio, local map | maintainer | PIPBOY. |
-| Terminals and hacking | Chazm | |
-| Item scripts, Repair, weapon mods | Chazm | The Pip-Boy's Repair and Mod pages are Chazm's. |
-| Companions, Caravan, casinos (base game) | Chazm | Dead Money's versions overlap: coordinate. |
-| Performance (M4) | Chazm | Measure before and after; no behaviour changes. |
-| Dead Money (DLC01), crafting and the recipe menu | Dead Money contributor | docs/HANDOFF_DEAD_MONEY.md. |
-| macOS / Metal port | open | Pull request #108 (`abusager13`) is a start; coordinate there. |
-| Linux port | open | #61; pull requests #62 and #91 are starts. |
-| Engine port: translating the executable, frame order, game-state model and saves, wiring systems into the game | maintainer | ENGINE_PORT_PLAN, ENGINE_CRATE, FRAME_SKELETON, ENGINE_STATE. Not open for contributions. |
+| Engine port: translating the executable, the frame model, game state and saves, the platform layer, the play build | maintainer | ENGINE_PORT_PLAN, ENGINE_CRATE, FRAME_SKELETON, ENGINE_STATE. Not open for contributions. |
+| Checking translations against the executable (`research/nv-oracle`) | open | Coordinate on the issue first. |
+| Linux build of the platform layer | open | #61; the engine-core part of #62 is a start. |
 
 For anything else, open an issue first.
 
@@ -141,21 +122,14 @@ For anything else, open an issue first.
 
 1. **Checks.** From the root: `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`,
-   `cargo fmt --all -- --check`. In `viewer/`: `cargo test`,
-   `cargo clippy --all-targets -- -D warnings`,
-   `cargo fmt --all -- --check`, `cargo build --release`. GitHub runs the
-   same checks (`check (core)`, `check (viewer)`) and they must pass.
-   `cargo test` includes a repository hygiene check that rejects game or
-   binary files, absolute user-profile paths and Ghidra's automatic names
-   (`FUN_…`, `DAT_…`): write the address instead.
-2. **Acceptance routes.**
-   `powershell -File scripts\acceptance.ps1 -Data "<your Fallout New Vegas\Data>"`
-   replays Doc Mitchell's walk, Back in the Saddle and Ghost Town Gunfight
-   in the release viewer. All three must pass, or the pull request says
-   which one failed and shows it fails the same way on `main`. The
-   gunfight (and, rarely, Back in the Saddle) depends on timing and
-   chance: if one fails once, run it again and report both. Paste the
-   result table.
+   `cargo fmt --all -- --check`. GitHub runs the same checks (`check`) and they must
+   pass. `cargo test` includes a repository hygiene check
+   (`crates/nvinspect/tests/repo_hygiene.rs`) that rejects game or binary files, absolute
+   user-profile paths and Ghidra's automatic names (`FUN_…`, `DAT_…`): write the address
+   instead.
+2. **A play-build run** for a change to the game's behaviour: the play build
+   ([docs/PLAYTESTING.md](docs/PLAYTESTING.md)) from the save or start you name, what you
+   did, and the log's last lines. Say whether it ran the same on `main`.
 3. **Provenance.** Every behaviour comes from the original game:
    translated from `FalloutNV.exe` 1.4.0.525 with the address in a
    comment ([ADR-0003](docs/adr/0003-decompiled-code-in-the-project.md)),
@@ -174,11 +148,11 @@ For anything else, open an issue first.
    any difference in the exe, mark what came from it as the ADR says, and
    never commit its C++.
 4. **Evidence of play.** Say what you checked by playing (keys, mouse or
-   pad) and what you only checked by script (`--run`, `--say`, `--use`,
-   `--key-at`) or unit test. Keep logs and screenshots private, or check
+   pad) and what you only checked by script (`NV_MOVE_KEYS`, `NV_MOVE_MOUSE`) or unit
+   test. Keep logs and screenshots private, or check
    them for usernames and local paths before attaching.
 5. **Tests.** A regression test for each behaviour fix, with inputs built
-   from scratch by the `testdata` crate. Tests never need game files.
+   from scratch in the test (or the oracle's cases). Tests never need game files.
 6. **Docs.** The system's topic page in `docs/` says what is done, what is
    traced and what is missing. The maintainer updates
    [docs/MILESTONES.md](docs/MILESTONES.md) when a milestone moves.
@@ -191,12 +165,14 @@ databases or exports, recordings or logs.
 
 ## How the code is laid out
 
-Game rules belong in the core crates (`world`, `physics`, `preview`,
-`cellview`, `script`, `ui`); the viewer (`viewer/`, Bevy 0.16, its own
-workspace) only draws, plays sound and reads input. Menus use the game's
-own XML through `ui`. Core crates use no external libraries. Keep the
-player/camera, aim/head, action-input and per-view boundaries in
-[docs/VR.md](docs/VR.md). The method is in
+The executable is translated function by function into the engine crates
+(`crates/engine*`, [docs/ENGINE_CRATE.md](docs/ENGINE_CRATE.md)); `crates/host` starts it
+on the player's FalloutNV.exe and runs its frames, and `viewer/` (`nv-viewer`) is the program
+that does that. `crates/frame-model` models the frame's calls (Phase 1),
+`crates/esm` reads plugins (for the host), `bsa` archives (for the measurement tools),
+`bink`, `mp3` and `vorbis` are decoders the engine uses, and `fos` reads the original saves
+(Phase 2's comparator, [docs/FOS_SAVES.md](docs/FOS_SAVES.md)). Keep the player/camera, aim/head, action-input and per-view boundaries
+in [docs/VR.md](docs/VR.md). The method is in
 [docs/METHODOLOGY.md](docs/METHODOLOGY.md), the research tools in
 [`research/`](research/) and the day-to-day steps in
 [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md).

@@ -1,5 +1,7 @@
 # Engine port plan: from feature tracing to porting whole systems
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Drafted 2026-10-08 for the session after the usage reset (Monday). It
 proposes changing the method: stop tracing features one at a time and port
 FalloutNV.exe system by system, the way the Havok work (B1) was done, with a

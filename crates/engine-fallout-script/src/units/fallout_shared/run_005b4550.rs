@@ -1,8 +1,8 @@
 //! `fallout shared/run_005b4550` (Xbox PDB source unit), subsystem `fallout shared`: its functions in
 //! FalloutNV.exe 1.4.0.525, translated (docs/ENGINE_CRATE.md).
 //!
-//! The script command `ShowMessage` (`005b4630`, named in docs/OPENING.md and
-//! docs/HUD_MESSAGES.md; the engine map has no name for it) and the three
+//! The script command `ShowMessage` (`005b4630`, named in the removed docs/OPENING.md and
+//! docs/HUD_MESSAGES.md, docs/history/README.md; the engine map has no name for it) and the three
 //! small functions beside it: the reset of the message-box answer
 //! (`005b4940`), the formatter that builds the text from the script's
 //! arguments (`005b4960`) and the box's answer callback (`005b4a70`).

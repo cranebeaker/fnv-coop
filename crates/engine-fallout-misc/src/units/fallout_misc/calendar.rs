@@ -554,12 +554,12 @@ mod tests {
         assert_eq!(e.call(0x0086_7da0, &args![bare]).f32(), 12.0);
     }
 
-    /// `Calendar::Update`'s calls follow `world::frame::world_time`'s model of
+    /// `Calendar::Update`'s calls follow `frame_model::world_time`'s model of
     /// it for each of its tests (docs/FRAME_SKELETON.md, PR 5): the
     /// `TESGlobal` setter on the globals of the reached sub-steps, in order.
     #[test]
     fn update_follows_the_frame_model() {
-        use world::frame::world_time::{follows, function, steps_run, Callee, WorldState};
+        use frame_model::world_time::{follows, function, steps_run, Callee, WorldState};
         let model = function(0x0086_7a40).expect("modelled");
         // The global each setter call site writes (indices into
         // `calendar_with`'s list).

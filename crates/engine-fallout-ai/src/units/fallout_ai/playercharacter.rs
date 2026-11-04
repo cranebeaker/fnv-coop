@@ -18870,9 +18870,9 @@ mod tests {
     const ANSWERS_ONE: u32 = 0x00b1_0000;
 
     /// `Update` in [`update_world`] with the inputs of
-    /// `world::frame::player::PlayerState` set through its globals, fields
+    /// `frame_model::player::PlayerState` set through its globals, fields
     /// and doubles: the calls it makes, in order.
-    fn update_calls(s: &world::frame::player::PlayerState) -> Vec<u32> {
+    fn update_calls(s: &frame_model::player::PlayerState) -> Vec<u32> {
         let mut e = engine();
         let this = update_world(&mut e);
         e.register(ANSWERS_ONE, |_, _| int(1));
@@ -18916,14 +18916,14 @@ mod tests {
         call_addresses(&e)
     }
 
-    /// The calls `Update` makes follow `world::frame::player::UPDATE` for
+    /// The calls `Update` makes follow `frame_model::player::UPDATE` for
     /// each of its gates: every step the gates let through is called, in
     /// order, except where its own tests (not modelled) keep it from
     /// calling, and nothing else of the list is (docs/FRAME_SKELETON.md,
     /// PR 4).
     #[test]
     fn update_follows_the_frame_model() {
-        use world::frame::player::{steps_run, PlayerState, UPDATE};
+        use frame_model::player::{steps_run, PlayerState, UPDATE};
         let game = PlayerState::default();
         let ai = PlayerState {
             ai_controlled: true,

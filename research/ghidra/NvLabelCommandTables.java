@@ -13,7 +13,7 @@
 //   +36 flags (u32)
 //
 // The stride is an argument because the notes in this repo disagree about
-// the entry size: one note (docs/ENGINE_REFERENCE.md, console commands)
+// the entry size: one note (docs/ENGINE_REFERENCE.md, console commands; removed 2026-11-03, docs/history/README.md)
 // says 48 bytes, while the public xNVSE structure is 40 bytes. Run the
 // script with dry=1 and each stride, and compare how many entries have a
 // valid name; the right stride gives valid names for every entry up to the

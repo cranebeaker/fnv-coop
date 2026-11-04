@@ -1,5 +1,7 @@
 # VR support
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 VR is a built-in mode of the engine rather than a mod bolted on afterwards.
 One build runs both ways: on a flat screen or, with a setting or `--vr` flag,
 on a headset. The two modes share the world, simulation, AI and content. Only

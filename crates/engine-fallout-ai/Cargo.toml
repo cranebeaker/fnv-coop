@@ -20,9 +20,9 @@ engine-fallout-facegen = { path = "../engine-fallout-facegen" }
 [dev-dependencies]
 # The form-constructor checker of units::crt (ctor_test) for this crate's tests.
 engine-core = { path = "../engine-core", features = ["test-support"] }
-# The frame stages (`world::frame`) that some of this crate's tests compare their call
+# The frame stages (`frame_model`) that some of this crate's tests compare their call
 # order with.
-world = { path = "../world" }
+frame-model = { path = "../frame-model" }
 # Phase A of the split by area (docs/ENGINE_CRATE.md, "The fallout crates"): every other
 # fallout crate, so this crate's tests register every translated function as before the
 # split. Phase B removes the ones no test needs.

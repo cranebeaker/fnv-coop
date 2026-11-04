@@ -8016,9 +8016,9 @@ mod tests {
         /// the order test: a double that does nothing.
         const UPDATE_DOUBLE: u32 = 0x0000_2300;
 
-        /// `0086f940` with the inputs of `world::frame::player::PlayerState` set through its
+        /// `0086f940` with the inputs of `frame_model::player::PlayerState` set through its
         /// callees' doubles: the calls it makes, in order.
-        fn update_player_calls(s: &world::frame::player::PlayerState) -> Vec<u32> {
+        fn update_player_calls(s: &frame_model::player::PlayerState) -> Vec<u32> {
             let mut e = idle_engine();
             let main = main_object(&mut e);
             let flag = |b: bool| u32::from(b);
@@ -8062,8 +8062,8 @@ mod tests {
             e.call_log = Some(vec![]);
             e.call(0x0086_f940, &args![main]);
             let to_model = |a: u32| match a {
-                YES | NOTHING => world::frame::player::player_slot(0x1d0),
-                UPDATE_DOUBLE => world::frame::player::UPDATE_ADDRESS,
+                YES | NOTHING => frame_model::player::player_slot(0x1d0),
+                UPDATE_DOUBLE => frame_model::player::UPDATE_ADDRESS,
                 other => other,
             };
             // The log starts with the call of `0086f940` itself.
@@ -8074,11 +8074,11 @@ mod tests {
                 .collect()
         }
 
-        /// The calls `0086f940` makes are `world::frame::player::UPDATE_PLAYER`'s that its gates
+        /// The calls `0086f940` makes are `frame_model::player::UPDATE_PLAYER`'s that its gates
         /// let through, in its order, for each of its tests (docs/FRAME_SKELETON.md, PR 4).
         #[test]
         fn update_player_0086f940_follows_the_frame_model() {
-            use world::frame::player::{calls_run, PlayerState, UPDATE_PLAYER};
+            use frame_model::player::{calls_run, PlayerState, UPDATE_PLAYER};
             let game = PlayerState::default();
             let left = PlayerState {
                 left_cell: true,
@@ -8159,11 +8159,11 @@ mod tests {
             }
         }
 
-        /// The calls `0086fbe0` makes are `world::frame::world_time`'s model of it, exactly, for
+        /// The calls `0086fbe0` makes are `frame_model::world_time`'s model of it, exactly, for
         /// each of its tests (docs/FRAME_SKELETON.md, PR 5).
         #[test]
         fn update_current_grid_cell_0086fbe0_follows_the_frame_model() {
-            use world::frame::world_time::{function, steps_run, Callee, WorldState};
+            use frame_model::world_time::{function, steps_run, Callee, WorldState};
             let model = function(0x0086_fbe0).expect("modelled");
             let game = WorldState::default();
             let tests = WorldState {
@@ -8219,12 +8219,12 @@ mod tests {
             }
         }
 
-        /// The calls `0086fc60` makes follow `world::frame::ai_stage`'s model of it for each of its
+        /// The calls `0086fc60` makes follow `frame_model::ai_stage`'s model of it for each of its
         /// tests: the thread count, menu mode with and without the dialogue and fader flags, the
         /// frozen world (docs/FRAME_SKELETON.md, PR 6).
         #[test]
         fn update_animations_and_effects_0086fc60_follows_the_frame_model() {
-            use world::frame::ai_stage::{follows, function, steps_run, AiState, Callee};
+            use frame_model::ai_stage::{follows, function, steps_run, AiState, Callee};
             let model = function(0x0086_fc60).expect("modelled");
             let game = AiState::default();
             let menu = AiState {
@@ -8283,20 +8283,20 @@ mod tests {
         // ----- the interface and render stages (docs/FRAME_SKELETON.md, PR 7) ----------------
 
         /// The calls `address` made, as the model's callees, without its own entry.
-        fn logged(e: &mut Engine) -> Vec<world::frame::interface::Callee> {
+        fn logged(e: &mut Engine) -> Vec<frame_model::interface::Callee> {
             take_log(e)
                 .into_iter()
                 .skip(1)
-                .map(|(a, _)| world::frame::interface::Callee::Direct(a))
+                .map(|(a, _)| frame_model::interface::Callee::Direct(a))
                 .collect()
         }
 
         fn check(
             address: u32,
-            s: &world::frame::interface::InterfaceState,
-            log: &[world::frame::interface::Callee],
+            s: &frame_model::interface::InterfaceState,
+            log: &[frame_model::interface::Callee],
         ) {
-            use world::frame::interface::{follows, function};
+            use frame_model::interface::{follows, function};
             let model = function(address).expect("modelled");
             follows(model, s, log, &[]).unwrap_or_else(|why| panic!("{address:08x} {s:?}: {why}"));
         }
@@ -8316,7 +8316,7 @@ mod tests {
         /// playback or as the Pip-Boy comes up, and not with the fly camera.
         #[test]
         fn poll_controls_0086f390_follows_the_frame_model() {
-            use world::frame::interface::InterfaceState;
+            use frame_model::interface::InterfaceState;
             let game = InterfaceState::default();
             let cases = [
                 game,
@@ -8360,7 +8360,7 @@ mod tests {
         /// with fader 1, the console and the frozen world.
         #[test]
         fn process_lists_0086f890_follows_the_frame_model() {
-            use world::frame::interface::InterfaceState;
+            use frame_model::interface::InterfaceState;
             for threads in [1, 2] {
                 let game = InterfaceState {
                     threads,
@@ -8398,14 +8398,14 @@ mod tests {
                     e.call(0x0086_f890, &args![main]);
                     let log = logged(&mut e);
                     check(0x0086_f890, &s, &log);
-                    let model = world::frame::interface::function(0x0086_f890).unwrap();
+                    let model = frame_model::interface::function(0x0086_f890).unwrap();
                     let seen = log
                         .iter()
                         .filter(|c| model.steps.iter().any(|st| st.callee == **c))
                         .count();
                     assert_eq!(
                         seen,
-                        world::frame::interface::steps_run(&s, model).len(),
+                        frame_model::interface::steps_run(&s, model).len(),
                         "{s:?}"
                     );
                 }
@@ -8415,7 +8415,7 @@ mod tests {
         /// `0086f6a0` for one and more threads, and in dialogue.
         #[test]
         fn non_render_safe_0086f6a0_follows_the_frame_model() {
-            use world::frame::interface::InterfaceState;
+            use frame_model::interface::InterfaceState;
             for threads in [1, 2] {
                 for in_dialog in [false, true] {
                     let mut e = idle_engine();
@@ -8443,7 +8443,7 @@ mod tests {
         /// the menu change's background, the faders' loading screen, the threads' release.
         #[test]
         fn swap_0086ff70_follows_the_frame_model() {
-            use world::frame::interface::InterfaceState;
+            use frame_model::interface::InterfaceState;
             let game = InterfaceState::default();
             let cases = [
                 game,

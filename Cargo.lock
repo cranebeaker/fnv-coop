@@ -3,42 +3,11 @@
 version = 3
 
 [[package]]
-name = "assets"
-version = "0.1.0"
-dependencies = [
- "bsa",
- "testdata",
-]
-
-[[package]]
 name = "bink"
 version = "0.1.0"
 
 [[package]]
 name = "bsa"
-version = "0.1.0"
-dependencies = [
- "esm",
-]
-
-[[package]]
-name = "cellview"
-version = "0.1.0"
-dependencies = [
- "assets",
- "dds",
- "esm",
- "mp3",
- "nif",
- "physics",
- "preview",
- "speedtree",
- "testdata",
- "world",
-]
-
-[[package]]
-name = "dds"
 version = "0.1.0"
 dependencies = [
  "esm",
@@ -106,7 +75,7 @@ dependencies = [
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
- "world",
+ "frame-model",
 ]
 
 [[package]]
@@ -129,7 +98,7 @@ dependencies = [
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
- "world",
+ "frame-model",
 ]
 
 [[package]]
@@ -218,7 +187,7 @@ dependencies = [
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
- "world",
+ "frame-model",
 ]
 
 [[package]]
@@ -263,7 +232,7 @@ dependencies = [
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
- "world",
+ "frame-model",
 ]
 
 [[package]]
@@ -379,12 +348,13 @@ dependencies = [
 [[package]]
 name = "esm"
 version = "0.1.0"
-dependencies = [
- "testdata",
-]
 
 [[package]]
 name = "fos"
+version = "0.1.0"
+
+[[package]]
+name = "frame-model"
 version = "0.1.0"
 
 [[package]]
@@ -394,8 +364,6 @@ dependencies = [
  "engine",
  "esm",
  "play-patch",
- "script",
- "world",
 ]
 
 [[package]]
@@ -403,37 +371,14 @@ name = "mp3"
 version = "0.1.0"
 
 [[package]]
-name = "nif"
+name = "nv-viewer"
 version = "0.1.0"
 dependencies = [
- "testdata",
+ "host",
 ]
 
 [[package]]
 name = "nvinspect"
-version = "0.1.0"
-dependencies = [
- "assets",
- "bink",
- "bsa",
- "cellview",
- "dds",
- "esm",
- "fos",
- "mp3",
- "nif",
- "physics",
- "preview",
- "script",
- "shaders",
- "speedtree",
- "testdata",
- "ui",
- "world",
-]
-
-[[package]]
-name = "physics"
 version = "0.1.0"
 
 [[package]]
@@ -441,19 +386,6 @@ name = "play-patch"
 version = "0.1.0"
 dependencies = [
  "engine",
-]
-
-[[package]]
-name = "preview"
-version = "0.1.0"
-dependencies = [
- "assets",
- "dds",
- "esm",
- "nif",
- "physics",
- "testdata",
- "world",
 ]
 
 [[package]]
@@ -475,29 +407,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "script"
-version = "0.1.0"
-
-[[package]]
-name = "scriptgen"
-version = "0.1.0"
-dependencies = [
- "esm",
- "script",
-]
-
-[[package]]
-name = "shaders"
-version = "0.1.0"
-
-[[package]]
-name = "speedtree"
-version = "0.1.0"
-dependencies = [
- "testdata",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -506,20 +415,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "testdata"
-version = "0.1.0"
-
-[[package]]
-name = "ui"
-version = "0.1.0"
-dependencies = [
- "esm",
- "script",
- "testdata",
- "world",
 ]
 
 [[package]]
@@ -659,14 +554,3 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "world"
-version = "0.1.0"
-dependencies = [
- "esm",
- "fos",
- "nif",
- "script",
- "testdata",
-]

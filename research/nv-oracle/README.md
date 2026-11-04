@@ -24,7 +24,7 @@ viewer.
 | `nv-bink` | Decodes a Bink movie with the game's own `binkw32.dll` and records the SHA-256 of every frame's planes (and raw buffers of chosen frames). | Ground truth for the Rust Bink decoder (`crates/bink`): every frame of `FNVIntro.bik` must match bit for bit. |
 
 How they map to the milestone blockers: the Doc look-IK work in
-[../../docs/OPENING_LOOK_IK.md](../../docs/OPENING_LOOK_IK.md) needs two
+docs/OPENING_LOOK_IK.md (removed 2026-11-03; [docs/history](../../docs/history/README.md)) needs two
 kinds of evidence this directory provides. The helper that normalises a
 quaternion with `RSQRTSS` plus one Newton step produces SSE-approximation
 results that only the real CPU can confirm bit for bit; `nv-call` records

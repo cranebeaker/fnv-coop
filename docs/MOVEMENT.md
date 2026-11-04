@@ -1,5 +1,7 @@
 # Player movement and the character controller
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Topic file for the player's walking, running, sneaking and jumping, and
 the character controller's ground and air states. Read from
 `FalloutNV.exe` 1.4.0.525 (unpacked image) with Ghidra; names marked

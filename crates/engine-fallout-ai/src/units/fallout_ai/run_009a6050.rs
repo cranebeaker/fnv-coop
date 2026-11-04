@@ -135,7 +135,7 @@ fn in_range(e: &mut Engine, actor: u32, owner: u32, candidate: u32, range: f32) 
 }
 
 // Translated from 009a60e0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Unnamed in the engine map (`cdecl`, two words; `crates/world/src/melee.rs` traces it):
+/// Unnamed in the engine map (`cdecl`, two words; the removed `crates/world/src/melee.rs` traced it):
 /// the actor `actor` should go for within `range`. The object its slot `+0x428` gives
 /// (as a reference, `004030b0`) is answered when `009a6ae0` passes for it and it is within
 /// `range` (`009a64d0` with 1); when it is set but fails, 0. Without one, the actors of the

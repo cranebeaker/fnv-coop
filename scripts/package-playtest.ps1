@@ -8,11 +8,8 @@ try {
     if($LASTEXITCODE){throw 'Package from a committed Git checkout.'}
     $dirty=git status --porcelain --untracked-files=normal
     if($dirty){throw 'Commit or remove untracked changes before packaging.'}
-    Push-Location viewer
-    try {
-        cargo build --release --locked
-        if($LASTEXITCODE){throw 'Release build failed.'}
-    } finally {Pop-Location}
+    cargo build --release --locked -p nv-viewer
+    if($LASTEXITCODE){throw 'Release build failed.'}
     $name="nv-rs-$Version-windows-x64"
     $stage=Join-Path $root "dist/$name"
     $zip="$stage.zip"
@@ -20,11 +17,11 @@ try {
     $notice=Join-Path $root 'distribution/THIRD-PARTY-NOTICES.txt'
     if(!(Test-Path -LiteralPath $notice)){throw 'Dependency notices must be assembled before packaging.'}
     $licenseLock=(Get-Content -LiteralPath (Join-Path $root 'distribution/DEPENDENCY-LOCK.sha256') -Raw).Trim()
-    if($licenseLock -ne (Get-FileHash -LiteralPath (Join-Path $root 'viewer/Cargo.lock')).Hash.ToLowerInvariant()) {
+    if($licenseLock -ne (Get-FileHash -LiteralPath (Join-Path $root 'Cargo.lock')).Hash.ToLowerInvariant()) {
         throw 'Dependency lockfile changed. Refresh license notices and their lockfile hash before packaging.'
     }
     New-Item -ItemType Directory -Path (Join-Path $stage 'app') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $root 'viewer/target/release/nv-viewer.exe') -Destination (Join-Path $stage 'app/nv-viewer.exe')
+    Copy-Item -LiteralPath (Join-Path $root 'target/release/nv-viewer.exe') -Destination (Join-Path $stage 'app/nv-viewer.exe')
     foreach($file in @('Play.cmd','Play.ps1','README.txt','THIRD-PARTY-NOTICES.txt')) {
         Copy-Item -LiteralPath (Join-Path $root "distribution/$file") -Destination $stage
     }

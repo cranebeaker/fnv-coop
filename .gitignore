@@ -1,10 +1,9 @@
-# Build output from both workspaces
+# Build output, and the removed viewer's saves and reports (old checkouts)
 target/
 dist/
 userdata/
 reports/
 nv-rs-*.txt
-viewer/nv-rs-*.txt
 # Local game data, extracted assets and research databases are never published.
 *.esm
 *.esp
@@ -38,7 +37,5 @@ __pycache__/
 # Claude Code local state
 .claude/settings.local.json
 .claude/worktrees/
-# Output of scripts/dlc-data-pass.ps1 (game data: never commit)
-dlc-data-pass.txt
 # The Direct3D 9 adapter capture (scripts/d3d9-capture): this machine's hardware, never commit
 d3d9_adapter.tsv

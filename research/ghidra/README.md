@@ -283,7 +283,7 @@ The entry layout for stride 40 is an ABI fact documented by xNVSE's
 function, `+32` eval function, `+36` flags.
 
 **The stride is an argument because this repository's notes disagreed.**
-`docs/ENGINE_REFERENCE.md` describes console command entries as 48 bytes,
+`docs/ENGINE_REFERENCE.md` (removed 2026-11-03; docs/history/README.md) describes console command entries as 48 bytes,
 while the public xNVSE structure is 40 bytes. The real tables settle it at
 40 (see "What was not tested here" below). The script reads the same
 field offsets whatever the stride, so a stride other than 40 is only a

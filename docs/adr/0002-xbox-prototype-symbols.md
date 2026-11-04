@@ -35,7 +35,7 @@ Their provenance is always recorded:
 
 - Finding code becomes a name search. Struct field names can answer open
   questions such as the look-IK controller fields in
-  [OPENING_LOOK_IK.md](../OPENING_LOOK_IK.md).
+  OPENING_LOOK_IK.md (removed 2026-11-03; [history](../history/README.md)).
 - Transfer accuracy is limited: about 87% exact agreement by vtable slot and
   52-63% true positives for cross-architecture similarity search in the
   sources cited by METHODOLOGY.md. Imported names are spot-checked.

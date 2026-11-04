@@ -23,7 +23,6 @@
 //! call), recording the library's `f32` samples interleaved.
 #![allow(clippy::missing_safety_doc)]
 
-#[path = "../../../crates/nvinspect/src/sha256.rs"]
 mod sha256;
 
 use std::ffi::c_void;

@@ -1,29 +1,10 @@
 [package]
 name = "nvinspect"
 version = "0.1.0"
-description = "Command-line inspector for Fallout: New Vegas game data"
+description = "The repository's checks: tests/repo_hygiene.rs (what must never be committed)"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+publish = false
 
 [dependencies]
-esm = { path = "../esm" }
-bsa = { path = "../bsa" }
-nif = { path = "../nif" }
-dds = { path = "../dds" }
-assets = { path = "../assets" }
-world = { path = "../world" }
-preview = { path = "../preview" }
-shaders = { path = "../shaders" }
-physics = { path = "../physics" }
-script = { path = "../script" }
-mp3 = { path = "../mp3" }
-bink = { path = "../bink" }
-cellview = { path = "../cellview" }
-ui = { path = "../ui" }
-speedtree = { path = "../speedtree" }
-fos = { path = "../fos" }
-
-[dev-dependencies]
-fos = { path = "../fos", features = ["write"] }
-testdata = { path = "../testdata" }

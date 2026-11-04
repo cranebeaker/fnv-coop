@@ -15,15 +15,9 @@ if not exist "%~dp0app\nv-viewer.exe" (
   pause
   exit /b 1
 )
-echo 1. Explore Doc Mitchell's house
-echo 2. Start the experimental opening
-echo 3. Explore Goodsprings
-choice /c 123 /n /m "Choose 1, 2 or 3: "
-set "nvrs_choice=%errorlevel%"
-if not exist "%~dp0userdata" mkdir "%~dp0userdata"
-cd /d "%~dp0userdata"
+rem The game draws in its own window through Direct3D 9 and plays its sound through DirectSound.
+set "NV_D3D9=real"
+set "NV_SOUND=out"
 type "%~dp0BUILD.txt"
-if "%nvrs_choice%"=="3" "%~dp0app\nv-viewer.exe" "%nvrs_data%" Goodsprings --official
-if "%nvrs_choice%"=="2" "%~dp0app\nv-viewer.exe" "%nvrs_data%" --new-game --official
-if "%nvrs_choice%"=="1" "%~dp0app\nv-viewer.exe" "%nvrs_data%" GSDocMitchellHouse --official
+"%~dp0app\nv-viewer.exe" "%nvrs_data%"
 if errorlevel 1 pause

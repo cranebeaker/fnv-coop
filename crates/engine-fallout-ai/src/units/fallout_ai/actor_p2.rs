@@ -11321,13 +11321,13 @@ mod tests {
         assert!(was_called(&e, ACTOR_TIMED_UPDATE));
     }
 
-    /// `Actor::Update` (`00888b50`) follows `world::frame::ai_stage`'s model
+    /// `Actor::Update` (`00888b50`) follows `frame_model::ai_stage`'s model
     /// (docs/FRAME_SKELETON.md, PR 6): a person without and with a
     /// character controller (in water), a long step, no 3D, the player in
     /// first person.
     #[test]
     fn update_follows_the_frame_model() {
-        use world::frame::ai_stage::{follows, function, AiState, Callee};
+        use frame_model::ai_stage::{follows, function, AiState, Callee};
         let model = function(0x0088_8b50).expect("modelled");
         // The virtual calls the model names, by the slot they go through.
         let slots = [

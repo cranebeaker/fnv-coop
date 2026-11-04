@@ -1,7 +1,9 @@
 # Phase 1: the frame skeleton (proposal)
 
+> **2026-11-03:** the hand-written game layer and the Bevy viewer this file also describes (`world::`, `physics::`, `cellview`, `preview`, the `nvinspect` commands, `viewer/src/...`) were removed ([ADR-0011](adr/0011-old-layer-removed.md)); their code is in git history at `93922e5a`. The executable research here stands; nv-rs now runs the game through the engine port only.
+
 Drafted 2026-10-09 at the end of Phase 0 ([ENGINE_PORT_PLAN.md](ENGINE_PORT_PLAN.md),
-[LEDGER.md](LEDGER.md)); PR 1 (the frame map), PR 2 (`world::frame`), PR 3 (the viewer's order), PR 4 (the player stage), PR 5 (the world and time stage) done 2026-10-09 and PR 6 (the AI task stage) 2026-10-10.
+[LEDGER.md](LEDGER.md)); PR 1 (the frame map), PR 2 (`frame_model`), PR 3 (the viewer's order), PR 4 (the player stage), PR 5 (the world and time stage) done 2026-10-09 and PR 6 (the AI task stage) 2026-10-10.
 PR 7's model and scoped wiring and PR 8's controls' buffer (2026-10-12) are described below, with remaining calls
 explicitly open. Names are from the Xbox 360 prototype (Xbox PDB,
 ADR-0002), PC addresses from `research/engine-map/engine_map.tsv` and
@@ -69,7 +71,7 @@ map), strings and unit with the Xbox function's.
   `MobileObject::GetCurrentProcessType` and twice an empty function
   (`00483710`) where the Xbox calls the empty `RemoteLog::OnConnected` twice.
 - `Main::OnIdle_UpdateTimer` `0086f260`: calls `bhkWorld::SetDeltaTime`
-  (`00c66760`, docs/PHYSICS.md) and a `bstimer.cpp` function (`00aa4e40`),
+  (`00c66760`, the removed docs/PHYSICS.md, docs/history/README.md) and a `bstimer.cpp` function (`00aa4e40`),
   as the Xbox one calls `BSTimer::Update` and `bhkWorld::SetDeltaTime`.
 - `IOManager::UpdateQueue` `00c3dbf0`: calls `BSPrecisionTimer::GetTimer`
   twice and an `iomanager.obj` function (`00c3e420`).
@@ -258,7 +260,7 @@ whenever it is regenerated. On 2026-10-09, after the rolling translation
 batches up to #81, of the 143 depth-1 call sites 22 are `translated`, 37
 `traced`, 5 `platform` and 79 `open`.
 
-## PR 2 result: `world::frame`
+## PR 2 result: `frame_model`
 
 `crates/world/src/frame.rs` (2026-10-09) is the control flow of
 `0086e650`, translated (ADR-0003 marker): `STEPS` lists its 143 calls in
@@ -318,15 +320,15 @@ the thread count) need a source or a fixed value.
 ## PR 3 result: the viewer's order from the frame
 
 `viewer/src/frame_order.rs` (2026-10-09) makes the frame the viewer's
-`Update` order. Each `world::frame::Stage` is a system set
-(`FrameSet::Stage`), configured in the order `world::frame::stages()` reads
+`Update` order. Each `frame_model::Stage` is a system set
+(`FrameSet::Stage`), configured in the order `frame_model::stages()` reads
 off `STEPS`; each of the 143 steps is a set too (`FrameSet::Step(i)`,
 inside its stage, in call order). Every stage set runs under
-`world::frame::stage_reached` (only the Tab and Alt return stops a stage)
-and every step set under `world::frame::step_runs` (its `Gate`), both
+`frame_model::stage_reached` (only the Tab and Alt return stops a stage)
+and every step set under `frame_model::step_runs` (its `Gate`), both
 evaluated on one `FrameState` resource (`ThisFrame`) that `begin_frame`, the
 first system of stage 1, fills each frame (the menu-state queries of steps
-3-12). The gate logic stays in `world::frame`; the viewer only fills the
+3-12). The gate logic stays in `frame_model`; the viewer only fills the
 inputs.
 
 Three viewer sets sit around the stages (`ViewerSet`):
@@ -462,24 +464,24 @@ evidence. The gates are ready for PR 4 to PR 7.
 - The loaders now always run before the game's menus (they were
   unordered).
 
-Tests (`frame_order::tests`): the sets run in `world::frame`'s stage order
+Tests (`frame_order::tests`): the sets run in `frame_model`'s stage order
 with the viewer's sets around them, and the step sets in call order inside
 their stage, with systems added in reverse; a system in a gated step set
 (`Calendar::Update`, step 56) doesn't run in menu mode while the rest of
 its stage does, and Tab+Alt stops every stage but the first; the fixed
-inputs. `world::frame` gained `stages`, `stage_reached`, `step_runs` and
+inputs. `frame_model` gained `stages`, `stage_reached`, `step_runs` and
 `step_of`, used by the viewer and tested there. Acceptance: doc, vcg02 and
 vms16 pass; on `main` before the change vcg02 missed "XP +50" in one run
 while doc and vms16 passed, so no route got worse.
 
 ## PR 4 result: the player stage
 
-`crates/world/src/frame/player.rs` (`world::frame::player`, 2026-10-09)
+`crates/world/src/frame/player.rs` (`frame_model::player`, 2026-10-09)
 models the player's step, `Main::OnIdle_UpdatePlayer` (`0086f940`, step 14),
 and `PlayerCharacter::Update` (`0093e860`), which it calls through slot
 +0x2f8 of the player's vtable (`0108aa3c`, written by `PlayerCharacter`'s
 constructor at `009381c6`; the slot at `0108ad34` holds `0093e860`), the way
-`world::frame` models `Main::OnIdle`: calls in the exe's order, each with a
+`frame_model` models `Main::OnIdle`: calls in the exe's order, each with a
 gate read from the branches, with their addresses, and the viewer's sets in
 that order (`frame_order::PlayerSet`). The disassembly of both functions
 agrees with the engine's translations (`fallout_misc/main.rs`,
@@ -552,7 +554,7 @@ leads (`ForceGrenadeHold`'s body fits its name).
 
 ### Tests
 
-`world::frame::player` (16): the direct calls equal `frame.tsv`; call
+`frame_model::player` (16): the direct calls equal `frame.tsv`; call
 sites in order; every gate names branches inside its function; slot +0x2f8
 is the update; one test per gate. The engine crate (a new dev-dependency on
 `world`) drives the translations: `0086f940` under 16 input combinations
@@ -597,7 +599,7 @@ Where the stage's 20 systems went (checked by reading each):
 In gated sets: 5 (`fly_camera`, `player_attack` and `walk` in their
 sub-steps' sets, `scope_sway` and `player_furniture` in the update's
 call). At their sub-step without its gate: 2 (`look_around`,
-`player_idle::animate`). `world::frame::player` records the four mapped
+`player_idle::animate`). `frame_model::player` records the four mapped
 ones as `Partial` wiring. Every call and sub-step stays open: none is a
 world system yet.
 
@@ -624,9 +626,9 @@ world system yet.
 
 ## PR 5 result: the world and time stage
 
-`crates/world/src/frame/world_time.rs` (`world::frame::world_time`,
+`crates/world/src/frame/world_time.rs` (`frame_model::world_time`,
 2026-10-09) models the callees of stage 4 (steps 48-78) the way
-`world::frame::player` models the player's step: for each function the
+`frame_model::player` models the player's step: for each function the
 calls that do its work (not the queries: getters, settings, list nodes, the
 frame time), in the order of their call sites, each with a gate read from
 the function's own branches (`SubGate`, evaluated on a `WorldState`) and,
@@ -663,11 +665,11 @@ with the frame time at `0086e9b5`. That slot holds `00c52590`,
 `BSSceneGraph::SetViewDistanceBasedOnFrameRate`: PR 2 called it the sky's
 update, which it is not (`Sky::Update` `0063ac70` is called from
 `TES::UpdateCellAnimations` at `004536ae` and `TES::UpdateCellMainThread`
-at `00453811`, stage 6); `world::frame`'s doc is corrected.
+at `00453811`, stage 6); `frame_model`'s doc is corrected.
 
 ### Tests
 
-`world::frame::world_time` (13): every direct call is in `frame.tsv`'s call
+`frame_model::world_time` (13): every direct call is in `frame.tsv`'s call
 list under its function, in order (depth 3 for `00452580` under
 `0086fbe0`); sites, gate branches and own tests inside their functions and
 before their calls; the scene graph's call between the two frame-time
@@ -745,9 +747,9 @@ inputs.
 
 ## PR 6 result: the AI task stage
 
-`crates/world/src/frame/ai_stage.rs` (`world::frame::ai_stage`, 2026-10-10)
+`crates/world/src/frame/ai_stage.rs` (`frame_model::ai_stage`, 2026-10-10)
 models the work `Main::OnIdle` starts in stage 6 and joins in stage 8 the
-way `world::frame::world_time` models stage 4: the AI linear task threads'
+way `frame_model::world_time` models stage 4: the AI linear task threads'
 calls in the exe's order, and inside them and the main thread's
 `Main::OnIdle_UpdateAnimationsAndEffects` the calls doing the work, each
 with a gate read from its function's own branches (`SubGate` on an
@@ -823,7 +825,7 @@ projectiles (`009bec10`, the `Projectile` vtables' slot +0x2f8,
 
 ### Tests
 
-`world::frame::ai_stage` (14): `0086fc60`'s, `00453550`'s and `004537c0`'s
+`frame_model::ai_stage` (14): `0086fc60`'s, `00453550`'s and `004537c0`'s
 direct calls are in `frame.tsv` under them in order; every site and branch
 inside its function and before its call; each caller calls there; the
 threads made per count; the combined order for 2; the pair's order keeps
@@ -908,7 +910,7 @@ this machine's processor count, so the pair's order).
   system sits at the actor updates, so nothing visible follows from it.
 ## PR 7 result: interface and render model
 
-`world::frame::interface` records 19 functions: the interface idle's
+`frame_model::interface` records 19 functions: the interface idle's
 pre/idle/post wrappers and manager bodies, last-minute tile updates,
 sleeping, the menu background, Swap, post-swap audio and process lists,
 non-render-safe AI, post-thread work, console opening and control polling.
@@ -976,7 +978,7 @@ the play build, then start Phase 2 as directed in HANDOFF.md.
 
 ## PR 8 result: the controls' buffer and the menus at the idle
 
-`crates/world/src/frame/input.rs` (`world::frame::input`, 2026-10-12)
+`crates/world/src/frame/input.rs` (`frame_model::input`, 2026-10-12)
 records where the game polls the controls and which poll each reader sees;
 the viewer's `poll.rs` makes Bevy's input that buffer, and its menus move
 from ahead of the frame to the interface idle. Source: FalloutNV.exe
@@ -1029,7 +1031,7 @@ engine crate's translations of `0093e860` and `009466d0`.
   frontmost menu.
 
 So each poll reaches the interface in its frame and the player in the
-next, after the interface. Tests (`world::frame::input`, 5): the poll is
+next, after the interface. Tests (`frame_model::input`, 5): the poll is
 step 33 and `Controls::Poll` is its first sub-step and `frame.tsv`'s row;
 the player's step reads the previous poll for 1, 2 and 8 threads in and out
 of menu mode; the idle's step is 80, 101 or 105 by thread count and mode,
@@ -1068,7 +1070,7 @@ neither; the buffer's parts and the device reads' sites.
   takes the player never sees; a frame without a poll keeps the buffer);
   `frame_order::tests` (the input set first; the player's step, the poll,
   the menus and the HUD in that order for 2 and 8 threads in and out of
-  menu mode, agreeing with `world::frame::input`; a press through the real
+  menu mode, agreeing with `frame_model::input`; a press through the real
   systems in their sets).
 
 ### Behaviour differences
@@ -1141,7 +1143,7 @@ acceptance routes, as in B1.
    computes the status instead of the table storing it (it would go
    stale); 38 depth-1 functions (42 call sites) newly paired, the rest
    listed above.
-2. **`world::frame`.** Translate `0086e650`'s control flow: which stages run
+2. **`frame_model`.** Translate `0086e650`'s control flow: which stages run
    in menu mode, while loading, with the console or Pip-Boy open, in
    V.A.T.S. and while sleeping, as an ordered `FrameStep` list. Each step
    either calls our existing system or is marked `open` with its address.

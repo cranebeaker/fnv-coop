@@ -9454,33 +9454,33 @@ mod tests {
 
     /// The calls logged since `e.call_log` was set, as the frame model's
     /// callees.
-    fn model_log(e: &mut Engine) -> Vec<world::frame::interface::Callee> {
+    fn model_log(e: &mut Engine) -> Vec<frame_model::interface::Callee> {
         e.call_log
             .take()
             .unwrap()
             .into_iter()
-            .map(|(a, _)| world::frame::interface::Callee::Direct(a))
+            .map(|(a, _)| frame_model::interface::Callee::Direct(a))
             .collect()
     }
 
     fn check_model(
         address: u32,
-        s: &world::frame::interface::InterfaceState,
-        log: &[world::frame::interface::Callee],
+        s: &frame_model::interface::InterfaceState,
+        log: &[frame_model::interface::Callee],
         ignore: &[u32],
     ) {
-        use world::frame::interface::{follows, function, Callee};
+        use frame_model::interface::{follows, function, Callee};
         let model = function(address).expect("modelled");
         let ignore: Vec<Callee> = ignore.iter().map(|&a| Callee::Direct(a)).collect();
         follows(model, s, log, &ignore).unwrap_or_else(|why| panic!("{address:08x} {s:?}: {why}"));
     }
 
     /// `InterfaceManager::PreIdleStuff` (`0070b8f0`) follows
-    /// `world::frame::interface`'s model in each mode (docs/FRAME_SKELETON.md,
+    /// `frame_model::interface`'s model in each mode (docs/FRAME_SKELETON.md,
     /// PR 7). The sound pause `0070bba0` is called as a Rust function.
     #[test]
     fn pre_idle_follows_the_frame_model() {
-        use world::frame::interface::{mode, InterfaceState};
+        use frame_model::interface::{mode, InterfaceState};
         for (m, locked, pausing) in [
             (mode::GAME, false, true),
             (mode::GAME, false, false),
@@ -9515,7 +9515,7 @@ mod tests {
     /// `0070f6e0` and `00710ad0` are called as Rust functions.
     #[test]
     fn idle_follows_the_frame_model() {
-        use world::frame::interface::{mode, InterfaceState};
+        use frame_model::interface::{mode, InterfaceState};
         let rust = [
             0x0070_f4e0,
             0x0070_f690,
@@ -9552,7 +9552,7 @@ mod tests {
     /// takes the lock too.
     #[test]
     fn last_minute_update_follows_the_frame_model() {
-        use world::frame::interface::InterfaceState;
+        use frame_model::interface::InterfaceState;
         for (empty, loading, threads, running) in [
             (true, false, 1, false),
             (false, false, 1, false),

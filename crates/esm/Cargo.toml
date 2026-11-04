@@ -10,5 +10,3 @@ rust-version.workspace = true
 # implemented in src/inflate.rs.
 [dependencies]
 
-[dev-dependencies]
-testdata = { path = "../testdata" }

@@ -1304,7 +1304,7 @@ pub fn tes_object_weap_get_attack_speed(e: &mut Engine, this: Ptr, with_mod: boo
 }
 
 // Translated from 00646060 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Unnamed in the engine map (`crates/world/src/dps.rs` calls it `CalcCombatWeaponDPS`; not
+/// Unnamed in the engine map (the removed `crates/world/src/dps.rs` called it `CalcCombatWeaponDPS`; not
 /// confirmed here): the damage figure of `weapon` held by `holder` for the combat rating.
 /// 0 for a weapon whose flags word (+0x12c) has bit 6 (`fn_00646230`); otherwise the damage
 /// figure `00645380` (the holder is the `ActorValueOwner` of `holder` at +0xa4, or +0x100 for a
