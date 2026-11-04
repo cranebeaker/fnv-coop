@@ -86,7 +86,7 @@ mostly error handling; the systems below are where the real work is now.
 | ✅ | **Foundations:** the original program mapped, the engine running in play | Done |
 | 🔨 | **Movement and physics** | Translated; running in the play build, being checked against the original |
 | 🔨 | **Animation and faces** | Translated; running in the play build, being compared with the original |
-| 🔨 | **Audio:** sounds, music and the radio | Translated; the game's own sound plays and matches the original, its timing measured against Windows |
+| 🔨 | **Audio:** sounds, music and the radio | Translated; the game's own sound plays and matches the original on stereo and 7.1 output as measured (5.1 and other speaker setups follow DirectSound's code, not measured), its timing measured against Windows |
 | 🔨 | **Graphics:** lighting, weather and effects | Translated; the game's own renderer draws on Windows, other platforms later |
 | 🔨 | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated; the opening's dialogue, menus and Pip-Boy run, weapons draw, aim and fire, combat is being checked |
 | 🔨 | **Saves and the open world** | Saves load in Doc's house, and saves made in play show in the menus; outdoors, Goodsprings loads and can be walked through, the rest of the open world is being switched on |

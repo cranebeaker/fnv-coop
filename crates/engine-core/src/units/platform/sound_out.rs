@@ -1,13 +1,20 @@
 //! The sound the platform's mixer makes, played on the player's default output device through
-//! WASAPI in shared mode, on a host thread of its own (the game never sees that thread). The
-//! device's own mix format is used (32-bit float, as the measured devices have it); another
-//! format is not provided. Windows only; elsewhere [`start`] answers `None` and nothing is
-//! heard.
+//! WASAPI in shared mode, on a host thread of its own per stream (the game never sees those
+//! threads). The endpoint's mix format gives the rate and the speaker layout ([`Layout`]: its
+//! channels and speaker mask; on this machine 8 channels, mask 0x63F, for a program named
+//! `FalloutNV.exe` and 2 channels, mask 0x3, for any other name, measured). A stream is opened
+//! either in that format as it is, or in another layout at the same rate, 32-bit float, the way
+//! DirectSound opens its two-channel stream on a larger endpoint: `IsFormatSupported` first, then
+//! `Initialize` with that format (measured as `FalloutNV.exe`, 2026-11-03: `S_OK`). A mix format
+//! that is not 32-bit float, or a layout DirectSound does not place 3D buffers on
+//! (`super::speakers::Layout::provided`), is not provided: [`start`] then refuses, named, and
+//! nothing is heard. Windows only; elsewhere [`start`] answers that there is no device.
 //!
 //! The thread asks the [`Source`] for as many frames as the device can take each time the device
 //! signals it (event driven, the device's period), so what plays is at most one device buffer
 //! behind what the mixer was asked for.
 
+pub use super::speakers::Layout;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,9 +28,33 @@ pub trait Source: Send {
 pub struct Output {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
-    /// The device's rate and channels.
+    /// The stream's rate, and its channels and speakers.
     pub rate: u32,
-    pub channels: u16,
+    pub layout: Layout,
+}
+
+/// Why [`start`] opened no stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
+    /// No default output device (or not on Windows).
+    NoDevice,
+    /// The endpoint's mix format is not provided (named).
+    Format(String),
+    /// The endpoint does not take the layout asked for (`IsFormatSupported` other than `S_OK`).
+    Layout,
+}
+
+#[cfg(test)]
+impl Output {
+    /// A stream that plays nothing (no thread), as an endpoint opened it: the tests'.
+    pub fn idle(rate: u32, layout: Layout) -> Output {
+        Output {
+            stop: Arc::new(AtomicBool::new(false)),
+            thread: None,
+            rate,
+            layout,
+        }
+    }
 }
 
 impl Drop for Output {
@@ -38,11 +69,17 @@ impl Drop for Output {
 /// The default output device's mix rate (its shared-mode format, the rate DirectSound mixes at),
 /// asked once on a thread of its own; `None` when there is no device (or not on Windows).
 pub fn device_rate() -> Option<u32> {
+    device_mix().map(|(rate, _)| rate)
+}
+
+/// The default output device's mix rate and layout (its shared-mode format), asked once on a
+/// thread of its own; `None` when there is no device (or not on Windows).
+pub fn device_mix() -> Option<(u32, Layout)> {
     #[cfg(windows)]
     {
-        static RATE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-        *RATE.get_or_init(|| {
-            std::thread::spawn(|| unsafe { wasapi::mix_rate() })
+        static MIX: std::sync::OnceLock<Option<(u32, Layout)>> = std::sync::OnceLock::new();
+        *MIX.get_or_init(|| {
+            std::thread::spawn(|| unsafe { wasapi::mix_format() })
                 .join()
                 .ok()
                 .flatten()
@@ -54,18 +91,80 @@ pub fn device_rate() -> Option<u32> {
     }
 }
 
-/// Starts playing `source` on the default output device; `None` when there is no device (or
-/// not on Windows).
-pub fn start(source: Arc<Mutex<dyn Source>>) -> Option<Output> {
+/// The layout of a mix format (`WAVEFORMATEX` bytes, and what follows them): a
+/// `WAVEFORMATEXTENSIBLE`'s (tag 0xFFFE, at least 22 more bytes) channel mask, else DirectSound's
+/// rule (`super::speakers::Layout::of_mix`).
+pub fn layout_of(format: &[u8]) -> Option<Layout> {
+    let w16 = |o: usize| {
+        format
+            .get(o..o + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let (tag, channels) = (w16(0)?, w16(2)?);
+    let mask = if tag == 0xfffe && w16(16)? >= 22 {
+        let b = format.get(20..24)?;
+        Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    } else {
+        None
+    };
+    Some(Layout::of_mix(channels, mask))
+}
+
+/// Why a mix layout is not provided, for stderr.
+pub fn not_provided(l: Layout) -> String {
+    if l.mask == 0 {
+        // `10056ab3`: on a device with mask 0 a buffer must have the device's channels and may
+        // not have `DSBCAPS_CTRL3D` or `DSBCAPS_CTRLPAN`; every buffer the game makes has one or
+        // the other (`00aeb270` in the exe: 0x40 or 0x30010, each with 0x2a0).
+        return format!(
+            "the sound device mixes {} channels with speaker mask 0 (direct out): DirectSound \
+             refuses every buffer the game makes there (each is 3D or panned), so the original \
+             is silent on it too",
+            l.channels
+        );
+    }
+    format!(
+        "the sound device mixes {} channels, speaker mask {:#x}: not provided (DirectSound places \
+         3D sound only on mono, stereo, quad, surround, 5.1 and 7.1 layouts)",
+        l.channels, l.mask
+    )
+}
+
+/// Starts playing `source` on the default output device, in its mix format as it is (`want`
+/// `None`, or the mix format's own layout) or in the layout `want` at the mix rate, 32-bit float
+/// (when the endpoint takes it).
+pub fn start(source: Arc<Mutex<dyn Source>>, want: Option<Layout>) -> Result<Output, Refused> {
     #[cfg(windows)]
     {
-        wasapi::start(source)
+        wasapi::start(source, want)
     }
     #[cfg(not(windows))]
     {
-        let _ = source;
-        None
+        let _ = (source, want);
+        Err(Refused::NoDevice)
     }
+}
+
+/// The `WAVEFORMATEXTENSIBLE` of 32-bit float at `rate` in `layout`, as DirectSound gives
+/// `IsFormatSupported` and `Initialize` (measured: `feff0200 80bb0000 00dc0500 0800 2000 1600
+/// 2000 03000000` and the float subformat for two channels at 48000 Hz).
+pub fn float_format(rate: u32, layout: Layout) -> [u8; 40] {
+    let block = 4 * layout.channels;
+    let mut f = [0u8; 40];
+    f[0..2].copy_from_slice(&0xfffeu16.to_le_bytes());
+    f[2..4].copy_from_slice(&layout.channels.to_le_bytes());
+    f[4..8].copy_from_slice(&rate.to_le_bytes());
+    f[8..12].copy_from_slice(&(rate * u32::from(block)).to_le_bytes());
+    f[12..14].copy_from_slice(&block.to_le_bytes());
+    f[14..16].copy_from_slice(&32u16.to_le_bytes());
+    f[16..18].copy_from_slice(&22u16.to_le_bytes());
+    f[18..20].copy_from_slice(&32u16.to_le_bytes());
+    f[20..24].copy_from_slice(&layout.mask.to_le_bytes());
+    // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {00000003-0000-0010-8000-00aa00389b71}.
+    f[24..40].copy_from_slice(&[
+        3, 0, 0, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71,
+    ]);
+    f
 }
 
 #[cfg(windows)]
@@ -168,8 +267,9 @@ mod wasapi {
         ]
     }
 
-    /// The default device's mix rate (`GetMixFormat`), on a thread with COM of its own.
-    pub unsafe fn mix_rate() -> Option<u32> {
+    /// The default device's mix rate and layout (`GetMixFormat`), on a thread with COM of its
+    /// own.
+    pub unsafe fn mix_format() -> Option<(u32, Layout)> {
         CoInitializeEx(std::ptr::null_mut(), 0);
         let mut en: *mut Obj = std::ptr::null_mut();
         let r = CoCreateInstance(
@@ -204,26 +304,41 @@ mod wasapi {
         }
         let mut fmt: *mut u8 = std::ptr::null_mut();
         let r = slot::<Fn1>(client, 8 * w)(client, &mut fmt as *mut _ as usize);
-        let rate = (r == 0 && !fmt.is_null())
-            .then(|| u32::from_le_bytes([*fmt.add(4), *fmt.add(5), *fmt.add(6), *fmt.add(7)]));
+        let mix = if r == 0 && !fmt.is_null() {
+            let rate = u32::from_le_bytes([*fmt.add(4), *fmt.add(5), *fmt.add(6), *fmt.add(7)]);
+            layout_of(&format_bytes(fmt)).map(|l| (rate, l))
+        } else {
+            None
+        };
         if !fmt.is_null() {
             CoTaskMemFree(fmt as *mut c_void);
         }
         slot::<Fn0>(client, 2 * w)(client);
-        rate
+        mix
     }
 
-    /// The device's client, render client, event, buffer size, rate and channels.
+    /// A `WAVEFORMATEX` and the `cbSize` bytes after it (a PCM one has none).
+    unsafe fn format_bytes(fmt: *const u8) -> Vec<u8> {
+        let tag = u16::from_le_bytes([*fmt, *fmt.add(1)]);
+        let extra = if tag == 1 {
+            0
+        } else {
+            usize::from(u16::from_le_bytes([*fmt.add(16), *fmt.add(17)]))
+        };
+        std::slice::from_raw_parts(fmt, 18 + extra).to_vec()
+    }
+
+    /// The device's client, render client, event, buffer size, rate and layout.
     struct Device {
         client: *mut Obj,
         render: *mut Obj,
         event: *mut c_void,
         frames: u32,
         rate: u32,
-        channels: u16,
+        layout: Layout,
     }
 
-    unsafe fn open() -> Option<Device> {
+    unsafe fn open(want: Option<Layout>) -> Result<Device, Refused> {
         CoInitializeEx(std::ptr::null_mut(), 0);
         let mut en: *mut Obj = std::ptr::null_mut();
         let r = CoCreateInstance(
@@ -234,7 +349,7 @@ mod wasapi {
             &mut en,
         );
         if r != 0 {
-            return None;
+            return Err(Refused::NoDevice);
         }
         let mut dev: *mut Obj = std::ptr::null_mut();
         let r = slot::<Fn3>(en, 0x10 * std::mem::size_of::<usize>() / 4)(
@@ -245,7 +360,7 @@ mod wasapi {
         );
         slot::<Fn0>(en, 2 * std::mem::size_of::<usize>())(en);
         if r != 0 {
-            return None;
+            return Err(Refused::NoDevice);
         }
         let w = std::mem::size_of::<usize>();
         let mut client: *mut Obj = std::ptr::null_mut();
@@ -259,26 +374,67 @@ mod wasapi {
         );
         slot::<Fn0>(dev, 2 * w)(dev);
         if r != 0 {
-            return None;
+            return Err(Refused::NoDevice);
         }
         let mut fmt: *mut u8 = std::ptr::null_mut();
-        slot::<Fn1>(client, 8 * w)(client, &mut fmt as *mut _ as usize);
+        if slot::<Fn1>(client, 8 * w)(client, &mut fmt as *mut _ as usize) != 0 || fmt.is_null() {
+            slot::<Fn0>(client, 2 * w)(client);
+            return Err(Refused::NoDevice);
+        }
         let tag = u16::from_le_bytes([*fmt, *fmt.add(1)]);
-        let channels = u16::from_le_bytes([*fmt.add(2), *fmt.add(3)]);
         let rate = u32::from_le_bytes([*fmt.add(4), *fmt.add(5), *fmt.add(6), *fmt.add(7)]);
         let bits = u16::from_le_bytes([*fmt.add(14), *fmt.add(15)]);
         // IEEE float, directly (3) or through WAVE_FORMAT_EXTENSIBLE (0xfffe) with the float
         // subformat {00000003-0000-0010-8000-00aa00389b71}.
         let float = tag == 3 || (tag == 0xfffe && *fmt.add(24) == 3);
-        if !float || bits != 32 {
-            CoTaskMemFree(fmt as *mut c_void);
-            panic!("the sound device mixes {bits}-bit format {tag:#x}: not provided (32-bit float only)");
-        }
+        let mix = match layout_of(&format_bytes(fmt)) {
+            _ if !float || bits != 32 => Err(format!(
+                "the sound device mixes {bits}-bit format {tag:#x}: not provided (32-bit float only)"
+            )),
+            Some(l) if l.provided() => Ok(l),
+            Some(l) => Err(not_provided(l)),
+            None => Err("the sound device's mix format cannot be read".to_string()),
+        };
+        let mix = match mix {
+            Ok(l) => l,
+            Err(why) => {
+                CoTaskMemFree(fmt as *mut c_void);
+                slot::<Fn0>(client, 2 * w)(client);
+                return Err(Refused::Format(why));
+            }
+        };
+        // Another layout than the mix format's (DirectSound's two channels on a larger
+        // endpoint): asked with `IsFormatSupported` first, as DirectSound does; only `S_OK`
+        // opens it.
+        let (layout, other) = match want {
+            Some(l) if l != mix => {
+                let f = float_format(rate, l);
+                let mut closest: *mut u8 = std::ptr::null_mut();
+                let r = slot::<Fn3>(client, 7 * w)(
+                    client,
+                    0,
+                    f.as_ptr() as usize,
+                    &mut closest as *mut _ as usize,
+                );
+                if !closest.is_null() {
+                    CoTaskMemFree(closest as *mut c_void);
+                }
+                if r != 0 {
+                    CoTaskMemFree(fmt as *mut c_void);
+                    slot::<Fn0>(client, 2 * w)(client);
+                    return Err(Refused::Layout);
+                }
+                (l, Some(f))
+            }
+            _ => (mix, None),
+        };
         // Shared, event driven, the engine's default period.
-        let r = slot::<FnInit>(client, 3 * w)(client, 0, 0x4_0000, 0, 0, fmt, std::ptr::null());
+        let format = other.as_ref().map_or(fmt as *const u8, |f| f.as_ptr());
+        let r = slot::<FnInit>(client, 3 * w)(client, 0, 0x4_0000, 0, 0, format, std::ptr::null());
         CoTaskMemFree(fmt as *mut c_void);
         if r != 0 {
-            return None;
+            slot::<Fn0>(client, 2 * w)(client);
+            return Err(Refused::NoDevice);
         }
         let event = CreateEventW(std::ptr::null_mut(), 0, 0, std::ptr::null());
         slot::<Fn1>(client, 13 * w)(client, event as usize);
@@ -292,19 +448,21 @@ mod wasapi {
             &mut render as *mut _ as usize,
         );
         if render.is_null() {
-            return None;
+            CloseHandle(event);
+            slot::<Fn0>(client, 2 * w)(client);
+            return Err(Refused::NoDevice);
         }
-        Some(Device {
+        Ok(Device {
             client,
             render,
             event,
             frames,
             rate,
-            channels,
+            layout,
         })
     }
 
-    pub fn start(source: Arc<Mutex<dyn Source>>) -> Option<Output> {
+    pub fn start(source: Arc<Mutex<dyn Source>>, want: Option<Layout>) -> Result<Output, Refused> {
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
         let flag = stop.clone();
@@ -312,13 +470,13 @@ mod wasapi {
             .name("nv sound out".into())
             .spawn(move || unsafe {
                 let task = audio_priority();
-                match open() {
-                    Some(d) => {
-                        let _ = tx.send(Some((d.rate, d.channels)));
+                match open(want) {
+                    Ok(d) => {
+                        let _ = tx.send(Ok((d.rate, d.layout)));
                         run(&d, &source, &flag);
                     }
-                    None => {
-                        let _ = tx.send(None);
+                    Err(why) => {
+                        let _ = tx.send(Err(why));
                     }
                 }
                 // As dsound.dll does before its thread ends (`AvRevertMmThreadCharacteristics`).
@@ -326,19 +484,20 @@ mod wasapi {
                     AvRevertMmThreadCharacteristics(task);
                 }
             })
-            .ok()?;
-        let (rate, channels) = rx.recv().ok().flatten()?;
-        Some(Output {
+            .map_err(|_| Refused::NoDevice)?;
+        let (rate, layout) = rx.recv().map_err(|_| Refused::NoDevice)??;
+        Ok(Output {
             stop,
             thread: Some(thread),
             rate,
-            channels,
+            layout,
         })
     }
 
     unsafe fn run(d: &Device, source: &Arc<Mutex<dyn Source>>, stop: &AtomicBool) {
         let w = std::mem::size_of::<usize>();
-        let mut scratch = vec![0f32; d.frames as usize * d.channels as usize];
+        let channels = d.layout.channels;
+        let mut scratch = vec![0f32; d.frames as usize * usize::from(channels)];
         slot::<Fn0>(d.client, 10 * w)(d.client);
         while !stop.load(Ordering::Relaxed) {
             WaitForSingleObject(d.event, 200);
@@ -352,11 +511,11 @@ mod wasapi {
             if slot::<Fn2>(d.render, 3 * w)(d.render, free, &mut data as *mut _ as usize) != 0 {
                 continue;
             }
-            let n = free * d.channels as usize;
+            let n = free * usize::from(channels);
             let out = &mut scratch[..n];
             out.fill(0.0);
             if let Ok(mut s) = source.lock() {
-                s.render(d.rate, d.channels, out);
+                s.render(d.rate, channels, out);
             }
             std::ptr::copy_nonoverlapping(out.as_ptr(), data, n);
             slot::<Fn2>(d.render, 4 * w)(d.render, free, 0);

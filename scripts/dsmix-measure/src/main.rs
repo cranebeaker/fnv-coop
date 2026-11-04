@@ -17,9 +17,14 @@
 //! and distortion: turned listeners, the game's distances, the effect's formats and edges),
 //! `DSMIX_SRC` (the sample-rate converter: see `src_cases`), `DSMIX_SETPOS` with `DSMIX_HOOK`
 //! (`SetCurrentPosition` while a buffer plays: see `setpos`; `DSMIX_SETPOS_ORDER`: the sum order
-//! after it, see `setpos_order`).
+//! after it, see `setpos_order`), `DSMIX_SURROUND` (every kind of buffer the game makes, on the
+//! channel layout the device gives this process, taken from DirectSound's own packets: see
+//! `surround`; `DSMIX_ONLY=<prefix>` keeps only the cases whose names start so) and
+//! `DSMIX_REPORT` (reads a `DSMIX_SURROUND` folder back: per-channel gains, `report.txt`).
 use std::ffi::c_void;
 use std::io::Write;
+
+mod surround;
 
 #[link(name = "dsound")]
 extern "system" {
@@ -441,6 +446,14 @@ unsafe fn drain(cap: *mut Obj, frame_bytes: usize, out: &mut Vec<u8>) {
 fn main() {
     let dir = std::path::PathBuf::from(std::env::args().nth(1).expect("the output folder"));
     std::fs::create_dir_all(&dir).unwrap();
+    if std::env::var_os("DSMIX_REPORT").is_some() {
+        surround::report(&dir);
+        return;
+    }
+    if std::env::var_os("DSMIX_SURROUND").is_some() {
+        surround::run(&dir);
+        return;
+    }
     let mut tsv = std::fs::File::create(dir.join("cases.tsv")).unwrap();
     unsafe {
         CoInitializeEx(std::ptr::null_mut(), 0);

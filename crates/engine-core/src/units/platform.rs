@@ -28,6 +28,7 @@ pub mod nvapi;
 pub mod process;
 pub mod resampler;
 pub mod sound_out;
+pub mod speakers;
 pub mod time;
 pub mod vorbisfile;
 pub mod window;

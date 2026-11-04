@@ -1,11 +1,11 @@
-//! DirectSound's software 3D stage, as the player's `dsound.dll` computes it for a 3D buffer on
-//! a stereo device (`DS3DALG_NO_VIRTUALIZATION`, which is also what `DS3DALG_HRTF_LIGHT` falls
-//! back to, measured: `DS_NO_VIRTUALIZATION`). Translated from the instructions of the 32-bit
-//! `dsound.dll` the game loads (`SysWOW64`, Windows 11 10.0.26200; read in a private analysis
-//! with the maintainer's leave, 2026-10-28; addresses below are that DLL's, image base
-//! `0x10000000`), and checked against what the DLL sends to the device (`scripts/dsmix-measure`,
-//! docs/SOUND.md). No bytes of the DLL are here: its tables are computed from the formulas they
-//! were made with.
+//! DirectSound's software 3D stage, as the player's `dsound.dll` computes it for a 3D buffer
+//! (`CMultiPan3dObject` for every algorithm asked for: `DS3DALG_HRTF_LIGHT` answers
+//! `DS_NO_VIRTUALIZATION`, measured, and is placed the same, measured on 8 channels). Translated
+//! from the instructions of the 32-bit `dsound.dll` the game loads (`SysWOW64`, Windows 11
+//! 10.0.26200; read in a private analysis with the maintainer's leave, 2026-10-28; addresses
+//! below are that DLL's, image base `0x10000000`), and checked against what the DLL sends to the
+//! device (`scripts/dsmix-measure`, docs/SOUND.md). No bytes of the DLL are here: its tables are
+//! computed from the formulas they were made with.
 //!
 //! What the stage does for one buffer (`C3dObject` and `CMultiPan3dObject` in the DLL's log
 //! strings):
@@ -17,14 +17,16 @@
 //!    held at the maximum distance ([`distance_factor`]). As millibels:
 //!    `trunc(602.059991328 * log2(f)) - 500` ([`distance_millibels`]), so a source is always at
 //!    least 5 dB down.
-//! 3. A pan between the two nearest speakers (left at -pi/2, right at +pi/2, as `f32` values)
-//!    by the tangent law, from the azimuth `atan2(x, z)`. Closer than 2.5 units (`|x|` and `|z|`
-//!    under 2.5 and `sqrt(x^2 + z^2)` under 2.5, whatever the minimum distance) a part
-//!    `0.5 + r / 5` is panned from the azimuth and the rest from the opposite direction. Height
-//!    counts only in the distance. Each speaker's share becomes `trunc(301.03 * log2(share))`
-//!    millibels ([`pan_millibels`]).
+//! 3. A pan between the two nearest of the device's speakers (on two channels left at -pi/2,
+//!    right at +pi/2, as `f32` values; other layouts' in `super::speakers::azimuths_3d`) by the
+//!    tangent law, always over pi/2 whatever the speakers' spacing, from the azimuth
+//!    `atan2(x, z)`. Closer than 2.5 units (`|x|` and `|z|` under 2.5 and `sqrt(x^2 + z^2)` under
+//!    2.5, whatever the minimum distance) a part `0.5 + r / 5` is panned from the azimuth and the
+//!    rest from the opposite direction. Height counts only in the distance. Each speaker's share
+//!    becomes `trunc(301.03 * log2(share))` millibels ([`pan_over`]); at the listener's own
+//!    position every speaker gets `1 / n`, the low-frequency one too.
 //! 4. The device mixes each channel at `gain(volume + distance) * gain(pan)`, two lookups in the
-//!    volume table (`super::mixer::gain`) multiplied as `f32` ([`channel_gains`]).
+//!    volume table (`super::mixer::gain`) multiplied as `f32` ([`hear`]).
 //! 5. Doppler: with a velocity on the buffer or the listener, the frequency becomes
 //!    `f * 359660 / (v + 359660)` for the radial speed `v` in mm/s ([`doppler_frequency`]).
 //!
@@ -32,6 +34,7 @@
 //! `f64` ones. They agree to the last bit of an `f64`, so a truncation can differ only when a
 //! product falls within about 1e-13 of a whole millibel.
 
+use super::speakers::{Layout, MAX_CHANNELS};
 use std::sync::OnceLock;
 
 /// `f32` constants the DLL computes with (each the `f32` nearest the value).
@@ -329,15 +332,16 @@ pub fn distance_millibels(factor: f32, muted_beyond_max: bool) -> i32 {
     (602.059_991_328f64 * f64::from(f).log2()) as i32 - 500
 }
 
-/// The two speakers' azimuths of a stereo device (`10007730`: -pi/2 and +pi/2 as `f32`).
+/// The two speakers' azimuths of a stereo device (`10007730`: -pi/2 and +pi/2 as `f32`); other
+/// layouts' are in `super::speakers::azimuths_3d`.
 const SPEAKERS: [f64; 2] = [-(PI2 as f64), PI2 as f64];
 
-/// Adds `weight` to the two speakers nearest `azimuth` by the tangent law (`1002a60d`).
-fn pan_to(shares: &mut [f64; 2], azimuth: f64, weight: f64) {
+/// Adds `weight` to the two of `speakers` nearest `azimuth` by the tangent law (`1002a60d`).
+fn pan_to(shares: &mut [f64], speakers: &[f64], azimuth: f64, weight: f64) {
     let (pi, tau, half) = (f64::from(PI), f64::from(TAU), f64::from(PI2));
     let (mut below, mut below_at) = (-4.0f64, None);
     let (mut above, mut above_at) = (4.0f64, None);
-    for (i, &s) in SPEAKERS.iter().enumerate() {
+    for (i, &s) in speakers.iter().enumerate() {
         let mut d = azimuth - s;
         if d > pi {
             d -= tau;
@@ -372,42 +376,51 @@ fn pan_to(shares: &mut [f64; 2], azimuth: f64, weight: f64) {
 }
 
 /// Each channel's pan attenuation (millibels) for a source at `local` in the listener's frame
-/// (`1002a18b`).
+/// on a stereo device (`1002a18b`).
 pub fn pan_millibels(local: [f32; 3]) -> [i32; 2] {
+    let p = pan_over(local, &SPEAKERS);
+    [p[0], p[1]]
+}
+
+/// Each speaker's pan attenuation (millibels) for a source at `local` in the listener's frame
+/// (`1002a18b`), over the listener's `speakers` (azimuths in channel order, at most
+/// [`MAX_CHANNELS`]): at the listener every speaker gets `1 / n` (the low-frequency one too);
+/// else the share of the nearest two by [`pan_to`] (and within 2.5 units of the listener the
+/// part from the opposite direction); each share `trunc(301.03 * log2(share))`, -10000 for none.
+/// Entries past the speakers are -10000.
+pub fn pan_over(local: [f32; 3], speakers: &[f64]) -> [i32; MAX_CHANNELS] {
+    let n = speakers.len().min(MAX_CHANNELS);
+    let speakers = &speakers[..n];
     let (x, z) = (local[0], local[2]);
     let azimuth = f64::from(x).atan2(f64::from(z));
     let (ax, az) = (x.abs(), z.abs());
-    let mut shares = [0f64; 2];
+    let mut shares = [0f64; MAX_CHANNELS];
     if 1e-5 > f64::from(ax) && 1e-5 > f64::from(az) {
-        shares = [1.0 / 2.0; 2];
+        for s in shares.iter_mut().take(n) {
+            *s = 1.0 / n as f64;
+        }
     } else {
         let (mut toward, mut weight) = (azimuth, 1.0);
         if 2.5f32 > ax && 2.5f32 > az {
             let r = f64::from(az * az + ax * ax).sqrt();
             if 2.5 > r {
                 let near = r / 5.0 + 0.5;
-                pan_to(&mut shares, azimuth, near);
+                pan_to(&mut shares, speakers, azimuth, near);
                 toward = azimuth + f64::from(PI);
                 weight = 1.0 - near;
             }
         }
-        pan_to(&mut shares, toward, weight);
+        pan_to(&mut shares, speakers, toward, weight);
     }
-    shares.map(|s| {
-        if s == 0.0 {
+    let mut out = [-10000; MAX_CHANNELS];
+    for (o, &s) in out.iter_mut().zip(shares.iter()).take(n) {
+        *o = if s == 0.0 {
             -10000
         } else {
             (301.03f64 * s.log2()) as i32
-        }
-    })
-}
-
-/// The `f32` multipliers the device mixes the left and right channels with
-/// (`10057be0`): `gain(volume) * gain(pan)` for each.
-pub fn channel_gains(volume: i32, pan: [i32; 2]) -> (f32, f32) {
-    let g = super::mixer::gain;
-    let v = g(volume);
-    (g(pan[0]) * v, g(pan[1]) * v)
+        };
+    }
+    out
 }
 
 /// What the 3D stage needs of the listener.
@@ -440,8 +453,8 @@ pub struct Source {
 /// What the device is given for a 3D buffer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Heard {
-    /// The left and right multipliers; (0, 0) when muted.
-    pub gains: (f32, f32),
+    /// Each device channel's multiplier (channels past the layout's are 0); all 0 when muted.
+    pub gains: [f32; MAX_CHANNELS],
     /// The frequency after Doppler (Hz).
     pub frequency: u32,
 }
@@ -479,18 +492,29 @@ pub fn doppler_frequency(s: &Source, l: &Listener) -> u32 {
     hz.clamp(100, 200_000)
 }
 
-/// The 3D stage for one buffer: its channel multipliers and frequency.
-pub fn hear(s: &Source, l: &Listener) -> Heard {
+/// The 3D stage for one buffer on a device mixing `layout`: its channel multipliers and
+/// frequency. Each channel's multiplier is `gain(pan) * gain(volume + distance)` (`10057be0`)
+/// with the pan over the layout's speakers ([`pan_over`], `super::speakers::azimuths_3d`); on
+/// one channel the pan is 0 (`1002a4c0`).
+pub fn hear(s: &Source, l: &Listener, layout: Layout) -> Heard {
     let angles = Angles::of(l.front, l.top);
     let local = to_listener(s.position, l.position, angles);
     let distance = if is_zero(local) { 0.0 } else { length(local) };
     let (factor, beyond) = distance_factor(distance, s.min, s.max, l.rolloff);
     let volume = distance_millibels(factor, s.mute_at_max && beyond) + s.volume;
-    let gains = if volume < -9999 {
-        (0.0, 0.0)
-    } else {
-        channel_gains(volume, pan_millibels(local))
-    };
+    let mut gains = [0f32; MAX_CHANNELS];
+    if volume >= -9999 {
+        let g = super::mixer::gain;
+        let v = g(volume);
+        let pans = match super::speakers::azimuths_3d(layout.mask) {
+            Some(speakers) => pan_over(local, speakers),
+            None => [0; MAX_CHANNELS],
+        };
+        let n = usize::from(layout.channels).min(MAX_CHANNELS);
+        for (o, p) in gains.iter_mut().zip(pans).take(n) {
+            *o = g(p) * v;
+        }
+    }
     Heard {
         gains,
         frequency: doppler_frequency(s, l),
@@ -585,9 +609,9 @@ mod tests {
                 volume: 0,
                 frequency: 48000,
             };
-            let h = hear(&s, &listener);
+            let h = hear(&s, &listener, Layout::STEREO);
             assert_eq!(
-                (h.gains.0.to_bits(), h.gains.1.to_bits()),
+                (h.gains[0].to_bits(), h.gains[1].to_bits()),
                 (l, r),
                 "{position:?}"
             );
@@ -618,5 +642,60 @@ mod tests {
         // Coming closer at 50 units/s: 48000 * 359660 / (359660 - 50000).
         s.velocity = [0.0, 0.0, -50.0];
         assert_eq!(doppler_frequency(&s, &l), 55750);
+    }
+
+    /// Points measured on 8 channels (mask 0x63F; `dsmix-measure` `DSMIX_SURROUND` as
+    /// `FalloutNV.exe`, 2026-11-03, the game's distances 1e9): each channel's multiplier, bit
+    /// for bit (0 where the channel is silent).
+    #[test]
+    fn measured_points_on_8_channels_are_bit_exact() {
+        let listener = Listener {
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            front: [0.0, 0.0, 1.0],
+            top: [0.0, 1.0, 0.0],
+            distance_factor: 1.0,
+            rolloff: 1.0,
+            doppler: 1.0,
+        };
+        let layout = Layout {
+            channels: 8,
+            mask: 0x63f,
+        };
+        let cases: [([f32; 3], [u32; 8]); 3] = [
+            (
+                [3.0, 0.0, -1.311_341_6e-7],
+                [0, 0, 0, 0, 0, 0, 0, 0x3f11_a092],
+            ),
+            (
+                [2.988_584, 0.0, -0.261_467_3],
+                [0, 0, 0, 0, 0, 0x3e65_3e64, 0, 0x3f07_e85b],
+            ),
+            (
+                [1.0, 0.0, -4.371_139e-8],
+                [0, 0, 0, 0, 0, 0, 0x3ea1_e8a5, 0x3ef7_e696],
+            ),
+        ];
+        for (position, want) in cases {
+            let s = Source {
+                position,
+                velocity: [0.0; 3],
+                min: 1e9,
+                max: 1e9,
+                mute_at_max: true,
+                volume: 0,
+                frequency: 48000,
+            };
+            let h = hear(&s, &listener, layout);
+            assert_eq!(h.gains.map(f32::to_bits), want, "{position:?}");
+        }
+        // At the listener every speaker, the low-frequency one too, gets an eighth (-903 mB).
+        assert_eq!(
+            pan_over(
+                [0.0; 3],
+                super::super::speakers::azimuths_3d(0x63f).unwrap()
+            ),
+            [-903; 8]
+        );
     }
 }
