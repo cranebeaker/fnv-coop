@@ -839,6 +839,18 @@ mod dialogue_world {
             t.dropped, FORCED_QUEUE_MAX as u32,
             "only the old lines go: {t:?}"
         );
+        // the conversation closes: the new line plays for both guests
+        let close = {
+            let (c, a) = (&mut r.sim.guests[0].sync.live.dialogue, &r.gas[0].dialogue);
+            a.close(c).expect("close")
+        };
+        r.sim.guest_emit(0, vec![close]);
+        let played = r.until(10_000, |r| {
+            r.guests.iter().all(|g| g.coop.live.lines.len() == 1)
+        });
+        let t = r.host.coop.live.scene.talk;
+        assert!(played, "the new line reaches both guests: {t:?}");
+        assert_eq!((t.lines, t.dropped), (1, FORCED_QUEUE_MAX as u32), "{t:?}");
     }
 
     #[test]
