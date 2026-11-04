@@ -398,6 +398,53 @@ fn a_saved_characters_health_comes_back_on_rejoin_and_on_f9() {
     );
 }
 
+/// A guest's F9 brings its saved health back. A health report that the guest sent before the
+/// restore reached it must not undo the restore on the host's copy of the character: a save
+/// that the guest does not answer stores that copy.
+#[test]
+fn a_health_report_from_before_a_restore_does_not_undo_it() {
+    let (_d, order) = order("sess-health-race");
+    let scripts = ScriptCache::default();
+    let dir = tmp("health-race");
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    rig.settled();
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 12.5);
+    rig.frames(100);
+    let save_dir = party_dir_for(&dir.join("Save 1.txt"));
+    let text = world::save::save(&rig.host.gs, None);
+    rig.host
+        .s
+        .party_begin_save(&rig.host.gs, save_dir, text, 1_700_000_000)
+        .unwrap();
+    assert!(rig.until(4000, |r| r
+        .host
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::HostSaved { .. }))));
+    rig.frames(80);
+    let parked = |r: &Rig| r.host.gs.shadow_of(1).and_then(|s| s.damage);
+    assert_eq!(parked(&rig), Some(12.5));
+    // Ann is hurt and presses F9 in the same frame: her report of the hurt goes out right
+    // after her offer, before the restore reaches her
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 30.0);
+    rig.guests[0].s.party_guest_load_local().unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        rig.frame();
+        seen.push(parked(&rig));
+    }
+    assert!(rig.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::OfferAnswered { ok: true, .. })));
+    assert_eq!(rig.guests[0].gs.damage.get(&PLAYER_REF), Some(&12.5));
+    assert!(
+        !seen.contains(&Some(30.0)),
+        "the host's copy took the report from before the restore: {seen:?}"
+    );
+    assert_eq!(parked(&rig), Some(12.5));
+}
+
 /// A player whose key already has a slot (a frozen game) joins again under another slot. Its
 /// character moves to the new slot, and the health that the guest last reported comes too.
 #[test]
