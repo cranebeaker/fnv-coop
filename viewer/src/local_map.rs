@@ -416,7 +416,7 @@ pub fn update_local_map(
         .iter()
         .copied()
         .chain(crate::coop_live::party_points())
-        .map(|q| to_map(q))
+        .map(&to_map)
         .collect();
     let custom = state
         .0

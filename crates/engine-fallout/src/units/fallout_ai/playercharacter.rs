@@ -12470,7 +12470,7 @@ mod tests {
         });
         let state = lists.clone();
         e.register_double(LIST_IS_EMPTY, move |_, a| {
-            int(state.borrow().get(&a[0]).is_none_or(|v| v.is_empty()) as u32)
+            int(state.borrow().get(&a[0]).map_or(true, |v| v.is_empty()) as u32)
         });
         let record = deleted.clone();
         e.register_double(OPERATOR_DELETE, move |_, a| {

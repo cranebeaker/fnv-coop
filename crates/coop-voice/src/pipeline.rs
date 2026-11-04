@@ -585,8 +585,10 @@ mod tests {
 
     #[test]
     fn facing_east_moves_an_eastern_speaker_to_the_centre() {
-        let mut p = Positions::default();
-        p.listener = ([0.0; 3], std::f32::consts::FRAC_PI_2, 1);
+        let mut p = Positions {
+            listener: ([0.0; 3], std::f32::consts::FRAC_PI_2, 1),
+            ..Positions::default()
+        };
         p.speakers.insert(1, ([3000.0, 0.0, 0.0], 1));
         let (_, pan) = p.geometry(1).unwrap();
         assert!(pan.abs() < 1e-4, "{pan}");
@@ -594,8 +596,10 @@ mod tests {
 
     #[test]
     fn other_cells_are_heard_flat_and_unknown_speakers_too() {
-        let mut p = Positions::default();
-        p.listener = ([0.0; 3], 0.0, 1);
+        let mut p = Positions {
+            listener: ([0.0; 3], 0.0, 1),
+            ..Positions::default()
+        };
         p.speakers.insert(1, ([0.0; 3], 2));
         assert!(p.geometry(1).is_none());
         let sp = Spatial {

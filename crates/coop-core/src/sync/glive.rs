@@ -163,10 +163,8 @@ impl GuestLive {
             Msg::Social(SocialMsg::MarkerGone { owner, id }) => {
                 self.markers.remove(&(owner, id));
             }
-            Msg::Social(SocialMsg::Voice(v)) => {
-                if self.voice_rx.push(&v).is_some() {
-                    self.voice_in.push(v);
-                }
+            Msg::Social(SocialMsg::Voice(v)) if self.voice_rx.push(&v).is_some() => {
+                self.voice_in.push(v);
             }
             _ => {}
         }

@@ -211,7 +211,7 @@ pub fn map_glyphs(pins: &[Pin], on_map_cell: impl Fn(u32) -> bool) -> Vec<MapGly
 /// A stable colour slot (0..7) for a player: the host and each guest keep
 /// theirs for the whole session.
 pub fn color_slot(p: PlayerId) -> u8 {
-    (p.0 % 8) as u8
+    p.0 % 8
 }
 
 /// The numbers for one name tag over a teammate's head.
@@ -319,7 +319,7 @@ impl PingBook {
     ) -> Option<Vec<SocialMsg>> {
         if self
             .last_ping_ms
-            .map_or(false, |t| now_ms.saturating_sub(t) < PING_COOLDOWN_MS)
+            .is_some_and(|t| now_ms.saturating_sub(t) < PING_COOLDOWN_MS)
         {
             self.refused += 1;
             return None;
@@ -417,7 +417,7 @@ impl PingBook {
         let gone: Vec<u16> = self
             .mine
             .iter()
-            .filter(|(_, (_, e))| e.map_or(false, |e| now_ms >= e))
+            .filter(|(_, (_, e))| e.is_some_and(|e| now_ms >= e))
             .map(|(i, _)| *i)
             .collect();
         for i in gone {

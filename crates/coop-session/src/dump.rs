@@ -693,10 +693,20 @@ pub fn state_json_full(
         .into_iter()
         .map(|(e, p)| (name(order, e), format!("\"{}\"", slot_key(p.0))))
         .collect();
+    // debug: the threat director's first choices and switches (`combat.threat_log`)
+    let threat_log: Vec<String> = gs
+        .coop
+        .live
+        .combat
+        .threat_log
+        .iter()
+        .map(|l| format!("\"{}\"", l.replace(['"', '\\'], "")))
+        .collect();
     let combat = format!(
-        "{},\"targets\":{}}}",
+        "{},\"targets\":{},\"threat_log\":[{}]}}",
         combat.strip_suffix('}').unwrap_or(&combat),
-        obj(&targets)
+        obj(&targets),
+        threat_log.join(",")
     );
     let d: BTreeMap<String, String> = disabled
         .into_iter()

@@ -109,7 +109,7 @@ impl<T: Transport> ChaosTransport<T> {
     /// Releases every message whose time has come into the inner transport.
     pub fn pump(&mut self) {
         let now = self.clock.now();
-        while self.queue.peek().map_or(false, |p| p.at <= now) {
+        while self.queue.peek().is_some_and(|p| p.at <= now) {
             let p = self.queue.pop().expect("peeked");
             let _ = self.inner.send(p.to, p.channel, p.data);
             self.stats.released += 1;

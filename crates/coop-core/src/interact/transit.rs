@@ -66,7 +66,7 @@ impl Transit {
                     .filter(|m| {
                         interest
                             .peer_cell(*m)
-                            .map_or(false, |c| interest.visible(from_cell, c))
+                            .is_some_and(|c| interest.visible(from_cell, c))
                     })
                     .collect()
             } else {

@@ -1188,6 +1188,7 @@ fn run_stage(
     acc.refused += 1;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_run(
     d: &Data,
     template: &GameState,
@@ -1234,8 +1235,8 @@ fn walk_run(
     let sp_gaps: Vec<(String, String)> = rig
         .host
         .unhandled
-        .iter()
-        .map(|(k, _)| {
+        .keys()
+        .map(|k| {
             (
                 k.to_string(),
                 rig.host.unhandled_first.get(k).cloned().unwrap_or_default(),
@@ -1334,7 +1335,7 @@ fn walk_run(
                 ));
             }
         }
-        if acc.per_player > 0 && moved.is_empty() && rig.host.stages.get(&gid).is_none() {
+        if acc.per_player > 0 && moved.is_empty() && !rig.host.stages.contains_key(&gid) {
             fails.push(format!(
                 "per-player stages ran ({}) but no shadow holds the quest (max stage {m})",
                 acc.per_player

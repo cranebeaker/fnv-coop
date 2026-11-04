@@ -90,6 +90,7 @@ impl SpawnArbiter {
     /// Handles a spawn request. A repeated `(from, req)` returns the first
     /// answer and creates nothing. Returns the outcome and, when newly
     /// granted, the record to announce.
+    #[allow(clippy::too_many_arguments)]
     pub fn request(
         &mut self,
         from: PlayerId,

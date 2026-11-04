@@ -306,7 +306,13 @@ pub struct CombatFacts {
     pub extras: BTreeSet<FormId>,
     /// Counters.
     pub stats: CombatStats,
+    /// Debug: the threat director's first choice for each enemy and each
+    /// switch, with its inputs (newest last, at most [`THREAT_LOG_MAX`]).
+    pub threat_log: Vec<String>,
 }
+
+/// Lines kept in [`CombatFacts::threat_log`].
+pub const THREAT_LOG_MAX: usize = 16;
 
 impl CombatFacts {
     /// The kind and limb for the next blow on a puppet.
@@ -467,7 +473,7 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
         .puppets
         .iter()
         .filter(|(f, _)| {
-            player_of(**f).map_or(false, |p| {
+            player_of(**f).is_some_and(|p| {
                 !state
                     .coop
                     .live
@@ -685,6 +691,7 @@ fn hear_shot(order: &LoadOrder, gs: &mut GameState, f: &FireEvent) {
 /// candidate within the radius takes the falloff share. People are hurt
 /// through `combat::hurt` (a guest's NPC hits become requests, a puppet's
 /// hurt becomes a player blow for the host to judge). Returns the hits.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_blast(
     order: &LoadOrder,
     gs: &mut GameState,
@@ -964,11 +971,54 @@ impl CombatBridge {
                     .unwrap_or_default();
                 consider(*p, *form, s.downed, s.dead, gs);
             }
+            // the game may have turned the enemy since the last choice (a script's
+            // StartCombat): the director starts from what the enemy really does
+            let had = self.threat.current(cf(enemy));
+            let actual = forms.iter().find(|(_, f)| **f == cur).map(|(p, _)| *p);
+            if let (Some(a), Some(h)) = (actual, had) {
+                if self.threat.adopt(cf(enemy), a, now_ms) {
+                    let log = &mut gs.coop.live.combat.threat_log;
+                    log.push(format!(
+                        "{now_ms} {:08X} game set {:08X} (director had {})",
+                        enemy.0, cur.0, h.0
+                    ));
+                    if log.len() > THREAT_LOG_MAX {
+                        log.remove(0);
+                    }
+                }
+            }
+            let first = had.is_none();
             let Some(Threat { target, switched }) =
                 self.threat.choose(cf(enemy), now_ms, focus, &inputs)
             else {
                 continue;
             };
+            if first || switched {
+                let seen: Vec<String> = inputs
+                    .iter()
+                    .map(|i| {
+                        format!(
+                            "{}:{:.0}:{}{}{}",
+                            i.player.0,
+                            i.dist,
+                            if i.seen { "seen" } else { "unseen" },
+                            if i.same_cell { "" } else { ":away" },
+                            if i.downed || i.dead { ":down" } else { "" }
+                        )
+                    })
+                    .collect();
+                let log = &mut gs.coop.live.combat.threat_log;
+                log.push(format!(
+                    "{now_ms} {:08X} was {:08X} pick {} switched {switched} [{}]",
+                    enemy.0,
+                    cur.0,
+                    target.0,
+                    seen.join(" ")
+                ));
+                if log.len() > THREAT_LOG_MAX {
+                    log.remove(0);
+                }
+            }
             if switched {
                 if let Some(form) = forms.get(&target) {
                     if *form != cur {
@@ -978,6 +1028,11 @@ impl CombatBridge {
                 }
             }
         }
+    }
+
+    /// The damage that the threat director counts for `p` on `enemy`.
+    pub fn threat_damage(&self, enemy: FormId, p: PlayerId) -> f32 {
+        self.threat.damage_by(cf(enemy), p)
     }
 
     /// Feeds the director the damage the host announced (`Damaged`).
@@ -1090,6 +1145,25 @@ impl CombatBridge {
         live.combat
             .vitals
             .track(PlayerId::HOST, host_hp, max_hp(order, gs));
+        // the host player's blows on other players since the last frame go
+        // first: the host was up when it dealt them (a blast that puts its
+        // thrower down still hurts the players beside the thrower)
+        let mut msgs: Vec<CombatMsg> = Vec::new();
+        {
+            let f = &mut gs.coop.live.combat;
+            for n in std::mem::take(&mut f.pvp_hits) {
+                f.stats.pvp_sent += 1;
+                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
+                msgs.extend(live.combat.vitals.player_vs_player(
+                    now_ms,
+                    PlayerId::HOST,
+                    n.victim,
+                    pts,
+                    n.kind,
+                    n.limb,
+                ));
+            }
+        }
         live.combat.vitals.report(
             PlayerId::HOST,
             now_ms,
@@ -1110,7 +1184,6 @@ impl CombatBridge {
             }
         }
         // the host player's own notes
-        let mut msgs: Vec<CombatMsg> = Vec::new();
         {
             let f = &mut gs.coop.live.combat;
             let mut by: BTreeMap<(FormId, PlayerId, u8, u8), (f64, DamageKind)> = BTreeMap::new();
@@ -1131,18 +1204,6 @@ impl CombatBridge {
                     kind,
                     limb,
                     &scaling,
-                ));
-            }
-            for n in std::mem::take(&mut f.pvp_hits) {
-                f.stats.pvp_sent += 1;
-                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
-                msgs.extend(live.combat.vitals.player_vs_player(
-                    now_ms,
-                    PlayerId::HOST,
-                    n.victim,
-                    pts,
-                    n.kind,
-                    n.limb,
                 ));
             }
         }

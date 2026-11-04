@@ -126,13 +126,13 @@ impl ChatHost {
                 msg: SocialMsg::Rejected { msg_id, reason },
             }]
         };
-        if self.last_id.get(&from).map_or(false, |l| msg_id <= *l) {
+        if self.last_id.get(&from).is_some_and(|l| msg_id <= *l) {
             return vec![]; // duplicate delivery
         }
         let q = self.recent.entry(from).or_default();
         while q
             .front()
-            .map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
+            .is_some_and(|t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
         {
             q.pop_front();
         }

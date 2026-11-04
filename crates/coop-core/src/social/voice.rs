@@ -48,7 +48,7 @@ impl VoiceHub {
         let w = self.window.entry(from).or_default();
         while w
             .front()
-            .map_or(false, |(t, _)| now_ms.saturating_sub(*t) >= 1000)
+            .is_some_and(|(t, _)| now_ms.saturating_sub(*t) >= 1000)
         {
             w.pop_front();
         }

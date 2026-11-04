@@ -54,6 +54,9 @@ struct Rig<'a> {
     gas: Vec<LiveGuestAdapter>,
     hb: HostBridge,
     gbs: Vec<GuestBridge>,
+    /// Guest hit requests wait for the friendly-fire guard on the host, as
+    /// the session does (`LiveHostAdapter::hold_guest_hit`).
+    hold_hits: bool,
 }
 
 impl<'a> Rig<'a> {
@@ -102,6 +105,7 @@ impl<'a> Rig<'a> {
             ],
             hb,
             gbs: vec![GuestBridge::default(), GuestBridge::default()],
+            hold_hits: false,
         };
         let ok = r.sim.run_until(120_000, |s| {
             s.guests
@@ -160,6 +164,14 @@ impl<'a> Rig<'a> {
                     &mut self.sim.guests[i].sync.live,
                     now,
                 );
+                let msgs = if self.hold_hits {
+                    let from = PlayerId(i as u8 + 1);
+                    msgs.into_iter()
+                        .filter_map(|m| self.ha.hold_guest_hit(from, m))
+                        .collect()
+                } else {
+                    msgs
+                };
                 self.sim.guest_emit(i, msgs);
             }
         }
@@ -336,6 +348,88 @@ mod friendly_fire {
                 .copied()
                 .unwrap_or(0.0),
             1.0
+        );
+    }
+
+    /// A guest's blows under one point each (its hit carry keeps the part
+    /// points) still count as deliberate hits on the host.
+    #[test]
+    fn a_guests_blows_under_a_point_each_count_for_the_guard() {
+        let (_d, order) = order("camp-ff-part");
+        let scripts = ScriptCache::default();
+        let ff = format!(
+            r#","friendly_fire":{{"actors":["t.esm:{GUARD_REF:X}"],"deliberate_hits":3,"window_s":10}}"#
+        );
+        let mut r = Rig::new(
+            &order,
+            &scripts,
+            table(&row("FF", 0x777, &ff)),
+            "perfect",
+            14,
+        );
+        r.hold_hits = true;
+        r.run_ms(1_000);
+        let guard = FormId(GUARD_REF);
+        for _ in 0..6 {
+            world::combat::hurt(&order, &mut r.guests[0], guard, 0.4, PLAYER_REF);
+            r.run_ms(200);
+        }
+        assert!(
+            r.until(5_000, |r| r.host.coop.campaign.stats.ff_blocked == 3),
+            "three of six blows blocked: {} (guest hits sent {})",
+            r.host.coop.campaign.stats.ff_blocked,
+            r.gas[0].stats.hits_sent
+        );
+    }
+
+    /// A blow that the guard drops carries nothing into a later blow: the
+    /// guest forgets the part point it kept for that victim.
+    #[test]
+    fn a_blocked_blow_carries_no_part_point_into_a_later_blow() {
+        let (_d, order) = order("camp-ff-carry");
+        let scripts = ScriptCache::default();
+        let ff = format!(
+            r#","friendly_fire":{{"actors":["t.esm:{GUARD_REF:X}"],"deliberate_hits":3,"window_s":2}}"#
+        );
+        let mut r = Rig::new(
+            &order,
+            &scripts,
+            table(&row("FF", 0x777, &ff)),
+            "perfect",
+            15,
+        );
+        r.hold_hits = true;
+        r.run_ms(1_000);
+        let guard = FormId(GUARD_REF);
+        let dealt = |r: &Rig| r.host.damage.get(&guard).copied().unwrap_or(0.0);
+        // the guest divides a player's blow by the party's toughness: a blow
+        // of `pts` points after that scaling
+        let blow = |r: &mut Rig, pts: f64| {
+            let t = r.guests[0]
+                .coop
+                .live
+                .scaling
+                .map_or(1.0, |s| f64::from(s.toughness));
+            world::combat::hurt(&order, &mut r.guests[0], guard, pts * t, PLAYER_REF);
+        };
+        // three whole blows land (a hair over a point each, for the rounding)
+        for _ in 0..3 {
+            blow(&mut r, 1.000_001);
+            r.run_ms(100);
+        }
+        assert!(r.until(2_000, |r| dealt(r) == 3.0), "dealt {}", dealt(&r));
+        // a fourth blow in the window is dropped: the guest kept its 0.6
+        blow(&mut r, 0.6);
+        assert!(r.until(1_000, |r| r.host.coop.campaign.stats.ff_blocked == 1));
+        // the window passes, and a blow of 0.6 lands: 0 points, not 1 (0.6 + 0.6)
+        r.run_ms(3_000);
+        blow(&mut r, 0.6);
+        r.run_ms(1_000);
+        assert_eq!(r.host.coop.campaign.stats.ff_blocked, 1);
+        assert_eq!(
+            dealt(&r),
+            3.0,
+            "the dropped blow's part point went into the later blow"
         );
     }
 
@@ -543,10 +637,10 @@ mod storage_and_vars {
             );
         });
         assert_eq!(r.host.living.clocks, [0.0, 0.0, 0.0]);
-        assert!(r.host.inventory_stacks.get(&PLAYER_REF).is_none());
+        assert!(!r.host.inventory_stacks.contains_key(&PLAYER_REF));
         r.host.with_player(1, |g| {
             assert_eq!(g.living.clocks, [10.0, 20.0, 30.0]);
-            assert!(g.inventory_stacks.get(&PLAYER_REF).is_some());
+            assert!(g.inventory_stacks.contains_key(&PLAYER_REF));
         });
     }
 }

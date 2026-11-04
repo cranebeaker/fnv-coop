@@ -103,9 +103,12 @@ impl ActorHost {
                     },
                 )]
             }
-            ActorMsg::Hit { actor, hit, amount } => {
-                self.on_hit(from, actor, hit, amount, now_ms, attacker_cell)
-            }
+            ActorMsg::Hit {
+                actor,
+                hit,
+                amount,
+                npc,
+            } => self.on_hit(from, actor, hit, amount, now_ms, attacker_cell, npc),
             ActorMsg::SpawnReq {
                 req,
                 site,
@@ -234,6 +237,7 @@ impl ActorHost {
             .unwrap_or_default()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn on_hit(
         &mut self,
         from: PlayerId,
@@ -242,31 +246,68 @@ impl ActorHost {
         amount: u16,
         now_ms: u64,
         attacker_cell: Option<CellId>,
+        npc: Option<FormId>,
     ) -> Vec<Out> {
         let reject = |s: &mut Self| {
             s.hits_rejected += 1;
             vec![]
         };
-        if amount == 0 || amount > MAX_HIT || self.seen_hits.contains(&(from, hit)) {
+        // a blow under a point: the guard counted it, nothing to apply
+        if amount == 0 {
+            return vec![];
+        }
+        if amount > MAX_HIT || self.seen_hits.contains(&(from, hit)) {
             return reject(self);
         }
+        // The host's own world dealt the blow and applied it already (a
+        // player's blow or an NPC fight there): a refusal only splits the
+        // world from the ledger. The rate and the place check a guest's request.
+        let host = from.is_host();
         let times = self.hit_times.entry(from).or_default();
         while times
             .front()
-            .map_or(false, |t| now_ms.saturating_sub(*t) >= 1000)
+            .is_some_and(|t| now_ms.saturating_sub(*t) >= 1000)
         {
             times.pop_front();
         }
-        if times.len() >= MAX_HITS_PER_SEC {
+        if !host && times.len() >= MAX_HITS_PER_SEC {
             return reject(self);
         }
         let Some(rec) = self.own.get(actor) else {
             return reject(self);
         };
-        if self.dead.contains(&actor) || attacker_cell != Some(rec.state.cell) {
+        // the sender stands in the victim's cell or has that cell loaded: a
+        // peer owns the actors there too (an NPC's blow in that cell, or a
+        // shot into the next exterior cell). The host works out the loaded
+        // cells itself, from where the sender's player stands (the grid
+        // square around its avatar, `SceneModel::update_peer`). No tighter
+        // limit by distance: the game's projectiles go 10000 units (most
+        // bullets) to 53000 (.308) and 60000 (Gauss), and the square reaches
+        // about 14500 units from the player.
+        let reach = self.own.reach.get(&from);
+        let loaded = |c: CellId| reach.is_some_and(|r| r.contains(&c));
+        let near = attacker_cell == Some(rec.state.cell) || loaded(rec.state.cell);
+        if self.dead.contains(&actor) || !(host || near) {
             return reject(self);
         }
-        times.push_back(now_ms);
+        // A guest's NPC blow needs the host's own evidence, or a guest's own
+        // blow could pass as one and take no crime, threat or kill credit:
+        // the ledger tracks the NPC that struck, alive in the victim's cell or
+        // a cell the guest has loaded, and the guest owns that NPC or the
+        // victim (the blows that `guest_sends` sends on the guest).
+        if let Some(by) = npc.filter(|_| !host) {
+            let ok = self.own.get(by).is_some_and(|s| {
+                !self.dead.contains(&by)
+                    && (s.owner == Some(from) || rec.owner == Some(from))
+                    && (s.state.cell == rec.state.cell || loaded(s.state.cell))
+            });
+            if !ok {
+                return reject(self);
+            }
+        }
+        if !host {
+            times.push_back(now_ms);
+        }
         self.seen_hits.insert((from, hit));
         self.seen_order.push_back((from, hit));
         while self.seen_order.len() > HIT_MEMORY {
@@ -279,7 +320,8 @@ impl ActorHost {
         } else {
             0
         };
-        self.apply_damage(actor, Some(from), amount, floor)
+        // an NPC's blow keeps the health but credits nobody
+        self.apply_damage(actor, npc.is_none().then_some(from), amount, floor, true)
     }
 
     /// The host's world raised an actor's health by `amount` (a script's
@@ -303,12 +345,15 @@ impl ActorHost {
         )]
     }
 
+    /// `announce`: tell the cell with `Damaged` (a story kill without a killer
+    /// sends only `Died`).
     fn apply_damage(
         &mut self,
         actor: FormId,
         by: Option<PlayerId>,
         amount: u16,
         floor: u16,
+        announce: bool,
     ) -> Vec<Out> {
         let rec = self.own.get_mut(actor).expect("checked");
         let cell = rec.state.cell;
@@ -320,7 +365,7 @@ impl ActorHost {
         rec.state.health = health;
         self.hits_applied += 1;
         let mut v = Vec::new();
-        if let Some(by) = by {
+        if announce {
             v.push(out(
                 Audience::Cell(cell),
                 ActorMsg::Damaged {
@@ -346,7 +391,7 @@ impl ActorHost {
             return vec![];
         }
         let h = self.own.get(actor).map_or(0, |r| r.state.health);
-        self.apply_damage(actor, killer, h.max(1), 0)
+        self.apply_damage(actor, killer, h.max(1), 0, killer.is_some())
     }
 
     /// Re-evaluates ownership; announces every change to the actor's cell.
@@ -450,6 +495,7 @@ mod tests {
                 actor: A,
                 hit: id,
                 amount: amt,
+                npc: None,
             },
             now,
             Some(C),
@@ -536,6 +582,86 @@ mod tests {
     }
 
     #[test]
+    fn a_hit_from_a_loaded_cell_next_to_the_victim_counts() {
+        const B: FormId = FormId(0x200);
+        let (mut h, mut auth) = setup();
+        let from_next = |h: &mut ActorHost, auth: &mut AuthorityTable, id, npc| {
+            h.on_msg(
+                PlayerId(1),
+                ActorMsg::Hit {
+                    actor: A,
+                    hit: id,
+                    amount: 5,
+                    npc,
+                },
+                0,
+                Some(CellId(2)),
+                auth,
+            )
+        };
+        assert!(
+            from_next(&mut h, &mut auth, 1, Some(B)).is_empty(),
+            "the sender does not have the victim's cell loaded"
+        );
+        // player 1 has the victim's cell loaded next to its own, and owns
+        // the NPC that strikes there
+        h.own.reach.insert(PlayerId(1), [C].into_iter().collect());
+        h.register(B, st(100));
+        h.tick(0, &players(&[(1, 2)]), &mut auth);
+        assert_eq!(h.own.get(B).unwrap().owner, Some(PlayerId(1)));
+        assert_eq!(
+            from_next(&mut h, &mut auth, 2, Some(B)).len(),
+            1,
+            "an NPC's blow"
+        );
+        assert_eq!(
+            from_next(&mut h, &mut auth, 3, None).len(),
+            1,
+            "a player's shot"
+        );
+        assert_eq!(h.own.get(A).unwrap().state.health, 90);
+    }
+
+    #[test]
+    fn an_npc_blow_keeps_the_health_and_credits_nobody() {
+        let (mut h, mut auth) = setup();
+        let npc = |h: &mut ActorHost, auth: &mut AuthorityTable, id, amount| {
+            h.on_msg(
+                PlayerId(0),
+                ActorMsg::Hit {
+                    actor: A,
+                    hit: id,
+                    amount,
+                    npc: Some(FormId(0x200)),
+                },
+                0,
+                Some(C),
+                auth,
+            )
+        };
+        let o = npc(&mut h, &mut auth, 1, 30);
+        assert_eq!(
+            o[0].msg,
+            ActorMsg::Damaged {
+                actor: A,
+                by: None,
+                amount: 30,
+                health: 70
+            }
+        );
+        let o = npc(&mut h, &mut auth, 2, 70);
+        assert!(h.is_dead(A));
+        assert!(
+            o.iter().any(|o| o.msg
+                == ActorMsg::Died {
+                    actor: A,
+                    killer: None
+                }),
+            "{o:?}"
+        );
+    }
+
+    #[test]
     fn a_guest_cannot_heal_and_the_dead_stay_dead() {
         let (mut h, mut auth) = setup();
         let healed = ActorMsg::Healed {
@@ -599,6 +725,7 @@ mod tests {
                 actor: A,
                 hit: 1,
                 amount: 5,
+                npc: None,
             },
             0,
             Some(CellId(2)),
@@ -618,6 +745,95 @@ mod tests {
             !hit(&mut h, &mut auth, 1, 1000, 1, 1500).is_empty(),
             "window slides"
         );
+    }
+
+    /// The host's own world applied a blow before it reached the ledger: the
+    /// ledger takes it at any rate and from any cell, so the two keep the
+    /// same health (a big NPC fight on the host, an avatar not placed yet).
+    #[test]
+    fn the_hosts_own_blows_skip_the_checks_on_a_guests_request() {
+        let (mut h, mut auth) = setup();
+        let send = |h: &mut ActorHost, auth: &mut AuthorityTable, from: PlayerId, id, cell| {
+            let m = ActorMsg::Hit {
+                actor: A,
+                hit: id,
+                amount: 1,
+                npc: from.is_host().then_some(FormId(0x200)),
+            };
+            h.on_msg(from, m, 10, cell, auth)
+        };
+        let more = MAX_HITS_PER_SEC as u32 + 10;
+        for i in 0..more {
+            let o = send(&mut h, &mut auth, PlayerId::HOST, i, Some(C));
+            assert!(!o.is_empty(), "host blow {i} in one second");
+        }
+        let o = send(&mut h, &mut auth, PlayerId::HOST, more, None);
+        assert!(!o.is_empty(), "a host blow with no cell known yet");
+        let left = 100 - u16::try_from(more + 1).unwrap();
+        assert_eq!(h.own.get(A).unwrap().state.health, left);
+        // a guest's request keeps the checks
+        let o = send(&mut h, &mut auth, PlayerId(1), 1, Some(CellId(2)));
+        assert!(o.is_empty(), "a guest's blow from a cell it has not loaded");
+        for i in 0..more {
+            send(&mut h, &mut auth, PlayerId(1), 100 + i, Some(C));
+        }
+        let rate = MAX_HITS_PER_SEC as u16;
+        assert_eq!(h.own.get(A).unwrap().state.health, left - rate);
+    }
+
+    /// A guest's NPC blow counts only with the host's own evidence: the
+    /// ledger tracks the NPC that struck, alive and near the victim, and the
+    /// guest owns that NPC or the victim. Else a guest's own blow could
+    /// pass as an NPC's blow and take no crime, threat or kill credit.
+    #[test]
+    fn a_guests_npc_blow_needs_a_tracked_npc_near_the_victim() {
+        let (mut h, mut auth) = setup();
+        let (b, far, nobody) = (FormId(0x200), FormId(0x201), FormId(0x2FF));
+        h.register(b, st(100));
+        h.register(
+            far,
+            ActorState {
+                cell: CellId(9),
+                health: 100,
+                ..Default::default()
+            },
+        );
+        // player 1 stands in cell 1 and owns A and b, player 2 owns nothing
+        h.tick(0, &players(&[(1, 1), (2, 5)]), &mut auth);
+        assert_eq!(h.own.get(A).unwrap().owner, Some(PlayerId(1)));
+        let blow = |h: &mut ActorHost, auth: &mut AuthorityTable, from, id, by| {
+            let m = ActorMsg::Hit {
+                actor: A,
+                hit: id,
+                amount: 5,
+                npc: Some(by),
+            };
+            h.on_msg(PlayerId(from), m, 10, Some(C), auth)
+        };
+        let health = |h: &ActorHost| h.own.get(A).unwrap().state.health;
+        let o = blow(&mut h, &mut auth, 1, 1, b);
+        assert!(
+            matches!(
+                o[0].msg,
+                ActorMsg::Damaged {
+                    by: None,
+                    health: 95,
+                    ..
+                }
+            ),
+            "a tracked NPC near the victim: {o:?}"
+        );
+        let o = blow(&mut h, &mut auth, 1, 2, nobody);
+        assert!(o.is_empty(), "an NPC the ledger does not track");
+        let o = blow(&mut h, &mut auth, 1, 3, far);
+        assert!(o.is_empty(), "an NPC in a cell the guest has not loaded");
+        let o = blow(&mut h, &mut auth, 2, 4, b);
+        assert!(o.is_empty(), "a guest that owns neither");
+        h.kill_story(b, None);
+        let o = blow(&mut h, &mut auth, 1, 5, b);
+        assert!(o.is_empty(), "a dead NPC");
+        assert_eq!(health(&h), 95);
+        assert_eq!(h.hits_rejected, 4);
     }
 
     #[test]
@@ -738,6 +954,7 @@ mod tests {
                     actor: id,
                     hit: n,
                     amount: 100,
+                    npc: None,
                 },
                 0,
                 Some(C),
@@ -783,5 +1000,55 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// The cells that count for a sender are the grid square around where its
+    /// player stands, as the host works it out: a hit counts on an actor inside
+    /// that square and on no actor beyond it, whatever the sender sends.
+    #[test]
+    fn a_hit_counts_only_inside_the_square_around_the_senders_player() {
+        use crate::roam::graph::CELL_SIZE;
+        use crate::roam::model::SceneModel;
+        let mut model = SceneModel::new();
+        for x in 0..10 {
+            for y in 0..10 {
+                model
+                    .graph
+                    .register_exterior(CellId(1000 + (x * 10 + y) as u32), 0x3C, x, y);
+            }
+        }
+        let world = CellId(0x3C);
+        let at = |x: f32| [x * CELL_SIZE, 5.5 * CELL_SIZE, 0.0];
+        // player 1 stands in square (5, 5)
+        model.update_peer(PlayerId(1), world, at(5.5));
+        let mut h = ActorHost::new();
+        let mut auth = AuthorityTable::new();
+        // two squares east, and three
+        let (near, far) = (FormId(0x201), FormId(0x202));
+        for (a, cell) in [(near, 1075), (far, 1085)] {
+            let state = ActorState {
+                cell: CellId(cell),
+                health: 100,
+                ..Default::default()
+            };
+            h.register(a, state);
+        }
+        model.apply_ownership(&mut h.own);
+        let mut shot = |h: &mut ActorHost, actor, id| {
+            let m = ActorMsg::Hit {
+                actor,
+                hit: id,
+                amount: 5,
+                npc: None,
+            };
+            h.on_msg(PlayerId(1), m, 0, Some(world), &mut auth).len()
+        };
+        assert_eq!(shot(&mut h, near, 1), 1, "two squares away: in the square");
+        assert_eq!(shot(&mut h, far, 2), 0, "three squares away: outside");
+        // the player walks two squares east: now the far actor is in the square
+        model.update_peer(PlayerId(1), world, at(7.5));
+        model.apply_ownership(&mut h.own);
+        assert_eq!(shot(&mut h, far, 3), 1);
+        assert_eq!(h.own.get(far).unwrap().state.health, 95);
     }
 }
