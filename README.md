@@ -47,17 +47,20 @@ fast loading, far fewer crashes, built-in modding and more platforms.
 
 ## Where it stands
 
-Experimental. Almost all of the original program is translated, and the game's
-own code now runs: it starts a new game, plays the opening in Doc Mitchell's
-house (Doc's speech, character creation, the Vit-o-Matic and his questions),
-and lets you walk around, talk to Doc, use the Pip-Boy and draw, aim and fire
-weapons, with the original graphics and sound. In the play build, if the game's code
-stops on something not supported yet, the log names where and the game closes,
-instead of leaving a frozen window.
+Experimental, but the whole game runs on its own translated code: the opening,
+Goodsprings and the open world, quests, dialogue, combat, V.A.T.S., the Pip-Boy,
+saves, mods, and the DLCs, with the original graphics and sound. It is far from
+stable: translation errors still cause bugs and crashes all over the game. When
+the game's code stops, the log names the exact place and the game closes instead
+of freezing.
 
-Not yet: a full playthrough, the open world, script-extender (NVSE) plugins,
-other platforms than Windows, and VR. Next: an audit of the translated code against fnv_decomp, then speed (200+ fps)
-and the move of the game's systems to native 64-bit code ([docs/MILESTONES.md](docs/MILESTONES.md)).
+Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
+an audit of the translated code against [fnv_decomp](https://github.com/momusdigital/fnv_decomp),
+the community's matching decompilation, to remove the translation errors; then the
+move of the game's systems to typed, native 64-bit Rust, which is also the speed work
+(the target is 200+ fps; busy scenes run at roughly 35-50 on the maintainer's PC today); then the modern
+systems built on it. Not yet: script-extender (NVSE) plugins, platforms other than
+Windows, and VR.
 
 ## Progress
 
@@ -77,11 +80,11 @@ mostly error handling; the systems below are where the real work is now.
 | 🔨 | **Animation and faces** | Translated; running in the play build, being compared with the original |
 | 🔨 | **Audio:** sounds, music and the radio | Translated; the game's own sound plays and matches the original on stereo and 7.1 output as measured (5.1 and other speaker setups follow DirectSound's code, not measured), its timing measured against Windows |
 | 🔨 | **Graphics:** lighting, weather and effects | Translated; the game's own renderer draws on Windows (textures, mods' included, through your own DirectX), other platforms later |
-| 🔨 | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated; the opening's dialogue, menus and Pip-Boy run, weapons draw, aim and fire, combat is being checked |
-| 🔨 | **Saves and the open world** | Saves load in Doc's house, and saves made in play show in the menus; outdoors, Goodsprings loads and can be walked through, the rest of the open world is being switched on. Long walks used to run out of the game's heap, which now splits and merges freed memory: a test build with it walked the outdoor world test route (four trips across the map, 48,000 frames) without running out |
+| 🔨 | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated and playable through the whole game, quests included; translation errors cause bugs and crashes, being audited against fnv_decomp |
+| 🔨 | **Saves, the open world and the DLCs** | Translated and playable: the open world, many locations and the DLCs load and play, saves load and are written; translation errors cause crashes, being audited |
 
-After that come optional bug fixes, script-extender compatibility and more
-platforms. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
+After that come the modern systems (no memory limit, every core in use, wgpu
+graphics with optional upgrades), a built-in script extender and more platforms. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
 [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ---
@@ -97,7 +100,8 @@ earlier hand-written viewer, which has been removed.
 
 ### Build from source
 
-Install stable Rust, then:
+Install Rust with rustup (the repository pins its version in `rust-toolchain.toml`;
+rustup fetches it), then:
 
 ```sh
 cargo build --profile play -p nv-viewer
@@ -126,7 +130,7 @@ the code.
 What keeps it honest is the method. Agents don't get to invent behaviour:
 every piece of logic is translated from the original game's program and
 marked with where it came from, then checked by automated tests, the oracle
-(translated functions run against the original's own code) and recordings of the original game. Anything that can't be
+(translated functions run against the original's own code), fnv_decomp and recordings of the original game. Anything that can't be
 traced to the original doesn't go in. Everything is in the open, so judge it by
 how it plays.
 

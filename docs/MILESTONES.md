@@ -61,8 +61,8 @@ A milestone is done when all three of these hold:
 | A2: Animation and faces | NiAnimation, animation choice and blending, FaceGen and lip sync | Translated; running in the play build, being compared with the original |
 | A3: Audio | BSAudio, the radio and music; game threads stepped behind the thread seam | Translated; the game's own sound plays through DirectSound, measured against Windows |
 | B: Graphics | The scene graph, shaders and lighting, sky and weather, terrain and trees, effects | Translated; the game's own renderer draws through the real Direct3D 9 |
-| C: Gameplay | Actor values and combat, AI and pathfinding, quests and dialogue, menus and V.A.T.S., magic, progression, crafting, minigames, world streaming | Translated; the opening's dialogue, menus and Pip-Boy run, weapons draw, aim and fire, combat is being checked |
-| D: The rest | Original saves, shut-down, video, settings, real threads, the remaining unplaced functions | Translated; saves load and are written in play, the open world is being switched on |
+| C: Gameplay | Actor values and combat, AI and pathfinding, quests and dialogue, menus and V.A.T.S., magic, progression, crafting, minigames, world streaming | Translated and playable through the whole game, quests and DLCs included; translation errors cause bugs and crashes (the fnv_decomp audit) |
+| D: The rest | Original saves, shut-down, video, settings, real threads, the remaining unplaced functions | Translated; saves load and are written, the open world plays; crashes from translation errors (the audit) |
 
 Approximate timing (maintainer's goal): A and B in about a month, the whole
 game in about two months, depending on the weekly budget.

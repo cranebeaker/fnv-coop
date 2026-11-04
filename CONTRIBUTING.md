@@ -15,42 +15,42 @@ The short version:
 
 ## Where help is needed now
 
-Since 2026-10-09 the project is porting `FalloutNV.exe` system by system
-([docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md)). Every function of
-the executable is listed in [docs/LEDGER.md](docs/LEDGER.md) and is
-translated into Rust in the engine crates (`crates/engine*`), marked with
-its address, and `nv-viewer` runs that code in play. The hand-written
-reimplementation that came before it (the `world` crate, its menus, physics and the Bevy
-viewer) was removed on 2026-11-03 ([ADR-0011](docs/adr/0011-old-layer-removed.md)). The
-translation itself is done by the maintainer's sessions, so translations from
-contributors can't be merged (they would collide with the maintainer's queue).
+The whole game runs on its own translated code: every function of `FalloutNV.exe`
+([docs/LEDGER.md](docs/LEDGER.md)) is translated into Rust in the engine crates
+(`crates/engine*`), marked with its address, and `nv-viewer` runs it. The open world,
+quests, DLCs and mods play, but translation errors still cause bugs and crashes
+everywhere. The plan ([ADR-0012](docs/adr/0012-modern-64-bit-engine.md),
+[docs/MILESTONES.md](docs/MILESTONES.md)): the game looks and plays exactly like the
+original, while everything players don't see is rebuilt as a modern 64-bit engine.
+First an audit of the translation against
+[fnv_decomp](https://github.com/momusdigital/fnv_decomp), then the move of the game's
+systems to typed, native 64-bit Rust, then the modern systems.
 
 Where help is useful, in order:
 
-1. **Check translations against the real executable.** Pure functions can
-   be run on the real CPU with `nv-call`
-   ([`research/nv-oracle`](research/nv-oracle/)) and compared with their
-   Rust translation. Adding these comparisons for translated functions
-   that don't have them yet needs only your own copy of the game. Commit
-   the test cases and addresses, never the executable or its output.
-   Report a mismatch as an issue with the address and the inputs.
-2. **Play test builds and report differences.** The play build runs the
-   original's code ([docs/PLAYTESTING.md](docs/PLAYTESTING.md),
-   [docs/MILESTONES.md](docs/MILESTONES.md)). Anything that behaves
-   differently from the original game is a bug worth an issue: say where,
-   what you did, and what the original does.
-3. **Compare with the original game.** Recording the original game and
-   comparing it with nv-rs automatically is the most valuable check the
-   port can have. Propose a plan in an issue before building tools for
-   it.
-4. **Platforms.** The engine's platform layer (`crates/engine-core/src/units/platform`)
-   is Windows-only; a Linux build of it (#61) is open. Discuss it in the issue first.
+1. **Play and report bugs.** This is the most useful help right now. Play the build
+   ([docs/PLAYTESTING.md](docs/PLAYTESTING.md)) anywhere in the game and open an issue
+   for each crash or difference from the original: where you were, what you did,
+   what the original does, and the log's last lines. When the game's code stops, the
+   log names the place (`Game's main stopped in frame N: ... (in <addresses>)`); those
+   addresses are what we need.
+2. **Compare translations with fnv_decomp or the executable.** Pick a function from a
+   crash report or the ledger, compare its Rust translation with fnv_decomp's C++ for
+   the same address (or run it on the real CPU with `nv-call`,
+   [`research/nv-oracle`](research/nv-oracle/)), and report a mismatch as an issue with
+   the address and what differs. Fix pull requests for a single function are welcome
+   after the issue (see Provenance below); never commit fnv_decomp's C++.
+3. **Compare with the original game.** Recording the original and comparing it with
+   nv-rs automatically is the most valuable check the port can have. Propose a plan in
+   an issue before building tools for it.
+4. **Platforms.** Other platforms come through wgpu (the only planned renderer
+   backend) once the platform layer is in its own crate. Discuss in an issue first.
 
-Not open for contributions, because the maintainer's sessions are doing
-them and parallel versions would conflict: translating the executable
-(all of the ledger), the game-state model and original saves, and
-switching translated systems on in the running game
-([docs/SYSTEMS.md](docs/SYSTEMS.md) lists them all, in order).
+Not open for contributions, because the maintainer's sessions are doing them and
+parallel versions would conflict: the audit's system-wide passes, the move of systems to
+typed 64-bit Rust, the platform layer and the play build. The hand-written
+reimplementation that came before the port (the `world` crate and the Bevy viewer) was
+removed on 2026-11-03 ([ADR-0011](docs/adr/0011-old-layer-removed.md)).
 
 ## Updating an older fork
 
@@ -112,15 +112,16 @@ pull request.
 
 | Area | Owner | Notes |
 | --- | --- | --- |
-| Engine port: translating the executable, the frame model, game state and saves, the platform layer, the play build | maintainer | ENGINE_PORT_PLAN, ENGINE_CRATE, FRAME_SKELETON, ENGINE_STATE. Not open for contributions. |
-| Checking translations against the executable (`research/nv-oracle`) | open | Coordinate on the issue first. |
-| Linux build of the platform layer | open | #61; the engine-core part of #62 is a start. |
+| Engine port: the audit's system-wide passes, the typed 64-bit migration, the platform layer, the play build | maintainer | ADR-0012, ENGINE_PORT_PLAN, ENGINE_CRATE, FRAME_SKELETON. Not open for contributions. |
+| Bug reports from play | open | One issue per bug, with the log's last lines. |
+| Single-function fixes found by comparing with fnv_decomp or the executable | open | Issue first, then a small pull request with a regression test. |
+| Other platforms (wgpu) | later | Discuss in an issue first. |
 
 For anything else, open an issue first.
 
 ## What every pull request must show
 
-1. **Checks.** From the root: `cargo test --workspace`,
+1. **Checks.** From the root (Rust as pinned in `rust-toolchain.toml`): `cargo test --workspace`,
    `cargo clippy --workspace --all-targets -- -D warnings`,
    `cargo fmt --all -- --check`. GitHub runs the same checks (`check`) and they must
    pass. `cargo test` includes a repository hygiene check
