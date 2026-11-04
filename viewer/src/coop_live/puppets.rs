@@ -460,11 +460,13 @@ mod tests {
     /// interior, or outdoors the same worldspace and near enough.
     #[test]
     fn a_remote_player_shows_only_in_the_same_place() {
-        let mut gs = GameState::default();
         // outdoors in worldspace 0x3C, at the origin
-        gs.player_world = Some(FormId(0x3C));
-        gs.player_cell = Some(FormId(0x1234));
-        gs.player_position = Some([0.0; 3]);
+        let mut gs = GameState {
+            player_world: Some(FormId(0x3C)),
+            player_cell: Some(FormId(0x1234)),
+            player_position: Some([0.0; 3]),
+            ..Default::default()
+        };
         assert!(in_view(&gs, &at(0x3C, 100.0)), "near, same worldspace");
         assert!(!in_view(&gs, &at(0x3C, REACH * 2.0)), "far away");
         assert!(
