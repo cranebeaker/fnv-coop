@@ -830,8 +830,10 @@ mod dialogue_world {
             r.ha.own.dialogue.view().is_some(),
             "the conversation is still open"
         );
-        // a new line comes in the frame where all the queued lines wait too long
-        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        // a new line comes in the frame where all the queued lines wait too long:
+        // another topic, so its line is not the queued lines' line
+        r.host
+            .coop_talk(npc, PLAYER_REF, Some(FormId(THANKS)), false);
         r.step();
         let t = r.host.coop.live.scene.talk;
         assert_eq!(t.notes, FORCED_QUEUE_MAX as u32 + 1, "{t:?}");
@@ -849,7 +851,14 @@ mod dialogue_world {
             r.guests.iter().all(|g| g.coop.live.lines.len() == 1)
         });
         let t = r.host.coop.live.scene.talk;
-        assert!(played, "the new line reaches both guests: {t:?}");
+        assert!(played, "a line reaches both guests: {t:?}");
+        for g in r.guests.iter() {
+            assert_eq!(
+                g.coop.live.lines[0].1,
+                FormId(THANKS_LINE),
+                "the new line plays, not a queued one"
+            );
+        }
         assert_eq!((t.lines, t.dropped), (1, FORCED_QUEUE_MAX as u32), "{t:?}");
     }
 
