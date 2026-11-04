@@ -10,6 +10,10 @@
 //! The host process is 64-bit, so it loads the 64-bit build of the same DLL; the compiler's
 //! output (bytecode and constant table) does not depend on the process's word size. The table's
 //! setters (`SetDefaults`, `SetFloat`, ...) take a device and are not provided (the run stops).
+//!
+//! The texture loaders (`D3DXCreateTextureFromFileInMemory`, the cube one, the image info) go
+//! through the same DLL when the real Direct3D 9 is in use (the maintainer's decision of
+//! 2026-11-03; [`texture_levels`], chosen by `super::d3dx::texture_source`).
 
 use super::d3d9::{CODE_BASE, D3DERR_INVALIDCALL};
 use crate::{Engine, Ptr};
@@ -65,22 +69,36 @@ struct Dll {
     table: GetShaderConstantTable,
 }
 
-/// The player's `d3dx9_38.dll`, loaded once from the system folder.
-fn dll() -> &'static Dll {
-    static DLL: std::sync::OnceLock<Option<Dll>> = std::sync::OnceLock::new();
-    DLL.get_or_init(|| unsafe {
-        use windows::core::PCSTR;
-        use windows::Win32::System::LibraryLoader::{
-            GetProcAddress, LoadLibraryExA, LOAD_LIBRARY_SEARCH_SYSTEM32,
-        };
-        let module = LoadLibraryExA(
+/// An export of the player's `d3dx9_38.dll`, which is loaded once from the system folder (the
+/// shader compiler and the texture loaders share the one module, never freed); `None` when the
+/// DLL is not installed or lacks the export. `name` ends in a NUL.
+fn dll_export(name: &[u8]) -> Option<unsafe extern "system" fn() -> isize> {
+    use windows::core::PCSTR;
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::LibraryLoader::{
+        GetProcAddress, LoadLibraryExA, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    };
+    // The handle kept as an address: `HMODULE` holds a raw pointer, which a static cannot.
+    static MODULE: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let module = (*MODULE.get_or_init(|| unsafe {
+        LoadLibraryExA(
             PCSTR(b"d3dx9_38.dll\0".as_ptr()),
             None,
             LOAD_LIBRARY_SEARCH_SYSTEM32,
         )
-        .ok()?;
-        let compile = GetProcAddress(module, PCSTR(b"D3DXCompileShader\0".as_ptr()))?;
-        let table = GetProcAddress(module, PCSTR(b"D3DXGetShaderConstantTable\0".as_ptr()))?;
+        .ok()
+        .map(|m| m.0 as usize)
+    }))?;
+    assert_eq!(name.last(), Some(&0), "an export name ends in a NUL");
+    unsafe { GetProcAddress(HMODULE(module as *mut c_void), PCSTR(name.as_ptr())) }
+}
+
+/// The shader compiler's functions of the player's `d3dx9_38.dll` ([`dll_export`]).
+fn dll() -> &'static Dll {
+    static DLL: std::sync::OnceLock<Option<Dll>> = std::sync::OnceLock::new();
+    DLL.get_or_init(|| unsafe {
+        let compile = dll_export(b"D3DXCompileShader\0")?;
+        let table = dll_export(b"D3DXGetShaderConstantTable\0")?;
         Some(Dll {
             compile: std::mem::transmute::<unsafe extern "system" fn() -> isize, CompileShader>(
                 compile,
@@ -829,15 +847,9 @@ fn string_copy(e: &mut Engine, text: *const u8) -> u32 {
 
 /// An export of the loaded DLL by name (with its terminating zero).
 fn export(name: &[u8]) -> unsafe extern "system" fn() -> isize {
-    use windows::core::PCSTR;
-    use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
     dll();
-    unsafe {
-        let module =
-            GetModuleHandleA(PCSTR(b"d3dx9_38.dll\0".as_ptr())).expect("d3dx9_38.dll is loaded");
-        GetProcAddress(module, PCSTR(name.as_ptr()))
-    }
-    .unwrap_or_else(|| panic!("{} is not in d3dx9_38.dll", String::from_utf8_lossy(name)))
+    dll_export(name)
+        .unwrap_or_else(|| panic!("{} is not in d3dx9_38.dll", String::from_utf8_lossy(name)))
 }
 
 fn profile(e: &mut Engine, device: Ptr, name: &[u8]) -> u32 {
@@ -989,9 +1001,434 @@ fn read_macros(e: &Engine, defines: Ptr) -> (Vec<Vec<u8>>, Vec<[*const u8; 2]>) 
     (strings, macros)
 }
 
+// Textures (maintainer, 2026-11-03): `D3DXCreateTextureFromFileInMemory`,
+// `D3DXCreateCubeTextureFromFileInMemory` and `D3DXGetImageInfoFromFileInMemory` through the same
+// 64-bit DLL, on the real device behind the game's (`NV_D3D9=real`). Measured over all 21,776 of
+// the game's textures: the 64-bit DLL's textures are the 32-bit DLL's bit for bit on 18,356; on
+// the other 3,420 the levels D3DX generates in DXT formats differ (its 64-bit DXT encoder), which
+// the maintainer looked at and accepted. `super::d3dx` chooses between this and the texture cache.
+
+type CreateFromFile =
+    unsafe extern "system" fn(*mut c_void, *const u8, u32, *mut *mut c_void) -> Hresult;
+type ImageInfoFromFile = unsafe extern "system" fn(*const u8, u32, *mut u32) -> Hresult;
+
+struct TextureDll {
+    texture: CreateFromFile,
+    cube: CreateFromFile,
+    info: ImageInfoFromFile,
+}
+
+/// The texture functions of the player's `d3dx9_38.dll` ([`dll_export`]: the system folder's, the
+/// 64-bit build in this 64-bit process); `None` when it is not installed, so the caller can fall
+/// back.
+fn texture_dll() -> Option<&'static TextureDll> {
+    static DLL: std::sync::OnceLock<Option<TextureDll>> = std::sync::OnceLock::new();
+    DLL.get_or_init(|| unsafe {
+        let get = dll_export;
+        type Export = unsafe extern "system" fn() -> isize;
+        Some(TextureDll {
+            texture: std::mem::transmute::<Export, CreateFromFile>(get(
+                b"D3DXCreateTextureFromFileInMemory\0",
+            )?),
+            cube: std::mem::transmute::<Export, CreateFromFile>(get(
+                b"D3DXCreateCubeTextureFromFileInMemory\0",
+            )?),
+            info: std::mem::transmute::<Export, ImageInfoFromFile>(get(
+                b"D3DXGetImageInfoFromFileInMemory\0",
+            )?),
+        })
+    })
+    .as_ref()
+}
+
+/// Whether the player's `d3dx9_38.dll` can answer the texture calls in this process.
+pub fn textures_available() -> bool {
+    texture_dll().is_some()
+}
+
+/// `D3DXGetImageInfoFromFileInMemory(data, size, info)` by the DLL: its answer, and the seven
+/// words of `D3DXIMAGE_INFO` (the same layout in a 32-bit and a 64-bit process) after the call,
+/// starting from `info` (what the game's buffer held, so a word the DLL leaves alone is left
+/// alone). `None` when the DLL is not installed.
+pub fn image_info(data: &[u8], info: [u32; 7]) -> Option<(u32, [u32; 7])> {
+    let dll = texture_dll()?;
+    let mut words = info;
+    let hr = unsafe { (dll.info)(data.as_ptr(), data.len() as u32, words.as_mut_ptr()) };
+    Some((hr as u32, words))
+}
+
+/// The bytes of one locked level (rows packed, as the cache keeps them) and its description.
+///
+/// # Safety
+/// `locked` is a lock of that level, still held.
+unsafe fn packed_level(
+    desc: &windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC,
+    locked: &windows::Win32::Graphics::Direct3D9::D3DLOCKED_RECT,
+) -> super::d3dx::CachedSurface {
+    let format = desc.Format.0;
+    let Some((block, bytes)) = super::d3d9device::format_blocks(format) else {
+        panic!(
+            "d3dx9_38.dll made a texture of format {format:#x}, whose memory layout the Direct3D 9 layer does not provide"
+        );
+    };
+    let row = (desc.Width.div_ceil(block) * bytes) as usize;
+    let rows = desc.Height.div_ceil(block) as usize;
+    let mut out = Vec::with_capacity(row * rows);
+    for r in 0..rows {
+        out.extend_from_slice(std::slice::from_raw_parts(
+            (locked.pBits as *const u8).add(r * locked.Pitch as usize),
+            row,
+        ));
+    }
+    super::d3dx::CachedSurface {
+        format,
+        width: desc.Width,
+        height: desc.Height,
+        bytes: Some(out),
+    }
+}
+
+/// `D3DXCreateTextureFromFileInMemory` (or, `cube`, `D3DXCreateCubeTextureFromFileInMemory`) of
+/// `data` by the DLL on the real `device`, the call the game makes, with D3DX's defaults; the
+/// texture it made read back level by level (face by face for a cube, the DDS order) as a
+/// texture cache entry is, every level with D3DX's bytes, and released. `None` when the DLL is not
+/// installed. A failed call gives an entry with the DLL's answer and no levels.
+pub fn texture_levels(
+    device: &windows::Win32::Graphics::Direct3D9::IDirect3DDevice9,
+    data: &[u8],
+    cube: bool,
+) -> Option<super::d3dx::CachedTexture> {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Direct3D9::IDirect3DBaseTexture9;
+    let dll = texture_dll()?;
+    let create = if cube { dll.cube } else { dll.texture };
+    let mut made = std::ptr::null_mut::<c_void>();
+    let hr = unsafe { create(device.as_raw(), data.as_ptr(), data.len() as u32, &mut made) } as u32;
+    let faces = if cube { 6 } else { 1 };
+    if hr != 0 || made.is_null() {
+        if !made.is_null() {
+            unsafe { release(made) };
+        }
+        return Some(super::d3dx::CachedTexture {
+            hr,
+            levels: 0,
+            faces,
+            surfaces: Vec::new(),
+        });
+    }
+    let made = unsafe { IDirect3DBaseTexture9::from_raw(made) };
+    let (levels, surfaces) = read_levels(&made, cube);
+    drop(made);
+    Some(super::d3dx::CachedTexture {
+        hr,
+        levels,
+        faces,
+        surfaces,
+    })
+}
+
+/// The level count of a real `texture` (a cube texture when `cube`) and its levels as a texture
+/// cache entry holds them (face by face for a cube, the DDS order; rows packed), each read with
+/// `LockRect(D3DLOCK_READONLY)`.
+pub(crate) fn read_levels(
+    texture: &windows::Win32::Graphics::Direct3D9::IDirect3DBaseTexture9,
+    cube: bool,
+) -> (u32, Vec<super::d3dx::CachedSurface>) {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Direct3D9::{
+        IDirect3DCubeTexture9, IDirect3DTexture9, D3DCUBEMAP_FACES, D3DLOCKED_RECT,
+        D3DLOCK_READONLY, D3DSURFACE_DESC,
+    };
+    let mut surfaces = Vec::new();
+    let levels;
+    unsafe {
+        if cube {
+            let t: IDirect3DCubeTexture9 = texture.cast().expect("a cube texture");
+            levels = t.GetLevelCount();
+            for face in 0..6 {
+                for level in 0..levels {
+                    let (mut desc, mut locked) =
+                        (D3DSURFACE_DESC::default(), D3DLOCKED_RECT::default());
+                    t.GetLevelDesc(level, &mut desc)
+                        .expect("GetLevelDesc of a real cube texture");
+                    let face = D3DCUBEMAP_FACES(face);
+                    t.LockRect(
+                        face,
+                        level,
+                        &mut locked,
+                        std::ptr::null(),
+                        D3DLOCK_READONLY as u32,
+                    )
+                    .expect("LockRect of a real cube texture");
+                    surfaces.push(packed_level(&desc, &locked));
+                    let _ = t.UnlockRect(face, level);
+                }
+            }
+        } else {
+            let t: IDirect3DTexture9 = texture.cast().expect("a texture");
+            levels = t.GetLevelCount();
+            for level in 0..levels {
+                let (mut desc, mut locked) =
+                    (D3DSURFACE_DESC::default(), D3DLOCKED_RECT::default());
+                t.GetLevelDesc(level, &mut desc)
+                    .expect("GetLevelDesc of a real texture");
+                t.LockRect(
+                    level,
+                    &mut locked,
+                    std::ptr::null(),
+                    D3DLOCK_READONLY as u32,
+                )
+                .expect("LockRect of a real texture");
+                surfaces.push(packed_level(&desc, &locked));
+                let _ = t.UnlockRect(level);
+            }
+        }
+    }
+    (levels, surfaces)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The game's device behaviour flags: hardware vertex processing, pure, multithreaded.
+    const GAME_BEHAVIOR: u32 = 0x54;
+
+    /// A real HAL device created as the game creates its own (behaviour [`GAME_BEHAVIOR`], the
+    /// layer's `D3DCREATE_FPU_PRESERVE`; `d3d9real::test_real_device`) on a hidden window;
+    /// `None` where there is none (no display adapter, as on CI).
+    fn test_device() -> Option<windows::Win32::Graphics::Direct3D9::IDirect3DDevice9> {
+        super::super::d3d9real::test_real_device(&mut Engine::new(), 0x1000, GAME_BEHAVIOR)
+    }
+
+    /// The synthetic DDS of the test data (TEST DATA, made from the documented layout): one level
+    /// of `width` x `height`, its bytes `(k * 2654435761 mod 2^32) >> 24` for byte `k`.
+    fn synthetic_dds(width: u32, height: u32, format: &str) -> Vec<u8> {
+        let mut v = vec![0u8; 128];
+        let mut put = |at: usize, w: u32| v[at..at + 4].copy_from_slice(&w.to_le_bytes());
+        put(4, 124);
+        put(8, 0x000a_1007);
+        put(12, height);
+        put(16, width);
+        put(28, 1);
+        put(76, 32);
+        put(108, 0x1000);
+        let size = if format == "DXT5" {
+            put(80, 4);
+            put(84, u32::from_le_bytes(*b"DXT5"));
+            width.div_ceil(4) * height.div_ceil(4) * 16
+        } else {
+            put(80, 0x41);
+            put(88, 32);
+            put(92, 0x00ff_0000);
+            put(96, 0xff00);
+            put(100, 0xff);
+            put(104, 0xff00_0000);
+            width * height * 4
+        };
+        v[..4].copy_from_slice(b"DDS ");
+        v.extend((0..size).map(|k| (k.wrapping_mul(2_654_435_761) >> 24) as u8));
+        v
+    }
+
+    /// A texture made through the 64-bit path from a small DDS in memory has the levels the
+    /// 64-bit DLL gave for the same file in `d3dx-measure serve` (`data/d3dx/texture_levels_64.tsv`,
+    /// 2026-11-03): a DXT5 file whose generated levels are the DLL's DXT encoder's (the 32-bit
+    /// DLL's differ on them), and an A8R8G8B8 one. Skipped where the DLL or a display adapter is
+    /// missing (as on CI).
+    #[test]
+    fn textures_through_the_64_bit_dll_match_its_capture() {
+        if !textures_available() {
+            return;
+        }
+        let Some(device) = test_device() else {
+            return;
+        };
+        let text = include_str!("../../../data/d3dx/texture_levels_64.tsv");
+        for (name, width, format) in [("dxt5-32x32", 32, "DXT5"), ("argb-16x16", 16, "ARGB")] {
+            let want: Vec<Vec<&str>> = text
+                .lines()
+                .filter(|l| l.split('\t').next() == Some(name))
+                .map(|l| l.split('\t').collect())
+                .collect();
+            assert!(!want.is_empty(), "{name} in the test data");
+            let file = synthetic_dds(width, width, format);
+            let got = texture_levels(&device, &file, false).expect("the DLL is loaded");
+            assert_eq!(got.hr, u32::from_str_radix(want[0][1], 16).unwrap());
+            assert_eq!(got.levels as usize, want.len(), "{name}: level count");
+            assert_eq!(got.faces, 1);
+            for (s, w) in got.surfaces.iter().zip(&want) {
+                let bytes: Vec<u8> = (0..w[7].len() / 2)
+                    .map(|i| u8::from_str_radix(&w[7][2 * i..2 * i + 2], 16).unwrap())
+                    .collect();
+                assert_eq!(
+                    (s.format, s.width, s.height),
+                    (
+                        u32::from_str_radix(w[4], 16).unwrap(),
+                        w[5].parse().unwrap(),
+                        w[6].parse().unwrap()
+                    ),
+                    "{name} level {}",
+                    w[3]
+                );
+                assert_eq!(
+                    s.bytes.as_deref(),
+                    Some(&bytes[..]),
+                    "{name} level {}",
+                    w[3]
+                );
+            }
+            // The stored level is the file's.
+            assert_eq!(
+                got.surfaces[0].bytes.as_deref(),
+                Some(&file[128..]),
+                "{name}: level 0 as stored"
+            );
+            // The image info the DLL answers for the same file.
+            let (hr, info) = image_info(&file, [0x5555_5555; 7]).unwrap();
+            assert_eq!(hr, 0);
+            assert_eq!(info[..4], [width, width, 1, 1]);
+        }
+        // A file the DLL refuses (cut short): its error, no levels.
+        let mut short = synthetic_dds(32, 32, "DXT5");
+        short.truncate(200);
+        let refused = texture_levels(&device, &short, false).unwrap();
+        assert_ne!(refused.hr, 0);
+        assert!(refused.surfaces.is_empty());
+    }
+
+    /// A synthetic A8R8G8B8 cube DDS (TEST DATA, made from the documented layout): six faces of
+    /// one `edge` x `edge` level each, the bytes as [`synthetic_dds`]'s over the six faces.
+    fn synthetic_cube(edge: u32) -> Vec<u8> {
+        let mut v = synthetic_dds(edge, edge, "ARGB");
+        v.truncate(128);
+        // DDSCAPS_COMPLEX | DDSCAPS_TEXTURE; DDSCAPS2_CUBEMAP with all six faces.
+        v[108..112].copy_from_slice(&0x1008u32.to_le_bytes());
+        v[112..116].copy_from_slice(&0xfe00u32.to_le_bytes());
+        v.extend((0..6 * edge * edge * 4).map(|k| (k.wrapping_mul(2_654_435_761) >> 24) as u8));
+        v
+    }
+
+    /// The game's calls, end to end through the layer with the 64-bit DLL: on a modelled device
+    /// with a real one behind it, both made with the game's behaviour flags (0x54),
+    /// `D3DXCreateTextureFromFileInMemory` (a DXT5 file whose other levels D3DX generates) and
+    /// `D3DXCreateCubeTextureFromFileInMemory` (an A8R8G8B8 cube) answer `D3D_OK` and a texture of
+    /// this layer whose level count, level descriptions and every level's bytes (read through the
+    /// game's own `GetLevelCount`, `GetLevelDesc` and `LockRect`) are the DLL's for the same file;
+    /// the layer's real counterpart holds the same levels; `D3DXGetImageInfoFromFileInMemory`
+    /// answers the DLL's info; the log names the DLL. Skipped where the DLL or a display adapter
+    /// is missing (as on CI).
+    #[test]
+    fn the_games_texture_calls_reach_the_layer_and_its_real_texture_through_the_dll() {
+        use super::super::d3dx::{self, CachedSurface, TextureSource};
+        if !textures_available() {
+            return;
+        }
+        // CheckDeviceFormat of A8R8G8B8 and DXT5 textures and cube textures, usage 0, on the
+        // display format X8R8G8B8: what the layer's CreateTexture and CreateCubeTexture ask.
+        let extra = "\nDomain\td2\t15,35545844\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td2\
+                     \nCheckDeviceFormat\t0 1 16 0 5\t0\t\td2";
+        let (mut e, device) = super::super::d3d9device::tests::device_with(extra, GAME_BEHAVIOR);
+        let Some(real) = super::super::d3d9real::test_real_device(&mut e, device, GAME_BEHAVIOR)
+        else {
+            return;
+        };
+        // Bytes of one level with its rows packed, as the game reads them through a lock.
+        let packed = |e: &Engine, s: &CachedSurface, pitch: u32, bits: u32| -> Vec<u8> {
+            let block = super::super::d3d9device::format_blocks(s.format).map_or(1, |(b, _)| b);
+            let rows = s.height.div_ceil(block).max(1);
+            let row = s.bytes.as_ref().unwrap().len() as u32 / rows;
+            (0..rows)
+                .flat_map(|r| e.mem.bytes(bits + r * pitch, row))
+                .collect()
+        };
+        for (file, cube) in [
+            (synthetic_dds(32, 32, "DXT5"), false),
+            (synthetic_cube(16), true),
+        ] {
+            let want = texture_levels(&real, &file, cube).expect("the DLL is loaded");
+            assert_eq!(want.hr, 0);
+            assert!(want.levels > 1, "D3DX generates the other levels");
+            let data = e.mem.alloc(file.len() as u32);
+            e.mem.write(data, &file);
+            let out = e.mem.alloc(4);
+            let call = if cube {
+                d3dx::create_cube_texture_from_file_in_memory
+            } else {
+                d3dx::create_texture_from_file_in_memory
+            };
+            let hr = call(
+                &mut e,
+                Ptr::new(device),
+                Ptr::new(data),
+                file.len() as u32,
+                Ptr::new(out),
+            );
+            assert_eq!(hr, 0, "cube {cube}");
+            let texture = e.mem.u32(out);
+            // The real counterpart, as the layer's uploads left it.
+            let t = super::super::d3d9real::real_texture(&e, texture).expect("its real texture");
+            let (levels, surfaces) = read_levels(&t, cube);
+            assert_eq!(levels, want.levels, "cube {cube}: the real level count");
+            for (i, (got, w)) in surfaces.iter().zip(&want.surfaces).enumerate() {
+                assert_eq!(
+                    (got.format, got.width, got.height, &got.bytes),
+                    (w.format, w.width, w.height, &w.bytes),
+                    "cube {cube}: the real texture's surface {i}"
+                );
+            }
+            assert_eq!(surfaces.len(), want.surfaces.len());
+            // The layer's texture, through the game's own calls (IDirect3DTexture9 and
+            // IDirect3DCubeTexture9: GetLevelCount 13, GetLevelDesc 17, LockRect 19, UnlockRect 20).
+            assert_eq!(e.vcall(texture, 4 * 13, &[]).u32(), want.levels);
+            let (desc, locked) = (e.mem.alloc(32), e.mem.alloc(8));
+            for (i, w) in want.surfaces.iter().enumerate() {
+                let (face, level) = (i as u32 / want.levels, i as u32 % want.levels);
+                assert_eq!(e.vcall(texture, 4 * 17, &[level, desc]).u32(), 0);
+                assert_eq!(
+                    (e.mem.u32(desc), e.mem.u32(desc + 24), e.mem.u32(desc + 28)),
+                    (w.format, w.width, w.height),
+                    "cube {cube}: level {level}'s description"
+                );
+                let (lock, unlock) = if cube {
+                    (vec![face, level, locked, 0, 0x10], vec![face, level])
+                } else {
+                    (vec![level, locked, 0, 0x10], vec![level])
+                };
+                assert_eq!(e.vcall(texture, 4 * 19, &lock).u32(), 0);
+                let (pitch, bits) = (e.mem.u32(locked), e.mem.u32(locked + 4));
+                assert_eq!(
+                    Some(packed(&e, w, pitch, bits)),
+                    w.bytes,
+                    "cube {cube}: face {face} level {level}'s bytes"
+                );
+                assert_eq!(e.vcall(texture, 4 * 20, &unlock).u32(), 0);
+            }
+            // The image info: the DLL's.
+            let info = e.mem.alloc(28);
+            for i in 0..7 {
+                e.mem.set_u32(info + 4 * i, 0x5555_5555);
+            }
+            let hr = d3dx::get_image_info_from_file_in_memory(
+                &mut e,
+                Ptr::new(data),
+                file.len() as u32,
+                Ptr::new(info),
+            );
+            let (dll_hr, words) = image_info(&file, [0x5555_5555; 7]).unwrap();
+            assert_eq!(hr, dll_hr);
+            assert_eq!(
+                (0..7).map(|i| e.mem.u32(info + 4 * i)).collect::<Vec<_>>(),
+                words.to_vec(),
+                "cube {cube}: the image info"
+            );
+        }
+        assert_eq!(
+            e.kernel.graphics.d3dx_texture_sources,
+            vec![TextureSource::Dll],
+            "every call through the DLL, said once"
+        );
+    }
 
     /// The player's DLL compiles a small shader from engine memory, and its constant table
     /// answers through this layer's objects (skipped where the DLL is not installed).

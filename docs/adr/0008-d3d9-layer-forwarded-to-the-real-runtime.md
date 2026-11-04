@@ -82,6 +82,23 @@ Design (`units/platform/d3d9real.rs`):
    functions give the DLL a stand-in device whose `GetDeviceCaps` asks the
    game's device. These are Windows only and do not depend on
    `NV_D3D9=real`.
+   **Textures (2026-11-03, the maintainer's decision).** With `NV_D3D9=real`
+   `D3DXCreateTextureFromFileInMemory`, `D3DXCreateCubeTextureFromFileInMemory`
+   and `D3DXGetImageInfoFromFileInMemory` call the same DLL (the 64-bit build
+   in the system folder) in the game's process, on the real device behind the
+   game's: the texture D3DX makes is read back level by level and copied into
+   the layer's own texture exactly as a texture-cache entry is (made through
+   the game's device, filled through `LockRect`/`UnlockRect`), so the model and
+   the real device stay as they were; D3DX's texture is released. Measured over
+   all 21,776 of the game's textures, the 64-bit DLL's textures are the 32-bit
+   DLL's bit for bit on 18,356; on the other 3,420 the levels D3DX generates in
+   DXT formats differ (its DXT encoder), by amounts the maintainer looked at and
+   accepted. So no machine cache and no 32-bit helper are needed, and a mod's
+   new textures load. Without the real device (tests, other platforms) or
+   without the DLL the texture cache (`scripts/d3dx-texture-capture`) still
+   answers, and the log says which source is used (`D3DX textures: ...`). The
+   image info, which takes no device, uses the DLL by the same rule over the
+   game's devices, so it never disagrees with the textures' source.
 7. **The switch.** `NV_D3D9=real` turns the forwarding on; unset (tests,
    other platforms) the layer is exactly the model. The viewer's Bevy window
    stays for now.

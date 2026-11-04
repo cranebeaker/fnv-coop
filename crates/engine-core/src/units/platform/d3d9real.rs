@@ -166,6 +166,37 @@ fn device(e: &Engine, this: u32) -> Option<std::mem::ManuallyDrop<IDirect3DDevic
     }
 }
 
+/// The real device behind the modelled device `this`, counted (for a caller that hands it to
+/// other code, the D3DX texture loader in `super::d3dxreal`); `None` when the forwarding is off or
+/// the real `CreateDevice` failed.
+pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
+    match e.kernel.graphics.real.objects.get(&this) {
+        Some(Object::Device(d)) => Some(d.clone()),
+        _ => None,
+    }
+}
+
+/// Whether any of the game's modelled devices has a real one behind it (for a D3DX call that
+/// takes no device, the image info).
+pub fn any_real_device(e: &Engine) -> bool {
+    e.kernel
+        .graphics
+        .device_objects
+        .device_addresses()
+        .any(|d| {
+            matches!(
+                e.kernel.graphics.real.objects.get(&d),
+                Some(Object::Device(_))
+            )
+        })
+}
+
+/// Test only: the real counterpart of the modelled texture or cube texture `texture`.
+#[cfg(test)]
+pub(crate) fn real_texture(e: &Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
+    base_texture(e, texture)
+}
+
 /// Forgets the real counterpart of a modelled object that is destroyed (its address can be
 /// reused). It is not released yet but kept until the frame's `Present`: the model lets go of an
 /// object when the program unbinds it, before the same call reaches the real device, and the
@@ -276,9 +307,20 @@ fn release_input() {
 /// Frees the cursor [`hold_cursor`] held (no clip; Windows shows it again).
 fn let_go_of_cursor() {
     if CURSOR_HELD.swap(false, std::sync::atomic::Ordering::Relaxed) {
-        let _ = unsafe { ClipCursor(None) };
+        unsafe {
+            let _ = ClipCursor(None);
+            ShowCursor(true);
+        }
     }
 }
+
+/// The centre of the held client area, in screen coordinates: the cursor is put back there after
+/// each raw mouse motion, so it never rests on the area's edge (where it showed, playtest
+/// 2026-11-03). The motion the game reads comes from raw input, not the cursor's position.
+static CURSOR_CENTRE: [std::sync::atomic::AtomicI32; 2] = [
+    std::sync::atomic::AtomicI32::new(0),
+    std::sync::atomic::AtomicI32::new(0),
+];
 
 /// Whether the window holds the cursor (clipped to its client area, hidden over it).
 static CURSOR_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -316,8 +358,18 @@ fn hold_cursor(window: HWND) {
             bottom: corners[1].y,
         };
         if ClipCursor(Some(&screen)).is_ok() {
-            CURSOR_HELD.store(true, std::sync::atomic::Ordering::Relaxed);
+            let centre = [
+                (screen.left + screen.right) / 2,
+                (screen.top + screen.bottom) / 2,
+            ];
+            for (slot, value) in CURSOR_CENTRE.iter().zip(centre) {
+                slot.store(value, std::sync::atomic::Ordering::Relaxed);
+            }
+            if !CURSOR_HELD.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                ShowCursor(false);
+            }
             SetCursor(None);
+            let _ = SetCursorPos(centre[0], centre[1]);
         }
     }
 }
@@ -358,6 +410,11 @@ fn raw_mouse(lparam: LPARAM) {
     if let Ok(mut i) = input().lock() {
         i.motion[0] += mouse.lLastX;
         i.motion[1] += mouse.lLastY;
+    }
+    if cursor_held() {
+        let x = CURSOR_CENTRE[0].load(std::sync::atomic::Ordering::Relaxed);
+        let y = CURSOR_CENTRE[1].load(std::sync::atomic::Ordering::Relaxed);
+        let _ = unsafe { SetCursorPos(x, y) };
     }
 }
 
@@ -460,6 +517,17 @@ fn shown_in_background() -> bool {
     std::env::var_os("NV_D3D9_BACKGROUND").is_some()
 }
 
+/// Whether the game's window is borderless and covers the primary monitor (`NV_BORDERLESS`, the
+/// play launcher's setting; not the original's: its windowed mode keeps the frame). Direct3D
+/// stretches the back buffer, at the game's own resolution, over it.
+fn borderless() -> bool {
+    std::env::var("NV_BORDERLESS").is_ok_and(|v| v == "1")
+}
+
+/// The borderless window ([`borderless`]), which keeps the monitor's size when the game moves or
+/// sizes its window (0: none).
+static BORDERLESS_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
 unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
     let module = GetModuleHandleA(None).unwrap_or_default();
     let class = WNDCLASSA {
@@ -478,13 +546,27 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
             let child = request.parent != 0;
             // A top-level window is shown afterwards (activated, or in the background for the
             // scripted runs: [`shown_in_background`]).
+            let borderless = !child && borderless();
             let style = if child {
                 request.style
+            } else if borderless {
+                WS_POPUP.0
             } else {
                 request.style & !WS_VISIBLE.0
             };
+            let (left, top, right, bottom) = if borderless {
+                (
+                    0,
+                    0,
+                    GetSystemMetrics(SM_CXSCREEN),
+                    GetSystemMetrics(SM_CYSCREEN),
+                )
+            } else {
+                (left, top, right, bottom)
+            };
+            let ex_style = if borderless { 0 } else { request.ex_style };
             let window = CreateWindowExA(
-                WINDOW_EX_STYLE(request.ex_style),
+                WINDOW_EX_STYLE(ex_style),
                 CLASS_NAME,
                 PCSTR(title.as_ptr()),
                 WINDOW_STYLE(style),
@@ -501,6 +583,9 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
                 Ok(w) => {
                     if !child {
                         register_raw_mouse(w);
+                    }
+                    if borderless {
+                        BORDERLESS_WINDOW.store(w.0 as isize, std::sync::atomic::Ordering::Relaxed);
                     }
                     if !child && request.style & WS_VISIBLE.0 != 0 {
                         let show = if shown_in_background() {
@@ -594,6 +679,9 @@ pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
     let Some(window) = real_window(e, handle) else {
         return;
     };
+    if window == BORDERLESS_WINDOW.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let [left, top, right, bottom] = rect;
     unsafe {
         let _ = SetWindowPos(
@@ -2728,46 +2816,7 @@ mod tests {
     /// A real device on a hidden window of the window thread, as an engine object at 0x1000
     /// (`behavior`: the creation flags); `None` where Direct3D 9 has no device.
     fn test_device(e: &mut Engine, behavior: u32) -> Option<u32> {
-        let (reply, answer) = std::sync::mpsc::channel();
-        let sent = window_thread()
-            .lock()
-            .map(|tx| {
-                tx.send(Request {
-                    title: b"nv-rs test".to_vec(),
-                    style: 0,
-                    ex_style: 0,
-                    rect: [0, 0, 64, 64],
-                    parent: 0,
-                    reply,
-                })
-                .is_ok()
-            })
-            .unwrap_or(false);
-        let window = answer.recv().ok().filter(|&w| sent && w != 0)?;
-        let d3d = unsafe { Direct3DCreate9(32) }?;
-        let mut pp = D3DPRESENT_PARAMETERS {
-            BackBufferWidth: 64,
-            BackBufferHeight: 64,
-            BackBufferCount: 1,
-            SwapEffect: D3DSWAPEFFECT_DISCARD,
-            hDeviceWindow: HWND(window as *mut _),
-            Windowed: BOOL(1),
-            ..Default::default()
-        };
-        let mut out = None;
-        let made = unsafe {
-            d3d.CreateDevice(
-                0,
-                D3DDEVTYPE_HAL,
-                HWND(window as *mut _),
-                behavior | FPU_PRESERVE,
-                &mut pp,
-                &mut out,
-            )
-        };
-        let device = out.filter(|_| made.is_ok())?;
-        real(e).objects.insert(0x1000, Object::Device(device));
-        Some(0x1000)
+        test_real_device(e, 0x1000, behavior).map(|_| 0x1000)
     }
 
     /// Not a check: the host heap allocations of the forwarded per-frame calls on a real device
@@ -2888,6 +2937,54 @@ mod tests {
             e.kernel.graphics.real.logged
         );
     }
+}
+
+/// Test only: a real device on a hidden window of the window thread (`behavior`: the creation
+/// flags, the game's are 0x54, with `D3DCREATE_FPU_PRESERVE` as the layer adds), made the real
+/// counterpart of the modelled device `at`; `None` where Direct3D 9 has no device (no display
+/// adapter, as on CI).
+#[cfg(test)]
+pub(crate) fn test_real_device(e: &mut Engine, at: u32, behavior: u32) -> Option<IDirect3DDevice9> {
+    let (reply, answer) = std::sync::mpsc::channel();
+    let sent = window_thread()
+        .lock()
+        .map(|tx| {
+            tx.send(Request {
+                title: b"nv-rs test".to_vec(),
+                style: 0,
+                ex_style: 0,
+                rect: [0, 0, 64, 64],
+                parent: 0,
+                reply,
+            })
+            .is_ok()
+        })
+        .unwrap_or(false);
+    let window = answer.recv().ok().filter(|&w| sent && w != 0)?;
+    let d3d = unsafe { Direct3DCreate9(32) }?;
+    let mut pp = D3DPRESENT_PARAMETERS {
+        BackBufferWidth: 64,
+        BackBufferHeight: 64,
+        BackBufferCount: 1,
+        SwapEffect: D3DSWAPEFFECT_DISCARD,
+        hDeviceWindow: HWND(window as *mut _),
+        Windowed: BOOL(1),
+        ..Default::default()
+    };
+    let mut out = None;
+    let made = unsafe {
+        d3d.CreateDevice(
+            0,
+            D3DDEVTYPE_HAL,
+            HWND(window as *mut _),
+            behavior | FPU_PRESERVE,
+            &mut pp,
+            &mut out,
+        )
+    };
+    let device = out.filter(|_| made.is_ok())?;
+    real(e).objects.insert(at, Object::Device(device.clone()));
+    Some(device)
 }
 
 /// Test only: a stand-in for the real device and its objects (COM objects of this module whose

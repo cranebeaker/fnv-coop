@@ -45,9 +45,38 @@ progress three (Main::OnIdle's, `HUDMainMenu::DoIdle`'s, `MessageMenu::DoIdle`'s
 133 frames/s however small W is. `GetTickCount` moves in 15.625 ms ticks as on Windows
 (measured), which changes the pacing again. The original game is held the same way.
 
-- `NV_PROFILE=1` (`engine-core` `profile.rs`): where a frame's time goes, a table every 10 s
-  (the phases game / viewer / switch / sleep, the game threads, the exe functions by self and
-  inclusive time, native functions; `NV_PROFILE_THREADS=1` adds every other thread).
+- `NV_PROFILE=1` (`engine-core` `profile.rs`): where a frame's time goes, a table every
+  `NV_PROFILE_SECONDS` (default 10): the phases game / viewer / switch / sleep, the game threads,
+  the exe functions by self and inclusive time (`NV_PROFILE_TOP` rows, default 25) and the native
+  functions by self time; `NV_PROFILE_THREADS=1` adds every other thread. Also:
+  - **Native stacks.** In the game's phases the OS thread holding the engine is suspended and its
+    native stack walked, `NV_PROFILE_STACK` frames (default 64, at most 256, 0 off). The table
+    then has the native functions by inclusive time, the callers of the 15 busiest native
+    functions by self time, how the walks ended (the thread's start, the frame limit, unknown
+    code, a bad frame) and how long the thread stood suspended (about 51 us a walk of 51 frames
+    in Doc's room, measured before the walk checked its stack reads; on a thread 56 frames of
+    plain functions deep the checks took a walk from 12.9-14.6 us to 14.4-15.3 us). Raise
+    `NV_PROFILE_STACK` when many walks end at the frame limit: the inclusive times of functions
+    near the thread's root are then lower bounds. The walks read each loaded image's unwind
+    table in place, so every image the profiler lists (every 5 s while it walks) is held loaded
+    until the next listing: with the profiler walking, a DLL the program frees unloads up to
+    5 s later (walks run only in the game's phases: in the viewer's own, it stays loaded until
+    the next walk).
+  - **Call targets.** Every call through `Engine::call` and `Engine::vcall` is counted by exe
+    address; the table lists the top `NV_PROFILE_CALLS` (default 60) with calls a frame, their
+    share, and self time a frame and a call. The count costs the profiled run about 1 ms a frame;
+    `NV_PROFILE_CALLS=0` turns it off.
+  - **Symbols.** `dbghelp` looks for the program's PDB first in the folder `<exe stem>.sym` beside
+    it (so a copied build keeps its own: `nv-viewer-TAG.exe` with
+    `nv-viewer-TAG.sym\nv_viewer.pdb`), then beside the program, then in `NV_PROFILE_SYMBOLS`
+    (folders separated by `;`). The first table names the PDB it loaded and whether it has line
+    numbers and private symbols; a build with `CARGO_PROFILE_PLAY_OPT_DEBUG=line-tables-only` has
+    them, one with `debug = 0` public symbols only (a time inside a function without one counts
+    under the nearest one before it).
+  - **The profiler's own cost.** With the profiler on, every call takes `Engine::call_full` (the
+    shadow stack and the count), so `call_full`'s share of the native tables stands for the fast
+    path a normal run inlines into its callers plus the profiler's per-call work, not for the
+    normal run's dispatch cost. Off, each call pays one relaxed load.
 - `NV_D3D9_PRESENT=immediate`: the real device presents without waiting for the display, to
   measure the work (the INI's `iPresentInterval=1` holds a 60 Hz panel to 60).
 - `NV_GAME_FRAME_SYNC=1`: the game's frame runs inside the viewer's `Update` again instead of

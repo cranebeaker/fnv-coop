@@ -939,12 +939,26 @@ pub fn read_dds(data: &[u8]) -> Result<DdsImage, u32> {
 /// format, `D3DRTYPE_TEXTURE` or for a cube map `D3DRTYPE_CUBETEXTURE`, `D3DXIFF_DDS`); a file it
 /// refuses answers its error and writes
 /// nothing (measured). A null info is not provided.
+///
+/// With a real device behind one of the game's (`NV_D3D9=real`, Windows) and the DLL installed,
+/// the player's DLL answers instead, in this process ([`texture_source`], the texture calls' own
+/// rule): it reads every image file format and pixel format D3DX does.
 pub fn get_image_info_from_file_in_memory(e: &mut Engine, data: Ptr, size: u32, info: Ptr) -> u32 {
     assert!(
         !info.is_null(),
         "D3DXGetImageInfoFromFileInMemory without an info is not provided"
     );
     let bytes = e.mem.bytes(data.addr(), size);
+    #[cfg(windows)]
+    if choose_source(e, None) == TextureSource::Dll {
+        let before: [u32; 7] = std::array::from_fn(|i| e.mem.u32(info.addr() + 4 * i as u32));
+        let (hr, words) =
+            super::d3dxreal::image_info(&bytes, before).expect("the DLL was found loaded");
+        for (i, w) in words.iter().enumerate() {
+            e.mem.set_u32(info.addr() + 4 * i as u32, *w);
+        }
+        return hr;
+    }
     match read_dds(&bytes) {
         Ok(image) => {
             let words = [
@@ -969,16 +983,79 @@ pub fn get_image_info_from_file_in_memory(e: &mut Engine, data: Ptr, size: u32, 
     }
 }
 
+/// Where the texture calls' answers come from (maintainer, 2026-11-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureSource {
+    /// The player's `d3dx9_38.dll` in this process (the 64-bit build in the system folder), on
+    /// the real device behind the game's (`super::d3dxreal`). Every texture the DLL reads works,
+    /// a mod's included: no cache entry is needed.
+    Dll,
+    /// The machine-local texture cache (`scripts/d3dx-texture-capture`), and why the DLL is not
+    /// used: runs without the real Direct3D 9 (tests, other platforms), or a system without the
+    /// DLL.
+    Cache(&'static str),
+}
+
+/// The texture calls' source: the DLL when there is a real device to make the texture on and
+/// the DLL is installed; the cache otherwise.
+pub fn texture_source(real_device: bool, dll: bool) -> TextureSource {
+    match (real_device, dll) {
+        (true, true) => TextureSource::Dll,
+        (false, _) => TextureSource::Cache(
+            "no real Direct3D 9 device: NV_D3D9=real is not set, its CreateDevice failed, or this is not Windows",
+        ),
+        (true, false) => TextureSource::Cache(
+            "d3dx9_38.dll (the DirectX June 2010 runtime) is not in the system folder",
+        ),
+    }
+}
+
+/// [`texture_source`] for a call on the game's `device` (`None`: a call without one, the image
+/// info, for which any of the game's devices with a real one behind it counts); each source
+/// printed the first time it is used.
+fn choose_source(e: &mut Engine, device: Option<u32>) -> TextureSource {
+    #[cfg(windows)]
+    let real = match device {
+        Some(d) => super::d3d9real::real_device(e, d).is_some(),
+        None => super::d3d9real::any_real_device(e),
+    };
+    #[cfg(not(windows))]
+    let real = {
+        let _ = device;
+        false
+    };
+    #[cfg(windows)]
+    let dll = real && super::d3dxreal::textures_available();
+    #[cfg(not(windows))]
+    let dll = false;
+    let source = texture_source(real, dll);
+    if !e.kernel.graphics.d3dx_texture_sources.contains(&source) {
+        e.kernel.graphics.d3dx_texture_sources.push(source);
+        match source {
+            TextureSource::Dll => eprintln!(
+                "D3DX textures: through the player's 64-bit d3dx9_38.dll in this process, on the real device"
+            ),
+            TextureSource::Cache(why) => {
+                eprintln!("D3DX textures: from the texture cache ({why})")
+            }
+        }
+    }
+    source
+}
+
 /// Gives the layer the machine-local texture cache folder (`scripts/d3dx-texture-capture`).
 pub fn set_texture_cache(e: &mut Engine, dir: std::path::PathBuf) {
     e.kernel.graphics.d3dx_texture_cache = Some(dir);
 }
 
-/// How to fill the texture cache, for the stop when an entry is missing.
+/// How to fill the texture cache, for the stop when an entry is missing (after the reason the
+/// cache is used, [`TextureSource::Cache`]).
 pub const TEXTURE_CACHE_HINT: &str =
-    "run `scripts/d3dx-texture-capture` on this machine (it reads \
-     the game's textures and the player's d3dx9_38.dll and writes the cache NV_D3DX_CACHE names, \
-     default %LOCALAPPDATA%/nv-rs/d3dx-cache)";
+    "run `scripts/d3dx-texture-capture` on this machine (it reads the game's textures and the \
+     player's d3dx9_38.dll and writes the cache NV_D3DX_CACHE names, default \
+     %LOCALAPPDATA%/nv-rs/d3dx-cache); no cache is needed when the game's device has a real one \
+     behind it (NV_D3D9=real, Windows) and d3dx9_38.dll (the DirectX June 2010 runtime) is in \
+     the system folder: the DLL then answers every texture in the game's process";
 
 /// FNV-1a, 64 bits.
 fn fnv(seed: u64, b: &[u8]) -> u64 {
@@ -1088,14 +1165,21 @@ const D3DPOOL_MANAGED: u32 = 1;
 
 // Platform: replaces d3dx9_38.dll D3DXCreateTextureFromFileInMemory (import)
 /// `D3DXCreateTextureFromFileInMemory(device, data, size, out)` (stdcall): the texture D3DX
-/// makes with its defaults (size, levels and format from the file, `D3DPOOL_MANAGED`). The
-/// levels D3DX leaves as stored ([`copies_level`]) are copied from the file; the others come
-/// from the machine-local texture cache, which also gives the call's answer and the texture's
-/// level count and formats; a level the rule copies must be one the cache marks as left as stored. The texture
-/// is made through the device's own `CreateTexture` and filled through `LockRect`. Not provided
-/// (the run stops): a file the cache does not have (its bytes are saved beside the cache as
-/// `missing-<key>.dds` so the capture can be run for it), cube and volume entries, a rule
-/// the cache contradicts.
+/// makes with its defaults (size, levels and format from the file, `D3DPOOL_MANAGED`), made
+/// through the device's own `CreateTexture` and filled through `LockRect`, from one of two
+/// sources ([`texture_source`]):
+/// - with a real device behind the game's (`NV_D3D9=real`, Windows) and the DLL installed, the
+///   player's 64-bit `d3dx9_38.dll` makes it in this process on that device; its answer, level
+///   count, formats and every level's bytes are copied into the layer's texture as a cache
+///   entry's are (`super::d3dxreal::texture_levels`), and its own texture is released. Any
+///   texture the DLL reads works, a mod's new ones included.
+/// - otherwise (tests, other platforms, no DLL) the machine-local texture cache: the levels D3DX
+///   leaves as stored ([`copies_level`]) are copied from the file; the others come from the
+///   cache, which also gives the call's answer and the texture's level count and formats; a
+///   level the rule copies must be one the cache marks as left as stored. Not provided (the run
+///   stops): a file the cache does not have (its bytes are saved beside the cache as
+///   `missing-<key>.dds` so the capture can be run for it), cube and volume entries, a rule the
+///   cache contradicts.
 pub fn create_texture_from_file_in_memory(
     e: &mut Engine,
     device: Ptr,
@@ -1137,16 +1221,37 @@ fn create_from_file(
     } else {
         "CreateTextureFromFileInMemory"
     };
+    let source = choose_source(e, Some(device.addr()));
+    #[cfg(windows)]
+    if source == TextureSource::Dll {
+        let real = super::d3d9real::real_device(e, device.addr()).expect("chosen for it");
+        let entry =
+            super::d3dxreal::texture_levels(&real, &bytes, cube).expect("the DLL was found loaded");
+        if entry.hr != 0 {
+            return entry.hr;
+        }
+        let levels: Vec<&[u8]> = entry
+            .surfaces
+            .iter()
+            .map(|s| s.bytes.as_deref().expect("the DLL's own bytes"))
+            .collect();
+        return fill_texture(e, device, out, call, &entry, cube, &levels);
+    }
+    let TextureSource::Cache(why) = source else {
+        unreachable!("the DLL answers only on Windows, above");
+    };
     let key = texture_key(call, &bytes);
     let Some(dir) = e.kernel.graphics.d3dx_texture_cache.clone() else {
-        panic!("D3DX{call}: no texture cache is set: {TEXTURE_CACHE_HINT}");
+        panic!(
+            "D3DX{call}: no texture cache is set (the cache is used: {why}): {TEXTURE_CACHE_HINT}"
+        );
     };
     let cached = std::fs::read(dir.join(format!("{key}.tex"))).ok();
     let Some(entry) = cached.as_deref().and_then(parse_cached_texture) else {
         let saved = dir.join(format!("missing-{key}.dds"));
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::write(&saved, &bytes);
-        panic!("D3DX{call}: {key} is not in the texture cache (input saved to {}): {TEXTURE_CACHE_HINT}", saved.display());
+        panic!("D3DX{call}: {key} is not in the texture cache (input saved to {}; the cache is used: {why}): {TEXTURE_CACHE_HINT}", saved.display());
     };
     if entry.hr != 0 {
         return entry.hr;
@@ -1180,6 +1285,35 @@ fn create_from_file(
             panic!("D3DX{call} {key}: face {face} level {level}: the cache says copy, the file has no such level");
         }
     }
+    let levels: Vec<&[u8]> = entry
+        .surfaces
+        .iter()
+        .enumerate()
+        .map(|(i, s)| match &s.bytes {
+            Some(b) => &b[..],
+            None => {
+                let (face, level) = (i as u32 / entry.levels, i as u32 % entry.levels);
+                let (at, len) = stored(face, level).expect("checked above");
+                &bytes[at..at + len]
+            }
+        })
+        .collect();
+    fill_texture(e, device, out, call, &entry, cube, &levels)
+}
+
+/// Makes the layer's texture for a D3DX answer `entry` (from the DLL or the cache) through the
+/// game's `device` (`CreateTexture` or `CreateCubeTexture`, `D3DPOOL_MANAGED`, usage 0) and fills
+/// each level (face by face) with `levels`' bytes (rows packed) through `LockRect`/`UnlockRect`,
+/// as D3DX fills its texture; the texture to `out`, answers `D3D_OK`.
+fn fill_texture(
+    e: &mut Engine,
+    device: Ptr,
+    out: Ptr,
+    call: &str,
+    entry: &CachedTexture,
+    cube: bool,
+    levels: &[&[u8]],
+) -> u32 {
     let top = &entry.surfaces[0];
     let made = e.with_stack(4, |e, slot| {
         let hr = if cube {
@@ -1224,13 +1358,7 @@ fn create_from_file(
     let texture = made.1;
     for (i, s) in entry.surfaces.iter().enumerate() {
         let (face, level) = (i as u32 / entry.levels, i as u32 % entry.levels);
-        let level_bytes: &[u8] = match &s.bytes {
-            Some(b) => b,
-            None => {
-                let (at, len) = stored(face, level).expect("checked above");
-                &bytes[at..at + len]
-            }
-        };
+        let level_bytes = levels[i];
         let (pitch, bits) = e.with_stack(8, |e, locked| {
             let hr = if cube {
                 e.vcall(
@@ -1245,11 +1373,8 @@ fn create_from_file(
             assert_eq!(hr, 0, "LockRect of a managed level");
             (e.mem.u32(locked.addr()), e.mem.u32(locked.addr() + 4))
         });
-        let block = if s.format == image.format {
-            image.block
-        } else {
-            1
-        };
+        // Rows of blocks for the DXT formats, of pixels for the others.
+        let block = super::d3d9device::format_blocks(s.format).map_or(1, |(b, _)| b);
         let rows = s.height.div_ceil(block).max(1) as usize;
         let row = level_bytes.len() / rows;
         for r in 0..rows {
@@ -1735,6 +1860,29 @@ mod tests {
         assert_eq!(rule, [true, false, false, false]);
         assert_eq!(texture_key("Call", b"ab"), texture_key("Call", b"ab"));
         assert_ne!(texture_key("Call", b"ab"), texture_key("Call", b"ba"));
+    }
+
+    /// The texture calls go to the player's DLL only when there is a real device to make the
+    /// texture on and the DLL is installed; otherwise to the cache, with the reason. An engine
+    /// without the real Direct3D 9 (a test's) takes the cache.
+    #[test]
+    fn the_texture_calls_go_to_the_dll_only_with_a_real_device_and_the_dll() {
+        assert_eq!(texture_source(true, true), TextureSource::Dll);
+        for (real, dll) in [(false, true), (false, false), (true, false)] {
+            let TextureSource::Cache(why) = texture_source(real, dll) else {
+                panic!("{real} {dll}: the cache");
+            };
+            assert!(why.contains(if real { "d3dx9_38.dll" } else { "NV_D3D9=real" }));
+        }
+        let mut e = Engine::new();
+        let device = e.mem.alloc(4);
+        assert!(matches!(
+            choose_source(&mut e, Some(device)),
+            TextureSource::Cache(_)
+        ));
+        assert_eq!(e.kernel.graphics.d3dx_texture_sources.len(), 1, "said once");
+        choose_source(&mut e, Some(device));
+        assert_eq!(e.kernel.graphics.d3dx_texture_sources.len(), 1);
     }
 
     #[test]

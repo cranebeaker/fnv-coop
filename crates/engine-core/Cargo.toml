@@ -19,6 +19,7 @@ mp3 = { path = "../mp3" }
 vorbis = { path = "../vorbis" }
 
 # The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008,
-# units/platform/d3d9real.rs): the real window, device and resources.
+# units/platform/d3d9real.rs): the real window, device and resources. Win32_System_Memory: the
+# guest memory's 4 GB host reservation (mem.rs, VirtualAlloc and VirtualFree).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }

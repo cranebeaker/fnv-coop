@@ -100,7 +100,7 @@ pub(crate) const HUNDRED: u32 = 0x0101_7a40;
 pub(crate) const NO_HEALTH: u32 = 0x0101_a6b0;
 /// `double 4294967296.0` (2^32), the divisor that turns a random 32-bit
 /// word into a fraction.
-pub(crate) const TWO_POW_32: u32 = 0x0101_a6b8;
+pub const TWO_POW_32: u32 = 0x0101_a6b8;
 /// `float -1.0`.
 pub(crate) const MINUS_ONE: u32 = 0x0101_2054;
 /// `float 1.0` is loaded with `FLD1`; `double 1.0` here.
@@ -112,8 +112,8 @@ pub(crate) const ONE: u32 = 0x0101_2070;
 pub(crate) const DESTRUCTIBLE_OBJECTS: u32 = 0x011c_4104;
 /// The `BSRandom` object `RandomFloat` draws from, constructed on first use
 /// (bit 0 of the word at [`RANDOM_GENERATOR_INITIALIZED`] says it is).
-pub(crate) const RANDOM_GENERATOR: u32 = 0x011c_4180;
-pub(crate) const RANDOM_GENERATOR_INITIALIZED: u32 = 0x011c_4b4c;
+pub const RANDOM_GENERATOR: u32 = 0x011c_4180;
+pub const RANDOM_GENERATOR_INITIALIZED: u32 = 0x011c_4b4c;
 
 // ---------------------------------------------------------------------
 // Callees outside this file

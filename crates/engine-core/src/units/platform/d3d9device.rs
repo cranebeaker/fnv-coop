@@ -404,6 +404,13 @@ pub struct Objects {
     pub(super) queries: super::d3d9query::Queries,
 }
 
+impl Objects {
+    /// The addresses of the devices that exist.
+    pub(crate) fn device_addresses(&self) -> impl Iterator<Item = u32> + '_ {
+        self.devices.keys().copied()
+    }
+}
+
 fn vtable(e: &mut Engine, base: u32, slots: usize) -> u32 {
     let table = e.mem.alloc(4 * slots as u32);
     for i in 0..slots as u32 {
@@ -2004,7 +2011,7 @@ fn surface_get_container(e: &mut Engine, this: Ptr, iid: Ptr, out: Ptr) -> u32 {
 
 /// The block width (1, or 4 for the DXT formats) and the bytes of one block (one pixel for the
 /// others) of a format; `None` for formats this layer doesn't size yet.
-fn format_blocks(format: u32) -> Option<(u32, u32)> {
+pub(crate) fn format_blocks(format: u32) -> Option<(u32, u32)> {
     const DXT1: u32 = u32::from_le_bytes(*b"DXT1");
     const DXT2: u32 = u32::from_le_bytes(*b"DXT2");
     const DXT3: u32 = u32::from_le_bytes(*b"DXT3");
@@ -3377,7 +3384,7 @@ fn stretch_rect(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::units::platform::d3d9;
 
@@ -4196,10 +4203,18 @@ mod tests {
     /// an X8R8G8B8 plain surface (usage 0, `D3DRTYPE_SURFACE`) and the query types this machine's
     /// device took (`d3d9-capture device queries`, 2026-10-27: event, occlusion and a few more).
     fn extra_device() -> (Engine, u32) {
+        device_with(
+            "\nDomain\td1\t15,16\nCheckDeviceFormat\t0 1 16 0 1\t0\t\td1\
+             \nCreateQuery\t1\t8876086a\nCreateQuery\t8\t0\nCreateQuery\t9\t0\nCreateQuery\ta\t0",
+            0x40,
+        )
+    }
+
+    /// A modelled device (adapter 0, HAL, windowed 640x480 on window 0x11c, `behavior` its
+    /// creation flags) over the test table with the lines `extra` added (each after a newline).
+    pub(crate) fn device_with(extra: &str, behavior: u32) -> (Engine, u32) {
         let mut e = Engine::new();
-        let table = test_table()
-            + "\nDomain\td1\t15,16\nCheckDeviceFormat\t0 1 16 0 1\t0\t\td1"
-            + "\nCreateQuery\t1\t8876086a\nCreateQuery\t8\t0\nCreateQuery\t9\t0\nCreateQuery\ta\t0";
+        let table = test_table() + extra;
         d3d9::load_adapter_table(&mut e, &table);
         let create = d3d9::proc_address(&mut e, b"Direct3DCreate9").unwrap();
         let d3d = e.call(create, &[d3d9::D3D_SDK_VERSION]).u32();
@@ -4210,7 +4225,7 @@ mod tests {
         e.mem.set_u32(present + PP_WINDOWED, 1);
         let out = e.mem.alloc(4);
         let hr = e
-            .vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out])
+            .vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, behavior, present, out])
             .u32();
         assert_eq!(hr, D3D_OK);
         let device = e.mem.u32(out);

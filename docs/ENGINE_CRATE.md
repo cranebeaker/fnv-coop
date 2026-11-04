@@ -13,6 +13,10 @@ each function belongs to.
 - **Memory** (`Mem`): the game's 32-bit address space, paged and sparse.
   Objects sit at their real field offsets; a pointer is the game's address
   ([`Ptr<T>`]). Reading memory nobody provided panics with the address.
+  Each `Mem` reserves one 4 GB block of host address space, so guest
+  address `a` is host address `base + a`, with a byte per 4 KiB page just
+  below it saying which pages are mapped; pages cost memory once mapped
+  (`mem.rs`).
 - **The exe's data**: `Engine::with_exe(path)` maps `.rdata`, `.data`,
   `.tls` and `CONST` of the player's installed FalloutNV.exe (checked
   against 1.4.0.525) at their addresses. Constants, strings, vtables and
@@ -33,7 +37,8 @@ each function belongs to.
 - **Classes**: `layout!` declares a class marker with its PC size and the
   fields used so far (`e.get(p, Class::field)`, `e.set(...)`).
 - **Platform**: the allocator (`MemoryManager::Allocate`/`Deallocate`) is
-  `Mem`'s heap. The game's threads run under the thread host
+  `Mem`'s heap, a good-fit allocator that splits and merges freed blocks
+  (`mem/heap.rs`). The game's threads run under the thread host
   (`engine_core::thread_host`): each `CreateThread` gets an OS thread used
   strictly as a coroutine (it holds the engine, a baton, only while it runs;
   exactly one thread runs at a time), with its own TLS block and call stack

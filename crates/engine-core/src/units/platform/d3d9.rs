@@ -274,6 +274,8 @@ pub struct Graphics {
     pub(crate) nvapi: super::nvapi::State,
     /// The machine-local D3DX texture cache folder (`super::d3dx`).
     pub(crate) d3dx_texture_cache: Option<std::path::PathBuf>,
+    /// The texture sources already printed (`super::d3dx::texture_source`).
+    pub(crate) d3dx_texture_sources: Vec<super::d3dx::TextureSource>,
     /// The real `d3d9.dll` objects behind the modelled ones (`NV_D3D9=real`, ADR-0008).
     #[cfg(windows)]
     pub(crate) real: super::d3d9real::Real,
