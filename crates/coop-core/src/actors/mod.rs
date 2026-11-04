@@ -180,6 +180,15 @@ pub enum ActorMsg {
         /// Health afterwards.
         health: u16,
     },
+    /// Host to the striker only: the friendly-fire guard dropped its blow
+    /// on `actor`. The striker forgets the part point it kept for `actor`,
+    /// so the dropped blow adds nothing to a later blow.
+    HitBlocked {
+        /// Victim.
+        actor: FormId,
+        /// The dropped blow was an NPC's blow (see [`ActorMsg::Hit`]).
+        npc: bool,
+    },
 }
 
 impl ActorMsg {

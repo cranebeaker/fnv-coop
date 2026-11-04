@@ -382,6 +382,57 @@ mod friendly_fire {
         );
     }
 
+    /// A blow that the guard drops carries nothing into a later blow: the
+    /// guest forgets the part point it kept for that victim.
+    #[test]
+    fn a_blocked_blow_carries_no_part_point_into_a_later_blow() {
+        let (_d, order) = order("camp-ff-carry");
+        let scripts = ScriptCache::default();
+        let ff = format!(
+            r#","friendly_fire":{{"actors":["t.esm:{GUARD_REF:X}"],"deliberate_hits":3,"window_s":2}}"#
+        );
+        let mut r = Rig::new(
+            &order,
+            &scripts,
+            table(&row("FF", 0x777, &ff)),
+            "perfect",
+            15,
+        );
+        r.hold_hits = true;
+        r.run_ms(1_000);
+        let guard = FormId(GUARD_REF);
+        let dealt = |r: &Rig| r.host.damage.get(&guard).copied().unwrap_or(0.0);
+        // the guest divides a player's blow by the party's toughness: a blow
+        // of `pts` points after that scaling
+        let blow = |r: &mut Rig, pts: f64| {
+            let t = r.guests[0]
+                .coop
+                .live
+                .scaling
+                .map_or(1.0, |s| f64::from(s.toughness));
+            world::combat::hurt(&order, &mut r.guests[0], guard, pts * t, PLAYER_REF);
+        };
+        // three whole blows land (a hair over a point each, for the rounding)
+        for _ in 0..3 {
+            blow(&mut r, 1.000_001);
+            r.run_ms(100);
+        }
+        assert!(r.until(2_000, |r| dealt(r) == 3.0), "dealt {}", dealt(&r));
+        // a fourth blow in the window is dropped: the guest kept its 0.6
+        blow(&mut r, 0.6);
+        assert!(r.until(1_000, |r| r.host.coop.campaign.stats.ff_blocked == 1));
+        // the window passes, and a blow of 0.6 lands: 0 points, not 1 (0.6 + 0.6)
+        r.run_ms(3_000);
+        blow(&mut r, 0.6);
+        r.run_ms(1_000);
+        assert_eq!(r.host.coop.campaign.stats.ff_blocked, 1);
+        assert_eq!(
+            dealt(&r),
+            3.0,
+            "the dropped blow's part point went into the later blow"
+        );
+    }
+
     #[test]
     fn mutation_twin_without_a_row_every_hit_lands() {
         let (_d, order) = order("camp-ff-twin");

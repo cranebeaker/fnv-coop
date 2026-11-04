@@ -44,6 +44,10 @@ pub struct ActorClient {
     /// Who hurt which actor, from the host's verdicts (the threat director
     /// reads and clears it; bounded).
     pub damage_log: Vec<(FormId, PlayerId, u16)>,
+    /// The blows of this peer that the host's friendly-fire guard dropped:
+    /// victim and NPC flag, from [`ActorMsg::HitBlocked`] (the live adapter
+    /// reads and clears it; bounded).
+    pub blocked: Vec<(FormId, bool)>,
 }
 
 impl ActorClient {
@@ -62,6 +66,7 @@ impl ActorClient {
             spawn_at: BTreeMap::new(),
             stale_dropped: 0,
             damage_log: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 
@@ -254,6 +259,11 @@ impl ActorClient {
             ActorMsg::Healed { actor, health } => {
                 if let Some(s) = self.actors.get_mut(&actor).and_then(|a| a.state.as_mut()) {
                     s.health = health;
+                }
+            }
+            ActorMsg::HitBlocked { actor, npc } => {
+                if self.blocked.len() < 256 {
+                    self.blocked.push((actor, npc));
                 }
             }
             ActorMsg::Died { actor, .. } => {

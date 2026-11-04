@@ -155,6 +155,11 @@ impl HitCarry {
         }
         Some(pts as u16)
     }
+
+    /// Forgets the part point kept for `who` (the host dropped a blow on it).
+    fn forget(&mut self, who: FormId) {
+        self.0.remove(&who);
+    }
 }
 
 /// Sums the hits of one frame per victim (one request each).
@@ -613,17 +618,22 @@ impl LiveHostAdapter {
         outs
     }
 
-    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> Vec<(PlayerId, Msg)> {
-        let mut pass = Vec::new();
+    /// Also returns a notice to the striker of each dropped blow
+    /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
+    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Outs, Outs) {
+        let (mut pass, mut blocked) = (Vec::new(), Vec::new());
         for (from, m) in std::mem::take(&mut self.held_hits) {
-            let Msg::Actor(ActorMsg::Hit { actor, .. }) = &m else {
+            let Msg::Actor(ActorMsg::Hit { actor, npc, .. }) = &m else {
                 continue;
             };
             if super::campaign::ffguard::allow_hit(cx.order, gs, from.0, wf(*actor)) {
                 pass.push((from, m));
+            } else {
+                let (actor, npc) = (*actor, *npc);
+                blocked.push((from, Msg::Actor(ActorMsg::HitBlocked { actor, npc })));
             }
         }
-        pass
+        (pass, blocked)
     }
 
     /// The per-frame driver. Send the returned messages.
@@ -686,9 +696,12 @@ impl LiveHostAdapter {
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
         // a guest's hit requests: the friendly-fire guard, then the same ledger
-        for (from, m) in self.guarded_hits(cx, gs) {
+        let (pass, blocked) = self.guarded_hits(cx, gs);
+        for (from, m) in pass {
             outs.extend(live.on_msg(from, m, now_ms, auth));
         }
+        // only a guest's blows are held, so each notice goes to a guest
+        outs.extend(blocked);
         outs.extend(self.raises(cx, gs, live, &dealt));
         // a guest's dialogue picks: the line's conditions as the picker, then the sessions
         outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));
@@ -903,6 +916,15 @@ impl LiveGuestAdapter {
             out.extend(live.actors.report(batch).map(Msg::Actor));
         }
         self.realize_spawned(gs, live);
+        // a blow the host's friendly-fire guard dropped leaves no part point
+        for (actor, npc) in std::mem::take(&mut live.actors.blocked) {
+            let carry = if npc {
+                &mut self.npc_carry
+            } else {
+                &mut self.carry
+            };
+            carry.forget(wf(actor));
+        }
         // damage dealt here is a request; the host resolves it
         let pending: Vec<PendingHit> = std::mem::take(&mut gs.coop.live.pending_hits)
             .into_iter()
