@@ -102,7 +102,7 @@ pub fn sync(
             continue;
         };
         if mark.is_none() {
-            commands.entity(e).insert(CoopPuppet(Some(p)));
+            commands.entity(e).try_insert(CoopPuppet(Some(p)));
         }
         puppets.entities.insert(p, e);
         puppets.asked.remove(&p);
@@ -153,7 +153,7 @@ pub fn sync(
         // and hide it (beyond the attached cells while the squares load), and
         // nothing would ever bring it back.
         for e in spawner.spawn_with(&scene, lighting) {
-            commands.entity(e).insert(CoopPuppet(Some(*p)));
+            commands.entity(e).try_insert(CoopPuppet(Some(*p)));
         }
         puppets.asked.insert(*p, t);
     }
