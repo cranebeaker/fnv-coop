@@ -9,6 +9,10 @@
   "host": {
     "script": [
       {
+        "at": 1,
+        "run": "coop give 1 WeapHuntingRifle 1"
+      },
+      {
         "at": 2,
         "run": "VCG02Gecko1REF.Enable"
       },
@@ -24,6 +28,10 @@
   },
   "guest": {
     "script": [
+      {
+        "at": 4,
+        "run": "coop equip WeapHuntingRifle"
+      },
       {
         "at": 7,
         "run": "coop vatsmark 1"
@@ -69,6 +77,13 @@
       "op": "eq",
       "value": true,
       "on": "guest"
+    },
+    {
+      "id": "guest-killed",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
     },
     {
       "id": "h",
