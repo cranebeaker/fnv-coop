@@ -3,6 +3,7 @@
 //! shadow (and only there), and the guest arrives.
 
 use coop_core::ids::PlayerId;
+use coop_core::scene::SceneKind;
 use coop_core::transport::LoopbackNet;
 use coop_session::start::{OPENING_OVER_STAGE, VCG00, VCG00_DONE, VCG01};
 use coop_session::{Opening, Phase, Session, SessionConfig, Step, Venue};
@@ -269,6 +270,40 @@ fn the_guest_watches_the_hosts_intro_before_its_first_menu() {
     r.host.gs.stages.insert(VCG01, 10);
     assert!(r.until(400, |r| !r.opened.is_empty()));
     assert_eq!(r.opened[0], Step::Name);
+}
+
+#[test]
+fn a_control_lock_of_the_hosts_opening_leaves_the_guests_menus_free() {
+    let (_d, order) = order("st-lock");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, true);
+    // Doc's first lines: the menus wait for the host's name box
+    r.host.gs.stages.insert(VCG01, 3);
+    assert!(r.until(400, |r| r.guest.s.start_phase() == Phase::CharacterCreation));
+    // the host's opening disables the controls: a control lock for the whole party
+    r.host.gs.controls_off = [true; 7];
+    r.host.gs.coop_controls_end(Some(VCG01));
+    assert!(
+        r.until(400, |r| r
+            .guest
+            .gs
+            .coop
+            .live
+            .scene
+            .view
+            .as_ref()
+            .is_some_and(|v| v.kind == SceneKind::Control)),
+        "the guest is in the host's lock"
+    );
+    assert!(r.opened.is_empty(), "no menu before the host's name box");
+    // the host's name box: the guest's menus open, in the lock
+    r.host.gs.stages.insert(VCG01, 10);
+    assert!(r.until(400, |r| !r.opened.is_empty()));
+    assert_eq!(r.opened[0], Step::Name);
+    assert!(
+        r.guest.gs.coop.live.scene.view.is_some(),
+        "still in the lock"
+    );
 }
 
 #[test]
