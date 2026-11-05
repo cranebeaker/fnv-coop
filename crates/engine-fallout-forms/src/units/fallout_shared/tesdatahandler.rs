@@ -248,6 +248,9 @@ const FORM_LIST_CLEAR: u32 = 0x0047_0470;
 /// the leak report calls with (0, 1) on forms of type 3, and the one it calls
 /// to get a text for the log (the base version returns an empty string).
 const FORM_VTABLE_DELETE: u32 = 0x10;
+/// An extra data list's deleting destructor: slot 0 of its vtable `010143e8`
+/// (`00410380`), the only slot it has; the words after it are text.
+const EXTRA_LIST_VTABLE_DELETE: u32 = 0;
 const FORM_VTABLE_LOAD: u32 = 0x20;
 const FORM_VTABLE_SAVE: u32 = 0x28;
 const FORM_VTABLE_SAVE_EDIT: u32 = 0x34;
@@ -7456,7 +7459,8 @@ pub fn tes_data_handler_remove_item_barter_container(
             remove_extra_from_entry(e, found, extra);
             node = e.call(LIST_FIRST_NODE, &args![found]).u32();
             if extra_is_plain(e, extra) && extra != 0 {
-                e.vcall(extra, FORM_VTABLE_DELETE, &args![1u32]);
+                // 0046fa1a..0046fa26: slot 0 with 1.
+                e.vcall(extra, EXTRA_LIST_VTABLE_DELETE, &args![1u32]);
             }
         } else {
             let mut keep = 0u32;
@@ -7496,7 +7500,8 @@ pub fn tes_data_handler_remove_item_barter_container(
                 remove_extra_from_entry(e, found, extra);
                 node = e.call(LIST_FIRST_NODE, &args![found]).u32();
                 if extra != 0 {
-                    e.vcall(extra, FORM_VTABLE_DELETE, &args![1u32]);
+                    // 0046f930..0046f93c: slot 0 with 1.
+                    e.vcall(extra, EXTRA_LIST_VTABLE_DELETE, &args![1u32]);
                 }
             }
             // The game then sets its word `extra` to 0 under some conditions
@@ -16802,6 +16807,60 @@ mod tests {
         start_log(&mut e);
         e.call(0x0046_f640, &args![this, entry, 5u32, reference]);
         assert!(calls(&e, 0x034b_1000).is_empty());
+    }
+
+    /// `0046f640` deletes a plain extra data list through slot 0 of its vtable with 1, on both
+    /// paths (`0046fa1a`..`0046fa26` for an original reference without a container,
+    /// `0046f930`..`0046f93c` with one). The vtable is as `010143e8` is in the exe: slot 0 is the
+    /// destructor and the word at `+0x10` is the text "func" (636e7566), where a call stops.
+    #[test]
+    fn plain_extra_lists_are_deleted_through_vtable_slot_0() {
+        for has_container in [false, true] {
+            let (mut e, this) = engine();
+            install_barter_accessors(&mut e);
+            let player = reference_block(&mut e, 0x034a_0000, &[(0x3d0, 0x034a_1000)]);
+            e.set_global(PLAYER_SINGLETON, player);
+            e.register(0x034a_1000, |_, _| ret(0));
+            let original = reference_block(&mut e, 0x034b_0000, &[(0x17c, 0x034b_1000)]);
+            e.register(0x034b_1000, |_, _| ret(0));
+            let reference = e.mem.alloc(0x400);
+            let form = 0xf0_f0;
+            let entry = e.mem.alloc(0x20);
+            e.mem.set_u32(entry + 8, form);
+            let found = e.mem.alloc(0x20);
+            let list_word = e.mem.alloc(8);
+            e.mem.set_u32(found, list_word);
+            e.mem.set_u32(found + 8, 0x0f_02);
+            let delete = 0x034c_1000;
+            let extra = object_with(&mut e, 0x034c_0000, &[(0, delete), (0x10, 0x636e_7566)]);
+            e.register(delete, |_, _| ret(0));
+            let extra_node = e.mem.alloc(8);
+            e.mem.set_u32(extra_node, extra);
+            let barter = e.mem.alloc(0x20);
+            e.set(this, TESDataHandler::pBarterContainer, Ptr::new(barter));
+            e.register_double(INVENTORY_CHANGES_GET_OBJECT_IN_LIST, move |_, a| {
+                ret(if a[1] == form { found } else { 0 })
+            });
+            e.register_double(LIST_FIRST_NODE, move |_, a| {
+                ret(if a[0] == found { extra_node } else { 0 })
+            });
+            e.register(EXTRA_GET_COUNT, |_, _| ret(1));
+            e.register_double(EXTRA_GET_ORIGINAL_REFERENCE, move |_, _| ret(original));
+            e.register(EXTRA_REMOVE_ORIGINAL_REFERENCE, |_, _| ret(0));
+            e.register(EXTRA_REMOVE_OWNERSHIP, |_, _| ret(0));
+            e.register(EXTRA_ITEMS_IN_LIST, |_, _| ret(1));
+            e.register(EXTRA_GET_DATA, |_, _| ret(0));
+            e.register(EXTRA_GET_SCRIPT, |_, _| ret(0));
+            e.register(EXTRA_GET_CONTAINER_CHANGES, |_, _| ret(0));
+            e.register_double(REFERENCE_HAS_CONTAINER, move |_, _| {
+                ret(has_container as u32)
+            });
+            let removals = list_removals(&mut e);
+            start_log(&mut e);
+            e.call(0x0046_f640, &args![this, entry, 1u32, reference]);
+            assert_eq!(*removals.borrow(), vec![(list_word, extra)]);
+            assert_eq!(calls(&e, delete), vec![vec![extra, 1]]);
+        }
     }
 
     #[test]

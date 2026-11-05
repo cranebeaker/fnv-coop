@@ -486,7 +486,7 @@ enum DeviceAttempt {
     NextType,
 }
 
-// Translated from 00e72e60 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 00e72e60 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// Unnamed in the engine map (`nixenonrenderer.cpp`; its messages call it
 /// `NiDX9Renderer::Initialize`), `thiscall` with 14 words; answers a byte, 1 on success. The
 /// parameter names follow what the code does with them: the width and height go to the
@@ -501,12 +501,13 @@ enum DeviceAttempt {
 /// "Invalid Adapter") and its device description for the type (none, or without caps: "Invalid
 /// 3D device type") are kept. Then, with the present parameters cleared, for each device kind
 /// from the requested one: the device description must still be valid ("Requested device not
-/// valid"); `00e6bf50` fills the present parameters; the device is created (`CreateDevice`, or
-/// `CreateDeviceEx` with a full-screen display mode of size 0x18: width, height, refresh rate,
-/// the back buffer format, scan-line ordering 1), +0xad0 is set when height / width (as
-/// unsigned values on the x87) is below 0.75 or unordered; a failure clears +0x6fc and, when
-/// the call changed the back buffer count, is retried once ("trying fewer backbuffers"). A
-/// failed kind moves to the next one: after the reference kind (4) "Could not create requested
+/// valid"); `00e6bf50` fills the present parameters (the back buffer count it filled in
+/// replaces the 13th word, which the next kind passes on); the device is created
+/// (`CreateDevice`, or `CreateDeviceEx` with a full-screen display mode of size 0x18: width,
+/// height, refresh rate, the back buffer format, scan-line ordering 1), +0xad0 is set when
+/// height / width (as unsigned values on the x87) is below 0.75 or unordered; a failure clears
+/// +0x6fc and, when the call changed the back buffer count, is retried once ("trying fewer
+/// backbuffers"). A failed kind moves to the next one: after the reference kind (4) "Could not create requested
 /// reference device"; reaching kind 4 "Could not create hardware device of any type"; a kind
 /// `00e69510` refuses "Invalid 3D device type". With a device: none at +0x288 fails ("Could not
 /// create hardware device"); `00e6c240` must succeed; +0x5d4 and +0x5d5 get the behaviour
@@ -535,7 +536,7 @@ pub fn fn_00e72e60(
     tenth: u32,
     eleventh: u32,
     twelfth: u32,
-    thirteenth: u32,
+    mut thirteenth: u32,
     refresh_rate: u32,
 ) -> u8 {
     let this = this.addr();
@@ -651,7 +652,11 @@ pub fn fn_00e72e60(
                     )
                     .u8();
                 if filled != 0 {
-                    let back_buffers = e.mem.u32(present + 0xc);
+                    // 00e7312e / 00e73161: the filled back buffer count goes into the 13th
+                    // argument's own stack slot, which the next device kind passes to
+                    // 00e6bf50 as its 8th word (00e730e5, 00e730fc) and the retry test reads
+                    // (00e7324d).
+                    thirteenth = e.mem.u32(present + 0xc);
                     let mode = frame + FRAME_MODE;
                     for i in 0..6 {
                         e.mem.set_u32(mode + 4 * i, 0);
@@ -675,7 +680,7 @@ pub fn fn_00e72e60(
                         attempt = DeviceAttempt::Created;
                     } else {
                         e.mem.set_u8(this + 0x6fc, 0);
-                        if back_buffers != e.mem.u32(present + 0xc) {
+                        if thirteenth != e.mem.u32(present + 0xc) {
                             report(e, FEWER_BACK_BUFFERS_010EE048);
                             let retry = create_device(e, this, frame, frame + FRAME_EX_RETRY_OUT);
                             if retry >= 0 {
@@ -1232,6 +1237,27 @@ mod b000t_tests {
             calls(&e, SET_ERROR_00E69AD0),
             vec![vec![INVALID_DEVICE_TYPE_010EE20C]]
         );
+    }
+
+    /// 00e73161: the back buffer count 00e6bf50 filled in replaces the 13th argument, so the
+    /// next device kind passes it to 00e6bf50 as the 8th word (00e730e5, 00e730fc).
+    #[test]
+    fn initialize_passes_the_filled_back_buffer_count_to_the_next_device_kind() {
+        let (mut e, this) = init_rig(Setup {
+            ex: false,
+            create_results: vec![-1],
+            adapter_ok: true,
+            caps: 1,
+        });
+        assert_eq!(initialize(&mut e, this), 0);
+        let eighth: Vec<u32> = calls(&e, PRESENT_PARAMETERS_00E6BF50)
+            .iter()
+            .map(|w| w[8])
+            .collect();
+        // Kind 1 gets the caller's 13th word; kind 2 the count kind 1's call filled in (2).
+        assert_eq!(eighth, vec![WORDS[12], 2]);
+        // The copy of the words at +0xa98 keeps the caller's.
+        assert_eq!(e.mem.u32(this + 0xa98 + 4 * 12), WORDS[12]);
     }
 
     #[test]

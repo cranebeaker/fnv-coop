@@ -4581,7 +4581,7 @@ fn store_identity(e: &mut Engine, at: u32) {
     }
 }
 
-// Translated from 00e85d10 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 00e85d10 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// `NiD3DShaderConstantMap::SetupDefinedConstantValue` (engine map), `thiscall`, eight stack
 /// words: the operand (0 or 1), the entry, the object, a word that must be set for some
 /// constants, the property state, the dynamic effect state and two not read. Puts the
@@ -4632,7 +4632,10 @@ pub fn ni_d3d_shader_constant_map_setup_defined_constant_value(
         )
     };
     let renderer = |e: &Engine| e.mem.u32(base.wrapping_add(0x3c));
-    e.with_stack(0x1c0, |e, frame| {
+    // The exe's locals run from ESP+0xc to ESP+0x1f0 (00e85d19 SUB ESP,0x1e4 and three
+    // pushes); this frame starts at ESP+0x10, so it is 0x1e0 bytes: ids 11/12/23/24 write
+    // their second product to ESP+0x1b0..0x1f0 (00e8603c, 00e86044).
+    e.with_stack(0x1e0, |e, frame| {
         let frame = frame.addr();
         let name = frame;
         let time = frame + 4;
@@ -6409,6 +6412,24 @@ mod tests_n084_dynamic {
             &args![this, 0u32, entry, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32],
         );
         assert_eq!(calls(&e, MATRIX_MULTIPLY_00EE6DE0).len(), 2);
+    }
+
+    /// 00e85d10: the second product of ids 11/12/23/24 (64 bytes at exe ESP+0x1b0, 00e8603c)
+    /// lies inside the frame (exe locals up to ESP+0x1f0).
+    #[test]
+    fn setup_defined_constant_value_frame_holds_the_second_product() {
+        for id in [11, 12, 23, 24] {
+            let (mut e, this, entry) = defined_rig(id);
+            e.mem.enable_block_check(true, false);
+            e.register_double(MATRIX_MULTIPLY_00EE6DE0, |e, a| {
+                for i in 0..16 {
+                    e.mem.set_u32(a[0] + 4 * i, 1.0f32.to_bits());
+                }
+                a[0].into_ret()
+            });
+            assert_eq!(defined(&mut e, this, 0, entry, [0; 6]), 9);
+            assert_eq!(e.mem.take_block_reports(), Vec::<String>::new(), "id {id}");
+        }
     }
 
     #[test]

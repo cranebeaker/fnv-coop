@@ -2865,7 +2865,7 @@ pub fn hud_main_menu_update_radiation_meter_conditions(
     }
 }
 
-// Translated from 007738c0 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 007738c0 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 // Translation incomplete: 007738c0 - the compiler's SEH unwind frame is omitted.
 /// `HUDMainMenu::SetRadiationLevel` (Xbox PDB): starts or fades the
 /// radiation sound and updates the meter for positive radiation.
@@ -2877,7 +2877,9 @@ pub fn hud_main_menu_set_radiation_level(e: &mut Engine, radiation: f32, accumul
         return;
     }
     let sound = menu + 0x1ac;
-    if sum <= 0.0 {
+    // 00773906 TEST AH,0x41 / JNZ: the sound starts only for a sum above zero; less, equal
+    // and unordered (a NaN) fade it.
+    if !(sum > 0.0) {
         if e.call(0x00ad_8ce0, &args![sound]).bool() {
             e.call(0x00ad_8da0, &args![sound, 500_u32]);
         }
@@ -2921,7 +2923,17 @@ fn x87_to_int(e: &mut Engine, value: f64) -> i32 {
     e.call(0x00ec_62c0, &args![value]).i32()
 }
 
-// Translated from 007748b0 (decompiled, FalloutNV.exe 1.4.0.525)
+/// The number of images of a HUD meter: `ftol(width * fraction / scale)` as `UpdateMeter`
+/// (007748b0) and `UpdateMeter_ov2` (00774b00) compute it with FILD width, FMUL float
+/// fraction, FIDIV scale and `00ec62c0`. The product and the quotient each round to the
+/// thread's precision: 24 bits on the main thread once the renderer has created its device
+/// (control word 0x007F), long before any HUD code runs.
+fn meter_quotient(e: &mut Engine, width: i32, fraction: f32, scale: i32) -> i32 {
+    let product = x87_mul(f64::from(width), f64::from(fraction));
+    x87_to_int(e, x87_div(product, f64::from(scale)))
+}
+
+// Translated from 007748b0 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp
 /// `HUDMainMenu::UpdateMeter` (Xbox PDB): fits the requested fraction into
 /// an integral number of image widths, then positions the meter for its
 /// left-, right- or center-anchored mode.
@@ -2972,7 +2984,8 @@ pub fn hud_main_menu_update_meter(
     } else {
         image
     };
-    let quotient = x87_to_int(e, f64::from(width) * f64::from(positive) / f64::from(scale));
+    // 00774a19..00774a2a and 00774a59..00774a62.
+    let quotient = meter_quotient(e, width, positive, scale);
     let mut displayed_width = quotient.wrapping_mul(scale);
     let minimum_width = image.wrapping_mul(minimum_images);
     if displayed_width < minimum_width {
@@ -2991,7 +3004,7 @@ pub fn hud_main_menu_update_meter(
     hud_trait(e, target.addr(), 0xfa1, position as u32);
 }
 
-// Translated from 00774b00 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 00774b00 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp
 // Translation incomplete: 00774b00 - the compiler's SEH unwind frame is omitted.
 /// `HUDMainMenu::UpdateMeter_ov2` (Xbox PDB): sizes and positions two
 /// overlapping meter tiles, including the center anchor's child tile and
@@ -3044,16 +3057,13 @@ pub fn hud_main_menu_update_meter_ov2(
     } else {
         0.0
     };
-    let _first_width_before_second_conversion = x87_to_int(
-        e,
-        f64::from(total_width) * f64::from(first_positive) / f64::from(scale),
-    )
-    .wrapping_mul(scale);
-    let mut second_width = x87_to_int(
-        e,
-        f64::from(total_width) * f64::from(second_fraction) / f64::from(scale),
-    )
-    .wrapping_mul(scale);
+    // Each width is FILD total / FMUL float / FIDIV scale, the product and the quotient
+    // rounded to the thread's precision (00774cda..00774ce8, 00774cfb..00774d09,
+    // 00774d3b..00774d41, 00774d50..00774d56).
+    let _first_width_before_second_conversion =
+        meter_quotient(e, total_width, first_positive, scale).wrapping_mul(scale);
+    let mut second_width =
+        meter_quotient(e, total_width, second_fraction, scale).wrapping_mul(scale);
     // The PC body recalculates the first width after both conversions, so
     // preserve this callback-visible ordering rather than reuse first_width.
     let first_positive = if f64::from(first_fraction) >= e.global::<f64>(0x0101_2060) {
@@ -3061,11 +3071,8 @@ pub fn hud_main_menu_update_meter_ov2(
     } else {
         0.0
     };
-    let first_width = x87_to_int(
-        e,
-        f64::from(total_width) * f64::from(first_positive) / f64::from(scale),
-    )
-    .wrapping_mul(scale);
+    // 00774d88..00774d96, 00774dc8..00774dce.
+    let first_width = meter_quotient(e, total_width, first_positive, scale).wrapping_mul(scale);
     let original_x_trait = e.mem.u32(0x011d_9c20);
     let original_x_raw = e.call(0x00a0_11b0, &args![first, original_x_trait]).f64();
     let mut first_x = x87_to_int(e, original_x_raw);
@@ -3575,17 +3582,18 @@ pub fn fn_00773e90(
 fn radiation_bar_position(e: &mut Engine, amount: f32) -> f32 {
     let limit: f32 = e.global(0x0101_3974);
     let bounded = e.call(0x0040_ebd0, &args![amount, limit]).f32();
-    let bounded = e.call(0x0040_4010, &args![0.0_f32, bounded]).f32();
+    // 0077433f and 007743b9 call 00404010(bounded, 0.0).
+    let bounded = e.call(0x0040_4010, &args![bounded, 0.0_f32]).f32();
     let low: f32 = e.global(0x0101_e580);
     let high: f32 = e.global(0x0107_34b4);
     e.call(0x004b_3ab0, &args![low, high, 0.0_f32, limit, bounded])
         .f32()
 }
 
-fn radiation_fade(e: &mut Engine, target: u32, alpha: f32) {
-    // The original reads the start alpha from the first radiation tile for
-    // every tile in the group, including the other three.
-    let start_tile = hud_tile(e, 0x11);
+/// Fades `target`'s alpha (trait 0xfa9) to `alpha`, starting from `start_tile`'s alpha. The
+/// transition branch starts each of the four tiles from its own alpha (007744c5..0077458c);
+/// the fade-out branch starts all four from the first tile's, hud+0x6c (00774721..007747d3).
+fn radiation_fade(e: &mut Engine, start_tile: u32, target: u32, alpha: f32) {
     let start = hud_float(e, start_tile, 0xfa9);
     let duration: f32 = e.global(0x0101_622c);
     e.call(
@@ -3594,7 +3602,7 @@ fn radiation_fade(e: &mut Engine, target: u32, alpha: f32) {
     );
 }
 
-// Translated from 00774090 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 00774090 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// `HUDMainMenu::UpdateRadiationMeter` (Xbox PDB): moves and fades the
 /// radiation gauge during and after a radiation event.
 pub fn hud_main_menu_update_radiation_meter(e: &mut Engine, _this: Ptr<HUDMainMenu>) {
@@ -3674,7 +3682,7 @@ pub fn hud_main_menu_update_radiation_meter(e: &mut Engine, _this: Ptr<HUDMainMe
         let alpha: f32 = e.global(0x011d_979c);
         for id in 0x11..=0x14 {
             let target = hud_tile(e, id);
-            radiation_fade(e, target, alpha);
+            radiation_fade(e, target, target, alpha);
         }
     } else if status {
         let limited = e.call(0x0040_ebd0, &args![actual_position, upper]).f32();
@@ -3713,8 +3721,9 @@ pub fn hud_main_menu_update_radiation_meter(e: &mut Engine, _this: Ptr<HUDMainMe
     if !status && !pending {
         e.mem.set_u32(0x011a_0120, 2);
         for id in 0x11..=0x14 {
+            let start_tile = hud_tile(e, 0x11);
             let target = hud_tile(e, id);
-            radiation_fade(e, target, 0.0);
+            radiation_fade(e, start_tile, target, 0.0);
         }
     }
 }
@@ -6032,7 +6041,7 @@ fn reminder_global_trait_value(e: &mut Engine, tile: u32, trait_address: u32) ->
     e.call(0x00a0_11b0, &args![tile, trait_id]).f64()
 }
 
-// Translated from 0077b430 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 0077b430 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// `HUDMainMenu::HandleReminderFade` (Xbox PDB): places queued objective
 /// reminders into the HUD tile pool and advances their fade controls.
 // Translation incomplete: 0077b430 - compiler SEH unwinding.
@@ -6208,7 +6217,9 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
         if !e.call(0x00a0_1230, &args![marker, 0xfa3_u32]).bool() {
             continue;
         }
-        if count > 0 && markers[count] == icons[count] {
+        // 0077bbcd / 0077bbd1: markers[count] (still 0 here) against the icon before it,
+        // icons[count - 1]; the loop ends only at a slot whose previous icon is 0.
+        if count > 0 && markers[count] == icons[count - 1] {
             break;
         }
         markers[count] = marker;
@@ -7327,7 +7338,7 @@ pub fn fn_0077eac0(e: &mut Engine, target: Ptr) -> bool {
     !e.call(0x0046_9860, &args![registry, location]).bool()
 }
 
-// Translated from 0077eaf0 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 0077eaf0 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// `HUDMainMenu::ShowCrippledGuy` (Xbox PDB): chooses the face and six limb
 /// textures from player values, then animates their HUD tiles.
 // Translation incomplete: 0077eaf0 - compiler cookie check.
@@ -7374,7 +7385,8 @@ pub fn hud_main_menu_show_crippled_guy(e: &mut Engine, this: Ptr<HUDMainMenu>) {
             let player = e.mem.u32(0x011d_ea3c);
             let value = e.vcall(player + 0xa4, 0xc, &args![index]).f64();
             let ratio = (value / e.global::<f64>(0x0101_7a40)) as f32;
-            let format = if ratio <= 0.0 {
+            // 0077ed12 TEST AH,0x41 / JNZ: 01073830 for less, equal or unordered.
+            let format = if !(ratio > 0.0) {
                 0x0107_3830_u32
             } else {
                 0x0107_3850_u32
@@ -10249,6 +10261,75 @@ mod tests {
         }
     }
 
+    /// `00ec62c0` (`_ftol2_sse`) truncates toward zero.
+    fn truncating_ftol(e: &mut Engine) {
+        e.register_double(0x00ec_62c0, |_, words| {
+            let bits = u64::from(words[0]) | (u64::from(words[1]) << 32);
+            Ret {
+                eax: f64::from_bits(bits).trunc() as i32 as u32,
+                ..Ret::default()
+            }
+        });
+    }
+
+    fn trait_writes(e: &Engine) -> Vec<(u32, u32, u32)> {
+        e.call_log
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter(|(address, _)| *address == 0x0070_0320)
+            .map(|(_, words)| (words[0], words[1], words[2]))
+            .collect()
+    }
+
+    /// 007748b0: width 100, fraction 0.7f, image 10 under the main thread's control word
+    /// 0x007F: FMUL float rounds 69.99999881 to 70.0 at 24 bits (00774a5c), so FIDIV and
+    /// `00ec62c0` give 7 images, 70 wide (in f64 it would be 6, 60 wide).
+    #[test]
+    fn meter_rounds_the_product_and_quotient_to_the_thread_precision() {
+        let (mut e, target) = meter_engine();
+        truncating_ftol(&mut e);
+        e.register_double(0x00a0_11b0, |_, words| Ret {
+            st0: match words[1] {
+                0x101 => 100.0,
+                0x102 => 10.0,
+                _ => 0.0,
+            },
+            ..Ret::default()
+        });
+        crate::x87::set_control_word(0x007f);
+        hud_main_menu_update_meter(&mut e, target, 0.7, 0, 0, 0);
+        crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+        assert_eq!(trait_writes(&e)[0], (target.addr(), 0xfb1, 70));
+    }
+
+    /// 00774b00: the same rounding for both widths (00774d3b..00774d56, 00774dc8..00774dce).
+    #[test]
+    fn meter_pair_rounds_both_widths_to_the_thread_precision() {
+        let (mut e, first, second, _) = meter_pair_engine();
+        truncating_ftol(&mut e);
+        e.register_double(0x00a0_11b0, |_, words| Ret {
+            st0: match words[1] {
+                0x101 => 100.0,
+                0x102 => 10.0,
+                _ => 0.0,
+            },
+            ..Ret::default()
+        });
+        crate::x87::set_control_word(0x007f);
+        hud_main_menu_update_meter_ov2(&mut e, first, second, 0.7, 0.7, 0, 0);
+        crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+        assert_eq!(
+            trait_writes(&e),
+            vec![
+                (first.addr(), 0xfb1, 70),
+                (first.addr(), 0xfa1, 0),
+                (second.addr(), 0xfb1, 70),
+                (second.addr(), 0xfa1, 70),
+            ]
+        );
+    }
+
     #[test]
     fn meter_pair_initializes_traits_before_null_guard_and_keeps_minimum() {
         let (mut e, first, second, _) = meter_pair_engine();
@@ -13036,6 +13117,309 @@ mod tests {
             calls[2],
             vec![icon, 0xfa9, 0, 0.25_f32.to_bits(), 0.5_f32.to_bits(), 0]
         );
+    }
+
+    /// 0077b430 (0077bbcd / 0077bbd1): the visible-marker loop compares markers[count] with
+    /// icons[count - 1], so two visible reminders are both collected and the second gets
+    /// its wait fade (0077bccc..0077bd0e).
+    #[test]
+    fn reminder_fade_collects_a_second_visible_marker() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x1000);
+        e.map(0x0101_0000, 0x20000);
+        e.mem.set_f64(0x0101_2060, 0.0);
+        e.mem.set_f64(0x0101_2070, 1.0);
+        e.mem.set_f32(0x0101_6248, 0.5);
+        e.mem.set_f64(0x0102_1928, 3.0);
+        e.mem.set_f32(0x011d_979c, 0.75);
+        let menu = e.new_object::<HUDMainMenu>();
+        e.mem.set_u32(0x011d_96c0, menu.addr());
+        let pool = e.mem.alloc(8);
+        e.mem.set_u32(menu.addr() + 0x5c, pool);
+        let markers = [e.mem.alloc(4), e.mem.alloc(4)];
+        let icons = [e.mem.alloc(4), e.mem.alloc(4)];
+        // The slots 0057cbe0 answers in order: marker, icon, marker, icon.
+        let slots: Vec<u32> = [markers[0], icons[0], markers[1], icons[1]]
+            .iter()
+            .map(|tile| {
+                let slot = e.mem.alloc(4);
+                e.mem.set_u32(slot, *tile);
+                slot
+            })
+            .collect();
+        let seconds = e.mem.alloc(4);
+        e.mem.set_f32(seconds, 1.0);
+        e.register_double(0x0071_5d40, |_, _| Ret {
+            st0: 1920.0,
+            ..Ret::default()
+        });
+        e.register_double(0x00ec_62c0, |_, _| Ret {
+            eax: 1920,
+            ..Ret::default()
+        });
+        let mut first_calls = 0;
+        e.register_double(0x0055_9450, move |_, _| {
+            first_calls += 1;
+            Ret {
+                eax: u32::from(first_calls != 1),
+                ..Ret::default()
+            }
+        });
+        let mut icon_first_calls = 0;
+        e.register_double(0x0072_6070, move |_, _| {
+            icon_first_calls += 1;
+            Ret {
+                eax: u32::from(icon_first_calls != 1),
+                ..Ret::default()
+            }
+        });
+        let mut advances = 0;
+        e.register_double(0x0057_cbe0, move |e, words| {
+            advances += 1;
+            if advances <= 31 {
+                return Ret::default();
+            }
+            let index = advances - 32;
+            // The marker cursor ends after the second marker.
+            e.mem.set_u32(words[1], u32::from(index != 2));
+            Ret {
+                eax: slots.get(index).copied().unwrap_or(0),
+                ..Ret::default()
+            }
+        });
+        e.register_double(0x0068_3520, |_, _| Ret::default());
+        e.register_double(0x0082_56d0, |_, _| Ret {
+            eax: 1,
+            ..Ret::default()
+        });
+        e.register_double(0x00a0_0940, |_, _| Ret {
+            eax: 0x1111,
+            ..Ret::default()
+        });
+        e.register_double(0x00a0_1230, |_, _| Ret {
+            eax: 1,
+            ..Ret::default()
+        });
+        // Every wait and alpha trait reads 0: the first marker starts its wait.
+        e.register_double(0x00a0_11b0, |_, _| Ret::default());
+        e.register_double(0x0070_0320, |_, _| Ret::default());
+        e.register_double(0x0040_3e20, move |_, _| Ret {
+            eax: seconds,
+            ..Ret::default()
+        });
+        let calls = Rc::new(RefCell::new(Vec::<Vec<u32>>::new()));
+        let calls_for_double = calls.clone();
+        e.register_double(0x00a0_7c60, move |_, words| {
+            calls_for_double.borrow_mut().push(words.to_vec());
+            Ret::default()
+        });
+        hud_main_menu_handle_reminder_fade(&mut e, menu, Ptr::new(pool));
+        let calls = calls.borrow();
+        assert_eq!(calls.len(), 4, "{calls:x?}");
+        assert_eq!(calls[0][0..2], [markers[0], 0xfa9]);
+        assert_eq!(calls[1][0..2], [markers[0], 0x1111]);
+        assert_eq!(calls[2][0..2], [icons[0], 0xfa9]);
+        assert_eq!(
+            calls[3],
+            vec![
+                markers[1],
+                0x1111,
+                0,
+                1.0_f32.to_bits(),
+                1.0_f32.to_bits(),
+                0
+            ]
+        );
+    }
+
+    /// 00774090: the transition branch fades each radiation tile from its own alpha
+    /// (007744c5..0077458c), and the bar position clamps with 00404010(bounded, 0.0)
+    /// (0077433f, 007743b9).
+    #[test]
+    fn radiation_transition_fades_each_tile_from_its_own_alpha() {
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x6000);
+        e.map(0x011a_0000, 0x1000);
+        e.map(0x0101_0000, 0x10000);
+        e.map(0x0107_3000, 0x1000);
+        e.mem.set_f32(0x0101_622c, 0.5);
+        e.mem.set_f32(0x011d_979c, 0.75);
+        e.mem.set_u32(0x011a_0120, 2);
+        let menu = e.new_object::<HUDMainMenu>();
+        e.mem.set_u32(0x011d_96c0, menu.addr());
+        for (id, item) in [
+            (0x11, 0x5110_u32),
+            (0x12, 0x5120),
+            (0x13, 0x5130),
+            (0x14, 0x5140),
+            (0x3d, 0x53d0),
+        ] {
+            e.mem.set_u32(tile(menu, id), item);
+        }
+        let player = e.mem.alloc(0x100);
+        e.mem.set_u32(0x011d_ea3c, player);
+        let table = e.mem.alloc(0x10);
+        e.mem.set_u32(player + 0xa4, table);
+        e.mem.set_u32(table + 8, 0x0300_0008);
+        e.register_double(0x0300_0008, |_, _| Ret {
+            eax: 7,
+            ..Ret::default()
+        });
+        e.register_double(0x00a0_11b0, |_, words| Ret {
+            st0: match (words[0], words[1]) {
+                (0x5110, 0xfa9) => 0.125,
+                (0x5120, 0xfa9) => 0.25,
+                (0x5130, 0xfa9) => 0.375,
+                (0x5140, 0xfa9) => 0.5,
+                _ => 0.0,
+            },
+            ..Ret::default()
+        });
+        e.register_double(0x0082_5c00, |_, _| Ret {
+            eax: 100,
+            ..Ret::default()
+        });
+        e.register_double(0x0050_98e0, |_, _| Ret {
+            eax: 1,
+            ..Ret::default()
+        });
+        e.register_double(0x0040_ebd0, |_, _| Ret {
+            st0: 7.0,
+            ..Ret::default()
+        });
+        for address in [
+            0x00a0_7fc0,
+            0x00a0_1230,
+            0x0040_4010,
+            0x004b_3ab0,
+            0x00ec_62c0,
+            0x0064_7b70,
+            0x0040_6d00,
+            0x00a0_1350,
+            0x00a0_12d0,
+            0x0070_0320,
+            0x00a0_7c60,
+        ] {
+            e.register_double(address, |_, _| Ret::default());
+        }
+        e.call_log = Some(vec![]);
+        hud_main_menu_update_radiation_meter(&mut e, menu);
+        let log = e.call_log.as_ref().unwrap();
+        let of = |address: u32| -> Vec<Vec<u32>> {
+            log.iter()
+                .filter(|(a, _)| *a == address)
+                .map(|(_, words)| words.clone())
+                .collect()
+        };
+        assert_eq!(
+            of(0x00a0_7c60),
+            [
+                (0x5110_u32, 0.125_f32),
+                (0x5120, 0.25),
+                (0x5130, 0.375),
+                (0x5140, 0.5)
+            ]
+            .iter()
+            .map(|&(item, start)| args![item, 0xfa9_u32, start, 0.75_f32, 0.5_f32, 0_u32].to_vec())
+            .collect::<Vec<_>>()
+        );
+        assert_eq!(of(0x0040_4010), vec![args![7.0_f32, 0.0_f32].to_vec(); 2]);
+    }
+
+    /// 007738c0 (00773906 TEST AH,0x41 / JNZ): a NaN sum takes the fade-out branch.
+    #[test]
+    fn radiation_level_fades_the_sound_for_a_nan_sum() {
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x1000);
+        let menu = e.new_object::<HUDMainMenu>();
+        e.mem.set_u32(0x011d_96c0, menu.addr());
+        e.register_double(0x00ad_8ce0, |_, _| Ret {
+            eax: 1,
+            ..Ret::default()
+        });
+        e.register_double(0x00ad_8da0, |_, _| Ret::default());
+        e.call_log = Some(vec![]);
+        hud_main_menu_set_radiation_level(&mut e, f32::NAN, 0.0);
+        let sound = menu.addr() + 0x1ac;
+        assert_eq!(
+            e.call_log.as_ref().unwrap(),
+            &vec![
+                (0x00ad_8ce0, args![sound].to_vec()),
+                (0x00ad_8da0, args![sound, 500_u32].to_vec()),
+            ]
+        );
+    }
+
+    /// 0077eaf0 (0077ed12 TEST AH,0x41 / JNZ): a NaN limb ratio takes the format 01073830;
+    /// it is not broken (0077ed87 TEST AH,0x44 / JP).
+    #[test]
+    fn crippled_guy_nan_limb_takes_the_low_format() {
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x1000);
+        e.map(0x011d_e000, 0x1000);
+        e.map(0x011a_0000, 0x1000);
+        e.map(0x0101_7000, 0x1000);
+        e.map(0x0102_0000, 0x1000);
+        e.mem.set_f64(0x0101_7a40, 100.0);
+        e.mem.set_f64(0x0102_0998, 5.0);
+        let hud = e.new_object::<HUDMainMenu>();
+        let player = e.mem.alloc(0xa8);
+        e.mem.set_u32(0x011d_ea3c, player);
+        let mut list_slots = [0_u32; 3];
+        list_slots[2] = 0x0300_9408;
+        e.put_vtable(0x0300_9400, &list_slots);
+        e.mem.set_u32(player + 0x94, 0x0300_9400);
+        let mut value_slots = [0_u32; 9];
+        value_slots[3] = 0x0300_a40c;
+        value_slots[8] = 0x0300_a420;
+        e.put_vtable(0x0300_a400, &value_slots);
+        e.mem.set_u32(player + 0xa4, 0x0300_a400);
+        e.register_double(0x0300_9408, |_, _| Ret::default());
+        e.register_double(0x0300_a420, |_, _| Ret {
+            st0: 100.0,
+            ..Ret::default()
+        });
+        e.register_double(0x0300_a40c, |_, words| Ret {
+            st0: if words[1] == 0x19 { f64::NAN } else { 100.0 },
+            ..Ret::default()
+        });
+        for address in [
+            0x00ec_62c0,
+            0x0040_6d00,
+            0x00a0_1350,
+            0x0070_0320,
+            0x00a0_7c60,
+        ] {
+            e.register_double(address, |_, _| Ret::default());
+        }
+        e.call_log = Some(vec![]);
+        hud_main_menu_show_crippled_guy(&mut e, hud);
+        let log = e.call_log.as_ref().unwrap();
+        let formats: Vec<u32> = log
+            .iter()
+            .filter(|(a, words)| *a == 0x0040_6d00 && words[2] != 0x0107_3868)
+            .map(|(_, words)| words[2])
+            .collect();
+        assert_eq!(
+            formats,
+            vec![
+                0x0107_3830,
+                0x0107_3850,
+                0x0107_3850,
+                0x0107_3850,
+                0x0107_3850,
+                0x0107_3850
+            ]
+        );
+        let states: Vec<u32> = log
+            .iter()
+            .filter(|(a, _)| *a == 0x0070_0320)
+            .map(|(_, words)| words[2])
+            .collect();
+        assert_eq!(states, vec![1; 6]);
     }
 
     #[test]

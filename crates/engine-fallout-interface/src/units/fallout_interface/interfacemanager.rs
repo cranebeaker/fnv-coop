@@ -48,9 +48,9 @@ const DEBUG_TEXT_ROOT_NAME: u32 = 0x0106_efa8;
 const TWO_FIFTY_FIVE: u32 = 0x0101_e568;
 /// `2.0` (`double`).
 const TWO: u32 = 0x0101_1590;
-/// The 16:10 aspect ratio, `1.6` (`double`), and `0.6` (`double`), which
-/// `1 / ratio` is compared with (5:3 is `1.666..`, so this is the 10:6 test
-/// for the inverse).
+/// The 16:10 aspect ratio, `1.6000000238` (`double`, the `float` 1.6), and
+/// `0.6000000238` (`double`, the `float` 0.6), which `1 / ratio` is compared with:
+/// the 5:3 test (`1.666..`).
 const WIDESCREEN_RATIO: u32 = 0x0106_efa0;
 const WIDESCREEN_INVERSE_RATIO: u32 = 0x0102_90b8;
 /// The angle (`float`) the one-to-one distance is derived from.
@@ -1724,11 +1724,29 @@ pub fn fn_0070ad80(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
     this
 }
 
-// Translated from 0070adb0 (decompiled, FalloutNV.exe 1.4.0.525)
+/// Part of 0070adb0 (0070b0e9..0070b133): 16:10 screens (width / height == 1.6000000238)
+/// and 5:3 ones (1 / ratio == 0.6000000238, for example 1280x768 or 800x480) get a limit of
+/// 0x50 on two string lists. The ratio is FDIVR, FSTP float; the inverse FLD1, FDIVRP; each
+/// rounds to the thread's precision, 24 bits here: Init runs after main created the device
+/// (0086b028 before 0086b078). At 24 bits 1 / f32(1280 / 768) rounds to 0.6000000238.
+fn limit_string_lists_on_wide_screens(e: &mut Engine) {
+    let width = e.call(GET_DESKTOP_WIDTH, &args![]).f64();
+    let height = e.call(GET_DESKTOP_HEIGHT, &args![]).f64();
+    let ratio = f64::from(f32::from_bits(x87_store32(x87_div(width, height))));
+    let widescreen: f64 = e.global(WIDESCREEN_RATIO);
+    let inverse: f64 = e.global(WIDESCREEN_INVERSE_RATIO);
+    // TEST AH,0x44 / JNP (0070b107) and JP (0070b11b): equal only, never unordered.
+    if ratio == widescreen || x87_div(1.0, ratio) == inverse {
+        e.call(STRING_LIST_SET_LIMIT, &args![STRING_LIST_A, 0x50u32]);
+        e.call(STRING_LIST_SET_LIMIT, &args![STRING_LIST_B, 0x50u32]);
+    }
+}
+
+// Translated from 0070adb0 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp
 /// `InterfaceManager::Init` (Xbox PDB): first initialization. Optionally
 /// loads the text table, builds the root tile (`MenuRoot`) with the screen
 /// metrics as traits, reads `globals.xml`, creates the debug text root and
-/// the pipboy manager, and corrects the line limit for 16:10 screens.
+/// the pipboy manager, and corrects the line limit for 16:10 and 5:3 screens.
 /// `load_text_table` is the byte argument (non-zero also creates the
 /// loading menu at the end).
 pub fn interface_manager_init(e: &mut Engine, this: Ptr<InterfaceManager>, load_text_table: u8) {
@@ -1819,17 +1837,7 @@ pub fn interface_manager_init(e: &mut Engine, this: Ptr<InterfaceManager>, load_
             e.call(NODE_UPDATE, &args![node, update_data]);
         });
 
-        // 16:10 (and its inverse 10:16 portrait) screens get a smaller
-        // limit on two string lists.
-        let width = e.call(GET_DESKTOP_WIDTH, &args![]).f64();
-        let height = e.call(GET_DESKTOP_HEIGHT, &args![]).f64();
-        let ratio = (width / height) as f32;
-        let widescreen: f64 = e.global(WIDESCREEN_RATIO);
-        let inverse: f64 = e.global(WIDESCREEN_INVERSE_RATIO);
-        if ratio as f64 == widescreen || 1.0 / ratio as f64 == inverse {
-            e.call(STRING_LIST_SET_LIMIT, &args![STRING_LIST_A, 0x50u32]);
-            e.call(STRING_LIST_SET_LIMIT, &args![STRING_LIST_B, 0x50u32]);
-        }
+        limit_string_lists_on_wide_screens(e);
 
         let fog = construct_new(e, NI_ALLOC, 0x64, |e, block| {
             e.call(FOG_PROPERTY_CONSTRUCT, &args![block]).ptr()
@@ -7345,7 +7353,7 @@ pub fn fn_007166f0(e: &mut Engine, this: Ptr<InterfaceManager>, key: u32) {
     e.set(this, InterfaceManager::iRepeatingKey, key as i32);
 }
 
-// Translated from 00716730 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 00716730 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// The key repeat: returns the key code to repeat now, or 0. Nothing
 /// repeats while the first delay (`011d8b38`) is negative. A repeating
 /// arrow code (`0x80000001` .. `0x80000004`) stops, returning 0, once the
@@ -7391,7 +7399,9 @@ pub fn fn_00716730(e: &mut Engine, this: Ptr<InterfaceManager>, rate: f32) -> u3
         let first_delay = e
             .call(FLOAT_HOLDER_GET, &args![REPEAT_DELAY_HOLDER_FIRST])
             .u32();
-        if e.mem.f32(first_delay) as f64 <= since {
+        // 00716888 TEST AH,0x41 / JNZ: the key repeats unless the delay is above the
+        // time (a NaN delay repeats).
+        if !(e.mem.f32(first_delay) as f64 > since) {
             e.mem.set_u32(this.addr() + 0x158, now);
             e.get(this, InterfaceManager::iRepeatingKey) as u32
         } else {
@@ -7402,7 +7412,9 @@ pub fn fn_00716730(e: &mut Engine, this: Ptr<InterfaceManager>, rate: f32) -> u3
         let next_delay = e
             .call(FLOAT_HOLDER_GET, &args![REPEAT_DELAY_HOLDER_NEXT])
             .u32();
-        if e.mem.f32(next_delay) as f64 / rate as f64 <= since {
+        // FLD / FDIV float rate (007168d4, rounded to the thread's precision), then
+        // 007168dc TEST AH,0x41 / JNZ as above.
+        if !(x87_div(e.mem.f32(next_delay) as f64, rate as f64) > since) {
             e.mem.set_u32(this.addr() + 0x158, now);
             e.get(this, InterfaceManager::iRepeatingKey) as u32
         } else {
@@ -13305,6 +13317,55 @@ mod tests {
         e.mem.set_u32(m.addr() + 0x158, 890);
         assert_eq!(fn_00716730(&mut e, m, 0.5), 0x8000_0000);
         assert_eq!(e.mem.u32(m.addr() + 0x158), 1000);
+    }
+
+    /// 00716730 (0071688b, 007168df JNZ): a NaN delay repeats; only a delay above the time
+    /// waits.
+    #[test]
+    fn a_nan_delay_repeats_the_key() {
+        let (mut e, m) = repeat_world(1000, f32::NAN, f32::NAN);
+        e.set(m, InterfaceManager::iRepeatingKey, 0x8000_0000u32 as i32);
+        e.set(m, InterfaceManager::uKeyDownTime, 990);
+        assert_eq!(fn_00716730(&mut e, m, 1.0), 0x8000_0000);
+        assert_eq!(e.mem.u32(m.addr() + 0x158), 1000);
+        e.mem.set_u32(m.addr() + 0x158, 995);
+        assert_eq!(fn_00716730(&mut e, m, 1.0), 0x8000_0000);
+        assert_eq!(e.mem.u32(m.addr() + 0x158), 1000);
+    }
+
+    /// 0070adb0 (0070b10c..0070b133): under the main thread's 24-bit precision a 5:3 screen
+    /// (1280x768) passes the inverse test and both string lists get the limit 0x50; 1920x1080
+    /// passes neither test.
+    #[test]
+    fn a_five_by_three_screen_limits_the_string_lists() {
+        for (width, height, limited) in [(1280.0, 768.0, true), (1920.0, 1080.0, false)] {
+            let mut e = world();
+            e.set_global(WIDESCREEN_RATIO, f64::from(1.6f32));
+            e.set_global(WIDESCREEN_INVERSE_RATIO, 0.600_000_023_841_857_9f64);
+            e.register_double(GET_DESKTOP_WIDTH, move |_, _| Ret {
+                st0: width,
+                ..Ret::default()
+            });
+            e.register_double(GET_DESKTOP_HEIGHT, move |_, _| Ret {
+                st0: height,
+                ..Ret::default()
+            });
+            e.register_double(STRING_LIST_SET_LIMIT, |_, _| Ret::default());
+            e.call_log = Some(vec![]);
+            crate::x87::set_control_word(0x007f);
+            limit_string_lists_on_wide_screens(&mut e);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            let expected = if limited {
+                vec![vec![STRING_LIST_A, 0x50], vec![STRING_LIST_B, 0x50]]
+            } else {
+                vec![]
+            };
+            assert_eq!(
+                calls(&e, STRING_LIST_SET_LIMIT),
+                expected,
+                "{width}x{height}"
+            );
+        }
     }
 
     #[test]

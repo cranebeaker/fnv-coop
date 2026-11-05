@@ -7799,7 +7799,7 @@ fn set_vector_words(e: &mut Engine, address: u32, words: [u32; 3]) {
     }
 }
 
-// Translated from 0088e8d0 (decompiled, FalloutNV.exe 1.4.0.525)
+// Translated from 0088e8d0 (decompiled, FalloutNV.exe 1.4.0.525), read against fnv_decomp.
 /// Hit effects of an attack on the actor. `hit` is the hit record (target
 /// reference at +0, second object at +8, kind at +0x10, point scale at
 /// +0x14, explicit source +0x30, position at +0x38, direction at +0x44).
@@ -7843,7 +7843,8 @@ fn run_hit_effects(e: &mut Engine, frame_pointer: u32, this: Ptr<Actor>, damage:
         return;
     }
     let zero: f64 = e.global(DOUBLE_ZERO);
-    if damage as f64 <= zero {
+    // 0088e9ca TEST AH,0x41 / JNZ: returns unless the damage is above zero (a NaN returns).
+    if !(damage as f64 > zero) {
         return;
     }
     if this.addr() == player {
@@ -8155,7 +8156,8 @@ fn second_hit_decal(
         .call(SETTING_VALUE_ADDRESS, &args![HIT_SECOND_RANGE_OBJECT])
         .u32();
     let limit = e.mem.f32(limit_address);
-    if limit as f64 <= distance {
+    // 0088f39c TEST AH,0x41 / JNZ: returns unless the limit is above the distance.
+    if !(limit as f64 > distance) {
         return;
     }
     let decal_scale: f32 = e.global(HIT_SECOND_DECAL_SCALE);
@@ -15107,6 +15109,33 @@ mod tests {
         e.call_log = Some(vec![]);
         fn_0088e8d0(&mut e, actor, 0.0, Ptr::new(hit));
         assert!(!logged_addresses(&e).contains(&LISTENER_OBJECT));
+    }
+
+    /// 0088e9ca and 0088f39c (TEST AH,0x41 / JNZ return): a NaN damage shows nothing, and a
+    /// NaN distance puts no second decal.
+    #[test]
+    fn a_nan_damage_or_second_distance_stops_the_hit_effects() {
+        let mut e = engine3();
+        let (actor, hit) = hit_world(&mut e);
+        e.call_log = Some(vec![]);
+        fn_0088e8d0(&mut e, actor, f32::NAN, Ptr::new(hit));
+        assert!(!logged_addresses(&e).contains(&LISTENER_OBJECT));
+        let mut e = engine3();
+        let (actor, hit) = second_decal_world(&mut e);
+        let seen = snapshot_hits(&mut e);
+        slot(&mut e, OTHER_TABLE, OWNER_VSLOT_0X08, eax(0));
+        fn_0088e8d0(&mut e, actor, 5.0, Ptr::new(hit));
+        assert_eq!(second_only(&seen).len(), 1);
+        double(
+            &mut e,
+            HIT_SECOND_DISTANCE,
+            Ret {
+                st0: f64::NAN,
+                ..Ret::default()
+            },
+        );
+        fn_0088e8d0(&mut e, actor, 5.0, Ptr::new(hit));
+        assert_eq!(second_only(&seen).len(), 1);
     }
 
     #[test]
