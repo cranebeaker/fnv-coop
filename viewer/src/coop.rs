@@ -624,7 +624,6 @@ pub(crate) fn send(
         ResMut<LaterCommands>,
     ),
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
-    mut exit: EventWriter<AppExit>,
     mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
     (mut bot, live, test_keys): (
         ResMut<coop_live::Bot>,
@@ -740,7 +739,7 @@ pub(crate) fn send(
     };
     if let Some(reason) = quit {
         finish(s, &mut run, &state.0, &game, now, reason, &live);
-        exit.write(AppExit::Success);
+        end_now();
     }
     let line = s.status().compact();
     for (mut text, mut vis) in &mut texts {
@@ -753,6 +752,36 @@ pub(crate) fn send(
             Visibility::Hidden
         };
     }
+}
+
+#[cfg(windows)]
+mod win {
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn GetCurrentProcess() -> isize;
+        pub fn TerminateProcess(process: isize, code: u32) -> i32;
+    }
+}
+
+/// Ends the process after a harness quit (`--coop-quit-file`, `--coop-quit-after`), with code 0
+/// and without the app's teardown. [`finish`] has the run's last words on disk: the event log
+/// flushes each line and the dump file is written whole. The teardown is where the one exit
+/// crash came: in `twin_live_control_lock_per_player` (2026-11-03) both viewers logged their
+/// clean `shutdown` line and then ended with `0xC0000409` (a fast-fail), with no panic text,
+/// once in 4513 viewer exits. `TerminateProcess` runs no destructor, no Bevy or wgpu teardown
+/// and no DLL detach code, so none of them can end the process with another code.
+fn end_now() -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    #[cfg(windows)]
+    {
+        // SAFETY: the pseudo handle of this process; the call does not return on success.
+        unsafe {
+            win::TerminateProcess(win::GetCurrentProcess(), 0);
+        }
+    }
+    std::process::exit(0)
 }
 
 /// Any other way out (Esc, the window closing): the final dump and the
