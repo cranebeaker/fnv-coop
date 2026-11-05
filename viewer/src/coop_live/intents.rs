@@ -222,11 +222,9 @@ pub fn follow_place(
     match game.0.load_cell_now(space, &gs.disabled) {
         Ok(mut scene) => {
             println!("Co-op: following the host into {space}.");
-            scene.start = cellview::Start {
-                eye: [pos[0], pos[1], pos[2] + cellview::EYE_HEIGHT],
-                heading: 0.0,
-                via: "the host (co-op)",
-            };
+            if let Some(start) = super::roam::start_on_floor(&scene, pos, 0.0, "the host (co-op)") {
+                scene.start = start;
+            }
             pending.0 = Some(scene);
         }
         Err(e) => println!("Co-op: can't follow the host: {}", e.0),

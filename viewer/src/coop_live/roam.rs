@@ -44,6 +44,45 @@ pub fn register_grid(
     }
 }
 
+/// How far above the feet the floor test starts, and how far from the feet
+/// the floor may be (game units).
+const FLOOR_ABOVE: f32 = 60.0;
+const FLOOR_NEAR: f32 = 40.0;
+
+/// True when the cell's collision has a floor near `feet`: a ray down from a
+/// little above the feet hits a surface within [`FLOOR_NEAR`] of them. The
+/// host places a guest on a spot beside a player without the geometry, and
+/// that spot can be past a wall or over nothing.
+pub(crate) fn floor_under(collision: &physics::Collider, feet: [f32; 3]) -> bool {
+    let from = [feet[0], feet[1], feet[2] + FLOOR_ABOVE];
+    collision
+        .raycast(from, [0.0, 0.0, -1.0], FLOOR_ABOVE + FLOOR_NEAR)
+        .is_some_and(|(d, _)| (from[2] - d - feet[2]).abs() <= FLOOR_NEAR)
+}
+
+/// An interior start at `feet` facing `heading` when the cell has a floor there.
+/// Else the scene keeps its arrival point (the player then does not fall out
+/// of the world): `None`.
+pub(crate) fn start_on_floor(
+    scene: &cellview::ViewerScene,
+    feet: [f32; 3],
+    heading: f32,
+    via: &'static str,
+) -> Option<cellview::Start> {
+    if !floor_under(&scene.collision, feet) {
+        println!(
+            "Co-op: no floor at {:.0}, {:.0}, {:.0} in {}; starting at the arrival point.",
+            feet[0], feet[1], feet[2], scene.cell
+        );
+        return None;
+    }
+    Some(cellview::Start {
+        eye: [feet[0], feet[1], feet[2] + cellview::EYE_HEIGHT],
+        heading,
+        via,
+    })
+}
+
 /// Moves the player to a placement the host sent (once), the way a script's
 /// `MoveTo` does (`scripts::move_player`) but to a cell and a position.
 pub fn apply_place(
@@ -81,14 +120,48 @@ pub fn apply_place(
         },
         None => match game.0.load_cell_now(cell, &gs.disabled) {
             Ok(mut scene) => {
-                scene.start = cellview::Start {
-                    eye: [x, y, z + cellview::EYE_HEIGHT],
-                    heading: place.heading,
-                    via: "the host (co-op placement)",
-                };
+                if let Some(start) = start_on_floor(
+                    &scene,
+                    [x, y, z],
+                    place.heading,
+                    "the host (co-op placement)",
+                ) {
+                    scene.start = start;
+                }
                 pending.0 = Some(scene);
             }
             Err(e) => println!("Co-op: cannot enter the host's cell: {}", e.0),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A floor square from (0, 0) to (100, 100) at height 10.
+    fn floor() -> physics::Collider {
+        let mut c = physics::Collider::new();
+        let v = [
+            [0.0, 0.0, 10.0],
+            [100.0, 0.0, 10.0],
+            [100.0, 100.0, 10.0],
+            [0.0, 100.0, 10.0],
+        ];
+        c.add(&v, &[[0, 1, 2], [0, 2, 3]]);
+        c
+    }
+
+    #[test]
+    fn a_spot_needs_a_floor_near_its_feet() {
+        let c = floor();
+        assert!(floor_under(&c, [50.0, 50.0, 10.0]), "on the floor");
+        assert!(floor_under(&c, [50.0, 50.0, 30.0]), "a little above it");
+        assert!(
+            !floor_under(&c, [150.0, 50.0, 10.0]),
+            "past the floor's edge"
+        );
+        assert!(!floor_under(&c, [50.0, 50.0, 200.0]), "high above it");
+        assert!(!floor_under(&c, [50.0, 50.0, -100.0]), "under it");
     }
 }
