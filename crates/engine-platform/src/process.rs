@@ -223,6 +223,111 @@ pub fn heap_re_alloc(e: &mut Engine, heap: u32, flags: u32, block: u32, size: u3
     new
 }
 
+/// `MEMORYSTATUS(EX)`'s total virtual size for this process, a large-address-aware 32-bit one on
+/// 64-bit Windows: the span of `SYSTEM_INFO`'s application addresses, 0x10000..=0xFFFEFFFF
+/// ([`super::MAXIMUM_APPLICATION_ADDRESS`]). A vanilla preset, once there is one, would be a plain
+/// 32-bit process here too: 0x7FFE0000, with `dwTotalPhys` and the other sizes clamped at 2 GB.
+pub const TOTAL_VIRTUAL: u32 = super::MAXIMUM_APPLICATION_ADDRESS + 1 - 0x1_0000;
+
+/// `ERROR_INVALID_PARAMETER`.
+const ERROR_INVALID_PARAMETER: u32 = 87;
+/// `MEMORYSTATUSEX`'s size, which its `dwLength` must hold.
+const MEMORY_STATUS_EX_BYTES: u32 = 0x40;
+
+/// What `GlobalMemoryStatus(Ex)` report of the machine rather than of the process.
+#[derive(Clone, Copy, Default)]
+struct MachineMemory {
+    load: u32,
+    total_phys: u64,
+    avail_phys: u64,
+    total_page_file: u64,
+    avail_page_file: u64,
+}
+
+/// The real machine's memory, as `GetSystemInfo` reports its real processors.
+fn machine_memory() -> Option<MachineMemory> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut status = MEMORYSTATUSEX {
+            dwLength: MEMORY_STATUS_EX_BYTES,
+            ..Default::default()
+        };
+        // SAFETY: `status` is a live `MEMORYSTATUSEX` with its size in `dwLength`.
+        unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+        Some(MachineMemory {
+            load: status.dwMemoryLoad,
+            total_phys: status.ullTotalPhys,
+            avail_phys: status.ullAvailPhys,
+            total_page_file: status.ullTotalPageFile,
+            avail_page_file: status.ullAvailPageFile,
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// `MEMORYSTATUS.dwAvailVirtual`: what the heap can still hand out, which is what a caller can
+/// still get; the free addresses outside the heap serve only reservations at a chosen address.
+fn avail_virtual(e: &Engine) -> u64 {
+    e.mem.heap_available().min(u64::from(TOTAL_VIRTUAL))
+}
+
+fn write_memory_status(e: &mut Engine, p: u32, machine: MachineMemory) {
+    // Documented: a size that does not fit in the 32-bit field reports -1.
+    let word = |size: u64| size.min(u64::from(u32::MAX)) as u32;
+    let avail = avail_virtual(e) as u32;
+    e.mem.set_u32(p, 0x20);
+    e.mem.set_u32(p + 0x04, machine.load);
+    e.mem.set_u32(p + 0x08, word(machine.total_phys));
+    e.mem.set_u32(p + 0x0c, word(machine.avail_phys));
+    e.mem.set_u32(p + 0x10, word(machine.total_page_file));
+    e.mem.set_u32(p + 0x14, word(machine.avail_page_file));
+    e.mem.set_u32(p + 0x18, TOTAL_VIRTUAL);
+    e.mem.set_u32(p + 0x1c, avail);
+}
+
+fn write_memory_status_ex(e: &mut Engine, p: u32, machine: MachineMemory) {
+    let avail = avail_virtual(e);
+    e.mem.set_u32(p + 0x04, machine.load);
+    e.mem.set_u64(p + 0x08, machine.total_phys);
+    e.mem.set_u64(p + 0x10, machine.avail_phys);
+    e.mem.set_u64(p + 0x18, machine.total_page_file);
+    e.mem.set_u64(p + 0x20, machine.avail_page_file);
+    e.mem.set_u64(p + 0x28, u64::from(TOTAL_VIRTUAL));
+    e.mem.set_u64(p + 0x30, avail);
+    e.mem.set_u64(p + 0x38, 0);
+}
+
+// Platform: replaces KERNEL32.DLL GlobalMemoryStatus (import)
+/// Fills the 0x20-byte `MEMORYSTATUS` for the 4 GB process: the machine's real load, physical
+/// memory and page file, the virtual sizes of [`TOTAL_VIRTUAL`] and [`avail_virtual`]. The exe's
+/// one caller reads `dwAvailPhys`: `00aa9879`, in the free-list report `00aa9760`, which nothing
+/// calls. From Microsoft's documentation; not measured against a 32-bit program.
+pub fn global_memory_status(e: &mut Engine, out: Ptr) {
+    write_memory_status(e, out.addr(), machine_memory().unwrap_or_default());
+}
+
+// Platform: replaces KERNEL32.DLL GlobalMemoryStatusEx (import)
+/// Fills the 0x40-byte `MEMORYSTATUSEX` as [`global_memory_status`] does, its sizes unclamped.
+/// FALSE with `ERROR_INVALID_PARAMETER` when `dwLength` is not 0x40, or when the machine does not
+/// answer. The exe's one caller reads `ullAvailPageFile`: `00aa3958`, in the memory manager's
+/// constructor `00aa3880`, for which the host stands in (`STAND_INS`, `00fb66a0`).
+pub fn global_memory_status_ex(e: &mut Engine, out: Ptr) -> u32 {
+    if e.mem.u32(out.addr()) != MEMORY_STATUS_EX_BYTES {
+        e.kernel.last_error = ERROR_INVALID_PARAMETER;
+        return 0;
+    }
+    let Some(machine) = machine_memory() else {
+        e.kernel.last_error = ERROR_INVALID_PARAMETER;
+        return 0;
+    };
+    write_memory_status_ex(e, out.addr(), machine);
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +336,78 @@ mod tests {
         let mut e = Engine::new();
         e.kernel.current_directory = b"C:\\Games\\FNV".to_vec();
         e
+    }
+
+    /// The fields of both structures for a machine with more than the 32-bit fields hold, and
+    /// the virtual sizes agreeing with `GetSystemInfo` and following the heap.
+    #[test]
+    fn memory_status_answers_describe_the_4_gb_process() {
+        const AT: u32 = 0x1000;
+        let mut e = engine();
+        e.mem.map(AT, 0x1000);
+        assert_eq!(TOTAL_VIRTUAL, 0xfffe_0000);
+        let machine = MachineMemory {
+            load: 40,
+            total_phys: 32 << 30,
+            avail_phys: 0xc000_0000,
+            total_page_file: 40 << 30,
+            avail_page_file: 20 << 30,
+        };
+        write_memory_status(&mut e, AT, machine);
+        let words: Vec<u32> = (0..8).map(|i| e.mem.u32(AT + i * 4)).collect();
+        let room = e.mem.heap_available();
+        // The two ranges of the heap, less what the engine has taken already.
+        assert!(room > 0xc000_0000 && room <= 0xce00_0000, "{room:#x}");
+        assert_eq!(
+            words,
+            [
+                0x20,
+                40,
+                u32::MAX,
+                0xc000_0000,
+                u32::MAX,
+                u32::MAX,
+                0xfffe_0000,
+                room as u32
+            ]
+        );
+        write_memory_status_ex(&mut e, AT, machine);
+        assert_eq!(e.mem.u32(AT + 0x04), 40);
+        assert_eq!(e.mem.u64(AT + 0x08), 32 << 30);
+        assert_eq!(e.mem.u64(AT + 0x10), 0xc000_0000);
+        assert_eq!(e.mem.u64(AT + 0x18), 40 << 30);
+        assert_eq!(e.mem.u64(AT + 0x20), 20 << 30);
+        assert_eq!(e.mem.u64(AT + 0x28), 0xfffe_0000);
+        assert_eq!(e.mem.u64(AT + 0x30), room);
+        assert_eq!(e.mem.u64(AT + 0x38), 0);
+        let block = e.mem.alloc(0x10_0000);
+        assert_eq!(avail_virtual(&e), room - 0x10_0000);
+        e.mem.free(block);
+    }
+
+    /// The import itself: `dwLength` is checked first, and the real machine answers.
+    #[test]
+    fn memory_status_ex_checks_its_length() {
+        const AT: u32 = 0x1000;
+        let mut e = engine();
+        e.mem.map(AT, 0x1000);
+        e.kernel.last_error = 0;
+        e.mem.set_u32(AT, 0x20);
+        e.mem.set_u64(AT + 0x28, 0x1234);
+        assert_eq!(global_memory_status_ex(&mut e, Ptr::new(AT)), 0);
+        assert_eq!(e.kernel.last_error, 87);
+        assert_eq!(e.mem.u64(AT + 0x28), 0x1234, "nothing written");
+        // The machine's sizes are only read on Windows so far.
+        if cfg!(windows) {
+            e.mem.set_u32(AT, 0x40);
+            assert_eq!(global_memory_status_ex(&mut e, Ptr::new(AT)), 1);
+            assert_eq!(e.mem.u32(AT), 0x40);
+            assert!(e.mem.u64(AT + 0x08) > 0, "the machine's physical memory");
+            assert_eq!(e.mem.u64(AT + 0x28), 0xfffe_0000);
+            global_memory_status(&mut e, Ptr::new(AT));
+            assert_eq!(e.mem.u32(AT), 0x20);
+            assert_eq!(e.mem.u32(AT + 0x18), 0xfffe_0000);
+        }
     }
 
     #[test]

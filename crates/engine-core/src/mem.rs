@@ -39,14 +39,44 @@
 //! block is readable and writable from the start; see `host` below for
 //! why). The block needs a 64-bit host.
 //!
-//! Regions:
-//! - the executable's data sections at their own addresses
-//!   (`.rdata` 0x00FDF000, `.data` 0x01183000, ...), mapped from the
-//!   player's installed FalloutNV.exe by [`crate::exe`] or set up by a test;
-//! - the heap, from [`HEAP_BASE`], handed out by [`Mem::alloc`] (the
-//!   translation of the game's allocator is `platform`, see
-//!   `units/platform.rs`); its free space and the choice of where a block goes
-//!   are in `mem/heap.rs`.
+//! Layout of the guest space: the whole 4 GB a large-address-aware 32-bit process has on
+//! 64-bit Windows (the community's 4 GB patch marks FalloutNV.exe so, and Viva New Vegas
+//! needs it), from low to high:
+//! - `0x00010000..0x00400000`: nothing (tests map their own memory here);
+//! - `0x00400000..0x01409000`: the executable's image; its data sections at their own
+//!   addresses (`.rdata` 0x00FDF000, `.data` 0x01183000, ...), mapped from the player's
+//!   installed FalloutNV.exe by [`crate::exe`] or set up by a test;
+//! - `0x01409000..`[`HEAP_BASE`]: free for `VirtualAlloc` reservations at an address the
+//!   caller chooses (`units/platform.rs`; the game's `MemoryPool`s would search 16 MB
+//!   boundaries here, but the port's memory manager does not make them);
+//! - [`HEAP_BASE`]`..`[`HEAP_LOW_END`]: the heap's lower range, handed out by [`Mem::alloc`]
+//!   (the translation of the game's allocator is `platform`, see `units/platform.rs`; its free
+//!   space and the choice of where a block goes are in `mem/heap.rs`). Every heap block, every
+//!   game thread's stack and TLS block, every `HeapAlloc`, `malloc` and address-0
+//!   `VirtualAlloc` comes from here first;
+//! - [`HEAP_LOW_END`]`..`[`HEAP_HIGH_BASE`]: the platform layer's own addresses
+//!   ([`PLATFORM_AREA`]): the code addresses of its COM objects and procedures (DirectInput,
+//!   DirectSound, DirectShow, Direct3D 9, NVAPI, `GetProcAddress` answers, from 0x7E000000),
+//!   module handles (0x7E100000..0x7E130000), the Bink state page (0x7E140000, mapped) and the
+//!   D3DX handles (from 0x7E300000, never mapped). The heap never comes here, and a
+//!   `VirtualAlloc` at a chosen address here fails;
+//! - [`HEAP_HIGH_BASE`]`..`[`HEAP_END`]: the heap's upper range, used only once the lower one
+//!   cannot serve a request (`mem/heap.rs`), so a run that fits in the lower range places
+//!   every block where it did before the upper range existed;
+//! - [`HEAP_END`]`..0xFFFF0000`: free for `VirtualAlloc` reservations at a chosen address,
+//!   and the freed-block check's words ([`freed_word`], never mapped by the heap);
+//! - the last 64 KB: not user space on Windows; the port maps nothing there (tests do, to test
+//!   the end of the space).
+//!
+//! The table of mapped pages is host memory just below the guest space (above), not a guest
+//! region. Guest addresses at or above 0x80000000 are ordinary addresses: [`Mem`] takes any
+//! `u32`, and the platform's answers describe the 4 GB process (`GetSystemInfo` in
+//! `units/platform.rs`, `GlobalMemoryStatus(Ex)` in engine-platform's `process.rs`). Translated
+//! code that compares two addresses as signed stays right because no block spans 0x80000000:
+//! the platform's addresses separate the ranges.
+//!
+//! A stopgap, as the 4 GB patch is: the modern systems are what lift the limit for good. A
+//! vanilla preset (not built yet) goes at `Heap::cross` and at the platform's two answers.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -423,8 +453,29 @@ impl Drop for Space {
 /// First heap address. Above the executable image (which ends below
 /// 0x01410000) and clear of it, so a heap pointer never aliases image data.
 pub const HEAP_BASE: u32 = 0x2000_0000;
-/// End of the heap region.
-pub const HEAP_END: u32 = 0x7FFF_0000;
+/// End of the heap's lower range: the platform layer's addresses ([`PLATFORM_AREA`]) start
+/// here. (Before the upper range the heap ran to 0x7FFF0000, through the platform's
+/// addresses: a heap that grew past 0x7E000000 would have handed out the Bink state page.)
+pub const HEAP_LOW_END: u32 = 0x7E00_0000;
+/// Start of the heap's upper range, the first address past the 2 GB a 32-bit process has
+/// without the large-address-aware flag.
+pub const HEAP_HIGH_BASE: u32 = 0x8000_0000;
+/// End of the heap (of its upper range). Above it up to 0xFFFF0000 stays free for reservations
+/// at a chosen address and for the freed-block check's words ([`freed_word`]).
+pub const HEAP_END: u32 = 0xF000_0000;
+/// The platform layer's own addresses, between the heap's two ranges (module documentation).
+pub const PLATFORM_AREA: std::ops::Range<u32> = HEAP_LOW_END..HEAP_HIGH_BASE;
+/// The most bytes one heap block can have: the larger of the heap's two ranges (a block never
+/// spans both).
+pub const HEAP_LARGEST_BLOCK: u32 = {
+    let low = HEAP_LOW_END - HEAP_BASE;
+    let high = HEAP_END - HEAP_HIGH_BASE;
+    if low > high {
+        low
+    } else {
+        high
+    }
+};
 
 /// A read or write of memory nobody mapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,12 +596,18 @@ struct BlockCheck {
 
 /// Bytes of freed blocks the freed-block check keeps from reuse at most.
 const QUARANTINE_BYTES: u64 = 64 << 20;
-/// The word a freed block at `addr` is filled with while it waits: `0xD0000000` with the
-/// block's address shifted down by 4, above the heap, so a pointer taken from the block leads to
-/// unmapped memory, and the read through it names the block ([`Mem::freed_block_of`]).
+/// The word a freed block at `addr` is filled with while it waits: [`FREED_WORDS`] with the
+/// block's address shifted down by 4, above the heap ([`HEAP_END`]), so a pointer taken from the
+/// block leads to unmapped memory, and the read through it names the block
+/// ([`Mem::freed_block_of`]). (It was 0xD0000000 while the heap ended below 0x80000000.)
 pub fn freed_word(addr: u32) -> u32 {
-    0xd000_0000 | (addr >> 4)
+    FREED_WORDS | (addr >> 4)
 }
+
+/// The base of the freed-block check's words: the heap's end, so that a heap address shifted
+/// down by 4 (at most 0x0EFFFFFF) lands between it and 0xFF000000.
+const FREED_WORDS: u32 = HEAP_END;
+const _: () = assert!(FREED_WORDS & 0x0fff_ffff == 0 && FREED_WORDS >= HEAP_END);
 
 impl Mem {
     /// Turns the block check on (only blocks allocated from now on are guarded). `store`:
@@ -1368,7 +1425,7 @@ impl Mem {
     fn freed_block_of(&self, a: u32) -> Option<String> {
         let c = self.check.as_deref()?;
         c.quarantine.as_ref()?;
-        if a < 0xd000_0000 {
+        if a < FREED_WORDS {
             return None;
         }
         let word = a & 0x0fff_ffff;
@@ -1639,6 +1696,12 @@ impl Mem {
         self.heap.peak()
     }
 
+    /// The bytes the heap can still hand out, in both its ranges (`GlobalMemoryStatus`'s
+    /// available virtual size).
+    pub fn heap_available(&self) -> u64 {
+        self.heap.available()
+    }
+
     /// Allocates `size` bytes (8-byte aligned, zero-filled) on the heap. A freed block of the
     /// same rounded size is reused first, newest first: from its quick stack (up to 4 KB), or
     /// among the first blocks of its bin; else part of a bigger free block, else fresh memory. A
@@ -1772,6 +1835,27 @@ impl Mem {
             .copied();
         self.heap
             .check(self.live.iter().map(|(&a, &s)| (a, s)).chain(held));
+    }
+
+    /// Takes the rest of the heap's lower range as one live block without mapping its pages:
+    /// the next allocation that does not fit in a free block goes to the upper range (the
+    /// tests of a heap that has used its lower range). Answers the block, if any was left.
+    #[cfg(test)]
+    pub(crate) fn fill_lower_range(&mut self) -> Option<(u32, u32)> {
+        let taken = self.heap.take_lower_rest();
+        if let Some((a, s)) = taken {
+            self.live.insert(a, s);
+        }
+        taken
+    }
+
+    /// Takes the rest of both heap ranges as live blocks (one per range) without mapping their
+    /// pages: the tests of a full heap.
+    #[cfg(test)]
+    pub(crate) fn fill_heap(&mut self) {
+        for (a, s) in self.heap.take_rest() {
+            self.live.insert(a, s);
+        }
     }
 }
 
@@ -2114,22 +2198,21 @@ mod tests {
         let b = m.alloc(1 << 20);
         let _c = m.alloc(0x100);
         m.free(b);
-        // The rest of the heap as one block, taken without mapping its pages.
-        let rest = HEAP_END - m.heap.top();
-        let filler = m.heap.take(rest).unwrap();
-        m.live.insert(filler, rest);
+        // The rest of the heap as one block per range, taken without mapping its pages.
+        m.fill_heap();
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| m.alloc(2 << 20)));
         let why = r.unwrap_err();
         let text = why.downcast_ref::<String>().cloned().unwrap_or_default();
         assert!(
-            text.starts_with("heap exhausted allocating 2097152 bytes (live 3 blocks "),
+            text.starts_with("heap exhausted allocating 2097152 bytes (live 4 blocks "),
             "{text}"
         );
         assert!(
             text.contains("free 1MB in 1 blocks, the largest 1048576 bytes"),
             "{text}"
         );
-        assert!(text.contains(&format!("most live 1x{rest}=")), "{text}");
+        let high = HEAP_END - HEAP_HIGH_BASE;
+        assert!(text.contains(&format!("most live 1x{high}=")), "{text}");
         assert!(text.contains("2x256=0MB"), "{text}");
         assert!(
             text.contains("quick stacks 0KB in 0 blocks (moved to the bins first)"),
@@ -2151,9 +2234,7 @@ mod tests {
                 a
             })
             .collect();
-        let rest = HEAP_END - m.heap.top();
-        let filler = m.heap.take(rest).unwrap();
-        m.live.insert(filler, rest);
+        m.fill_heap();
         for &a in &blocks {
             m.free(a);
         }
@@ -2184,9 +2265,7 @@ mod tests {
                 a
             })
             .collect();
-        let rest = HEAP_END - m.heap.top();
-        let filler = m.heap.take(rest).unwrap();
-        m.live.insert(filler, rest);
+        m.fill_heap();
         m.free(fitting);
         for a in smaller {
             m.free(a);
@@ -2198,6 +2277,109 @@ mod tests {
             Some((fitting + 0x2080, 0x78))
         );
         m.check_heap();
+    }
+
+    /// Once the lower range is used up, the heap goes on in the upper range, from 0x80000000: a
+    /// block there reads and writes like any other (across its pages too) and frees; the lower
+    /// range's free blocks still serve first; when the upper range empties, the top goes back
+    /// to the lower range.
+    #[test]
+    fn the_heap_goes_on_above_2_gb_once_the_lower_range_is_used() {
+        let mut m = Mem::new();
+        let low = m.alloc(0x100);
+        assert!(low < HEAP_LOW_END);
+        let (filler, _) = m.fill_lower_range().unwrap();
+        let a = m.alloc(0x3000);
+        assert_eq!(a, HEAP_HIGH_BASE);
+        assert!(m.bytes(a, 0x3000).iter().all(|&b| b == 0));
+        m.set_u32(a, 0x1122_3344);
+        m.set_u64(a + 0xffc, 0x5566_7788_99aa_bbcc);
+        m.set_u32(a + 0x2ffc, 0xdead_beef);
+        assert_eq!(m.u32(a), 0x1122_3344);
+        assert_eq!(m.u64(a + 0xffc), 0x5566_7788_99aa_bbcc);
+        assert_eq!(m.u32(a + 0x1000), 0x5566_7788);
+        assert_eq!(m.u32(a + 0x2ffc), 0xdead_beef);
+        assert_eq!(m.block_size(a), Some(0x3000));
+        let b = m.alloc(0x2000);
+        assert_eq!(b, a + 0x3000);
+        assert_eq!(m.heap_top(), b + 0x2000);
+        m.check_heap();
+        // A freed block of the lower range serves the next request it fits.
+        m.free(low);
+        assert_eq!(m.alloc(0x100), low);
+        // A freed block up there is reused, zero-filled, and counts as available again.
+        let room = m.heap_available();
+        m.free(a);
+        assert_eq!(m.heap_available(), room + 0x3000);
+        assert_eq!(m.alloc(0x3000), a);
+        assert_eq!(m.u32(a), 0, "zero-filled");
+        assert_eq!(m.heap_available(), room);
+        // Freeing the upper blocks merges them and brings the top back to the lower range.
+        m.free(a);
+        assert_eq!(m.heap.free_block_at(a), Some((a, 0x3000)));
+        m.free(b);
+        assert_eq!(m.heap.top(), HEAP_LOW_END);
+        assert_eq!(m.heap.free_blocks(), 0);
+        assert_eq!(m.heap_top(), b + 0x2000, "the peak stays");
+        m.check_heap();
+        m.free(filler);
+        assert_eq!(m.heap.top(), filler);
+        m.check_heap();
+        assert_eq!(m.alloc(0x3000), filler);
+    }
+
+    /// The rest of the lower range above the top, when it is too small for a request, becomes
+    /// a free block that later requests take; a block never spans the platform's addresses.
+    #[test]
+    fn the_lower_range_rest_stays_usable_after_the_move_up() {
+        let mut m = Mem::new();
+        let (filler, size) = m.fill_lower_range().unwrap();
+        m.free(filler);
+        assert_eq!(m.heap.top(), HEAP_BASE);
+        // Leave 0x2000 bytes at the end of the lower range.
+        let big = m.heap.take(size - 0x2000).unwrap();
+        m.live.insert(big, size - 0x2000);
+        let a = m.alloc(0x3000);
+        assert_eq!(a, HEAP_HIGH_BASE);
+        assert_eq!(
+            m.heap.free_block_at(HEAP_LOW_END - 0x2000),
+            Some((HEAP_LOW_END - 0x2000, 0x2000))
+        );
+        let b = m.alloc(0x1800);
+        assert_eq!(b, HEAP_LOW_END - 0x2000);
+        m.set_u32(b + 0x17fc, 0x0bad_f00d);
+        assert_eq!(m.u32(b + 0x17fc), 0x0bad_f00d);
+        assert!(
+            !m.is_mapped(HEAP_LOW_END),
+            "nothing of the heap is in the platform's area"
+        );
+        m.check_heap();
+        // Too big for the upper range: the heap is exhausted, not wrapped.
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            m.alloc(HEAP_END - HEAP_HIGH_BASE)
+        }));
+        assert!(panic_text(r).starts_with("heap exhausted"));
+    }
+
+    /// The freed-block check's words lie above the heap's upper range, so a pointer read from a
+    /// freed block there still faults and names the block.
+    #[test]
+    fn freed_words_lie_above_the_heap() {
+        for a in [HEAP_BASE, HEAP_LOW_END - 8, HEAP_HIGH_BASE, HEAP_END - 8] {
+            let w = freed_word(a);
+            assert!((HEAP_END..0xff00_0000).contains(&w), "{a:08x}: {w:08x}");
+        }
+        assert!(PLATFORM_AREA.contains(&HEAP_LOW_END) && !PLATFORM_AREA.contains(&HEAP_HIGH_BASE));
+        let mut m = Mem::new();
+        m.enable_freed_check(false);
+        m.fill_lower_range();
+        let a = m.alloc(0x40);
+        assert!(a >= HEAP_HIGH_BASE);
+        m.free(a);
+        assert_eq!(m.u32(a + 4), freed_word(a));
+        let named = m.freed_block_of(freed_word(a) + 4).unwrap();
+        assert!(named.contains(&format!("freed block {a:08x}")), "{named}");
+        assert!(!m.is_mapped(freed_word(a)));
     }
 
     /// A small pseudo-random generator (xorshift64) for the tests below.

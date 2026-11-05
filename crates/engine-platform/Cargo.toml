@@ -14,9 +14,10 @@ mp3 = { path = "../mp3" }
 vorbis = { path = "../vorbis" }
 
 # The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008, d3d9real.rs):
-# the real window, device and resources.
+# the real window, device and resources. Win32_System_SystemInformation: the machine's memory
+# for GlobalMemoryStatus(Ex) (process.rs).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
 
 # The tests of the C runtime's stdio that moved here (crt_stdio_tests.rs) and of the process side
 # use the core's addresses and helpers behind this feature.

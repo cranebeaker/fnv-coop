@@ -18,7 +18,18 @@ each function belongs to.
   Each `Mem` reserves one 4 GB block of host address space, so guest
   address `a` is host address `base + a`, with a byte per 4 KiB page just
   below it saying which pages are mapped; pages cost memory once mapped
-  (`mem.rs`).
+  (`mem.rs`). The guest space is that of a large-address-aware 32-bit
+  process on 64-bit Windows (what the community's 4 GB patch makes of
+  FalloutNV.exe): the heap has a lower range `0x20000000..0x7E000000` and an
+  upper one `0x80000000..0xF0000000` (about 3.2 GB together), the upper used
+  only once the lower cannot serve a request, so ordinary play places every
+  block as before; between them are the platform layer's own addresses
+  (`PLATFORM_AREA`: its COM objects' code addresses, module handles, the Bink
+  state page, D3DX handles), and above the heap the freed-block check's words
+  and room for reservations at a chosen address. `GetSystemInfo` answers the
+  4 GB process's highest address, 0xFFFEFFFF, and `GlobalMemoryStatus(Ex)` its
+  total virtual size, 0xFFFE0000. A stopgap: the modern systems lift the limit
+  for good. `mem.rs` has the whole layout.
 - **The exe's data**: `Engine::with_exe(path)` maps `.rdata`, `.data`,
   `.tls` and `CONST` of the player's installed FalloutNV.exe (checked
   against 1.4.0.525) at their addresses. Constants, strings, vtables and

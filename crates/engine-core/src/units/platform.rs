@@ -1154,7 +1154,9 @@ fn reserve(e: &mut Engine, address: u32, size: u32) -> Option<u32> {
     let (base, len, block) = if address == 0 {
         // From the Mem heap, aligned within an oversized block.
         let len = page_up(size as u64);
-        if len > (crate::mem::HEAP_END - crate::mem::HEAP_BASE) as u64 {
+        // A block lies in one of the heap's two ranges, so no reservation is bigger than the
+        // larger of them.
+        if len + ALLOCATION_GRANULARITY as u64 > crate::mem::HEAP_LARGEST_BLOCK as u64 {
             return None;
         }
         let len = len as u32;
@@ -1255,8 +1257,9 @@ fn set_committed(
 /// passes (`ScrapHeapManager`, `MemoryPool`, the CRT small-block heap):
 /// `MEM_RESERVE` at address 0 takes a 64 KiB-aligned range from the
 /// [`crate::Mem`] heap (as [`memory_manager_allocate`] does); at a chosen
-/// address it succeeds only where nothing is (not the image, the heap
-/// region, another reservation or mapped memory) and otherwise returns 0,
+/// address it succeeds only where nothing is (not the image, the heap's
+/// ranges and the platform's addresses between them, 0x20000000..0xF0000000,
+/// another reservation or mapped memory) and otherwise returns 0,
 /// which the memory pools' address search relies on. `MEM_COMMIT` commits
 /// whole pages inside a reservation (0 if the range is not inside one), or
 /// reserves and commits at address 0. Reserved pages that are not
@@ -2016,10 +2019,22 @@ fn get_current_process(_e: &mut Engine) -> u32 {
     CURRENT_PROCESS
 }
 
+/// `SYSTEM_INFO.lpMaximumApplicationAddress` of a large-address-aware 32-bit process on 64-bit
+/// Windows ([`get_system_info`]). A vanilla preset, once there is one, would answer 0x7ffeffff.
+pub const MAXIMUM_APPLICATION_ADDRESS: u32 = 0xfffe_ffff;
+const _: () = assert!(crate::mem::HEAP_END <= MAXIMUM_APPLICATION_ADDRESS);
+
 // Platform: replaces KERNEL32.DLL GetSystemInfo (import)
-/// Fills the 0x24-byte `SYSTEM_INFO` as 32-bit Windows does for this
-/// process: x86 (architecture 0), 4 KiB pages, application addresses
-/// 0x10000-0x7ffeffff, one mask bit per processor, the machine's number of
+/// Fills the 0x24-byte `SYSTEM_INFO` as 64-bit Windows does for this
+/// process, a large-address-aware 32-bit one (the 4 GB patch's FalloutNV.exe;
+/// the guest space is the whole 4 GB, `crate::mem`): x86 (architecture 0),
+/// 4 KiB pages, application addresses 0x10000-0xfffeffff (Windows' documented
+/// user space for such a process: 4 GB less the top 64 KB; was 0x7ffeffff, a
+/// plain 32-bit process's, until the heap took the upper half; no caller of
+/// the import in the exe reads either address: its six callers, `main`
+/// `0086a950`, `00aa1920`, `00cbb960`, `00d2d110`, `00d2d240` read the
+/// processor count and `009fb050` the granularity), one mask bit per
+/// processor, the machine's number of
 /// processors (as Windows reports the real machine; the game's Havok caps it,
 /// `hkBaseSystem` at 4, the job thread pool at 5), processor type 586
 /// (`PROCESSOR_INTEL_PENTIUM`), 64 KiB allocation granularity, level 6.
@@ -2032,7 +2047,7 @@ fn get_system_info(e: &mut Engine, out: Ptr) {
     e.mem.set_u32(p, 0); // wProcessorArchitecture, wReserved
     e.mem.set_u32(p + 0x04, PAGE_BYTES);
     e.mem.set_u32(p + 0x08, 0x0001_0000);
-    e.mem.set_u32(p + 0x0c, 0x7ffe_ffff);
+    e.mem.set_u32(p + 0x0c, MAXIMUM_APPLICATION_ADDRESS);
     e.mem.set_u32(
         p + 0x10,
         if processors == 32 {
@@ -2580,6 +2595,8 @@ mod tests {
         e.mem.map(0x1000, 0x1000);
         get_system_info(&mut e, Ptr::new(0x1000));
         assert_eq!(e.mem.u32(0x1004), 0x1000);
+        assert_eq!(e.mem.u32(0x1008), 0x1_0000);
+        assert_eq!(e.mem.u32(0x100c), 0xfffe_ffff, "4 GB: large address aware");
         let n = e.mem.u32(0x1014);
         assert!(n >= 1);
         assert_eq!(e.mem.u32(0x1010).count_ones(), n);
@@ -4046,6 +4063,12 @@ mod tests {
         // next 16 MiB step).
         assert_eq!(reserve(&mut e, 0x0100_0000), 0);
         assert_eq!(reserve(&mut e, 0x2000_0000), 0);
+        // The platform's addresses between the heap's ranges, and the upper range.
+        assert_eq!(reserve(&mut e, 0x7e00_0000), 0);
+        assert_eq!(reserve(&mut e, 0x8000_0000), 0);
+        assert_eq!(reserve(&mut e, 0xeff0_0000), 0);
+        // Above the heap: free.
+        assert_eq!(reserve(&mut e, 0xf000_0000), 0xf000_0000);
         assert_eq!(reserve(&mut e, 0x0200_0000), 0x0200_0000);
         assert_eq!(reserve(&mut e, 0x0201_0000), 0, "overlaps a reservation");
         e.mem.map(0x0300_0000, 4);

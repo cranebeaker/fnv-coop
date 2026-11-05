@@ -503,6 +503,16 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
         ),
         (
             k,
+            "GlobalMemoryStatus",
+            entry!(0, process::global_memory_status(Ptr)).1,
+        ),
+        (
+            k,
+            "GlobalMemoryStatusEx",
+            entry!(0, process::global_memory_status_ex(Ptr) -> u32).1,
+        ),
+        (
+            k,
             "HeapFree",
             entry!(0, process::heap_free(u32, u32, u32) -> u32).1,
         ),
@@ -816,8 +826,9 @@ mod tests {
                 "{dll} {name} is in the import table twice"
             );
         }
-        // The 195 of the table before the layer moved out of `engine-core` (6 are Windows only).
-        assert_eq!(table.len(), if cfg!(windows) { 195 } else { 189 });
+        // The 195 of the table before the layer moved out of `engine-core` (6 are Windows only),
+        // and `GlobalMemoryStatus(Ex)`.
+        assert_eq!(table.len(), if cfg!(windows) { 197 } else { 191 });
     }
 
     /// Not a check: the rows of `engine-core`'s `allocations_per_operation_of_the_kernel` whose

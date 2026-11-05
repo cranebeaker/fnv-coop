@@ -4,8 +4,23 @@
 //! it), so its addresses never had to match the exe's.
 //!
 //! The heap runs from [`HEAP_BASE`] up to its top ([`Heap::top`]). Below the top every byte is
-//! in a live block, a free block in a bin, or a block waiting in a quick stack. The policy is a
-//! two-level segregated fit (the scheme known as TLSF):
+//! in a live block, a free block in a bin, or a block waiting in a quick stack, except the
+//! platform's addresses between the heap's two ranges ([`super::PLATFORM_AREA`]):
+//!
+//! - The top starts in the lower range ([`HEAP_BASE`]..[`HEAP_LOW_END`]) and stays there
+//!   until a request finds no room in it after everything below has been tried (the bins, the
+//!   whole of its own bin, every block waiting in the quick stacks). Only then does the top
+//!   move to the upper range ([`HEAP_HIGH_BASE`]..[`HEAP_END`]): what was left of the lower
+//!   range goes into the bins as one free block, and the request is served from the new top.
+//!   So a run whose memory fits in the lower range places every block where it did before the
+//!   upper range existed, and afterwards the free blocks of the lower range still serve
+//!   requests first (the bins come before the top).
+//! - When the upper range empties again (a freed block brings the top down to
+//!   [`HEAP_HIGH_BASE`]), the top goes back to the lower range's end, taking in the free block
+//!   that ends there.
+//!
+//! A block never spans both ranges. The policy is a two-level segregated fit (the scheme known
+//! as TLSF):
 //!
 //! - Free blocks sit in bins by size: one bin per 8-byte size below [`EXACT_LIMIT`], then
 //!   [`SUB_BINS`] bins per power of two, each holding sizes within about 3% of one another. A
@@ -37,7 +52,7 @@
 //! are split by the address's [`REGION_BITS`] region ([`Regions`]), so that no single free
 //! rehashes every free block at once.
 
-use super::{HEAP_BASE, HEAP_END};
+use super::{HEAP_BASE, HEAP_END, HEAP_HIGH_BASE, HEAP_LOW_END};
 use crate::engine::AddrMap;
 use std::collections::VecDeque;
 
@@ -251,7 +266,9 @@ impl std::ops::IndexMut<usize> for Nodes {
 
 /// The heap's top and free space (see the module's description).
 pub(super) struct Heap {
-    /// The next fresh address: everything at or above it is unused.
+    /// The next fresh address: everything at or above it is unused. In the lower range
+    /// (at most [`HEAP_LOW_END`]) or, once that is full, in the upper one (above
+    /// [`HEAP_HIGH_BASE`]); never between them.
     top: u32,
     /// The highest the top has been.
     peak: u32,
@@ -342,8 +359,14 @@ impl Heap {
     /// it (newer, smaller blocks of its bin in front of it), the whole bin is searched. So the
     /// first batch that makes a fitting block, or lowers the top far enough, serves the request
     /// and the rest still wait; once none wait and none was made, nothing fits. A request that
-    /// fails notes what the quick stacks held ([`Heap::failed_flush`]).
+    /// fails notes what the quick stacks held ([`Heap::failed_flush`]). A request that fails
+    /// with the top still in the lower range moves it to the upper range ([`Heap::cross`]).
     fn take_free(&mut self, size: u32) -> Option<u32> {
+        self.take_in_range(size).or_else(|| self.cross(size))
+    }
+
+    /// [`Heap::take_free`] without moving the top to the upper range.
+    fn take_in_range(&mut self, size: u32) -> Option<u32> {
         if let Some(n) = self.fit(size, OWN_BIN_LOOK) {
             return Some(self.carve(n, size));
         }
@@ -461,16 +484,58 @@ impl Heap {
         start
     }
 
-    /// `size` fresh bytes at the top, or `None` past [`HEAP_END`].
+    /// `size` fresh bytes at the top, or `None` past the end of the top's range
+    /// ([`HEAP_LOW_END`] or [`HEAP_END`]).
     #[inline]
     fn grow(&mut self, size: u32) -> Option<u32> {
         let a = self.top;
-        if u64::from(a) + u64::from(size) > u64::from(HEAP_END) {
+        let end = if a <= HEAP_LOW_END {
+            HEAP_LOW_END
+        } else {
+            HEAP_END
+        };
+        if u64::from(a) + u64::from(size) > u64::from(end) {
             return None;
         }
         self.top = a + size;
         self.peak = self.peak.max(self.top);
         Some(a)
+    }
+
+    /// Moves the top from the lower range to the upper one for a request of `size` bytes that
+    /// the lower range cannot serve ([`Heap::take_in_range`] failed there): the rest of the
+    /// lower range, above the top, goes into the bins as a free block (merged with a free block
+    /// below it, which by then cannot be one in a bin: none ends at the top), and the request
+    /// is served at [`HEAP_HIGH_BASE`]. `None` when the top is already in the upper range or
+    /// the request is bigger than that range. A vanilla preset (a plain 32-bit process, not
+    /// built yet) would stop here: answer `None` so the heap ends at [`HEAP_LOW_END`].
+    #[cold]
+    #[inline(never)]
+    fn cross(&mut self, size: u32) -> Option<u32> {
+        if self.top > HEAP_LOW_END || size > HEAP_END - HEAP_HIGH_BASE {
+            return None;
+        }
+        let rest = self.top;
+        self.top = HEAP_HIGH_BASE;
+        if rest < HEAP_LOW_END {
+            self.release(rest, HEAP_LOW_END - rest);
+        }
+        self.grow(size)
+    }
+
+    /// Takes the free block in a bin that ends at `end` out of the bins, if there is one, and
+    /// answers where the free space ending at `end` starts (its start, else `end`): the top
+    /// comes down to it.
+    fn merge_below_top(&mut self, end: u32) -> u32 {
+        let Some(l) = self.by_end.remove(&end) else {
+            return end;
+        };
+        self.unlink(l);
+        let left = self.nodes[l as usize];
+        self.by_start.remove(&left.start);
+        self.free_bytes -= u64::from(left.size);
+        self.nodes.release(l);
+        left.start
     }
 
     /// Takes back the block `[addr, addr + size)`: into its quick stack when it is small,
@@ -552,21 +617,17 @@ impl Heap {
 
     /// Puts the block `[addr, addr + size)` into the bins, merged with the free blocks on
     /// either side, and answers the size of the free block that makes; a block that reaches the
-    /// top lowers the top instead (answering 0).
+    /// top lowers the top instead (answering 0). A top that comes down to the start of the
+    /// upper range goes back to the lower range's end and comes down further over the free block
+    /// that ends there.
     pub(super) fn release(&mut self, addr: u32, size: u32) -> u32 {
         let end = addr + size;
         if end == self.top {
             // No free block in a bin ends at the top, so only the left one can merge.
-            let mut start = addr;
-            if let Some(l) = self.by_end.remove(&addr) {
-                self.unlink(l);
-                let left = self.nodes[l as usize];
-                self.by_start.remove(&left.start);
-                self.free_bytes -= u64::from(left.size);
-                self.nodes.release(l);
-                start = left.start;
+            self.top = self.merge_below_top(addr);
+            if self.top == HEAP_HIGH_BASE {
+                self.top = self.merge_below_top(HEAP_LOW_END);
             }
-            self.top = start;
             return 0;
         }
         self.free_bytes += u64::from(size);
@@ -669,6 +730,17 @@ impl Heap {
         self.by_start.len()
     }
 
+    /// The bytes the heap can still hand out: its free blocks, the quick stacks and the fresh
+    /// space above the top, in both ranges.
+    pub(super) fn available(&self) -> u64 {
+        let fresh = if self.top <= HEAP_LOW_END {
+            u64::from(HEAP_LOW_END - self.top) + u64::from(HEAP_END - HEAP_HIGH_BASE)
+        } else {
+            u64::from(HEAP_END - self.top)
+        };
+        self.free_bytes + self.quick_bytes + fresh
+    }
+
     /// Bytes waiting in the quick stacks (only the tests ask; the engine reads the count
     /// through take_free's failed flush).
     #[cfg(test)]
@@ -713,6 +785,33 @@ impl Heap {
         binned.chain(waiting)
     }
 
+    /// Takes everything above the top, in both ranges, as one block per range (no guest
+    /// memory is touched: the heap is bookkeeping): the tests of a full heap. Answers the
+    /// blocks.
+    #[cfg(test)]
+    pub(super) fn take_rest(&mut self) -> Vec<(u32, u32)> {
+        let mut taken: Vec<_> = self.take_lower_rest().into_iter().collect();
+        if self.top <= HEAP_LOW_END {
+            let all = HEAP_END - HEAP_HIGH_BASE;
+            taken.push((self.cross(all).expect("the whole upper range"), all));
+        } else if self.top < HEAP_END {
+            let rest = HEAP_END - self.top;
+            taken.push((self.grow(rest).expect("the upper range's rest"), rest));
+        }
+        taken
+    }
+
+    /// Takes the rest of the lower range above the top as one block, when the top is there
+    /// and below its end (as [`Heap::take_rest`]).
+    #[cfg(test)]
+    pub(super) fn take_lower_rest(&mut self) -> Option<(u32, u32)> {
+        if self.top >= HEAP_LOW_END {
+            return None;
+        }
+        let rest = HEAP_LOW_END - self.top;
+        Some((self.grow(rest).expect("the lower range's rest"), rest))
+    }
+
     /// Turns the quick stacks off (tests of the bins alone).
     #[cfg(test)]
     pub(super) fn without_quick(mut self) -> Self {
@@ -732,7 +831,9 @@ impl Heap {
     /// quick stacks and the counts agree;
     /// no two free blocks in bins touch and none ends at the top; and the free blocks, the quick
     /// stacks and `held` (the live blocks and any held back by the freed-block check) cover
-    /// `[HEAP_BASE, top)` exactly, without overlap. Panics on the first disagreement.
+    /// `[HEAP_BASE, top)` exactly, without overlap, but for the platform's addresses between the
+    /// ranges (with the top in the upper range, the lower one is covered to its end). Panics on
+    /// the first disagreement.
     #[cfg(test)]
     pub(super) fn check(&self, held: impl IntoIterator<Item = (u32, u32)>) {
         let mut listed = 0;
@@ -797,6 +898,16 @@ impl Heap {
         let mut at = HEAP_BASE;
         let mut last_kind = 0;
         for &(a, s, kind) in &all {
+            if a >= HEAP_HIGH_BASE && at <= HEAP_LOW_END {
+                // The platform's addresses between the ranges: the lower range is covered to
+                // its end, and nothing touches across them.
+                assert_eq!(
+                    at, HEAP_LOW_END,
+                    "the lower range is covered to {at:08x} only"
+                );
+                at = HEAP_HIGH_BASE;
+                last_kind = 0;
+            }
             assert_eq!(
                 a, at,
                 "a gap or an overlap at {at:08x} (block {a:08x}+{s:x})"
@@ -815,6 +926,11 @@ impl Heap {
         );
         assert!(last_kind != 1, "a free block in a bin ends at the top");
         assert!(self.peak >= self.top);
+        assert!(
+            self.top <= HEAP_LOW_END || (self.top > HEAP_HIGH_BASE && self.top <= HEAP_END),
+            "the top {:08x} is outside the heap's ranges",
+            self.top
+        );
     }
 }
 
@@ -897,6 +1013,80 @@ mod tests {
         assert_eq!(h.top(), HEAP_BASE);
         h.check([]);
         // Fresh blocks come from the lowered top again.
+        assert_eq!(h.take(0x10), Some(HEAP_BASE));
+    }
+
+    /// The top stays in the lower range while anything there can serve a request, the quick
+    /// stacks included; only a request nothing there serves moves it to the upper range, and
+    /// the lower range's rest becomes a free block that later requests take first.
+    #[test]
+    fn the_top_moves_up_only_when_the_lower_range_cannot_serve() {
+        let mut h = Heap::new();
+        let a = h.take(0x40).unwrap();
+        let b = h.take(0x40).unwrap();
+        let room = HEAP_LOW_END - h.top() - 0x40;
+        let big = h.take(room).unwrap();
+        let mut held = vec![(big, room)];
+        assert_eq!(h.top(), HEAP_LOW_END - 0x40);
+        // 0x80 fits once the two waiting blocks merge: still the lower range.
+        h.give(a, 0x40);
+        h.give(b, 0x40);
+        assert_eq!(h.take(0x80), Some(a));
+        held.push((a, 0x80));
+        assert_eq!(
+            h.take(0x40),
+            Some(HEAP_LOW_END - 0x40),
+            "the top's last bytes"
+        );
+        held.push((HEAP_LOW_END - 0x40, 0x40));
+        assert_eq!(h.top(), HEAP_LOW_END);
+        h.check(held.iter().copied());
+        // Nothing in the lower range is left: the next request goes up.
+        assert_eq!(h.take(0x10), Some(HEAP_HIGH_BASE));
+        held.push((HEAP_HIGH_BASE, 0x10));
+        assert_eq!(h.top(), HEAP_HIGH_BASE + 0x10);
+        h.check(held.iter().copied());
+        // A request bigger than the upper range fails and leaves the heap as it was.
+        assert_eq!(h.take(HEAP_END - HEAP_HIGH_BASE), None);
+        assert_eq!(h.top(), HEAP_HIGH_BASE + 0x10);
+        h.check(held);
+    }
+
+    /// When the top moves up, the lower range's rest above it goes into the bins (merged with
+    /// nothing: the platform's addresses are not free space) and is taken before the top; the
+    /// upper range emptying brings the top back down over it.
+    #[test]
+    fn the_lower_range_rest_is_a_free_block_and_the_top_comes_back() {
+        let mut h = Heap::new().without_quick();
+        let room = HEAP_LOW_END - HEAP_BASE - 0x1000;
+        let big = h.take(room).unwrap();
+        let up = h.take(0x2000).unwrap();
+        assert_eq!(up, HEAP_HIGH_BASE);
+        let rest = HEAP_LOW_END - 0x1000;
+        assert_eq!(h.free_block_at(rest), Some((rest, 0x1000)));
+        h.check([(big, room), (up, 0x2000)]);
+        // The lower free block comes before the top.
+        assert_eq!(h.take(0x800), Some(rest));
+        let next = h.take(0x100).unwrap();
+        assert_eq!(next, rest + 0x800);
+        let high = h.take(0x1000).unwrap();
+        assert_eq!(high, up + 0x2000, "the lower block had no room left for it");
+        h.release(rest, 0x800);
+        h.release(next, 0x100);
+        h.check([(big, room), (up, 0x2000), (high, 0x1000)]);
+        // The upper range empties: the top goes back to the lower range's end and over the
+        // free block that ends there.
+        h.release(up, 0x2000);
+        assert_eq!(h.top(), HEAP_HIGH_BASE + 0x3000);
+        h.release(high, 0x1000);
+        assert_eq!(h.top(), rest);
+        assert_eq!(h.free_blocks(), 0);
+        assert_eq!(h.peak(), HEAP_HIGH_BASE + 0x3000);
+        h.check([(big, room)]);
+        h.release(big, room);
+        assert_eq!(h.top(), HEAP_BASE);
+        h.check([]);
+        // And the lower range is used first again.
         assert_eq!(h.take(0x10), Some(HEAP_BASE));
     }
 
@@ -1038,15 +1228,14 @@ mod tests {
         let mut h = Heap::new();
         let a = h.take(0x40).unwrap();
         let b = h.take(0x40).unwrap();
-        let rest = HEAP_END - h.top();
-        let c = h.take(rest).unwrap();
+        let rest = h.take_rest();
         assert_eq!(h.take(8), None);
         h.give(a, 0x40);
         h.give(b, 0x40);
         assert_eq!(h.quick_bytes(), 0x80);
         assert_eq!(h.take(0x80), Some(a));
         assert_eq!(h.quick_bytes(), 0);
-        h.check([(a, 0x80), (c, rest)]);
+        h.check([(a, 0x80)].into_iter().chain(rest.iter().copied()));
     }
 
     /// A request that only the waiting blocks can serve moves them to the bins a batch at a
@@ -1056,8 +1245,7 @@ mod tests {
         let mut h = Heap::new();
         let n = 2 * FLUSH_STEP + 2;
         let blocks: Vec<u32> = (0..n).map(|_| h.take(16).unwrap()).collect();
-        let rest = HEAP_END - h.top();
-        let last = h.take(rest).unwrap();
+        let rest = h.take_rest();
         assert_eq!(h.take(8), None);
         // Oldest first: the first batch is the first FLUSH_STEP blocks, which merge into one.
         for &a in &blocks {
@@ -1070,7 +1258,7 @@ mod tests {
             h.free_block_at(blocks[0] + 32),
             Some((blocks[0] + 32, FLUSH_STEP as u32 * 16 - 32))
         );
-        h.check([(blocks[0], 32), (last, rest)]);
+        h.check([(blocks[0], 32)].into_iter().chain(rest.iter().copied()));
         // A request the waiting blocks cannot serve moves all of them, then fails.
         assert_eq!(h.take(0x10_0000), None);
         assert_eq!(h.quick_blocks(), 0);
@@ -1078,7 +1266,7 @@ mod tests {
             h.failed_flush(),
             ((n - FLUSH_STEP) as u64 * 16, n - FLUSH_STEP)
         );
-        h.check([(blocks[0], 32), (last, rest)]);
+        h.check([(blocks[0], 32)].into_iter().chain(rest.iter().copied()));
     }
 
     /// A full heap whose quick stacks hold a 592-byte block X and the 8-byte block right after
@@ -1099,8 +1287,7 @@ mod tests {
         let little: Vec<u32> = (0..tiny)
             .map(|_| take_apart(&mut h, 8, &mut held))
             .collect();
-        let rest = HEAP_END - h.top();
-        held.push((h.take(rest).unwrap(), rest));
+        held.extend(h.take_rest());
         h.give(y, 8);
         h.give(x, 592);
         for &a in &small {
@@ -1210,8 +1397,7 @@ mod tests {
             held.push((h.take(8).unwrap(), 8));
         }
         assert_eq!(bin_of(592), bin_of(600));
-        let rest = HEAP_END - h.top();
-        held.push((h.take(rest).unwrap(), rest));
+        held.extend(h.take_rest());
         assert_eq!(h.take(8), None);
         // The 8-byte blocks between them keep the freed blocks apart.
         h.release(fitting, 600);
