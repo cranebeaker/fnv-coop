@@ -506,6 +506,7 @@ fn shot(cost: u16, chance: u16, damage: u16) -> VatsShot {
         cost,
         chance,
         damage,
+        blow: None,
     }
 }
 
@@ -567,6 +568,31 @@ fn vats_queue_message_produces_actor_hits_and_a_verdict() {
     assert_eq!(h.vats_hits.len(), results.iter().filter(|r| r.hit).count());
     let ids: std::collections::BTreeSet<u32> = h.vats_hits.iter().map(|x| x.hit).collect();
     assert_eq!(ids.len(), h.vats_hits.len(), "unique ledger ids");
+}
+
+/// #74: a named shot's hit carries its blow to the actor ledger, where the
+/// host counts it (`world::coop::blow_check`).
+#[test]
+fn a_named_vats_shot_carries_its_blow_to_the_ledger() {
+    let mut h = host();
+    h.vats.known_ap.insert(A, 100);
+    let blow = crate::actors::Blow {
+        by: None,
+        weapon: Some(FormId(0x0001_2345)),
+        part: Some(0),
+        flags: 0,
+        vats: Some(1),
+    };
+    let mut s = shot(10, 1000, 30);
+    s.blow = Some(blow);
+    let msg = CombatMsg::VatsQueue {
+        id: 6,
+        ap: 100,
+        shots: vec![s; 4],
+    };
+    h.on_msg(A, msg, 0, None, None, &party(2));
+    assert!(!h.vats_hits.is_empty());
+    assert!(h.vats_hits.iter().all(|x| x.blow == Some(blow)));
 }
 
 #[test]

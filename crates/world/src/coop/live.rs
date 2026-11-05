@@ -860,6 +860,9 @@ impl LiveHostAdapter {
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
         // a guest's hit requests: the friendly-fire guard, then the same ledger
+        // a guest's V.A.T.S. hits are that guest's hits: the same guard and count
+        live.hold_vats_hits = true;
+        self.held_hits.append(&mut live.held_vats_hits);
         let (pass, blocked) = self.guarded_hits(cx, gs);
         for (from, m) in pass {
             let m = self.recount(cx, gs, from, m);

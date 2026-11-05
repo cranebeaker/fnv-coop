@@ -149,6 +149,8 @@ pub struct VatsAsk {
     pub chance: u16,
     /// Damage.
     pub damage: u16,
+    /// What the shot is, for the host to count it (`VatsShot::blow`).
+    pub blow: Option<coop_core::actors::Blow>,
 }
 
 /// Counters for dumps and tests.
@@ -866,6 +868,7 @@ impl CombatBridge {
                     cost: a.cost,
                     chance: a.chance,
                     damage: a.damage,
+                    blow: a.blow,
                 })
                 .collect();
             f.stats.vats_sent += 1;
@@ -1629,12 +1632,24 @@ pub fn bot_line(
             if let (Some(target), Some(limb), Some(chance), Some(damage)) =
                 (arg(2).and_then(form), num(3), num(4), num(5))
             {
+                // The shot with the weapon in hand, at the body part, as
+                // the V.A.T.S. attack the weapon makes (`vats::attack_kind`,
+                // `0066dba0`): the host counts a hit from its own copy.
+                let weapon = crate::combat::weapon_in_hand(order, gs, PLAYER_REF);
+                let blow = coop_core::actors::Blow {
+                    by: None,
+                    weapon: weapon.as_ref().map(|w| cf(w.form_id)),
+                    part: Some(limb as u8),
+                    flags: 0,
+                    vats: Some(crate::vats::attack_kind(weapon.map(|w| w.animation))),
+                };
                 gs.coop.live.combat.vats.push(VatsAsk {
                     target,
                     limb: limb as u8,
                     cost: 20,
                     chance: chance as u16,
                     damage: damage as u16,
+                    blow: Some(blow),
                 });
             }
         }

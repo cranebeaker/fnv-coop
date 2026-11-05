@@ -1344,6 +1344,73 @@ mod named_blows {
         assert_eq!(r.ha.stats.blow_parts_dropped, 1);
     }
 
+    /// #74: a queued V.A.T.S. shot (the harness's `coop vats`) names its
+    /// blow: the weapon in hand, the body part and the attack kind of the
+    /// weapon. The host counts each hit from its own copy of the guest, as a
+    /// V.A.T.S. attack, and not the guest's 4000 points.
+    #[test]
+    fn the_host_counts_a_queued_vats_shot() {
+        let (_d, order) = order("blow-vats");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 35, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let part = 0u8;
+        let expected = r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(&order, g, PLAYER_REF).unwrap();
+            let saved = (g.vats.mode, g.vats.attack.take());
+            g.vats.mode = world::vats::mode::PLAYBACK;
+            g.vats.attack = Some(world::vats::AttackFacts {
+                weapon: Some(w.form_id),
+                target: gecko,
+                part_av: -1,
+                kind: world::vats::attack_kind(Some(w.animation)),
+                hit: true,
+                distance: 0.0,
+                paralyzing_palm: false,
+            });
+            let inputs = world::blow::BlowInputs {
+                attacker: PLAYER_REF,
+                target: gecko,
+                weapon: Some(&w),
+                part: Some(part),
+                power: false,
+                sneak: false,
+                critical: false,
+            };
+            let d = f64::from(world::blow::blow_damage(&order, g, inputs).dealt);
+            (g.vats.mode, g.vats.attack) = saved;
+            d
+        });
+        assert!(
+            expected >= 1.0 && expected < before,
+            "{expected} of {before}"
+        );
+        // the guest's own world holds the machete too
+        r.guests[0]
+            .equipped
+            .insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        let words = ["coop", "vats", "gecko", "0", "1000", "4000"];
+        assert!(world::coop::combat_live::bot_line(
+            &order,
+            &mut r.guests[0],
+            &words,
+            &|_| Some(gecko)
+        ));
+        let ask = r.guests[0].coop.live.combat.vats[0];
+        let blow = ask.blow.expect("a named shot");
+        assert_eq!(blow.weapon, Some(CForm(MACHETE)));
+        assert_eq!(blow.part, Some(part));
+        r.run_ms(5_000);
+        let results = &r.guests[0].coop.live.combat.vats_results;
+        assert_eq!(results.len(), 1, "the host answered the queue");
+        let hits = results[0].1.iter().filter(|x| x.hit).count();
+        assert_eq!(hits, 1, "seed 35 rolls a hit");
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(&r, before - after, expected, "the host's count of the shot");
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
     /// Mutation twin: without the host's count, the guest's number lands.
     #[test]
     fn mutation_twin_a_blow_with_no_name_keeps_the_guests_number() {

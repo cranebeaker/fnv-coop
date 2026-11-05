@@ -64,6 +64,13 @@ pub struct HostLive {
     /// A test session: the harness's teleports (`RoamMsg::TestWarp`) let
     /// their player's next samples jump. Off in a game.
     pub test_warps: bool,
+    /// A host world counts guests' hits (`world::coop::live`): the hits of a
+    /// guest's V.A.T.S. queue wait in [`Self::held_vats_hits`] and come back
+    /// as that guest's hits, as the guest's other hits do. Off: they go to
+    /// the ledger at once.
+    pub hold_vats_hits: bool,
+    /// The held V.A.T.S. hits, as `(guest, Msg::Actor(ActorMsg::Hit))`.
+    pub held_vats_hits: Vec<(PlayerId, Msg)>,
 }
 
 /// Whether the host sending `m` to `to` moves that player elsewhere (#74):
@@ -111,6 +118,8 @@ impl HostLive {
             avatar_seen: BTreeMap::new(),
             avatar_farewell: BTreeMap::new(),
             test_warps: false,
+            hold_vats_hits: false,
+            held_vats_hits: Vec::new(),
         };
         l.rules.on_join(PlayerId::HOST, 0);
         l.chat.set_name(PlayerId::HOST, "");
@@ -304,8 +313,13 @@ impl HostLive {
                 hit: h.hit,
                 amount: h.amount,
                 npc: None,
-                blows: Vec::new(),
+                // a named shot: the host counts it (`world::coop::blow_check`)
+                blows: h.blow.into_iter().collect(),
             };
+            if self.hold_vats_hits {
+                self.held_vats_hits.push((h.from, Msg::Actor(msg)));
+                continue;
+            }
             for o in self.actors.on_msg(h.from, msg, now_ms, cell, auth) {
                 note_attribution(&mut self.combat.attributions, &o.msg);
                 self.route(o.aud, Msg::Actor(o.msg), out);
