@@ -115,6 +115,9 @@ pub struct ActorView {
     pub target: u32,
     /// Dead per the host.
     pub dead: bool,
+    /// The owner's own last state says dead: its place is where the actor
+    /// died there (the host's death can come first).
+    pub owner_dead: bool,
 }
 
 /// One row of the actor table this machine knows (for the dump and tests).
@@ -908,6 +911,7 @@ fn collect_remote(
             health: st.health,
             target: st.target,
             dead: !rec.alive || st.flags & 1 != 0,
+            owner_dead: st.flags & 1 != 0,
         });
     }
     view.owned_actors = live.actors.owned().into_iter().map(wf).collect();
