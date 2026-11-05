@@ -588,6 +588,12 @@ impl Rig<'_> {
             self.guest.s.poll(DT);
         }
     }
+
+    fn frames_loading(&mut self, guest_polls: bool, n: u32) {
+        for _ in 0..n {
+            self.frame_loading(guest_polls);
+        }
+    }
 }
 
 /// The guest's viewer joins with `poll` only, then loads the cell for 12 s
@@ -637,6 +643,62 @@ fn a_line_said_while_the_guest_loads_still_arrives() {
             got.iter().any(|c| c.text == "said during your load")
         }),
         "the line reached the guest's view"
+    );
+}
+
+/// The guest's viewer joins with `poll` only, then loads the cell for 25 s
+/// without touching the link while a quest stage changes every second on the
+/// host. The host sends the join snapshot once and keeps the guest. Once the
+/// guest plays, deltas bring it up to date. Before, each send window that the
+/// loading guest did not ack made the host queue a new full snapshot.
+#[test]
+fn a_loading_guest_gets_one_snapshot_then_deltas() {
+    let data = testdata::dialogue::world("sl-load-hold");
+    let order = LoadOrder::from_data_dir(data.path(), &ActivePlugins::OfficialOnly).unwrap();
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, 0xB10, None);
+    let mut joined = false;
+    for _ in 0..2000 {
+        r.frame_loading(true);
+        if r.guest.s.host_place().is_some() && r.guest.s.is_connected() {
+            joined = true;
+            break;
+        }
+    }
+    assert!(joined, "the guest joined with polls only");
+    r.frames_loading(true, 10);
+    let snaps = r.host.s.status().snapshots;
+    assert!(snaps >= 1, "the join snapshot went out");
+    let quest = FormId(testdata::dialogue::ids::QUEST);
+    let per_s = (1.0 / DT) as u32;
+    for i in 0..25 * per_s {
+        if i % per_s == 0 {
+            r.host.gs.stages.insert(quest, (10 + i / per_s) as u16);
+        }
+        r.frame_loading(false);
+    }
+    assert_eq!(
+        r.host.s.status().snapshots,
+        snaps,
+        "no new snapshot for a guest that loads"
+    );
+    let left = r
+        .host
+        .s
+        .drain_events()
+        .into_iter()
+        .any(|e| matches!(e, coop_session::Event::PeerLeft(..)));
+    assert!(!left, "the host kept the loading guest");
+    assert!(
+        r.until(4000, |r| r.guest.gs.stages.get(&quest) == Some(&34)),
+        "the guest caught up: stage {:?}",
+        r.guest.gs.stages.get(&quest)
+    );
+    assert!(r.guest.s.is_connected(), "the guest is not lost");
+    assert_eq!(
+        r.host.s.status().snapshots,
+        snaps,
+        "deltas, not a new snapshot"
     );
 }
 

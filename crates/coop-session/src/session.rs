@@ -1229,7 +1229,12 @@ impl Session {
 
     fn tick_once(&mut self) {
         self.tick_no += 1;
+        let live = self.live.is_some();
         if let Some(h) = &mut self.host {
+            // a live guest that has not played yet still loads its first cell
+            for (id, p) in &h.peers {
+                h.sync.hold(*id, live && !p.in_game);
+            }
             for (to, m) in h.sync.tick() {
                 send_msg(&mut self.net, to, &m);
             }
