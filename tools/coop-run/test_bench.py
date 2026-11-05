@@ -58,6 +58,20 @@ class Metrics(unittest.TestCase):
         ag = bench.walk_agreement(owner, still, 0, 0.3)
         self.assertEqual(ag["moving"], [0, len(still)], "a walk animation on a player that stands")
 
+    def test_two_samples_close_in_time_do_not_make_a_standing_player_move(self):
+        # the player stands, but settles 3 units between two samples 0.02 s apart (150 u/s)
+        pts = [(0.0, [0.0, 0.0, 0.0]), (0.2, [0.0, 0.0, 0.0]), (0.22, [3.0, 0.0, 0.0])]
+        pts += [(round(0.22 + 0.2 * i, 3), [3.0, 0.0, 0.0]) for i in range(1, 10)]
+        owner = bench.Track(pts)
+        puppet = [(w, 0) for w, _ in pts]
+        ag = bench.walk_agreement(owner, puppet, 0, 0.3)
+        self.assertEqual(ag["moving"], [0, 0], "nobody moved")
+
+    def test_a_walk_finding_needs_enough_samples(self):
+        base = {"verdict": "pass", "av_anim_moving": 0.0}
+        self.assertEqual(bench.flags(dict(base, av_anim_n=1), {}), [])
+        self.assertEqual(len(bench.flags(dict(base, av_anim_n=bench.MIN_WALK_SAMPLES), {})), 1)
+
     def test_a_change_is_timed_on_the_other_machine_and_a_missing_one_is_lost(self):
         def tl(changes, end=10.0):
             out, cur = [], {"quests.Q.stage": 0}
@@ -114,10 +128,19 @@ class Metrics(unittest.TestCase):
                 (2.0, 30, "c", [[30, "c"], [20, "b"], [10, "a"]])]
         guest = [(0.5, 10, "a", None), (1.6, 20, "X", None)]
         h = bench.hash_metrics(host, guest)
-        self.assertAlmostEqual(h["lag_ms"][0], 500, delta=1)
-        self.assertAlmostEqual(h["lag_ms"][1], 600, delta=1)
+        # the host reached 11 at 0.1 s and 21 at 1.1 s
+        self.assertAlmostEqual(h["lag_ms"][0], 400, delta=1)
+        self.assertAlmostEqual(h["lag_ms"][1], 500, delta=1)
         self.assertEqual(h["checked"], 2)
         self.assertEqual(h["divergent"], 1)
+
+    def test_a_guest_with_the_hosts_newest_revision_has_no_lag(self):
+        # the host shows revision 7 until 2.0 s and 8 from 2.2 s
+        host = [(round(0.2 * i, 1), 7 if i <= 10 else 8, "a" if i <= 10 else "b", None) for i in range(13)]
+        guest = [(0.5, 7, "a", None), (1.9, 7, "a", None), (2.4, 7, "a", None), (2.4, 8, "b", None)]
+        h = bench.hash_metrics(host, guest)
+        self.assertEqual([round(x) for x in h["lag_ms"]], [0, 0, 200, 0])
+        self.assertEqual(h["divergent"], 0)
 
     def test_the_shared_values_leave_out_the_per_machine_ones(self):
         d = {"quests": {"Q": {"stage": 10}}, "scene": {"active": 1, "talk": {"clock_ms": 5}},

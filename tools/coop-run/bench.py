@@ -26,8 +26,9 @@ Metrics (per run, then per category and profile):
 - state: for each shared value (quest stages, player quest rows, deaths, dialogue scene, globals,
   factions, topics, map markers, combat targets ...), the time from a change on one machine to
   the same value on the other machine. A value that never arrives counts as "lost".
-- hash: how far the guest's shared-state revision is behind the host's, in ms, and samples
-  where the guest's hash differs from the host's at the same revision ("divergent").
+- hash: how long the host has had a shared-state revision that the guest does not have yet, in
+  ms, and samples where the guest's hash differs from the host's at the same revision
+  ("divergent").
 - net: relay bytes and packets a second each way, drops, RTT, desyncs, repairs, decode errors.
 - fps: each viewer's frame rate, and the time a control reply takes (about one frame).
 
@@ -80,7 +81,9 @@ CLOCK_GLOBALS = ("GameHour", "GameDaysPassed")
 # Dump keys that hold shared values. The others are per machine (counters, positions, status).
 SHARED_TOP = ("quests", "player_quests", "dead", "disabled", "globals", "topics", "notes", "map_markers",
               "karma", "reputations", "factions", "faction_relations", "objects", "time")
-SCENE_KEYS = ("active", "id", "phase", "kind")
+# `scene.active` counts the scenes a machine knows. `id`, `phase` and `kind` are the machine's own main
+# scene: a player outside a scene has none, so they are not shared values.
+SCENE_KEYS = ("active",)
 # `campaign.down` and the other campaign rows are the host's own bookkeeping (the scenarios check
 # them on the host only). The xp rows are mirrored.
 CAMPAIGN_KEYS = ("xp",)
@@ -90,6 +93,10 @@ LAG_MAX_MS = 1000
 LAG_STEP_MS = 20
 MOVE_MIN = 120.0  # an owner track shorter than this (game units) gives no lag estimate
 MOVING_SPEED = 40.0  # units a second: an avatar faster than this is moving
+# A walk step spans at least this long: two samples close in time make a small settle look fast.
+MIN_STEP_S = 0.15
+# A run's avatar walk agreement is a finding only with at least this many samples.
+MIN_WALK_SAMPLES = 5
 END_GRACE_S = 2.0  # a change this close to the end that did not arrive is "late", not "lost"
 
 
@@ -358,12 +365,14 @@ def walk_agreement(owner, replica_anims, lag_ms, window_s):
     out = {"moving": [0, 0], "teleports": [0, 0]}
     ws, ps = owner.ws, owner.ps
     steps = []  # (w at the end of the step, moving, teleport)
+    j = 0  # the start of the step (a step spans at least MIN_STEP_S)
     for i in range(1, len(ws)):
-        dt = ws[i] - ws[i - 1]
-        if dt <= 0:
+        dt = ws[i] - ws[j]
+        if dt < MIN_STEP_S:
             continue
-        d = math.hypot(ps[i][0] - ps[i - 1][0], ps[i][1] - ps[i - 1][1])
+        d = math.hypot(ps[i][0] - ps[j][0], ps[i][1] - ps[j][1])
         steps.append((ws[i], d / dt > MOVING_SPEED, d > TELEPORT_STEP))
+        j = i
     sws = [x[0] for x in steps]
     shift = (lag_ms or 0) / 1000.0
     for w, bits in replica_anims:
@@ -501,8 +510,10 @@ def propagation(tl):
 
 
 def hash_metrics(host, guest):
-    """host, guest: [(w, rev, shared, recent)]. The guest's revision lag behind the host in ms
-    (interpolated on the host's revision curve) and the divergent samples: the guest's hash is not
+    """host, guest: [(w, rev, shared, recent)]. The guest's revision lag in ms: how long the host has
+    had a revision newer than the guest's (the moment the host reached rev + 1, interpolated on the
+    host's revision curve). A guest with the host's newest revision has no lag, however long the
+    host keeps that revision. And the divergent samples: the guest's hash is not
     the host's root at the guest's revision, and not a root of a revision next to it either (a
     dump can label its hash one revision early: "label_skew")."""
     lags = []
@@ -512,16 +523,19 @@ def hash_metrics(host, guest):
     for w, rev, shared, _ in guest:
         if not isinstance(rev, int):
             continue
-        # the moment the host reached rev
+        # the moment the host reached rev + 1: from then on the guest is behind
+        nxt = rev + 1
         for i in range(len(host)):
-            if isinstance(host[i][1], int) and host[i][1] >= rev:
-                if i == 0:
-                    wh = host[0][0]
+            if isinstance(host[i][1], int) and host[i][1] >= nxt:
+                (w0, r0), (w1, r1) = host[max(0, i - 1)][:2], host[i][:2]
+                if i == 0 or not isinstance(r0, int) or r1 == r0:
+                    wh = w1
                 else:
-                    (w0, r0), (w1, r1) = host[i - 1][:2], host[i][:2]
-                    wh = w1 if r1 == r0 else w0 + (rev - r0) / float(r1 - r0) * (w1 - w0)
+                    wh = w0 + (nxt - r0) / float(r1 - r0) * (w1 - w0)
                 lags.append(max(0.0, (w - wh) * 1000))
                 break
+        else:
+            lags.append(0.0)  # the host has no newer revision
         # the host's root at that revision, from the host sample next to w
         j = min(len(host) - 1, max(0, bisect.bisect_left(hws, w)))
         for h in host[max(0, j - 2):j + 3]:
@@ -752,6 +766,7 @@ def summarize_run(res, verdict, relay, meta):
         "av_comp_p50": r1(pct(a["comp"], 50)), "av_comp_p95": r1(pct(a["comp"], 95)),
         "av_lag_ms": r1(max(a["lags"]) if a["lags"] else None), "av_present": r1(100 * ratio(a["present"])) if a["present"][1] else None,
         "av_anim_moving": r1(100 * ratio(a["moving"])) if a["moving"][1] else None,
+        "av_anim_n": a["moving"][1],
     })
     arrived = [e["ms"] for e in res["state"] if e["state"] == "arrived"]
     out.update({
@@ -923,6 +938,8 @@ def flags(summary, res):
         if summary.get(key) is not None and summary[key] < limit:
             out.append("%s %.1f %% (under %d %%)" % (label, summary[key], limit))
     for key, label in (("npc_anim_all", "NPC animation agreement"), ("av_anim_moving", "avatar walk animation agreement")):
+        if key == "av_anim_moving" and (summary.get("av_anim_n") or 0) < MIN_WALK_SAMPLES:
+            continue  # a few samples are no measure
         if summary.get(key) is not None and summary[key] < 80:
             out.append("%s %.1f %% (under 80 %%)" % (label, summary[key]))
     return out
