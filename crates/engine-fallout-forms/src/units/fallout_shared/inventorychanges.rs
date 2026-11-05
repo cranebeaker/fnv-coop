@@ -3532,11 +3532,13 @@ pub fn fn_004c0cf0(
 
 // Translated from 004c1c40 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Deletes the scratch `TESObjectREFR` (`InventoryChanges::pTempRef`, Xbox
-/// PDB, a global) through its scalar deleting destructor and clears the
-/// global.
+/// PDB, a global) through its deleting destructor, slot 0x10 as for every
+/// reference (004c1c6d), and clears the global.
 pub fn fn_004c1c40(e: &mut Engine) {
     let temp_ref = e.global::<u32>(TEMP_REF_GLOBAL);
-    delete_object(e, temp_ref);
+    if temp_ref != 0 {
+        e.vcall(temp_ref, 0x10, &args![1u32]);
+    }
     e.mem.set_u32(TEMP_REF_GLOBAL, 0);
 }
 
@@ -14670,11 +14672,13 @@ mod tests {
         e.mem.set_u32(temp, VTABLE);
         e.mem.set_u32(TEMP_REF_GLOBAL, temp);
         e.call(0x004c1c40, &args![]);
-        assert_eq!(calls(&e, DESTRUCTOR), vec![vec![temp, 1]]);
+        // 004c1c6d: slot 0x10 (this fake vtable's `BASE_HEALTH` word), not slot 0.
+        assert_eq!(calls(&e, BASE_HEALTH), vec![vec![temp, 1]]);
+        assert!(calls(&e, DESTRUCTOR).is_empty());
         assert_eq!(e.mem.u32(TEMP_REF_GLOBAL), 0);
         // Nothing to delete the second time.
         e.call(0x004c1c40, &args![]);
-        assert_eq!(calls(&e, DESTRUCTOR).len(), 1);
+        assert_eq!(calls(&e, BASE_HEALTH).len(), 1);
     }
 
     #[test]

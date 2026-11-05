@@ -985,9 +985,11 @@ pub fn message_menu_load_next_message(e: &mut Engine, this: Ptr<MessageMenu>) {
             set_int(e, title_tile, TRAIT_VISIBLE, 0);
         }
 
-        // The buttons.
+        // The buttons. The list is emptied first on every message (007a9648..007a9654, slot
+        // 0x1c, unguarded): an empty list only has its counts and highlight cleared.
         let mut widest = 0i32;
         let mut button_heights = 0.0f32;
+        e.vcall(this + 0x40, 0x1c, &args![]);
         let buttons_text = c_str(e, cur.at(MessageMenuEntry::strButtonsText));
         if buttons_text != 0 {
             let list = local(0x17c);
@@ -2982,6 +2984,23 @@ mod tests {
         let ints = calls(&e, SET_TRAIT_FROM_INT);
         assert!(ints.contains(&vec![0x6200, 0xfb7, 1]));
         assert_eq!(e.global::<u8>(WARNING_STATE_FLAG_0119F348), 1);
+    }
+
+    /// 007a9648..007a9654: the list box is emptied (slot 0x1c) on every message, before its
+    /// buttons are read (007a965c), so a queued message does not keep the last one's buttons.
+    #[test]
+    fn load_next_message_empties_the_list_before_reading_the_buttons() {
+        let (mut e, m, object) = load_world(false);
+        e.call(0x007a_92e0, &args![m]);
+        assert_eq!(calls(&e, 0x0ac1_0007), vec![vec![m.addr() + 0x40]]);
+        let log = e.call_log.as_ref().unwrap();
+        let emptied = log.iter().position(|(a, _)| *a == 0x0ac1_0007).unwrap();
+        let buttons = object.addr() + 0x14;
+        let read = log
+            .iter()
+            .position(|(a, words)| *a == STRING_C_STR && words[0] == buttons)
+            .unwrap();
+        assert!(emptied < read);
     }
 
     #[test]

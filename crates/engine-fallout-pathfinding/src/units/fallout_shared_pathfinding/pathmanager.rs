@@ -2472,15 +2472,16 @@ mod remaining_tests {
             left_by_double.set(left_by_double.get() + 1);
             Ret::default()
         });
-        e.register(0x004f_d3e0, |_, _| value(6));
+        // Five a pass: a total of exactly ten must continue (006ea438 JLE), so three passes.
+        e.register(0x004f_d3e0, |_, _| value(5));
         let destroyed = Rc::new(Cell::new(0));
         let destroyed_by_double = destroyed.clone();
         e.register_double(0x006e_62b0, move |_, _| {
             destroyed_by_double.set(destroyed_by_double.get() + 1);
             Ret::default()
         });
-        assert_eq!(fn_006ea350(&mut e, Ptr::new(task)), 12);
-        assert_eq!(destroyed.get(), 2);
+        assert_eq!(fn_006ea350(&mut e, Ptr::new(task)), 15);
+        assert_eq!(destroyed.get(), 3);
         assert_eq!(left.get(), 1);
     }
 

@@ -1106,7 +1106,8 @@ pub fn slot_machine_menu_prepare_3d_elements(e: &mut Engine, this: Ptr<SlotMachi
     fn_007c40b0(e, this);
 }
 
-/// `ActivateSequence(sequence, 0, 0, 1.0, 0.0, 0)` on a given manager.
+/// `ActivateSequence(sequence, 0, 1, 1.0, 0.0, 0)` on a given manager (7c1eee, 7c205c: the
+/// third word is 1, so 00a34f20 sets the sequence's +0x48 to -FLT_MAX).
 fn activate_on(e: &mut Engine, manager: u32, sequence: u32) {
     e.call(
         ACTIVATE_SEQUENCE_0047AAB0,
@@ -1114,7 +1115,7 @@ fn activate_on(e: &mut Engine, manager: u32, sequence: u32) {
             manager,
             sequence,
             0u32,
-            0u32,
+            1u32,
             1.0f32.to_bits(),
             0.0f32.to_bits(),
             0u32
@@ -2778,7 +2779,12 @@ mod n058_tests {
         assert_eq!(e.mem.u32(menu + 0x144), 0x00ab_6000);
         assert_eq!(e.mem.u32(menu + REEL_ANIMATIONS + 8), 0x00ab_6000);
         // The machine's lever and the three reels start.
-        assert_eq!(calls_to(&e, ACTIVATE_SEQUENCE_0047AAB0).len(), 4);
+        let activated = calls_to(&e, ACTIVATE_SEQUENCE_0047AAB0);
+        assert_eq!(activated.len(), 4);
+        for call in &activated {
+            // 7c1eee and 7c205c: (sequence, 0, 1, 1.0, 0.0, 0).
+            assert_eq!(call[2..], [0, 1, 1.0f32.to_bits(), 0, 0]);
+        }
         assert_eq!(calls_to(&e, START_ANIMATIONS).len(), 4);
         let lights = calls_to(&e, ADD_ALL_LIGHTS_FROM_NODE);
         assert_eq!(lights[0][1..], [model, 6.0f32.to_bits()]);

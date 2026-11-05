@@ -8024,8 +8024,8 @@ fn idle_input(e: &mut Engine, this: Ptr<CaravanMenu>, input: &mut IdleInput) {
 /// (`004b71d0`), a release of the meter (`pim`'s float +0x48 back to 0.0
 /// after a press, `iPrevValue` the value at the press) moves by the
 /// difference (states 5 or 6 for 1 to 4 steps, 8 or 9 for more), and a
-/// press records the value and `00747d00`'s position. In state 0 the
-/// pending key or stick steps the meter by x every 0.25 s.
+/// press records the value and `00747d00`'s position. In state 0, only when
+/// `004b71d0` is false, the pending key or stick steps the meter by x every 0.25 s.
 fn idle_deck_input(e: &mut Engine, this: Ptr<CaravanMenu>, input: &mut IdleInput) {
     let menu = this.addr();
     if input.x != 0 {
@@ -8095,6 +8095,10 @@ fn idle_deck_input(e: &mut Engine, this: Ptr<CaravanMenu>, input: &mut IdleInput
                 e.set(this, CaravanMenu::iPrevXLocation, position);
             }
         }
+    } else {
+        // 0074728b JNZ 0074779f: the rest of the deck input is skipped; `idle_input` goes on
+        // to `idle_refresh`, the exe's tail at 00747c72.
+        return;
     }
     if e.get(this, CaravanMenu::eGameState) != 0 {
         return;
@@ -11203,6 +11207,32 @@ mod n052_tests {
         do_idle(&mut e, this);
         assert_eq!(e.get(this, CaravanMenu::eGameState), 9);
         assert_eq!(e.get(this, CaravanMenu::iPrevValue), 7);
+    }
+
+    /// 0074728b: in gamepad mode (004b71d0 true) a stick y past the dead zone in state 0 must
+    /// not reach the pending key or the repeat timer; only the tail (00747c72) runs.
+    #[test]
+    fn do_idle_deck_input_in_gamepad_mode_skips_the_rest() {
+        let (mut e, this) = idle_engine();
+        let menu = this.addr();
+        e.set(this, CaravanMenu::eActiveMenu, 1);
+        idle_at(&mut e, this, 0, 0.0);
+        e.register(KEYS_BLOCKED_004B71D0, |_, _| ret(1));
+        e.register(CONTROLS_AXIS_00A23390, |_, a| {
+            ret(if a[2] == 8 { 20000 } else { 0 })
+        });
+        e.register(FLOAT_MAGNITUDE_00408820, |_, a| {
+            ret_f(f64::from(f32::from_bits(a[0]).abs()))
+        });
+        e.register(GET_FLOAT_TRAIT, |_, _| ret_f(7.0));
+        let deck: Vec<u32> = (0..13).map(|_| card(&mut e, 1, 1, 0)).collect();
+        fill_array(&mut e, menu + DECK_ARRAY, &deck);
+        e.mem.set_u32(menu + SELECTION_DELAY, 0.5f32.to_bits());
+        e.mem.set_u32(menu + PENDING_KEY, KEY_UP);
+        do_idle(&mut e, this);
+        assert_eq!(e.mem.u32(menu + SELECTION_DELAY), 0.5f32.to_bits());
+        assert_eq!(e.mem.u32(menu + PENDING_KEY), KEY_UP);
+        assert_eq!(e.get(this, CaravanMenu::eGameState), 0);
     }
 
     #[test]
