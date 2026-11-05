@@ -15,10 +15,11 @@
 //!
 //! The code is unoptimized (every field written in source order). The
 //! functions with an exception frame are partial: the frame and its unwind
-//! states (and in `00b02ef0` the two catch handlers) are not translated.
+//! states are not translated. `00b02ef0`'s two catch handlers are (ADR-0013).
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_speedtree::units::speedtree::speedtreert::speedtree_try;
 
 layout! {
     /// `CSpeedTreeRT::SGeometry::SIndexed` (Xbox PDB), 0x38 bytes.
@@ -431,8 +432,10 @@ fn allocate_and_construct(e: &mut Engine, size: u32, constructor: u32, args: &[u
     e.call(constructor, &words).u32()
 }
 
+/// The name the constructor's catch blocks report: `"CSpeedTreeRT::CSpeedTreeRT( )"`.
+const NAME_CONSTRUCTOR: u32 = 0x010a_4934;
+
 // Translated from 00b02ef0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b02ef0 - the exception frame (FS:[0] handler 00f23a59, unwind states 0 to 9 that free a block whose constructor threw) and the two catch handlers (00b03582 and 00b0361a, which format the caught exception's message) are not translated.
 /// Builds a `CSpeedTreeRT` (`this` in ECX, returns `this`). The fields
 /// first: the six engine pointers 0, `m_eLeafLodMethod` 1, the three leaf
 /// LOD floats from `0104eab4`, `01018238`, `01016248`,
@@ -459,6 +462,11 @@ fn allocate_and_construct(e: &mut Engine, size: u32, constructor: u32, args: &[u
 ///
 /// The member names follow the Xbox PDB layout; the constructors' classes
 /// other than `CFrondEngine` are not confirmed.
+///
+/// From the first member on the exe's try states run (ADR-0013): a C++ exception under them is
+/// reported through `SetError` (catch blocks `00b03582` and `00b0361a`) and the tree comes back
+/// as far as it got. The block of a member whose constructor threw is not freed (the exe's unwind
+/// states 1 to 9 free it): a leak, on a path that needs a constructor to throw.
 pub fn fn_00b02ef0(e: &mut Engine, this: Ptr<SpeedTree>) -> Ptr<SpeedTree> {
     e.set(this, SpeedTree::m_pEngine, 0);
     e.set(this, SpeedTree::m_pBranchGeometry, 0);
@@ -492,67 +500,70 @@ pub fn fn_00b02ef0(e: &mut Engine, this: Ptr<SpeedTree>) -> Ptr<SpeedTree> {
     e.set(this, SpeedTree::m_b360Billboard, 0);
     e.set(this, SpeedTree::m_bHorizontalBillboard, 0);
 
-    let wind = allocate_and_construct(e, 0x44, WIND_ENGINE_CONSTRUCTOR, &[]);
-    e.set(this, SpeedTree::m_pWindEngine, wind);
-    let wind = e.get(this, SpeedTree::m_pWindEngine);
-    let branches = allocate_and_construct(e, 400, INDEXED_GEOMETRY_CONSTRUCTOR, &[wind, 0]);
-    e.set(this, SpeedTree::m_pBranchGeometry, branches);
-    let branches = e.get(this, SpeedTree::m_pBranchGeometry);
-    let engine = allocate_and_construct(e, 0x128, TREE_ENGINE_CONSTRUCTOR, &[branches]);
-    e.set(this, SpeedTree::m_pEngine, engine);
-    let lighting = allocate_and_construct(e, 0xb0, LIGHTING_ENGINE_CONSTRUCTOR, &[]);
-    e.set(this, SpeedTree::m_pLightingEngine, lighting);
-    let wind = e.get(this, SpeedTree::m_pWindEngine);
-    let leaf_geometry = allocate_and_construct(e, 0x30, LEAF_GEOMETRY_CONSTRUCTOR, &[wind]);
-    e.set(this, SpeedTree::m_pLeafGeometry, leaf_geometry);
-    let billboard = allocate_and_construct(e, 0x34, SIMPLE_BILLBOARD_CONSTRUCTOR, &[]);
-    e.set(this, SpeedTree::m_pSimpleBillboard, billboard);
+    speedtree_try(e, NAME_CONSTRUCTOR, |e| {
+        let wind = allocate_and_construct(e, 0x44, WIND_ENGINE_CONSTRUCTOR, &[]);
+        e.set(this, SpeedTree::m_pWindEngine, wind);
+        let wind = e.get(this, SpeedTree::m_pWindEngine);
+        let branches = allocate_and_construct(e, 400, INDEXED_GEOMETRY_CONSTRUCTOR, &[wind, 0]);
+        e.set(this, SpeedTree::m_pBranchGeometry, branches);
+        let branches = e.get(this, SpeedTree::m_pBranchGeometry);
+        let engine = allocate_and_construct(e, 0x128, TREE_ENGINE_CONSTRUCTOR, &[branches]);
+        e.set(this, SpeedTree::m_pEngine, engine);
+        let lighting = allocate_and_construct(e, 0xb0, LIGHTING_ENGINE_CONSTRUCTOR, &[]);
+        e.set(this, SpeedTree::m_pLightingEngine, lighting);
+        let wind = e.get(this, SpeedTree::m_pWindEngine);
+        let leaf_geometry = allocate_and_construct(e, 0x30, LEAF_GEOMETRY_CONSTRUCTOR, &[wind]);
+        e.set(this, SpeedTree::m_pLeafGeometry, leaf_geometry);
+        let billboard = allocate_and_construct(e, 0x34, SIMPLE_BILLBOARD_CONSTRUCTOR, &[]);
+        e.set(this, SpeedTree::m_pSimpleBillboard, billboard);
 
-    let sizes = e
-        .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 0x1cu32])
-        .u32();
-    e.set(this, SpeedTree::m_pTreeSizes, sizes);
-    let count = e
-        .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 4u32])
-        .u32();
-    e.set(this, SpeedTree::m_pInstanceRefCount, count);
-    let count = e.get(this, SpeedTree::m_pInstanceRefCount);
-    e.mem.set_u32(count, 1);
+        let sizes = e
+            .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 0x1cu32])
+            .u32();
+        e.set(this, SpeedTree::m_pTreeSizes, sizes);
+        let count = e
+            .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 4u32])
+            .u32();
+        e.set(this, SpeedTree::m_pInstanceRefCount, count);
+        let count = e.get(this, SpeedTree::m_pInstanceRefCount);
+        e.mem.set_u32(count, 1);
 
-    let list = e
-        .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 0x18u32])
-        .u32();
-    if list != 0 {
-        e.call(INSTANCE_LIST_CONSTRUCTOR, &args![list]);
-    }
-    e.set(this, SpeedTree::m_pInstanceList, list);
-    let fronds = allocate_and_construct(e, 0x84, FROND_ENGINE_CONSTRUCTOR, &[]);
-    e.set(this, SpeedTree::m_pFrondEngine, fronds);
-    let wind = e.get(this, SpeedTree::m_pWindEngine);
-    let frond_geometry = allocate_and_construct(e, 400, INDEXED_GEOMETRY_CONSTRUCTOR, &[wind, 1]);
-    e.set(this, SpeedTree::m_pFrondGeometry, frond_geometry);
+        let list = e
+            .call(MEMORY_MANAGER_ALLOCATE, &args![MEMORY_MANAGER, 0x18u32])
+            .u32();
+        if list != 0 {
+            e.call(INSTANCE_LIST_CONSTRUCTOR, &args![list]);
+        }
+        e.set(this, SpeedTree::m_pInstanceList, list);
+        let fronds = allocate_and_construct(e, 0x84, FROND_ENGINE_CONSTRUCTOR, &[]);
+        e.set(this, SpeedTree::m_pFrondEngine, fronds);
+        let wind = e.get(this, SpeedTree::m_pWindEngine);
+        let frond_geometry =
+            allocate_and_construct(e, 400, INDEXED_GEOMETRY_CONSTRUCTOR, &[wind, 1]);
+        e.set(this, SpeedTree::m_pFrondGeometry, frond_geometry);
 
-    e.call(ENTER_CRITICAL_SECTION, &args![TREE_LIST_SECTION]);
-    e.with_stack(4, |e, local| {
-        e.mem.set_u32(local.addr(), this.addr());
-        e.call(TREE_LIST_ADD, &args![TREE_LIST, local]);
+        e.call(ENTER_CRITICAL_SECTION, &args![TREE_LIST_SECTION]);
+        e.with_stack(4, |e, local| {
+            e.mem.set_u32(local.addr(), this.addr());
+            e.call(TREE_LIST_ADD, &args![TREE_LIST, local]);
+        });
+        let trees = e.mem.u32(TREE_COUNT);
+        e.mem.set_u32(TREE_COUNT, trees.wrapping_add(1));
+        e.call(LEAVE_CRITICAL_SECTION, &args![TREE_LIST_SECTION]);
+        let lighting = e.get(this, SpeedTree::m_pLightingEngine);
+        e.mem.set_u32(LAST_LIGHTING_ENGINE, lighting);
+
+        for (k, value) in [0.0f32, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
+            .into_iter()
+            .enumerate()
+        {
+            let sizes = e.get(this, SpeedTree::m_pTreeSizes);
+            e.mem.set_f32(sizes + 4 * k as u32, value);
+        }
+        for k in 0..HORIZONTAL_COORD_COUNT {
+            e.mem.set_f32(this.addr() + HORIZONTAL_COORDS + 4 * k, 0.0);
+        }
     });
-    let trees = e.mem.u32(TREE_COUNT);
-    e.mem.set_u32(TREE_COUNT, trees.wrapping_add(1));
-    e.call(LEAVE_CRITICAL_SECTION, &args![TREE_LIST_SECTION]);
-    let lighting = e.get(this, SpeedTree::m_pLightingEngine);
-    e.mem.set_u32(LAST_LIGHTING_ENGINE, lighting);
-
-    for (k, value) in [0.0f32, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
-        .into_iter()
-        .enumerate()
-    {
-        let sizes = e.get(this, SpeedTree::m_pTreeSizes);
-        e.mem.set_f32(sizes + 4 * k as u32, value);
-    }
-    for k in 0..HORIZONTAL_COORD_COUNT {
-        e.mem.set_f32(this.addr() + HORIZONTAL_COORDS + 4 * k, 0.0);
-    }
     this
 }
 
@@ -860,6 +871,60 @@ mod tests {
         for k in 0..12 {
             assert_eq!(e.mem.u32(t + 0x70 + 4 * k), 0);
         }
+    }
+
+    #[test]
+    fn tree_constructor_catches_a_throw_and_gives_the_tree_back() {
+        let (mut e, log) = tree_engine(&[]);
+        // The tree engine's constructor throws a std::exception through the engine's throw.
+        let info = e.mem.alloc(0x10);
+        engine_core::cxx_exception::write_throw_info(
+            &mut e,
+            info,
+            0,
+            &[b".?AVbad_alloc@std@@", STD_EXCEPTION_NAME],
+        );
+        let what = 0x0505_0010;
+        e.register(what, |_, _| 0x7777u32.into_ret());
+        let vtable = e.mem.alloc(8);
+        e.mem.set_u32(vtable + 4, what);
+        let object = e.mem.alloc(0xc);
+        e.mem.set_u32(object, vtable);
+        e.register_double(TREE_ENGINE_CONSTRUCTOR, move |e, _| {
+            engine_core::cxx_exception::throw(e, object, info)
+        });
+        // What the catch block calls.
+        let (format, set_error_length, assign, tidy) = (
+            0x00b1_8860u32,
+            0x00ec_6130u32,
+            0x0044_a7f0u32,
+            0x0044_a730u32,
+        );
+        for address in [format, set_error_length, assign, tidy] {
+            let log = log.clone();
+            e.register_double(address, move |_, a| {
+                log.borrow_mut().push((address, a.to_vec()));
+                Ret::default()
+            });
+        }
+        let this = dirty(&mut e, 0xa0);
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        let answer = e.call(0x00b0_2ef0, &args![this]).u32();
+        assert_eq!(answer, this);
+        assert_eq!(e.guest_stack_mark(), mark);
+        assert!(e.call_stack.is_empty());
+        // The members before the throw are there; the critical section was not reached.
+        let t = Ptr::<SpeedTree>::new(this);
+        assert_ne!(e.get(t, SpeedTree::m_pWindEngine), 0);
+        assert_eq!(e.get(t, SpeedTree::m_pEngine), 0);
+        let calls = log.borrow();
+        assert!(!calls.iter().any(|c| c.0 == ENTER_CRITICAL_SECTION));
+        // `"%s - failed [%s]"` with the constructor's name and `what()`.
+        let formatted = calls.iter().find(|c| c.0 == format).unwrap();
+        assert_eq!(formatted.1[1..], [0x010a_4920, NAME_CONSTRUCTOR, 0x7777]);
+        assert!(calls.iter().any(|c| c.0 == assign));
+        assert_eq!(calls.iter().find(|c| c.0 == tidy).unwrap().1[1..], [1, 0]);
     }
 
     #[test]

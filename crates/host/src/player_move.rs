@@ -1378,10 +1378,15 @@ impl PlayerMovement {
             Some((id, s)) => format!("{id}: {}", word(s)),
             None => "none".into(),
         };
+        // Caught throws are the exe's behaviour, but a port bug that throws ends the same way.
+        let caught = match engine::cxx_exception::caught_throws() {
+            0 => String::new(),
+            n => format!("; {n} C++ exceptions caught"),
+        };
         if self.main_thread.is_some() {
             // The game's `main` runs the start-up and the frames itself.
             return format!(
-                "Game's movement: main {} frames; {}; {} untranslated addresses reached.",
+                "Game's movement: main {} frames; {}; {} untranslated addresses reached{caught}.",
                 self.main_frames,
                 match (&self.main_stage, self.main_end) {
                     (_, Some(MainEnd::Returned(code))) => format!("returned {code}"),
@@ -1398,7 +1403,7 @@ impl PlayerMovement {
         let mut line = format!(
             "Game's movement: {} frames moved by the game's code, {} by crates/physics; \
              Main {}; renderer {}; scene graph {}; TES {}; player {}; AI threads {}; cell {cell}; \
-             controller {}; {} untranslated addresses reached.",
+             controller {}; {} untranslated addresses reached{caught}.",
             self.engine_frames,
             self.fallback_frames,
             word(&self.main_object),
@@ -2188,6 +2193,18 @@ mod tests {
     /// is reported as one line with the frame it stopped in and where, whatever `NV_MOVE_TRACE`
     /// says; main isn't resumed after it, so the line comes once. (The play build reported
     /// nothing: the game's window kept its last frame, a freeze to the player.)
+    #[test]
+    fn the_summary_counts_the_exceptions_caught() {
+        use engine::cxx_exception::{throw, try_catch, write_throw_info};
+        let mut e = Engine::new();
+        let info = e.mem.alloc(0x10);
+        write_throw_info(&mut e, info, 0, &[b".?AVOther@@"]);
+        let object = e.mem.alloc(4);
+        try_catch(&mut e, |e| throw(e, object, info), |_, _| {});
+        let line = PlayerMovement::default().summary();
+        assert!(line.contains(" C++ exceptions caught."), "{line}");
+    }
+
     #[test]
     fn a_stop_on_main_is_reported_once() {
         let mut e = Engine::new();

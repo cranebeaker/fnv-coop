@@ -6,6 +6,7 @@
 pub mod d3d;
 pub mod diff;
 pub mod dump;
+pub mod exceptions;
 pub mod format;
 pub mod genlist;
 pub mod guard;

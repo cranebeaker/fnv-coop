@@ -61,7 +61,8 @@
 pub mod units;
 
 pub use engine_core::{
-    abi, exe, mem, prelude, ptr, sse, static_exit, static_init, thread_host, types, x87,
+    abi, cxx_exception, exe, mem, prelude, ptr, sse, static_exit, static_init, thread_host, types,
+    x87,
 };
 pub use engine_core::{args, entry, layout};
 pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, OpenHandler, Ptr, Ret, Scalar};

@@ -761,16 +761,24 @@ pub const MS_VC_EXCEPTION: u32 = 0x406d_1388;
 
 // Platform: replaces KERNEL32.DLL RaiseException (import)
 /// `RaiseException(code, flags, argument count, arguments)` with no debugger attached. The game
-/// raises only [`MS_VC_EXCEPTION`] (`SetThreadName` `00aa2740`, inside its own `__try`, whose
-/// handler takes it and goes on): that one comes back at once, as the handler would make it.
-/// Any other code stops the engine (structured exceptions are not provided).
-fn raise_exception(_e: &mut Engine, code: u32, flags: u32, count: u32, _arguments: Ptr) {
-    if code != MS_VC_EXCEPTION {
-        panic!(
-            "RaiseException(code {code:#x}, flags {flags:#x}, {count} arguments): \
-             structured exceptions are not provided"
-        );
+/// raises two codes. [`MS_VC_EXCEPTION`] (`SetThreadName` `00aa2740`, `00d87940`, each inside its
+/// own `__try`, whose handler takes it and goes on) comes back at once, as the handler would make
+/// it. A C++ throw (`_CxxThrowException` `00ec7894`) goes to its catch or stops
+/// ([`crate::cxx_exception`]). Any other code stops the engine (structured exceptions are not
+/// provided).
+fn raise_exception(e: &mut Engine, code: u32, flags: u32, count: u32, arguments: Ptr) {
+    if code == MS_VC_EXCEPTION {
+        return;
     }
+    if let Some((object, throw_info)) =
+        crate::cxx_exception::throw_record(e, code, count, arguments.addr())
+    {
+        crate::cxx_exception::throw(e, object, throw_info);
+    }
+    panic!(
+        "RaiseException(code {code:#x}, flags {flags:#x}, {count} arguments): \
+         structured exceptions are not provided"
+    );
 }
 
 // The user-interface and registry calls the game's input start-up makes (`00a22660`): the
@@ -3526,6 +3534,41 @@ mod tests {
         assert_ne!(code, main_block, "its own block");
         assert_eq!(e.tls(), main_block);
         assert_eq!(tls_get_value(&mut e, index), 0x1111);
+    }
+
+    #[test]
+    fn a_throw_on_another_game_thread_is_not_caught_by_a_region_open_on_main() {
+        use crate::cxx_exception::{self, try_catch, Thrown};
+        let mut e = thread_engine();
+        // The thread's parameter: the object and its `ThrowInfo`.
+        e.register(0x00ab_0300, |e, a| {
+            let (object, info) = (e.mem.u32(a[0]), e.mem.u32(a[0] + 4));
+            cxx_exception::throw(e, object, info)
+        });
+        let info = e.mem.alloc(0x10);
+        cxx_exception::write_throw_info(&mut e, info, 0, &[cxx_exception::STD_EXCEPTION_NAME]);
+        let object = e.mem.alloc(0xc);
+        let parameter = e.mem.alloc(8);
+        e.mem.set_u32(parameter, object);
+        e.mem.set_u32(parameter + 4, info);
+        let t = call(&mut e, CREATE_THREAD, &[0, 0, 0x00ab_0300, parameter, 0, 0]);
+        // Main waits inside a try region; the thread throws with none open on its own OS thread.
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            try_catch(
+                &mut e,
+                |e| {
+                    call(e, WAIT_FOR_SINGLE_OBJECT, &[t, INFINITE]);
+                },
+                |_, _: Thrown| panic!("main's region took another thread's throw"),
+            )
+        }))
+        .unwrap_err();
+        let text = stop.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(
+            text.starts_with("uncaught C++ exception std::exception"),
+            "{text}"
+        );
+        assert!(text.contains("in game thread 2, start 00ab0300"), "{text}");
     }
 
     #[test]

@@ -57,6 +57,8 @@ struct ThreadState {
     shadow: Vec<Shadow>,
     busy: bool,
     record: Vec<u8>,
+    /// The last exception thrown on this thread (`rec.log` lines, [`crate::exceptions`]).
+    exception: crate::exceptions::Current,
 }
 
 unsafe fn thread_state() -> *mut ThreadState {
@@ -79,6 +81,7 @@ unsafe fn thread_state() -> *mut ThreadState {
         shadow: Vec::with_capacity(64),
         busy: false,
         record: Vec::with_capacity(512),
+        exception: crate::exceptions::Current::new(),
     }));
     win::TlsSetValue(idx, b as *mut c_void);
     b
@@ -114,6 +117,12 @@ fn enter_impl(id: u32, regs: &mut SavedRegs, ts: &mut ThreadState) {
     };
     let spec = &hook.spec;
     hook.calls.fetch_add(1, Relaxed);
+    if matches!(
+        spec.addr,
+        nv_trace_core::exceptions::THROW | nv_trace_core::exceptions::INTERNAL_HANDLER
+    ) {
+        crate::exceptions::on_enter(spec.addr, regs, &mut ts.exception);
+    }
     if spec.conv == Conv::Frame {
         crate::input::on_frame(FRAMES.fetch_add(1, Relaxed));
     }

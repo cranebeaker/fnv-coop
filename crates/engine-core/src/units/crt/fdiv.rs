@@ -360,7 +360,7 @@ fn divide_into_sti_and_pop(e: &mut Engine, fpu: &mut Fpu, frame: u32, i: usize) 
 }
 
 /// `INT 6` after `ADD ESP, 0x2c`: the invalid-opcode exception, which the engine cannot
-/// dispatch, so it stops (as `RaiseException` with any code but the thread-naming one does).
+/// dispatch, so it stops (as `RaiseException` with a code the platform does not take does).
 fn invalid_selector(addr: u32) -> ! {
     panic!(
         "{addr:08x}: INT 6 (invalid opcode) in the FDIV workaround's register forms: \

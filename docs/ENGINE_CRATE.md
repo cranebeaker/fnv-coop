@@ -353,10 +353,14 @@ $L scaffold "fallout/ai/processlists.cpp" # create its file (lead)
      translation keeps plain `f64` arithmetic, `x87_round` rounds a value to
      the current precision at one point (exact for an operation on floats
      with round to nearest; see its comment).
-5. **Not translated**: C++ exception unwinding (`__CxxFrameHandler`
-   states) and SEH frames are left out (say so if a function relies on
-   them); the compiler-generated initializers and `atexit` destructors
-   in the tail of `.text` are `library`.
+5. **Not translated**: C++ exception frames (`__CxxFrameHandler` states)
+   and SEH frames are left out (say so if a function relies on them); the
+   compiler-generated initializers and `atexit` destructors in the tail of
+   `.text` are `library`. Behaviour is kept instead (ADR-0013): a throw is a
+   Rust unwind (`engine_core::cxx_exception`) that `try_catch` takes in the
+   exe's 38 functions whose catch goes on, around their try states; a throw
+   with no region open is a stop. A function's locals that the exe keeps in
+   its frame and reads after the catch stay outside the closure.
 6. **Test it** in the file's `#[cfg(test)] mod tests`: build the objects
    it reads (`e.new_object::<T>()`, `e.map`, `e.set_global`,
    `e.put_vtable`), stand in for callees with test doubles

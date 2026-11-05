@@ -43,6 +43,7 @@
 
 mod d3d;
 mod dinput;
+mod exceptions;
 mod guard;
 mod hooks;
 mod iat;
@@ -294,10 +295,21 @@ fn start() {
         .as_ref()
         .map(|p| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display())))
         .transpose();
-    let specs = match list_text.and_then(|t| list::parse(&t.unwrap_or_default())) {
+    let mut specs = match list_text.and_then(|t| list::parse(&t.unwrap_or_default())) {
         Ok(s) => s,
         Err(e) => refuse(&dir, &format!("list: {e}")),
     };
+    // Every recording says which C++ exceptions fire ("exception:" lines in rec.log).
+    match list::parse(nv_trace_core::exceptions::LIST) {
+        Ok(exception_hooks) => {
+            for hook in exception_hooks {
+                if !specs.iter().any(|s| s.addr == hook.addr) {
+                    specs.push(hook);
+                }
+            }
+        }
+        Err(e) => refuse(&dir, &format!("exception hooks: {e}")),
+    }
     let hash_ok = match (&config.exe_sha256, &hash) {
         (None, _) => true,
         (Some(want), Some(have)) => want == have,

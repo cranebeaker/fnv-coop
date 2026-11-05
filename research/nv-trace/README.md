@@ -80,6 +80,13 @@ first N calls of a hot function (the real side only; the port records all, so co
 past N are expected). To grow the list, add lines; the translations'
 doc comments give the conventions.
 
+Every recording also hooks `_CxxThrowException` (`00ec7894`), `___CxxFrameHandler3` (`00ec3d33`)
+and `___InternalCxxFrameHandler` (`00eceeb8`), whatever the list says, and writes `exception:`
+lines in the run's `rec.log`: each throw with its type, message and caller, and the catch block
+the search finds with the function that has it (ADR-0013;
+[nv-trace-core/src/exceptions.rs](nv-trace-core/src/exceptions.rs)). A run where nothing is thrown
+writes none. `grep exception: rec.log` shows which throws fire in that play.
+
 ## Record format
 
 `NVTRACE1`, a header (`key=value` lines; `fn=` lines repeat the list), then blocks of

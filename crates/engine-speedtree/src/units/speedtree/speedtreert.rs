@@ -11,8 +11,11 @@
 //! A float copied through the x87 stack (`FLD dword`, `FSTP dword`) goes through
 //! [`x87_quiet_bits`].
 //!
-//! Functions that carry an `FS:[0]` exception frame are marked `Translation incomplete`
-//! (the unwinding handler is not translated).
+//! Exceptions (ADR-0013): 26 of the public functions the exe gives `catch(std::exception&)` and
+//! `catch(...)` run their exe try states in [`speedtree_try`], the two `LoadTree` forms in their
+//! own `try_catch`; each returns what its continuation returns after a catch. The other functions
+//! that carry an `FS:[0]` exception frame are marked `Translation incomplete` (the frame is not
+//! built: a throw through one skips its destructors).
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -175,8 +178,6 @@ const WIND_TIME: u32 = 0x011f_8d80;
 const WIND_MATRIX_SPAN: u32 = 0x011f_8d84;
 
 // Translated from 00b036d0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b036d0 - the FS:[0] exception frame (releasing the instance data
-// if a later step throws) is not translated.
 /// The `CSpeedTreeRT` instance constructor (a copy of `source`, unnamed in the engine map): copies
 /// every member except the instance-data pointer (`+0x34`), registers `this` in the instance
 /// list (`00b0ddc0`), copies the horizontal-billboard coordinates (0x30 bytes), counts one more
@@ -223,42 +224,42 @@ pub fn fn_00b036d0(
         let byte = e.mem.u8(from + offset);
         e.mem.set_u8(to + offset, byte);
     }
-    // The instance list gets the address of a local holding `this`.
-    let list = e.get(this, CSpeedTreeRT::m_pInstanceList);
-    e.with_stack(4, |e, slot| {
-        e.mem.set_u32(slot.addr(), to);
-        e.call(0x00b0_ddc0, &args![list, slot]);
+    speedtree_try(e, NAME_INSTANCE_CONSTRUCTOR, |e| {
+        // The instance list gets the address of a local holding `this`.
+        let list = e.get(this, CSpeedTreeRT::m_pInstanceList);
+        e.with_stack(4, |e, slot| {
+            e.mem.set_u32(slot.addr(), to);
+            e.call(0x00b0_ddc0, &args![list, slot]);
+        });
+        e.call(MEMCPY, &args![to + 0x70, from + 0x70, 0x30u32]);
+        let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
+        let total = e.mem.u32(count.addr()).wrapping_add(1);
+        e.mem.set_u32(count.addr(), total);
+        let block: Ptr<STreeInstanceData> = e.call(ALLOCATE, &args![MEMORY_MANAGER, 0x14u32]).ptr();
+        if !block.is_null() {
+            e.mem.set_u32(block.addr(), 0);
+            e.mem.set_f32(block.addr() + 0xC, 0.0);
+            e.mem.set_f32(block.addr() + 8, 0.0);
+            e.mem.set_f32(block.addr() + 4, 0.0);
+            e.mem.set_f32(block.addr() + 0x10, 1.0);
+        }
+        e.set(this, CSpeedTreeRT::m_pInstanceData, block);
+        let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
+        e.set(data, STreeInstanceData::m_pParent, source);
+        // The position is copied word by word from the source engine's `CIdvCamera` position.
+        let engine = e.mem.u32(from);
+        copy_words(e, data.addr() + 4, engine + 4, 3);
+        let level = c_speed_tree_rt_get_lod_level(e, source);
+        let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
+        e.mem
+            .set_u32(data.addr() + 0x10, x87_quiet_bits(level.to_bits()));
+        let all = e.global::<u32>(ALL_REF_COUNT).wrapping_add(1);
+        e.set_global(ALL_REF_COUNT, all);
     });
-    e.call(MEMCPY, &args![to + 0x70, from + 0x70, 0x30u32]);
-    let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
-    let total = e.mem.u32(count.addr()).wrapping_add(1);
-    e.mem.set_u32(count.addr(), total);
-    let block: Ptr<STreeInstanceData> = e.call(ALLOCATE, &args![MEMORY_MANAGER, 0x14u32]).ptr();
-    if !block.is_null() {
-        e.mem.set_u32(block.addr(), 0);
-        e.mem.set_f32(block.addr() + 0xC, 0.0);
-        e.mem.set_f32(block.addr() + 8, 0.0);
-        e.mem.set_f32(block.addr() + 4, 0.0);
-        e.mem.set_f32(block.addr() + 0x10, 1.0);
-    }
-    e.set(this, CSpeedTreeRT::m_pInstanceData, block);
-    let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
-    e.set(data, STreeInstanceData::m_pParent, source);
-    // The position is copied word by word from the source engine's `CIdvCamera` position.
-    let engine = e.mem.u32(from);
-    copy_words(e, data.addr() + 4, engine + 4, 3);
-    let level = c_speed_tree_rt_get_lod_level(e, source);
-    let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
-    e.mem
-        .set_u32(data.addr() + 0x10, x87_quiet_bits(level.to_bits()));
-    let all = e.global::<u32>(ALL_REF_COUNT).wrapping_add(1);
-    e.set_global(ALL_REF_COUNT, all);
     this
 }
 
 // Translated from 00b044a0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b044a0 - the FS:[0] exception frame (destroying the local extents
-// if a step throws) is not translated.
 /// `CSpeedTreeRT::Compute` (Xbox PDB): once only (a second call reports through `SetError`).
 /// Sets the static frond engine, seeds and computes the tree engine (the leaf-lod float from
 /// `+0x24`), the frond engine, copies the frond lod count, builds the leaf tables, the wind
@@ -275,155 +276,157 @@ pub fn c_speed_tree_rt_compute(
     seed: u32,
     flag: bool,
 ) -> u8 {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
-        e.set_global(CURRENT_FROND_ENGINE, frond_engine.addr());
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-        e.call(0x00b2_c0c0, &args![engine, seed]);
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-        let leaf_float = pushed_float(e, this.addr() + 0x24);
-        e.call(0x00b2_af80, &args![engine, leaf_float]);
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-        let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
-        e.call(0x00b1_8fd0, &args![frond_engine, frond_geometry, lighting]);
-        let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-        let levels = e.mem.u16(frond_geometry.addr() + 0x20);
-        e.set(this, CSpeedTreeRT::m_usNumFrondLodLevels, levels);
-        // The leaf info (`CTreeEngine` +0x94, `SIdvLeafInfo`) keeps a vector of 0x54-byte entries
-        // at `+0x10` of it.
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
-        let entries = engine + 0xA4;
-        let bytes = e
-            .mem
-            .u32(entries + 0x10)
-            .wrapping_sub(e.mem.u32(entries + 0x0C)) as i32;
-        e.call(0x00b3_cf40, &args![engine + 0x94, bytes / 0x54]);
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        // `CLightingEngine` +0x38 is `m_eLeafLightingMethod` (Xbox PDB).
-        if e.mem.u32(lighting.addr() + 0x38) == 1 {
-            fn_00b08cc0(e, this);
-        }
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
-        let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-        e.call(0x00b3_7510, &args![wind, engine + 0x10C]);
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
-        let leaf_info = engine + 0x94;
-        let large_percent = e.mem.u32(engine + 0xEC);
-        let leaf_count = e.mem.u32(engine + 0xD8);
-        let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-        e.call(
-            0x00b2_8480,
-            &args![leaf_geometry, leaf_count as u16, large_percent, leaf_info],
-        );
-        let embedded = e.get(this, CSpeedTreeRT::m_pEmbeddedTexCoords);
-        if !embedded.is_null() {
-            let mut index = 0i32;
-            while index < e.mem.i32(embedded.addr()) {
-                let entries = e.mem.u32(embedded.addr() + 4);
-                let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-                e.call(
-                    0x00b2_8720,
-                    &args![
-                        leaf_geometry,
-                        index,
-                        entries.wrapping_add((index as u32) << 5)
-                    ],
-                );
-                index += 1;
+    speedtree_try(e, NAME_COMPUTE, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
+            e.set_global(CURRENT_FROND_ENGINE, frond_engine.addr());
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+            e.call(0x00b2_c0c0, &args![engine, seed]);
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+            let leaf_float = pushed_float(e, this.addr() + 0x24);
+            e.call(0x00b2_af80, &args![engine, leaf_float]);
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+            let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
+            e.call(0x00b1_8fd0, &args![frond_engine, frond_geometry, lighting]);
+            let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+            let levels = e.mem.u16(frond_geometry.addr() + 0x20);
+            e.set(this, CSpeedTreeRT::m_usNumFrondLodLevels, levels);
+            // The leaf info (`CTreeEngine` +0x94, `SIdvLeafInfo`) keeps a vector of 0x54-byte entries
+            // at `+0x10` of it.
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
+            let entries = engine + 0xA4;
+            let bytes = e
+                .mem
+                .u32(entries + 0x10)
+                .wrapping_sub(e.mem.u32(entries + 0x0C)) as i32;
+            e.call(0x00b3_cf40, &args![engine + 0x94, bytes / 0x54]);
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            // `CLightingEngine` +0x38 is `m_eLeafLightingMethod` (Xbox PDB).
+            if e.mem.u32(lighting.addr() + 0x38) == 1 {
+                fn_00b08cc0(e, this);
             }
-            let mut index = 0i32;
-            while index < e.mem.i32(embedded.addr() + 0x10) {
-                let entries = e.mem.u32(embedded.addr() + 0x14);
-                let flag_byte = e.global::<u8>(FROND_TEXTURE_FLAG);
-                let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-                let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
-                e.call(
-                    0x00b1_c6d0,
-                    &args![
-                        frond_engine,
-                        frond_geometry,
-                        index,
-                        entries.wrapping_add((index as u32) << 5),
-                        flag_byte
-                    ],
-                );
-                index += 1;
-            }
-        }
-        if flag {
-            let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-            e.call(0x00b2_ed70, &args![geometry, 0u32]);
-            let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-            e.call(0x00b2_ed70, &args![geometry, 0u32]);
-        }
-        if !matrix.is_null() {
-            e.with_stack(0x40, |e, local| {
-                e.call(0x00b3_ccb0, &args![local]);
-                e.call(MEMCPY, &args![local, matrix, 0x40u32]);
-                let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-                e.call(0x00b2_fc50, &args![geometry, local]);
-                let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-                e.call(0x00b2_8280, &args![leaf_geometry, local]);
-                let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-                e.call(0x00b2_fc50, &args![geometry, local]);
-                let collision = e.get(this, CSpeedTreeRT::m_pCollisionObjects);
-                if !collision.is_null() {
-                    fn_00b04db0(e, collision, local);
-                }
-            });
-        }
-        // The two extents: the minimum at `+0`, the maximum at `+0x18`, 0x18 bytes each.
-        e.with_stack(0x30, |e, extents| {
-            e.call(0x00b3_c930, &args![extents]);
-            let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-            e.call(0x00b2_fa30, &args![geometry, extents]);
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
+            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+            e.call(0x00b3_7510, &args![wind, engine + 0x10C]);
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine).addr();
+            let leaf_info = engine + 0x94;
+            let large_percent = e.mem.u32(engine + 0xEC);
+            let leaf_count = e.mem.u32(engine + 0xD8);
             let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-            e.call(0x00b2_7910, &args![leaf_geometry, extents]);
-            let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-            e.call(0x00b2_fa30, &args![geometry, extents]);
-            let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes);
-            e.call(MEMCPY, &args![sizes, extents, 0xCu32]);
-            let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
-            e.call(MEMCPY, &args![sizes + 0xC, extents.addr() + 0x18, 0xCu32]);
-            // The farthest of the four corners of the box's x/y rectangle, `(+0|+0xC, +4|+0x10)`,
-            // from the origin; the exe measures a corner again when it keeps it.
-            let best = e.with_stack(0x18, |e, scratch| {
-                let origin = scratch.addr();
-                let corner = origin + 0xC;
-                let measure = |e: &mut Engine, x: u32, y: u32| {
-                    let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
-                    copy_float(e, corner, sizes + x);
-                    copy_float(e, corner + 4, sizes + y);
-                    e.mem.set_f32(corner + 8, 0.0);
-                    c_vec3_distance(e, Ptr::new(origin), Ptr::new(corner))
-                };
-                let mut best = x87_quiet(measure(e, 0, 4));
-                for (x, y) in [(0u32, 0x10u32), (0xC, 4), (0xC, 0x10)] {
-                    let distance = measure(e, x, y);
-                    // `FCOMPP`: the new corner replaces the best unless best > distance.
-                    best = if best > distance {
-                        x87_quiet(best)
-                    } else {
-                        x87_quiet(measure(e, x, y))
-                    };
+            e.call(
+                0x00b2_8480,
+                &args![leaf_geometry, leaf_count as u16, large_percent, leaf_info],
+            );
+            let embedded = e.get(this, CSpeedTreeRT::m_pEmbeddedTexCoords);
+            if !embedded.is_null() {
+                let mut index = 0i32;
+                while index < e.mem.i32(embedded.addr()) {
+                    let entries = e.mem.u32(embedded.addr() + 4);
+                    let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+                    e.call(
+                        0x00b2_8720,
+                        &args![
+                            leaf_geometry,
+                            index,
+                            entries.wrapping_add((index as u32) << 5)
+                        ],
+                    );
+                    index += 1;
                 }
-                best
+                let mut index = 0i32;
+                while index < e.mem.i32(embedded.addr() + 0x10) {
+                    let entries = e.mem.u32(embedded.addr() + 0x14);
+                    let flag_byte = e.global::<u8>(FROND_TEXTURE_FLAG);
+                    let frond_geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                    let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
+                    e.call(
+                        0x00b1_c6d0,
+                        &args![
+                            frond_engine,
+                            frond_geometry,
+                            index,
+                            entries.wrapping_add((index as u32) << 5),
+                            flag_byte
+                        ],
+                    );
+                    index += 1;
+                }
+            }
+            if flag {
+                let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+                e.call(0x00b2_ed70, &args![geometry, 0u32]);
+                let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                e.call(0x00b2_ed70, &args![geometry, 0u32]);
+            }
+            if !matrix.is_null() {
+                e.with_stack(0x40, |e, local| {
+                    e.call(0x00b3_ccb0, &args![local]);
+                    e.call(MEMCPY, &args![local, matrix, 0x40u32]);
+                    let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+                    e.call(0x00b2_fc50, &args![geometry, local]);
+                    let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+                    e.call(0x00b2_8280, &args![leaf_geometry, local]);
+                    let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                    e.call(0x00b2_fc50, &args![geometry, local]);
+                    let collision = e.get(this, CSpeedTreeRT::m_pCollisionObjects);
+                    if !collision.is_null() {
+                        fn_00b04db0(e, collision, local);
+                    }
+                });
+            }
+            // The two extents: the minimum at `+0`, the maximum at `+0x18`, 0x18 bytes each.
+            e.with_stack(0x30, |e, extents| {
+                e.call(0x00b3_c930, &args![extents]);
+                let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+                e.call(0x00b2_fa30, &args![geometry, extents]);
+                let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+                e.call(0x00b2_7910, &args![leaf_geometry, extents]);
+                let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                e.call(0x00b2_fa30, &args![geometry, extents]);
+                let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes);
+                e.call(MEMCPY, &args![sizes, extents, 0xCu32]);
+                let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
+                e.call(MEMCPY, &args![sizes + 0xC, extents.addr() + 0x18, 0xCu32]);
+                // The farthest of the four corners of the box's x/y rectangle, `(+0|+0xC, +4|+0x10)`,
+                // from the origin; the exe measures a corner again when it keeps it.
+                let best = e.with_stack(0x18, |e, scratch| {
+                    let origin = scratch.addr();
+                    let corner = origin + 0xC;
+                    let measure = |e: &mut Engine, x: u32, y: u32| {
+                        let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
+                        copy_float(e, corner, sizes + x);
+                        copy_float(e, corner + 4, sizes + y);
+                        e.mem.set_f32(corner + 8, 0.0);
+                        c_vec3_distance(e, Ptr::new(origin), Ptr::new(corner))
+                    };
+                    let mut best = x87_quiet(measure(e, 0, 4));
+                    for (x, y) in [(0u32, 0x10u32), (0xC, 4), (0xC, 0x10)] {
+                        let distance = measure(e, x, y);
+                        // `FCOMPP`: the new corner replaces the best unless best > distance.
+                        best = if best > distance {
+                            x87_quiet(best)
+                        } else {
+                            x87_quiet(measure(e, x, y))
+                        };
+                    }
+                    best
+                });
+                let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
+                let best = f64::from(best);
+                fstp(e, sizes + 0x18, x87_add(best, best));
+                e.call(TRIVIAL_DESTRUCTOR, &args![extents.addr() + 0x18]);
+                e.call(TRIVIAL_DESTRUCTOR, &args![extents]);
             });
-            let sizes = e.get(this, CSpeedTreeRT::m_pTreeSizes).addr();
-            let best = f64::from(best);
-            fstp(e, sizes + 0x18, x87_add(best, best));
-            e.call(TRIVIAL_DESTRUCTOR, &args![extents.addr() + 0x18]);
-            e.call(TRIVIAL_DESTRUCTOR, &args![extents]);
-        });
-        if !e.get(this, CSpeedTreeRT::m_pProjectedShadow).is_null() {
-            c_speed_tree_rt_compute_self_shadow_tex_coords(e, this);
+            if !e.get(this, CSpeedTreeRT::m_pProjectedShadow).is_null() {
+                c_speed_tree_rt_compute_self_shadow_tex_coords(e, this);
+            }
+            fn_00b0d5f0(e, this);
+            e.set(this, CSpeedTreeRT::m_bTreeComputed, 1);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4998);
         }
-        fn_00b0d5f0(e, this);
-        e.set(this, CSpeedTreeRT::m_bTreeComputed, 1);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4998);
-    }
+    });
     e.get(this, CSpeedTreeRT::m_bTreeComputed)
 }
 
@@ -651,17 +654,19 @@ pub fn fn_00b051e0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> Ptr<CSpeedTreeRT>
 }
 
 // Translated from 00b05210 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b05210 - the FS:[0] exception frame (releasing the block if the
-// constructor throws) is not translated.
 /// Makes a new instance of the tree (unnamed in the engine map): allocates 0xA0 bytes and
 /// builds the `CSpeedTreeRT` in it from `this` (`00b036d0`); null when the allocation fails.
 pub fn fn_00b05210(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> Ptr<CSpeedTreeRT> {
-    let block: Ptr<CSpeedTreeRT> = e.call(ALLOCATE, &args![MEMORY_MANAGER, 0xA0u32]).ptr();
-    if block.is_null() {
-        Ptr::NULL
-    } else {
-        fn_00b036d0(e, block, this)
-    }
+    let mut made = Ptr::NULL;
+    speedtree_try(e, NAME_MAKE_INSTANCE, |e| {
+        let block: Ptr<CSpeedTreeRT> = e.call(ALLOCATE, &args![MEMORY_MANAGER, 0xA0u32]).ptr();
+        made = if block.is_null() {
+            Ptr::NULL
+        } else {
+            fn_00b036d0(e, block, this)
+        };
+    });
+    made
 }
 
 // Translated from 00b053e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -706,11 +711,95 @@ fn throw_formatted(e: &mut Engine, format: &[u32]) -> ! {
             e.mem.set_u32(slot.addr(), characters);
             e.with_stack(0xC, |e, exception| {
                 e.call(EXCEPTION_CONSTRUCT, &args![exception, slot]);
+                // The exception holds its own copy of the text. The string is `LoadTree`'s own
+                // local (its states 1 to 3, `00f23bc0`..`00f23bd3`), which the exe destroys when
+                // the throw unwinds to `LoadTree`'s catch, before the catch block: here just
+                // before the throw, in the same order of heap calls.
+                e.call(STRING_TIDY, &args![text, 1u32, 0u32]);
                 e.call(CXX_THROW_EXCEPTION, &args![exception, EXCEPTION_THROW_INFO]);
             });
         });
     });
     unreachable!("_CxxThrowException does not return (00ec7894)")
+}
+
+/// `LoadTree`'s own messages: `"CSpeedTreeRT::Load Tree - %s"` with `what()`, and
+/// `"CSpeedTreeRT::LoadTree - threw an unknown system exception"`.
+const LOAD_TREE_FAILED_FORMAT: u32 = 0x010a_4a6c;
+const LOAD_TREE_UNKNOWN_MESSAGE: u32 = 0x010a_4a30;
+/// The two messages the other catch blocks format: `"%s - failed [%s]"` with the function's name
+/// and the exception's `what()`, and `"%s - threw an unknown system exception"` with the name.
+const CAUGHT_FAILED_FORMAT: u32 = 0x010a_4920;
+const CAUGHT_UNKNOWN_FORMAT: u32 = 0x010a_48f8;
+/// The names the catch blocks format, C strings of the exe.
+const NAME_INSTANCE_CONSTRUCTOR: u32 = 0x010a_4954;
+const NAME_COMPUTE: u32 = 0x010a_4980;
+const NAME_MAKE_INSTANCE: u32 = 0x010a_49d8;
+const NAME_LOAD_TREE: u32 = 0x010a_4aec;
+/// `00b06280` and `00b06440` both report as `CSpeedTreeRT::SetTreeSize`.
+const NAME_SET_TREE_SIZE: u32 = 0x010a_4b04;
+const NAME_SET_BRANCH_LIGHTING_METHOD: u32 = 0x010a_4ba8;
+const NAME_SET_LEAF_LIGHTING_METHOD: u32 = 0x010a_4c18;
+const NAME_SET_FROND_LIGHTING_METHOD: u32 = 0x010a_4c88;
+const NAME_SET_CAMERA: u32 = 0x010a_4d34;
+const NAME_SET_TIME: u32 = 0x010a_4d98;
+const NAME_SET_LEAF_ROCKING_STATE: u32 = 0x010a_4db0;
+const NAME_SET_LEAF_WIND_METHOD: u32 = 0x010a_4e20;
+const NAME_SET_BRANCH_WIND_METHOD: u32 = 0x010a_4e84;
+const NAME_SET_FROND_WIND_METHOD: u32 = 0x010a_4eec;
+const NAME_SET_WIND_STRENGTH: u32 = 0x010a_4f54;
+const NAME_SET_NUM_WIND_MATRICES: u32 = 0x010a_4fa8;
+const NAME_SET_LOCAL_MATRICES: u32 = 0x010a_4fcc;
+const NAME_COMPUTE_LOD_LEVEL: u32 = 0x010a_5074;
+const NAME_DELETE_BRANCH_GEOMETRY: u32 = 0x010a_50d0;
+const NAME_GET_LEAF_BILLBOARD_TABLE: u32 = 0x010a_50f4;
+const NAME_COMPUTE_LEAF_STATIC_LIGHTING: u32 = 0x010a_5148;
+const NAME_NOTIFY_ALL_TREES_OF_EVENT: u32 = 0x010a_5170;
+const NAME_DELETE_FROND_GEOMETRY: u32 = 0x010a_537c;
+const NAME_GET_GEOMETRY: u32 = 0x010a_53a0;
+const NAME_GET_LEAF_LOD_SIZE_ADJUSTMENTS: u32 = 0x010a_5450;
+const NAME_GET_TEXTURES: u32 = 0x010a_5478;
+
+/// What every catch block ends with: the words (a format and what it takes) formatted into a local
+/// `std::string` (`IdvFormatString`), the text given to `SetError` (`00b09270`) and the string
+/// destroyed (`0044a730(1, 0)`).
+fn set_error_formatted(e: &mut Engine, format: &[u32]) {
+    e.with_stack(0x1C, |e, text| {
+        let mut words = vec![text.addr()];
+        words.extend_from_slice(format);
+        e.call(FORMAT_STRING, &words);
+        let characters = if e.mem.u32(text.addr() + 0x18) >= 0x10 {
+            e.mem.u32(text.addr() + 4)
+        } else {
+            text.addr() + 4
+        };
+        c_speed_tree_rt_set_error(e, characters);
+        e.call(STRING_TIDY, &args![text, 1u32, 0u32]);
+    });
+}
+
+/// The two catch blocks of a public `CSpeedTreeRT` function, whose name is the C string `name`
+/// (`00b03582` and `00b0361a` for the constructor; 28 functions have the same two): a
+/// `std::exception` is reported with its `what()` (virtual `+4`), anything else as an unknown
+/// exception.
+#[cold]
+pub fn report_caught(e: &mut Engine, thrown: Thrown, name: u32) {
+    match caught_as(e, thrown, STD_EXCEPTION_NAME) {
+        Some(object) => {
+            let what = e.vcall(object, 4, &args![]).u32();
+            set_error_formatted(e, &[CAUGHT_FAILED_FORMAT, name, what]);
+        }
+        None => set_error_formatted(e, &[CAUGHT_UNKNOWN_FORMAT, name]),
+    }
+}
+
+/// The exe try states of a public `CSpeedTreeRT` function around `body`: a C++ exception under it
+/// is reported through `SetError` ([`report_caught`]) and the function goes on to its
+/// continuation (ADR-0013). What the function returns afterwards is the exe's frame local, kept
+/// outside `body`.
+#[inline]
+pub fn speedtree_try(e: &mut Engine, name: u32, body: impl FnOnce(&mut Engine)) {
+    try_catch(e, body, |e, thrown| report_caught(e, thrown, name));
 }
 
 /// `strerror(errno)`: the message text of the last error.
@@ -721,8 +810,6 @@ fn last_error_text(e: &mut Engine) -> u32 {
 }
 
 // Translated from 00b05420 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b05420 - the FS:[0] exception frame (releasing the file and the
-// buffer when an error is thrown) is not translated.
 /// `CSpeedTreeRT::LoadTree` (Xbox PDB), the file form: opens `filename` through the file finder
 /// (`00afdf20`), asks the file object for its size (virtual `+0x28`), reads the whole file into
 /// a buffer through the stream's own read word at `+8` of the object, not a virtual slot
@@ -731,53 +818,77 @@ fn last_error_text(e: &mut Engine) -> u32 {
 /// (virtual `+0`, flag 1). A file that does not open, is empty or reads short throws a
 /// `std::exception` with a formatted message. A null name loads nothing. Returns whether the
 /// tree loaded.
+///
+/// Its catch blocks (`00b057f2`, `00b058dd`) delete a file still open (virtual `+0`, flag 1),
+/// forget the buffer without freeing it (`[EBP-0x18]`, as the exe does) and report through
+/// `SetError` under their own messages; then the function returns 0 from `00b059c1`.
 pub fn c_speed_tree_rt_load_tree(e: &mut Engine, this: Ptr<CSpeedTreeRT>, filename: u32) -> u8 {
     let mut loaded = 0u8;
-    if filename != 0 {
-        let file = e
-            .call(
-                FILE_FINDER_GET_FILE,
-                &args![filename, 0u32, 0x2800u32, 1u32],
-            )
-            .u32();
-        if file != 0 {
-            let size = e.vcall(file, 0x28, &args![]).i32();
-            // The exe also tests `0 >= 0` here; it always holds.
-            if size > 0 {
-                let buffer = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
-                let read = e.with_stack(4, |e, flag| {
-                    e.mem.set_u32(flag.addr(), 1);
-                    // 00b0551f..00b05525: the stream's own read word at `+8` (not a virtual
-                    // slot), called cdecl with the file first (`ADD ESP,0x14` at 00b05527).
-                    let read_word = e.mem.u32(file + 8);
-                    e.call(read_word, &args![file, buffer, size, flag, 1u32])
-                        .u32()
-                });
-                let position = e.mem.u32(file + 4).wrapping_add(read);
-                e.mem.set_u32(file + 4, position);
-                if read as i32 == size {
-                    loaded = fn_00b059e0(e, this, buffer, size as u32);
-                    e.call(DEALLOCATE, &args![MEMORY_MANAGER, buffer]);
+    // `[EBP-0x14]`: the file while it is open, what the catch blocks delete.
+    let open_file = std::cell::Cell::new(0u32);
+    try_catch(
+        e,
+        |e| {
+            if filename != 0 {
+                let file = e
+                    .call(
+                        FILE_FINDER_GET_FILE,
+                        &args![filename, 0u32, 0x2800u32, 1u32],
+                    )
+                    .u32();
+                open_file.set(file);
+                if file != 0 {
+                    let size = e.vcall(file, 0x28, &args![]).i32();
+                    // The exe also tests `0 >= 0` here; it always holds.
+                    if size > 0 {
+                        let buffer = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
+                        let read = e.with_stack(4, |e, flag| {
+                            e.mem.set_u32(flag.addr(), 1);
+                            // 00b0551f..00b05525: the stream's own read word at `+8` (not a virtual
+                            // slot), called cdecl with the file first (`ADD ESP,0x14` at 00b05527).
+                            let read_word = e.mem.u32(file + 8);
+                            e.call(read_word, &args![file, buffer, size, flag, 1u32])
+                                .u32()
+                        });
+                        let position = e.mem.u32(file + 4).wrapping_add(read);
+                        e.mem.set_u32(file + 4, position);
+                        if read as i32 == size {
+                            loaded = fn_00b059e0(e, this, buffer, size as u32);
+                            e.call(DEALLOCATE, &args![MEMORY_MANAGER, buffer]);
+                        } else {
+                            let reason = last_error_text(e);
+                            throw_formatted(e, &[0x010a_4acc, read, size as u32, filename, reason]);
+                        }
+                    } else {
+                        let reason = last_error_text(e);
+                        throw_formatted(e, &[0x010a_4aac, filename, reason]);
+                    }
+                    e.vcall(file, 0, &args![1u32]);
+                    open_file.set(0);
                 } else {
                     let reason = last_error_text(e);
-                    throw_formatted(e, &[0x010a_4acc, read, size as u32, filename, reason]);
+                    throw_formatted(e, &[0x010a_4a8c, filename, reason]);
                 }
-            } else {
-                let reason = last_error_text(e);
-                throw_formatted(e, &[0x010a_4aac, filename, reason]);
             }
-            e.vcall(file, 0, &args![1u32]);
-        } else {
-            let reason = last_error_text(e);
-            throw_formatted(e, &[0x010a_4a8c, filename, reason]);
-        }
-    }
+        },
+        |e, thrown| {
+            let file = open_file.get();
+            if file != 0 {
+                e.vcall(file, 0, &args![1u32]);
+            }
+            match caught_as(e, thrown, STD_EXCEPTION_NAME) {
+                Some(object) => {
+                    let what = e.vcall(object, 4, &args![]).u32();
+                    set_error_formatted(e, &[LOAD_TREE_FAILED_FORMAT, what]);
+                }
+                None => set_error_formatted(e, &[LOAD_TREE_UNKNOWN_MESSAGE]),
+            }
+        },
+    );
     loaded
 }
 
 // Translated from 00b059e0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b059e0 - the FS:[0] exception frame (destroying the file-access
-// buffer when a parser throws) is not translated.
 /// `CSpeedTreeRT::LoadTree` (Xbox PDB), the memory form (unnamed in the engine map): wraps
 /// `size` bytes at `data` in a `CTreeFileAccess` (`00b06090`), lets the engine check the header
 /// (`CTreeEngine::Parse`, `00b2b550`), then reads chunk tags until the data ends or a tag is
@@ -795,107 +906,129 @@ pub fn fn_00b059e0(e: &mut Engine, this: Ptr<CSpeedTreeRT>, data: u32, size: u32
     // The `CTreeFileAccess` (0x1c bytes: the index and the 0x18-byte byte vector, whose
     // constructor 00657ee0 clears its words up to +0x14; EBP-0x30 to EBP-0x14 in the exe).
     e.with_stack(0x1c, |e, access| {
-        fn_00b06090(e, access, data, size as i32);
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-        if e.call(0x00b2_b550, &args![engine, access]).bool() {
-            let at_end = |e: &Engine| {
-                let vector = access.addr() + 4;
-                let length = e
-                    .mem
-                    .u32(vector + 0x10)
-                    .wrapping_sub(e.mem.u32(vector + 0x0C));
-                e.mem.u32(access.addr()) >= length
-            };
-            if !at_end(e) {
-                let mut done = false;
-                let mut tag = e.call(0x00b3_ed80, &args![access]).i32();
-                while !done {
+        // The exe's state 1: the access object is built and not yet being destroyed. A throw then
+        // destroys it (`00f23c20`) before the catch block runs.
+        let access_alive = std::cell::Cell::new(false);
+        try_catch(
+            e,
+            |e| {
+                fn_00b06090(e, access, data, size as i32);
+                access_alive.set(true);
+                let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+                if e.call(0x00b2_b550, &args![engine, access]).bool() {
+                    let at_end = |e: &Engine| {
+                        let vector = access.addr() + 4;
+                        let length = e
+                            .mem
+                            .u32(vector + 0x10)
+                            .wrapping_sub(e.mem.u32(vector + 0x0C));
+                        e.mem.u32(access.addr()) >= length
+                    };
+                    if !at_end(e) {
+                        let mut done = false;
+                        let mut tag = e.call(0x00b3_ed80, &args![access]).i32();
+                        while !done {
+                            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+                            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+                            match tag {
+                                8000 => {
+                                    e.call(0x00b2_a940, &args![lighting, access]);
+                                }
+                                9000 => c_speed_tree_rt_parse_lod_info(e, this, access),
+                                11000 => c_speed_tree_rt_parse_wind_info(e, this, access),
+                                10000 => fn_00b09960(e, this, access),
+                                12000 => c_speed_tree_rt_parse_collision_objects(e, this, access),
+                                13000 => {
+                                    let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
+                                    e.call(0x00b1_8340, &args![frond_engine, access]);
+                                }
+                                15000 => {
+                                    e.call(0x00b2_d090, &args![engine, access]);
+                                }
+                                16000 => {
+                                    e.call(0x00b2_d2e0, &args![engine, access]);
+                                }
+                                16013 => {
+                                    e.call(0x00b2_daf0, &args![engine, access]);
+                                }
+                                16014 => {
+                                    let value = e.call(0x00b3_ed20, &args![access]).f32();
+                                    e.mem.set_u32(
+                                        this.addr() + 0x28,
+                                        x87_quiet_bits(value.to_bits()),
+                                    );
+                                }
+                                18000 => fn_00b0cd40(e, this, access),
+                                19000 => c_speed_tree_rt_parse_user_data(e, this, access),
+                                20000 => fn_00b0d810(e, this, access),
+                                21000 => {
+                                    let value = e.call(0x00b3_ed20, &args![access]).f32();
+                                    let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                                    e.mem.set_u32(
+                                        wind.addr() + 0x3C,
+                                        x87_quiet_bits(value.to_bits()),
+                                    );
+                                }
+                                21001 => {
+                                    let value = e.call(0x00b3_ed20, &args![access]).f32();
+                                    let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                                    e.mem.set_u32(
+                                        wind.addr() + 0x40,
+                                        x87_quiet_bits(value.to_bits()),
+                                    );
+                                }
+                                22000 => {
+                                    let flag = fn_00b06180(e, access);
+                                    e.set_global(TREE_FILE_FLAG, flag as u8);
+                                }
+                                _ => done = true,
+                            }
+                            if at_end(e) {
+                                done = true;
+                            } else {
+                                tag = e.call(0x00b3_ed80, &args![access]).i32();
+                            }
+                        }
+                    }
                     let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+                    let method = e.mem.u32(lighting.addr());
+                    c_speed_tree_rt_set_branch_lighting_method(e, this, method);
+                    let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+                    let method = e.mem.u32(lighting.addr() + 0x38);
+                    c_speed_tree_rt_set_leaf_lighting_method(e, this, method);
+                    let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+                    let method = e.mem.u32(lighting.addr() + 0x78);
+                    c_speed_tree_rt_set_frond_lighting_method(e, this, method);
                     let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-                    match tag {
-                        8000 => {
-                            e.call(0x00b2_a940, &args![lighting, access]);
-                        }
-                        9000 => c_speed_tree_rt_parse_lod_info(e, this, access),
-                        11000 => c_speed_tree_rt_parse_wind_info(e, this, access),
-                        10000 => fn_00b09960(e, this, access),
-                        12000 => c_speed_tree_rt_parse_collision_objects(e, this, access),
-                        13000 => {
-                            let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
-                            e.call(0x00b1_8340, &args![frond_engine, access]);
-                        }
-                        15000 => {
-                            e.call(0x00b2_d090, &args![engine, access]);
-                        }
-                        16000 => {
-                            e.call(0x00b2_d2e0, &args![engine, access]);
-                        }
-                        16013 => {
-                            e.call(0x00b2_daf0, &args![engine, access]);
-                        }
-                        16014 => {
-                            let value = e.call(0x00b3_ed20, &args![access]).f32();
-                            e.mem
-                                .set_u32(this.addr() + 0x28, x87_quiet_bits(value.to_bits()));
-                        }
-                        18000 => fn_00b0cd40(e, this, access),
-                        19000 => c_speed_tree_rt_parse_user_data(e, this, access),
-                        20000 => fn_00b0d810(e, this, access),
-                        21000 => {
-                            let value = e.call(0x00b3_ed20, &args![access]).f32();
-                            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-                            e.mem
-                                .set_u32(wind.addr() + 0x3C, x87_quiet_bits(value.to_bits()));
-                        }
-                        21001 => {
-                            let value = e.call(0x00b3_ed20, &args![access]).f32();
-                            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-                            e.mem
-                                .set_u32(wind.addr() + 0x40, x87_quiet_bits(value.to_bits()));
-                        }
-                        22000 => {
-                            let flag = fn_00b06180(e, access);
-                            e.set_global(TREE_FILE_FLAG, flag as u8);
-                        }
-                        _ => done = true,
+                    let level = e.mem.i32(engine.addr() + 0x108);
+                    e.set(this, CSpeedTreeRT::m_nBranchWindLevel, level);
+                    let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
+                    let frond_level = e.call(0x00b1_8300, &args![frond_engine]).i32();
+                    e.set(this, CSpeedTreeRT::m_nFrondLevel, frond_level);
+                    if e.get(this, CSpeedTreeRT::m_eLeafLodMethod) == 2 {
+                        e.set(this, CSpeedTreeRT::m_eLeafLodMethod, 1);
+                        let factor = x87_quiet_bits(e.global::<u32>(0x0101_6248));
+                        e.mem.set_u32(this.addr() + 0x28, factor);
                     }
-                    if at_end(e) {
-                        done = true;
-                    } else {
-                        tag = e.call(0x00b3_ed80, &args![access]).i32();
-                    }
+                    let span = e.global::<u16>(WIND_MATRIX_SPAN);
+                    let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                    e.call(0x00b3_7570, &args![wind, 0u32, span]);
+                    loaded = 1;
                 }
-            }
-            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-            let method = e.mem.u32(lighting.addr());
-            c_speed_tree_rt_set_branch_lighting_method(e, this, method);
-            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-            let method = e.mem.u32(lighting.addr() + 0x38);
-            c_speed_tree_rt_set_leaf_lighting_method(e, this, method);
-            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-            let method = e.mem.u32(lighting.addr() + 0x78);
-            c_speed_tree_rt_set_frond_lighting_method(e, this, method);
-            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-            let level = e.mem.i32(engine.addr() + 0x108);
-            e.set(this, CSpeedTreeRT::m_nBranchWindLevel, level);
-            let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine);
-            let frond_level = e.call(0x00b1_8300, &args![frond_engine]).i32();
-            e.set(this, CSpeedTreeRT::m_nFrondLevel, frond_level);
-            if e.get(this, CSpeedTreeRT::m_eLeafLodMethod) == 2 {
-                e.set(this, CSpeedTreeRT::m_eLeafLodMethod, 1);
-                let factor = x87_quiet_bits(e.global::<u32>(0x0101_6248));
-                e.mem.set_u32(this.addr() + 0x28, factor);
-            }
-            let span = e.global::<u16>(WIND_MATRIX_SPAN);
-            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-            e.call(0x00b3_7570, &args![wind, 0u32, span]);
-            loaded = 1;
-        }
-        // The access object's destructor, inlined: the vector's clear (`00657f60`), then its
-        // block is freed.
-        e.call(0x0065_7f60, &args![access.addr() + 4]);
-        let block = e.mem.u32(access.addr() + 4);
-        e.call(DEALLOCATE, &args![MEMORY_MANAGER, block]);
+                access_alive.set(false);
+                // The access object's destructor, inlined: the vector's clear (`00657f60`), then its
+                // block is freed.
+                e.call(0x0065_7f60, &args![access.addr() + 4]);
+                let block = e.mem.u32(access.addr() + 4);
+                e.call(DEALLOCATE, &args![MEMORY_MANAGER, block]);
+            },
+            |e, thrown| {
+                if access_alive.get() {
+                    fn_00b061e0(e, access);
+                }
+                report_caught(e, thrown, NAME_LOAD_TREE);
+            },
+        );
     });
     loaded
 }
@@ -965,7 +1098,6 @@ pub fn fn_00b06260(e: &mut Engine, this: Ptr<CSpeedTreeRT>, size: u32, variance:
 }
 
 // Translated from 00b06280 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b06280 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetTreeSize` (Xbox PDB): with the engine's transient data intact and a size
 /// above zero (a NaN is rejected), hands both floats (through the x87 stack) to the engine
 /// (`00b2bd20`); a size not above zero and intact data missing are reported through `SetError`.
@@ -975,39 +1107,43 @@ pub fn c_speed_tree_rt_set_tree_size(
     size: f32,
     variance: f32,
 ) {
-    let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-    if e.mem.u8(engine.addr() + ENGINE_TRANSIENT_DATA_INTACT) != 0 {
-        let zero: f64 = e.global(0x0101_2060);
-        if x87_load32(size.to_bits()) > zero {
-            e.call(
-                0x00b2_bd20,
-                &args![
-                    engine,
-                    x87_quiet_bits(size.to_bits()),
-                    x87_quiet_bits(variance.to_bits())
-                ],
-            );
+    speedtree_try(e, NAME_SET_TREE_SIZE, |e| {
+        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+        if e.mem.u8(engine.addr() + ENGINE_TRANSIENT_DATA_INTACT) != 0 {
+            let zero: f64 = e.global(0x0101_2060);
+            if x87_load32(size.to_bits()) > zero {
+                e.call(
+                    0x00b2_bd20,
+                    &args![
+                        engine,
+                        x87_quiet_bits(size.to_bits()),
+                        x87_quiet_bits(variance.to_bits())
+                    ],
+                );
+            } else {
+                c_speed_tree_rt_set_error(e, 0x010a_4b68);
+            }
         } else {
-            c_speed_tree_rt_set_error(e, 0x010a_4b68);
+            c_speed_tree_rt_set_error(e, 0x010a_4b20);
         }
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4b20);
-    }
+    });
 }
 
 // Translated from 00b06440 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b06440 - the FS:[0] exception frame is not translated.
 /// The engine's `+0x48` word (the branch wind level the engine holds), when the engine's
 /// transient data is intact; otherwise `SetError` is told and 0 returned (unnamed in the engine
 /// map).
 pub fn fn_00b06440(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> u32 {
-    let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-    if e.mem.u8(engine.addr() + ENGINE_TRANSIENT_DATA_INTACT) != 0 {
-        e.mem.u32(engine.addr() + 0x48)
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4b20);
-        0
-    }
+    let mut result = 0;
+    speedtree_try(e, NAME_SET_TREE_SIZE, |e| {
+        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+        if e.mem.u8(engine.addr() + ENGINE_TRANSIENT_DATA_INTACT) != 0 {
+            result = e.mem.u32(engine.addr() + 0x48);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4b20);
+        }
+    });
+    result
 }
 
 // Translated from 00b065e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1032,7 +1168,6 @@ pub fn fn_00b065e0(e: &mut Engine, this: Ptr<CSpeedTreeRT>, x: f32, y: f32, z: f
 }
 
 // Translated from 00b06660 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b06660 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetBranchLightingMethod` (Xbox PDB): before `Compute`, sets the branch
 /// geometry's manual-lighting flag (`+9`: the method is 1) and the lighting engine's branch
 /// method (`+0`); afterwards reports through `SetError`.
@@ -1041,18 +1176,19 @@ pub fn c_speed_tree_rt_set_branch_lighting_method(
     this: Ptr<CSpeedTreeRT>,
     method: u32,
 ) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-        e.mem.set_u8(geometry.addr() + 9, (method == 1) as u8);
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        e.mem.set_u32(lighting.addr(), method);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4bd0);
-    }
+    speedtree_try(e, NAME_SET_BRANCH_LIGHTING_METHOD, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+            e.mem.set_u8(geometry.addr() + 9, (method == 1) as u8);
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            e.mem.set_u32(lighting.addr(), method);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4bd0);
+        }
+    });
 }
 
 // Translated from 00b06810 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b06810 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetLeafLightingMethod` (Xbox PDB): before `Compute`, sets the lighting
 /// engine's leaf method (`+0x38`) and the leaf geometry's manual-lighting flag (`+0`: the
 /// method is 1); afterwards reports through `SetError`.
@@ -1061,18 +1197,19 @@ pub fn c_speed_tree_rt_set_leaf_lighting_method(
     this: Ptr<CSpeedTreeRT>,
     method: u32,
 ) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        e.mem.set_u32(lighting.addr() + 0x38, method);
-        let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-        e.mem.set_u8(geometry.addr(), (method == 1) as u8);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4c40);
-    }
+    speedtree_try(e, NAME_SET_LEAF_LIGHTING_METHOD, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            e.mem.set_u32(lighting.addr() + 0x38, method);
+            let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+            e.mem.set_u8(geometry.addr(), (method == 1) as u8);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4c40);
+        }
+    });
 }
 
 // Translated from 00b069c0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b069c0 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetFrondLightingMethod` (Xbox PDB): before `Compute`, sets the frond
 /// geometry's manual-lighting flag (`+9`: the method is 1) and the lighting engine's frond
 /// method (`+0x78`); afterwards reports through `SetError`.
@@ -1081,14 +1218,16 @@ pub fn c_speed_tree_rt_set_frond_lighting_method(
     this: Ptr<CSpeedTreeRT>,
     method: u32,
 ) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-        e.mem.set_u8(geometry.addr() + 9, (method == 1) as u8);
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        e.mem.set_u32(lighting.addr() + 0x78, method);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4cb0);
-    }
+    speedtree_try(e, NAME_SET_FROND_LIGHTING_METHOD, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+            e.mem.set_u8(geometry.addr() + 9, (method == 1) as u8);
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            e.mem.set_u32(lighting.addr() + 0x78, method);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4cb0);
+        }
+    });
 }
 
 // Translated from 00b06b70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1114,7 +1253,6 @@ pub fn c_speed_tree_rt_get_camera(e: &mut Engine, position: u32, direction: u32)
 }
 
 // Translated from 00b06c10 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b06c10 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetCamera` (Xbox PDB), a static function (`cdecl`): `position` and `direction`
 /// are each three floats (either null reports through `SetError`). When either differs from the
 /// stored camera (`011f8e9c`, `011f8eac`; a NaN never equals) the new values are stored, the
@@ -1125,71 +1263,76 @@ pub fn c_speed_tree_rt_get_camera(e: &mut Engine, position: u32, direction: u32)
 /// [011ad11c])` is clamped to 0..1 (a NaN is kept), and the blend is `t * ([01023cd8] -
 /// [010a4d88]) + [010a4d88]`.
 pub fn c_speed_tree_rt_set_camera(e: &mut Engine, position: u32, direction: u32) {
-    if position != 0 && direction != 0 {
-        // The locals of the exe: the stored position and direction (12 bytes each), the new
-        // position and direction, and a scratch copy of the direction.
-        e.with_stack(0x3C, |e, frame| {
-            let base = frame.addr();
-            let (old_position, old_direction) = (base, base + 0xC);
-            let (new_position, new_direction) = (base + 0x18, base + 0x24);
-            let scratch = base + 0x30;
-            copy_words(e, old_position, CAMERA_POSITION, 3);
-            copy_words(e, old_direction, CAMERA_DIRECTION, 3);
-            for axis in 0..3 {
-                copy_float(e, new_position + 4 * axis, position + 4 * axis);
-                copy_float(e, new_direction + 4 * axis, direction + 4 * axis);
-            }
-            let differs = |e: &Engine, new: u32, old: u32| {
-                (0..3u32).any(|axis| fld(e, new + 4 * axis) != fld(e, old + 4 * axis))
-            };
-            if differs(e, new_position, old_position) || differs(e, new_direction, old_direction) {
-                copy_words(e, CAMERA_POSITION, new_position, 3);
-                copy_words(e, CAMERA_DIRECTION, new_direction, 3);
-                fn_00b08ec0(e, 1);
-                e.call(0x00b2_7080, &args![new_direction]);
-                fn_00b08ec0(e, 1);
-                copy_float(e, scratch, new_direction);
-                copy_float(e, scratch + 4, new_direction + 4);
-                copy_float(e, scratch + 8, new_direction + 8);
-                // The `[2]` element of the copy: the direction's z through the math function.
-                let z = fld(e, scratch + 8);
-                let result = e.call(0x00ec_9610, &args![z]).f64();
-                let rounded = f64::from(x87_quiet(f32::from_bits(x87_store32(result))));
-                let divisor: f64 = e.global(0x010a_4d90);
-                let angle = x87_store32(x87_mul(rounded, divisor));
-                let low = fld(e, 0x011a_d11c);
-                let span = x87_sub(operand(e, 0x011a_d120), low);
-                let offset = x87_sub(x87_m32(angle), low);
-                let mut blend = f64::from(f32::from_bits(x87_store32(x87_sub(
-                    1.0,
-                    x87_div(offset, span),
-                ))));
-                let zero: f64 = e.global(0x0101_2060);
-                // `FCOMP`, then a parity test of C0|C2: only a value below zero is replaced.
-                if blend < zero {
-                    blend = 0.0;
+    speedtree_try(e, NAME_SET_CAMERA, |e| {
+        if position != 0 && direction != 0 {
+            // The locals of the exe: the stored position and direction (12 bytes each), the new
+            // position and direction, and a scratch copy of the direction.
+            e.with_stack(0x3C, |e, frame| {
+                let base = frame.addr();
+                let (old_position, old_direction) = (base, base + 0xC);
+                let (new_position, new_direction) = (base + 0x18, base + 0x24);
+                let scratch = base + 0x30;
+                copy_words(e, old_position, CAMERA_POSITION, 3);
+                copy_words(e, old_direction, CAMERA_DIRECTION, 3);
+                for axis in 0..3 {
+                    copy_float(e, new_position + 4 * axis, position + 4 * axis);
+                    copy_float(e, new_direction + 4 * axis, direction + 4 * axis);
                 }
-                let one: f64 = e.global(0x0101_2070);
-                if blend > one {
-                    blend = 1.0;
+                let differs = |e: &Engine, new: u32, old: u32| {
+                    (0..3u32).any(|axis| fld(e, new + 4 * axis) != fld(e, old + 4 * axis))
+                };
+                if differs(e, new_position, old_position)
+                    || differs(e, new_direction, old_direction)
+                {
+                    copy_words(e, CAMERA_POSITION, new_position, 3);
+                    copy_words(e, CAMERA_DIRECTION, new_direction, 3);
+                    fn_00b08ec0(e, 1);
+                    e.call(0x00b2_7080, &args![new_direction]);
+                    fn_00b08ec0(e, 1);
+                    copy_float(e, scratch, new_direction);
+                    copy_float(e, scratch + 4, new_direction + 4);
+                    copy_float(e, scratch + 8, new_direction + 8);
+                    // The `[2]` element of the copy: the direction's z through the math function.
+                    let z = fld(e, scratch + 8);
+                    let result = e.call(0x00ec_9610, &args![z]).f64();
+                    let rounded = f64::from(x87_quiet(f32::from_bits(x87_store32(result))));
+                    let divisor: f64 = e.global(0x010a_4d90);
+                    let angle = x87_store32(x87_mul(rounded, divisor));
+                    let low = fld(e, 0x011a_d11c);
+                    let span = x87_sub(operand(e, 0x011a_d120), low);
+                    let offset = x87_sub(x87_m32(angle), low);
+                    let mut blend = f64::from(f32::from_bits(x87_store32(x87_sub(
+                        1.0,
+                        x87_div(offset, span),
+                    ))));
+                    let zero: f64 = e.global(0x0101_2060);
+                    // `FCOMP`, then a parity test of C0|C2: only a value below zero is replaced.
+                    if blend < zero {
+                        blend = 0.0;
+                    }
+                    let one: f64 = e.global(0x0101_2070);
+                    if blend > one {
+                        blend = 1.0;
+                    }
+                    let spread = x87_sub(operand(e, 0x0102_3cd8), fld(e, 0x010a_4d88));
+                    let scaled = x87_add(x87_mul(blend, spread), operand(e, 0x010a_4d88));
+                    fstp(e, 0x011a_d124, scaled);
                 }
-                let spread = x87_sub(operand(e, 0x0102_3cd8), fld(e, 0x010a_4d88));
-                let scaled = x87_add(x87_mul(blend, spread), operand(e, 0x010a_4d88));
-                fstp(e, 0x011a_d124, scaled);
-            }
-        });
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4d4c);
-    }
+            });
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4d4c);
+        }
+    });
 }
 
 // Translated from 00b07060 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b07060 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetTime` (unnamed in the engine map): stores the time float (through the x87
 /// stack) at `011f8d80` and calls `00b08ec0(0)`.
 pub fn fn_00b07060(e: &mut Engine, time: f32) {
-    e.set_global(WIND_TIME, x87_quiet_bits(time.to_bits()));
-    fn_00b08ec0(e, 0);
+    speedtree_try(e, NAME_SET_TIME, |e| {
+        e.set_global(WIND_TIME, x87_quiet_bits(time.to_bits()));
+        fn_00b08ec0(e, 0);
+    });
 }
 
 // Translated from 00b071c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1200,7 +1343,6 @@ pub fn fn_00b071c0(e: &mut Engine, this: Ptr<CSpeedTreeRT>, flag: u8) {
 }
 
 // Translated from 00b071f0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b071f0 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetNumLeafRockingGroups` (Xbox PDB): before `Compute`, stores the count (a
 /// zero becomes one) in the engine's `+0xD4`; afterwards reports through `SetError`.
 pub fn c_speed_tree_rt_set_num_leaf_rocking_groups(
@@ -1208,13 +1350,15 @@ pub fn c_speed_tree_rt_set_num_leaf_rocking_groups(
     this: Ptr<CSpeedTreeRT>,
     count: u32,
 ) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let count = if count == 0 { 1 } else { count };
-        let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-        e.mem.set_u32(engine.addr() + 0xD4, count);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4dd8);
-    }
+    speedtree_try(e, NAME_SET_LEAF_ROCKING_STATE, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let count = if count == 0 { 1 } else { count };
+            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+            e.mem.set_u32(engine.addr() + 0xD4, count);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4dd8);
+        }
+    });
 }
 
 // Translated from 00b07390 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1297,19 +1441,20 @@ pub fn fn_00b074f0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> u32 {
 }
 
 // Translated from 00b07510 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b07510 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetLeafWindMethod` (Xbox PDB): before `Compute`, stores the method in the
 /// wind engine (`+0x10`) and sets the leaf geometry's vertex-weighting flag (`+1`: the method
 /// is not 2); afterwards reports through `SetError`.
 pub fn c_speed_tree_rt_set_leaf_wind_method(e: &mut Engine, this: Ptr<CSpeedTreeRT>, method: u32) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-        e.mem.set_u32(wind.addr() + 0x10, method);
-        let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-        e.mem.set_u8(geometry.addr() + 1, (method != 2) as u8);
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4e40);
-    }
+    speedtree_try(e, NAME_SET_LEAF_WIND_METHOD, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+            e.mem.set_u32(wind.addr() + 0x10, method);
+            let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+            e.mem.set_u8(geometry.addr() + 1, (method != 2) as u8);
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4e40);
+        }
+    });
 }
 
 // Translated from 00b076c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1354,7 +1499,6 @@ fn set_geometry_wind_method(
 }
 
 // Translated from 00b076e0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b076e0 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetBranchWindMethod` (Xbox PDB): see [`set_geometry_wind_method`] (the branch
 /// geometry, the wind engine's `+8`; the error message at `010a4ea8`).
 pub fn c_speed_tree_rt_set_branch_wind_method(
@@ -1362,14 +1506,16 @@ pub fn c_speed_tree_rt_set_branch_wind_method(
     this: Ptr<CSpeedTreeRT>,
     method: u32,
 ) {
-    set_geometry_wind_method(
-        e,
-        this,
-        CSpeedTreeRT::m_pBranchGeometry,
-        8,
-        method,
-        0x010a_4ea8,
-    );
+    speedtree_try(e, NAME_SET_BRANCH_WIND_METHOD, |e| {
+        set_geometry_wind_method(
+            e,
+            this,
+            CSpeedTreeRT::m_pBranchGeometry,
+            8,
+            method,
+            0x010a_4ea8,
+        );
+    });
 }
 
 // Translated from 00b078e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1380,22 +1526,22 @@ pub fn fn_00b078e0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> u32 {
 }
 
 // Translated from 00b07900 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b07900 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetFrondWindMethod` (Xbox PDB): see [`set_geometry_wind_method`] (the frond
 /// geometry, the wind engine's `+0xC`; the error message at `010a4f10`).
 pub fn c_speed_tree_rt_set_frond_wind_method(e: &mut Engine, this: Ptr<CSpeedTreeRT>, method: u32) {
-    set_geometry_wind_method(
-        e,
-        this,
-        CSpeedTreeRT::m_pFrondGeometry,
-        0xC,
-        method,
-        0x010a_4f10,
-    );
+    speedtree_try(e, NAME_SET_FROND_WIND_METHOD, |e| {
+        set_geometry_wind_method(
+            e,
+            this,
+            CSpeedTreeRT::m_pFrondGeometry,
+            0xC,
+            method,
+            0x010a_4f10,
+        );
+    });
 }
 
 // Translated from 00b07b00 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b07b00 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetWindStrength` (Xbox PDB): with a strength of zero or more (a NaN is
 /// rejected through `SetError`), a second and a third value equal to the double at `0101a6b0`
 /// are replaced by the wind engine's `+4` and `+0` floats, the three go to the wind engine's
@@ -1411,64 +1557,67 @@ pub fn c_speed_tree_rt_set_wind_strength(
     third: f32,
 ) -> f32 {
     let mut result = 0.0f32.to_bits();
-    let zero: f64 = e.global(0x0101_2060);
-    if x87_load32(strength.to_bits()) >= zero {
-        let sentinel: f64 = e.global(0x0101_a6b0);
-        let mut second = second.to_bits();
-        let mut third = third.to_bits();
-        if x87_load32(second) == sentinel {
-            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-            second = pushed_float(e, wind.addr() + 4);
-        }
-        if x87_load32(third) == sentinel {
-            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-            third = pushed_float(e, wind.addr());
-        }
-        let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-        let value = e
-            .call(
-                0x00b3_7470,
-                &args![
-                    wind,
-                    x87_quiet_bits(strength.to_bits()),
-                    x87_quiet_bits(second),
-                    x87_quiet_bits(third)
-                ],
-            )
-            .f32();
-        result = x87_quiet_bits(value.to_bits());
-        if fn_00b076c0(e, this) == 1 {
-            let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-            if !geometry.is_null() {
-                e.mem.set_u8(geometry.addr() + 0x12, 0);
+    speedtree_try(e, NAME_SET_WIND_STRENGTH, |e| {
+        let zero: f64 = e.global(0x0101_2060);
+        if x87_load32(strength.to_bits()) >= zero {
+            let sentinel: f64 = e.global(0x0101_a6b0);
+            let mut second = second.to_bits();
+            let mut third = third.to_bits();
+            if x87_load32(second) == sentinel {
+                let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                second = pushed_float(e, wind.addr() + 4);
             }
-        }
-        if fn_00b078e0(e, this) == 1 {
-            let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-            if !geometry.is_null() {
-                e.mem.set_u8(geometry.addr() + 0x12, 0);
+            if x87_load32(third) == sentinel {
+                let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                third = pushed_float(e, wind.addr());
             }
-        }
-        let rocking = {
             let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-            e.mem.u8(wind.addr() + 0x14) != 0
-        };
-        if fn_00b074f0(e, this) == 1 || rocking {
-            let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-            e.call(0x00b2_7820, &args![leaf_geometry]);
+            let value = e
+                .call(
+                    0x00b3_7470,
+                    &args![
+                        wind,
+                        x87_quiet_bits(strength.to_bits()),
+                        x87_quiet_bits(second),
+                        x87_quiet_bits(third)
+                    ],
+                )
+                .f32();
+            result = x87_quiet_bits(value.to_bits());
+            if fn_00b076c0(e, this) == 1 {
+                let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+                if !geometry.is_null() {
+                    e.mem.set_u8(geometry.addr() + 0x12, 0);
+                }
+            }
+            if fn_00b078e0(e, this) == 1 {
+                let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                if !geometry.is_null() {
+                    e.mem.set_u8(geometry.addr() + 0x12, 0);
+                }
+            }
+            let rocking = {
+                let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                e.mem.u8(wind.addr() + 0x14) != 0
+            };
+            if fn_00b074f0(e, this) == 1 || rocking {
+                let leaf_geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+                e.call(0x00b2_7820, &args![leaf_geometry]);
+            }
+        } else {
+            c_speed_tree_rt_set_error(e, 0x010a_4f74);
         }
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4f74);
-    }
+    });
     f32::from_bits(result)
 }
 
 // Translated from 00b07db0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b07db0 - the FS:[0] exception frame is not translated.
 /// A static function (`cdecl`, one word): `00b07f20` on the static at `011f8d84` with the low
 /// 16 bits of the argument (unnamed in the engine map).
 pub fn fn_00b07db0(e: &mut Engine, value: u16) {
-    fn_00b07f20(e, Ptr::new(WIND_MATRIX_SPAN), value);
+    speedtree_try(e, NAME_SET_NUM_WIND_MATRICES, |e| {
+        fn_00b07f20(e, Ptr::new(WIND_MATRIX_SPAN), value);
+    });
 }
 
 // Translated from 00b07f20 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1513,7 +1662,6 @@ pub fn fn_00b07f20(e: &mut Engine, this: Ptr, count: u16) {
 }
 
 // Translated from 00b08050 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b08050 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::SetLocalMatrices` (Xbox PDB): before `Compute`, when `first + count - 1` is
 /// below the matrix count word at `011f8d84`, hands both to the wind engine's
 /// `SetLocalMatrices` (`00b37570`); otherwise reports through `SetError` (a range error, or
@@ -1524,52 +1672,55 @@ pub fn c_speed_tree_rt_set_local_matrices(
     first: u32,
     count: u32,
 ) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
-        let limit = u32::from(e.global::<u16>(WIND_MATRIX_SPAN));
-        if first.wrapping_add(count).wrapping_sub(1) < limit {
-            let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
-            e.call(0x00b3_7570, &args![wind, first, count]);
+    speedtree_try(e, NAME_SET_LOCAL_MATRICES, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) == 0 {
+            let limit = u32::from(e.global::<u16>(WIND_MATRIX_SPAN));
+            if first.wrapping_add(count).wrapping_sub(1) < limit {
+                let wind = e.get(this, CSpeedTreeRT::m_pWindEngine);
+                e.call(0x00b3_7570, &args![wind, first, count]);
+            } else {
+                c_speed_tree_rt_set_error(e, 0x010a_5034);
+            }
         } else {
-            c_speed_tree_rt_set_error(e, 0x010a_5034);
+            c_speed_tree_rt_set_error(e, 0x010a_4ff0);
         }
-    } else {
-        c_speed_tree_rt_set_error(e, 0x010a_4ff0);
-    }
+    });
 }
 
 // Translated from 00b08200 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b08200 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::ComputeLodLevel` (Xbox PDB): with instance data, lends the instance's
 /// position to the engine (saving the engine's position words and its level-of-detail float at
 /// `+0x14`), lets the engine compute the level (`CTreeEngine::ComputeLod`, `00b2bd40`), keeps
 /// it in the instance data (`+0x10`) and restores the engine's float and position; without
 /// instance data the engine computes it and the result is dropped.
 pub fn c_speed_tree_rt_compute_lod_level(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
-    if !e.get(this, CSpeedTreeRT::m_pInstanceData).is_null() {
-        let engine = e.mem.u32(this.addr());
-        let mut saved_position = [0u32; 3];
-        for (axis, word) in saved_position.iter_mut().enumerate() {
-            *word = e.mem.u32(engine + 4 + 4 * axis as u32);
+    speedtree_try(e, NAME_COMPUTE_LOD_LEVEL, |e| {
+        if !e.get(this, CSpeedTreeRT::m_pInstanceData).is_null() {
+            let engine = e.mem.u32(this.addr());
+            let mut saved_position = [0u32; 3];
+            for (axis, word) in saved_position.iter_mut().enumerate() {
+                *word = e.mem.u32(engine + 4 + 4 * axis as u32);
+            }
+            let saved_level = pushed_float(e, engine + 0x14);
+            let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
+            let engine = e.mem.u32(this.addr());
+            copy_words(e, engine + 4, data.addr() + 4, 3);
+            let engine = e.mem.u32(this.addr());
+            let level = e.call(0x00b2_bd40, &args![engine]).f32();
+            let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
+            e.mem
+                .set_u32(data.addr() + 0x10, x87_quiet_bits(level.to_bits()));
+            let engine = e.mem.u32(this.addr());
+            e.mem.set_u32(engine + 0x14, x87_quiet_bits(saved_level));
+            let engine = e.mem.u32(this.addr());
+            for (axis, word) in saved_position.into_iter().enumerate() {
+                e.mem.set_u32(engine + 4 + 4 * axis as u32, word);
+            }
+        } else {
+            let engine = e.mem.u32(this.addr());
+            e.call(0x00b2_bd40, &args![engine]);
         }
-        let saved_level = pushed_float(e, engine + 0x14);
-        let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
-        let engine = e.mem.u32(this.addr());
-        copy_words(e, engine + 4, data.addr() + 4, 3);
-        let engine = e.mem.u32(this.addr());
-        let level = e.call(0x00b2_bd40, &args![engine]).f32();
-        let data = e.get(this, CSpeedTreeRT::m_pInstanceData);
-        e.mem
-            .set_u32(data.addr() + 0x10, x87_quiet_bits(level.to_bits()));
-        let engine = e.mem.u32(this.addr());
-        e.mem.set_u32(engine + 0x14, x87_quiet_bits(saved_level));
-        let engine = e.mem.u32(this.addr());
-        for (axis, word) in saved_position.into_iter().enumerate() {
-            e.mem.set_u32(engine + 4 + 4 * axis as u32, word);
-        }
-    } else {
-        let engine = e.mem.u32(this.addr());
-        e.call(0x00b2_bd40, &args![engine]);
-    }
+    });
 }
 
 // Translated from 00b08440 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1790,39 +1941,43 @@ pub fn fn_00b088b0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
 }
 
 // Translated from 00b088d0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b088d0 - the FS:[0] exception frame is not translated.
 /// Deletes the branch geometry of a computed tree that has one, has no instance data and is the
 /// only user of its shared count (unnamed in the engine map): the geometry's destructor
 /// (`00b2e9c0`), its block freed (the exe's delete flag is the constant 1), the tree's pointer
 /// cleared and the engine's branch-geometry pointer (`+0x5C`) cleared.
 pub fn fn_00b088d0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) != 0
-        && !e.get(this, CSpeedTreeRT::m_pBranchGeometry).is_null()
-        && e.get(this, CSpeedTreeRT::m_pInstanceData).is_null()
-    {
-        let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
-        if e.mem.u32(count.addr()) == 1 {
-            let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
-            if !geometry.is_null() {
-                e.call(0x00b2_e9c0, &args![geometry]);
-                e.call(DEALLOCATE, &args![MEMORY_MANAGER, geometry]);
-            }
-            e.set(this, CSpeedTreeRT::m_pBranchGeometry, Ptr::NULL);
-            let engine = e.get(this, CSpeedTreeRT::m_pEngine);
-            if !engine.is_null() {
-                e.mem.set_u32(engine.addr() + 0x5C, 0);
+    speedtree_try(e, NAME_DELETE_BRANCH_GEOMETRY, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) != 0
+            && !e.get(this, CSpeedTreeRT::m_pBranchGeometry).is_null()
+            && e.get(this, CSpeedTreeRT::m_pInstanceData).is_null()
+        {
+            let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
+            if e.mem.u32(count.addr()) == 1 {
+                let geometry = e.get(this, CSpeedTreeRT::m_pBranchGeometry);
+                if !geometry.is_null() {
+                    e.call(0x00b2_e9c0, &args![geometry]);
+                    e.call(DEALLOCATE, &args![MEMORY_MANAGER, geometry]);
+                }
+                e.set(this, CSpeedTreeRT::m_pBranchGeometry, Ptr::NULL);
+                let engine = e.get(this, CSpeedTreeRT::m_pEngine);
+                if !engine.is_null() {
+                    e.mem.set_u32(engine.addr() + 0x5C, 0);
+                }
             }
         }
-    }
+    });
 }
 
 // Translated from 00b08af0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b08af0 - the FS:[0] exception frame is not translated.
 /// Hands its argument to the leaf geometry's `00b27870` and returns the result (unnamed in
 /// the engine map).
 pub fn fn_00b08af0(e: &mut Engine, this: Ptr<CSpeedTreeRT>, argument: u32) -> u32 {
-    let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
-    e.call(0x00b2_7870, &args![geometry, argument]).u32()
+    let mut result = 0;
+    speedtree_try(e, NAME_GET_LEAF_BILLBOARD_TABLE, |e| {
+        let geometry = e.get(this, CSpeedTreeRT::m_pLeafGeometry);
+        result = e.call(0x00b2_7870, &args![geometry, argument]).u32();
+    });
+    result
 }
 
 // Translated from 00b08c80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1838,38 +1993,37 @@ pub fn c_speed_tree_rt_get_bounding_box(e: &mut Engine, this: Ptr<CSpeedTreeRT>,
 }
 
 // Translated from 00b08cc0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b08cc0 - the FS:[0] exception frame is not translated.
 /// The static lighting of the leaves (unnamed in the engine map): takes the bounding box,
 /// forms its centre (`(max + min) * [01011588]` per axis, the double), and runs the lighting
 /// engine's `ComputeLeafStaticLighting` (`00b2a210`) with the centre, the engine's word at `+0xEC`
 /// and the leaf level count (`00b08710`).
 pub fn fn_00b08cc0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
-    e.with_stack(0x24, |e, frame| {
-        let bounds = frame.addr();
-        let centre = frame.addr() + 0x18;
-        c_speed_tree_rt_get_bounding_box(e, this, bounds);
-        let half: f64 = e.global(0x0101_1588);
-        let mut sums = [0u32; 3];
-        for (axis, slot) in sums.iter_mut().enumerate() {
-            let axis = 4 * axis as u32;
-            let sum = x87_add(fld(e, bounds + 0xC + axis), operand(e, bounds + axis));
-            *slot = x87_store32(x87_mul(sum, half));
-        }
-        for (axis, bits) in sums.into_iter().enumerate() {
-            e.mem
-                .set_u32(centre + 4 * axis as u32, x87_quiet_bits(bits));
-        }
-        let engine = e.mem.u32(this.addr());
-        let large_percent = e.mem.u32(engine + 0xEC);
-        let levels = fn_00b08710(e, this);
-        let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
-        e.call(0x00b2_a210, &args![lighting, centre, large_percent, levels]);
+    speedtree_try(e, NAME_COMPUTE_LEAF_STATIC_LIGHTING, |e| {
+        e.with_stack(0x24, |e, frame| {
+            let bounds = frame.addr();
+            let centre = frame.addr() + 0x18;
+            c_speed_tree_rt_get_bounding_box(e, this, bounds);
+            let half: f64 = e.global(0x0101_1588);
+            let mut sums = [0u32; 3];
+            for (axis, slot) in sums.iter_mut().enumerate() {
+                let axis = 4 * axis as u32;
+                let sum = x87_add(fld(e, bounds + 0xC + axis), operand(e, bounds + axis));
+                *slot = x87_store32(x87_mul(sum, half));
+            }
+            for (axis, bits) in sums.into_iter().enumerate() {
+                e.mem
+                    .set_u32(centre + 4 * axis as u32, x87_quiet_bits(bits));
+            }
+            let engine = e.mem.u32(this.addr());
+            let large_percent = e.mem.u32(engine + 0xEC);
+            let levels = fn_00b08710(e, this);
+            let lighting = e.get(this, CSpeedTreeRT::m_pLightingEngine);
+            e.call(0x00b2_a210, &args![lighting, centre, large_percent, levels]);
+        });
     });
 }
 
 // Translated from 00b08ec0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b08ec0 - the FS:[0] exception frame (leaving the critical section
-// if a step throws) is not translated.
 /// A static function (`cdecl`, one word; unnamed in the engine map) over every tree in the
 /// shared list of unique trees (the vector at `011f8bdc`, under the critical section at
 /// `011f8bc4`, entered and left through `EnterCriticalSection` and `LeaveCriticalSection`):
@@ -1877,66 +2031,69 @@ pub fn fn_00b08cc0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
 /// one whose frond wind method is 1 the frond geometry, and the leaf geometry's `00b27820`
 /// runs unless the leaf wind method is not 1 and the rocking-leaves flag is clear; with 1,
 /// `00b27820` runs on the leaf geometry and the simple billboard's valid byte (`+0x30`) is
-/// cleared; any other value does nothing.
+/// cleared; any other value does nothing. The critical section is entered and left inside the try
+/// states with no unwind action: a throw between them leaves it held, in the exe as here.
 pub fn fn_00b08ec0(e: &mut Engine, mode: i32) {
-    e.call(ENTER_CRITICAL_SECTION, &args![UNIQUE_TREES_LOCK]);
-    e.with_stack(0x18, |e, frame| {
-        let begin = Ptr::new(frame.addr());
-        let end = frame.addr() + 8;
-        let first = e.global::<u32>(UNIQUE_TREES + 0x0C);
-        e.call(ITERATOR_CONSTRUCT, &args![begin, first, UNIQUE_TREES]);
-        loop {
-            let last = e.global::<u32>(UNIQUE_TREES + 0x10);
-            e.call(ITERATOR_CONSTRUCT, &args![end, last, UNIQUE_TREES]);
-            if e.call(ITERATOR_EQUAL, &args![begin, end]).bool() {
-                break;
-            }
-            if mode == 0 {
-                let slot = fn_00b0ebb0(e, begin);
-                let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
-                if fn_00b076c0(e, tree) == 1 {
-                    let slot = fn_00b0ebb0(e, begin);
-                    let tree = e.mem.u32(slot);
-                    let geometry = e.mem.u32(tree + 4);
-                    e.mem.set_u8(geometry + 0x12, 0);
+    speedtree_try(e, NAME_NOTIFY_ALL_TREES_OF_EVENT, |e| {
+        e.call(ENTER_CRITICAL_SECTION, &args![UNIQUE_TREES_LOCK]);
+        e.with_stack(0x18, |e, frame| {
+            let begin = Ptr::new(frame.addr());
+            let end = frame.addr() + 8;
+            let first = e.global::<u32>(UNIQUE_TREES + 0x0C);
+            e.call(ITERATOR_CONSTRUCT, &args![begin, first, UNIQUE_TREES]);
+            loop {
+                let last = e.global::<u32>(UNIQUE_TREES + 0x10);
+                e.call(ITERATOR_CONSTRUCT, &args![end, last, UNIQUE_TREES]);
+                if e.call(ITERATOR_EQUAL, &args![begin, end]).bool() {
+                    break;
                 }
-                let slot = fn_00b0ebb0(e, begin);
-                let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
-                if fn_00b078e0(e, tree) == 1 {
+                if mode == 0 {
                     let slot = fn_00b0ebb0(e, begin);
-                    let tree = e.mem.u32(slot);
-                    let geometry = e.mem.u32(tree + 0x60);
-                    e.mem.set_u8(geometry + 0x12, 0);
-                }
-                let slot = fn_00b0ebb0(e, begin);
-                let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
-                let mut run = fn_00b074f0(e, tree) == 1;
-                if !run {
+                    let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
+                    if fn_00b076c0(e, tree) == 1 {
+                        let slot = fn_00b0ebb0(e, begin);
+                        let tree = e.mem.u32(slot);
+                        let geometry = e.mem.u32(tree + 4);
+                        e.mem.set_u8(geometry + 0x12, 0);
+                    }
                     let slot = fn_00b0ebb0(e, begin);
-                    let tree = e.mem.u32(slot);
-                    let wind = e.mem.u32(tree + 0x10);
-                    run = e.mem.u8(wind + 0x14) != 0;
-                }
-                if run {
+                    let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
+                    if fn_00b078e0(e, tree) == 1 {
+                        let slot = fn_00b0ebb0(e, begin);
+                        let tree = e.mem.u32(slot);
+                        let geometry = e.mem.u32(tree + 0x60);
+                        e.mem.set_u8(geometry + 0x12, 0);
+                    }
+                    let slot = fn_00b0ebb0(e, begin);
+                    let tree = Ptr::<CSpeedTreeRT>::new(e.mem.u32(slot));
+                    let mut run = fn_00b074f0(e, tree) == 1;
+                    if !run {
+                        let slot = fn_00b0ebb0(e, begin);
+                        let tree = e.mem.u32(slot);
+                        let wind = e.mem.u32(tree + 0x10);
+                        run = e.mem.u8(wind + 0x14) != 0;
+                    }
+                    if run {
+                        let slot = fn_00b0ebb0(e, begin);
+                        let tree = e.mem.u32(slot);
+                        let leaf_geometry = e.mem.u32(tree + 8);
+                        e.call(0x00b2_7820, &args![leaf_geometry]);
+                    }
+                } else if mode == 1 {
                     let slot = fn_00b0ebb0(e, begin);
                     let tree = e.mem.u32(slot);
                     let leaf_geometry = e.mem.u32(tree + 8);
                     e.call(0x00b2_7820, &args![leaf_geometry]);
+                    let slot = fn_00b0ebb0(e, begin);
+                    let tree = e.mem.u32(slot);
+                    let billboard = e.mem.u32(tree + 0x14);
+                    e.mem.set_u8(billboard + 0x30, 0);
                 }
-            } else if mode == 1 {
-                let slot = fn_00b0ebb0(e, begin);
-                let tree = e.mem.u32(slot);
-                let leaf_geometry = e.mem.u32(tree + 8);
-                e.call(0x00b2_7820, &args![leaf_geometry]);
-                let slot = fn_00b0ebb0(e, begin);
-                let tree = e.mem.u32(slot);
-                let billboard = e.mem.u32(tree + 0x14);
-                e.mem.set_u8(billboard + 0x30, 0);
+                fn_00b0ec20(e, begin);
             }
-            fn_00b0ec20(e, begin);
-        }
+        });
+        e.call(LEAVE_CRITICAL_SECTION, &args![UNIQUE_TREES_LOCK]);
     });
-    e.call(LEAVE_CRITICAL_SECTION, &args![UNIQUE_TREES_LOCK]);
 }
 
 // Translated from 00b09270 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2535,27 +2692,28 @@ pub fn c_speed_tree_rt_parse_collision_objects(
 }
 
 // Translated from 00b0a7a0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b0a7a0 - the FS:[0] exception frame is not translated.
 /// Deletes the frond geometry of a computed tree that has one, has no instance data and is the
 /// only user of its shared count (unnamed in the engine map): the geometry's destructor
 /// (`00b2e9c0`), its block freed (the exe's delete flag is the constant 1) and the tree's
 /// pointer (`+0x60`) cleared.
 pub fn fn_00b0a7a0(e: &mut Engine, this: Ptr<CSpeedTreeRT>) {
-    if e.get(this, CSpeedTreeRT::m_bTreeComputed) != 0
-        && !e.get(this, CSpeedTreeRT::m_pFrondGeometry).is_null()
-        && e.get(this, CSpeedTreeRT::m_pInstanceData).is_null()
-        && !e.get(this, CSpeedTreeRT::m_pInstanceRefCount).is_null()
-    {
-        let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
-        if e.mem.u32(count.addr()) == 1 {
-            let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
-            if !geometry.is_null() {
-                e.call(0x00b2_e9c0, &args![geometry]);
-                e.call(DEALLOCATE, &args![MEMORY_MANAGER, geometry]);
+    speedtree_try(e, NAME_DELETE_FROND_GEOMETRY, |e| {
+        if e.get(this, CSpeedTreeRT::m_bTreeComputed) != 0
+            && !e.get(this, CSpeedTreeRT::m_pFrondGeometry).is_null()
+            && e.get(this, CSpeedTreeRT::m_pInstanceData).is_null()
+            && !e.get(this, CSpeedTreeRT::m_pInstanceRefCount).is_null()
+        {
+            let count = e.get(this, CSpeedTreeRT::m_pInstanceRefCount);
+            if e.mem.u32(count.addr()) == 1 {
+                let geometry = e.get(this, CSpeedTreeRT::m_pFrondGeometry);
+                if !geometry.is_null() {
+                    e.call(0x00b2_e9c0, &args![geometry]);
+                    e.call(DEALLOCATE, &args![MEMORY_MANAGER, geometry]);
+                }
+                e.set(this, CSpeedTreeRT::m_pFrondGeometry, Ptr::NULL);
             }
-            e.set(this, CSpeedTreeRT::m_pFrondGeometry, Ptr::NULL);
         }
-    }
+    });
 }
 
 // Translated from 00b0a9a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2611,7 +2769,6 @@ pub fn fn_00b0aa20(e: &mut Engine, this: Ptr, level: i16) -> u32 {
 }
 
 // Translated from 00b0ab20 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b0ab20 - the FS:[0] exception frame is not translated.
 /// `CSpeedTreeRT::GetGeometry` (unnamed in the engine map): fills the geometry record `out`
 /// for what `flags` ask: bit 0 the branches (`00b0b1d0`, with the low word of `branch_lod`),
 /// bit 1 the fronds (`00b0b920`), bit 2 the leaves (`00b0bc00`), bit 3 the billboards: with the
@@ -2626,22 +2783,24 @@ pub fn fn_00b0ab20(
     frond_lod: u16,
     leaf_lod: u16,
 ) {
-    if flags & 1 != 0 {
-        c_speed_tree_rt_get_branch_geometry(e, this, out, branch_lod as i16);
-    }
-    if flags & 2 != 0 {
-        c_speed_tree_rt_get_frond_geometry(e, this, out, frond_lod as i16);
-    }
-    if flags & 4 != 0 {
-        fn_00b0bc00(e, this, out, leaf_lod as i16);
-    }
-    if flags & 8 != 0 {
-        if e.get(this, CSpeedTreeRT::m_b360Billboard) != 0 && flags & 0x10 == 0 {
-            fn_00b0c050(e, this, out, flags);
-        } else {
-            fn_00b0c4f0(e, this, out);
+    speedtree_try(e, NAME_GET_GEOMETRY, |e| {
+        if flags & 1 != 0 {
+            c_speed_tree_rt_get_branch_geometry(e, this, out, branch_lod as i16);
         }
-    }
+        if flags & 2 != 0 {
+            c_speed_tree_rt_get_frond_geometry(e, this, out, frond_lod as i16);
+        }
+        if flags & 4 != 0 {
+            fn_00b0bc00(e, this, out, leaf_lod as i16);
+        }
+        if flags & 8 != 0 {
+            if e.get(this, CSpeedTreeRT::m_b360Billboard) != 0 && flags & 0x10 == 0 {
+                fn_00b0c050(e, this, out, flags);
+            } else {
+                fn_00b0c4f0(e, this, out);
+            }
+        }
+    });
 }
 
 // Translated from 00b0dfb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3642,33 +3801,34 @@ fn blend_alpha(e: &mut Engine, t: u32, exponent: f32, alpha: f32) -> u32 {
 }
 
 // Translated from 00b0cb10 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b0cb10 - the FS:[0] exception frame is not translated.
 /// The leaf lod size factors (unnamed in the engine map): made on first use, one float per leaf
 /// level (`00b08710`) in a block of `levels * 4` bytes (a product that overflows becomes
 /// 0xFFFFFFFF) at `+0x2C`, entry `i` being `i * [this+0x24] + 1` (computed in a `double`, stored
 /// as a float). Returns the table.
 pub fn fn_00b0cb10(e: &mut Engine, this: Ptr<CSpeedTreeRT>) -> u32 {
-    if e.get(this, CSpeedTreeRT::m_pLeafLodSizeFactors).is_null() {
-        let levels = i32::from(fn_00b08710(e, this));
-        let size = (levels as u32).checked_mul(4).unwrap_or(u32::MAX);
-        let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
-        e.set(this, CSpeedTreeRT::m_pLeafLodSizeFactors, Ptr::new(block));
-        let mut index = 0i32;
-        while index < levels {
-            let factor = if levels > 0 {
-                x87_add(
-                    x87_mul(f64::from(index), operand(e, this.addr() + 0x24)),
-                    1.0,
-                )
-            } else {
-                1.0
-            };
-            let table = e.get(this, CSpeedTreeRT::m_pLeafLodSizeFactors).addr();
-            e.mem
-                .set_u32(table.wrapping_add((index as u32) << 2), x87_store32(factor));
-            index += 1;
+    speedtree_try(e, NAME_GET_LEAF_LOD_SIZE_ADJUSTMENTS, |e| {
+        if e.get(this, CSpeedTreeRT::m_pLeafLodSizeFactors).is_null() {
+            let levels = i32::from(fn_00b08710(e, this));
+            let size = (levels as u32).checked_mul(4).unwrap_or(u32::MAX);
+            let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
+            e.set(this, CSpeedTreeRT::m_pLeafLodSizeFactors, Ptr::new(block));
+            let mut index = 0i32;
+            while index < levels {
+                let factor = if levels > 0 {
+                    x87_add(
+                        x87_mul(f64::from(index), operand(e, this.addr() + 0x24)),
+                        1.0,
+                    )
+                } else {
+                    1.0
+                };
+                let table = e.get(this, CSpeedTreeRT::m_pLeafLodSizeFactors).addr();
+                e.mem
+                    .set_u32(table.wrapping_add((index as u32) << 2), x87_store32(factor));
+                index += 1;
+            }
         }
-    }
+    });
     e.get(this, CSpeedTreeRT::m_pLeafLodSizeFactors).addr()
 }
 
@@ -3749,7 +3909,6 @@ pub fn c_speed_tree_rt_compute_self_shadow_tex_coords(e: &mut Engine, this: Ptr<
 }
 
 // Translated from 00b0d040 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00b0d040 - the FS:[0] exception frame is not translated.
 /// Fills the texture names record `out` (unnamed in the engine map): `+0` the engine's name
 /// string's text (`CTreeEngine` `+0x24`), `+4` the number of leaf textures (the 0x54-byte
 /// entries of the leaf info's vector at `CTreeEngine` `+0xA4`) and `+8` an array of their file
@@ -3759,54 +3918,56 @@ pub fn c_speed_tree_rt_compute_self_shadow_tex_coords(e: &mut Engine, this: Ptr<
 /// composite file name (`+0x18` of the embedded coordinates), the last two only when the
 /// tree has those.
 pub fn fn_00b0d040(e: &mut Engine, this: Ptr<CSpeedTreeRT>, out: u32) {
-    let engine = e.mem.u32(this.addr());
-    let name = string_text(e, engine + 0x24);
-    e.mem.set_u32(out, name);
-    let leaf_vector = engine + 0xA4;
-    let leaf_count = vector_len(e, leaf_vector, 0x54);
-    e.mem.set_u32(out + 4, leaf_count);
-    if e.mem.u32(out + 4) > 0 {
-        let size = e.mem.u32(out + 4).checked_mul(4).unwrap_or(u32::MAX);
-        let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
-        e.mem.set_u32(out + 8, block);
-        let mut index = 0u32;
-        while index < vector_len(e, leaf_vector, 0x54) {
-            let entry = vector_at(e, leaf_vector, index, 0x54);
-            let text = string_text(e, entry + 0x14);
-            let names = e.mem.u32(out + 8);
-            e.mem.set_u32(names.wrapping_add(index << 2), text);
-            index += 1;
+    speedtree_try(e, NAME_GET_TEXTURES, |e| {
+        let engine = e.mem.u32(this.addr());
+        let name = string_text(e, engine + 0x24);
+        e.mem.set_u32(out, name);
+        let leaf_vector = engine + 0xA4;
+        let leaf_count = vector_len(e, leaf_vector, 0x54);
+        e.mem.set_u32(out + 4, leaf_count);
+        if e.mem.u32(out + 4) > 0 {
+            let size = e.mem.u32(out + 4).checked_mul(4).unwrap_or(u32::MAX);
+            let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
+            e.mem.set_u32(out + 8, block);
+            let mut index = 0u32;
+            while index < vector_len(e, leaf_vector, 0x54) {
+                let entry = vector_at(e, leaf_vector, index, 0x54);
+                let text = string_text(e, entry + 0x14);
+                let names = e.mem.u32(out + 8);
+                e.mem.set_u32(names.wrapping_add(index << 2), text);
+                index += 1;
+            }
+        } else {
+            e.mem.set_u32(out + 8, 0);
         }
-    } else {
-        e.mem.set_u32(out + 8, 0);
-    }
-    let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine).addr();
-    let frond_count = vector_len(e, frond_engine + 0x50, 0x2C);
-    e.mem.set_u32(out + 0xC, frond_count);
-    if e.mem.u32(out + 0xC) > 0 {
-        let size = e.mem.u32(out + 0xC).checked_mul(4).unwrap_or(u32::MAX);
-        let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
-        e.mem.set_u32(out + 0x10, block);
-        let mut index = 0u32;
-        while index < e.mem.u32(out + 0xC) {
-            let text = fn_00b0d490(e, Ptr::new(frond_engine), index);
-            let names = e.mem.u32(out + 0x10);
-            e.mem.set_u32(names.wrapping_add(index << 2), text);
-            index += 1;
+        let frond_engine = e.get(this, CSpeedTreeRT::m_pFrondEngine).addr();
+        let frond_count = vector_len(e, frond_engine + 0x50, 0x2C);
+        e.mem.set_u32(out + 0xC, frond_count);
+        if e.mem.u32(out + 0xC) > 0 {
+            let size = e.mem.u32(out + 0xC).checked_mul(4).unwrap_or(u32::MAX);
+            let block = e.call(ALLOCATE, &args![MEMORY_MANAGER, size]).u32();
+            e.mem.set_u32(out + 0x10, block);
+            let mut index = 0u32;
+            while index < e.mem.u32(out + 0xC) {
+                let text = fn_00b0d490(e, Ptr::new(frond_engine), index);
+                let names = e.mem.u32(out + 0x10);
+                e.mem.set_u32(names.wrapping_add(index << 2), text);
+                index += 1;
+            }
+        } else {
+            e.mem.set_u32(out + 0x10, 0);
         }
-    } else {
-        e.mem.set_u32(out + 0x10, 0);
-    }
-    let shadow = e.get(this, CSpeedTreeRT::m_pProjectedShadow);
-    if !shadow.is_null() {
-        let text = string_text(e, shadow.addr() + 0x24);
-        e.mem.set_u32(out + 0x18, text);
-    }
-    let embedded = e.get(this, CSpeedTreeRT::m_pEmbeddedTexCoords);
-    if !embedded.is_null() {
-        let text = string_text(e, embedded.addr() + 0x18);
-        e.mem.set_u32(out + 0x14, text);
-    }
+        let shadow = e.get(this, CSpeedTreeRT::m_pProjectedShadow);
+        if !shadow.is_null() {
+            let text = string_text(e, shadow.addr() + 0x24);
+            e.mem.set_u32(out + 0x18, text);
+        }
+        let embedded = e.get(this, CSpeedTreeRT::m_pEmbeddedTexCoords);
+        if !embedded.is_null() {
+            let text = string_text(e, embedded.addr() + 0x18);
+            e.mem.set_u32(out + 0x14, text);
+        }
+    });
 }
 
 // Translated from 00b0d490 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4759,7 +4920,7 @@ mod tests {
         e.mem.set_u32(errno, 2);
         stub(e, calls, ERRNO, errno);
         stub(e, calls, STRERROR, 0x1234_0000);
-        for address in [FORMAT_STRING, EXCEPTION_CONSTRUCT] {
+        for address in [FORMAT_STRING, EXCEPTION_CONSTRUCT, STRING_TIDY] {
             stub(e, calls, address, 0);
         }
         e.register(CXX_THROW_EXCEPTION, |_, _| panic!("thrown"));
@@ -4771,6 +4932,600 @@ mod tests {
             Ok(()) => false,
             Err(payload) => payload.downcast_ref::<&str>() == Some(&"thrown"),
         }
+    }
+
+    /// The throw as the game has it: `_CxxThrowException` goes on into the engine's own, with
+    /// `ThrowInfo`s for `std::exception` (`LoadTree`'s) and for the parse errors, in the exe's
+    /// layout, and a `what()` answering [`WHAT_TEXT`] on any object whose word 0 is
+    /// [`what_vtable`].
+    fn real_throws(e: &mut Engine, calls: &Calls) {
+        let log = calls.clone();
+        e.register_double(CXX_THROW_EXCEPTION, move |e, a| {
+            log.borrow_mut().push((CXX_THROW_EXCEPTION, a.to_vec()));
+            engine_core::cxx_exception::throw(e, a[0], a[1])
+        });
+        let parse_chain: [&[u8]; 3] = [
+            b".?AVIdvFileError@@",
+            b".?AVruntime_error@std@@",
+            STD_EXCEPTION_NAME,
+        ];
+        for (at, chain) in [
+            (EXCEPTION_THROW_INFO, &[STD_EXCEPTION_NAME][..]),
+            (PARSE_THROW_INFO, &parse_chain[..]),
+        ] {
+            e.map(at, 0x10);
+            engine_core::cxx_exception::write_throw_info(e, at, EXCEPTION_DESTRUCT, chain);
+        }
+        stub(e, calls, EXCEPTION_DESTRUCT, 0);
+    }
+
+    /// What the object's `what()` double answers.
+    const WHAT_TEXT: u32 = 0x1111_0000;
+
+    /// A vtable with a `what()` (slot 1) answering [`WHAT_TEXT`].
+    fn what_vtable(e: &mut Engine, calls: &Calls) -> u32 {
+        stub(e, calls, 0x0f20_0010, WHAT_TEXT);
+        let vtable = e.mem.alloc(8);
+        e.mem.set_u32(vtable + 4, 0x0f20_0010);
+        vtable
+    }
+
+    /// The doubles a catch block calls: the format, `SetError`'s two and the string's destructor.
+    /// The format double fills in the string so `SetError` gets its text (the local's address
+    /// `+4`).
+    fn catch_doubles(e: &mut Engine, calls: &Calls) {
+        for address in [STRLEN, STRING_ASSIGN_TEXT, STRING_TIDY] {
+            stub(e, calls, address, 0);
+        }
+        let log = calls.clone();
+        e.register_double(FORMAT_STRING, move |e, a| {
+            log.borrow_mut().push((FORMAT_STRING, a.to_vec()));
+            e.mem.set_u32(a[0] + 0x18, 0xf);
+            Ret::default()
+        });
+    }
+
+    /// A double at `address` that throws a `std::exception` built here (its vtable has `what()`)
+    /// on its call number `when` (from 0), and answers 0 otherwise.
+    fn throwing_double(e: &mut Engine, calls: &Calls, address: u32, when: u32) -> u32 {
+        let vtable = what_vtable(e, calls);
+        let object = e.mem.alloc(0xc);
+        e.mem.set_u32(object, vtable);
+        let mut count = 0;
+        e.register_double(address, move |e, _| {
+            count += 1;
+            if count - 1 == when {
+                e.call(CXX_THROW_EXCEPTION, &args![object, EXCEPTION_THROW_INFO]);
+                unreachable!("a throw does not return");
+            }
+            Ret::default()
+        });
+        object
+    }
+
+    /// The stacks a caught throw has to put back, on a thread with some of each in use.
+    fn stacks_of(e: &Engine) -> ((usize, Option<u32>), Vec<u32>) {
+        (e.guest_stack_mark(), e.call_stack.clone())
+    }
+
+    /// `action` under a caller's locals and call stack: the stacks after it are those before it.
+    /// Answers its result.
+    fn with_stacks_kept<R>(e: &mut Engine, action: impl FnOnce(&mut Engine) -> R) -> R {
+        e.call_stack.push(0x0040_1000);
+        let result = e.with_stack(0x20, |e, local| {
+            e.mem.set_u32(local.addr(), 0x5a5a_5a5a);
+            let before = stacks_of(e);
+            let result = action(e);
+            assert_eq!(stacks_of(e), before, "the catch put the stacks back");
+            assert_eq!(e.mem.u32(local.addr()), 0x5a5a_5a5a, "the caller's local");
+            result
+        });
+        e.call_stack.pop();
+        result
+    }
+
+    /// One function's catch: the same function, with a throw from a call it makes, reports under
+    /// `name` through both of its catch blocks and answers `answer`.
+    fn check_catches<R: PartialEq + std::fmt::Debug>(
+        name: u32,
+        thrower: u32,
+        make: impl Fn(&mut Engine, &Calls) -> Ptr<CSpeedTreeRT>,
+        run: impl Fn(&mut Engine, Ptr<CSpeedTreeRT>) -> R,
+        answer: R,
+    ) {
+        // catch(std::exception&).
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        let tree = make(&mut e, &calls);
+        throwing_double(&mut e, &calls, thrower, 0);
+        let got = with_stacks_kept(&mut e, |e| run(e, tree));
+        assert_eq!(
+            got, answer,
+            "after catch(std::exception&) reporting {name:08x}"
+        );
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format[0][1..], [CAUGHT_FAILED_FORMAT, name, WHAT_TEXT]);
+        assert_eq!(calls_to(&calls, STRING_ASSIGN_TEXT).len(), 1);
+        assert_eq!(calls_to(&calls, STRING_TIDY).last().unwrap()[1..], [1, 0]);
+        assert_eq!(calls_to(&calls, EXCEPTION_DESTRUCT).len(), 1, "the object");
+
+        // catch(...): a type with no std::exception in its chain.
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        let tree = make(&mut e, &calls);
+        engine_core::cxx_exception::write_throw_info(
+            &mut e,
+            EXCEPTION_THROW_INFO,
+            0,
+            &[b".?AVOther@@"],
+        );
+        throwing_double(&mut e, &calls, thrower, 0);
+        let got = with_stacks_kept(&mut e, |e| run(e, tree));
+        assert_eq!(got, answer, "after catch(...) reporting {name:08x}");
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format[0][1..], [CAUGHT_UNKNOWN_FORMAT, name]);
+        assert_eq!(calls_to(&calls, STRING_ASSIGN_TEXT).len(), 1);
+    }
+
+    /// A linked tree, with the first `SetError` of the functions that report (`strlen`) free to
+    /// be the thrower.
+    fn tree_for_catch(e: &mut Engine, _calls: &Calls) -> Ptr<CSpeedTreeRT> {
+        linked_tree(e)
+    }
+
+    /// A linked tree already computed: the setters then go straight to `SetError`.
+    fn computed_tree(e: &mut Engine, _calls: &Calls) -> Ptr<CSpeedTreeRT> {
+        let tree = linked_tree(e);
+        e.set(tree, CSpeedTreeRT::m_bTreeComputed, 1);
+        tree
+    }
+
+    /// `check_catches` where the throw comes from the first `SetError`'s `strlen` and the catch
+    /// block's own `SetError` then runs (the second call of `strlen` passes).
+    fn check_catches_from_set_error<R: PartialEq + std::fmt::Debug>(
+        name: u32,
+        make: impl Fn(&mut Engine, &Calls) -> Ptr<CSpeedTreeRT>,
+        run: impl Fn(&mut Engine, Ptr<CSpeedTreeRT>) -> R,
+        answer: R,
+    ) {
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        let tree = make(&mut e, &calls);
+        throwing_double(&mut e, &calls, STRLEN, 0);
+        let got = with_stacks_kept(&mut e, |e| run(e, tree));
+        assert_eq!(got, answer, "after the catch reporting {name:08x}");
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format[0][1..], [CAUGHT_FAILED_FORMAT, name, WHAT_TEXT]);
+        // The first `SetError` threw inside `strlen`; only the catch block's reached the assign.
+        assert_eq!(calls_to(&calls, STRING_ASSIGN_TEXT).len(), 1);
+        assert_eq!(calls_to(&calls, EXCEPTION_DESTRUCT).len(), 1, "the object");
+    }
+
+    #[test]
+    fn the_setters_catch_a_throw_and_report_under_their_names() {
+        check_catches_from_set_error(
+            NAME_SET_TREE_SIZE,
+            tree_for_catch,
+            |e, t| c_speed_tree_rt_set_tree_size(e, t, 1.0, 1.0),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_BRANCH_LIGHTING_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_branch_lighting_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_LEAF_LIGHTING_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_leaf_lighting_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_FROND_LIGHTING_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_frond_lighting_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_LEAF_ROCKING_STATE,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_num_leaf_rocking_groups(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_LEAF_WIND_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_leaf_wind_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_BRANCH_WIND_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_branch_wind_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_FROND_WIND_METHOD,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_frond_wind_method(e, t, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_LOCAL_MATRICES,
+            computed_tree,
+            |e, t| c_speed_tree_rt_set_local_matrices(e, t, 0, 1),
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_SET_CAMERA,
+            tree_for_catch,
+            |e, _| c_speed_tree_rt_set_camera(e, 0, 0),
+            (),
+        );
+        // A second `Compute` reports; the answer is the computed flag, read after the catch.
+        check_catches_from_set_error(
+            NAME_COMPUTE,
+            computed_tree,
+            |e, t| c_speed_tree_rt_compute(e, t, Ptr::NULL, 0, false),
+            1u8,
+        );
+    }
+
+    #[test]
+    fn the_functions_that_answer_answer_what_their_frame_local_held() {
+        // `SetTreeSize`'s getter: 0, not the word it would have read.
+        check_catches_from_set_error(NAME_SET_TREE_SIZE, tree_for_catch, fn_00b06440, 0u32);
+        // `SetWindStrength`: a NaN strength reports; 0 stays the answer.
+        check_catches_from_set_error(
+            NAME_SET_WIND_STRENGTH,
+            |e, c| {
+                global_f64(e, 0x0101_2060, 0.0);
+                tree_for_catch(e, c)
+            },
+            |e, t| c_speed_tree_rt_set_wind_strength(e, t, f32::NAN, 0.0, 0.0).to_bits(),
+            0u32,
+        );
+        // A throw after the wind engine's answer: the answer is kept (`[EBP-0x14]`).
+        let wind_answer = 0.5f32;
+        check_catches(
+            NAME_SET_WIND_STRENGTH,
+            0x00b2_7820,
+            |e, c| {
+                global_f64(e, 0x0101_2060, 0.0);
+                global_f64(e, 0x0101_a6b0, 9.0);
+                stub_float(e, c, 0x00b3_7470, f64::from(wind_answer));
+                let tree = linked_tree(e);
+                let wind = part(e, tree, CSpeedTreeRT::m_pWindEngine);
+                e.mem.set_u8(wind + 0x14, 1);
+                tree
+            },
+            |e, t| c_speed_tree_rt_set_wind_strength(e, t, 1.0, 1.0, 1.0).to_bits(),
+            wind_answer.to_bits(),
+        );
+        check_catches(
+            NAME_GET_LEAF_BILLBOARD_TABLE,
+            0x00b2_7870,
+            tree_for_catch,
+            |e, t| fn_00b08af0(e, t, 3),
+            0u32,
+        );
+        // The table is read after the catch: null when the allocation threw.
+        check_catches(
+            NAME_GET_LEAF_LOD_SIZE_ADJUSTMENTS,
+            ALLOCATE,
+            tree_for_catch,
+            fn_00b0cb10,
+            0u32,
+        );
+        // `MakeInstance` answers null when the allocation throws.
+        check_catches(
+            NAME_MAKE_INSTANCE,
+            ALLOCATE,
+            tree_for_catch,
+            |e, t| fn_00b05210(e, t).addr(),
+            0u32,
+        );
+    }
+
+    #[test]
+    fn the_other_functions_catch_a_throw_from_below() {
+        let computed_and_alone = |e: &mut Engine, c: &Calls| {
+            let tree = computed_tree(e, c);
+            let count = part(e, tree, CSpeedTreeRT::m_pInstanceRefCount);
+            e.mem.set_u32(count, 1);
+            tree
+        };
+        check_catches(
+            NAME_DELETE_BRANCH_GEOMETRY,
+            0x00b2_e9c0,
+            computed_and_alone,
+            fn_00b088d0,
+            (),
+        );
+        check_catches(
+            NAME_DELETE_FROND_GEOMETRY,
+            0x00b2_e9c0,
+            computed_and_alone,
+            fn_00b0a7a0,
+            (),
+        );
+        check_catches(
+            NAME_SET_NUM_WIND_MATRICES,
+            DEALLOCATE,
+            |e, c| {
+                global(e, WIND_MATRIX_SPAN, 0);
+                e.map(WIND_MATRIX_SPAN + 4, 4);
+                tree_for_catch(e, c)
+            },
+            |e, _| fn_00b07db0(e, 4),
+            (),
+        );
+        check_catches(
+            NAME_COMPUTE_LEAF_STATIC_LIGHTING,
+            MEMCPY,
+            |e, c| {
+                global_f64(e, 0x0101_1588, 0.5);
+                tree_for_catch(e, c)
+            },
+            fn_00b08cc0,
+            (),
+        );
+        check_catches(
+            NAME_COMPUTE_LOD_LEVEL,
+            0x00b2_bd40,
+            tree_for_catch,
+            c_speed_tree_rt_compute_lod_level,
+            (),
+        );
+        check_catches(
+            NAME_GET_TEXTURES,
+            ALLOCATE,
+            |e, c| {
+                let tree = tree_for_catch(e, c);
+                // One leaf texture, so the name table is allocated.
+                let engine = part(e, tree, CSpeedTreeRT::m_pEngine);
+                make_vector(e, engine + 0xA4, 0x54);
+                tree
+            },
+            |e, t| {
+                let out = e.mem.alloc(0x1C);
+                fn_00b0d040(e, t, out);
+            },
+            (),
+        );
+        check_catches_from_set_error(
+            NAME_GET_GEOMETRY,
+            |e, c| {
+                let tree = tree_for_catch(e, c);
+                e.set(tree, CSpeedTreeRT::m_pBranchGeometry, Ptr::NULL);
+                tree
+            },
+            |e, t| {
+                let out = e.mem.alloc(0x130);
+                fn_00b0ab20(e, t, out, 1, 0, 0, 0);
+            },
+            (),
+        );
+    }
+
+    #[test]
+    fn the_instance_constructor_gives_back_the_tree_as_far_as_it_got() {
+        check_catches(
+            NAME_INSTANCE_CONSTRUCTOR,
+            0x00b0_ddc0,
+            tree_for_catch,
+            |e, source| {
+                let copy = e.new_object::<CSpeedTreeRT>();
+                assert_eq!(fn_00b036d0(e, copy, source), copy);
+                // The members before the try are there; what comes after the throw is not.
+                assert_eq!(e.mem.u32(copy.addr()), e.mem.u32(source.addr()));
+                assert!(e.get(copy, CSpeedTreeRT::m_pInstanceData).is_null());
+            },
+            (),
+        );
+    }
+
+    #[test]
+    fn set_time_and_notify_all_trees_catch_their_own() {
+        // `NotifyAllTreesOfEvent`: the exe's catch leaves the critical section held.
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        stub(&mut e, &calls, ENTER_CRITICAL_SECTION, 0);
+        stub(&mut e, &calls, LEAVE_CRITICAL_SECTION, 0);
+        e.map(UNIQUE_TREES, 0x18);
+        throwing_double(&mut e, &calls, ITERATOR_CONSTRUCT, 0);
+        with_stacks_kept(&mut e, |e| fn_00b08ec0(e, 0));
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(
+            format[0][1..],
+            [
+                CAUGHT_FAILED_FORMAT,
+                NAME_NOTIFY_ALL_TREES_OF_EVENT,
+                WHAT_TEXT
+            ]
+        );
+        assert_eq!(calls_to(&calls, ENTER_CRITICAL_SECTION).len(), 1);
+        assert!(calls_to(&calls, LEAVE_CRITICAL_SECTION).is_empty());
+
+        // `SetTime`: the same throw is caught inside `00b08ec0`. A throw out of that catch block
+        // (its format fails) reaches `SetTime`'s, whose report then goes through.
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        stub(&mut e, &calls, ENTER_CRITICAL_SECTION, 0);
+        e.map(UNIQUE_TREES, 0x18);
+        e.map(WIND_TIME, 4);
+        throwing_double(&mut e, &calls, ITERATOR_CONSTRUCT, 0);
+        let vtable = what_vtable(&mut e, &calls);
+        let object = e.mem.alloc(0xc);
+        e.mem.set_u32(object, vtable);
+        let log = calls.clone();
+        let mut formats = 0;
+        e.register_double(FORMAT_STRING, move |e, a| {
+            log.borrow_mut().push((FORMAT_STRING, a.to_vec()));
+            formats += 1;
+            if formats == 1 {
+                e.call(CXX_THROW_EXCEPTION, &args![object, EXCEPTION_THROW_INFO]);
+            }
+            e.mem.set_u32(a[0] + 0x18, 0xf);
+            Ret::default()
+        });
+        with_stacks_kept(&mut e, |e| fn_00b07060(e, 1.5));
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format.len(), 2);
+        assert_eq!(format[0][2], NAME_NOTIFY_ALL_TREES_OF_EVENT);
+        assert_eq!(format[1][2], NAME_SET_TIME);
+    }
+
+    #[test]
+    fn loading_from_memory_destroys_the_access_object_and_answers_failure_on_a_parse_error() {
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        file_doubles(&mut e, vec![], vec![]);
+        // The header check throws a parse error (a chain with std::exception in it).
+        let vtable = what_vtable(&mut e, &calls);
+        let error = e.mem.alloc(0x28);
+        e.mem.set_u32(error, vtable);
+        e.register_double(0x00b2_b550, move |e, _| {
+            e.call(CXX_THROW_EXCEPTION, &args![error, PARSE_THROW_INFO]);
+            Ret::default()
+        });
+        for address in [DEALLOCATE, 0x0065_7f60] {
+            stub(&mut e, &calls, address, 0);
+        }
+        let tree = linked_tree(&mut e);
+        let loaded = with_stacks_kept(&mut e, |e| fn_00b059e0(e, tree, 0x3000, 0));
+        assert_eq!(loaded, 0, "the failure result");
+        // The access object was destroyed (its vector cleared, its block freed), once.
+        assert_eq!(calls_to(&calls, 0x0065_7f60).len(), 1);
+        assert_eq!(calls_to(&calls, DEALLOCATE).len(), 1);
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(
+            format[0][1..],
+            [CAUGHT_FAILED_FORMAT, NAME_LOAD_TREE, WHAT_TEXT]
+        );
+        assert_eq!(calls_to(&calls, EXCEPTION_DESTRUCT), vec![vec![error]]);
+        // A later load runs as usual: nested calls work after the catch.
+        stub(&mut e, &calls, 0x00b2_b550, 0);
+        assert_eq!(fn_00b059e0(&mut e, tree, 0x3000, 0), 0);
+        assert_eq!(calls_to(&calls, 0x00b2_b550).len(), 1);
+    }
+
+    #[test]
+    fn a_short_read_in_load_tree_answers_failure_with_the_stacks_and_later_calls_intact() {
+        // The bad-tree file: 3 of 8 bytes come back. `RaiseException` is not doubled here: the
+        // whole path below `_CxxThrowException` is the engine's.
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        let errno = e.mem.alloc(4);
+        e.mem.set_u32(errno, 2);
+        stub(&mut e, &calls, ERRNO, errno);
+        stub(&mut e, &calls, STRERROR, 0x1234_0000);
+        stub(&mut e, &calls, ALLOCATE, 0x0000_2000);
+        e.map(0x2000, 8);
+        let file = file_object(&mut e, &calls, 8, 3);
+        stub(&mut e, &calls, FILE_FINDER_GET_FILE, file);
+        let tree = linked_tree(&mut e);
+        let vtable = what_vtable(&mut e, &calls);
+        // `what()` through the object the constructor double left: its vtable is set by hand.
+        let log = calls.clone();
+        e.register_double(EXCEPTION_CONSTRUCT, move |e, a| {
+            log.borrow_mut().push((EXCEPTION_CONSTRUCT, a.to_vec()));
+            e.mem.set_u32(a[0], vtable);
+            Ret::default()
+        });
+        let loaded = with_stacks_kept(&mut e, |e| {
+            e.call(0x00b0_5420, &args![tree, 0x5555u32]).u32()
+        });
+        assert_eq!(loaded, 0, "LoadTree's failure result");
+        // The message of the throw, then the catch block's (with `what()`).
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format[0][1..], [0x010a_4acc, 3, 8, 0x5555, 0x1234_0000]);
+        assert_eq!(format[1][1..], [LOAD_TREE_FAILED_FORMAT, WHAT_TEXT]);
+        // The file was deleted by the catch block, once; the object destroyed once.
+        assert_eq!(calls_to(&calls, 0x0f10_0000), vec![vec![file, 1]]);
+        assert_eq!(calls_to(&calls, EXCEPTION_DESTRUCT).len(), 1);
+        // Both strings destroyed: the throw's message and the report's.
+        assert_eq!(calls_to(&calls, STRING_TIDY).len(), 2);
+        // The buffer stays allocated, as in the exe.
+        assert!(calls_to(&calls, DEALLOCATE).is_empty());
+        // The error text reached `SetError`: `strlen` then the assign, on the static string.
+        assert_eq!(calls_to(&calls, STRING_ASSIGN_TEXT)[0][0], ERROR_STRING);
+        // And the same engine loads again: this time the file opens and reads all of it.
+        let file = file_object(&mut e, &calls, 3, 3);
+        stub(&mut e, &calls, FILE_FINDER_GET_FILE, file);
+        stub(&mut e, &calls, 0x00b2_b550, 0);
+        file_doubles(&mut e, vec![], vec![]);
+        for address in [0x0065_7f60, DEALLOCATE] {
+            stub(&mut e, &calls, address, 0);
+        }
+        assert_eq!(e.call(0x00b0_5420, &args![tree, 0x5555u32]).u32(), 0);
+        assert_eq!(calls_to(&calls, 0x00b2_b550).len(), 1, "the parse ran");
+    }
+
+    #[test]
+    fn load_tree_reports_an_exception_of_no_known_type_as_unknown() {
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        catch_doubles(&mut e, &calls);
+        engine_core::cxx_exception::write_throw_info(
+            &mut e,
+            EXCEPTION_THROW_INFO,
+            0,
+            &[b".?AVOther@@"],
+        );
+        let object = e.mem.alloc(4);
+        // The file finder itself throws: no file to delete.
+        e.register_double(FILE_FINDER_GET_FILE, move |e, _| {
+            e.call(CXX_THROW_EXCEPTION, &args![object, EXCEPTION_THROW_INFO]);
+            Ret::default()
+        });
+        let tree = linked_tree(&mut e);
+        assert_eq!(e.call(0x00b0_5420, &args![tree, 0x5555u32]).u32(), 0);
+        let format = calls_to(&calls, FORMAT_STRING);
+        assert_eq!(format[0][1..], [LOAD_TREE_UNKNOWN_MESSAGE]);
+        assert_eq!(calls_to(&calls, STRING_ASSIGN_TEXT).len(), 1);
+    }
+
+    #[test]
+    fn a_stop_under_a_catching_function_stays_a_stop() {
+        let (mut e, calls) = recording(&[]);
+        catch_doubles(&mut e, &calls);
+        e.register(FILE_FINDER_GET_FILE, |_, _| panic!("open function, say"));
+        let tree = linked_tree(&mut e);
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.call(0x00b0_5420, &args![tree, 0x5555u32]);
+        }))
+        .unwrap_err();
+        assert_eq!(stop.downcast_ref::<&str>(), Some(&"open function, say"));
+        assert!(calls_to(&calls, FORMAT_STRING).is_empty());
+    }
+
+    #[test]
+    fn a_throw_below_no_catching_function_stops_naming_the_type() {
+        let (mut e, calls) = recording(&[]);
+        real_throws(&mut e, &calls);
+        // The parse error's message is its `runtime_error` string, inline here.
+        let error = e.mem.alloc(0x28);
+        e.mem.set_u32(error + 0x24, 0xf);
+        e.mem.set_cstr(error + 0x10, b"malformed");
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.call(CXX_THROW_EXCEPTION, &args![error, PARSE_THROW_INFO]);
+        }))
+        .unwrap_err();
+        let text = stop.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(
+            text.starts_with("uncaught C++ exception IdvFileError"),
+            "{text}"
+        );
+        assert!(text.contains("\"malformed\""), "{text}");
     }
 
     /// A file object as `LoadTree` uses it: its vtable's deleting destructor (`+0`) and size
@@ -4863,7 +5618,7 @@ mod tests {
         }));
         let format = calls_to(&calls, FORMAT_STRING);
         assert_eq!(format[0][1..], [0x010a_4aac, 0x5555, 0x1234_0000]);
-        // The file is not deleted on the error path.
+        // Not by the normal path: the catch block is what deletes it after a throw.
         assert!(calls_to(&calls, 0x0f10_0000).is_empty());
     }
 

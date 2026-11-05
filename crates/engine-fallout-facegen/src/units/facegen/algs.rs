@@ -1,5 +1,11 @@
 //! `FaceGen/algs.obj` (Xbox PDB source unit), subsystem `FaceGen`: its functions in
 //! FalloutNV.exe 1.4.0.525, translated (docs/ENGINE_CRATE.md).
+//!
+//! Exceptions (ADR-0013): the nine stream functions whose `catch(...)` goes on run their exe try
+//! states in `try_catch`. No caller of `ios_base::clear` writes a stream's exception mask but
+//! `ios_base::_Init`, which writes 0, so in the exe their catch blocks swallow every exception;
+//! with a mask set, the catch blocks' `clear` would rethrow. A translation of any other function
+//! here with an exception frame does not build it (its marker says so).
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -786,14 +792,14 @@ pub fn fn_00ac9d60(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 00ac9df0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ac9df0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: the `basic_ostream<char>::put(ch)` shape (thiscall, one word, `RET 4`). Builds an
 /// output sentry on the stack ([`fn_00ad0210`]); when it is good it writes the character byte
 /// to the stream buffer (`[base + 0x28]`, [`fn_00ace8c0`]) and an end of file (-1) means
 /// `badbit`; a bad sentry means `badbit`. A nonzero state goes to [`fn_00aca4e0`] on the
 /// `basic_ios` part. Then, unless `uncaught_exception()` (`00ec3241`), the sentry's stream is
 /// flushed when it asks for it ([`fn_00ad03e0`]), and the sentry is destroyed
-/// ([`fn_00aca9a0`]). Returns `this`.
+/// ([`fn_00aca9a0`]). A C++ exception while writing goes to [`stream_catch_block`] (`00ac9eba`).
+/// Returns `this`.
 pub fn fn_00ac9df0(e: &mut Engine, this: Ptr, character: u32) -> Ptr {
     let stream = this.addr();
     e.with_stack(8, |e, sentry| {
@@ -802,11 +808,17 @@ pub fn fn_00ac9df0(e: &mut Engine, this: Ptr, character: u32) -> Ptr {
         if e.mem.u8(sentry.addr() + 4) == 0 {
             state |= 4;
         } else {
-            let base = stream_base(e, stream);
-            let buffer = e.mem.u32(base + 0x28);
-            if fn_00ace8c0(e, Ptr::new(buffer), character & 0xff) == 0xffff_ffff {
-                state |= 4;
-            }
+            try_catch(
+                e,
+                |e| {
+                    let base = stream_base(e, stream);
+                    let buffer = e.mem.u32(base + 0x28);
+                    if fn_00ace8c0(e, Ptr::new(buffer), character & 0xff) == 0xffff_ffff {
+                        state |= 4;
+                    }
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         let base = stream_base(e, stream);
         fn_00aca4e0(e, Ptr::new(base), state, 0);
@@ -947,29 +959,45 @@ pub fn fn_00aca4e0(e: &mut Engine, this: Ptr, state: u32, reraise: u32) {
     ios_base_clear(e, this, new_state, reraise & 0xff);
 }
 
+/// The `catch(...)` block of the stream functions (`00ac9eba` and its seven like it):
+/// `setstate(badbit, true)` on the stream's `basic_ios`, inlined in the exe. `clear` rethrows
+/// when the stream's exception mask has a bit of the new state; otherwise the function goes on.
+fn stream_catch_block(e: &mut Engine, stream: u32) {
+    let base = stream_base(e, stream);
+    fn_00aca4e0(e, Ptr::new(base), 4, 1);
+}
+
 /// The single-character input both `get` shapes share: zeroes the count at `+4`, builds an
 /// input sentry on the stack ([`fn_00ad2fa0`], its "good" byte from [`fn_00ace390`] with
 /// `noskip` 1); a bad sentry gives -1. Otherwise `read` takes the character from the stream
-/// buffer (`[base + 0x28]`) and returns it with the state bits for an end of file. The state
+/// buffer (`[base + 0x28]`) and returns it with the state bits for an end of file; a C++ exception
+/// there goes to [`stream_catch_block`] and the result stays 0 (`[EBP-0x20]`). The state
 /// goes to [`fn_00aca4e0`]; the sentry is destroyed ([`fn_00aca9a0`]).
 fn get_character(e: &mut Engine, this: Ptr, read: fn(&mut Engine, u32, u32) -> (u32, u32)) -> u32 {
     let stream = this.addr();
     e.with_stack(8, |e, sentry| {
         let mut state = 0u32;
+        let mut result = 0u32;
         e.mem.set_u32(stream + 4, 0);
         fn_00ad2fa0(e, sentry, this);
         let owner = e.mem.u32(sentry.addr());
         let good = fn_00ace390(e, Ptr::new(owner), 1);
         e.mem.set_u8(sentry.addr() + 4, good);
-        let result = if good == 0 {
-            0xffff_ffff
+        if good == 0 {
+            result = 0xffff_ffff;
         } else {
-            let base = stream_base(e, stream);
-            let buffer = e.mem.u32(base + 0x28);
-            let (character, bits) = read(e, stream, buffer);
-            state |= bits;
-            character
-        };
+            try_catch(
+                e,
+                |e| {
+                    let base = stream_base(e, stream);
+                    let buffer = e.mem.u32(base + 0x28);
+                    let (character, bits) = read(e, stream, buffer);
+                    state |= bits;
+                    result = character;
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
+        }
         let base = stream_base(e, stream);
         fn_00aca4e0(e, Ptr::new(base), state, 0);
         fn_00aca9a0(e, sentry);
@@ -978,7 +1006,6 @@ fn get_character(e: &mut Engine, this: Ptr, read: fn(&mut Engine, u32, u32) -> (
 }
 
 // Translated from 00aca560 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00aca560 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: the `basic_istream<char>::get()` shape (thiscall). Zeroes the count at `+4`; with
 /// a good sentry (see the helper) takes a character from the stream buffer
 /// ([`fn_00ace860`], `sbumpc`): -1 sets `eofbit | failbit` (3), anything else counts one
@@ -1003,7 +1030,6 @@ pub fn fn_00aca780(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 00aca7a0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00aca7a0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: the `basic_istream<char>::peek()` shape (thiscall). Zeroes the count at `+4`;
 /// with a good sentry looks at the stream buffer's next character ([`fn_00aca9f0`], `sgetc`):
 /// -1 sets `eofbit` (1). Returns the character, or -1.
@@ -3140,7 +3166,6 @@ fn buffer_add(e: &mut Engine, base: u32, slot: u32, delta: u32) {
 }
 
 // Translated from 00ace390 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ace390 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: the `basic_istream<char>::_Ipfx(noskip)` shape (thiscall, one word, `RET 4`;
 /// returns `AL`). With a good state it flushes the tied stream (`base + 0x2c`,
 /// [`fn_00aca3c0`]); unless the `noskip` byte is set, with `skipws` (bit 0 of `base + 0x10`)
@@ -3149,7 +3174,8 @@ fn buffer_add(e: &mut Engine, base: u32, slot: u32, delta: u32) {
 /// 16-bit entries) have 0x48 set ([`fn_00aca9f0`], [`fn_00ace7d0`]); an end of file sets
 /// `eofbit` (the compiler's always-true test is kept). A state still good returns 1;
 /// otherwise it sets `failbit` (with `badbit` when there is no buffer; again an always-true
-/// test kept) and returns 0.
+/// test kept) and returns 0. A C++ exception while skipping goes to [`stream_catch_block`]
+/// (`00ace5ef`); one from the tied stream's flush or the facet leaves this function.
 pub fn fn_00ace390(e: &mut Engine, this: Ptr, noskip: u32) -> u8 {
     let stream = this.addr();
     if e.mem.u32(stream_base(e, stream) + 8) == 0 {
@@ -3165,30 +3191,36 @@ pub fn fn_00ace390(e: &mut Engine, this: Ptr, noskip: u32) -> u8 {
                 fn_00acb720(e, local);
                 facet
             });
-            let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-            let mut character = fn_00aca9f0(e, Ptr::new(buffer));
-            loop {
-                if character == 0xffff_ffff {
-                    let ios = stream_base(e, stream);
-                    // `MOV EDX,1; TEST EDX,EDX; JZ`: the state is the constant 1.
-                    let state = std::hint::black_box(1u32);
-                    if state != 0 {
-                        let mut new_state = e.mem.u32(ios + 8) | state;
-                        if e.mem.u32(ios + 0x28) == 0 {
-                            new_state |= 4;
+            try_catch(
+                e,
+                |e| {
+                    let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                    let mut character = fn_00aca9f0(e, Ptr::new(buffer));
+                    loop {
+                        if character == 0xffff_ffff {
+                            let ios = stream_base(e, stream);
+                            // `MOV EDX,1; TEST EDX,EDX; JZ`: the state is the constant 1.
+                            let state = std::hint::black_box(1u32);
+                            if state != 0 {
+                                let mut new_state = e.mem.u32(ios + 8) | state;
+                                if e.mem.u32(ios + 0x28) == 0 {
+                                    new_state |= 4;
+                                }
+                                ios_base_clear(e, Ptr::new(ios), new_state, 0);
+                            }
+                            break;
                         }
-                        ios_base_clear(e, Ptr::new(ios), new_state, 0);
+                        let table = e.mem.u32(facet.addr() + 0x10);
+                        let class = e.mem.u16(table.wrapping_add((character & 0xff) * 2));
+                        if class & 0x48 == 0 {
+                            break;
+                        }
+                        let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                        character = fn_00ace7d0(e, Ptr::new(buffer));
                     }
-                    break;
-                }
-                let table = e.mem.u32(facet.addr() + 0x10);
-                let class = e.mem.u16(table.wrapping_add((character & 0xff) * 2));
-                if class & 0x48 == 0 {
-                    break;
-                }
-                let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                character = fn_00ace7d0(e, Ptr::new(buffer));
-            }
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         if e.mem.u32(stream_base(e, stream) + 8) == 0 {
             return 1;
@@ -3989,13 +4021,19 @@ pub fn fn_00ad02f0(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 00ad03e0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ad03e0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: the `basic_ostream<char>::_Osfx()` shape (thiscall): with `unitbuf` (bit 1 of
-/// `base + 0x10`) it flushes the stream ([`fn_00aca3c0`]).
+/// `base + 0x10`) it flushes the stream ([`fn_00aca3c0`]). A C++ exception there is swallowed
+/// (`catch(...) {}`, `00ad0449`).
 pub fn fn_00ad03e0(e: &mut Engine, this: Ptr) {
-    if e.mem.u32(stream_base(e, this.addr()) + 0x10) & 2 != 0 {
-        fn_00aca3c0(e, this);
-    }
+    try_catch(
+        e,
+        |e| {
+            if e.mem.u32(stream_base(e, this.addr()) + 0x10) & 2 != 0 {
+                fn_00aca3c0(e, this);
+            }
+        },
+        |_, _| {},
+    );
 }
 
 // Translated from 00ad06e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5132,7 +5170,6 @@ fn stream_setstate(e: &mut Engine, stream: u32, state: u32) {
 }
 
 // Translated from 00ad43a0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ad43a0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: `operator>>(istream &, string &)` (cdecl: the stream and the string). With a good
 /// input sentry ([`fn_00ad2fa0`], [`fn_00ace390`] skipping white space) it takes the
 /// locale's `ctype` facet, empties the string (`0044a690(0, npos)`) and reads characters
@@ -5140,8 +5177,9 @@ fn stream_setstate(e: &mut Engine, stream: u32, state: u32) {
 /// `0xfffffffe`, else `0xfffffffe`; the exe's "maximum or 1" tests are kept) until an end of
 /// file (`eofbit`) or a white-space class character (bits 0x48), appending each
 /// (`00aadeb0(1, ch)`). Then it clears the width, sets `failbit` when nothing was read and
-/// gives the state to the stream; the sentry is destroyed ([`fn_00aca9a0`]). Returns the
-/// stream.
+/// gives the state to the stream; the sentry is destroyed ([`fn_00aca9a0`]). A C++ exception
+/// while reading goes to [`stream_catch_block`] (`00ad467f`); one from the facet or the erase
+/// leaves this function. Returns the stream.
 pub fn fn_00ad43a0(e: &mut Engine, stream: u32, string: u32) -> u32 {
     e.with_stack(0xc, |e, frame| {
         // Frame: the sentry at +0 (8 bytes), the locale local at +8.
@@ -5159,41 +5197,47 @@ pub fn fn_00ad43a0(e: &mut Engine, stream: u32, string: u32) -> u32 {
             let facet = fn_00ad38d0(e, locale);
             fn_00acb720(e, Ptr::new(local));
             e.call(STRING_ERASE_0044A690, &args![string, 0u32, 0xffff_ffffu32]);
-            let width = e.mem.u32(stream_base(e, stream) + 0x18);
-            let largest = || {
-                let maximum = std::hint::black_box(0xffff_ffffu32);
-                let limit = if maximum > 0 { maximum } else { 1 };
-                if limit > 1 {
-                    limit - 1
-                } else {
-                    1
-                }
-            };
-            let mut left = if (width as i32) > 0 && width < largest() {
-                e.mem.u32(stream_base(e, stream) + 0x18)
-            } else {
-                largest()
-            };
-            let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-            let mut character = fn_00aca9f0(e, Ptr::new(buffer));
-            while left > 0 {
-                if character == 0xffff_ffff {
-                    state |= 1;
-                    break;
-                }
-                let table = e.mem.u32(facet.addr() + 0x10);
-                if e.mem.u16(table.wrapping_add((character & 0xff) * 2)) & 0x48 != 0 {
-                    break;
-                }
-                e.call(
-                    STRING_APPEND_FILL_00AADEB0,
-                    &args![string, 1u32, character & 0xff],
-                );
-                changed = true;
-                left -= 1;
-                let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                character = fn_00ace7d0(e, Ptr::new(buffer));
-            }
+            try_catch(
+                e,
+                |e| {
+                    let width = e.mem.u32(stream_base(e, stream) + 0x18);
+                    let largest = || {
+                        let maximum = std::hint::black_box(0xffff_ffffu32);
+                        let limit = if maximum > 0 { maximum } else { 1 };
+                        if limit > 1 {
+                            limit - 1
+                        } else {
+                            1
+                        }
+                    };
+                    let mut left = if (width as i32) > 0 && width < largest() {
+                        e.mem.u32(stream_base(e, stream) + 0x18)
+                    } else {
+                        largest()
+                    };
+                    let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                    let mut character = fn_00aca9f0(e, Ptr::new(buffer));
+                    while left > 0 {
+                        if character == 0xffff_ffff {
+                            state |= 1;
+                            break;
+                        }
+                        let table = e.mem.u32(facet.addr() + 0x10);
+                        if e.mem.u16(table.wrapping_add((character & 0xff) * 2)) & 0x48 != 0 {
+                            break;
+                        }
+                        e.call(
+                            STRING_APPEND_FILL_00AADEB0,
+                            &args![string, 1u32, character & 0xff],
+                        );
+                        changed = true;
+                        left -= 1;
+                        let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                        character = fn_00ace7d0(e, Ptr::new(buffer));
+                    }
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         let ios = stream_base(e, stream);
         e.mem.set_u32(ios + 0x18, 0);
@@ -5237,13 +5281,13 @@ fn finish_output(e: &mut Engine, stream: u32, sentry: u32, state: u32) {
 }
 
 // Translated from 00ad47f0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ad47f0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: `operator<<(ostream &, const char *)` (cdecl: the stream and the text). The pad
 /// is the width (`base + 0x18`) less the length (`strlen`) when the width is larger (signed),
 /// else 0. With a good output sentry ([`fn_00ad0210`]) it pads before the text unless
 /// left-adjusted (`adjustfield` 0x1c0 is 0x40), writes the text through the buffer's slot
 /// `0x20` (`sputn`; a short count is `badbit`), pads after it and clears the width; a bad
-/// sentry is `badbit`. Then the shared tail (state, flush, sentry). Returns the stream.
+/// sentry is `badbit`. A C++ exception while writing goes to [`stream_catch_block`] (`00ad4a5a`).
+/// Then the shared tail (state, flush, sentry). Returns the stream.
 pub fn fn_00ad47f0(e: &mut Engine, stream: u32, text: u32) -> u32 {
     let mut state = 0u32;
     let length = e.call(CRT_STRLEN, &args![text]).u32();
@@ -5259,20 +5303,26 @@ pub fn fn_00ad47f0(e: &mut Engine, stream: u32, text: u32) -> u32 {
         if e.mem.u8(sentry + 4) == 0 {
             state |= 4;
         } else {
-            if e.mem.u32(stream_base(e, stream) + 0x10) & 0x1c0 != 0x40 {
-                state |= write_fill(e, stream, &mut pad, true);
-            }
-            if state == 0 {
-                let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                if e.vcall(buffer, 0x20, &args![text, length]).u32() != length {
-                    state |= 4;
-                }
-            }
-            if state == 0 {
-                state |= write_fill(e, stream, &mut pad, true);
-            }
-            let ios = stream_base(e, stream);
-            e.mem.set_u32(ios + 0x18, 0);
+            try_catch(
+                e,
+                |e| {
+                    if e.mem.u32(stream_base(e, stream) + 0x10) & 0x1c0 != 0x40 {
+                        state |= write_fill(e, stream, &mut pad, true);
+                    }
+                    if state == 0 {
+                        let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                        if e.vcall(buffer, 0x20, &args![text, length]).u32() != length {
+                            state |= 4;
+                        }
+                    }
+                    if state == 0 {
+                        state |= write_fill(e, stream, &mut pad, true);
+                    }
+                    let ios = stream_base(e, stream);
+                    e.mem.set_u32(ios + 0x18, 0);
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         finish_output(e, stream, sentry, state);
     });
@@ -5280,13 +5330,13 @@ pub fn fn_00ad47f0(e: &mut Engine, stream: u32, text: u32) -> u32 {
 }
 
 // Translated from 00ad4ba0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ad4ba0 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: `operator<<(ostream &, const string &)` (cdecl: the stream and the string). The
 /// pad is the width less the string's length (`+0x14`) when the width is positive and larger
 /// (unsigned), else 0. With a good output sentry it pads unless left-adjusted, writes the
 /// string's characters one by one ([`fn_00ace8c0`]; an index past the length calls
-/// `_invalid_parameter_noinfo`), pads after it and clears the width; failures are `badbit`.
-/// Then the shared tail. Returns the stream.
+/// `_invalid_parameter_noinfo`), pads after it and clears the width; failures are `badbit`. A C++
+/// exception while writing goes to [`stream_catch_block`] (`00ad4e8a`). Then the shared tail.
+/// Returns the stream.
 pub fn fn_00ad4ba0(e: &mut Engine, stream: u32, string: u32) -> u32 {
     let mut state = 0u32;
     let length = e.mem.u32(string + 0x14);
@@ -5304,30 +5354,36 @@ pub fn fn_00ad4ba0(e: &mut Engine, stream: u32, string: u32) -> u32 {
         if e.mem.u8(sentry + 4) == 0 {
             state |= 4;
         } else {
-            if e.mem.u32(stream_base(e, stream) + 0x10) & 0x1c0 != 0x40 {
-                state |= write_fill(e, stream, &mut pad, false);
-            }
-            if state == 0 {
-                let mut index = 0u32;
-                while index < length {
-                    if e.mem.u32(string + 0x14) < index {
-                        e.call(INVALID_PARAMETER, &args![]);
+            try_catch(
+                e,
+                |e| {
+                    if e.mem.u32(stream_base(e, stream) + 0x10) & 0x1c0 != 0x40 {
+                        state |= write_fill(e, stream, &mut pad, false);
                     }
-                    let character =
-                        u32::from(e.mem.u8(string_chars(e, string).wrapping_add(index)));
-                    let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                    if fn_00ace8c0(e, Ptr::new(buffer), character) == 0xffff_ffff {
-                        state |= 4;
-                        break;
+                    if state == 0 {
+                        let mut index = 0u32;
+                        while index < length {
+                            if e.mem.u32(string + 0x14) < index {
+                                e.call(INVALID_PARAMETER, &args![]);
+                            }
+                            let character =
+                                u32::from(e.mem.u8(string_chars(e, string).wrapping_add(index)));
+                            let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                            if fn_00ace8c0(e, Ptr::new(buffer), character) == 0xffff_ffff {
+                                state |= 4;
+                                break;
+                            }
+                            index += 1;
+                        }
                     }
-                    index += 1;
-                }
-            }
-            if state == 0 {
-                state |= write_fill(e, stream, &mut pad, false);
-            }
-            let ios = stream_base(e, stream);
-            e.mem.set_u32(ios + 0x18, 0);
+                    if state == 0 {
+                        state |= write_fill(e, stream, &mut pad, false);
+                    }
+                    let ios = stream_base(e, stream);
+                    e.mem.set_u32(ios + 0x18, 0);
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         finish_output(e, stream, sentry, state);
     });
@@ -5635,14 +5691,14 @@ pub fn codecvt_scalar_deleting_destructor(e: &mut Engine, this: Ptr, flags: u32)
 }
 
 // Translated from 00ad5770 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00ad5770 - the compiler's exception frame (FS:[0] chain, cookie 011c16bc) is not translated
 /// Unnamed: `std::getline(istream &, string &, char delimiter)` (cdecl, three words). With a
 /// good input sentry ([`fn_00ad2fa0`], [`fn_00ace390`] without skipping) it empties the
 /// string and reads characters ([`fn_00aca9f0`], [`fn_00ace7d0`]): an end of file sets
 /// `eofbit`; the delimiter is taken ([`fn_00ace860`]) and ends the line; a string at the
 /// maximum length (`0xfffffffe`; the exe's "maximum or 1" tests are kept) sets `failbit`;
-/// anything else is appended (`00aadeb0(1, ch)`). Nothing taken sets `failbit`. The state
-/// goes to the stream and the sentry is destroyed. Returns the stream.
+/// anything else is appended (`00aadeb0(1, ch)`). A C++ exception while reading goes to
+/// [`stream_catch_block`] (`00ad5947`). Nothing taken sets `failbit`. The state goes to the
+/// stream and the sentry is destroyed. Returns the stream.
 pub fn fn_00ad5770(e: &mut Engine, stream: u32, string: u32, delimiter: u32) -> u32 {
     e.with_stack(8, |e, sentry| {
         let sentry = sentry.addr();
@@ -5653,36 +5709,42 @@ pub fn fn_00ad5770(e: &mut Engine, stream: u32, string: u32, delimiter: u32) -> 
         let good = fn_00ace390(e, Ptr::new(owner), 1);
         e.mem.set_u8(sentry + 4, good);
         if good != 0 {
-            e.call(STRING_ERASE_0044A690, &args![string, 0u32, 0xffff_ffffu32]);
-            let delimiter = delimiter & 0xff;
-            let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-            let mut character = fn_00aca9f0(e, Ptr::new(buffer));
-            loop {
-                if character == 0xffff_ffff {
-                    state |= 1;
-                    break;
-                }
-                if character == delimiter {
-                    changed = true;
+            try_catch(
+                e,
+                |e| {
+                    e.call(STRING_ERASE_0044A690, &args![string, 0u32, 0xffff_ffffu32]);
+                    let delimiter = delimiter & 0xff;
                     let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                    fn_00ace860(e, Ptr::new(buffer));
-                    break;
-                }
-                let maximum = std::hint::black_box(0xffff_ffffu32);
-                let limit = if maximum > 0 { maximum } else { 1 };
-                let largest = if limit > 1 { limit - 1 } else { 1 };
-                if largest <= e.mem.u32(string + 0x14) {
-                    state |= 2;
-                    break;
-                }
-                e.call(
-                    STRING_APPEND_FILL_00AADEB0,
-                    &args![string, 1u32, character & 0xff],
-                );
-                changed = true;
-                let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
-                character = fn_00ace7d0(e, Ptr::new(buffer));
-            }
+                    let mut character = fn_00aca9f0(e, Ptr::new(buffer));
+                    loop {
+                        if character == 0xffff_ffff {
+                            state |= 1;
+                            break;
+                        }
+                        if character == delimiter {
+                            changed = true;
+                            let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                            fn_00ace860(e, Ptr::new(buffer));
+                            break;
+                        }
+                        let maximum = std::hint::black_box(0xffff_ffffu32);
+                        let limit = if maximum > 0 { maximum } else { 1 };
+                        let largest = if limit > 1 { limit - 1 } else { 1 };
+                        if largest <= e.mem.u32(string + 0x14) {
+                            state |= 2;
+                            break;
+                        }
+                        e.call(
+                            STRING_APPEND_FILL_00AADEB0,
+                            &args![string, 1u32, character & 0xff],
+                        );
+                        changed = true;
+                        let buffer = e.mem.u32(stream_base(e, stream) + 0x28);
+                        character = fn_00ace7d0(e, Ptr::new(buffer));
+                    }
+                },
+                |e, _| stream_catch_block(e, stream),
+            );
         }
         if !changed {
             state |= 2;
@@ -10434,6 +10496,246 @@ mod n060_tests {
         set_put_area(&mut e, s.buffer, 1);
         e.call(0x00ad_4ba0, &args![s.stream, string]);
         assert_eq!(e.mem.u32(s.ios + 8), 4);
+    }
+
+    /// The destructor the throws below name, and a `ThrowInfo` of a `std::exception`.
+    const THROWN_DESTRUCTOR: u32 = 0x0420_0000;
+
+    /// A `std::exception` with a text (`+4`), and its `ThrowInfo`. The doubles the catch needs are
+    /// registered.
+    fn thrown_exception(e: &mut Engine) -> (u32, u32) {
+        let text = new_c(e, b"it broke");
+        e.register(THROWN_DESTRUCTOR, quiet);
+        let object = e.mem.alloc(0xc);
+        e.mem.set_u32(object + 4, text);
+        let info = e.mem.alloc(0x10);
+        engine_core::cxx_exception::write_throw_info(
+            e,
+            info,
+            THROWN_DESTRUCTOR,
+            &[STD_EXCEPTION_NAME],
+        );
+        (object, info)
+    }
+
+    /// The stream buffer's slot throws.
+    fn slot_throws(e: &mut Engine, slot: u32) {
+        let (object, info) = thrown_exception(e);
+        e.register_double(slot_target(slot), move |e, _| {
+            engine_core::cxx_exception::throw(e, object, info)
+        });
+    }
+
+    /// The sentry was given up, and the object destroyed, once each; and the engine's stacks are
+    /// where they started.
+    fn assert_caught_clean(e: &Engine, mark: (usize, Option<u32>)) {
+        assert_eq!(calls_to(e, MUTEX_UNLOCK).len(), 1, "the sentry's mutex");
+        assert_eq!(calls_to(e, THROWN_DESTRUCTOR).len(), 1, "the thrown object");
+        assert_eq!(e.guest_stack_mark(), mark);
+        assert!(e.call_stack.is_empty());
+    }
+
+    #[test]
+    fn exceptions_get_and_peek_set_badbit_and_answer_zero() {
+        for (address, slot) in [(0x00ac_a560u32, 0x14u32), (0x00ac_a7a0, 0x10)] {
+            let mut e = Engine::new();
+            let s = input_stream(&mut e, b"");
+            slot_throws(&mut e, slot);
+            e.with_stack(8, |_, _| {});
+            let mark = e.guest_stack_mark();
+            e.call_log = Some(vec![]);
+            assert_eq!(e.call(address, &args![s.stream]).u32(), 0, "{address:08x}");
+            assert_eq!(e.mem.u32(s.ios + 8), 4, "{address:08x}");
+            assert_caught_clean(&e, mark);
+        }
+    }
+
+    #[test]
+    fn exceptions_ipfx_sets_badbit_then_failbit_and_answers_zero() {
+        let mut e = Engine::new();
+        let s = input_stream(&mut e, b"");
+        slot_throws(&mut e, 0x10);
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        e.call_log = Some(vec![]);
+        assert_eq!(e.call(0x00ac_e390, &args![s.stream, 0u32]).eax & 0xff, 0);
+        assert_eq!(e.mem.u32(s.ios + 8), 6);
+        assert_eq!(calls_to(&e, THROWN_DESTRUCTOR).len(), 1);
+        assert_eq!(e.guest_stack_mark(), mark);
+    }
+
+    #[test]
+    fn exceptions_reading_a_word_or_a_line_ends_with_badbit_and_failbit() {
+        for (address, words) in [(0x00ad_43a0u32, vec![]), (0x00ad_5770, vec![0xau32])] {
+            let mut e = Engine::new();
+            let s = input_stream(&mut e, b"");
+            slot_throws(&mut e, 0x10);
+            // No word read: `_Ipfx` of the word form skips white space, and its peek is the first
+            // call of the slot, inside `_Ipfx`'s own try. A good stream gets past that with one
+            // answer from the slot.
+            let (object, info) = thrown_exception(&mut e);
+            let mut calls = 0;
+            let skips_first = address == 0x00ad_43a0;
+            e.register_double(slot_target(0x10), move |e, _| {
+                calls += 1;
+                if skips_first && calls == 1 {
+                    return Ret {
+                        eax: u32::from(b'k'),
+                        ..Ret::default()
+                    };
+                }
+                engine_core::cxx_exception::throw(e, object, info)
+            });
+            let word = new_string(&mut e, b"old");
+            e.with_stack(8, |_, _| {});
+            let mark = e.guest_stack_mark();
+            e.call_log = Some(vec![]);
+            let mut words_in = vec![s.stream, word];
+            words_in.extend(words);
+            assert_eq!(e.call(address, &words_in).u32(), s.stream, "{address:08x}");
+            assert_eq!(e.mem.u32(s.ios + 8), 6, "{address:08x}");
+            assert_caught_clean(&e, mark);
+            assert_eq!(read_string(&e, word), b"", "{address:08x}: emptied before");
+        }
+    }
+
+    #[test]
+    fn exceptions_writing_sets_badbit_and_gives_the_sentry_back() {
+        // `put`: the buffer's overflow throws.
+        let mut e = Engine::new();
+        stream_doubles(&mut e);
+        let s = new_stream(&mut e, 0x10);
+        slot_throws(&mut e, 4);
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        e.call_log = Some(vec![]);
+        let answer = e.call(0x00ac_9df0, &args![s.stream, u32::from(b'x')]).u32();
+        assert_eq!(answer, s.stream);
+        assert_eq!(e.mem.u32(s.ios + 8), 4);
+        assert_caught_clean(&e, mark);
+
+        // `operator<<(const char *)`: `sputn` throws; the width is not cleared.
+        let mut e = Engine::new();
+        e.register(CRT_STRLEN, |e, a| (read_c(e, a[0]).len() as u32).into_ret());
+        stream_doubles(&mut e);
+        let s = new_stream(&mut e, 0x10);
+        slot_throws(&mut e, 0x20);
+        e.mem.set_u32(s.ios + 0x18, 1);
+        let text = new_c(&mut e, b"ab");
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        e.call_log = Some(vec![]);
+        assert_eq!(e.call(0x00ad_47f0, &args![s.stream, text]).u32(), s.stream);
+        assert_eq!(e.mem.u32(s.ios + 8), 4);
+        assert_eq!(e.mem.u32(s.ios + 0x18), 1);
+        assert_caught_clean(&e, mark);
+
+        // `operator<<(const string &)`: a character write throws.
+        let mut e = Engine::new();
+        stub(&mut e, &[INVALID_PARAMETER]);
+        stream_doubles(&mut e);
+        let s = new_stream(&mut e, 0x10);
+        slot_throws(&mut e, 4);
+        let string = new_string(&mut e, b"xyz");
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        e.call_log = Some(vec![]);
+        assert_eq!(
+            e.call(0x00ad_4ba0, &args![s.stream, string]).u32(),
+            s.stream
+        );
+        assert_eq!(e.mem.u32(s.ios + 8), 4);
+        assert_caught_clean(&e, mark);
+    }
+
+    #[test]
+    fn exceptions_the_flush_guard_swallows_with_nothing_set() {
+        let mut e = Engine::new();
+        stream_doubles(&mut e);
+        let s = new_stream(&mut e, 0x10);
+        // `unitbuf`; `sync` throws.
+        e.mem.set_u32(s.ios + 0x10, 2);
+        slot_throws(&mut e, 0x30);
+        e.call_log = Some(vec![]);
+        e.call(0x00ad_03e0, &args![s.stream]);
+        assert_eq!(e.mem.u32(s.ios + 8), 0);
+        assert_eq!(calls_to(&e, THROWN_DESTRUCTOR).len(), 1);
+    }
+
+    /// `_CxxThrowException` as the game has it, for the `throw;` of `ios_base::clear`: its record
+    /// template and the `RaiseException` import.
+    fn real_throw_path(e: &mut Engine) {
+        e.register_imports(&[engine_core::exe::Import {
+            slot: 0x00fd_f154,
+            dll: "KERNEL32.dll".into(),
+            name: "RaiseException".into(),
+        }]);
+        e.map(0x010f_1f80, 0x20);
+        for (i, word) in [0xe06d_7363u32, 1, 0, 0, 3, 0x1993_0520, 0, 0]
+            .iter()
+            .enumerate()
+        {
+            e.mem.set_u32(0x010f_1f80 + 4 * i as u32, *word);
+        }
+    }
+
+    #[test]
+    fn exceptions_with_the_mask_set_the_catch_block_rethrows() {
+        // Nothing above: a stop, naming the exception, after the state was stored.
+        let mut e = Engine::new();
+        real_throw_path(&mut e);
+        let s = input_stream(&mut e, b"");
+        slot_throws(&mut e, 0x10);
+        e.mem.set_u32(s.ios + 0xc, 4);
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.call(0x00ac_a7a0, &args![s.stream]);
+        }))
+        .unwrap_err();
+        let text = stop.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(
+            text.starts_with("uncaught C++ exception std::exception"),
+            "{text}"
+        );
+        assert!(text.contains("\"it broke\""), "{text}");
+        assert_eq!(e.mem.u32(s.ios + 8), 4);
+
+        // A catch above: the same object arrives, and is destroyed there, once. The sentry the
+        // rethrow skipped is the path ADR-0013 lists: with no mask in the exe it cannot happen.
+        let mut e = Engine::new();
+        real_throw_path(&mut e);
+        let s = input_stream(&mut e, b"");
+        let (object, info) = thrown_exception(&mut e);
+        e.register_double(slot_target(0x10), move |e, _| {
+            engine_core::cxx_exception::throw(e, object, info)
+        });
+        e.mem.set_u32(s.ios + 0xc, 4);
+        e.call_log = Some(vec![]);
+        let thrown = try_catch(
+            &mut e,
+            |e| {
+                e.call(0x00ac_a7a0, &args![s.stream]);
+                panic!("the rethrow does not return");
+            },
+            |e, thrown| {
+                assert!(calls_to(e, THROWN_DESTRUCTOR).is_empty());
+                thrown
+            },
+        );
+        assert_eq!(thrown.object, object);
+        assert_eq!(calls_to(&e, THROWN_DESTRUCTOR), vec![vec![object]]);
+    }
+
+    #[test]
+    fn exceptions_a_stop_in_a_stream_stays_a_stop() {
+        let mut e = Engine::new();
+        let s = input_stream(&mut e, b"");
+        e.register(slot_target(0x10), |_, _| panic!("open function, say"));
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.call(0x00ac_a7a0, &args![s.stream]);
+        }))
+        .unwrap_err();
+        assert_eq!(stop.downcast_ref::<&str>(), Some(&"open function, say"));
+        assert_eq!(e.mem.u32(s.ios + 8), 0, "no catch block ran");
     }
 
     #[test]

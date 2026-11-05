@@ -303,6 +303,179 @@ mod tests {
         e.call(0x00ec_7894, &args![7u32, 0u32]);
     }
 
+    /// The whole way down: `_CxxThrowException`, the `RaiseException` import, the engine's throw.
+    #[test]
+    fn a_throw_through_the_real_functions_reaches_its_catch_and_a_rethrow_the_next() {
+        let mut e = Engine::new();
+        e.register_imports(&[engine_core::exe::Import {
+            slot: RAISE_EXCEPTION,
+            dll: "KERNEL32.dll".into(),
+            name: "RaiseException".into(),
+        }]);
+        e.map(THROW_RECORD_TEMPLATE, 0x20);
+        for (i, word) in [0xe06d_7363u32, 1, 0, 0, 3, 0x1993_0520, 0, 0]
+            .iter()
+            .enumerate()
+        {
+            e.mem.set_u32(THROW_RECORD_TEMPLATE + 4 * i as u32, *word);
+        }
+        let info = e.mem.alloc(0x10);
+        engine_core::cxx_exception::write_throw_info(&mut e, info, 0, &[STD_EXCEPTION_NAME]);
+        let object = e.mem.alloc(0xc);
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        let outer = try_catch(
+            &mut e,
+            |e| {
+                try_catch(
+                    e,
+                    |e| {
+                        e.call(0x00ec_7894, &args![object, info]);
+                        panic!("a throw does not return");
+                    },
+                    |e, thrown| {
+                        assert_eq!(thrown.object, object);
+                        assert_eq!(caught_as(e, thrown, STD_EXCEPTION_NAME), Some(object));
+                        e.call(0x00ec_7894, &args![0u32, 0u32]);
+                        panic!("a rethrow does not return");
+                    },
+                )
+            },
+            |_, thrown| thrown,
+        );
+        assert_eq!(
+            outer,
+            Thrown {
+                object,
+                throw_info: info
+            }
+        );
+        assert_eq!(e.guest_stack_mark(), mark);
+    }
+
+    /// The bad-tree file with everything from `LoadTree` down to the catch the game's: its throw,
+    /// `_CxxThrowException`, the `RaiseException` import, the `std::exception` the object is, its
+    /// `what()` and its destructor. Doubles stand only for the file, the C runtime's heap and
+    /// error text, the formatter and the strings.
+    #[test]
+    fn a_short_read_in_load_tree_goes_the_whole_way_and_answers_failure() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let mut e = Engine::new();
+        e.register_imports(&[engine_core::exe::Import {
+            slot: RAISE_EXCEPTION,
+            dll: "KERNEL32.dll".into(),
+            name: "RaiseException".into(),
+        }]);
+        e.map(THROW_RECORD_TEMPLATE, 0x20);
+        for (i, word) in [0xe06d_7363u32, 1, 0, 0, 3, 0x1993_0520, 0, 0]
+            .iter()
+            .enumerate()
+        {
+            e.mem.set_u32(THROW_RECORD_TEMPLATE + 4 * i as u32, *word);
+        }
+        // The exe's data: `std::exception`'s vtable and `LoadTree`'s `ThrowInfo` (the destructor
+        // `00ec79a1`).
+        e.map(EXCEPTION_VTABLE, 8);
+        e.mem.set_u32(EXCEPTION_VTABLE + 4, 0x00ec_79b7);
+        e.map(0x0116_f904, 0x10);
+        engine_core::cxx_exception::write_throw_info(
+            &mut e,
+            0x0116_f904,
+            0x00ec_79a1,
+            &[STD_EXCEPTION_NAME],
+        );
+        // The C runtime's heap, and what it was asked to free.
+        let freed = Rc::new(RefCell::new(Vec::new()));
+        e.register(0x00ec_d1c7, |e, a| Ret {
+            eax: e.mem.alloc(a[0]),
+            ..Ret::default()
+        });
+        let log = freed.clone();
+        e.register_double(0x00ec_d291, move |_, a| {
+            log.borrow_mut().push(a[0]);
+            Ret::default()
+        });
+        // The formatter: the throw's message, then the catch block's report with `what()`.
+        let whats = Rc::new(RefCell::new(Vec::new()));
+        let log = whats.clone();
+        e.register_double(0x00b1_8860, move |e, a| {
+            let text: &[u8] = if a[1] == 0x010a_4a6c {
+                log.borrow_mut().push(e.mem.cstr(a[2]));
+                b"reported"
+            } else {
+                assert_eq!(a[1], 0x010a_4acc);
+                b"reads short"
+            };
+            e.mem.set_cstr(a[0] + 4, text);
+            e.mem.set_u32(a[0] + 0x18, 0xf);
+            Ret::default()
+        });
+        // `SetError`'s assign, and the strings' destructor.
+        let reported = Rc::new(RefCell::new(Vec::new()));
+        let log = reported.clone();
+        e.register_double(0x0044_a7f0, move |e, a| {
+            log.borrow_mut().push(e.mem.cstr(a[1]));
+            Ret::default()
+        });
+        e.register(0x0044_a730, |_, _| Ret::default());
+        e.register(0x00ec_85e3, |e, _| {
+            let word = e.mem.alloc(4);
+            Ret {
+                eax: word,
+                ..Ret::default()
+            }
+        });
+        e.register(0x00ec_db42, |_, _| Ret::default());
+        e.register(0x00aa_3e40, |e, a| Ret {
+            eax: e.mem.alloc(a[1]),
+            ..Ret::default()
+        });
+        // The file: eight bytes, three of them read.
+        let deleted = Rc::new(RefCell::new(0));
+        let log = deleted.clone();
+        e.register_double(0x0f10_0000, move |_, _| {
+            *log.borrow_mut() += 1;
+            Ret::default()
+        });
+        e.register(0x0f10_0020, |_, _| Ret {
+            eax: 8,
+            ..Ret::default()
+        });
+        e.register(0x0f10_0010, |_, _| Ret {
+            eax: 3,
+            ..Ret::default()
+        });
+        let vtable = e.mem.alloc(0x2c);
+        e.mem.set_u32(vtable, 0x0f10_0000);
+        e.mem.set_u32(vtable + 0x28, 0x0f10_0020);
+        let file = e.mem.alloc(0x10);
+        e.mem.set_u32(file, vtable);
+        e.mem.set_u32(file + 8, 0x0f10_0010);
+        e.register_double(0x00af_df20, move |_, _| Ret {
+            eax: file,
+            ..Ret::default()
+        });
+
+        let tree = e.mem.alloc(0xa0);
+        e.with_stack(8, |_, _| {});
+        let mark = e.guest_stack_mark();
+        e.call_stack.push(0x0066_ac40);
+        assert_eq!(e.call(0x00b0_5420, &args![tree, 0x5555u32]).u32(), 0);
+        assert_eq!(e.call_stack, [0x0066_ac40], "the call stack is intact");
+        assert_eq!(e.guest_stack_mark(), mark, "so is the game's stack");
+        assert_eq!(*deleted.borrow(), 1, "the catch block deleted the file");
+        assert_eq!(*whats.borrow(), [b"reads short".to_vec()]);
+        assert_eq!(*reported.borrow(), [b"reported".to_vec()]);
+        assert_eq!(
+            freed.borrow().len(),
+            1,
+            "the object freed its copy of the text"
+        );
+        // A nested call works afterward: a null name loads nothing and answers 0.
+        assert_eq!(e.call(0x00b0_5420, &args![tree, 0u32]).u32(), 0);
+    }
+
     #[test]
     fn default_constructor_clears_the_message() {
         let mut e = Engine::new();
