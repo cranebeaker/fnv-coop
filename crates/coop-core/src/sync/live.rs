@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::actors::{ActorHost, PlayerLoc};
 use crate::authority::AuthorityTable;
-use crate::avatar::{dequant_pos, AvatarHub, AvatarMsg};
+use crate::avatar::{dequant_heading, dequant_pos, AvatarHub, AvatarMsg};
 use crate::combat::{Attribution, CombatHost};
 use crate::dialogue::DialogueHost;
 use crate::ids::{PlayerId, Seq};
@@ -297,10 +297,10 @@ impl HostLive {
         let aud = match relay.cell {
             Some(c) => {
                 self.interest.set_peer_cell(from, c);
-                let pos = self
-                    .avatars
-                    .state(from)
-                    .map_or([0.0; 3], |s| s.pos.map(dequant_pos));
+                let (pos, heading) = self.avatars.state(from).map_or(([0.0; 3], 0.0), |s| {
+                    (s.pos.map(dequant_pos), dequant_heading(s.heading))
+                });
+                self.roam.model.set_heading(from, heading);
                 for (a, m) in self
                     .roam
                     .on_avatar(&mut self.interest, &self.actors, from, c, pos)
@@ -545,6 +545,38 @@ mod tests {
             }
         }
         assert_eq!(u32::from(AVATAR_FAREWELL), got, "a few samples, then none");
+    }
+
+    /// A joiner starts beside the host and faces the way the host faces.
+    /// Before, the joiner faced heading 0 (north), whatever the host did.
+    #[test]
+    fn a_joiner_faces_the_way_the_host_faces() {
+        let mut l = HostLive::new(Mode::CoopBalanced);
+        let mut auth = AuthorityTable::new();
+        let host = AvatarState {
+            heading: crate::avatar::quant_heading(4.7),
+            ..state(1, 100.0)
+        };
+        l.on_msg(
+            PlayerId(0),
+            Msg::Avatar(AvatarMsg::State {
+                player: PlayerId(0),
+                seq: Seq(1),
+                state: host,
+            }),
+            0,
+            &mut auth,
+        );
+        let place = l
+            .join(PlayerId(1), 10)
+            .into_iter()
+            .find_map(|(to, m)| match m {
+                Msg::Roam(r) if to == PlayerId(1) => r.as_placement(),
+                _ => None,
+            })
+            .expect("the joiner is told where to start");
+        assert_eq!(place.cell, CellId(1));
+        assert!((place.heading - 4.7).abs() < 0.01, "{}", place.heading);
     }
 
     #[test]

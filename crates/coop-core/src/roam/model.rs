@@ -101,6 +101,8 @@ pub struct SceneModel {
     /// The shared cell table.
     pub graph: CellGraph,
     peers: BTreeMap<PlayerId, PeerScene>,
+    /// The heading of each peer's player (radians), from its avatar samples.
+    headings: BTreeMap<PlayerId, f32>,
     follow: BTreeMap<PlayerId, PlayerId>,
     anchor: Option<ZoneAnchor>,
     /// Counters.
@@ -159,8 +161,15 @@ impl SceneModel {
         d
     }
 
+    /// Records which way a peer's player faces (radians; call on every
+    /// avatar sample). A joiner placed beside the player faces the same way.
+    pub fn set_heading(&mut self, p: PlayerId, heading: f32) {
+        self.headings.insert(p, heading);
+    }
+
     /// Forgets a peer (disconnect).
     pub fn remove_peer(&mut self, p: PlayerId) -> CellDelta {
+        self.headings.remove(&p);
         self.follow.remove(&p);
         self.follow.retain(|_, leader| *leader != p);
         let left = self
@@ -352,6 +361,7 @@ impl SceneModel {
     /// ([`ring_spot`](Self::ring_spot)) around the tether anchor when a tether
     /// holds the story, else around the host, else around any member in the
     /// scene. Before, the joiner stood on the exact spot, on the player there.
+    /// The joiner faces the way the anchor or that player faces.
     pub fn join_placement(&self, joiner: PlayerId) -> Option<Placement> {
         let to = if let Some(a) = self.anchor {
             Placement {
@@ -360,16 +370,15 @@ impl SceneModel {
                 heading: a.heading,
             }
         } else {
-            let pick = self
+            let (who, pick) = self
                 .peers
                 .iter()
                 .filter(|(p, _)| **p != joiner)
-                .min_by_key(|(p, _)| p.0)
-                .map(|(_, s)| s)?;
+                .min_by_key(|(p, _)| p.0)?;
             Placement {
                 cell: pick.home,
                 pos: pick.pos,
-                heading: 0.0,
+                heading: self.headings.get(who).copied().unwrap_or(0.0),
             }
         };
         Some(Self::ring_spot(to, joiner))
@@ -539,9 +548,11 @@ mod tests {
     fn join_goes_to_the_anchor_else_the_host() {
         let mut m = grid();
         m.update_peer(p(0), CellId(7), [10.0, 20.0, 0.0]);
+        m.set_heading(p(0), 4.7);
         m.update_peer(p(1), CellId(8), [0.0; 3]);
         let j = m.join_placement(p(2)).unwrap();
         assert_eq!(j.cell, CellId(7));
+        assert_eq!(j.heading, 4.7, "the joiner faces the way the host faces");
         let d = (j.pos[0] - 10.0).hypot(j.pos[1] - 20.0);
         assert!(
             (d - WARP_SPREAD).abs() < 0.01,
@@ -561,6 +572,7 @@ mod tests {
         }));
         let j = m.join_placement(p(2)).unwrap();
         assert_eq!(j.cell, CellId(9));
+        assert_eq!(j.heading, 1.0, "the joiner faces the way the anchor faces");
         let d = (j.pos[0] - 1.0).hypot(j.pos[1] - 2.0);
         assert!((d - WARP_SPREAD).abs() < 0.01, "beside the anchor: {d}");
         assert!(SceneModel::new().join_placement(p(1)).is_none());
