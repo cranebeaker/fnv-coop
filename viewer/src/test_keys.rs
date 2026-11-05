@@ -1,5 +1,6 @@
 //! `--key-at`: for testing, presses a key or mouse button that many
-//! seconds after the player is placed, held for a while, as if it were
+//! seconds after the player is placed (with `--coop-go-file`, after the go
+//! file: see [`TestKeys::gated`]), held for a while, as if it were
 //! pressed on the keyboard (the viewer's input, not the game's: the view
 //! key F, R to reload or, held, put the weapon away or draw it, the left
 //! button to attack). Lets pictures show what only the keys reach
@@ -133,6 +134,8 @@ pub struct TestKeys {
     pub presses: Vec<TimedPress>,
     started: Option<f32>,
     held: Vec<(Press, f32)>,
+    /// The clock waits for [`open_gate`](Self::open_gate), not for the player.
+    gate: bool,
 }
 
 impl TestKeys {
@@ -140,6 +143,23 @@ impl TestKeys {
         TestKeys {
             presses,
             ..Default::default()
+        }
+    }
+
+    /// With `on`, the clock starts at [`open_gate`](Self::open_gate) (the co-op go
+    /// file), not when the player is placed. The scenario's script lines count
+    /// from the go file, so its keys must too. Before, a host's key came before
+    /// its script lines when a guest loaded slowly.
+    pub fn gated(mut self, on: bool) -> TestKeys {
+        self.gate = on;
+        self
+    }
+
+    /// The co-op go file is there: a gated clock starts `now`.
+    pub fn open_gate(&mut self, now: f32) {
+        if self.gate {
+            self.gate = false;
+            self.started = Some(now);
         }
     }
 
@@ -191,6 +211,9 @@ pub fn press_test_keys(
         return;
     }
     let now = time.elapsed_secs();
+    if tests.gate {
+        return;
+    }
     if tests.started.is_none() && player.is_some_and(|p| p.ready) {
         tests.started = Some(now);
     }
@@ -228,6 +251,18 @@ pub fn press_test_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gated_clock_starts_at_the_gate() {
+        let mut k = TestKeys::new(vec![parse(2.0, "w:1").unwrap()]).gated(true);
+        k.open_gate(10.0);
+        assert_eq!(k.started, Some(10.0));
+        k.open_gate(20.0);
+        assert_eq!(k.started, Some(10.0), "the gate opens once");
+        let mut free = TestKeys::new(vec![]);
+        free.open_gate(10.0);
+        assert_eq!(free.started, None, "no gate: the player starts the clock");
+    }
 
     #[test]
     fn presses_parse_and_come_due_then_release() {

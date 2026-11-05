@@ -433,7 +433,7 @@ fn main() {
             ready_at: None,
         })
         .insert_resource(dialogue::AutoSay(args.say.iter().cloned().collect()))
-        .insert_resource(test_keys::TestKeys::new(key_presses))
+        .insert_resource(test_keys::TestKeys::new(key_presses).gated(args.coop.go_file.is_some()))
         .insert_resource(viewmodel::StartWeapon(args.weapon.clone()))
         .insert_resource(lockpick::StartLock(args.lockpick.clone()))
         .insert_resource(emittance::StartRegion(args.weather_region.clone()))

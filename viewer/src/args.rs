@@ -204,7 +204,8 @@ OPTIONS:
                             mouse-left, mouse-right, escape, tab, mouse-x=COUNTS: the
                             mouse moving sideways each frame, or
                             wheel=NOTCHES, negative out) that
-                            many seconds after you're placed, held HOLD
+                            many seconds after you're placed (with
+                            --coop-go-file, after the go file), held HOLD
                             seconds (0.1): F third person, R:1 put the
                             weapon away, F:9 with mouse-x=20:1 turn the
                             third-person camera around you; can be given

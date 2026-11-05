@@ -609,7 +609,11 @@ pub(crate) fn send(
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
     mut exit: EventWriter<AppExit>,
     mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
-    (mut bot, live): (ResMut<coop_live::Bot>, Res<LiveNow>),
+    (mut bot, live, test_keys): (
+        ResMut<coop_live::Bot>,
+        Res<LiveNow>,
+        Option<ResMut<crate::test_keys::TestKeys>>,
+    ),
     scripts: Res<Scripts>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
@@ -647,6 +651,9 @@ pub(crate) fn send(
     if run.ready_seen && run.ready_at.is_none() && go {
         run.ready_at = Some(now);
         held.released = Some(now);
+        if let Some(mut k) = test_keys {
+            k.open_gate(now);
+        }
         split_special(&mut held, &mut bot, now);
         start_commands.0.extend(std::mem::take(&mut held.local));
         later.lines.extend(std::mem::take(&mut held.local_at));
