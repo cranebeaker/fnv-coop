@@ -226,6 +226,7 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
         Some("teleport") => {
             let c = |i: usize| arg(i).and_then(|w| w.parse::<f32>().ok());
             if let (Some(x), Some(y), Some(z)) = (c(2), c(3), c(4)) {
+                s.live_intent(Intent::TestWarp);
                 return Out::Teleport([x, y, z]);
             }
         }

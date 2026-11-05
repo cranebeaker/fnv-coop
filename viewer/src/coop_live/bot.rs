@@ -352,6 +352,7 @@ pub fn run(
             Some("teleport") => {
                 let c = |i: usize| arg(i).and_then(|w| w.parse::<f32>().ok());
                 if let (Some(x), Some(y), Some(z)) = (c(2), c(3), c(4)) {
+                    link.0.live_intent(Intent::TestWarp);
                     player.arrive([x, y, z]);
                 }
             }

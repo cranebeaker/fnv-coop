@@ -482,7 +482,12 @@ pub struct LiveHostAdapter {
     heal_carry: BTreeMap<FormId, f64>,
     /// What decided the ledger's protection last (see `follow_essential`).
     essential_seen: Option<EssentialInputs>,
+    /// When `paces` next gives the guests' speeds to the avatar check.
+    next_pace_ms: u64,
 }
+
+/// Milliseconds between the guests' speed updates for the avatar check.
+const PACE_EVERY_MS: u64 = 1_000;
 
 /// The script state that says who is essential (`more_functions::is_essential`):
 /// `SetEssential` per base, `SetActorRefEssential` per reference, the
@@ -522,6 +527,7 @@ impl LiveHostAdapter {
             last_health: BTreeMap::new(),
             heal_carry: BTreeMap::new(),
             essential_seen: None,
+            next_pace_ms: 0,
         }
     }
 
@@ -754,6 +760,27 @@ impl LiveHostAdapter {
         })
     }
 
+    /// Gives the avatar check each guest's run speed (#74), from the host's
+    /// copy of that guest: its gear, weight, effects and perks
+    /// (`locomotion::speed`). With shadows off, the host has no copy of
+    /// the guest, and the guest's movement is not bound.
+    fn paces(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) {
+        if now_ms < self.next_pace_ms || !gs.coop.bank.enabled() {
+            return;
+        }
+        self.next_pace_ms = now_ms + PACE_EVERY_MS;
+        let settings = crate::locomotion::SpeedSettings::read(cx.order);
+        for p in live.members().to_vec() {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let speed = gs.with_player(p.0, |g| {
+                crate::locomotion::speed(cx.order, g, &settings, PLAYER_REF, true, false)
+            });
+            live.avatars.set_speed(p, speed, now_ms);
+        }
+    }
+
     /// Also returns a notice to the striker of each dropped blow
     /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
     fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Outs, Outs) {
@@ -788,6 +815,7 @@ impl LiveHostAdapter {
         self.stats.frames += 1;
         super::campaign::host_frame(cx, gs, now_ms);
         self.registry.update(live);
+        self.paces(cx, gs, live, now_ms);
         super::campaign::party::refresh_positions(gs, &self.registry);
         // a guest's followers come along when the guest changes place
         let places = &mut self.pump.places;

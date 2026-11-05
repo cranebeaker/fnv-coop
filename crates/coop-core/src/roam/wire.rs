@@ -55,6 +55,10 @@ pub enum RoamMsg {
         /// Operation id.
         op: u32,
     },
+    /// Guest to host: the test harness put this player somewhere else
+    /// (`coop teleport`). Only a host that allows test warps
+    /// (`HostLive::test_warps`) lets the next samples jump.
+    TestWarp,
 }
 
 impl RoamMsg {

@@ -247,6 +247,11 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         e.to_string()
     })?;
     crate::coop_link::log_notices(&mut session, &notices);
+    // the harness's fixed token marks a test session: the bot's teleports
+    // are warps the host knows (#74)
+    if c.test_token {
+        session.live_test_warps(true);
+    }
     // How this process starts (docs/COOP.md, "The start of a game"): a host's --new-game runs the
     // opening for the host player; a guest makes its own character unless it brings one.
     let own = if c.no_chargen {

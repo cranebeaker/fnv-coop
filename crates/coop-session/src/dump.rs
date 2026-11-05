@@ -331,6 +331,9 @@ pub struct LiveCounters {
     pub status: Option<crate::session::Status>,
     /// Joins refused because the party was full (`Session::full_refusals`).
     pub full_refused: u64,
+    /// Host: guest samples refused by the movement check
+    /// (`Session::live_moves_refused`).
+    pub moves_refused: u64,
     /// Avatar glitches the remote-avatar detectors saw ([`crate::glitch`]):
     /// position pops, heading snaps, animation flip-flops.
     pub glitch: crate::glitch::GlitchCounts,
@@ -603,9 +606,10 @@ pub fn state_json_full(
         sc.movies
     );
     let live = format!(
-        "{},\"full_refused\":{},\"glitch\":{}}}",
+        "{},\"full_refused\":{},\"moves_refused\":{},\"glitch\":{}}}",
         live.strip_suffix('}').unwrap_or(&live),
         counters.full_refused,
+        counters.moves_refused,
         counters.glitch.json()
     );
     // host: the tether's zone membership per player (empty with no tether)

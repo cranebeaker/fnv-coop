@@ -1362,3 +1362,66 @@ mod named_blows {
         assert_eq!(before - after, 3.0);
     }
 }
+
+mod pace {
+    use super::*;
+    use coop_core::avatar::dequant_pos;
+    use coop_core::proto::Msg;
+    use coop_core::roam::RoamMsg;
+
+    fn host_x(r: &Rig) -> Option<f32> {
+        let s = r.sim.host.live.avatars.state(PlayerId(1));
+        s.map(|s| dequant_pos(s.pos[0]))
+    }
+
+    fn rig<'a>(order: &'a LoadOrder, scripts: &'a ScriptCache, test_warps: bool) -> Rig<'a> {
+        let mut r = Rig::new(order, scripts, table(""), "perfect", 41);
+        r.sim.host.live.test_warps = test_warps;
+        r.run_ms(1_500);
+        r
+    }
+
+    /// #74: the host follows a guest that walks. When the guest jumps with
+    /// no warp, the host keeps the last place, and after the wait it sends
+    /// the guest back there.
+    #[test]
+    fn the_host_bounds_a_guests_movement() {
+        let (_d, order) = order("pace");
+        let scripts = ScriptCache::default();
+        let mut r = rig(&order, &scripts, false);
+        assert_eq!(host_x(&r), Some(900.0));
+        // a walk: 100 units in a second
+        for i in 1..=10 {
+            r.guests[0].player_position = Some([900.0 + 10.0 * i as f32, 1000.0, 5000.0]);
+            r.run_ms(100);
+        }
+        r.run_ms(300);
+        assert_eq!(host_x(&r), Some(1000.0));
+        assert_eq!(r.sim.host.live.avatars.too_far, 0);
+        // 20000 units in one sample, no warp
+        r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+        r.run_ms(500);
+        assert_eq!(host_x(&r), Some(1000.0), "the host keeps the last place");
+        assert!(r.sim.host.live.avatars.too_far > 0);
+        let back = r.until(2_000, |r| r.sim.guests[0].sync.live.roam.place.is_some());
+        assert!(back, "the host sends the guest back");
+        let place = r.sim.guests[0].sync.live.roam.place.unwrap();
+        assert_eq!(place.pos[0], 1000.0);
+    }
+
+    /// The harness's teleport is a warp the host knows in a test session.
+    /// Mutation twin: a host not in a test session refuses the jump.
+    #[test]
+    fn a_test_warp_lets_the_jump_through_only_in_a_test_session() {
+        let (_d, order) = order("pace-warp");
+        let scripts = ScriptCache::default();
+        for test in [true, false] {
+            let mut r = rig(&order, &scripts, test);
+            r.sim.guest_emit(0, vec![Msg::Roam(RoamMsg::TestWarp)]);
+            r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+            r.run_ms(500);
+            let want = if test { 21_000.0 } else { 900.0 };
+            assert_eq!(host_x(&r), Some(want), "test session {test}");
+        }
+    }
+}

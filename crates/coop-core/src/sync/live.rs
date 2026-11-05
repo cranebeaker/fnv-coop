@@ -61,6 +61,32 @@ pub struct HostLive {
     /// Per player: the peers that lost sight of its cell, and how many
     /// more samples each gets ([`AVATAR_FAREWELL`]).
     avatar_farewell: BTreeMap<PlayerId, BTreeMap<PlayerId, u8>>,
+    /// A test session: the harness's teleports (`RoamMsg::TestWarp`) let
+    /// their player's next samples jump. Off in a game.
+    pub test_warps: bool,
+}
+
+/// Whether the host sending `m` to `to` moves that player elsewhere (#74):
+/// a door follow, the tether, its respawn, a wipe, a placement, an approved
+/// fast travel.
+fn warps(m: &Msg, to: PlayerId) -> bool {
+    use crate::interact::InteractMsg;
+    use crate::rules::{RulesMsg, VoteKind};
+    if let Msg::Rules(RulesMsg::Respawn { player }) = m {
+        return *player == to;
+    }
+    matches!(
+        m,
+        Msg::Interact(InteractMsg::Follow(_))
+            | Msg::Rules(RulesMsg::TetherWarp { .. })
+            | Msg::Rules(RulesMsg::Wipe)
+            | Msg::Roam(crate::roam::RoamMsg::Place { .. })
+            | Msg::Rules(RulesMsg::VoteResult {
+                kind: VoteKind::FastTravel,
+                approved: true,
+                ..
+            })
+    )
 }
 
 impl HostLive {
@@ -84,6 +110,7 @@ impl HostLive {
             local_inbox: Vec::new(),
             avatar_seen: BTreeMap::new(),
             avatar_farewell: BTreeMap::new(),
+            test_warps: false,
         };
         l.rules.on_join(PlayerId::HOST, 0);
         l.chat.set_name(PlayerId::HOST, "");
@@ -109,7 +136,14 @@ impl HostLive {
     }
 
     fn route(&mut self, aud: Audience, msg: Msg, out: &mut Outs) {
+        // the warps the host sends let their players' next samples jump (#74)
+        for p in std::mem::take(&mut self.interact.transits) {
+            self.avatars.open_warp(p);
+        }
         for to in self.interest.resolve(aud, &self.members) {
+            if warps(&msg, to) {
+                self.avatars.open_warp(to);
+            }
             if to.is_host() {
                 self.local_inbox.push(msg.clone());
             } else {
@@ -191,7 +225,7 @@ impl HostLive {
             return out;
         }
         match msg {
-            Msg::Avatar(m) => self.on_avatar(from, m, &mut out),
+            Msg::Avatar(m) => self.on_avatar(from, m, now_ms, &mut out),
             Msg::Actor(m) => {
                 let cell = self.interest.peer_cell(from);
                 for o in self.actors.on_msg(from, m, now_ms, cell, auth) {
@@ -221,6 +255,11 @@ impl HostLive {
                 }
             }
             Msg::Social(m) => self.on_social(from, m, now_ms, &mut out),
+            Msg::Roam(crate::roam::RoamMsg::TestWarp) => {
+                if self.test_warps {
+                    self.avatars.open_warp(from);
+                }
+            }
             Msg::Roam(m) => self.roam.on_msg(from, m),
             Msg::Scene(m) => {
                 for o in self.scene.on_msg(from, m, now_ms) {
@@ -291,8 +330,18 @@ impl HostLive {
         out
     }
 
-    fn on_avatar(&mut self, from: PlayerId, m: AvatarMsg, out: &mut Outs) {
-        let Some(relay) = self.avatars.on_msg(from, m) else {
+    fn on_avatar(&mut self, from: PlayerId, m: AvatarMsg, now_ms: u64, out: &mut Outs) {
+        let Some(relay) = self.avatars.on_msg(now_ms, from, m) else {
+            // a guest whose samples move too far goes back to its last
+            // accepted place (#74). Not through `route`: that opens a warp.
+            if let Some(s) = self.avatars.take_correction(from, now_ms) {
+                let back = crate::roam::RoamMsg::Place {
+                    cell: s.cell,
+                    pos: s.pos,
+                    heading: s.heading,
+                };
+                out.push((from, Msg::Roam(back)));
+            }
             return;
         };
         let aud = match relay.cell {
