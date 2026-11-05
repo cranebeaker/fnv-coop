@@ -30,6 +30,30 @@ pub const SURFACE_CODE: u32 = CODE_BASE + 0x0400;
 pub const TEXTURE_CODE: u32 = CODE_BASE + 0x0500;
 /// `IDirect3DCubeTexture9`'s slots (the texture's names, with `GetCubeMapSurface` at 18).
 pub const CUBE_CODE: u32 = CODE_BASE + 0x0900;
+/// Where `IDirect3DDevice9Ex`'s own slots ([`DEVICE_EX_SLOTS`]) sit. The device's 119 slots
+/// come first in its table, so these cannot follow [`DEVICE_CODE`] without reaching
+/// [`SURFACE_CODE`].
+pub const DEVICE_EX_CODE: u32 = CODE_BASE + 0x0b00;
+
+/// `IDirect3DDevice9Ex`'s slots after `IDirect3DDevice9`'s (d3d9.h order, from slot 119). Only
+/// `CheckDeviceState` is provided: the others stop the run when called.
+pub const DEVICE_EX_SLOTS: [&str; 15] = [
+    "SetConvolutionMonoKernel",
+    "ComposeRects",
+    "PresentEx",
+    "GetGPUThreadPriority",
+    "SetGPUThreadPriority",
+    "WaitForVBlank",
+    "CheckResourceResidency",
+    "SetMaximumFrameLatency",
+    "GetMaximumFrameLatency",
+    "CheckDeviceState",
+    "CreateRenderTargetEx",
+    "CreateOffscreenPlainSurfaceEx",
+    "CreateDepthStencilSurfaceEx",
+    "ResetEx",
+    "GetDisplayModeEx",
+];
 
 /// `D3DERR_NOTFOUND` (d3d9.h).
 pub const D3DERR_NOTFOUND: u32 = 0x8876_0866;
@@ -284,6 +308,8 @@ const IID_SURFACE9: [u8; 16] = guid(
 struct Device {
     references: u32,
     direct3d: u32,
+    /// Made by `IDirect3D9Ex::CreateDeviceEx`: an `IDirect3DDevice9Ex`.
+    ex: bool,
     /// `D3DDEVICE_CREATION_PARAMETERS`: adapter, device type, focus window, behaviour flags.
     creation: [u32; 4],
     /// The present parameters as the device took them (after filling in the defaults).
@@ -392,6 +418,7 @@ struct Surface {
 #[derive(Debug, Default)]
 pub struct Objects {
     device_vtable: u32,
+    device_ex_vtable: u32,
     surface_vtable: u32,
     texture_vtable: u32,
     cube_vtable: u32,
@@ -1010,6 +1037,10 @@ fn register_code(e: &mut Engine) {
     for (slot, f) in cube {
         e.register(CUBE_CODE + 4 * slot, f);
     }
+    e.register(
+        DEVICE_EX_CODE + 4 * 9,
+        crate::entry!(0, check_device_state(Ptr, u32) -> u32).1,
+    );
     if e.kernel.graphics.device_objects.device_vtable == 0 {
         let device = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len());
         let surface = vtable(e, SURFACE_CODE, SURFACE_SLOTS.len());
@@ -1074,6 +1105,68 @@ pub fn create_device(
     present: Ptr,
     out: Ptr,
 ) -> u32 {
+    create(
+        e,
+        this,
+        adapter,
+        device_type,
+        focus,
+        behavior,
+        present,
+        out,
+        false,
+    )
+}
+
+// Platform: replaces D3D9.DLL IDirect3D9Ex::CreateDeviceEx (vtable +0x50)
+/// `CreateDeviceEx(adapter, device type, focus window, behaviour flags, present parameters,
+/// full-screen display mode, device out)`: as [`create_device`], and the device is an
+/// `IDirect3DDevice9Ex` (its slots [`DEVICE_SLOTS`], then [`DEVICE_EX_SLOTS`]). The display
+/// mode must be null for a windowed device and given for a full-screen one (d3d9.h), else
+/// `D3DERR_INVALIDCALL`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_device_ex(
+    e: &mut Engine,
+    this: Ptr,
+    adapter: u32,
+    device_type: u32,
+    focus: u32,
+    behavior: u32,
+    present: Ptr,
+    mode: Ptr,
+    out: Ptr,
+) -> u32 {
+    if !present.is_null() {
+        let windowed = e.mem.u32(present.addr() + PP_WINDOWED) != 0;
+        if windowed != mode.is_null() {
+            return D3DERR_INVALIDCALL;
+        }
+    }
+    create(
+        e,
+        this,
+        adapter,
+        device_type,
+        focus,
+        behavior,
+        present,
+        out,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create(
+    e: &mut Engine,
+    this: Ptr,
+    adapter: u32,
+    device_type: u32,
+    focus: u32,
+    behavior: u32,
+    present: Ptr,
+    out: Ptr,
+    ex: bool,
+) -> u32 {
     if present.is_null() || out.is_null() || adapter != 0 {
         return D3DERR_INVALIDCALL;
     }
@@ -1135,8 +1228,22 @@ pub fn create_device(
         ));
     }
     register_code(e);
+    // Made on the first `IDirect3DDevice9Ex` only, so a run without one keeps its heap layout.
+    if ex && e.kernel.graphics.device_objects.device_ex_vtable == 0 {
+        let device_ex = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len() + DEVICE_EX_SLOTS.len());
+        for i in 0..DEVICE_EX_SLOTS.len() as u32 {
+            let slot = DEVICE_SLOTS.len() as u32 + i;
+            e.mem.set_u32(device_ex + 4 * slot, DEVICE_EX_CODE + 4 * i);
+        }
+        e.kernel.graphics.device_objects.device_ex_vtable = device_ex;
+    }
     let object = e.mem.alloc(8);
-    let table = e.kernel.graphics.device_objects.device_vtable;
+    let objects = &e.kernel.graphics.device_objects;
+    let table = if ex {
+        objects.device_ex_vtable
+    } else {
+        objects.device_vtable
+    };
     e.mem.set_u32(object, table);
     let (width, height) = (field(e, PP_WIDTH), field(e, PP_HEIGHT));
     let quality = field(e, PP_QUALITY);
@@ -1183,6 +1290,7 @@ pub fn create_device(
     let device = Device {
         references: 1,
         direct3d: this.addr(),
+        ex,
         creation: [adapter, device_type, focus, behavior],
         present: e.mem.bytes(p, PRESENT_SIZE),
         back_buffers,
@@ -1810,6 +1918,20 @@ fn present(e: &mut Engine, this: Ptr, source: u32, dest: u32, window: u32, dirty
 /// `TestCooperativeLevel()`: a windowed device is not lost here: `D3D_OK`, or
 /// `D3DERR_DEVICENOTRESET` after a `Reset` that failed until one succeeds (measured, 2026-10-27).
 const D3DERR_DEVICENOTRESET: u32 = 0x8876_0869;
+
+/// `IDirect3DDevice9Ex::CheckDeviceState(window)` for the device's own windows (null): `S_OK`.
+/// The model has no other display state: it never changes the display mode, minimises or
+/// covers a window, or removes the adapter, which are the documented other answers. Not
+/// provided (the run stops): a window given.
+fn check_device_state(e: &mut Engine, this: Ptr, window: u32) -> u32 {
+    assert!(
+        window == 0,
+        "IDirect3DDevice9Ex::CheckDeviceState for window {window:#x} is not provided"
+    );
+    debug_assert!(device(e, this).ex && !device(e, this).lost);
+    D3D_OK
+}
+
 fn test_cooperative_level(e: &mut Engine, this: Ptr) -> u32 {
     if device(e, this).lost {
         return D3DERR_DEVICENOTRESET;
@@ -2723,6 +2845,12 @@ fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
     if field(e, PP_WINDOWED) == 0 {
         panic!("IDirect3DDevice9::Reset to a full-screen device is not provided");
     }
+    // Direct3D 9Ex keeps default-pool resources over a Reset: the measured answers below are
+    // the plain device's.
+    assert!(
+        !device(e, this).ex,
+        "IDirect3DDevice9Ex::Reset is not provided"
+    );
     if default_pool_alive(e, this.addr()) || field(e, PP_COUNT) > BACK_BUFFERS_MAX {
         device(e, this).lost = true;
         return D3DERR_INVALIDCALL;
@@ -4195,6 +4323,60 @@ mod tests {
     /// The test table with what the offscreen, fill and query calls ask: `CheckDeviceFormat` of
     /// an X8R8G8B8 plain surface (usage 0, `D3DRTYPE_SURFACE`) and the query types this machine's
     /// device took (`d3d9-capture device queries`, 2026-10-27: event, occlusion and a few more).
+    /// `IDirect3D9Ex::CreateDeviceEx` (+0x50) and `IDirect3DDevice9Ex::CheckDeviceState`.
+    #[test]
+    fn create_device_ex_makes_an_ex_device() {
+        let mut e = Engine::new();
+        d3d9::load_adapter_table(&mut e, &test_table());
+        let create = d3d9::proc_address(&mut e, b"Direct3DCreate9Ex").unwrap();
+        let out = e.mem.alloc(4);
+        assert_eq!(e.call(create, &[d3d9::D3D_SDK_VERSION, out]).u32(), D3D_OK);
+        let d3d = e.mem.u32(out);
+        let present = e.mem.alloc(PRESENT_SIZE);
+        e.mem.set_u32(present + PP_WIDTH, 640);
+        e.mem.set_u32(present + PP_HEIGHT, 480);
+        e.mem.set_u32(present + PP_WINDOW, 0x11c);
+        e.mem.set_u32(present + PP_WINDOWED, 1);
+        let mode = e.mem.alloc(0x18);
+        let call = |e: &mut Engine, mode: u32| {
+            e.vcall(d3d, 0x50, &[0, 1, 0x11c, 0x40, present, mode, out])
+                .u32()
+        };
+        assert_eq!(
+            call(&mut e, mode),
+            D3DERR_INVALIDCALL,
+            "windowed with a mode"
+        );
+        e.mem.set_u32(present + PP_WINDOWED, 0);
+        assert_eq!(
+            call(&mut e, 0),
+            D3DERR_INVALIDCALL,
+            "full screen without one"
+        );
+        e.mem.set_u32(present + PP_WINDOWED, 1);
+        assert_eq!(call(&mut e, 0), D3D_OK);
+        let device = e.mem.u32(out);
+        assert!(device_state(&e, device).ex);
+        let table = e.mem.u32(device);
+        assert_eq!(e.mem.u32(table + 4 * 118), DEVICE_CODE + 4 * 118);
+        assert_eq!(e.mem.u32(table + 4 * 119), DEVICE_EX_CODE);
+        assert_eq!(e.mem.u32(table + 4 * 128), DEVICE_EX_CODE + 4 * 9);
+        assert_eq!(
+            e.vcall(device, 4 * 128, &[0]).u32(),
+            D3D_OK,
+            "CheckDeviceState"
+        );
+        assert!(!e.is_translated(DEVICE_EX_CODE + 4 * 2), "PresentEx");
+        assert_eq!(
+            e.vcall(device, 0xc, &[]).u32(),
+            D3D_OK,
+            "TestCooperativeLevel"
+        );
+        // A plain device keeps its 119 slots.
+        let (e2, plain) = extra_device();
+        assert!(!device_state(&e2, plain).ex);
+    }
+
     fn extra_device() -> (Engine, u32) {
         let mut e = Engine::new();
         let table = test_table()
