@@ -1205,3 +1205,160 @@ fn attribution_slots_for_combat_forms() {
     );
     assert_eq!(attribution::slot_of(FormId(0x1234), 0), None);
 }
+
+/// #74: the host counts a guest's named blows from its own copy of that guest.
+mod named_blows {
+    use super::*;
+    use coop_core::actors::Blow;
+    use coop_core::ids::FormId as CForm;
+    use world::coop::facts::PendingHit;
+
+    /// Guest 1's copy on the host holds `weapon`; guest hits go through the
+    /// host's hold, as in a session. Returns the gecko's host health.
+    fn rig<'a>(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        seed: u64,
+        weapon: u32,
+    ) -> (Rig<'a>, f64) {
+        let mut r = Rig::new(order, scripts, table(""), "perfect", seed);
+        r.hold_hits = true;
+        // single-player numbers: the party scaling moves as the party forms
+        r.sim
+            .host
+            .live
+            .rules
+            .set_mode(coop_core::rules::Mode::Normal);
+        r.host.with_player(1, |g| {
+            g.equipped.insert(PLAYER_REF, vec![FormId(weapon)]);
+        });
+        r.run_ms(1_000);
+        let before = world::combat::health(order, &r.host, FormId(GECKO_REF)).unwrap();
+        (r, before)
+    }
+
+    fn named(weapon: u32, flags: u8) -> Blow {
+        Blow {
+            by: None,
+            weapon: Some(CForm(weapon)),
+            part: None,
+            flags,
+            vats: None,
+        }
+    }
+
+    /// The host's own count of one blow of guest 1 with the weapon in its
+    /// hand, before the party scaling.
+    fn host_count(r: &mut Rig, order: &LoadOrder, power: bool) -> f64 {
+        let gecko = FormId(GECKO_REF);
+        r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(order, g, PLAYER_REF).unwrap();
+            let inputs = world::blow::BlowInputs {
+                attacker: PLAYER_REF,
+                target: gecko,
+                weapon: Some(&w),
+                part: None,
+                power,
+                sneak: false,
+                critical: false,
+            };
+            f64::from(world::blow::blow_damage(order, g, inputs).dealt)
+        })
+    }
+
+    /// The whole points of the host's count `raw` (Normal rules: no scaling).
+    fn assert_points(r: &Rig, lost: f64, raw: f64, what: &str) {
+        let t = r
+            .host
+            .coop
+            .live
+            .scaling
+            .map_or(1.0, |s| f64::from(s.toughness));
+        assert_eq!(t, 1.0, "Normal rules");
+        assert_eq!(lost, raw.floor(), "{what}");
+    }
+
+    /// The guest's 4000 points are not used: the gecko loses the host's count.
+    #[test]
+    fn the_host_counts_a_guests_named_blow() {
+        let (_d, order) = order("blow-count");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 31, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let expected = host_count(&mut r, &order, false);
+        assert!(
+            expected >= 1.0 && expected < before,
+            "a machete blow ({expected} of {before})"
+        );
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 4000.0,
+            by: PLAYER_REF,
+            blow: Some(named(MACHETE, 0)),
+        });
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(&r, before - after, expected, "the host's count");
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// A blow with a weapon that the host's copy does not hold deals nothing.
+    #[test]
+    fn the_host_refuses_a_blow_with_a_weapon_not_in_hand() {
+        let (_d, order) = order("blow-refuse");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 32, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 30.0,
+            by: PLAYER_REF,
+            blow: Some(named(PISTOL, 0)),
+        });
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// A sneak attack needs the guest sneaking: the host drops that part of
+    /// the blow and counts it without the sneak multiplier.
+    #[test]
+    fn the_host_drops_a_sneak_attack_the_guest_was_not_in() {
+        let (_d, order) = order("blow-sneak");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 33, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let expected = host_count(&mut r, &order, false);
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 50.0,
+            by: PLAYER_REF,
+            blow: Some(named(MACHETE, Blow::SNEAK)),
+        });
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(expected * 2.0 >= before, "a sneak attack would kill it");
+        assert!(after > 0.0, "no sneak multiplier");
+        assert_points(&r, before - after, expected, "sneak dropped");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 1);
+    }
+
+    /// Mutation twin: without the host's count, the guest's number lands.
+    #[test]
+    fn mutation_twin_a_blow_with_no_name_keeps_the_guests_number() {
+        let (_d, order) = order("blow-unnamed");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 34, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 3.0,
+            by: PLAYER_REF,
+            blow: None,
+        });
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert_eq!(before - after, 3.0);
+    }
+}

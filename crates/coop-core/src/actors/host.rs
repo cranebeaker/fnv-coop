@@ -113,6 +113,7 @@ impl ActorHost {
                 hit,
                 amount,
                 npc,
+                ..
             } => self.on_hit(from, actor, hit, amount, now_ms, attacker_cell, npc),
             ActorMsg::SpawnReq {
                 req,
@@ -501,6 +502,7 @@ mod tests {
                 hit: id,
                 amount: amt,
                 npc: None,
+                blows: Vec::new(),
             },
             now,
             Some(C),
@@ -598,6 +600,7 @@ mod tests {
                     hit: id,
                     amount: 5,
                     npc,
+                    blows: Vec::new(),
                 },
                 0,
                 Some(CellId(2)),
@@ -638,6 +641,7 @@ mod tests {
                     hit: id,
                     amount,
                     npc: Some(FormId(0x200)),
+                    blows: Vec::new(),
                 },
                 0,
                 Some(C),
@@ -731,6 +735,7 @@ mod tests {
                 hit: 1,
                 amount: 5,
                 npc: None,
+                blows: Vec::new(),
             },
             0,
             Some(CellId(2)),
@@ -764,6 +769,7 @@ mod tests {
                 hit: id,
                 amount: 1,
                 npc: from.is_host().then_some(FormId(0x200)),
+                blows: Vec::new(),
             };
             h.on_msg(from, m, 10, cell, auth)
         };
@@ -812,6 +818,7 @@ mod tests {
                 hit: id,
                 amount: 5,
                 npc: Some(by),
+                blows: Vec::new(),
             };
             h.on_msg(PlayerId(from), m, 10, Some(C), auth)
         };
@@ -960,6 +967,7 @@ mod tests {
                     hit: n,
                     amount: 100,
                     npc: None,
+                    blows: Vec::new(),
                 },
                 0,
                 Some(C),
@@ -1045,6 +1053,7 @@ mod tests {
                 hit: id,
                 amount: 5,
                 npc: None,
+                blows: Vec::new(),
             };
             h.on_msg(PlayerId(1), m, 0, Some(world), &mut auth).len()
         };

@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use coop_core::actors::{ActorClient, ActorMsg, ActorState, MAX_HIT};
+use coop_core::actors::{ActorClient, ActorMsg, ActorState, Blow, MAX_BLOWS, MAX_HIT};
 use coop_core::authority::AuthorityTable;
 use coop_core::avatar::{dequant_heading, dequant_pos, quant_heading, quant_pos, AvatarState};
 use coop_core::avatar::{FLAG_DEAD, FLAG_DOWNED};
@@ -170,6 +170,31 @@ fn coalesce_npc(hits: Vec<PendingHit>) -> Vec<((FormId, FormId), f64)> {
         *by.entry((h.who, h.by)).or_insert(0.0) += h.amount;
     }
     by.into_iter().collect()
+}
+
+/// The named blows of one frame per victim, at most [`MAX_BLOWS`] in one
+/// request, with the guest's own sum of their damage.
+fn coalesce_blows(hits: Vec<PendingHit>) -> Vec<(FormId, f64, Vec<Blow>)> {
+    let mut by: BTreeMap<FormId, Vec<(f64, Blow)>> = BTreeMap::new();
+    for h in hits {
+        if let Some(b) = h.blow {
+            by.entry(h.who).or_default().push((h.amount, b));
+        }
+    }
+    by.into_iter()
+        .flat_map(|(who, blows)| {
+            blows
+                .chunks(MAX_BLOWS)
+                .map(|c| {
+                    (
+                        who,
+                        c.iter().map(|x| x.0).sum(),
+                        c.iter().map(|x| x.1).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// Sums the hits of one frame per victim (one request each).
@@ -413,6 +438,11 @@ impl ActorPump {
 pub struct LiveStats {
     /// Hit requests sent.
     pub hits_sent: u32,
+    /// A guest's blows the host refused (`super::blow_check::Refusal`).
+    pub blows_refused: u32,
+    /// A guest's blows the host counted without a part the guest named
+    /// (sneak, power, critical).
+    pub blow_parts_dropped: u32,
     /// Frames run.
     pub frames: u64,
 }
@@ -443,6 +473,9 @@ pub struct LiveHostAdapter {
     next_loot_ms: u64,
     /// Guest hit requests that wait for the friendly-fire guard.
     held_hits: Vec<(PlayerId, Msg)>,
+    /// The part of a point each guest's named blows have dealt that no
+    /// verdict has carried yet (the host counts them, `recount`).
+    blow_carry: BTreeMap<PlayerId, HitCarry>,
     /// Each actor's world health after the last frame's verdicts.
     last_health: BTreeMap<FormId, f64>,
     /// Raised health the ledger has not taken yet (less than a point).
@@ -485,6 +518,7 @@ impl LiveHostAdapter {
             announced: BTreeSet::new(),
             next_loot_ms: 0,
             held_hits: Vec::new(),
+            blow_carry: BTreeMap::new(),
             last_health: BTreeMap::new(),
             heal_carry: BTreeMap::new(),
             essential_seen: None,
@@ -667,6 +701,59 @@ impl LiveHostAdapter {
         outs
     }
 
+    /// A guest's named blows as the host counts them (#74): the damage of
+    /// each blow from the host's copy of that guest replaces the guest's own
+    /// count (`super::blow_check`). A refused blow deals nothing. The part of
+    /// a point left waits for the next blows on the same victim.
+    fn recount(&mut self, cx: Ctx, gs: &mut GameState, from: PlayerId, m: Msg) -> Msg {
+        let Msg::Actor(ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: None,
+            blows,
+        }) = m
+        else {
+            return m;
+        };
+        if blows.is_empty() {
+            return Msg::Actor(ActorMsg::Hit {
+                actor,
+                hit,
+                amount,
+                npc: None,
+                blows,
+            });
+        }
+        let victim = wf(actor);
+        let mut total = 0.0;
+        for r in super::blow_check::count_blows(cx.order, gs, from, victim, &blows) {
+            match r {
+                Ok(c) => {
+                    total += c.damage;
+                    if c.dropped != 0 {
+                        self.stats.blow_parts_dropped += 1;
+                    }
+                }
+                Err(_) => self.stats.blows_refused += 1,
+            }
+        }
+        let left = crate::combat::health(cx.order, gs, victim);
+        let points = self
+            .blow_carry
+            .entry(from)
+            .or_default()
+            .take(victim, total, left)
+            .unwrap_or(0);
+        Msg::Actor(ActorMsg::Hit {
+            actor,
+            hit,
+            amount: points,
+            npc: None,
+            blows,
+        })
+    }
+
     /// Also returns a notice to the striker of each dropped blow
     /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
     fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Outs, Outs) {
@@ -747,6 +834,7 @@ impl LiveHostAdapter {
         // a guest's hit requests: the friendly-fire guard, then the same ledger
         let (pass, blocked) = self.guarded_hits(cx, gs);
         for (from, m) in pass {
+            let m = self.recount(cx, gs, from, m);
             outs.extend(live.on_msg(from, m, now_ms, auth));
         }
         // only a guest's blows are held, so each notice goes to a guest
@@ -987,6 +1075,9 @@ impl LiveGuestAdapter {
         let (mine, npcs): (Vec<_>, Vec<_>) = pending
             .into_iter()
             .partition(|h| h.by == PLAYER_REF || gs.teammates.contains(&h.by));
+        // a named blow goes as it is: the host counts its damage and keeps the
+        // part points (`LiveHostAdapter::recount`)
+        let (named, mine): (Vec<_>, Vec<_>) = mine.into_iter().partition(|h| h.blow.is_some());
         for (npc, hits) in [(true, npcs), (false, mine)] {
             // the part points of a player's blows and of NPC blows are kept apart
             let carry = if npc {
@@ -1026,6 +1117,14 @@ impl LiveGuestAdapter {
                 };
                 out.push(Msg::Actor(m));
             }
+        }
+        for (who, amount, blows) in coalesce_blows(named) {
+            if who == PLAYER_REF || puppet_of(self.me) == who {
+                continue;
+            }
+            self.stats.hits_sent += 1;
+            let own = amount.round().clamp(0.0, f64::from(MAX_HIT)) as u16;
+            out.push(Msg::Actor(live.actors.blow_hit(cf(who), own, blows)));
         }
         self.pump.take_over(cx, gs, &live.actors, self.me);
         out.extend(

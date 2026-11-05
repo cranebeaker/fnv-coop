@@ -265,6 +265,7 @@ impl HostLive {
                 hit: h.hit,
                 amount: h.amount,
                 npc: None,
+                blows: Vec::new(),
             };
             for o in self.actors.on_msg(h.from, msg, now_ms, cell, auth) {
                 note_attribution(&mut self.combat.attributions, &o.msg);

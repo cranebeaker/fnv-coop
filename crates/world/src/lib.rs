@@ -25,6 +25,7 @@ pub mod ai;
 pub mod ammo_swap;
 pub mod animation;
 pub mod barter;
+pub mod blow;
 pub mod body_parts;
 pub mod caravan;
 pub mod casino;

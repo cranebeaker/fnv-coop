@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{ActorMsg, ActorState, SpawnOutcome};
+use super::{ActorMsg, ActorState, Blow, SpawnOutcome};
 use crate::ids::{Epoch, FormId, PlayerId, Seq};
 
 /// What this machine knows about one actor.
@@ -122,6 +122,21 @@ impl ActorClient {
             hit,
             amount,
             npc: None,
+            blows: Vec::new(),
+        }
+    }
+
+    /// A hit request for the player's or followers' `blows` with a fresh id.
+    /// `amount` is the sender's own count (see `ActorMsg::Hit::blows`).
+    pub fn blow_hit(&mut self, actor: FormId, amount: u16, blows: Vec<Blow>) -> ActorMsg {
+        let hit = self.next_hit;
+        self.next_hit += 1;
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: None,
+            blows,
         }
     }
 
@@ -135,6 +150,7 @@ impl ActorClient {
             hit,
             amount,
             npc: Some(by),
+            blows: Vec::new(),
         }
     }
 

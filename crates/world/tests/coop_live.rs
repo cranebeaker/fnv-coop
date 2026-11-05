@@ -179,6 +179,52 @@ mod fighting {
         r
     }
 
+    /// #74: a guest's blow names its weapon, part and outcome with its
+    /// damage, from `Runner::blow_at` to the guest's pending hit.
+    #[test]
+    fn a_guests_blow_names_what_it_was() {
+        let (_d, order) = order("live-blow-name");
+        let scripts = ScriptCache::default();
+        let mut r = setup(&order, &scripts, "perfect", 33);
+        let gecko = FormId(GECKO_REF);
+        let g = &mut r.guests[0];
+        g.equipped.insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        let w = world::combat::weapon_in_hand(&order, g, PLAYER_REF).unwrap();
+        let blow = world::melee::Blow {
+            power: true,
+            special: world::melee::Special::None,
+        };
+        world::scripting::Runner::new(&order, &scripts, g).blow_at(
+            PLAYER_REF,
+            gecko,
+            Some(&w),
+            None,
+            blow,
+        );
+        let hit = *g.coop.live.pending_hits.last().expect("a pending hit");
+        let named = hit.blow.expect("the blow is named");
+        assert_eq!(named.by, None);
+        assert_eq!(named.weapon, Some(CForm(MACHETE)));
+        assert!(named.has(coop_core::actors::Blow::POWER));
+        assert!(!named.has(coop_core::actors::Blow::SNEAK));
+        assert_eq!(named.vats, None);
+        assert!(
+            g.coop.live.blow.is_none(),
+            "the blow in progress is cleared"
+        );
+        let inputs = world::blow::BlowInputs {
+            attacker: PLAYER_REF,
+            target: gecko,
+            weapon: Some(&w),
+            part: None,
+            power: true,
+            sneak: false,
+            critical: named.has(coop_core::actors::Blow::CRITICAL),
+        };
+        let dealt = f64::from(world::blow::blow_damage(&order, g, inputs).dealt);
+        assert_eq!(hit.amount, dealt, "the same damage function");
+    }
+
     #[test]
     fn actor_handoff_is_reflected_in_world_actor_data() {
         let (_d, order) = order("live-handoff");

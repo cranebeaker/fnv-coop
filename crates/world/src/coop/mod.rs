@@ -34,6 +34,7 @@ use esm::FormId;
 
 pub mod apply;
 pub mod backend;
+pub mod blow_check;
 pub mod bridge;
 pub mod campaign;
 pub mod combat_live;
