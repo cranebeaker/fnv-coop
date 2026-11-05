@@ -214,6 +214,13 @@ fn main() {
     // it when the viewer's own window takes it), read before the game makes its real window,
     // which is shown activated (`NV_D3D9_BACKGROUND` keeps scripted runs in the background).
     let user_window = background::foreground();
+    if args.background {
+        // `--background` covers the game's window too: the D3D9 layer shows it without
+        // the focus. Set before the game's code starts (one thread here).
+        std::env::set_var("NV_D3D9_BACKGROUND", "1");
+        // and the viewer's own window is never activated except by a click
+        background::keep_inactive(user_window);
+    }
     // The game's own code (`crates/engine`) runs on the player's
     // FalloutNV.exe, read from the same installation as Data: any build but
     // 1.4.0.525 is refused here, with the reason (the maintainer's decision,

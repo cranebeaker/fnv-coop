@@ -151,7 +151,8 @@ OPTIONS:
     --background            a test run out of the way: the window opens
                             behind the others without the focus, and the
                             mouse is never held in it (with --screen-size,
-                            at that size)
+                            at that size). The game's own window also
+                            opens without the focus (NV_D3D9_BACKGROUND).
     --help-overlay          show the key help at the top of the screen in a
                             co-op session too (hidden there by default;
                             F4 turns it on and off)
