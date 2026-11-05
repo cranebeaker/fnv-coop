@@ -118,9 +118,11 @@ struct HudDimensions {
 
 fn create_action_points(e: &mut Engine, menu: u32, d: HudDimensions) {
     create_lookup(e, 0x114, 0x0106_7858);
-    let x = (f64::from(d.screen_width.wrapping_sub(d.bracket_width.wrapping_mul(2)))
-        - create_get_float(e, 0x114, 0xfb1)
-        + e.global::<f64>(0x0101_db88)) as f32;
+    // 0076c1c8..0076c1d4: FSUBR double, FADD double, FSTP float; each rounds with the running
+    // thread's control word.
+    let left = f64::from(d.screen_width.wrapping_sub(d.bracket_width.wrapping_mul(2)));
+    let inner = x87_sub(left, create_get_float(e, 0x114, 0xfb1));
+    let x = x87_add(inner, e.global::<f64>(0x0101_db88)) as f32;
     create_float(e, 0x114, 0xfa1, x);
     let y = (f64::from(
         d.screen_height
@@ -423,11 +425,13 @@ fn create_info_subtitles(e: &mut Engine, menu: u32, d: HudDimensions) {
     let half: f64 = e.global(0x0101_1590);
     let x = (f64::from(d.screen_width / 2) - center_width / half) as f32;
     create_float(e, 0x138, 0xfa1, x);
-    let y = (f64::from(
+    // 0076d764..0076d770: FSUBR double, FSUB double, FSTP float.
+    let top = f64::from(
         d.screen_height
             .wrapping_sub(d.bracket_height.wrapping_mul(2)),
-    ) - create_get_float(e, 0x138, 0xfb0)
-        - e.global::<f64>(0x0101_db88)) as f32;
+    );
+    let inner = x87_sub(top, create_get_float(e, 0x138, 0xfb0));
+    let y = x87_sub(inner, e.global::<f64>(0x0101_db88)) as f32;
     create_float(e, 0x138, 0xfa2, y);
     create_trait(e, 0x138, 0xfa8, 1);
     create_child(e, 0x9c, 0x138, 0x0107_30f8);
@@ -1864,8 +1868,9 @@ fn do_idle_geometry(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let current_tile = current_hud_tile(e, 0x114);
     let current_x = e.call(0x00a0_11b0, &args![current_tile, 0xfb1_u32]).f64();
     let horizontal_adjustment: f64 = e.global(0x0101_db88);
-    let new_x = (f64::from(screen_width.wrapping_sub(compass_width.wrapping_mul(2))) - current_x
-        + horizontal_adjustment) as f32;
+    // 007706c7..007706d0: FSUBR double, FADD double, FSTP float.
+    let left = f64::from(screen_width.wrapping_sub(compass_width.wrapping_mul(2)));
+    let new_x = x87_add(x87_sub(left, current_x), horizontal_adjustment) as f32;
     let current_tile = current_hud_tile(e, 0x114);
     hud_set_float(e, current_tile, 0xfa1, new_x);
     let current_tile = current_hud_tile(e, 0x114);
@@ -1952,6 +1957,19 @@ fn do_idle_fades(e: &mut Engine) {
     }
 }
 
+/// Seconds to milliseconds as the HUD does it: FLD float, FMUL double 1000.0, the product
+/// rounded with the running thread's control word (770d0b, 771277, 7714d7, 77ac49, 77b028,
+/// 77b0a5, 77b0fc, 77db85, 77e1d1, 77e394).
+fn seconds_to_ms(e: &Engine, seconds_bits: u32) -> f64 {
+    x87_mul(x87_load32(seconds_bits), e.global::<f64>(0x0101_7b70))
+}
+
+/// How long a new target stays regardless of heading (770d01..770d31), in milliseconds.
+fn target_timeout_ms(e: &mut Engine) -> u32 {
+    let timing_setting = e.call(0x0040_3e20, &args![0x011c_f87c_u32]).u32();
+    fistp_i64_low(seconds_to_ms(e, e.mem.u32(timing_setting)))
+}
+
 fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     e.mem.set_u8(0x011d_96c5, 0);
     if e.mem.u32(this.addr() + 0x21c) != 0 {
@@ -1988,9 +2006,7 @@ fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     }
     let now = hud_time(e, this.addr() + 0x224);
     let elapsed = now.wrapping_sub(e.mem.u32(this.addr() + 0x244));
-    let timing_setting = e.call(0x0040_3e20, &args![0x011c_f87c_u32]).u32();
-    let timeout =
-        fistp_i64_low(f64::from(e.mem.f32(timing_setting)) * e.global::<f64>(0x0101_7b70));
+    let timeout = target_timeout_ms(e);
     let close_enough = if elapsed <= timeout {
         true
     } else {
@@ -2146,7 +2162,7 @@ fn do_idle_quests(e: &mut Engine, this: Ptr<HUDMainMenu>) {
             .call(0x0087_7a30, &args![this.addr() + 0x198, index])
             .u32();
         let message = e.mem.u32(entry);
-        let duration = f64::from(e.mem.f32(message + 0x108)) * e.global::<f64>(0x0101_7b70);
+        let duration = seconds_to_ms(e, e.mem.u32(message + 0x108));
         if duration <= f64::from(elapsed) {
             let entry = e
                 .call(0x0087_7a30, &args![this.addr() + 0x198, index])
@@ -2201,7 +2217,7 @@ fn do_idle_messages(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         }
         let now = hud_time(e, this.addr() + 0x224);
         let elapsed = now.wrapping_sub(e.mem.u32(this.addr() + 0x194));
-        let duration = f64::from(e.mem.f32(message + 0x30c)) * e.global::<f64>(0x0101_7b70);
+        let duration = seconds_to_ms(e, e.mem.u32(message + 0x30c));
         if duration <= f64::from(elapsed) {
             e.call(0x0077_56e0, &args![this]);
         }
@@ -2925,9 +2941,8 @@ fn x87_to_int(e: &mut Engine, value: f64) -> i32 {
 
 /// The number of images of a HUD meter: `ftol(width * fraction / scale)` as `UpdateMeter`
 /// (007748b0) and `UpdateMeter_ov2` (00774b00) compute it with FILD width, FMUL float
-/// fraction, FIDIV scale and `00ec62c0`. The product and the quotient each round to the
-/// thread's precision: 24 bits on the main thread once the renderer has created its device
-/// (control word 0x007F), long before any HUD code runs.
+/// fraction, FIDIV scale and `00ec62c0`. The product and the quotient each round with the
+/// running thread's control word.
 fn meter_quotient(e: &mut Engine, width: i32, fraction: f32, scale: i32) -> i32 {
     let product = x87_mul(f64::from(width), f64::from(fraction));
     x87_to_int(e, x87_div(product, f64::from(scale)))
@@ -5809,8 +5824,8 @@ fn quest_popup_start(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         // zero-extended tick, so unsigned), not the signed 00700320.
         e.call(0x0071_5c60, &args![tile, 0x1004_u32, now]);
         let timing_setting = e.call(0x0040_3e20, &args![0x011d_4d14_u32]).u32();
-        let duration = (f64::from(e.mem.f32(timing_setting)) * e.global::<f64>(0x0101_7b70)
-            + f64::from(now)) as f32;
+        // 0077ac49..0077ac57: FMUL double, FADD double, FSTP float.
+        let duration = x87_add(seconds_to_ms(e, e.mem.u32(timing_setting)), f64::from(now)) as f32;
         hud_set_float(e, tile, 0x1005, duration);
         hud_main_menu_set_brightness(e, Ptr::new(tile), 0);
         quest_popup_text(
@@ -5880,9 +5895,14 @@ fn quest_popup_text(
             );
             e.mem.f32(dimensions.addr())
         });
-        let target_x = (f64::from(available_width)
-            - (f64::from(justification_factor) + 1.0) * f64::from(glyph_width))
-            * f64::from(justification_factor);
+        // 0077ae1d..0077ae2f, 0077af09..0077af1b: FILD, FLD float, FLD1, FADDP, FMUL float, FSUBP,
+        // FMUL float, `_ftol2`; each step rounds with the running thread's control word.
+        let factor = justification_factor.to_bits();
+        let scaled = x87_mul(
+            x87_add(x87_load32(factor), 1.0),
+            x87_m32(glyph_width.to_bits()),
+        );
+        let target_x = x87_mul(x87_sub(f64::from(available_width), scaled), x87_m32(factor));
         let mut left = e.call(0x00ec_62c0, &args![target_x]).i32();
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x60);
@@ -5935,17 +5955,22 @@ fn quest_popup_text(
                     width
                 });
                 let pause_setting = e.call(0x0040_3e20, &args![0x011d_2688_u32]).u32();
-                let pause = f64::from(e.mem.f32(pause_setting)) * e.global::<f64>(0x0101_7b70);
+                let pause = seconds_to_ms(e, e.mem.u32(pause_setting));
                 now = now.wrapping_add(fistp_i64_low(pause));
                 e.call(0x0071_5c60, &args![glyph_tile, 0x1004_u32, now]);
                 let duration_setting = e.call(0x0040_3e20, &args![0x011d_4d14_u32]).u32();
-                let end = (f64::from(e.mem.f32(duration_setting)) * e.global::<f64>(0x0101_7b70)
-                    + f64::from(now)) as f32;
+                // 0077b0a5..0077b0b3 and, below, 0077b0fc..0077b10d: FMUL double, FADD double,
+                // then FSTP float and FSTP double.
+                let end = x87_add(
+                    seconds_to_ms(e, e.mem.u32(duration_setting)),
+                    f64::from(now),
+                ) as f32;
                 hud_set_float(e, glyph_tile, 0x1005, end);
                 let duration_setting = e.call(0x0040_3e20, &args![0x011d_4d14_u32]).u32();
-                let reported_end = f64::from(e.mem.f32(duration_setting))
-                    * e.global::<f64>(0x0101_7b70)
-                    + f64::from(now);
+                let reported_end = x87_add(
+                    seconds_to_ms(e, e.mem.u32(duration_setting)),
+                    f64::from(now),
+                );
                 let text = e.call(0x00a0_11f0, &args![glyph_tile, 0xfc4_u32]).u32();
                 e.call(0x0040_fbe0, &args![0x0107_3624_u32, text, reported_end]);
                 hud_main_menu_set_brightness(e, Ptr::new(glyph_tile), 0);
@@ -6937,7 +6962,7 @@ fn hotkey_time(e: &mut Engine) -> u32 {
 fn hotkey_timeout_elapsed(e: &mut Engine, setting_address: u32) -> bool {
     let elapsed = hotkey_time(e).wrapping_sub(e.mem.u32(0x011d_9e8c));
     let setting = e.call(0x0040_3e20, &args![setting_address]).u32();
-    f64::from(e.mem.f32(setting)) * e.global::<f64>(0x0101_7b70) < f64::from(elapsed)
+    seconds_to_ms(e, e.mem.u32(setting)) < f64::from(elapsed)
 }
 
 fn hotkey_pressed(e: &mut Engine, index: i32, mode: u32) -> bool {
@@ -7364,7 +7389,10 @@ pub fn hud_main_menu_show_crippled_guy(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         let player = e.mem.u32(0x011d_ea3c);
         let current = e.vcall(player + 0xa4, 0xc, &args![0x10_u32]).f64();
         let difference = (f64::from(max) - current) as f32;
-        let scaled = f64::from(difference) / f64::from(max) * e.global::<f64>(0x0102_0998);
+        // 0077ebe0..0077ebec: FLD float, FDIV float, FMUL double; both round with the running
+        // thread's control word.
+        let ratio = x87_div(x87_load32(difference.to_bits()), x87_m32(max.to_bits()));
+        let scaled = x87_mul(ratio, e.global::<f64>(0x0102_0998));
         face = x87_to_int(e, scaled).clamp(0, 4);
     }
     e.with_stack(0x104, |e, buffer| {
@@ -10282,7 +10310,7 @@ mod tests {
             .collect()
     }
 
-    /// 007748b0: width 100, fraction 0.7f, image 10 under the main thread's control word
+    /// 007748b0: width 100, fraction 0.7f, image 10 under control word
     /// 0x007F: FMUL float rounds 69.99999881 to 70.0 at 24 bits (00774a5c), so FIDIV and
     /// `00ec62c0` give 7 images, 70 wide (in f64 it would be 6, 60 wide).
     #[test]
@@ -12354,8 +12382,9 @@ mod tests {
         assert_eq!(e.call_log.as_ref().unwrap().len(), 1);
     }
 
-    #[test]
-    fn quest_popup_glyph_uses_uppercase_text_and_staggered_show_time() {
+    /// A HUD with one queued message for `quest_popup_text`: the engine, the menu, the glyph
+    /// tile and the word counting the glyph pool's answers.
+    fn quest_popup_glyph_world() -> (Engine, Ptr<HUDMainMenu>, u32, u32) {
         let mut e = Engine::new();
         for (base, size) in [
             (0x011d_0000, 0x6000),
@@ -12477,6 +12506,12 @@ mod tests {
         e.register_double(0x0063_f7b0, |_, _| Ret::default());
         e.register_double(0x0077_c170, |_, _| Ret::default());
         e.call_log = Some(vec![]);
+        (e, menu, glyph, taken)
+    }
+
+    #[test]
+    fn quest_popup_glyph_uses_uppercase_text_and_staggered_show_time() {
+        let (mut e, menu, glyph, taken) = quest_popup_glyph_world();
         quest_popup_text(&mut e, menu, 100, 0.0, 0, 500);
         assert_eq!(e.mem.u32(taken), 2);
         let calls = e.call_log.as_ref().unwrap();
@@ -12486,6 +12521,182 @@ mod tests {
         assert!(calls.iter().any(|(address, words)| {
             *address == 0x00a0_12d0 && words[0] == glyph && words[1] == 0x1005
         }));
+    }
+
+    /// 0077b028..0077b04e, 0077b0a5..0077b0b3, 0077b0fc..0077b10d under each control word: the
+    /// pause (chopped), the end time as a float and as a double.
+    #[test]
+    fn quest_popup_glyph_times_round_at_the_precision_of_the_running_thread() {
+        let run = |word: u16, pause: f32, duration: f32, now: u32| {
+            let (mut e, menu, glyph, _) = quest_popup_glyph_world();
+            e.mem.set_f32(0x011d_2688, pause);
+            e.mem.set_f32(0x011d_4d14, duration);
+            crate::x87::set_control_word(word);
+            quest_popup_text(&mut e, menu, 100, 0.0, 0, now);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            let calls = e.call_log.take().unwrap();
+            let words = |address: u32, id: u32, at: usize| {
+                calls
+                    .iter()
+                    .find(|(a, w)| *a == address && w[at] == id)
+                    .map(|(_, w)| w.clone())
+                    .unwrap()
+            };
+            let reported = words(0x0040_fbe0, 0x0107_3624, 0);
+            (
+                words(0x0071_5c60, glyph, 0)[2],
+                words(0x00a0_12d0, 0x1005, 1)[2],
+                f64::from_bits(u64::from(reported[2]) | u64::from(reported[3]) << 32),
+            )
+        };
+        let (at_24, at_53) = (0x007f, crate::x87::DEFAULT_CONTROL_WORD);
+        // 0.7f * 1000 is 699.99998 at 53 bits, chopped to 699; 700 at 24 bits.
+        assert_eq!((0.7f32 * 1000.0f32) as u32, 700);
+        assert_eq!((f64::from(0.7f32) * 1000.0) as u32, 699);
+        assert_eq!(run(at_24, 0.7, 1.0, 500).0, 1200);
+        assert_eq!(run(at_53, 0.7, 1.0, 500).0, 1199);
+        // With the pause at 500, the time is 16777217. 1.1f * 1000 is 1100.0000238 at 53 bits,
+        // so the sum is above 16778317, halfway between two floats; at 24 bits the product is
+        // 1100, and the sum lands on 16778317 and rounds to the even one.
+        let now = 16776717_u32;
+        let sum_53 = f64::from(1.1f32) * 1000.0 + 16777217.0;
+        let end_24 = (f64::from(1.1f32 * 1000.0f32) + 16777217.0) as f32;
+        assert_eq!((sum_53 as f32, end_24), (16778318.0, 16778316.0));
+        assert_eq!(
+            run(at_24, 0.5, 1.1, now),
+            (16777217, end_24.to_bits(), f64::from(end_24))
+        );
+        assert_eq!(
+            run(at_53, 0.5, 1.1, now),
+            (16777217, (sum_53 as f32).to_bits(), sum_53)
+        );
+    }
+
+    /// 0077ae1d..0077ae2f: the first glyph's position. (1280 - 1.5 * 133.33334f) * 0.5 stays
+    /// below 540 at 53 bits, chopped to 539; at 24 bits the difference rounds to 1080, so 540.
+    #[test]
+    fn quest_popup_glyph_position_rounds_at_the_precision_of_the_running_thread() {
+        let (j, width) = (0.5f32, 133.33334f32);
+        assert_eq!(((1280.0 - (j + 1.0) * width) * j) as i32, 540);
+        let exact = 1280.0 - (f64::from(j) + 1.0) * f64::from(width);
+        assert_eq!((exact * f64::from(j)) as i32, 539);
+        let left = |word: u16| {
+            let (mut e, menu, glyph, _) = quest_popup_glyph_world();
+            e.register_double(0x00a1_b020, move |e, words| {
+                e.mem.set_f32(words[1], width);
+                e.mem.set_f32(words[1] + 4, 1.0);
+                Ret::default()
+            });
+            crate::x87::set_control_word(word);
+            quest_popup_text(&mut e, menu, 1280, j, 0, 500);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            let calls = e.call_log.take().unwrap();
+            calls
+                .iter()
+                .find(|(a, w)| *a == 0x0070_0320 && w[0] == glyph && w[1] == 0xfa1)
+                .map(|(_, w)| w[2])
+                .unwrap()
+        };
+        assert_eq!(left(0x007f), 540);
+        assert_eq!(left(crate::x87::DEFAULT_CONTROL_WORD), 539);
+    }
+
+    /// Runs `run` under control word `word` with every tile value answering `tile_value`, up to
+    /// the float it stores to trait `stop`, and gives that float.
+    fn hud_layout_float(
+        word: u16,
+        tile_value: f32,
+        stop: u32,
+        run: impl FnOnce(&mut Engine, Ptr<HUDMainMenu>),
+    ) -> f32 {
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x1000);
+        e.map(0x0101_1000, 0x1000);
+        e.map(0x0101_d000, 0x1000);
+        e.mem.set_f64(0x0101_1590, 2.0);
+        e.mem.set_f64(0x0101_db88, 30.0);
+        let menu = e.new_object::<HUDMainMenu>();
+        e.mem.set_u32(0x011d_96c0, menu.addr());
+        for offset in [0x114, 0x118, 0x138] {
+            e.mem.set_u32(menu.addr() + offset, 0x4000);
+        }
+        e.register_double(0x00a0_9030, |_, _| Ret::default());
+        e.register_double(0x00a0_8b20, |_, _| Ret {
+            eax: 0x4000,
+            ..Ret::default()
+        });
+        e.register_double(0x00a0_11b0, move |_, _| Ret {
+            st0: f64::from(tile_value),
+            ..Ret::default()
+        });
+        e.register_double(0x00a0_12d0, move |_, words| {
+            if words[1] == stop {
+                std::panic::panic_any("stop at the float");
+            }
+            Ret::default()
+        });
+        e.register_double(0x0070_0320, |_, _| Ret::default());
+        e.register_double(0x0071_5da0, |_, _| Ret::default());
+        e.register_double(0x0071_5d40, |_, _| Ret {
+            st0: 1000.0,
+            ..Ret::default()
+        });
+        e.register_double(0x0071_77c0, |_, _| Ret::default());
+        e.register_double(0x0071_7820, |_, _| Ret::default());
+        e.register_double(0x00ec_62c0, |_, words| Ret {
+            eax: f64::from_bits(u64::from(words[0]) | u64::from(words[1]) << 32) as i32 as u32,
+            ..Ret::default()
+        });
+        e.call_log = Some(vec![]);
+        crate::x87::set_control_word(word);
+        let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run(&mut e, menu);
+        }));
+        crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+        assert_eq!(
+            stopped.unwrap_err().downcast_ref::<&str>(),
+            Some(&"stop at the float")
+        );
+        let calls = e.call_log.take().unwrap();
+        f32::from_bits(calls.last().unwrap().1[2])
+    }
+
+    /// 0076c1c8..0076c1d4, 007706c7..007706d0, 0076d764..0076d770: integer minus the tile's
+    /// float, then 30.0 added or taken away, under each control word.
+    #[test]
+    fn hud_layout_positions_round_at_the_precision_of_the_running_thread() {
+        let (at_24, at_53) = (0x007f, crate::x87::DEFAULT_CONTROL_WORD);
+        let d = HudDimensions {
+            screen_width: 1000,
+            screen_height: 1040,
+            bracket_width: 0,
+            bracket_height: 0,
+            original_x: 0,
+            total_width: 0,
+            image_width: 0,
+        };
+        // At 24 bits the difference rounds onto a tie of the sum's coarser spacing, which goes
+        // to even; at 53 bits the sum is above that tie and rounds up.
+        let tile = 11.0f32 / 65536.0;
+        let by_24 = 1000.0f32 - tile + 30.0;
+        let by_53 = (1000.0 - f64::from(tile) + 30.0) as f32;
+        assert_ne!(by_24, by_53);
+        let action_points =
+            |word| hud_layout_float(word, tile, 0xfa1, |e, _| create_action_points(e, 0, d));
+        assert_eq!(action_points(at_24), by_24);
+        assert_eq!(action_points(at_53), by_53);
+        let geometry = |word| hud_layout_float(word, tile, 0xfa1, do_idle_geometry);
+        assert_eq!(geometry(at_24), by_24);
+        assert_eq!(geometry(at_53), by_53);
+        // Going down the difference rounds at a coarser spacing than the result has.
+        let tile = 1.0f32 / 16384.0;
+        let by_24 = 1040.0f32 - tile - 30.0;
+        let by_53 = (1040.0 - f64::from(tile) - 30.0) as f32;
+        assert_ne!(by_24, by_53);
+        let subtitles =
+            |word| hud_layout_float(word, tile, 0xfa2, |e, _| create_info_subtitles(e, 0, d));
+        assert_eq!(subtitles(at_24), by_24);
+        assert_eq!(subtitles(at_53), by_53);
     }
 
     #[test]
@@ -12536,10 +12747,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn quest_popup_show_time_uses_unsigned_trait_setter() {
-        // 0077ac19: the popup's show time (trait 0x1004) goes through 00715c60 (FILD
-        // qword of the zero-extended tick), not the signed 00700320.
+    /// A HUD for `quest_popup_start` that stops at the show time: the engine and the menu.
+    fn quest_popup_show_time_world() -> (Engine, Ptr<HUDMainMenu>) {
         let mut e = Engine::new();
         e.map(0x011d_9000, 0x1000);
         e.map(0x0101_5000, 0x1000);
@@ -12592,6 +12801,14 @@ mod tests {
             std::panic::panic_any("stop at show time")
         });
         e.call_log = Some(vec![]);
+        (e, menu)
+    }
+
+    #[test]
+    fn quest_popup_show_time_uses_unsigned_trait_setter() {
+        // 0077ac19: the popup's show time (trait 0x1004) goes through 00715c60 (FILD
+        // qword of the zero-extended tick), not the signed 00700320.
+        let (mut e, menu) = quest_popup_show_time_world();
         let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             quest_popup_start(&mut e, menu);
         }));
@@ -12610,6 +12827,55 @@ mod tests {
         assert!(calls
             .iter()
             .all(|(address, words)| *address != 0x0070_0320 || words[1] != 0x1004));
+    }
+
+    /// 0077ac49..0077ac57: FMUL double, FADD double, FSTP float under each control word. The
+    /// numbers are worked out in `quest_popup_glyph_times_round_at_the_precision_of_the_running_thread`.
+    #[test]
+    fn quest_popup_end_time_rounds_at_the_precision_of_the_running_thread() {
+        let end = |word: u16| {
+            let (mut e, menu) = quest_popup_show_time_world();
+            e.map(0x0101_7000, 0x1000);
+            e.mem.set_f64(0x0101_7b70, 1000.0);
+            let setting = e.mem.alloc(4);
+            e.mem.set_f32(setting, 1.1);
+            e.register_double(0x0040_3e20, move |_, words| {
+                assert_eq!(words, &[0x011d_4d14]);
+                Ret {
+                    eax: setting,
+                    ..Ret::default()
+                }
+            });
+            e.register_double(0x0082_5c00, |_, _| Ret {
+                eax: 16777217,
+                ..Ret::default()
+            });
+            e.register_double(0x0071_5c60, |_, _| Ret::default());
+            e.register_double(0x00a0_12d0, |_, words| {
+                if words[1] == 0x1005 {
+                    std::panic::panic_any("stop at the end time");
+                }
+                Ret::default()
+            });
+            crate::x87::set_control_word(word);
+            let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                quest_popup_start(&mut e, menu);
+            }));
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            assert_eq!(
+                stopped.unwrap_err().downcast_ref::<&str>(),
+                Some(&"stop at the end time")
+            );
+            let calls = e.call_log.take().unwrap();
+            f32::from_bits(calls.last().unwrap().1[2])
+        };
+        assert_eq!(
+            (f64::from(1.1f32 * 1000.0f32) + 16777217.0) as f32,
+            16778316.0
+        );
+        assert_eq!((f64::from(1.1f32) * 1000.0 + 16777217.0) as f32, 16778318.0);
+        assert_eq!(end(0x007f), 16778316.0);
+        assert_eq!(end(crate::x87::DEFAULT_CONTROL_WORD), 16778318.0);
     }
 
     #[test]
@@ -14607,6 +14873,219 @@ mod tests {
         assert!(!fn_0077eac0(&mut e, Ptr::new(0x2000)));
         e.register_double(0x0046_9860, |_, _| Ret::default());
         assert!(fn_0077eac0(&mut e, Ptr::new(0x2000)));
+    }
+
+    /// 0077ebe6..0077ebec: FDIV float, FMUL double, `_ftol2`. (max - current) / max is just
+    /// below 0.2. At 24 bits it rounds to 0.2f and 0.2f * 5 to 1.0, face 1; at 53 bits the
+    /// product stays below 1, face 0.
+    #[test]
+    fn crippled_guy_face_index_rounds_at_the_precision_of_the_running_thread() {
+        let (max, difference) = (67108856.0f32, 13421771.0f32);
+        assert_eq!((difference / max * 5.0f32) as i32, 1);
+        assert_eq!((f64::from(difference) / f64::from(max) * 5.0) as i32, 0);
+        let face = |word: u16| {
+            let mut e = Engine::new();
+            e.map(0x011a_0000, 0x1000);
+            e.map(0x011d_9000, 0x1000);
+            e.map(0x011d_e000, 0x1000);
+            e.map(0x0101_7000, 0x1000);
+            e.map(0x0102_0000, 0x1000);
+            e.mem.set_f64(0x0102_0998, 5.0);
+            let hud = e.new_object::<HUDMainMenu>();
+            let player = e.mem.alloc(0xa8);
+            e.mem.set_u32(0x011d_ea3c, player);
+            let list_slots = [0_u32, 0, 0x0300_9408];
+            e.put_vtable(0x0300_9400, &list_slots);
+            e.mem.set_u32(player + 0x94, 0x0300_9400);
+            let mut value_slots = [0_u32; 9];
+            value_slots[3] = 0x0300_a40c;
+            value_slots[8] = 0x0300_a420;
+            e.put_vtable(0x0300_a400, &value_slots);
+            e.mem.set_u32(player + 0xa4, 0x0300_a400);
+            e.register_double(0x0300_9408, |_, _| Ret::default());
+            e.register_double(0x0300_a420, move |_, _| Ret {
+                st0: f64::from(max),
+                ..Ret::default()
+            });
+            e.register_double(0x0300_a40c, move |_, _| Ret {
+                st0: f64::from(max) - f64::from(difference),
+                ..Ret::default()
+            });
+            e.register_double(0x00ec_62c0, |_, words| Ret {
+                eax: f64::from_bits(u64::from(words[0]) | u64::from(words[1]) << 32) as i32 as u32,
+                ..Ret::default()
+            });
+            for address in [0x0040_6d00, 0x00a0_1350, 0x0070_0320, 0x00a0_7c60] {
+                e.register_double(address, |_, _| Ret::default());
+            }
+            e.call_log = Some(vec![]);
+            crate::x87::set_control_word(word);
+            hud_main_menu_show_crippled_guy(&mut e, hud);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            e.call_log
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|(address, words)| *address == 0x0040_6d00 && words[2] == 0x0107_3868)
+                .map(|(_, words)| words[3])
+        };
+        assert_eq!(face(0x007f), Some(1));
+        assert_eq!(face(crate::x87::DEFAULT_CONTROL_WORD), Some(0));
+    }
+
+    /// A HUD with the globals the message timing reads, its timer answering `now`.
+    fn timing_world(now: u32) -> (Engine, Ptr<HUDMainMenu>) {
+        let mut e = Engine::new();
+        e.map(0x011d_9000, 0x1000);
+        e.map(0x0101_2000, 0x1000);
+        e.map(0x0101_7000, 0x1000);
+        e.mem.set_f64(0x0101_2060, 0.0);
+        e.mem.set_f64(0x0101_7b70, 1000.0);
+        let menu = e.new_object::<HUDMainMenu>();
+        e.mem.set_u32(0x011d_96c0, menu.addr());
+        e.register_double(0x0082_5c00, move |_, _| Ret {
+            eax: now,
+            ..Ret::default()
+        });
+        (e, menu)
+    }
+
+    /// 771277..771283: FMUL double, then the compare with the elapsed time. 1.1f * 1000 is
+    /// 1100.0000238 at 53 bits, not yet up at 1100 ms; exactly 1100 at 24 bits, up.
+    #[test]
+    fn do_idle_quests_compares_the_message_time_at_the_precision_of_the_running_thread() {
+        assert!(f64::from(1.1f32) * 1000.0 > 1100.0);
+        assert_eq!(1.1f32 * 1000.0f32, 1100.0);
+        let left = |word: u16| {
+            let (mut e, menu) = timing_world(1100);
+            e.mem.set_u32(menu.addr() + 0x248, 1);
+            e.mem.set_u32(menu.addr() + 0x1a8, 1);
+            let message = e.mem.alloc(0x110);
+            e.mem.set_f32(message + 0x108, 1.1);
+            let slot = e.mem.alloc(4);
+            e.mem.set_u32(slot, message);
+            let count = std::rc::Rc::new(std::cell::Cell::new(1_u32));
+            let left = count.clone();
+            e.register_double(0x0044_ddc0, move |_, _| Ret {
+                eax: left.get(),
+                ..Ret::default()
+            });
+            e.register_double(0x0076_b610, |_, _| Ret::default());
+            e.register_double(0x0087_7a30, move |_, _| Ret {
+                eax: slot,
+                ..Ret::default()
+            });
+            e.register_double(0x0040_1030, |_, _| Ret::default());
+            let left = count.clone();
+            e.register_double(0x006b_f8f0, move |_, _| {
+                left.set(0);
+                Ret::default()
+            });
+            crate::x87::set_control_word(word);
+            do_idle_quests(&mut e, menu);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            count.get()
+        };
+        assert_eq!(left(0x007f), 0);
+        assert_eq!(left(crate::x87::DEFAULT_CONTROL_WORD), 1);
+    }
+
+    /// 7714d7..7714e3: as above, for the message on screen.
+    #[test]
+    fn do_idle_messages_compares_the_display_time_at_the_precision_of_the_running_thread() {
+        let ended = |word: u16| {
+            let (mut e, menu) = timing_world(1101);
+            e.mem.set_u32(menu.addr() + 0x194, 1);
+            let message = e.mem.alloc(0x310);
+            e.mem.set_f32(message + 0x30c, 1.1);
+            let first = e.mem.alloc(4);
+            e.mem.set_u32(first, message);
+            e.register_double(0x005a_e380, |_, _| Ret {
+                eax: 1,
+                ..Ret::default()
+            });
+            e.register_double(0x00a0_1230, |_, _| Ret {
+                eax: 1,
+                ..Ret::default()
+            });
+            e.register_double(0x00a0_11b0, |_, _| Ret {
+                st0: 1.0,
+                ..Ret::default()
+            });
+            e.register_double(0x00a0_7fc0, |_, _| Ret {
+                eax: 1,
+                ..Ret::default()
+            });
+            e.register_double(0x0068_15c0, move |_, _| Ret {
+                eax: first,
+                ..Ret::default()
+            });
+            e.register_double(0x0077_56e0, |_, _| Ret::default());
+            e.call_log = Some(vec![]);
+            crate::x87::set_control_word(word);
+            do_idle_messages(&mut e, menu);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            e.call_log
+                .as_ref()
+                .unwrap()
+                .iter()
+                .filter(|(address, _)| *address == 0x0077_56e0)
+                .count()
+        };
+        assert_eq!(ended(0x007f), 1);
+        assert_eq!(ended(crate::x87::DEFAULT_CONTROL_WORD), 0);
+    }
+
+    /// 770d0b..770d31: FMUL double, then FISTP chops: 0.7f gives 700 at 24 bits, 699 at 53.
+    #[test]
+    fn target_timeout_rounds_at_the_precision_of_the_running_thread() {
+        assert_eq!((0.7f32 * 1000.0f32) as u32, 700);
+        assert_eq!((f64::from(0.7f32) * 1000.0) as u32, 699);
+        let timeout = |word: u16| {
+            let (mut e, _) = timing_world(0);
+            let setting = e.mem.alloc(4);
+            e.mem.set_f32(setting, 0.7);
+            e.register_double(0x0040_3e20, move |_, words| {
+                assert_eq!(words, &[0x011c_f87c]);
+                Ret {
+                    eax: setting,
+                    ..Ret::default()
+                }
+            });
+            crate::x87::set_control_word(word);
+            let timeout = target_timeout_ms(&mut e);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            timeout
+        };
+        assert_eq!(timeout(0x007f), 700);
+        assert_eq!(timeout(crate::x87::DEFAULT_CONTROL_WORD), 699);
+    }
+
+    /// 0077db85..0077db8d, 0077e1d1..0077e1d9, 0077e394..0077e39c: FMUL double, then the compare
+    /// with the elapsed time. 0.7f * 1000 is below 700 at 53 bits, so 700 ms have passed it; it
+    /// is exactly 700 at 24 bits, and has not been passed.
+    #[test]
+    fn hotkey_timeout_compares_at_the_precision_of_the_running_thread() {
+        assert!(f64::from(0.7f32) * 1000.0 < 700.0);
+        assert_eq!(0.7f32 * 1000.0f32, 700.0);
+        let elapsed = |word: u16| {
+            let (mut e, _) = timing_world(700);
+            let setting = e.mem.alloc(4);
+            e.mem.set_f32(setting, 0.7);
+            e.register_double(0x0040_3e20, move |_, words| {
+                assert_eq!(words, &[0x011d_2d84]);
+                Ret {
+                    eax: setting,
+                    ..Ret::default()
+                }
+            });
+            crate::x87::set_control_word(word);
+            let elapsed = hotkey_timeout_elapsed(&mut e, 0x011d_2d84);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            elapsed
+        };
+        assert!(!elapsed(0x007f));
+        assert!(elapsed(crate::x87::DEFAULT_CONTROL_WORD));
     }
 
     #[test]

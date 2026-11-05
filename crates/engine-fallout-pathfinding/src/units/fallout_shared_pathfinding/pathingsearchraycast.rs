@@ -804,7 +804,12 @@ pub fn fn_006e6e40(e: &mut Engine, this: Ptr<PathingSearchRayCast>, start: Ptr, 
         e.call(POINT_SUBTRACT, &args![end, l(0x38), start]);
         let length = e.call(UNITIZE, &args![l(0x38)]).f32();
         e.mem.set_f32(l(0x2c), length);
-        let steps_value = e.mem.f32(l(0x2c)) as f64 / e.mem.f32(radius_at) as f64;
+        // 006e6e6a: the path code can run at 24 or at 53 bits, so the quotient goes by the
+        // running thread's control word.
+        let steps_value = crate::x87::x87_div(
+            crate::x87::x87_load32(e.mem.u32(l(0x2c))),
+            crate::x87::x87_m32(e.mem.u32(radius_at)),
+        );
         let steps = e.call(FTOL, &args![steps_value]).i32();
         copy_point(e, l(0x10), start.addr());
         let mut i = 0i32;
@@ -1412,6 +1417,31 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert!(calls(&log, PICK_DATA_SET_FROM).is_empty());
         assert_eq!(e.get(path, RayCastPath::eResult), RCP_SUCCESS);
+    }
+
+    /// 006e6e6a: `FDIV float` then `_ftol2`, the quotient rounded at the running thread's
+    /// precision. This quotient is 3 - 1/16777215: 3.0 in 24 bits, below 3 in 53.
+    #[test]
+    fn step_count_rounds_at_the_precision_of_the_running_thread() {
+        let casts = |word: u16| {
+            let mut e = ray_engine();
+            crate::x87::set_control_word(word);
+            let length = 50331644.0f32 / 262144.0;
+            let radius = 16777215.0f32 / 262144.0;
+            e.register_double(UNITIZE, move |_, _| length.into_ret());
+            let this: Ptr<PathingSearchRayCast> = e.new_object();
+            e.set(this, PathingSearchRayCast::fActorRadius, radius);
+            let start = e.mem.alloc(0xc);
+            let end = e.mem.alloc(0xc);
+            e.call_log = Some(vec![]);
+            fn_006e6e40(&mut e, this, Ptr::new(start), Ptr::new(end));
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            let log = e.call_log.take().unwrap();
+            calls(&log, RAY_CAST_STEP).len()
+        };
+        // The steps and the last cast.
+        assert_eq!(casts(0x007f), 4);
+        assert_eq!(casts(crate::x87::DEFAULT_CONTROL_WORD), 3);
     }
 
     #[test]

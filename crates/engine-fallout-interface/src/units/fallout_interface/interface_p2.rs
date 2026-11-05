@@ -2563,7 +2563,9 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
         copy_text(e, value_text, 0x10, DASHES);
     } else {
         let count = e.call(WORD_AT_4, &args![item]).u32() as i32;
-        let product = count as f64 * item_value as f64;
+        // 708f6b..708f77, 708f9d..708fa9: FILD, FMUL float (rounded with the running thread's
+        // control word), FSTP double.
+        let product = x87_mul(count as f64, x87_m32(item_value.to_bits()));
         let format = if (item_value as f64) < e.global::<f64>(ONE) {
             FORMAT_ONE_DECIMAL
         } else {
@@ -2592,7 +2594,8 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
         copy_text(e, weight_text, 0x20, DASHES);
     } else {
         let count = e.call(WORD_AT_4, &args![item]).u32() as i32;
-        let product = count as f64 * weight as f64;
+        // 709061..70906d: as for the value.
+        let product = x87_mul(count as f64, x87_m32(weight.to_bits()));
         e.call(
             FORMAT_TEXT,
             &args![weight_text, 0x20u32, FLOAT_FORMAT, product],
@@ -5750,6 +5753,54 @@ mod tests {
         for cell in 6..10 {
             assert_eq!(s.height(cell), 80.0);
         }
+    }
+
+    /// The double each `sprintf` of the value and the weight got.
+    fn stats_doubles(s: &Stats, format: u32) -> Vec<f64> {
+        logged(&s.e, FORMAT_TEXT)
+            .iter()
+            .filter(|words| words[2] == format)
+            .map(|words| f64::from_bits(u64::from(words[3]) | u64::from(words[4]) << 32))
+            .collect()
+    }
+
+    /// 708f6b..708f77, 708f9d..708fa9, 709061..70906d: FILD count, FMUL float, FSTP double to
+    /// `sprintf`, the product at the running thread's precision.
+    #[test]
+    fn populate_item_stats_display_stack_products_round_at_the_precision_of_the_running_thread() {
+        let (at_24, at_53) = (0x007f, crate::x87::DEFAULT_CONTROL_WORD);
+        let run = |word: u16, count: u32, value: f32, weight: f32| {
+            let mut s = Stats::new(0x30);
+            s.e.mem.set_u32(s.item + 4, count);
+            s.cfg.borrow_mut().item_value = value;
+            s.cfg.borrow_mut().weight = weight;
+            crate::x87::set_control_word(word);
+            s.run();
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            s
+        };
+        // 5 * 0.35f is 1.75 in 24 bits and 1.74999997 in 53, which prints "1.7".
+        let (rounded, exact) = (5.0f32 * 0.35f32, 5.0 * f64::from(0.35f32));
+        assert_eq!(rounded, 1.75);
+        assert!(exact < 1.75);
+        let s = run(at_24, 5, 0.35, 0.35);
+        assert_eq!(s.value(3).as_deref(), Some("1.8"));
+        assert_eq!(stats_doubles(&s, FORMAT_ONE_DECIMAL), vec![1.75]);
+        assert_eq!(stats_doubles(&s, FLOAT_FORMAT), vec![1.75]);
+        let s = run(at_53, 5, 0.35, 0.35);
+        assert_eq!(s.value(3).as_deref(), Some("1.7"));
+        assert_eq!(stats_doubles(&s, FORMAT_ONE_DECIMAL), vec![exact]);
+        assert_eq!(stats_doubles(&s, FLOAT_FORMAT), vec![exact]);
+        // A value of at least 1 takes the other format.
+        let (rounded, exact) = (3.0f32 * 1.1f32, 3.0 * f64::from(1.1f32));
+        assert_ne!(f64::from(rounded), exact);
+        let s = run(at_24, 3, 1.1, 1.5);
+        assert_eq!(
+            stats_doubles(&s, FORMAT_NO_DECIMAL),
+            vec![f64::from(rounded)]
+        );
+        let s = run(at_53, 3, 1.1, 1.5);
+        assert_eq!(stats_doubles(&s, FORMAT_NO_DECIMAL), vec![exact]);
     }
 
     #[test]

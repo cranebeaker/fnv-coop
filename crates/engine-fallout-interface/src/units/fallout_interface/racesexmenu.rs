@@ -21,9 +21,10 @@
 //!   `RaceSexMenu` is 0x180 bytes, the PC one 0x1A4 (the allocation in
 //!   `CreateMenuByClass` pushes `0x1a4`). From `+0xD4` on the PC fields sit 4
 //!   bytes after the PDB's (one extra float at `+0xD0`).
-//! - x87: the game computes in extended precision and stores `float`
-//!   results. The translations compute in `f64` and round to `f32` at each
-//!   `float` store; a `FLD`/`FSTP` copy of a float constant makes a
+//! - x87: the game computes on the x87 stack and stores `float` results. The
+//!   translations compute in `f64` and round to `f32` at each `float` store,
+//!   with the x87 helpers where a run of steps depends on the running thread's
+//!   control word; a `FLD`/`FSTP` copy of a float constant makes a
 //!   signalling NaN quiet (`x87_copy_f32`). Floats pushed as arguments are
 //!   passed as their bit pattern.
 //! - The compiler's exception-unwinding frames (`FS:[0]`) and the security
@@ -817,9 +818,9 @@ const SLIDER_TEMPLATE: u32 = 0x0107_5b68;
 const TOP_BOUND_TRAIT_NAME: u32 = 0x0107_5b84;
 /// a float (2.0 in the exe): the trait value of the highlighted option.
 const HIGHLIGHT_VALUE: u32 = 0x0101_62c0;
-/// a double (5.55 in the exe): the scale of the preset slider value.
+/// a double (5.55f widened, in the exe): the scale of the preset slider value.
 const SHAPE_SCALE_DOUBLE: u32 = 0x0107_5ba0;
-/// a double (5.6 in the exe): the offset of the preset slider value.
+/// a double (9.45f widened, in the exe): the offset of the preset slider value.
 const SHAPE_OFFSET_DOUBLE: u32 = 0x0107_5b98;
 /// a double (15.0 in the exe): the lower bound of the two face values.
 const LOWER_BOUND_DOUBLE: u32 = 0x0101_5a38;
@@ -2115,7 +2116,10 @@ pub fn race_sex_menu_do_still_down(e: &mut Engine, this: Ptr<RaceSexMenu>, butto
             let scale = (delta as f64 / width as f64) as f32;
             let span = max.wrapping_sub(min);
             let start = e.mem.i32(base + 0xbc);
-            let target = (start as f64 + span as f64 * scale as f64) as f32;
+            // 7ae314..7ae32b: FILD, FILD, FMUL float, FADDP, FSTP float; here and below each
+            // step rounds with the running thread's control word.
+            let product = x87_mul(span as f64, x87_m32(scale.to_bits()));
+            let target = x87_add(start as f64, product) as f32;
             let rounded = e.call(ROUND_TO_STEP, &args![target, 1.0f32]).f32();
             let value = e.call(FTOL, &args![rounded as f64]).i32();
             if menu_option_set_value(e, Ptr::new(option), value) {
@@ -2135,7 +2139,9 @@ pub fn race_sex_menu_do_still_down(e: &mut Engine, this: Ptr<RaceSexMenu>, butto
             e.set_global(ROTATE_WIDTH, width);
         }
         let width: f32 = e.global(ROTATE_WIDTH);
-        let angle = ((delta as f64 / width as f64) * e.global::<f64>(TWO_PI_DOUBLE)) as f32;
+        // 7ae3c0..7ae3cf: FLD float, FDIV float, FMUL double, FSTP float.
+        let ratio = x87_div(x87_load32(delta.to_bits()), x87_m32(width.to_bits()));
+        let angle = x87_mul(ratio, e.global::<f64>(TWO_PI_DOUBLE)) as f32;
         let moved = race_sex_menu_rotate_player(e, this, angle, 0);
         race_sex_menu_set_flag(e, this, 5, moved != 0);
         let interface = e.call(INTERFACE_SINGLETON, &args![]).u32();
@@ -2221,13 +2227,17 @@ pub fn race_sex_menu_do_idle(e: &mut Engine, this: Ptr<RaceSexMenu>) {
             let denominator = limit.wrapping_sub(0x21f1);
             let reduced = e.call(AXIS_REDUCE, &args![zoom_size, limit as u32]).i32();
             let numerator = denominator.wrapping_sub(limit.wrapping_sub(reduced));
-            let rate = numerator as f64 * e.global::<f64>(ZOOM_RATE_DOUBLE) / denominator as f64;
-            let velocity = e.mem.f32(base + 0xcc);
-            e.mem
-                .set_f32(base + 0xcc, (rate * elapsed_ms + velocity as f64) as f32);
+            // 7ae5c2..7ae5f2: FILD, FMUL double, FIDIV, FILD qword (the elapsed time, exact),
+            // FMULP, FADD float, FSTP float.
+            let product = x87_mul(numerator as f64, e.global::<f64>(ZOOM_RATE_DOUBLE));
+            let rate = x87_div(product, denominator as f64);
+            let velocity = x87_m32(e.mem.u32(base + 0xcc));
+            let velocity = x87_add(x87_mul(rate, elapsed_ms), velocity) as f32;
+            e.mem.set_f32(base + 0xcc, velocity);
             let direction: i32 = if zoom as f64 > zero { -1 } else { 1 };
-            let velocity = e.mem.f32(base + 0xcc);
-            let step = (direction as f64 * velocity as f64 * elapsed_ms) as f32;
+            // 7ae61a..7ae63e: FILD, FMUL float, FILD qword, FMULP, FSTP float.
+            let velocity = x87_m32(e.mem.u32(base + 0xcc));
+            let step = x87_mul(x87_mul(direction as f64, velocity), elapsed_ms) as f32;
             let moved = race_sex_menu_zoom_player(e, this, step, 0);
             race_sex_menu_set_flag(e, this, 6, moved != 0);
         } else {
@@ -2240,8 +2250,16 @@ pub fn race_sex_menu_do_idle(e: &mut Engine, this: Ptr<RaceSexMenu>) {
                     let denominator = negative_limit.wrapping_add(0x21f1);
                     (turn.wrapping_neg().wrapping_sub(0x21f1) as f64 / denominator as f64) as f32
                 };
-                let angle = (ratio as f64 * e.global::<f64>(ROTATE_RATE_DOUBLE) * elapsed_ms
-                    / e.global::<f64>(MILLISECONDS_DOUBLE)) as f32;
+                // 7ae6d5..7ae6fc: FLD float, FMUL double, FILD qword, FMULP, FDIV double, FSTP
+                // float.
+                let rotated = x87_mul(
+                    x87_load32(ratio.to_bits()),
+                    e.global::<f64>(ROTATE_RATE_DOUBLE),
+                );
+                let angle = x87_div(
+                    x87_mul(rotated, elapsed_ms),
+                    e.global::<f64>(MILLISECONDS_DOUBLE),
+                ) as f32;
                 let moved = race_sex_menu_rotate_player(e, this, angle, 0);
                 race_sex_menu_set_flag(e, this, 5, moved != 0);
             }
@@ -2286,24 +2304,24 @@ pub fn race_sex_menu_do_idle(e: &mut Engine, this: Ptr<RaceSexMenu>) {
         let target = e.mem.f32(base + 0xc8);
         let rest = e.mem.f32(base + 0xd0);
         if target > rest {
-            let velocity = e.mem.f32(base + 0xcc);
-            e.mem.set_f32(
-                base + 0xcc,
-                (elapsed_ms * e.global::<f64>(ZOOM_RATE_DOUBLE) + velocity as f64) as f32,
-            );
-            let mut step = (elapsed_ms * e.mem.f32(base + 0xcc) as f64) as f32;
+            // 7ae9a1..7ae9b9: FILD qword (the elapsed time, exact), FMUL double, FADD float,
+            // FSTP float; 7ae9d8..7ae9e7: FILD qword, FMUL float, FSTP float.
+            let velocity = x87_m32(e.mem.u32(base + 0xcc));
+            let moved = x87_mul(elapsed_ms, e.global::<f64>(ZOOM_RATE_DOUBLE));
+            e.mem.set_f32(base + 0xcc, x87_add(moved, velocity) as f32);
+            let mut step = x87_mul(elapsed_ms, x87_m32(e.mem.u32(base + 0xcc))) as f32;
             if (target as f64) < rest as f64 + step as f64 {
                 step = (target as f64 - rest as f64) as f32;
             }
             let moved = race_sex_menu_zoom_player(e, this, step, 0);
             race_sex_menu_set_flag(e, this, 6, moved != 0);
         } else if (target as f64) < rest as f64 {
-            let velocity = e.mem.f32(base + 0xcc);
-            e.mem.set_f32(
-                base + 0xcc,
-                (velocity as f64 - elapsed_ms * e.global::<f64>(ZOOM_RATE_DOUBLE)) as f32,
-            );
-            let mut step = (elapsed_ms * e.mem.f32(base + 0xcc) as f64) as f32;
+            // 7aea79..7aea91: FILD qword, FMUL double, FSUBR float, FSTP float; 7aeab0..7aeabf:
+            // FILD qword, FMUL float, FSTP float.
+            let velocity = x87_m32(e.mem.u32(base + 0xcc));
+            let moved = x87_mul(elapsed_ms, e.global::<f64>(ZOOM_RATE_DOUBLE));
+            e.mem.set_f32(base + 0xcc, x87_sub(velocity, moved) as f32);
+            let mut step = x87_mul(elapsed_ms, x87_m32(e.mem.u32(base + 0xcc))) as f32;
             if target as f64 > rest as f64 + step as f64 {
                 step = (target as f64 - rest as f64) as f32;
             }
@@ -3278,9 +3296,12 @@ fn add_face_slider(
     let value = e.call(FLOAT_MAX, &args![capped, lower]).f32();
     let step = x87_copy_f32(e, SLIDER_STEP_QUARTER);
     let ten: f64 = e.global(TENTH_DIVISOR);
-    let value_scaled = e.call(FTOL, &args![value as f64 * ten]).i32();
-    let upper_scaled = e.call(FTOL, &args![upper as f64 * ten]).i32();
-    let lower_scaled = e.call(FTOL, &args![lower as f64 * ten]).i32();
+    // 7b0bf3..7b0c37: FLD float, FMUL double (rounded with the running thread's control word),
+    // then `_ftol2`.
+    let scaled = |value: f32| x87_mul(x87_load32(value.to_bits()), ten);
+    let value_scaled = e.call(FTOL, &args![scaled(value)]).i32();
+    let upper_scaled = e.call(FTOL, &args![scaled(upper)]).i32();
+    let lower_scaled = e.call(FTOL, &args![scaled(lower)]).i32();
     let text = e.mem.u32(entry + 4);
     let list_index = e.mem.u32(entry);
     let list = e.mem.u32(this.addr() + 0x28 + 4 * list_index);
@@ -3319,7 +3340,7 @@ fn add_face_slider(
 ///
 /// The game keeps the table and the coordinate array in one stack frame; the
 /// array lies over the slots 55 to 62, so `frame` mirrors that layout. The
-/// scaling by 10 multiplies in `f64` where the x87 uses extended precision.
+/// scaling by 10 rounds with the running thread's control word.
 /// The compiler's exception-unwinding frame is not translated.
 // Translation incomplete: 007afaf0 - the C++ exception-unwinding frame (FS:[0]) that destroys the coordinate array is not translated
 pub fn race_sex_menu_add_face_sliders(e: &mut Engine, this: Ptr<RaceSexMenu>) {
@@ -3468,7 +3489,9 @@ pub fn fn_007b16d0(
                     .call(FACE_SHAPE_VALUE, &args![coords, selector, 0u32, shape])
                     .f32();
                 let ten: f64 = e.global(TENTH_DIVISOR);
-                let value = e.call(FTOL, &args![value as f64 * ten]).i32();
+                // 7b181a: FMUL double, then `_ftol2`, as in `add_face_slider`.
+                let scaled = x87_mul(f64::from(value), ten);
+                let value = e.call(FTOL, &args![scaled]).i32();
                 let (min, max) = {
                     let range = frame.addr() + 0xc;
                     fn_007b3840(e, Ptr::new(option), range, range + 4);
@@ -3634,11 +3657,17 @@ pub fn race_sex_menu_zoom_player(
     }
     let player: u32 = e.global(PLAYER);
     let height = e.call(ACTOR_GET_HEIGHT, &args![player]).f32();
-    let bound = |e: &Engine, offset: u32| e.mem.f32(base + offset) as f64;
-    let zoom = e.mem.f32(base + 0xd0) as f64;
-    let z = (((bound(e, 0xb4) - bound(e, 0xa8)) * zoom + bound(e, 0xa8)) * height as f64) as f32;
-    let y = ((bound(e, 0xb0) - bound(e, 0xa4)) * zoom + bound(e, 0xa4)) as f32;
-    let x = ((bound(e, 0xac) - bound(e, 0xa0)) * zoom + bound(e, 0xa0)) as f32;
+    // 7b1be5..7b1c08, 7b1c15..7b1c36, 7b1c43..7b1c64: FLD float, FSUB float, FMUL float, FADD
+    // float, for z FMULP by the height, then FSTP float; each step rounds with the running
+    // thread's control word.
+    let place = |e: &Engine, high: u32, low: u32| {
+        let low = x87_m32(e.mem.u32(base + low));
+        let range = x87_sub(x87_load32(e.mem.u32(base + high)), low);
+        x87_add(x87_mul(range, x87_m32(e.mem.u32(base + 0xd0))), low)
+    };
+    let z = x87_mul(f64::from(height), place(e, 0xb4, 0xa8)) as f32;
+    let y = place(e, 0xb0, 0xa4) as f32;
+    let x = place(e, 0xac, 0xa0) as f32;
     let node = e.call(STRING_C_STR, &args![base + 0xd4]).u32();
     e.call(SET_TRANSLATE, &args![node, x, y, z]);
     fn_007b1ae0(e, this);
@@ -5330,7 +5359,10 @@ fn slider_release_face_value(e: &mut Engine, base: u32, shape: i32) {
         e.call(GET_FACE_COORD, &args![player_base, base + 0x124]);
         let first = e.call(FACE_COORD_GET, &args![current, 0u32, 0u32]).f32();
         let second = e.call(FACE_COORD_GET, &args![current, 0u32, 1u32]).f32();
-        let other = (second as f64 - (first as f64 - shape as f64)) as f32;
+        // 7b4ed2..7b4ee1: FILD, FSUBR float, FSUBR float, FSTP float; each FSUBR rounds with the
+        // running thread's control word.
+        let inner = x87_sub(x87_m32(first.to_bits()), shape as f64);
+        let other = x87_sub(x87_m32(second.to_bits()), inner) as f32;
         let limited = limit_face_value(e, shape as f64, shape as f32);
         let shape = e.call(FTOL, &args![limited as f64]).i32();
         let other = limit_face_value(e, other as f64, other);
@@ -5378,7 +5410,7 @@ fn slider_release_face_value(e: &mut Engine, base: u32, shape: i32) {
 ///   flags 8 and 9, sets the hair colour sliders, resets the colour option
 ///   (`0x1d` of the list at `+0x40`: caption from the setting `011d3528`,
 ///   value its minimum) and sets flag 0;
-/// - id `0x1a`: turns the value into a face value (`value * 5.55 + 5.6`,
+/// - id `0x1a`: turns the value into a face value (`value * 5.55 + 9.45`,
 ///   the doubles at `01075ba0` / `01075b98`, `_ftol`), reads the face
 ///   coordinates, keeps the difference between coordinates `[0][0]` and
 ///   `[0][1]`, limits both to the bounds (15 to 65 in the exe), writes
@@ -5449,7 +5481,10 @@ pub fn race_sex_menu_slider_release(e: &mut Engine, this: Ptr<RaceSexMenu>) {
         let value = menu_option_get_value(e, Ptr::new(option));
         let scale: f64 = e.global(SHAPE_SCALE_DOUBLE);
         let offset: f64 = e.global(SHAPE_OFFSET_DOUBLE);
-        let shape = e.call(FTOL, &args![value as f64 * scale + offset]).i32();
+        // 7b4e05..7b4e14: FILD, FMUL double, FADD double, `_ftol2`; each step rounds with the
+        // running thread's control word.
+        let shaped = x87_add(x87_mul(value as f64, scale), offset);
+        let shape = e.call(FTOL, &args![shaped]).i32();
         slider_release_face_value(e, base, shape);
     } else {
         return;
@@ -7071,6 +7106,71 @@ mod tests {
         assert_eq!(e.mem.f32(menu.addr() + 0xb8), 15.0);
     }
 
+    /// 7ae314..7ae32b: FMUL float, then FADDP, under each control word: 1 + 10 * (3 / 50) is
+    /// 1.5999999 at 24 bits and 1.6 at 53.
+    #[test]
+    fn still_down_rounds_the_slider_target_at_the_precision_of_the_running_thread() {
+        let scale = 3.0f32 / 50.0;
+        let by_24 = 1.0f32 + 10.0 * scale;
+        let by_53 = (1.0 + 10.0 * f64::from(scale)) as f32;
+        assert_eq!(by_24, 1.5999999);
+        assert_eq!(by_53, 1.6);
+        let target = |control: u16| {
+            let (mut e, menu) = world();
+            let slider = make_option(&mut e, 0x66, 0x22, 0);
+            option_for_every_tile(&mut e, slider);
+            let tile = tile_of(&e, menu, 1);
+            e.mem.set_u32(tile + 0x28, 0x1234);
+            e.register(POINTER_X, |_, _| float(15.0));
+            e.mem.set_f32(menu.addr() + 0xb8, 12.0);
+            e.mem.set_i32(menu.addr() + 0xbc, 1);
+            e.register(TILE_GET_CHILD_BY_ID, |_, _| word(0x4321));
+            e.register(GET_FLOAT_TRAIT, |_, a| {
+                float(match (a[0], a[1]) {
+                    (0x4321, 0xfb1) => 50.0,
+                    (_, 0x1006) => 0.0,
+                    (_, 0x1007) => 10.0,
+                    (_, 0x1005) => 2.0,
+                    _ => 0.0,
+                })
+            });
+            e.register(ROUND_TO_STEP, |_, a| float(f32::from_bits(a[0]) as f64));
+            let value_block = e.mem.alloc(0x10);
+            e.register_double(TILE_GET_VALUE, move |_, _| word(value_block));
+            crate::x87::set_control_word(control);
+            e.call(0x007a_e240, &args![menu, 0x69i32, tile]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            calls(&e, ROUND_TO_STEP)[0][0]
+        };
+        assert_eq!(target(0x007f), by_24.to_bits());
+        assert_eq!(target(crate::x87::DEFAULT_CONTROL_WORD), by_53.to_bits());
+    }
+
+    /// 7ae3c0..7ae3c9: FDIV float, then FMUL double, under each control word. The pointer moves
+    /// left so the angle goes on unwrapped.
+    #[test]
+    fn still_down_rounds_the_rotation_at_the_precision_of_the_running_thread() {
+        let two_pi = f64::from_bits(0x4019_21fb_6000_0000);
+        let by_24 = 9.0f32 / 100.0 * two_pi as f32;
+        let by_53 = (9.0f64 / 100.0 * two_pi) as f32;
+        assert_ne!(by_24, by_53);
+        let angle = |control: u16| {
+            let (mut e, menu) = world();
+            e.set_global(TWO_PI_DOUBLE, two_pi);
+            e.register(POINTER_X, |_, _| float(5.0));
+            e.mem.set_f32(menu.addr() + 0xb8, 14.0);
+            let node = e.mem.alloc(0x20);
+            e.mem.set_u32(menu.addr() + 0xd4, node);
+            e.register(GET_FLOAT_TRAIT, |_, _| float(100.0));
+            crate::x87::set_control_word(control);
+            e.call(0x007a_e240, &args![menu, 1i32, 0u32]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            calls(&e, MATRIX_SET_ROTATION)[0][1]
+        };
+        assert_eq!(angle(0x007f), by_24.to_bits());
+        assert_eq!(angle(crate::x87::DEFAULT_CONTROL_WORD), by_53.to_bits());
+    }
+
     /// The values `DoIdle` reads from the exe's data: the zoom rate (1e-5),
     /// the stick factors and the time of the last call.
     fn idle_world(now: u32, last: u32) -> (Engine, Ptr<RaceSexMenu>) {
@@ -7194,6 +7294,169 @@ mod tests {
         // Turning does not keep the zoom velocity.
         assert_eq!(e.mem.f32(menu.addr() + 0xcc), 0.0);
         assert!(calls(&e, SOUND_HANDLE_PLAY).contains(&vec![menu.addr() + 0x114, 0]));
+    }
+
+    /// The zoom and turn rates of the exe (01075af8, 01075af0).
+    fn real_rates(e: &mut Engine) -> (f64, f64) {
+        let zoom = f64::from_bits(0x3eca_36e2_e000_0000);
+        let rotate = f64::from_bits(0x4004_1b2f_8000_0000);
+        e.set_global(ZOOM_RATE_DOUBLE, zoom);
+        e.set_global(ROTATE_RATE_DOUBLE, rotate);
+        (zoom, rotate)
+    }
+
+    /// 7ae5c2..7ae5f2, 7ae61a..7ae63e under each control word: the stick's zoom velocity and
+    /// step, one operation per exe step.
+    #[test]
+    fn idle_stick_zoom_rounds_at_the_precision_of_the_running_thread() {
+        let zoom = f64::from_bits(0x3eca_36e2_e000_0000);
+        // Past the dead zone by 311 of 24078, over 100 ms.
+        let velocity_24 = 311.0f32 * zoom as f32 / 24078.0 * 100.0;
+        let step_24 = velocity_24 * 100.0;
+        let velocity_53 = (311.0 * zoom / 24078.0 * 100.0) as f32;
+        let step_53 = (f64::from(velocity_53) * 100.0) as f32;
+        assert_ne!(velocity_24, velocity_53);
+        assert_ne!(step_24, step_53);
+        let zoomed = |control: u16| {
+            let (mut e, menu) = idle_world(1000, 900);
+            real_rates(&mut e);
+            e.register(GAMEPAD_IN_USE, |_, _| word(1));
+            e.register(AXIS_VALUE, |_, a| {
+                word(if a[2] == 10 { (-9000i32) as u32 } else { 0 })
+            });
+            e.register(ABSOLUTE_VALUE, |_, a| word((a[0] as i32).unsigned_abs()));
+            e.register(AXIS_REDUCE, |_, a| word(a[0]));
+            crate::x87::set_control_word(control);
+            e.call(0x007a_e420, &args![menu]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            (e.mem.f32(menu.addr() + 0xcc), e.mem.f32(menu.addr() + 0xd0))
+        };
+        assert_eq!(zoomed(0x007f), (velocity_24, step_24));
+        assert_eq!(
+            zoomed(crate::x87::DEFAULT_CONTROL_WORD),
+            (velocity_53, step_53)
+        );
+    }
+
+    /// 7ae6d5..7ae6fc under each control word: each step of the stick's turn angle. The ratio
+    /// is a single FIDIV of small integers, the same at both.
+    #[test]
+    fn idle_stick_turn_rounds_at_the_precision_of_the_running_thread() {
+        let mut differs = false;
+        for turn in (9000..32000i32).step_by(500) {
+            for elapsed in [17u32, 33, 100] {
+                let rotate = f64::from_bits(0x4004_1b2f_8000_0000);
+                let ratio = (turn - 0x21f1) as f32 / -24079.0;
+                let by_24 = ratio * rotate as f32 * elapsed as f32 / 1000.0;
+                let by_53 = (f64::from(ratio) * rotate * f64::from(elapsed) / 1000.0) as f32;
+                differs |= by_24 != by_53;
+                let angle = |control: u16| {
+                    let (mut e, menu) = idle_world(1000, 1000 - elapsed);
+                    real_rates(&mut e);
+                    e.register(GAMEPAD_IN_USE, |_, _| word(1));
+                    e.register_double(AXIS_VALUE, move |_, a| {
+                        word(if a[2] == 9 {
+                            turn.wrapping_neg() as u32
+                        } else {
+                            0
+                        })
+                    });
+                    e.register(ABSOLUTE_VALUE, |_, a| word((a[0] as i32).unsigned_abs()));
+                    let node = e.mem.alloc(0x20);
+                    e.mem.set_u32(menu.addr() + 0xd4, node);
+                    crate::x87::set_control_word(control);
+                    e.call(0x007a_e420, &args![menu]);
+                    crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+                    calls(&e, MATRIX_SET_ROTATION)[0][1]
+                };
+                // A negative angle goes on unwrapped.
+                assert_eq!(angle(0x007f), (-by_24).to_bits(), "{turn} over {elapsed}");
+                assert_eq!(
+                    angle(crate::x87::DEFAULT_CONTROL_WORD),
+                    (-by_53).to_bits(),
+                    "{turn} over {elapsed}"
+                );
+            }
+        }
+        assert!(differs);
+    }
+
+    /// 7ae9a1..7ae9b9: FMUL double, then FADD float, under each control word.
+    #[test]
+    fn idle_ease_up_rounds_the_velocity_at_the_precision_of_the_running_thread() {
+        let zoom = f64::from_bits(0x3eca_36e2_e000_0000);
+        let start = 0.00001f32;
+        let by_24 = 33.0f32 * zoom as f32 + start;
+        let by_53 = (33.0 * zoom + f64::from(start)) as f32;
+        assert_ne!(by_24, by_53);
+        let velocity = |control: u16| {
+            let (mut e, menu) = idle_world(1000, 967);
+            real_rates(&mut e);
+            e.mem.set_f32(menu.addr() + 0xcc, start);
+            e.mem.set_f32(menu.addr() + 0xc8, 1.0);
+            crate::x87::set_control_word(control);
+            e.call(0x007a_e420, &args![menu]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            e.mem.f32(menu.addr() + 0xcc)
+        };
+        assert_eq!(velocity(0x007f), by_24);
+        assert_eq!(velocity(crate::x87::DEFAULT_CONTROL_WORD), by_53);
+    }
+
+    /// 7ae9a1: the elapsed time goes in by FILD qword, an exact integer, also when a float could
+    /// not hold it: 16777217 ms is not the float 16777216. The product and the sum are worked
+    /// out at each precision (the `f64` product of the 25-bit time and the float rate is exact).
+    #[test]
+    fn idle_ease_multiplies_by_the_exact_elapsed_time() {
+        let zoom = f64::from_bits(0x3eca_36e2_e000_0000);
+        let (mut differs, mut exact_matters) = (false, false);
+        for tenth in 0..50 {
+            let start = tenth as f32 * 0.1;
+            let by_24 = (16777217.0 * zoom) as f32 + start;
+            let by_53 = (16777217.0 * zoom + f64::from(start)) as f32;
+            differs |= by_24 != by_53;
+            exact_matters |= by_24 != 16777216.0f32 * zoom as f32 + start;
+            let velocity = |control: u16| {
+                let (mut e, menu) = idle_world(16777218, 1);
+                real_rates(&mut e);
+                e.mem.set_f32(menu.addr() + 0xcc, start);
+                e.mem.set_f32(menu.addr() + 0xc8, 1.0);
+                crate::x87::set_control_word(control);
+                e.call(0x007a_e420, &args![menu]);
+                crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+                e.mem.f32(menu.addr() + 0xcc)
+            };
+            assert_eq!(velocity(0x007f), by_24, "from {start}");
+            assert_eq!(
+                velocity(crate::x87::DEFAULT_CONTROL_WORD),
+                by_53,
+                "from {start}"
+            );
+        }
+        assert!(differs);
+        assert!(exact_matters);
+    }
+
+    /// 7aea79..7aea91: FMUL double, then FSUBR float, under each control word.
+    #[test]
+    fn idle_ease_down_rounds_the_velocity_at_the_precision_of_the_running_thread() {
+        let zoom = f64::from_bits(0x3eca_36e2_e000_0000);
+        let start = 3.0f32 * 0.00001;
+        let by_24 = start - 17.0f32 * zoom as f32;
+        let by_53 = (f64::from(start) - 17.0 * zoom) as f32;
+        assert_ne!(by_24, by_53);
+        let velocity = |control: u16| {
+            let (mut e, menu) = idle_world(1000, 983);
+            real_rates(&mut e);
+            e.mem.set_f32(menu.addr() + 0xcc, start);
+            e.mem.set_f32(menu.addr() + 0xd0, 0.5);
+            crate::x87::set_control_word(control);
+            e.call(0x007a_e420, &args![menu]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            e.mem.f32(menu.addr() + 0xcc)
+        };
+        assert_eq!(velocity(0x007f), by_24);
+        assert_eq!(velocity(crate::x87::DEFAULT_CONTROL_WORD), by_53);
     }
 
     #[test]
@@ -7780,6 +8043,56 @@ mod tests {
         assert_eq!(calls(&e, FACE_FILL_COORDS).len(), 1);
     }
 
+    /// 7b0bf3..7b0c37: FLD float, FMUL double, then `_ftol2`: 0.7f * 10 is 7 at 24 bits and
+    /// 6.9999999 at 53, chopped to 6.
+    #[test]
+    fn face_sliders_scale_at_the_precision_of_the_running_thread() {
+        assert_eq!((0.7f32 * 10.0f32) as i32, 7);
+        assert_eq!((f64::from(0.7f32) * 10.0) as i32, 6);
+        let sliders = |control: u16| {
+            let (mut e, menu) = world();
+            e.set_global(TENTH_DIVISOR, 10.0f64);
+            e.set_global(SLIDER_STEP_QUARTER, 0.25f32);
+            e.register(SHAPE_COUNT, |_, _| word(2));
+            e.register(FACE_SHAPE_VALUE, |_, _| float(0.7f32 as f64));
+            e.register(FLOAT_SETTING_GETTER, |_, a| {
+                float(if a[0] == 0x011d_a6a4 {
+                    -0.7f32 as f64
+                } else {
+                    0.7f32 as f64
+                })
+            });
+            crate::x87::set_control_word(control);
+            e.call(0x007a_faf0, &args![menu]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            calls(&e, OPTION_LIST_ADD_SLIDER)[0][3..6].to_vec()
+        };
+        assert_eq!(sliders(0x007f), [(-7i32) as u32, 7, 7]);
+        assert_eq!(
+            sliders(crate::x87::DEFAULT_CONTROL_WORD),
+            [(-6i32) as u32, 6, 6]
+        );
+    }
+
+    /// 7b181a..7b1820: as above, for the refresh.
+    #[test]
+    fn face_slider_refresh_scales_at_the_precision_of_the_running_thread() {
+        let refreshed = |control: u16| {
+            let (mut e, menu) = world();
+            shape_option(&mut e, menu, 10, 0x22);
+            e.register(FACE_SHAPE_VALUE, |_, _| float(0.7f32 as f64));
+            crate::x87::set_control_word(control);
+            e.call(0x007b_16d0, &args![menu, 10i32, 11i32, 0u32]);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            calls(&e, SET_TRAIT_FROM_INT)
+        };
+        assert_eq!(refreshed(0x007f), vec![vec![0x55, 0x1005, 7]]);
+        assert_eq!(
+            refreshed(crate::x87::DEFAULT_CONTROL_WORD),
+            vec![vec![0x55, 0x1005, 6]]
+        );
+    }
+
     #[test]
     fn face_sliders_skip_entries_without_a_list_or_caption() {
         let (mut e, menu) = world();
@@ -7973,6 +8286,56 @@ mod tests {
             calls(&e, RENDERED_MENU_SET_SCALE),
             vec![vec![0xcc, 1.0f32.to_bits()]]
         );
+    }
+
+    /// 7b1be5..7b1c08, 7b1c15..7b1c36, 7b1c43..7b1c64 under each control word, worked out one
+    /// operation per exe step: in `f32` for 24 bits, in `f64` with a cast at the FSTP for 53.
+    #[test]
+    fn zoom_player_places_the_node_at_the_precision_of_the_running_thread() {
+        let (lows, highs, height) = ([0.1f32, 0.7, 1.3], [10.7f32, 20.9, 3.3], 1.7f32);
+        let place_24 = |high: f32, low: f32, zoom: f32| (high - low) * zoom + low;
+        let place_53 = |high: f32, low: f32, zoom: f32| {
+            let (high, low) = (f64::from(high), f64::from(low));
+            (high - low) * f64::from(zoom) + low
+        };
+        let mut differs = [false; 3];
+        for tenth in 1..30 {
+            let zoom = tenth as f32 * 0.0313;
+            let by_24 = [
+                place_24(highs[0], lows[0], zoom),
+                place_24(highs[1], lows[1], zoom),
+                place_24(highs[2], lows[2], zoom) * height,
+            ];
+            let by_53 = [
+                place_53(highs[0], lows[0], zoom) as f32,
+                place_53(highs[1], lows[1], zoom) as f32,
+                (place_53(highs[2], lows[2], zoom) * f64::from(height)) as f32,
+            ];
+            for (differ, (a, b)) in differs.iter_mut().zip(by_24.iter().zip(&by_53)) {
+                *differ |= a != b;
+            }
+            let run = |control: u16| {
+                let (mut e, menu) = world();
+                let node = e.mem.alloc(0x20);
+                e.mem.set_u32(menu.addr() + 0xd4, node);
+                for (i, offset) in [0xa0u32, 0xa4, 0xa8].into_iter().enumerate() {
+                    e.mem.set_f32(menu.addr() + offset, lows[i]);
+                    e.mem.set_f32(menu.addr() + offset + 0xc, highs[i]);
+                }
+                e.register_double(ACTOR_GET_HEIGHT, move |_, _| float(f64::from(height)));
+                crate::x87::set_control_word(control);
+                e.call(0x007b_1b60, &args![menu, zoom, 0u32]);
+                crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+                calls(&e, SET_TRANSLATE)[0][1..4].to_vec()
+            };
+            assert_eq!(run(0x007f), by_24.map(f32::to_bits), "zoom {zoom}");
+            assert_eq!(
+                run(crate::x87::DEFAULT_CONTROL_WORD),
+                by_53.map(f32::to_bits),
+                "zoom {zoom}"
+            );
+        }
+        assert_eq!(differs, [true; 3]);
     }
 
     #[test]
@@ -9433,8 +9796,8 @@ mod tests {
     /// coordinates `[0][0]` and `[0][1]` read 30 and 40.
     fn face_value_world(value: f32) -> (Engine, Ptr<RaceSexMenu>) {
         let (mut e, menu) = world();
-        e.set_global(SHAPE_SCALE_DOUBLE, 5.55f64);
-        e.set_global(SHAPE_OFFSET_DOUBLE, 5.6f64);
+        e.set_global(SHAPE_SCALE_DOUBLE, f64::from_bits(0x4016_3333_4000_0000));
+        e.set_global(SHAPE_OFFSET_DOUBLE, f64::from_bits(0x4022_e666_6000_0000));
         e.set_global(LOWER_BOUND_DOUBLE, 15.0f64);
         e.set_global(UPPER_BOUND_DOUBLE, 65.0f64);
         e.set_global(LOWER_BOUND, 15.0f32);
@@ -9464,12 +9827,12 @@ mod tests {
             calls(&e, GET_FACE_COORD),
             vec![vec![base, current], vec![base, menu.addr() + 0x124]]
         );
-        // 2 * 5.55 + 5.6 = 16.7 -> 16; 40 - (30 - 16) = 26.
+        // 2 * 5.55 + 9.45 = 20.55 -> 20; 40 - (30 - 20) = 30.
         assert_eq!(
             calls(&e, FACE_COORD_SET),
             vec![
-                vec![current, 0, 0, 16.0f32.to_bits()],
-                vec![current, 0, 1, 26.0f32.to_bits()]
+                vec![current, 0, 0, 20.0f32.to_bits()],
+                vec![current, 0, 1, 30.0f32.to_bits()]
             ]
         );
         assert_eq!(calls(&e, REGENERATE_FACE)[0], vec![0, current, initial, 0]);
@@ -9495,6 +9858,71 @@ mod tests {
             let initial = calls(&e, INIT_FACE_GEN_COORD)[0][0];
             assert_eq!(calls(&e, COPY_FACE_GEN_COORD), vec![vec![initial, 0, 0, 0]]);
         }
+    }
+
+    /// 7b4ed2..7b4ee1: FSUBR float twice under each control word, worked out in `f32` for 24
+    /// bits and in `f64` with a cast at the FSTP for 53.
+    #[test]
+    fn slider_release_of_the_face_value_rounds_at_the_precision_of_the_running_thread() {
+        let mut differs = false;
+        for f in 1..20 {
+            for g in 1..20 {
+                let (first, second) = (f as f32 * 0.7, g as f32 * 0.3);
+                // Shape 20, as in the test above; the difference is inside the bounds.
+                let by_24 = (second - (first - 20.0)).clamp(15.0, 65.0);
+                let by_53 =
+                    ((f64::from(second) - (f64::from(first) - 20.0)) as f32).clamp(15.0, 65.0);
+                differs |= by_24 != by_53;
+                let other = |control: u16| {
+                    let (mut e, menu) = face_value_world(2.0);
+                    e.register_double(FACE_COORD_GET, move |_, a| {
+                        float(if a[2] == 0 {
+                            first as f64
+                        } else {
+                            second as f64
+                        })
+                    });
+                    crate::x87::set_control_word(control);
+                    race_sex_menu_slider_release(&mut e, menu);
+                    crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+                    calls(&e, FACE_COORD_SET)[1][3]
+                };
+                assert_eq!(other(0x007f), by_24.to_bits(), "{first}, {second}");
+                assert_eq!(
+                    other(crate::x87::DEFAULT_CONTROL_WORD),
+                    by_53.to_bits(),
+                    "{first}, {second}"
+                );
+            }
+        }
+        assert!(differs);
+    }
+
+    /// 7b4e05..7b4e14: FILD, FMUL double, FADD double, `_ftol2` under each control word. No
+    /// slider value below 5000 chops differently at the two precisions, so the test takes the
+    /// first that does; the shape shows in the second coordinate, which is not limited by it.
+    #[test]
+    fn slider_release_turns_the_value_into_a_shape_at_the_precision_of_the_running_thread() {
+        let scale = f64::from_bits(0x4016_3333_4000_0000);
+        let offset = f64::from_bits(0x4022_e666_6000_0000);
+        let by_24 = |k: i32| (k as f32 * scale as f32 + offset as f32) as i32;
+        let by_53 = |k: i32| (f64::from(k) * scale + offset) as i32;
+        assert!((-5000..5000).all(|k| by_24(k) == by_53(k)));
+        let k = (5000..1 << 22).find(|&k| by_24(k) != by_53(k)).unwrap();
+        // The first coordinate is the 53-bit shape, so the second reads 40 plus the difference.
+        let first = by_53(k) as f32;
+        let other = |control: u16| {
+            let (mut e, menu) = face_value_world(k as f32);
+            e.register_double(FACE_COORD_GET, move |_, a| {
+                float(if a[2] == 0 { f64::from(first) } else { 40.0 })
+            });
+            crate::x87::set_control_word(control);
+            race_sex_menu_slider_release(&mut e, menu);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            f32::from_bits(calls(&e, FACE_COORD_SET)[1][3])
+        };
+        assert_eq!(other(0x007f), (40 + by_24(k) - by_53(k)) as f32);
+        assert_eq!(other(crate::x87::DEFAULT_CONTROL_WORD), 40.0);
     }
 
     #[test]

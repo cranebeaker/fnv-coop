@@ -4828,10 +4828,14 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
             mouse_y = e
                 .call(CONTROLS_AXIS_00A23390, &args![controls, 0u32, 8u32])
                 .i32();
+            // 00711a01, 00711a20: FLD float, FMUL double, then `_ftol2`. Here and below each
+            // step rounds with the running thread's control word.
             let stick_scale = float_holder_value(e, STICK_SCALE_HOLDER);
-            mouse_x = e.call(FTOL, &args![stick_scale * mouse_x as f64]).i32();
+            let scaled = x87_mul(stick_scale, mouse_x as f64);
+            mouse_x = e.call(FTOL, &args![scaled]).i32();
             let stick_scale = float_holder_value(e, STICK_SCALE_HOLDER);
-            mouse_y = e.call(FTOL, &args![stick_scale * -(mouse_y as f64)]).i32();
+            let scaled = x87_mul(stick_scale, -(mouse_y as f64));
+            mouse_y = e.call(FTOL, &args![scaled]).i32();
         } else {
             mouse_x = e
                 .call(CONTROLS_QUERY_00A239E0, &args![controls, 1u32])
@@ -4847,7 +4851,8 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
                 let step = e.call(MOUSE_SETTING_00711D80, &args![controls]).f64();
                 let level = e.call(MOUSE_LEVEL_00711D60, &args![controls]).u8() as i8 as i32;
                 let twenty: f64 = e.global(MOUSE_LEVEL_DIVISOR);
-                speed = ((level as f64 / twenty) * step + base) as f32;
+                // 711a95..711aa4.
+                speed = x87_add(x87_mul(x87_div(level as f64, twenty), step), base) as f32;
             }
             if e.call(MOUSE_SETTING_00711DC0, &args![controls]).f64() > 0.0 {
                 let bias = e.call(MOUSE_SETTING_00711DE0, &args![controls]).f64();
@@ -4855,7 +4860,9 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
                 let abs_y = e.call(ABS, &args![mouse_y]).i32();
                 let total = abs_x.wrapping_add(abs_y);
                 let divisor = e.call(MOUSE_SETTING_00711DC0, &args![controls]).f64();
-                speed = ((total as f64 / divisor + bias) * speed as f64) as f32;
+                // 711ae6..711afd.
+                let sum = x87_add(x87_div(total as f64, divisor), bias);
+                speed = x87_mul(sum, x87_m32(speed.to_bits())) as f32;
             }
         }
         let cursor = e.get(this, InterfaceManager::pCursor);
@@ -4868,15 +4875,23 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
         ];
         let width = e.call(GET_SCREEN_WIDTH, &args![]).f64();
         let horizontal: f64 = e.global(CURSOR_HORIZONTAL_SCALE);
-        let moved_x =
-            (((width * mouse_x as f64) / horizontal) * speed as f64 + old[0] as f64) as f32;
+        // 711b2e..711b3d.
+        let moved = x87_mul(
+            x87_div(x87_mul(width, mouse_x as f64), horizontal),
+            x87_m32(speed.to_bits()),
+        );
+        let moved_x = x87_add(moved, x87_m32(old[0].to_bits())) as f32;
         let half_width = clamp_edge(e, moved_x, EDGE_RIGHT, EDGE_LEFT);
         let tilt = tile_get_float(e, e.get(this, InterfaceManager::pCursor), 0xfad);
         let moved_y_part = tilt * e.global::<f64>(CURSOR_TILT_SCALE);
         let height = e.call(GET_SCREEN_HEIGHT, &args![]).f64();
         let vertical: f64 = e.global(CURSOR_VERTICAL_SCALE);
-        let moved_z =
-            (old[2] as f64 - ((height * mouse_y as f64) / vertical) * speed as f64) as f32;
+        // 711bba..711bcc.
+        let moved = x87_mul(
+            x87_div(x87_mul(height, mouse_y as f64), vertical),
+            x87_m32(speed.to_bits()),
+        );
+        let moved_z = x87_sub(x87_m32(old[2].to_bits()), moved) as f32;
         let z = clamp_edge(e, moved_z, EDGE_TOP, EDGE_BOTTOM);
         let position = [half_width, moved_y_part as f32, z];
         let cursor = e.get(this, InterfaceManager::pCursor);
@@ -4896,10 +4911,12 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
             e.set(this, InterfaceManager::bMouseInMotion, 1);
             let desktop_width = e.call(GET_DESKTOP_WIDTH, &args![]).f64();
             let width = e.call(GET_SCREEN_WIDTH, &args![]).f64();
-            let cursor_x = e.mem.f32(this.addr() + 0x2c) as f64;
+            let cursor_x = x87_m32(e.mem.u32(this.addr() + 0x2c));
             let desktop_width_again = e.call(GET_DESKTOP_WIDTH, &args![]).f64();
             let two: f64 = e.global(TWO);
-            let real_x = (desktop_width_again / two + (desktop_width / width) * cursor_x) as f32;
+            // 711c97..711cbd.
+            let product = x87_mul(x87_div(desktop_width, width), cursor_x);
+            let real_x = x87_add(x87_div(desktop_width_again, two), product) as f32;
             e.mem.set_f32(this.addr() + 0x38, real_x);
             let cursor = e.get(this, InterfaceManager::pCursor);
             let tilt = tile_get_float(e, cursor, 0xfad);
@@ -4908,11 +4925,13 @@ pub fn fn_007118d0(e: &mut Engine, this: Ptr<InterfaceManager>) {
                 (tilt * e.global::<f64>(CURSOR_TILT_SCALE)) as f32,
             );
             let desktop_height = e.call(GET_DESKTOP_HEIGHT, &args![]).f64();
-            let half_height = desktop_height / e.global::<f64>(TWO);
+            // 711cdc..711d12.
+            let half_height = x87_div(desktop_height, e.global::<f64>(TWO));
             let desktop_height_again = e.call(GET_DESKTOP_HEIGHT, &args![]).f64();
             let screen_height = e.call(GET_SCREEN_HEIGHT, &args![]).f64();
-            let cursor_z = e.mem.f32(this.addr() + 0x34) as f64;
-            let real_z = (half_height - (desktop_height_again / screen_height) * cursor_z) as f32;
+            let cursor_z = x87_m32(e.mem.u32(this.addr() + 0x34));
+            let product = x87_mul(x87_div(desktop_height_again, screen_height), cursor_z);
+            let real_z = x87_sub(half_height, product) as f32;
             e.mem.set_f32(this.addr() + 0x40, real_z);
         }
         e.with_stack(12, |e, update_data| {
@@ -10603,6 +10622,127 @@ mod tests {
         fn_007118d0(&mut e, m);
         // Half the 1280 screen minus 2.
         assert_eq!(vectors.borrow()[0][0], 638.0);
+    }
+
+    /// 711a95..711afd, 711b2e..711b3d, 711bba..711bcc, 711c97..711cbd, 711cdc..711d12 under each
+    /// control word. The expected values are worked out one operation per exe step: in `f32`
+    /// for 24 bits, in `f64` with a cast at each FSTP float for 53. The screen is not 4:3.
+    #[test]
+    fn the_cursor_maths_rounds_at_the_precision_of_the_running_thread() {
+        let width = (1920.0f32 / 1080.0) * 960.0;
+        let (height, desktop_w, desktop_h) = (960.0f32, 1920.0f32, 1080.0f32);
+        let (level, step, base, divisor, bias) = (1i32, 1.5f32, 0.1f32, 0.1f32, 0.1f32);
+        let by_24 = |mouse_x: i32, mouse_y: i32, old_x: f32, old_z: f32| {
+            let speed = level as f32 / 20.0 * step + base;
+            let total = (mouse_x.abs() + mouse_y.abs()) as f32;
+            let speed = (total / divisor + bias) * speed;
+            let x = width * mouse_x as f32 / 1280.0 * speed + old_x;
+            let z = old_z - height * mouse_y as f32 / 960.0 * speed;
+            let real_x = desktop_w / 2.0 + desktop_w / width * x;
+            let real_z = desktop_h / 2.0 - desktop_h / height * z;
+            [x, z, real_x, real_z].map(f32::to_bits)
+        };
+        let by_53 = |mouse_x: i32, mouse_y: i32, old_x: f32, old_z: f32| {
+            let f = f64::from;
+            let speed = (f64::from(level) / 20.0 * f(step) + f(base)) as f32;
+            let total = f64::from(mouse_x.abs() + mouse_y.abs());
+            let speed = ((total / f(divisor) + f(bias)) * f(speed)) as f32;
+            let x = (f(width) * f64::from(mouse_x) / 1280.0 * f(speed) + f(old_x)) as f32;
+            let z = (f(old_z) - f(height) * f64::from(mouse_y) / 960.0 * f(speed)) as f32;
+            let real_x = (f(desktop_w) / 2.0 + f(desktop_w) / f(width) * f(x)) as f32;
+            let real_z = (f(desktop_h) / 2.0 - f(desktop_h) / f(height) * f(z)) as f32;
+            [x, z, real_x, real_z].map(f32::to_bits)
+        };
+        let run = |word: u16, mouse_x: i32, mouse_y: i32, old_x: f32, old_z: f32| {
+            let (mut e, m) = cursor_world();
+            let translation = e.mem.alloc(0xc);
+            e.mem.set_f32(translation, old_x);
+            e.mem.set_f32(translation + 8, old_z);
+            returns(&mut e, NODE_TRANSLATION, translation);
+            returns_st0(&mut e, GET_SCREEN_WIDTH, f64::from(width));
+            returns_st0(&mut e, GET_SCREEN_HEIGHT, f64::from(height));
+            returns_st0(&mut e, MOUSE_SETTING_00711DA0, f64::from(base));
+            returns_st0(&mut e, MOUSE_SETTING_00711D80, f64::from(step));
+            returns_st0(&mut e, MOUSE_SETTING_00711DC0, f64::from(divisor));
+            returns_st0(&mut e, MOUSE_SETTING_00711DE0, f64::from(bias));
+            returns(&mut e, MOUSE_LEVEL_00711D60, level as u32);
+            e.mem.set_f64(MOUSE_LEVEL_DIVISOR, 20.0);
+            e.mem.set_f64(CURSOR_HORIZONTAL_SCALE, 1280.0);
+            e.mem.set_f64(CURSOR_VERTICAL_SCALE, 960.0);
+            e.register(ABS, |_, a| Ret {
+                eax: (a[0] as i32).unsigned_abs(),
+                ..Ret::default()
+            });
+            e.register_double(CONTROLS_QUERY_00A239E0, move |_, a| Ret {
+                eax: if a[1] == 1 { mouse_x } else { mouse_y } as u32,
+                ..Ret::default()
+            });
+            crate::x87::set_control_word(word);
+            fn_007118d0(&mut e, m);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            [0x2c, 0x34, 0x38, 0x40].map(|at| e.mem.u32(m.addr() + at))
+        };
+        let mut differs = [false; 4];
+        // Moves that stay inside the screen.
+        let moves = (-8..=8i32).flat_map(|x| (-8..=8i32).map(move |y| (x, y)));
+        for (mouse_x, mouse_y) in moves.filter(|&(x, y)| x != 0 || y != 0) {
+            let (old_x, old_z) = (mouse_y as f32 * 1.25, mouse_x as f32 * 0.75);
+            let (a, b) = (
+                by_24(mouse_x, mouse_y, old_x, old_z),
+                by_53(mouse_x, mouse_y, old_x, old_z),
+            );
+            for (differ, (a, b)) in differs.iter_mut().zip(a.iter().zip(&b)) {
+                *differ |= a != b;
+            }
+            assert_eq!(run(0x007f, mouse_x, mouse_y, old_x, old_z), a);
+            assert_eq!(
+                run(
+                    crate::x87::DEFAULT_CONTROL_WORD,
+                    mouse_x,
+                    mouse_y,
+                    old_x,
+                    old_z
+                ),
+                b
+            );
+        }
+        // Each of the four results tells the precisions apart in one of these moves.
+        assert_eq!(differs, [true; 4]);
+    }
+
+    /// 00711a01, 00711a20: FLD float, FMUL double, then `_ftol2`: 0.7f * 10 is 7 at 24 bits and
+    /// 6.9999999 at 53, chopped to 6. (The first two 004b71d0 tests must be false to get here,
+    /// and this one true, so in the game this path does not run.)
+    #[test]
+    fn the_cursor_stick_scale_rounds_at_the_precision_of_the_running_thread() {
+        assert_eq!((0.7f32 * 10.0f32) as i32, 7);
+        assert_eq!((f64::from(0.7f32) * 10.0) as i32, 6);
+        let moved = |word: u16| {
+            let (mut e, m) = cursor_world();
+            let vectors = vector_recorder(&mut e);
+            let tests = std::cell::Cell::new(0);
+            e.register_double(HAS_360_CONTROLLER_GETTER, move |_, _| {
+                tests.set(tests.get() + 1);
+                Ret {
+                    eax: u32::from(tests.get() == 3),
+                    ..Ret::default()
+                }
+            });
+            e.register(CONTROLS_AXIS_00A23390, |_, a| Ret {
+                eax: if a[2] == 7 { 10 } else { (-10i32) as u32 },
+                ..Ret::default()
+            });
+            let scale = e.mem.alloc(4);
+            e.mem.set_f32(scale, 0.7);
+            returns(&mut e, FLOAT_HOLDER_GET, scale);
+            crate::x87::set_control_word(word);
+            fn_007118d0(&mut e, m);
+            crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
+            let first = vectors.borrow()[0];
+            (first[0], first[2])
+        };
+        assert_eq!(moved(0x007f), (7.0, -7.0));
+        assert_eq!(moved(crate::x87::DEFAULT_CONTROL_WORD), (6.0, -6.0));
     }
 
     #[test]

@@ -1073,8 +1073,11 @@ fn list_box_set_total_list_height(e: &mut Engine, this: Ptr<ListBox>, instance: 
         // below the total (ordered).
         if f64::from(visible) < f64::from(e.get(this, ListBox::fTotalListHeight)) {
             let count = e.call(instance.num_unfiltered, &args![this]).u32();
-            let total = f64::from(e.get(this, ListBox::fTotalListHeight));
-            let ratio = (f64::from(count) * (total - f64::from(visible)) / total) as f32;
+            // 00724881..00724895: FILD qword, FLD float, FSUB float, FMULP, FDIV float, FSTP
+            // float; each step rounds with the running thread's control word.
+            let total = e.get(this, ListBox::fTotalListHeight).to_bits();
+            let difference = x87_sub(x87_load32(total), x87_m32(visible.to_bits()));
+            let ratio = x87_div(x87_mul(f64::from(count), difference), x87_m32(total)) as f32;
             let rounded = e
                 .call(ROUND_FLOAT, &args![x87_quiet_bits(ratio.to_bits())])
                 .f64();
@@ -1082,8 +1085,10 @@ fn list_box_set_total_list_height(e: &mut Engine, this: Ptr<ListBox>, instance: 
             steps = e.call(MAX_INT, &args![whole.wrapping_add(1), 2i32]).i32();
         }
         if steps > 1 {
-            let total = f64::from(e.get(this, ListBox::fTotalListHeight));
-            let delta = ((total - f64::from(visible)) / f64::from(steps - 1)) as f32;
+            // 007248c6..007248d8: FLD float, FSUB float, FIDIV, FSTP float.
+            let total = e.get(this, ListBox::fTotalListHeight).to_bits();
+            let difference = x87_sub(x87_load32(total), x87_m32(visible.to_bits()));
+            let delta = x87_div(difference, f64::from(steps - 1)) as f32;
             let scroll_delta = e.call(TEXT_TO_TRAIT, &args![SCROLL_DELTA_TEXT]).u32();
             let container = e.get(this, ListBox::pContainerRect);
             e.call(
@@ -5440,11 +5445,32 @@ mod tests {
         unfiltered: u32,
         scroll_bar: u32,
     ) -> [Calls; 5] {
+        total_height_at(
+            crate::x87::DEFAULT_CONTROL_WORD,
+            f64::from,
+            instance,
+            visible,
+            total,
+            unfiltered,
+            scroll_bar,
+        )
+    }
+
+    /// `total_height` under control word `control_word`, with `round` as the answer of `004e4430`.
+    fn total_height_at(
+        control_word: u16,
+        round: fn(f32) -> f64,
+        instance: ListBoxInstance,
+        visible: f32,
+        total: f32,
+        unfiltered: u32,
+        scroll_bar: u32,
+    ) -> [Calls; 5] {
         let mut e = full_engine();
         real(&mut e, instance.set_total_list_height);
         e.register_double(TILE_GET_FLOAT, move |_, _| st0(f64::from(visible)));
         e.register_double(instance.num_unfiltered, move |_, _| word(unfiltered));
-        e.register(ROUND_FLOAT, |_, a| st0(f64::from(f32::from_bits(a[0]))));
+        e.register_double(ROUND_FLOAT, move |_, a| st0(round(f32::from_bits(a[0]))));
         e.register(MAX_INT, |_, a| word((a[0] as i32).max(a[1] as i32) as u32));
         e.register(TEXT_TO_TRAIT, |_, a| {
             word(if a[0] == SCROLL_DELTA_TEXT {
@@ -5457,7 +5483,9 @@ mod tests {
         e.mem.set_u32(this + 0xc, 0x700);
         e.mem.set_f32(this + 0x20, total);
         e.mem.set_u32(this + 0x14, scroll_bar);
+        crate::x87::set_control_word(control_word);
         e.call(instance.set_total_list_height, &args![this]);
+        crate::x87::set_control_word(crate::x87::DEFAULT_CONTROL_WORD);
         assert_eq!(calls(&e, TILE_GET_FLOAT), vec![vec![0x700, 0xfb0]]);
         [
             calls(&e, ROUND_FLOAT),
@@ -5489,6 +5517,59 @@ mod tests {
             assert_eq!(set_float.len(), 1);
             assert!(set_int.is_empty());
         }
+    }
+
+    /// 00724881..00724895, 007248c6..007248d8 under each control word, with `004e4430` taking
+    /// the ratio up as it does in the exe (`00ec9e10`). The expected values are worked out one
+    /// operation per exe step: in `f32` for 24 bits, in `f64` with a cast at the FSTP for 53.
+    #[test]
+    fn list_box_set_total_list_height_rounds_at_the_precision_of_the_running_thread() {
+        let (at_24, at_53) = (0x007f, crate::x87::DEFAULT_CONTROL_WORD);
+        let up = |value: f32| f64::from(value).ceil();
+        // The ratio, the steps and the delta of (visible, total, count) at each precision.
+        let steps = |ratio: f32| ((ratio.ceil() as i32) + 1).max(2);
+        let by_24 = |visible: f32, total: f32, count: f32| {
+            let ratio = count * (total - visible) / total;
+            (
+                ratio,
+                steps(ratio),
+                (total - visible) / (steps(ratio) - 1) as f32,
+            )
+        };
+        let by_53 = |visible: f32, total: f32, count: f32| {
+            let (visible, total) = (f64::from(visible), f64::from(total));
+            let ratio = (f64::from(count) * (total - visible) / total) as f32;
+            let delta = (total - visible) / f64::from(steps(ratio) - 1);
+            (ratio, steps(ratio), delta as f32)
+        };
+        let check = |instance, word, visible, total, count: u32, expected: (f32, i32, f32)| {
+            let [round, max, set_float, set_int, _] =
+                total_height_at(word, up, instance, visible, total, count, 0x800);
+            assert_eq!(round, vec![vec![expected.0.to_bits()]]);
+            assert_eq!(max, vec![vec![expected.1 as u32, 2]]);
+            assert_eq!(set_float, vec![vec![0x700, 0x66, expected.2.to_bits(), 1]]);
+            assert_eq!(set_int, vec![vec![0x800, 0x67, expected.1 as u32]]);
+        };
+        // 3 * (30.6 - 10.2) / 30.6 is 2.00000024 at 24 bits, 4 steps, and 2.0 at 53, 3 steps.
+        assert_eq!(by_24(10.2, 30.6, 3.0).0.to_bits(), 0x4000_0001);
+        assert_eq!(by_24(10.2, 30.6, 3.0).1, 4);
+        assert_eq!(by_53(10.2, 30.6, 3.0).0, 2.0);
+        assert_eq!(by_53(10.2, 30.6, 3.0).1, 3);
+        for (instance, _) in LIST_BOXES {
+            check(instance, at_24, 10.2, 30.6, 3, by_24(10.2, 30.6, 3.0));
+            check(instance, at_53, 10.2, 30.6, 3, by_53(10.2, 30.6, 3.0));
+        }
+        // Heights where the steps agree and the delta alone tells the two apart.
+        let mut delta_differs = false;
+        for tenth in 1..40 {
+            let visible = tenth as f32 * 0.7;
+            let total = visible * 3.3;
+            let (a, b) = (by_24(visible, total, 4.0), by_53(visible, total, 4.0));
+            delta_differs |= a.1 == b.1 && a.2 != b.2;
+            check(LIST_BOXES[0].0, at_24, visible, total, 4, a);
+            check(LIST_BOXES[0].0, at_53, visible, total, 4, b);
+        }
+        assert!(delta_differs);
     }
 
     #[test]
