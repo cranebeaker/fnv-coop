@@ -209,7 +209,7 @@ struct Pin {
     reader: u32,
 }
 
-/// The DirectShow objects (in `Kernel::sound`).
+/// The DirectShow objects (in `State::sound`).
 #[derive(Debug, Default)]
 pub struct Show {
     vtables: [u32; 6],
@@ -300,7 +300,7 @@ fn register_code(e: &mut Engine) {
         for s in 0..32 {
             e.mem.set_u32(table + 4 * s, code + 4 * s);
         }
-        e.kernel.sound.show.vtables[i] = table;
+        state!(e).sound.show.vtables[i] = table;
     }
 }
 
@@ -323,15 +323,15 @@ pub fn co_create_instance(
         "CoCreateInstance({}, outer {outer:#x}, context {context:#x}) is not provided",
         hex(&class)
     );
-    if e.kernel.sound.show.vtables[0] == 0 {
+    if state!(e).sound.show.vtables[0] == 0 {
         register_code(e);
     }
     let at = e.mem.alloc(GRAPH_BYTES);
     for i in 0..5 {
-        let table = e.kernel.sound.show.vtables[i as usize];
+        let table = state!(e).sound.show.vtables[i as usize];
         e.mem.set_u32(at + 4 * i, table);
     }
-    e.kernel.sound.show.graphs.insert(
+    state!(e).sound.show.graphs.insert(
         at,
         Graph {
             references: 0,
@@ -368,7 +368,7 @@ fn hex(b: &[u8]) -> String {
 /// The graph an interface pointer belongs to, from the vtable it holds.
 fn graph_of(e: &Engine, this: Ptr) -> u32 {
     let vtable = e.mem.u32(this.addr());
-    let tables = e.kernel.sound.show.vtables;
+    let tables = state_ref!(e).sound.show.vtables;
     let offset = [BUILDER, CONTROL, POSITION, AUDIO, EVENT]
         .into_iter()
         .zip(tables)
@@ -379,7 +379,7 @@ fn graph_of(e: &Engine, this: Ptr) -> u32 {
 }
 
 fn graph(e: &mut Engine, at: u32) -> &mut Graph {
-    e.kernel
+    state!(e)
         .sound
         .show
         .graphs
@@ -436,11 +436,10 @@ fn release(e: &mut Engine, this: Ptr) -> u32 {
     if left == 0 {
         decoder_ended(e, at);
         super::dsound::stop_stream(e, at);
-        let g = e.kernel.sound.show.graphs.remove(&at).expect("the graph");
+        let g = state!(e).sound.show.graphs.remove(&at).expect("the graph");
         g.samples.let_go();
         if g.pin != 0 {
-            let connected = e
-                .kernel
+            let connected = state!(e)
                 .sound
                 .show
                 .pins
@@ -473,8 +472,8 @@ fn add_filter(e: &mut Engine, this: Ptr, filter: Ptr, name: Ptr) -> u32 {
     e.vcall(filter.addr(), 4, &[]);
     graph(e, at).filter = filter.addr();
     let named = if name.is_null() {
-        e.kernel.sound.show.named += 1;
-        let text: Vec<u16> = format!("{:04}", e.kernel.sound.show.named)
+        state!(e).sound.show.named += 1;
+        let text: Vec<u16> = format!("{:04}", state!(e).sound.show.named)
             .encode_utf16()
             .chain([0])
             .collect();
@@ -512,9 +511,9 @@ fn add_filter(e: &mut Engine, this: Ptr, filter: Ptr, name: Ptr) -> u32 {
 fn render(e: &mut Engine, this: Ptr, out_pin: Ptr) -> u32 {
     let at = graph_of(e, this);
     let pin = e.mem.alloc(4);
-    let table = e.kernel.sound.show.vtables[5];
+    let table = state!(e).sound.show.vtables[5];
     e.mem.set_u32(pin, table);
-    e.kernel.sound.show.pins.insert(
+    state!(e).sound.show.pins.insert(
         pin,
         Pin {
             references: 1,
@@ -527,7 +526,7 @@ fn render(e: &mut Engine, this: Ptr, out_pin: Ptr) -> u32 {
     if (r as i32) < 0 {
         return r;
     }
-    let reader = e.kernel.sound.show.pins[&pin].reader;
+    let reader = state!(e).sound.show.pins[&pin].reader;
     assert!(
         reader != 0,
         "IGraphBuilder::Render: the pin gave no IAsyncReader; not provided"
@@ -562,7 +561,7 @@ fn render(e: &mut Engine, this: Ptr, out_pin: Ptr) -> u32 {
     let decoding = Decoding::new(decoder);
     let samples = Arc::new(Feed::new(decoding.frames(), 2 * usize::from(channels)));
     #[cfg(test)]
-    if e.kernel.sound.show.hold {
+    if state!(e).sound.show.hold {
         samples.hold();
     }
     let fed = samples.clone();
@@ -947,7 +946,7 @@ fn free_event_params(_e: &mut Engine, _this: Ptr, _code: u32, _p1: u32, _p2: u32
 }
 
 fn pin(e: &mut Engine, this: Ptr) -> &mut Pin {
-    e.kernel
+    state!(e)
         .sound
         .show
         .pins
@@ -977,7 +976,7 @@ fn pin_release(e: &mut Engine, this: Ptr) -> u32 {
     p.references -= 1;
     let left = p.references;
     if left == 0 {
-        e.kernel.sound.show.pins.remove(&this.addr());
+        state!(e).sound.show.pins.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -1350,7 +1349,7 @@ mod tests {
         let f = fake(&mut e, data);
         let [fg, control, pos, audio, ev] = start(&mut e, &f);
         // The samples, once decoded: 100 frames of 1152 less the decoder's 528, all silent.
-        let samples = samples_of(&e.kernel.sound.show.graphs[&fg].samples);
+        let samples = samples_of(&state!(e).sound.show.graphs[&fg].samples);
         assert_eq!(samples.len(), 100 * 1152 - 528);
         assert!(samples.iter().all(|&s| s == 0));
         // Duration: size * 8 * 10^7 / 128000 in 100 ns.
@@ -1561,12 +1560,12 @@ mod tests {
     #[test]
     fn render_answers_before_the_stream_is_decoded() {
         let mut e = Engine::new();
-        e.kernel.sound.show.hold = true;
+        state!(e).sound.show.hold = true;
         let data = mp3(2000);
         let size = data.len() as u64;
         let f = fake(&mut e, data);
         let [fg, control, pos, audio, ev] = start(&mut e, &f);
-        let g = &e.kernel.sound.show.graphs[&fg];
+        let g = &state!(e).sound.show.graphs[&fg];
         assert_eq!(
             (g.duration as u64, g.sample_rate, g.channels),
             (size * 8 * 10_000_000 / 128_000, 44100, 1)
@@ -1575,8 +1574,7 @@ mod tests {
         assert_eq!(samples.frames(), 2000 * 1152 - 528);
         assert!(samples.runs().is_empty(), "nothing decoded");
         // Released as the game does: the decoder stops without having decoded anything.
-        let decode = e
-            .kernel
+        let decode = state!(e)
             .sound
             .show
             .graphs
@@ -1646,7 +1644,7 @@ mod tests {
     fn a_layer_run_far_into_its_stream_is_heard_from_there_at_once() {
         let mut e = Engine::new();
         super::super::dsound::hear_by_hand(&mut e, 48000);
-        e.kernel.sound.show.hold = true;
+        state!(e).sound.show.hold = true;
         let data = switching_mp3(24);
         let whole = windows_samples(&mut ::mp3::Decoder::new(&data[..]).expect("an MP3"));
         let f = fake(&mut e, data);
@@ -1656,7 +1654,7 @@ mod tests {
         let r = e.vcall(pos, 0x20, &[at as u32, (at >> 32) as u32]).u32();
         assert_eq!(r, S_OK);
         assert_eq!(e.vcall(control, 0x1c, &[]).u32(), S_FALSE);
-        let samples = e.kernel.sound.show.graphs[&fg].samples.clone();
+        let samples = state!(e).sound.show.graphs[&fg].samples.clone();
         assert!(samples.runs().is_empty(), "nothing decoded at Run");
         samples.start();
         let mut plain = super::super::mixer::Voice::new(
@@ -1677,8 +1675,7 @@ mod tests {
         let bits = |v: &[f32]| v.iter().map(|s| s.to_bits()).collect::<Vec<_>>();
         assert!(bits(&heard) == bits(&want));
         assert!(want[..2 * 480].iter().any(|&s| s != 0.0), "heard at once");
-        let decode = e
-            .kernel
+        let decode = state!(e)
             .sound
             .show
             .graphs
@@ -1695,7 +1692,7 @@ mod tests {
 
     /// With `NV_MUSIC_MP3` naming an MP3 (one of the game's tracks, read only), the same as
     /// [`the_samples_are_the_same_from_wherever_the_stream_is_played`] on it from 12 places
-    /// through it: `cargo test -p engine-core --lib -- --ignored nv_music_mp3`.
+    /// through it: `cargo test -p engine-platform --lib -- --ignored nv_music_mp3`.
     #[test]
     #[ignore]
     fn nv_music_mp3_is_the_same_from_wherever_it_is_played() {

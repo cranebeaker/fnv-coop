@@ -261,7 +261,7 @@ Done so far:
 Record the device calls on both sides and compare the state of each draw.
 
 - **Device methods** are listed by the port's addresses for them, `7e020200 + 4 * slot`
-  (`IDirect3DDevice9` vtable order, `crates/engine-core/src/units/platform/d3d9device.rs`). The
+  (`IDirect3DDevice9` vtable order, `crates/engine-platform/src/d3d9device.rs`). The
   port records them natively (they are registered there). The real recorder redirects the exe's
   `Direct3DCreate9` import, patches `IDirect3D9::CreateDevice`, and when the device exists puts
   entry stubs in the listed slots of its vtable (only when the list names device methods).

@@ -319,6 +319,9 @@ impl Engine {
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
         };
+        // The platform layer's state, when the program links the layer (`units::platform::Layer`:
+        // its `units::funcs`, run above with the other crates' functions, installs it).
+        engine.kernel.platform = crate::units::platform::new_layer_state();
         // `NV_WATCH` (a diagnostic, not exe behaviour): reports the writers of a range of memory.
         crate::watch_check::install(&mut engine);
         engine

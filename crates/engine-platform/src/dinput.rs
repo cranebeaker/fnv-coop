@@ -150,7 +150,7 @@ struct Device {
     overflowed: bool,
 }
 
-/// The input state behind the devices (`Kernel::input`).
+/// The input state behind the devices (`State::input`).
 #[derive(Debug, Default)]
 pub struct Input {
     /// The vtables once made.
@@ -257,16 +257,16 @@ pub fn direct_input8_create(
         e.mem.set_u32(out.addr(), 0);
         return E_NOINTERFACE;
     }
-    if e.kernel.input.direct_input_vtable == 0 {
+    if state!(e).input.direct_input_vtable == 0 {
         register_code(e);
-        e.kernel.input.direct_input_vtable =
+        state!(e).input.direct_input_vtable =
             vtable(e, DIRECT_INPUT_CODE, DIRECT_INPUT_SLOTS.len() as u32);
-        e.kernel.input.device_vtable = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len() as u32);
+        state!(e).input.device_vtable = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len() as u32);
     }
     let object = e.mem.alloc(8);
-    let table = e.kernel.input.direct_input_vtable;
+    let table = state!(e).input.direct_input_vtable;
     e.mem.set_u32(object, table);
-    e.kernel.input.interfaces.insert(object, 1);
+    state!(e).input.interfaces.insert(object, 1);
     e.mem.set_u32(out.addr(), object);
     DI_OK
 }
@@ -280,8 +280,7 @@ fn no_interface(e: &mut Engine, _this: Ptr, _interface: Ptr, out: Ptr) -> u32 {
 }
 
 fn direct_input_add_ref(e: &mut Engine, this: Ptr) -> u32 {
-    let count = e
-        .kernel
+    let count = state!(e)
         .input
         .interfaces
         .get_mut(&this.addr())
@@ -291,8 +290,7 @@ fn direct_input_add_ref(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 fn direct_input_release(e: &mut Engine, this: Ptr) -> u32 {
-    let count = e
-        .kernel
+    let count = state!(e)
         .input
         .interfaces
         .get_mut(&this.addr())
@@ -300,7 +298,7 @@ fn direct_input_release(e: &mut Engine, this: Ptr) -> u32 {
     *count -= 1;
     let left = *count;
     if left == 0 {
-        e.kernel.input.interfaces.remove(&this.addr());
+        state!(e).input.interfaces.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -323,9 +321,9 @@ fn create_device(e: &mut Engine, _this: Ptr, guid: Ptr, out: Ptr, outer: u32) ->
         return DIERR_DEVICENOTREG;
     };
     let object = e.mem.alloc(8);
-    let table = e.kernel.input.device_vtable;
+    let table = state!(e).input.device_vtable;
     e.mem.set_u32(object, table);
-    e.kernel.input.devices.insert(
+    state!(e).input.devices.insert(
         object,
         Device {
             keyboard,
@@ -395,7 +393,7 @@ fn enum_devices(
 }
 
 fn device(e: &mut Engine, this: Ptr) -> &mut Device {
-    e.kernel
+    state!(e)
         .input
         .devices
         .get_mut(&this.addr())
@@ -413,7 +411,7 @@ fn device_release(e: &mut Engine, this: Ptr) -> u32 {
     d.references -= 1;
     let left = d.references;
     if left == 0 {
-        e.kernel.input.devices.remove(&this.addr());
+        state!(e).input.devices.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -550,15 +548,15 @@ fn get_device_state(e: &mut Engine, this: Ptr, size: u32, data: Ptr) -> u32 {
     let at = data.addr();
     if keyboard {
         for code in 0..KEYBOARD_KEYS {
-            let down = e.kernel.input.key_down(code as usize);
+            let down = state!(e).input.key_down(code as usize);
             e.mem.set_u8(at + code, if down { 0x80 } else { 0 });
         }
     } else {
-        let motion = std::mem::take(&mut e.kernel.input.mouse_motion);
+        let motion = std::mem::take(&mut state!(e).input.mouse_motion);
         for (i, m) in motion.into_iter().enumerate() {
             e.mem.set_i32(at + 4 * i as u32, m);
         }
-        let buttons = e.kernel.input.mouse_buttons;
+        let buttons = state!(e).input.mouse_buttons;
         for (i, down) in buttons.into_iter().enumerate() {
             e.mem
                 .set_u8(at + 0xc + i as u32, if down { 0x80 } else { 0 });
@@ -599,7 +597,7 @@ fn get_device_data(
     // out of it as they are written, a drain that a stop on the way still empties whole.
     let (mem, d) = (
         &mut e.mem,
-        e.kernel
+        state!(e)
             .input
             .devices
             .get_mut(&this.addr())
@@ -644,7 +642,7 @@ fn get_device_data(
 /// event in each acquired, buffered keyboard device (a full buffer loses it and reports the
 /// overflow). The time stamp is the platform's tick count (`GetTickCount`).
 pub fn key(e: &mut Engine, code: u8, down: bool) {
-    let input = &mut e.kernel.input;
+    let input = &mut state!(e).input;
     if input.keys.len() < KEYBOARD_KEYS as usize {
         input.keys.resize(KEYBOARD_KEYS as usize, false);
     }
@@ -658,8 +656,8 @@ pub fn key(e: &mut Engine, code: u8, down: bool) {
         }
         input.async_pressed[code as usize] = true;
     }
-    let time = super::tick_count(e);
-    let input = &mut e.kernel.input;
+    let time = e.clock_now_ms();
+    let input = &mut state!(e).input;
     input.sequence = input.sequence.wrapping_add(1);
     let event = [
         u32::from(code),
@@ -698,7 +696,7 @@ pub fn get_async_key_state(e: &mut Engine, virtual_key: u32) -> u32 {
         VK_MENU => &[DIK_LMENU, DIK_RMENU],
         _ => panic!("GetAsyncKeyState({virtual_key:#x}): only VK_TAB and VK_MENU are provided"),
     };
-    let input = &mut e.kernel.input;
+    let input = &mut state!(e).input;
     let mut state = 0u32;
     for &code in codes {
         if input.key_down(code) {
@@ -716,7 +714,7 @@ pub fn get_async_key_state(e: &mut Engine, virtual_key: u32) -> u32 {
 
 /// Mouse motion (mickeys) for the next read: x, y and the wheel.
 pub fn mouse_move(e: &mut Engine, dx: i32, dy: i32, wheel: i32) {
-    let m = &mut e.kernel.input.mouse_motion;
+    let m = &mut state!(e).input.mouse_motion;
     m[0] = m[0].wrapping_add(dx);
     m[1] = m[1].wrapping_add(dy);
     m[2] = m[2].wrapping_add(wheel);
@@ -724,7 +722,7 @@ pub fn mouse_move(e: &mut Engine, dx: i32, dy: i32, wheel: i32) {
 
 /// A mouse button (0..8) going down or up.
 pub fn mouse_button(e: &mut Engine, button: usize, down: bool) {
-    e.kernel.input.mouse_buttons[button] = down;
+    state!(e).input.mouse_buttons[button] = down;
 }
 
 #[cfg(test)]

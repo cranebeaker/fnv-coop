@@ -1,38 +1,124 @@
 //! Platform functions: the game's own versions are replaced by Rust
 //! (docs/ENGINE_PORT_PLAN.md, "platform"). Hand-written, owned by the lead.
+//!
+//! This file is the core of the platform layer: the kernel objects (events, semaphores,
+//! threads, handles), `VirtualAlloc`, the memory manager, the clock and the other imports the
+//! engine crates' own tests use. The rest of it (the window, Direct3D 9 and D3DX, DirectInput,
+//! DirectSound and the mixer, DirectShow, Bink, Ogg Vorbis, `mmio`, files, `LoadLibraryA`,
+//! the process, NVAPI) is the `engine-platform` crate, which only the `engine` facade and the host
+//! depend on: a change there rebuilds no engine part crate (docs/ENGINE_CRATE.md). It joins in
+//! through [`Layer`]: its imports, its state in [`Kernel::platform`], its file handles and the
+//! procedures of the modules it loads.
 
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-pub mod bink;
-pub mod d3d9;
-pub mod d3d9device;
-pub mod d3d9query;
-#[cfg(windows)]
-pub mod d3d9real;
-pub mod d3d9resource;
-pub mod d3dx;
-#[cfg(windows)]
-pub mod d3dxreal;
-pub mod dinput;
-pub mod ds3d;
-pub mod dsfx;
-pub mod dshow;
-pub mod dsound;
-pub mod files;
 pub mod loader;
-pub mod mixer;
-pub mod mmio;
-pub mod nls;
-pub mod nvapi;
-pub mod process;
-pub mod resampler;
-pub mod sound_out;
-pub mod speakers;
-pub mod time;
-pub mod vorbisfile;
-pub mod window;
-pub mod zone;
+
+/// What the platform layer's own tests (`engine-platform`) use of this file. Behind the
+/// `test-support` feature.
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support {
+    /// [`super::heap_create`].
+    pub fn heap_create(e: &mut crate::Engine, options: u32, initial: u32, maximum: u32) -> u32 {
+        super::heap_create(e, options, initial, maximum)
+    }
+}
+
+/// What the platform layer (`engine-platform`) adds to the core, when the program links it:
+/// its imports ([`imports`] answers them after the core's own), a new copy of its state for each
+/// engine ([`Kernel::platform`]), what closing one of its file handles does ([`close_handle`])
+/// and the procedures of the modules it loads ([`loader::get_proc_address`]). Installed once
+/// ([`install_layer`]) by the layer's `units::funcs`, which [`Engine::new`] runs before it makes
+/// the kernel; a program without the layer (an engine part crate's tests) has the core's imports
+/// only.
+pub struct Layer {
+    /// The layer's (DLL, name, platform version) imports.
+    pub imports: fn() -> Vec<(&'static str, &'static str, AbiFn)>,
+    /// A new engine's layer state.
+    pub new_state: fn() -> Box<dyn std::any::Any>,
+    /// Runs as `CloseHandle` closes a [`KernelObject::File`].
+    pub file_closed: fn(&mut Engine, &Opaque),
+    /// `GetProcAddress` on a module the layer loaded (`LoadLibraryA`): the procedure's address,
+    /// `None` for a module that is not the layer's ([`loader::get_proc_address`]).
+    pub proc_address: fn(&mut Engine, u32, &[u8]) -> Option<u32>,
+}
+
+static LAYER: std::sync::OnceLock<&'static Layer> = std::sync::OnceLock::new();
+
+/// Installs the platform layer for every engine made from now on (the first call wins; the
+/// layer is the same for the whole program).
+pub fn install_layer(layer: &'static Layer) {
+    let _ = LAYER.set(layer);
+}
+
+/// [`Layer::proc_address`], `None` without the layer.
+fn layer_proc_address(e: &mut Engine, module: u32, name: &[u8]) -> Option<u32> {
+    LAYER
+        .get()
+        .and_then(|layer| (layer.proc_address)(e, module, name))
+}
+
+/// A new engine's platform layer state ([`Layer::new_state`]), `None` without the layer.
+pub fn new_layer_state() -> Option<Box<dyn std::any::Any>> {
+    LAYER.get().map(|layer| (layer.new_state)())
+}
+
+/// An object the platform layer keeps behind a handle ([`KernelObject::File`],
+/// [`KernelObject::FindFile`]), of a type the core does not know.
+#[derive(Debug)]
+pub struct Opaque(Box<dyn OpaqueObject>);
+
+/// What [`Opaque`] needs of the object it holds (any `Debug + Clone + PartialEq` type).
+pub trait OpaqueObject: std::any::Any + std::fmt::Debug {
+    fn clone_box(&self) -> Box<dyn OpaqueObject>;
+    fn eq_box(&self, other: &dyn OpaqueObject) -> bool;
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+}
+
+impl<T: std::any::Any + std::fmt::Debug + Clone + PartialEq> OpaqueObject for T {
+    fn clone_box(&self) -> Box<dyn OpaqueObject> {
+        Box::new(self.clone())
+    }
+    fn eq_box(&self, other: &dyn OpaqueObject) -> bool {
+        other.as_any().downcast_ref::<T>() == Some(self)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl Opaque {
+    pub fn new<T: OpaqueObject>(object: T) -> Self {
+        Self(Box::new(object))
+    }
+    /// The object, when it is a `T`.
+    pub fn get<T: std::any::Any>(&self) -> Option<&T> {
+        self.0.as_any().downcast_ref()
+    }
+    /// The object, when it is a `T`.
+    pub fn get_mut<T: std::any::Any>(&mut self) -> Option<&mut T> {
+        self.0.as_any_mut().downcast_mut()
+    }
+}
+
+impl Clone for Opaque {
+    fn clone(&self) -> Self {
+        Self(self.0.clone_box())
+    }
+}
+
+impl PartialEq for Opaque {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq_box(other.0.as_ref())
+    }
+}
+
+impl Eq for Opaque {}
 
 /// `NV_FACE_CHECK` (diagnostic only, not exe behaviour): the sizes of the FaceGen face images
 /// (`0064ceb0`) not yet matched, each `width << 32 | height`. The real-device side (`d3d9real`)
@@ -464,9 +550,6 @@ pub fn counted_semaphore_release(e: &mut Engine, this: Ptr) -> u32 {
 
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
-        entry!(0x00ed_193c, d3d9::cpu_id_flag_test() -> u32),
-        entry!(0x00ed_1951, d3d9::cpuid(u32, Ptr)),
-        entry!(0x00ed_1964, d3d9::cpuid(u32, Ptr)),
         entry!(0x0044_24e0, counted_semaphore_wait(Ptr) -> u32),
         entry!(0x0044_2550, counted_semaphore_release(Ptr) -> u32),
         entry!(0x00401020, get_memory_manager() -> Ptr),
@@ -816,188 +899,6 @@ fn reg_close_key(e: &mut Engine, key: u32) -> u32 {
     }
 }
 
-/// ASCII white space taken off both ends (`<[u8]>::trim_ascii` is newer than the MSRV).
-trait TrimSpaces {
-    fn trim_spaces(&self) -> &Self;
-}
-
-impl TrimSpaces for [u8] {
-    fn trim_spaces(&self) -> &[u8] {
-        let start = self
-            .iter()
-            .position(|b| !b.is_ascii_whitespace())
-            .unwrap_or(self.len());
-        let end = self
-            .iter()
-            .rposition(|b| !b.is_ascii_whitespace())
-            .map_or(start, |i| i + 1);
-        &self[start..end.max(start)]
-    }
-}
-
-/// The value of `key` in section `section` of the INI text `text` (names compared without case,
-/// spaces around names and values trimmed, one pair of surrounding quotes taken off), as
-/// `GetPrivateProfileStringA` finds it.
-fn ini_value(text: &[u8], section: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-    let mut inside = false;
-    for line in text.split(|&b| b == b'\n') {
-        let line = line.trim_spaces();
-        if let Some(rest) = line.strip_prefix(b"[") {
-            let name = rest.split(|&b| b == b']').next().unwrap_or(rest);
-            inside = name.trim_spaces().eq_ignore_ascii_case(section);
-            continue;
-        }
-        if !inside {
-            continue;
-        }
-        let Some(at) = line.iter().position(|&b| b == b'=') else {
-            continue;
-        };
-        if line[..at].trim_spaces().eq_ignore_ascii_case(key) {
-            let value = line[at + 1..].trim_spaces();
-            let value = match value {
-                [b'"', middle @ .., b'"'] => middle,
-                _ => value,
-            };
-            return Some(value.to_vec());
-        }
-    }
-    None
-}
-
-/// The text of the profile file `file` names: a name without a full path is in the Windows
-/// directory, as the profile functions look for it (`d3d9::windows_directory`, from the
-/// player's table); the file as the game made it in this run when it did (`files`), else the
-/// player's file, read only. `None` when there is none.
-fn profile_text(e: &mut Engine, file: Ptr) -> Option<Vec<u8>> {
-    let name = e.mem.cstr(file.addr());
-    let path = if files::is_full_path(&name) {
-        name
-    } else {
-        let mut path = d3d9::windows_directory(e);
-        path.push(b'\\');
-        path.extend_from_slice(&name);
-        path
-    };
-    files::read_whole(e, &path)
-}
-
-// Platform: replaces KERNEL32.DLL GetPrivateProfileIntA (import)
-/// `GetPrivateProfileIntA(section, key, default, file)`: the key's value as an integer, or
-/// `default` when the file, the section or the key isn't there ([`profile_text`]). The value is
-/// read as [`profile_int`] does, which follows Windows' answers measured on the player's machine
-/// (2026-10-21, 38 values).
-fn get_private_profile_int_a(
-    e: &mut Engine,
-    section: Ptr,
-    key: Ptr,
-    default: u32,
-    file: Ptr,
-) -> u32 {
-    let section = e.mem.cstr(section.addr());
-    let key = e.mem.cstr(key.addr());
-    let Some(value) = profile_text(e, file).and_then(|text| ini_value(&text, &section, &key))
-    else {
-        return default;
-    };
-    profile_int(&value)
-}
-
-/// A profile value as Windows' `GetPrivateProfileIntA` reads it (measured): leading spaces and
-/// tabs, then one optional `+` or `-`, then an optional lower-case base prefix `0x` (16), `0o`
-/// (8) or `0b` (2), else base 10; digits of that base up to the first other character, kept
-/// modulo 2^32; a `-` negates the result modulo 2^32. No digits (`-`, `0x`, `0b2`, `x5`) give 0;
-/// upper-case prefixes are not prefixes (`0X1F` is 0).
-fn profile_int(value: &[u8]) -> u32 {
-    let mut rest = value;
-    while let [b' ' | b'\t', tail @ ..] = rest {
-        rest = tail;
-    }
-    let negative = match rest {
-        [b'-', tail @ ..] => {
-            rest = tail;
-            true
-        }
-        [b'+', tail @ ..] => {
-            rest = tail;
-            false
-        }
-        _ => false,
-    };
-    let base = match rest {
-        [b'0', b'x', tail @ ..] => {
-            rest = tail;
-            16
-        }
-        [b'0', b'o', tail @ ..] => {
-            rest = tail;
-            8
-        }
-        [b'0', b'b', tail @ ..] => {
-            rest = tail;
-            2
-        }
-        _ => 10,
-    };
-    let mut n = 0u32;
-    for &c in rest {
-        let Some(digit) = char::from(c).to_digit(base) else {
-            break;
-        };
-        n = n.wrapping_mul(base).wrapping_add(digit);
-    }
-    if negative {
-        n.wrapping_neg()
-    } else {
-        n
-    }
-}
-
-// Platform: replaces KERNEL32.DLL GetPrivateProfileStringA (import)
-/// The value of `key` in `section` of the INI file `file` ([`profile_text`]), or
-/// `default` (none: empty) when the file, the section or the key isn't there: copied into
-/// `buffer`, cut to `size - 1` bytes and zero-terminated; answers the bytes copied. Listing a
-/// file's sections or keys (a null section or key) is not provided.
-fn get_private_profile_string_a(
-    e: &mut Engine,
-    section: Ptr,
-    key: Ptr,
-    default: Ptr,
-    buffer: Ptr,
-    size: u32,
-    file: Ptr,
-) -> u32 {
-    if section.is_null() || key.is_null() {
-        panic!("GetPrivateProfileStringA with a null section or key is not provided");
-    }
-    let section = e.mem.cstr(section.addr());
-    let key = e.mem.cstr(key.addr());
-    let found = profile_text(e, file).and_then(|text| ini_value(&text, &section, &key));
-    let value = match found {
-        Some(value) => value,
-        None if default.is_null() => Vec::new(),
-        None => e.mem.cstr(default.addr()),
-    };
-    if size == 0 {
-        return 0;
-    }
-    let copied = value.len().min(size as usize - 1);
-    e.mem.set_cstr(buffer.addr(), &value[..copied]);
-    copied as u32
-}
-
-// Platform: replaces KERNEL32.DLL WritePrivateProfileStringA (import)
-/// Answers success without writing: the platform never changes the player's files.
-fn write_private_profile_string_a(
-    _e: &mut Engine,
-    _section: Ptr,
-    _key: Ptr,
-    _value: Ptr,
-    _file: Ptr,
-) -> u32 {
-    1
-}
-
 // Platform: replaces KERNEL32.DLL GetLastError (import): the thread's
 // last-error code, which only SetLastError changes here (one thread).
 fn get_last_error(e: &mut Engine) -> u32 {
@@ -1007,17 +908,6 @@ fn get_last_error(e: &mut Engine) -> u32 {
 // Platform: replaces KERNEL32.DLL SetLastError (import)
 fn set_last_error(e: &mut Engine, code: u32) {
     e.kernel.last_error = code;
-}
-
-// Platform: replaces USER32.DLL GetSystemMetrics (import)
-/// `GetSystemMetrics(index)`: the screen metrics the Direct3D 9 layer's capture recorded for a
-/// program without a DPI-awareness manifest (`d3d9::system_metric`: `SM_CXSCREEN`,
-/// `SM_CYSCREEN`, `SM_CMONITORS`). Other metrics are not provided.
-fn get_system_metrics(e: &mut Engine, index: u32) -> u32 {
-    match d3d9::system_metric(e, index) {
-        Some(value) => value,
-        None => panic!("GetSystemMetrics({index:#x}) is not provided"),
-    }
 }
 
 // Platform: replaces D3D9.DLL D3DPERF_SetOptions (import)
@@ -1158,7 +1048,7 @@ pub enum KernelObject {
     Window,
     /// An open registry key ([`reg_open_key_ex_a`]): `HKCUControl PanelMouse`.
     RegistryKey,
-    /// A mutex ([`window::create_mutex_a`]): its name, the owning thread's id (0: none) and how
+    /// A mutex (`engine-platform`'s `window::create_mutex_a`): its name, the owning thread's id (0: none) and how
     /// many times the owner took it.
     Mutex {
         name: Vec<u8>,
@@ -1167,10 +1057,11 @@ pub enum KernelObject {
     },
     /// A USER32 or GDI32 object this layer only hands out a handle for (an icon, a stock brush).
     UserObject(&'static str),
-    /// An open file ([`files::create_file_a`]): its path and position.
-    File(files::OpenFile),
-    /// A file search ([`files::find_first_file_a`]): the entries it has left to answer.
-    FindFile(files::Search),
+    /// An open file (`engine-platform`'s `files::create_file_a`): its path and position.
+    File(Opaque),
+    /// A file search (`engine-platform`'s `files::find_first_file_a`): the entries it has left
+    /// to answer.
+    FindFile(Opaque),
     /// A heap from [`heap_create`]: only its handle.
     Heap,
 }
@@ -1188,7 +1079,7 @@ pub struct Region {
 /// The handle table and the `VirtualAlloc` reservations (`Engine::kernel`).
 #[derive(Debug, Default)]
 pub struct Kernel {
-    objects: crate::engine::AddrMap<u32, KernelObject>,
+    pub objects: crate::engine::AddrMap<u32, KernelObject>,
     last_handle: u32,
     /// The game threads and their scheduling (`crate::thread_host`).
     pub threads: crate::thread_host::Threads,
@@ -1210,29 +1101,22 @@ pub struct Kernel {
     pub main_window: u32,
     /// Whether `SwapMouseButton` swapped the buttons.
     mouse_buttons_swapped: bool,
-    /// The DirectInput 8 objects and the keyboard and mouse state behind them ([`dinput`]).
-    pub input: dinput::Input,
+    /// The platform layer's state ([`Layer::new_state`]): in `engine-platform`, the DirectInput 8
+    /// objects and the keyboard and mouse state behind them, the DirectSound 8 and Direct3D 9
+    /// objects, the window classes, windows, message queue and command line, the
+    /// files the game made in this run and the process side. `None` without the layer.
+    pub platform: Option<Box<dyn std::any::Any>>,
     /// Fiber-local storage ([`loader`]).
     pub fls: loader::Fls,
-    /// The DirectSound 8 objects ([`dsound`]).
-    pub sound: dsound::Sound,
-    /// The Direct3D 9 objects ([`d3d9`]).
-    pub graphics: d3d9::Graphics,
     /// The sizes the CRT's heap blocks were asked for (`malloc`, `realloc`, `__calloc_crt` on
     /// the platform allocator), as `HeapSize` answers them for `_msize` (`crate::units::crt`).
     pub crt_block_sizes: std::collections::HashMap<u32, u32>,
-    /// Window classes, windows, the message queue and the command line ([`window`]).
-    pub windows: window::Windows,
-    /// The files the game made in this run ([`files`]).
-    pub disk: files::Disk,
     /// The threads that called `CoInitializeEx`, with their concurrency mode.
     pub com_threads: std::collections::BTreeMap<u32, u32>,
     /// The critical sections by address: the mutex object standing for each.
     pub critical_sections: crate::engine::AddrMap<u32, u32>,
-    /// The process side: the ANSI command line and the environment blocks ([`process`]).
-    pub process: process::Process,
     /// The thread's last-error code (`GetLastError`/`SetLastError`).
-    last_error: u32,
+    pub last_error: u32,
 }
 
 impl Kernel {
@@ -1241,7 +1125,7 @@ impl Kernel {
         self.objects.get(&handle)
     }
 
-    fn insert(&mut self, object: KernelObject) -> u32 {
+    pub fn insert(&mut self, object: KernelObject) -> u32 {
         self.last_handle += 4;
         self.objects.insert(self.last_handle, object);
         self.last_handle
@@ -1762,11 +1646,13 @@ fn wait_for_multiple_objects(
 
 // Platform: replaces KERNEL32.DLL CloseHandle (import)
 /// Closes a handle from this table; 0 for one that is not open. A file handle that wrote
-/// publishes the file's size and times to its directory entry ([`files::closed`]).
-fn close_handle(e: &mut Engine, handle: u32) -> i32 {
+/// publishes the file's size and times to its directory entry ([`Layer::file_closed`]).
+pub fn close_handle(e: &mut Engine, handle: u32) -> i32 {
     match e.kernel.objects.remove(&handle) {
         Some(KernelObject::File(file)) => {
-            files::closed(e, &file);
+            if let Some(layer) = LAYER.get() {
+                (layer.file_closed)(e, &file);
+            }
             1
         }
         Some(_) => 1,
@@ -2173,10 +2059,11 @@ fn set_thread_priority(e: &mut Engine, handle: u32, _priority: i32) -> i32 {
         )) as i32
 }
 
-/// (DLL, name, platform version) of the imports with a Rust stand-in.
+/// (DLL, name, platform version) of the imports with a Rust stand-in: the core's own (the
+/// kernel objects, threads, memory and clock the engine crates' tests use), then those of the
+/// platform layer when the program links it ([`Layer::imports`], `engine-platform`).
 pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
     let k = "KERNEL32.dll";
-    #[allow(unused_mut)]
     let mut imports = vec![
         (
             k,
@@ -2243,21 +2130,6 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
         (k, "SetLastError", entry!(0, set_last_error(u32)).1),
         (k, "GetTickCount", entry!(0, get_tick_count() -> u32).1),
         (
-            k,
-            "GetPrivateProfileStringA",
-            entry!(0, get_private_profile_string_a(Ptr, Ptr, Ptr, Ptr, u32, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "WritePrivateProfileStringA",
-            entry!(0, write_private_profile_string_a(Ptr, Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "GetAsyncKeyState",
-            entry!(0, dinput::get_async_key_state(u32) -> u32).1,
-        ),
-        (
             "USER32.dll",
             "GetActiveWindow",
             entry!(0, get_active_window() -> u32).1,
@@ -2273,356 +2145,10 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             entry!(0, get_double_click_time() -> u32).1,
         ),
         (
-            "USER32.dll",
-            "GetSystemMetrics",
-            entry!(0, get_system_metrics(u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "EnumDisplayDevicesA",
-            entry!(0, d3d9::enum_display_devices_a(Ptr, u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            k,
-            "LoadLibraryA",
-            entry!(0, loader::load_library_a(Ptr) -> u32).1,
-        ),
-        (k, "FreeLibrary", entry!(0, loader::free_library(u32) -> u32).1),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixMultiply",
-            entry!(0, d3dx::matrix_multiply(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixMultiplyTranspose",
-            entry!(0, d3dx::matrix_multiply_transpose(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixRotationYawPitchRoll",
-            entry!(0, d3dx::matrix_rotation_yaw_pitch_roll(Ptr, u32, u32, u32) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixTranspose",
-            entry!(0, d3dx::matrix_transpose(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3TransformNormal",
-            entry!(0, d3dx::vec3_transform_normal(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3Normalize",
-            entry!(0, d3dx::vec3_normalize(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3TransformCoord",
-            entry!(0, d3dx::vec3_transform_coord(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixInverse",
-            entry!(0, d3dx::matrix_inverse(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXPlaneNormalize",
-            entry!(0, d3dx::plane_normalize(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXPlaneTransform",
-            entry!(0, d3dx::plane_transform(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec4Transform",
-            entry!(0, d3dx::vec4_transform_import(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXGetImageInfoFromFileInMemory",
-            entry!(0, d3dx::get_image_info_from_file_in_memory(Ptr, u32, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXCreateTextureFromFileInMemory",
-            entry!(0, d3dx::create_texture_from_file_in_memory(Ptr, Ptr, u32, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXCreateCubeTextureFromFileInMemory",
-            entry!(0, d3dx::create_cube_texture_from_file_in_memory(Ptr, Ptr, u32, Ptr) -> u32).1,
-        ),
-        (
             "d3d9.dll",
             "D3DPERF_SetOptions",
             entry!(0, d3dperf_set_options(u32)).1,
         ),
-        (
-            k,
-            "CreateMutexA",
-            entry!(0, window::create_mutex_a(u32, u32, Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "MessageBoxA",
-            entry!(0, window::message_box_a(u32, Ptr, Ptr, u32) -> u32).1,
-        ),
-        (k, "ExitProcess", entry!(0, window::exit_process(u32)).1),
-        (
-            "SHELL32.dll",
-            "ShellExecuteA",
-            entry!(0, window::shell_execute_a(u32, u32, Ptr, u32, u32, u32) -> u32).1,
-        ),
-        (
-            k,
-            "IsDebuggerPresent",
-            entry!(0, window::is_debugger_present() -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "FindWindowA",
-            entry!(0, window::find_window_a(u32, Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "SetForegroundWindow",
-            entry!(0, window::set_foreground_window(u32) -> u32).1,
-        ),
-        (
-            k,
-            "GetCommandLineW",
-            entry!(0, window::get_command_line_w() -> u32).1,
-        ),
-        (
-            "SHELL32.dll",
-            "CommandLineToArgvW",
-            entry!(0, window::command_line_to_argv_w(Ptr, Ptr) -> u32).1,
-        ),
-        (k, "LocalFree", entry!(0, window::local_free(u32) -> u32).1),
-        (
-            "USER32.dll",
-            "LoadIconA",
-            entry!(0, window::load_icon_a(u32, u32) -> u32).1,
-        ),
-        (
-            "GDI32.dll",
-            "GetStockObject",
-            entry!(0, window::get_stock_object(u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "RegisterClassA",
-            entry!(0, window::register_class_a(Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "AdjustWindowRect",
-            entry!(0, window::adjust_window_rect(Ptr, u32, u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "AdjustWindowRectEx",
-            entry!(0, window::adjust_window_rect_ex(Ptr, u32, u32, u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "CreateWindowExA",
-            entry!(0, window::create_window_ex_a(u32, u32, Ptr, u32, i32, i32, i32, i32, u32, u32, u32, u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "GetWindowLongA",
-            entry!(0, window::get_window_long_a(u32, i32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "GetClassLongA",
-            entry!(0, window::get_class_long_a(u32, i32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "SetWindowTextA",
-            entry!(0, window::set_window_text_a(u32, Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "SetWindowPos",
-            entry!(0, window::set_window_pos(u32, u32, i32, i32, i32, i32, u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "PeekMessageA",
-            entry!(0, window::peek_message_a(Ptr, u32, u32, u32, u32) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "TranslateMessage",
-            entry!(0, window::translate_message(Ptr) -> u32).1,
-        ),
-        (
-            "USER32.dll",
-            "DispatchMessageA",
-            entry!(0, window::dispatch_message_a(Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "GetPrivateProfileIntA",
-            entry!(0, get_private_profile_int_a(Ptr, Ptr, u32, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "GetFileAttributesA",
-            entry!(0, files::get_file_attributes_a(Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "CreateDirectoryA",
-            entry!(0, files::create_directory_a(Ptr, u32) -> u32).1,
-        ),
-        (k, "DeleteFileA", entry!(0, files::delete_file_a(Ptr) -> u32).1),
-        (
-            k,
-            "CopyFileA",
-            entry!(0, files::copy_file_a(Ptr, Ptr, u32) -> u32).1,
-        ),
-        (
-            k,
-            "MoveFileA",
-            entry!(0, files::move_file_a(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "SHELL32.dll",
-            "SHGetFolderPathA",
-            entry!(0, files::sh_get_folder_path_a(u32, u32, u32, u32, Ptr) -> u32).1,
-        ),
-        (
-            "ADVAPI32.dll",
-            "GetUserNameA",
-            entry!(0, window::get_user_name_a(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamAPI_Init",
-            entry!(0, window::steam_api_init() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamAPI_RegisterCallback",
-            entry!(0, window::steam_api_register_callback(Ptr, u32)).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamAPI_UnregisterCallback",
-            entry!(0, window::steam_api_unregister_callback(Ptr)).1,
-        ),
-        // The platform5 imports (slot a04): begin.
-        (
-            "steam_api.dll",
-            "SteamAPI_IsSteamRunning",
-            entry!(0, window::steam_api_is_steam_running() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamUserStats",
-            entry!(0, window::steam_user_stats() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamFriends",
-            entry!(0, window::steam_friends() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamUtils",
-            entry!(0, window::steam_utils() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamUser",
-            entry!(0, window::steam_user() -> u32).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamAPI_RunCallbacks",
-            entry!(0, window::steam_api_run_callbacks()).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamAPI_Shutdown",
-            entry!(0, window::steam_api_shutdown()).1,
-        ),
-        (
-            "steam_api.dll",
-            "SteamApps",
-            entry!(0, window::steam_apps() -> u32).1,
-        ),
-        (
-            k,
-            "GetModuleFileNameA",
-            entry!(0, process::get_module_file_name_a(u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            k,
-            "GetCommandLineA",
-            entry!(0, process::get_command_line_a() -> u32).1,
-        ),
-        (
-            k,
-            "GetEnvironmentStringsW",
-            entry!(0, process::get_environment_strings_w() -> u32).1,
-        ),
-        (
-            k,
-            "FreeEnvironmentStringsW",
-            entry!(0, process::free_environment_strings_w(u32) -> u32).1,
-        ),
-        (
-            k,
-            "GetCurrentProcessId",
-            entry!(0, process::get_current_process_id() -> u32).1,
-        ),
-        (
-            k,
-            "HeapFree",
-            entry!(0, process::heap_free(u32, u32, u32) -> u32).1,
-        ),
-        (
-            k,
-            "HeapReAlloc",
-            entry!(0, process::heap_re_alloc(u32, u32, u32, u32) -> u32).1,
-        ),
-        (
-            k,
-            "CreateFileW",
-            entry!(0, files::create_file_w(Ptr, u32, u32, u32, u32, u32, u32) -> u32).1,
-        ),
-        (
-            k,
-            "GetFileSizeEx",
-            entry!(0, files::get_file_size_ex(u32, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "SystemTimeToTzSpecificLocalTime",
-            entry!(0, time::system_time_to_tz_specific_local_time(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "SetUnhandledExceptionFilter",
-            entry!(0, process::set_unhandled_exception_filter(u32) -> u32).1,
-        ),
-        (
-            k,
-            "GetStringTypeW",
-            entry!(0, nls::get_string_type_w(u32, Ptr, i32, Ptr) -> u32).1,
-        ),
-        // The platform5 imports: end.
         (
             "ADVAPI32.dll",
             "RegOpenKeyExA",
@@ -2654,16 +2180,15 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             entry!(0, loader::get_proc_address(u32, u32) -> u32).1,
         ),
         (
-            "DSOUND.dll",
-            "#11",
-            entry!(0, dsound::direct_sound_create8(u32, Ptr, u32) -> u32).1,
-        ),
-        (
             "ole32.dll",
             "CoInitializeEx",
             entry!(0, co_initialize_ex(u32, u32) -> u32).1,
         ),
-        ("ole32.dll", "CoUninitialize", entry!(0, co_uninitialize()).1),
+        (
+            "ole32.dll",
+            "CoUninitialize",
+            entry!(0, co_uninitialize()).1,
+        ),
         (
             "ole32.dll",
             "CoTaskMemAlloc",
@@ -2678,16 +2203,6 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             "ole32.dll",
             "CoFreeUnusedLibraries",
             entry!(0, co_free_unused_libraries()).1,
-        ),
-        (
-            "ole32.dll",
-            "CoInitialize",
-            entry!(0, dsound::co_initialize(u32) -> u32).1,
-        ),
-        (
-            "DINPUT8.dll",
-            "DirectInput8Create",
-            entry!(0, dinput::direct_input8_create(u32, u32, Ptr, Ptr, u32) -> u32).1,
         ),
         (
             "XINPUT1_3.dll",
@@ -2750,48 +2265,6 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
         (k, "CloseHandle", entry!(0, close_handle(u32) -> i32).1),
         (
             k,
-            "CreateFileA",
-            entry!(0, files::create_file_a(Ptr, u32, u32, u32, u32, u32, u32) -> u32).1,
-        ),
-        (k, "GetFileType", entry!(0, files::get_file_type(u32) -> u32).1),
-        (
-            k,
-            "SetFilePointer",
-            entry!(0, files::set_file_pointer(u32, u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            k,
-            "WriteFile",
-            entry!(0, files::write_file(u32, Ptr, u32, Ptr, u32) -> i32).1,
-        ),
-        (
-            k,
-            "ReadFile",
-            entry!(0, files::read_file(u32, Ptr, u32, Ptr, u32) -> i32).1,
-        ),
-        (
-            k,
-            "FindFirstFileA",
-            entry!(0, files::find_first_file_a(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "FindNextFileA",
-            entry!(0, files::find_next_file_a(u32, Ptr) -> u32).1,
-        ),
-        (
-            k,
-            "CompareFileTime",
-            entry!(0, files::compare_file_time(Ptr, Ptr) -> i32).1,
-        ),
-        (k, "FindClose", entry!(0, files::find_close(u32) -> u32).1),
-        (
-            k,
-            "GetFullPathNameA",
-            entry!(0, files::get_full_path_name_a(Ptr, u32, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            k,
             "GetCurrentThread",
             entry!(0, get_current_thread() -> u32).1,
         ),
@@ -2841,199 +2314,25 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
         ),
         (k, "GetStartupInfoA", entry!(0, get_startup_info_a(Ptr)).1),
         (k, "GetStdHandle", entry!(0, get_std_handle(u32) -> u32).1),
-        (k, "SetHandleCount", entry!(0, set_handle_count(u32) -> u32).1),
-        (k, "HeapCreate", entry!(0, heap_create(u32, u32, u32) -> u32).1),
-        (k, "HeapAlloc", entry!(0, heap_alloc(u32, u32, u32) -> u32).1),
         (
             k,
-            "GetSystemTimeAsFileTime",
-            entry!(0, time::get_system_time_as_file_time(Ptr)).1,
+            "SetHandleCount",
+            entry!(0, set_handle_count(u32) -> u32).1,
         ),
         (
             k,
-            "GetTimeZoneInformation",
-            entry!(0, time::get_time_zone_information(Ptr) -> u32).1,
-        ),
-        (k, "GetACP", entry!(0, d3d9::get_acp() -> u32).1),
-        (k, "GetOEMCP", entry!(0, d3d9::get_oemcp() -> u32).1),
-        (
-            k,
-            "IsValidCodePage",
-            entry!(0, d3d9::is_valid_code_page(u32) -> u32).1,
-        ),
-        (k, "GetCPInfo", entry!(0, d3d9::get_cp_info(u32, Ptr) -> u32).1),
-        (
-            k,
-            "FileTimeToLocalFileTime",
-            entry!(0, time::file_time_to_local_file_time(Ptr, Ptr) -> u32).1,
-        ),
-        (k, "GetLocalTime", entry!(0, time::get_local_time(Ptr)).1),
-        (
-            k,
-            "FileTimeToSystemTime",
-            entry!(0, time::file_time_to_system_time(Ptr, Ptr) -> u32).1,
+            "HeapCreate",
+            entry!(0, heap_create(u32, u32, u32) -> u32).1,
         ),
         (
             k,
-            "WideCharToMultiByte",
-            entry!(0, time::wide_char_to_multi_byte(u32, u32, Ptr, i32, Ptr, i32, Ptr, Ptr) -> u32).1,
+            "HeapAlloc",
+            entry!(0, heap_alloc(u32, u32, u32) -> u32).1,
         ),
-        // The Bink imports (`bink`, slot a11): begin.
-        (
-            "binkw32.dll",
-            "_BinkSetSoundSystem@8",
-            entry!(0, bink::set_sound_system(u32, u32) -> i32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkOpenDirectSound@4",
-            entry!(0, bink::open_direct_sound(u32) -> u32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkOpen@8",
-            entry!(0, bink::open(Ptr, u32) -> u32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkClose@4",
-            entry!(0, bink::close(u32)).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkDoFrame@4",
-            entry!(0, bink::do_frame(u32) -> i32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkNextFrame@4",
-            entry!(0, bink::next_frame(u32)).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkWait@4",
-            entry!(0, bink::wait(u32) -> i32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkPause@8",
-            entry!(0, bink::pause(u32, i32) -> i32).1,
-        ),
-        (
-            "binkw32.dll",
-            "_BinkCopyToBufferRect@44",
-            entry!(0, bink::copy_to_buffer_rect(u32, Ptr, i32, u32, u32, u32, u32, u32, u32, u32, u32) -> i32).1,
-        ),
-        // The Bink imports: end.
-        // The Ogg Vorbis imports (`vorbisfile`, slot a11): begin.
-        (
-            "libvorbisfile.dll",
-            "ov_open_callbacks",
-            entry!(0, vorbisfile::ov_open_callbacks(u32, Ptr, u32, i32, u32, u32, u32, u32) -> i32).1,
-        ),
-        (
-            "libvorbisfile.dll",
-            "ov_info",
-            entry!(0, vorbisfile::ov_info(Ptr, i32) -> u32).1,
-        ),
-        (
-            "libvorbisfile.dll",
-            "ov_seekable",
-            entry!(0, vorbisfile::ov_seekable(Ptr) -> i32).1,
-        ),
-        (
-            "libvorbisfile.dll",
-            "ov_pcm_total",
-            entry!(0, vorbisfile::ov_pcm_total(Ptr, i32) -> u64).1,
-        ),
-        (
-            "libvorbisfile.dll",
-            "ov_read",
-            entry!(0, vorbisfile::ov_read(Ptr, u32, i32, i32, i32, i32, Ptr) -> i32).1,
-        ),
-        (
-            "libvorbisfile.dll",
-            "ov_clear",
-            entry!(0, vorbisfile::ov_clear(Ptr) -> i32).1,
-        ),
-        // The Ogg Vorbis imports: end.
-        // The sound imports (`mmio`, `dsound`, slot a11): begin.
-        (
-            "WINMM.dll",
-            "mmioOpenA",
-            entry!(0, mmio::mmio_open_a(Ptr, Ptr, u32) -> u32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioClose",
-            entry!(0, mmio::mmio_close(u32, u32) -> u32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioRead",
-            entry!(0, mmio::mmio_read(u32, Ptr, i32) -> i32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioDescend",
-            entry!(0, mmio::mmio_descend(u32, Ptr, Ptr, u32) -> u32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioAscend",
-            entry!(0, mmio::mmio_ascend(u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioGetInfo",
-            entry!(0, mmio::mmio_get_info(u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            "WINMM.dll",
-            "mmioAdvance",
-            entry!(0, mmio::mmio_advance(u32, Ptr, u32) -> u32).1,
-        ),
-        (
-            "ole32.dll",
-            "CoCreateInstance",
-            entry!(0, dsound::co_create_instance(Ptr, u32, u32, Ptr, Ptr) -> u32).1,
-        ),
-        // The sound imports: end.
     ];
-    // The shader compiler through the player's own d3dx9_38.dll (ADR-0008, Windows only).
-    #[cfg(windows)]
-    imports.extend([
-        (
-            "d3dx9_38.dll",
-            "D3DXCompileShader",
-            entry!(0, d3dxreal::compile_shader(Ptr, u32, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXGetShaderConstantTable",
-            entry!(0, d3dxreal::get_shader_constant_table(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXGetVertexShaderProfile",
-            entry!(0, d3dxreal::get_vertex_shader_profile(Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXGetPixelShaderProfile",
-            entry!(0, d3dxreal::get_pixel_shader_profile(Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXCreateBuffer",
-            entry!(0, d3dxreal::create_buffer(u32, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXAssembleShader",
-            entry!(0, d3dxreal::assemble_shader(Ptr, u32, Ptr, Ptr, u32, Ptr, Ptr) -> u32).1,
-        ),
-    ]);
+    if let Some(layer) = LAYER.get() {
+        imports.extend((layer.imports)());
+    }
     imports
 }
 
@@ -4867,109 +4166,6 @@ mod os_defaults_tests {
         assert_eq!(reg_close_key(&mut e, key), ERROR_SUCCESS);
         assert_eq!(reg_close_key(&mut e, key), ERROR_INVALID_HANDLE);
     }
-
-    #[test]
-    fn ini_values_are_found_by_section_and_key() {
-        let text = b"; comment\r\n[General]\r\n sLanguage = ENGLISH \r\n[Controls]\r\nForward=\"0011FF00\"\r\nBack=1F\r\n";
-        assert_eq!(
-            ini_value(text, b"controls", b"forward").unwrap(),
-            b"0011FF00"
-        );
-        assert_eq!(ini_value(text, b"Controls", b"Back").unwrap(), b"1F");
-        assert_eq!(
-            ini_value(text, b"General", b"sLanguage").unwrap(),
-            b"ENGLISH"
-        );
-        assert_eq!(ini_value(text, b"General", b"Back"), None);
-    }
-
-    /// Windows' `GetPrivateProfileIntA` answers, measured on the player's machine (2026-10-21).
-    #[test]
-    fn profile_ints_read_as_windows_does() {
-        let measured: &[(&[u8], u32)] = &[
-            (b"-5", 0xffff_fffb),
-            (b"-0", 0),
-            (b"0x10", 16),
-            (b"0X1F", 0),
-            (b"-0x10", 0xffff_fff0),
-            (b"12abc", 12),
-            (b"  7", 7),
-            (b"+3", 3),
-            (b"4294967295", 0xffff_ffff),
-            (b"4294967296", 0),
-            (b"99999999999", 1_215_752_191),
-            (b"1e3", 1),
-            (b"0", 0),
-            (b"08", 8),
-            (b"010", 10),
-            (b"-", 0),
-            (b"x5", 0),
-            (b"0b101", 5),
-            (b"0o17", 15),
-            (b"0x", 0),
-            (b"0xg", 0),
-            (b"-  5", 0),
-            (b" -5", 0xffff_fffb),
-            (b"0b2", 0),
-            (b"0x10abc", 0x10abc),
-            (b"0xFFFFFFFF1", 0xffff_fff1),
-            (b"0B11", 0),
-            (b"0O7", 0),
-            (b"\t9", 9),
-            (b"--5", 0),
-            (b"+-5", 0),
-            (b"- 5", 0),
-            (b"00x10", 0),
-            (b"0x-5", 0),
-            (b"0b", 0),
-            (b"0o8", 0),
-            (b"5 6", 5),
-        ];
-        for &(value, want) in measured {
-            assert_eq!(profile_int(value), want, "{:?}", std::str::from_utf8(value));
-        }
-    }
-
-    /// A missing file gives the default, cut to the buffer; writing changes nothing and answers 1.
-    #[test]
-    fn profile_strings_fall_back_to_the_default() {
-        let mut e = engine();
-        e.mem.set_cstr(0x1000, b"Controls");
-        e.mem.set_cstr(0x1020, b"Forward");
-        e.mem.set_cstr(0x1040, b"default");
-        e.mem.set_cstr(0x1060, br"Z:\no\such\file.ini");
-        let n = get_private_profile_string_a(
-            &mut e,
-            Ptr::new(0x1000),
-            Ptr::new(0x1020),
-            Ptr::new(0x1040),
-            Ptr::new(0x1100),
-            4,
-            Ptr::new(0x1060),
-        );
-        assert_eq!(n, 3);
-        assert_eq!(e.mem.cstr(0x1100), b"def");
-        let n = get_private_profile_string_a(
-            &mut e,
-            Ptr::new(0x1000),
-            Ptr::new(0x1020),
-            Ptr::NULL,
-            Ptr::new(0x1100),
-            0x40,
-            Ptr::new(0x1060),
-        );
-        assert_eq!((n, e.mem.u8(0x1100)), (0, 0));
-        assert_eq!(
-            write_private_profile_string_a(
-                &mut e,
-                Ptr::new(0x1000),
-                Ptr::new(0x1020),
-                Ptr::new(0x1040),
-                Ptr::new(0x1060)
-            ),
-            1
-        );
-    }
 }
 
 #[cfg(test)]
@@ -5017,7 +4213,8 @@ mod tests_allocations {
 
     /// Not a check: the host heap allocations of the kernel imports a frame calls most (on the
     /// main thread, nothing to wait for), for the frame-rate work (`cargo test --release -p
-    /// engine-core --lib allocations_per -- --ignored --nocapture`).
+    /// engine-core --lib allocations_per -- --ignored --nocapture`). `GetAsyncKeyState` and
+    /// `PeekMessageA` are `engine-platform`'s same measurement.
     #[test]
     #[ignore]
     fn allocations_per_operation_of_the_kernel() {
@@ -5040,7 +4237,6 @@ mod tests_allocations {
         }
         let event = e.mem.u32(events);
         let tls = e.call(slot("TlsAlloc"), &[]).u32();
-        let message = e.mem.alloc(0x1c);
         for (what, name, args) in [
             ("InterlockedIncrement", "InterlockedIncrement", vec![word]),
             (
@@ -5078,12 +4274,6 @@ mod tests_allocations {
                 "WaitForMultipleObjects of 2, signalled",
                 "WaitForMultipleObjects",
                 vec![2, events, 0, 0],
-            ),
-            ("GetAsyncKeyState", "GetAsyncKeyState", vec![0x09]),
-            (
-                "PeekMessageA, none",
-                "PeekMessageA",
-                vec![message, 0, 0, 0, 1],
             ),
         ] {
             let f = slot(name);

@@ -6,7 +6,8 @@
 //!
 //! A procedure found by name has a code address of the platform's ([`PROC_CODE`] up), registered
 //! the first time it is asked for; a name this layer does not provide stops the run, never a
-//! made-up null.
+//! made-up null. `LoadLibraryA` and `FreeLibrary` (the `D3D9.DLL` and `nvapi.dll` the platform
+//! layer stands in for) are `engine-platform`'s `library`.
 
 use crate::{Engine, Ptr};
 
@@ -112,55 +113,18 @@ fn is_processor_feature_present(_e: &mut Engine, feature: u32) -> u32 {
     panic!("IsProcessorFeaturePresent({feature}) is not provided");
 }
 
-// Platform: replaces KERNEL32.DLL LoadLibraryA (import)
-/// `LoadLibraryA(name)`: `D3D9.DLL` (any case, with or without `.DLL`, no path) is
-/// [`super::d3d9::D3D9_MODULE`], the platform's Direct3D 9 layer; `nvapi.dll` answers from the
-/// machine table (`super::nvapi::load_library`). Other modules are not provided.
-pub fn load_library_a(e: &mut Engine, name: Ptr) -> u32 {
-    let text = String::from_utf8_lossy(&e.mem.cstr(name.addr())).to_ascii_uppercase();
-    if text == "D3D9.DLL" || text == "D3D9" {
-        return super::d3d9::D3D9_MODULE;
-    }
-    if text == "NVAPI.DLL" || text == "NVAPI" {
-        return super::nvapi::load_library(e);
-    }
-    panic!("LoadLibraryA({text:?}) is not provided");
-}
-
-// Platform: replaces KERNEL32.DLL FreeLibrary (import)
-/// `FreeLibrary(module)` for a module [`load_library_a`] handed out (`D3D9.DLL`, `nvapi.dll`):
-/// nonzero, as Windows answers when the module's load count goes down. Nothing is unloaded: those
-/// modules are the platform's own layers, whose objects the game releases itself. The renderer
-/// frees its `D3D9.DLL` this way when the game exits (`00e6ec6d`). Another module is not
-/// provided.
-pub fn free_library(_e: &mut Engine, module: u32) -> u32 {
-    if module == super::d3d9::D3D9_MODULE || module == super::nvapi::NVAPI_MODULE {
-        return 1;
-    }
-    panic!("FreeLibrary({module:#x}) is not provided");
-}
-
 // Platform: replaces KERNEL32.DLL GetProcAddress (import)
 /// `GetProcAddress(module, name)`: a KERNEL32 procedure of [`PROCS`] by name, its platform code
-/// address, a `D3D9.DLL` one of [`super::d3d9::PROCS`], or `nvapi.dll`'s `nvapi_QueryInterface`
-/// ([`super::nvapi::proc_address`]). A procedure by ordinal, another module or another name is
-/// not provided.
+/// address, or one of a module the platform layer loaded ([`super::Layer::proc_address`]: a
+/// `D3D9.DLL` one of `engine-platform`'s `d3d9::PROCS`, or `nvapi.dll`'s `nvapi_QueryInterface`).
+/// A procedure by ordinal, another module or another name is not provided.
 pub fn get_proc_address(e: &mut Engine, module: u32, name: u32) -> u32 {
     if name < 0x1_0000 {
         panic!("GetProcAddress by ordinal ({name}) is not provided");
     }
     let text = e.mem.cstr(name);
-    if module == super::d3d9::D3D9_MODULE {
-        return match super::d3d9::proc_address(e, &text) {
-            Some(address) => address,
-            None => panic!(
-                "GetProcAddress(D3D9, {:?}) is not provided",
-                String::from_utf8_lossy(&text)
-            ),
-        };
-    }
-    if module == super::nvapi::NVAPI_MODULE {
-        return super::nvapi::proc_address(e, &text);
+    if let Some(address) = super::layer_proc_address(e, module, &text) {
+        return address;
     }
     if module != KERNEL32_MODULE {
         panic!("GetProcAddress on module {module:#x} is not provided");
@@ -249,17 +213,6 @@ mod tests {
         let mut e = Engine::new();
         e.mem.map(0x1000, 0x1000);
         e
-    }
-
-    /// The renderer frees the `D3D9.DLL` it loaded when the game exits (00e6ec6d): the module
-    /// handle the loader gave it is freed with a nonzero answer.
-    #[test]
-    fn free_library_answers_for_the_modules_the_loader_handed_out() {
-        let mut e = engine();
-        e.mem.write(0x1000, b"d3d9.dll\0");
-        let module = load_library_a(&mut e, Ptr::new(0x1000));
-        assert_eq!(free_library(&mut e, module), 1);
-        assert_eq!(free_library(&mut e, super::super::nvapi::NVAPI_MODULE), 1);
     }
 
     fn put_wide(e: &mut Engine, at: u32, text: &str) {

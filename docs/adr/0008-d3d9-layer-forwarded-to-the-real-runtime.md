@@ -8,7 +8,7 @@
 ## Context
 
 The game's renderer runs translated on the platform's own Direct3D 9 layer
-(`crates/engine-core/src/units/platform/d3d9*.rs`). That layer is a model: it
+(`crates/engine-platform/src/d3d9*.rs`). That layer is a model: it
 answers every call as Direct3D 9 does on the player's machine (the machine
 table of `scripts/d3d9-capture`), keeps the resources in engine memory, and
 draws nothing. The game's main menu, intro movie and world were only visible
@@ -26,7 +26,7 @@ a real window. The game's code keeps calling the modelled objects; the model
 keeps answering. Forwarding to the real DLL is the platform itself: it is
 what `FalloutNV.exe` calls. Nothing about the game is invented.
 
-Design (`units/platform/d3d9real.rs`):
+Design (`crates/engine-platform/src/d3d9real.rs`):
 
 1. **The window.** When the game creates its top-level window
    (`CreateWindowExA`), a real Win32 window of the same title, styles and

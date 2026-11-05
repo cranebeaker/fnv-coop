@@ -1,5 +1,5 @@
 //! d3dx-texture-capture: fills the machine-local D3DX texture cache the platform's D3DX layer
-//! (`engine_core::units::platform::d3dx`) reads, in one pass over the game's textures.
+//! (`engine_platform::d3dx`) reads, in one pass over the game's textures.
 //!
 //! `cargo run --release --manifest-path scripts/d3dx-texture-capture/Cargo.toml -- <Data folder>
 //! <cache folder> <d3dx-measure.exe (i686 build)>`
@@ -27,7 +27,7 @@ fn fnv(seed: u64, b: &[u8]) -> u64 {
 }
 
 /// The cache key of one call: the call's name and the data's length and FNV-1a hash (the
-/// platform computes the same; `engine_core::units::platform::d3dx::texture_key`).
+/// platform computes the same; `engine_platform::d3dx::texture_key`).
 pub fn key(call: &str, data: &[u8]) -> String {
     let h = fnv(fnv(0xcbf2_9ce4_8422_2325, call.as_bytes()), data);
     format!("{call}-{:x}-{h:016x}", data.len())

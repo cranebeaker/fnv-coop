@@ -6,7 +6,7 @@
 //! handle layer (`ioinfo`, `_isatty`, `_lseeki64_nolock`, `errno`, `_doserrno`, `_dosmaperr`)
 //! are in `crt.rs`; `_mbtowc_l` (`00ee3928`) and `_isleadbyte` (`00ed41d4`) in `crt/scanf.rs`.
 //! The Windows calls are made through their import slots, so every write goes to the
-//! platform's `WriteFile` (`units/platform/files.rs`).
+//! platform's `WriteFile` (`engine-platform/src/files.rs`).
 
 use super::*;
 

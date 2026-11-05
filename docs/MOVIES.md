@@ -207,7 +207,7 @@ game in stored bytes, which differs most across sharp edges.
 ## The engine's platform layer
 
 The translated engine reaches `binkw32.dll` through its imports, which
-`crates/engine-core/src/units/platform/bink.rs` answers with `crates/bink`
+`crates/engine-platform/src/bink.rs` answers with `crates/bink`
 (a platform layer like D3DX: written from the documented meaning of each
 call and matched against the player's DLL, whose code is not read). The
 game imports nine: `BinkOpen`, `BinkClose`, `BinkDoFrame`, `BinkNextFrame`,

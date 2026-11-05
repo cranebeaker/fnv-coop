@@ -72,7 +72,7 @@ pub struct Queries {
 }
 
 fn queries(e: &mut Engine) -> &mut Queries {
-    &mut e.kernel.graphics.device_objects.queries
+    &mut state!(e).graphics.device_objects.queries
 }
 
 fn query(e: &mut Engine, this: Ptr) -> &mut Query {

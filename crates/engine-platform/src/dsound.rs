@@ -598,13 +598,13 @@ fn check_setting(line: &str, f: &[&str]) {
 
 /// Gives the layer the player's sound table (`scripts/dsound-capture`'s output).
 pub fn load_table(e: &mut Engine, text: &str) {
-    e.kernel.sound.table = Some(Table::parse(text));
+    state!(e).sound.table = Some(Table::parse(text));
 }
 
 /// The loaded table; loaded from `NV_DSOUND_TABLE` (default `%LOCALAPPDATA%\nv-rs\dsound.tsv`)
 /// the first time it is needed. Without one the run stops and says how to capture it.
 fn table(e: &mut Engine) -> &Table {
-    if e.kernel.sound.table.is_none() {
+    if state!(e).sound.table.is_none() {
         let path = std::env::var_os("NV_DSOUND_TABLE")
             .map(std::path::PathBuf::from)
             .or_else(|| {
@@ -617,7 +617,7 @@ fn table(e: &mut Engine) -> &Table {
             .unwrap_or_else(|| panic!("the sound table ({path:?}) is not there: {CAPTURE_HINT}"));
         load_table(e, &text);
     }
-    e.kernel.sound.table.as_ref().expect("loaded")
+    state!(e).sound.table.as_ref().expect("loaded")
 }
 
 /// The DirectSound 8 `DS3DLISTENER` state: the settings in effect, and those set with
@@ -819,7 +819,7 @@ impl Buffer {
     }
 }
 
-/// The DirectSound objects (`Kernel::sound`).
+/// The DirectSound objects (`State::sound`).
 #[derive(Debug, Default)]
 pub struct Sound {
     sound_vtable: u32,
@@ -1245,9 +1245,9 @@ impl super::sound_out::Source for Stream {
 /// device's own pace instead of following the game's clock (`Pace`; `NV_SOUND=device`, for
 /// listening while the game's clock runs ahead of the real time).
 pub fn want_output(e: &mut Engine, record: Option<std::path::PathBuf>, device_paced: bool) {
-    e.kernel.sound.output_wanted = true;
-    e.kernel.sound.device_paced = device_paced;
-    e.kernel.sound.record = record;
+    state!(e).sound.output_wanted = true;
+    state!(e).sound.device_paced = device_paced;
+    state!(e).sound.record = record;
 }
 
 /// Starts playing the game's sound on the player's default device; false when there is no
@@ -1255,7 +1255,7 @@ pub fn want_output(e: &mut Engine, record: Option<std::path::PathBuf>, device_pa
 /// `Play`.
 pub fn start_output(e: &mut Engine) -> bool {
     use super::sound_out::Refused;
-    if e.kernel.sound.mix.is_some() {
+    if state!(e).sound.mix.is_some() {
         return true;
     }
     // The first converter's tables, read now rather than on the output thread.
@@ -1275,7 +1275,7 @@ pub fn start_output(e: &mut Engine) -> bool {
     // The game's device's layout follows its buffers (`super::speakers`); buffers made before
     // (none: the output starts with the device) count as made now.
     let mut device = DeviceLayout::new(mix);
-    for b in e.kernel.sound.buffers.values() {
+    for b in state!(e).sound.buffers.values() {
         if b.flags & DSBCAPS_PRIMARYBUFFER == 0 {
             let channels = u16::from_le_bytes([b.format[2], b.format[3]]);
             device.made(
@@ -1322,17 +1322,17 @@ pub fn start_output(e: &mut Engine) -> bool {
         );
         return false;
     };
-    e.kernel.sound.layout = Some(device);
+    state!(e).sound.layout = Some(device);
     let rate = output.rate;
     {
         let mut v = voices.lock().expect("the voices");
-        for (&at, b) in &e.kernel.sound.buffers {
+        for (&at, b) in &state_ref!(e).sound.buffers {
             if b.flags & DSBCAPS_PRIMARYBUFFER == 0 {
                 v.all.insert(at, voice_of(e, b));
             }
         }
         // The device's converter as the game has left it ([`Sound::apl`]).
-        v.apl = e.kernel.sound.apl;
+        v.apl = state!(e).sound.apl;
         let apl = v.apl;
         for voice in v.all.values_mut() {
             voice.apl = apl;
@@ -1340,13 +1340,13 @@ pub fn start_output(e: &mut Engine) -> bool {
         v.game.place = game_place;
         v.own.place = own_place;
     }
-    if let Some(path) = e.kernel.sound.record.clone() {
+    if let Some(path) = state!(e).sound.record.clone() {
         match Record::create(&path, rate, game, split.then_some(own)) {
             Ok(r) => voices.lock().expect("the voices").record = Some(r),
             Err(err) => eprintln!("sound: cannot record to {}: {err}", path.display()),
         }
     }
-    if !e.kernel.sound.device_paced {
+    if !state!(e).sound.device_paced {
         let now = e.clock_now_us();
         let mut v = voices.lock().expect("the voices");
         v.game.pace = Some(Pace::new(now));
@@ -1370,7 +1370,7 @@ pub fn start_output(e: &mut Engine) -> bool {
             mix.channels
         );
     }
-    e.kernel.sound.mix = Some(Mix {
+    state!(e).sound.mix = Some(Mix {
         voices,
         rate,
         output: Some(output),
@@ -1404,11 +1404,11 @@ fn open_stream(
 /// Writes `what` to the recording's log, when the output is recorded, with the game's clock
 /// (ms) beside the real time.
 pub fn note(e: &mut Engine, what: &str) {
-    if e.kernel.sound.mix.is_none() {
+    if state!(e).sound.mix.is_none() {
         return;
     }
     let game = e.clock_now_ms();
-    if let Some(m) = &e.kernel.sound.mix {
+    if let Some(m) = &state!(e).sound.mix {
         if let Some(r) = &mut m.voices.lock().expect("the voices").record {
             r.note(&format!("game {game}\t{what}"));
         }
@@ -1418,7 +1418,7 @@ pub fn note(e: &mut Engine, what: &str) {
 /// Names on stderr, once, that a buffer at another rate is not heard: the player's
 /// `RESAMPLEDMO.DLL` is another build than the one `super::resampler` reads.
 fn unheard(e: &mut Engine, example: &str) {
-    if e.kernel.sound.noted.insert("resampling") {
+    if state!(e).sound.noted.insert("resampling") {
         eprintln!("sound: not heard: another rate without this build of RESAMPLEDMO.DLL (first: {example}); see docs/SOUND.md");
     }
 }
@@ -1433,7 +1433,7 @@ fn voice_of(e: &Engine, b: &Buffer) -> Voice {
     v.volume = b.volume;
     v.pan = b.pan;
     v.rate = b.frequency();
-    v.device = e.kernel.sound.mix.as_ref().map_or(0, |m| m.rate);
+    v.device = state_ref!(e).sound.mix.as_ref().map_or(0, |m| m.rate);
     if b.effect == Some("distortion") {
         v.fx = Some(Box::new(fx_chain(b, v.data.clone())));
     }
@@ -1478,7 +1478,7 @@ fn edge_table() -> &'static [f64; 32] {
 /// Runs `f` on the voice of the buffer at `at`, when the output is on.
 fn with_voice(e: &mut Engine, at: u32, f: impl FnOnce(&mut Voices, u32)) {
     tick(e);
-    if let Some(m) = &e.kernel.sound.mix {
+    if let Some(m) = &state!(e).sound.mix {
         let mut v = m.voices.lock().expect("the voices");
         f(&mut v, at);
     }
@@ -1487,11 +1487,11 @@ fn with_voice(e: &mut Engine, at: u32, f: impl FnOnce(&mut Voices, u32)) {
 /// Tells the output where the game's clock is now (`Pace`); called at every sound call that
 /// reads the clock or changes a voice.
 pub fn tick(e: &mut Engine) {
-    if e.kernel.sound.mix.is_none() {
+    if state!(e).sound.mix.is_none() {
         return;
     }
     let now = e.clock_now_us();
-    if let Some(m) = &e.kernel.sound.mix {
+    if let Some(m) = &state!(e).sound.mix {
         let mut v = m.voices.lock().expect("the voices");
         let Voices { game, own, .. } = &mut *v;
         for p in [&mut game.pace, &mut own.pace].into_iter().flatten() {
@@ -1533,7 +1533,7 @@ pub fn play_stream_fed(
     rate: u32,
     from: usize,
 ) {
-    if e.kernel.sound.mix.is_none() {
+    if state!(e).sound.mix.is_none() {
         return;
     }
     play_voice(e, key, Voice::fed_by(feed, channels), rate, from);
@@ -1542,14 +1542,14 @@ pub fn play_stream_fed(
 fn play_voice(e: &mut Engine, key: u32, mut voice: Voice, rate: u32, from: usize) {
     // A stream is its own DirectSound device, mixed in a stream of its own ([`Voices::split`]).
     voice.stream = true;
-    let Some(device) = e.kernel.sound.mix.as_ref().map(|m| m.rate) else {
+    let Some(device) = state!(e).sound.mix.as_ref().map(|m| m.rate) else {
         return;
     };
     // A stream is its own DirectSound device (Bink's, DirectShow's): the first converter.
     if rate != device && super::resampler::tables().is_none() {
         unheard(e, &format!("a stream at {rate} Hz on {device} Hz"));
     }
-    let Some(m) = &e.kernel.sound.mix else {
+    let Some(m) = &state!(e).sound.mix else {
         return;
     };
     let mut v = m.voices.lock().expect("the voices");
@@ -1572,7 +1572,7 @@ pub fn stream_volume(e: &mut Engine, key: u32, volume: i32) {
 
 /// Whether a stream from [`play_stream`] exists (playing or held).
 pub fn has_stream(e: &Engine, key: u32) -> bool {
-    e.kernel
+    state_ref!(e)
         .sound
         .mix
         .as_ref()
@@ -1625,8 +1625,8 @@ pub(crate) fn hear_by_hand_on(e: &mut Engine, rate: u32, mix: Layout) {
     };
     voices.game.place = Place::new(device.current()).expect("a layout with matrices");
     voices.own.place = Place::new(own.current()).expect("a layout with matrices");
-    e.kernel.sound.layout = Some(device);
-    e.kernel.sound.mix = Some(Mix {
+    state!(e).sound.layout = Some(device);
+    state!(e).sound.mix = Some(Mix {
         voices: Arc::new(Mutex::new(voices)),
         rate,
         output: None,
@@ -1644,7 +1644,7 @@ pub(crate) fn mixed(e: &Engine, frames: usize) -> Vec<f32> {
 /// The next `frames` frames of one stream of the tests' output.
 #[cfg(test)]
 fn mixed_of(e: &Engine, which: Which, frames: usize) -> Vec<f32> {
-    let Some(m) = &e.kernel.sound.mix else {
+    let Some(m) = &state_ref!(e).sound.mix else {
         return vec![0f32; 2 * frames];
     };
     let mut v = m.voices.lock().expect("the voices");
@@ -1797,8 +1797,8 @@ pub fn co_initialize(e: &mut Engine, reserved: u32) -> u32 {
     if reserved != 0 {
         return DSERR_INVALIDPARAM;
     }
-    e.kernel.sound.com_initialized += 1;
-    if e.kernel.sound.com_initialized == 1 {
+    state!(e).sound.com_initialized += 1;
+    if state!(e).sound.com_initialized == 1 {
         DS_OK
     } else {
         S_FALSE
@@ -1833,21 +1833,21 @@ pub fn direct_sound_create8(e: &mut Engine, device: u32, out: Ptr, outer: u32) -
         e.mem.set_u32(out.addr(), 0);
         return result;
     }
-    if e.kernel.sound.sound_vtable == 0 {
+    if state!(e).sound.sound_vtable == 0 {
         register_code(e);
-        e.kernel.sound.sound_vtable = vtable(e, SOUND_CODE, SOUND_SLOTS.len() as u32);
-        e.kernel.sound.buffer_vtable = vtable(e, BUFFER_CODE, BUFFER_SLOTS.len() as u32);
-        e.kernel.sound.listener_vtable = vtable(e, LISTENER_CODE, LISTENER_SLOTS.len() as u32);
-        e.kernel.sound.buffer3d_vtable = vtable(e, BUFFER3D_CODE, BUFFER3D_SLOTS.len() as u32);
-        e.kernel.sound.distortion_vtable = vtable(e, EFFECT_CODE, DISTORTION_SLOTS.len() as u32);
+        state!(e).sound.sound_vtable = vtable(e, SOUND_CODE, SOUND_SLOTS.len() as u32);
+        state!(e).sound.buffer_vtable = vtable(e, BUFFER_CODE, BUFFER_SLOTS.len() as u32);
+        state!(e).sound.listener_vtable = vtable(e, LISTENER_CODE, LISTENER_SLOTS.len() as u32);
+        state!(e).sound.buffer3d_vtable = vtable(e, BUFFER3D_CODE, BUFFER3D_SLOTS.len() as u32);
+        state!(e).sound.distortion_vtable = vtable(e, EFFECT_CODE, DISTORTION_SLOTS.len() as u32);
     }
-    let table = e.kernel.sound.sound_vtable;
+    let table = state!(e).sound.sound_vtable;
     let device = object(e, table);
-    e.kernel.sound.devices.insert(device, (1, 0));
+    state!(e).sound.devices.insert(device, (1, 0));
     e.mem.set_u32(out.addr(), device);
     // The host's switch (`want_output`): the game's device is made, so its sound is heard
     // from here on.
-    if e.kernel.sound.output_wanted {
+    if state!(e).sound.output_wanted {
         start_output(e);
     }
     DS_OK
@@ -1861,7 +1861,7 @@ fn no_interface(e: &mut Engine, _this: Ptr, _interface: Ptr, out: Ptr) -> u32 {
 }
 
 fn device(e: &mut Engine, this: Ptr) -> &mut (u32, u32) {
-    e.kernel
+    state!(e)
         .sound
         .devices
         .get_mut(&this.addr())
@@ -1879,7 +1879,7 @@ fn sound_release(e: &mut Engine, this: Ptr) -> u32 {
     d.0 -= 1;
     let left = d.0;
     if left == 0 {
-        e.kernel.sound.devices.remove(&this.addr());
+        state!(e).sound.devices.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -1926,7 +1926,7 @@ fn get_speaker_config(e: &mut Engine, this: Ptr, out: Ptr) -> u32 {
     if out.is_null() {
         return DSERR_INVALIDPARAM;
     }
-    let mask = match e.kernel.sound.layout {
+    let mask = match state!(e).sound.layout {
         Some(d) => d.mix.mask,
         None => mix_layout().mask,
     };
@@ -2055,8 +2055,7 @@ fn create_sound_buffer(e: &mut Engine, this: Ptr, desc: Ptr, out: Ptr, outer: u3
         // device's second converter for good, before the lock (when this one locks the layout)
         // connects the buffers again. Measured under both names (`DSMIX_SURROUND` `w3_three_2d`,
         // `z_lock_with2d`).
-        let count = e
-            .kernel
+        let count = state!(e)
             .sound
             .buffers
             .values()
@@ -2099,13 +2098,13 @@ fn create_sound_buffer(e: &mut Engine, this: Ptr, desc: Ptr, out: Ptr, outer: u3
 /// (`w3_three_2d`), and two playing when a 3D one is made (`z_lock_with2d`, as `FalloutNV.exe`
 /// the lock, under another name not).
 fn second_converter_by_count(e: &mut Engine) {
-    if e.kernel.sound.apl {
+    if state!(e).sound.apl {
         return;
     }
-    if let Some(m) = &e.kernel.sound.mix {
+    if let Some(m) = &state_ref!(e).sound.mix {
         let mut v = m.voices.lock().expect("the voices");
         v.apl = true;
-        for (at, b) in &e.kernel.sound.buffers {
+        for (at, b) in &state_ref!(e).sound.buffers {
             if b.flags & DSBCAPS_PRIMARYBUFFER == 0 {
                 if let Some(voice) = v.all.get_mut(at) {
                     voice.apl = true;
@@ -2122,7 +2121,7 @@ fn second_converter_by_count(e: &mut Engine) {
 /// device's list: the game's device's layout follows (`super::speakers::DeviceLayout::made`,
 /// `10052857`), and when that changes it, [`relayout`].
 fn layout_made(e: &mut Engine, channels: u16, three_d: bool) {
-    let Some(device) = e.kernel.sound.layout.as_mut() else {
+    let Some(device) = state!(e).sound.layout.as_mut() else {
         return;
     };
     let before = device.current();
@@ -2149,7 +2148,7 @@ fn relayout(e: &mut Engine, now: Layout) {
     let Some(place) = Place::new(now) else {
         return;
     };
-    let Some(m) = e.kernel.sound.mix.as_mut() else {
+    let Some(m) = state!(e).sound.mix.as_mut() else {
         return;
     };
     let rate = m.rate;
@@ -2221,7 +2220,7 @@ where
             return;
         }
     };
-    let rate = e.kernel.sound.mix.as_ref().map_or(0, |m| m.rate);
+    let rate = state!(e).sound.mix.as_ref().map_or(0, |m| m.rate);
     if o.rate != rate {
         eprintln!(
             "sound: the default device now mixes at {} Hz, not {rate} Hz as when the output \
@@ -2238,11 +2237,11 @@ where
             );
             return;
         };
-        if let Some(d) = e.kernel.sound.layout.as_mut() {
+        if let Some(d) = state!(e).sound.layout.as_mut() {
             d.mix = o.layout;
             d.lock();
         }
-        if let Some(m) = &e.kernel.sound.mix {
+        if let Some(m) = &state!(e).sound.mix {
             let mut v = m.voices.lock().expect("the voices");
             v.game.place = place;
             if let Some(r) = &mut v.record {
@@ -2259,13 +2258,13 @@ where
         );
         refresh_3d(e);
     }
-    if let Some(m) = e.kernel.sound.mix.as_mut() {
+    if let Some(m) = state!(e).sound.mix.as_mut() {
         m.output = Some(o);
     }
 }
 
 fn insert_buffer(e: &mut Engine, b: Buffer) -> u32 {
-    let table = e.kernel.sound.buffer_vtable;
+    let table = state!(e).sound.buffer_vtable;
     let at = object(e, table);
     if b.flags & DSBCAPS_PRIMARYBUFFER == 0 {
         let v = voice_of(e, &b);
@@ -2273,12 +2272,12 @@ fn insert_buffer(e: &mut Engine, b: Buffer) -> u32 {
             m.all.insert(at, v);
         });
     }
-    e.kernel.sound.buffers.insert(at, b);
+    state!(e).sound.buffers.insert(at, b);
     at
 }
 
 fn buffer(e: &mut Engine, this: Ptr) -> &mut Buffer {
-    e.kernel
+    state!(e)
         .sound
         .buffers
         .get_mut(&this.addr())
@@ -2310,9 +2309,9 @@ fn buffer_query_interface(e: &mut Engine, this: Ptr, iid: Ptr, out: Ptr) -> u32 
         }
         if id == IID_BUFFER3D && b.flags & DSBCAPS_CTRL3D != 0 {
             let three_d = if b.three_d == 0 {
-                let table = e.kernel.sound.buffer3d_vtable;
+                let table = state!(e).sound.buffer3d_vtable;
                 let at = object(e, table);
-                e.kernel.sound.buffers3d.insert(at, this.addr());
+                state!(e).sound.buffers3d.insert(at, this.addr());
                 buffer(e, this).three_d = at;
                 at
             } else {
@@ -2329,8 +2328,7 @@ fn buffer_query_interface(e: &mut Engine, this: Ptr, iid: Ptr, out: Ptr) -> u32 
         return no_interface(e, this, iid, out);
     }
     let listener = if b.listener != 0 {
-        let l = e
-            .kernel
+        let l = state!(e)
             .sound
             .listeners
             .get_mut(&b.listener)
@@ -2339,9 +2337,9 @@ fn buffer_query_interface(e: &mut Engine, this: Ptr, iid: Ptr, out: Ptr) -> u32 
         b.listener
     } else {
         let defaults = listener_defaults(e);
-        let table = e.kernel.sound.listener_vtable;
+        let table = state!(e).sound.listener_vtable;
         let listener = object(e, table);
-        e.kernel.sound.listeners.insert(listener, (1, defaults));
+        state!(e).sound.listeners.insert(listener, (1, defaults));
         buffer(e, this).listener = listener;
         listener
     };
@@ -2385,8 +2383,7 @@ fn buffer_add_ref(e: &mut Engine, this: Ptr) -> u32 {
 /// buffer three times and then the 3D interface). The buffer goes (its memory, its voice) once
 /// both counts are 0.
 fn release_buffer(e: &mut Engine, at: u32) -> u32 {
-    let b = e
-        .kernel
+    let b = state!(e)
         .sound
         .buffers
         .get_mut(&at)
@@ -2406,7 +2403,7 @@ fn release_buffer(e: &mut Engine, at: u32) -> u32 {
 /// Frees the buffer at `at`: its memory, its voice; its 3D interface stays as a gone one
 /// (`Sound::dead3d`).
 fn free_buffer(e: &mut Engine, at: u32) {
-    let b = e.kernel.sound.buffers.remove(&at).expect("the buffer");
+    let b = state!(e).sound.buffers.remove(&at).expect("the buffer");
     with_voice(e, at, |m, at| {
         m.all.remove(&at);
         m.playing.retain(|&p| p != at);
@@ -2415,8 +2412,8 @@ fn free_buffer(e: &mut Engine, at: u32) {
         e.mem.free(b.data);
     }
     if b.three_d != 0 {
-        e.kernel.sound.buffers3d.remove(&b.three_d);
-        e.kernel.sound.dead3d.insert(b.three_d, 0);
+        state!(e).sound.buffers3d.remove(&b.three_d);
+        state!(e).sound.dead3d.insert(b.three_d, 0);
     }
     e.mem.free(at);
 }
@@ -2607,13 +2604,12 @@ fn set_frequency(e: &mut Engine, this: Ptr, v: u32) -> u32 {
 /// past. The buffer whose `SetFrequency` turns it on goes the same way. (Read from the DLL; the
 /// cursors of a buffer playing when it turns on are not measured.)
 fn second_converter_on(e: &mut Engine, now: u64) {
-    if e.kernel.sound.apl {
+    if state!(e).sound.apl {
         return;
     }
-    e.kernel.sound.apl = true;
+    state!(e).sound.apl = true;
     let device = device_rate(e);
-    let playing: Vec<u32> = e
-        .kernel
+    let playing: Vec<u32> = state!(e)
         .sound
         .buffers
         .iter()
@@ -2659,7 +2655,7 @@ fn second_converter_on(e: &mut Engine, now: u64) {
 /// brought up to date ([`refresh_voice`]), and a rate the converter path does not translate is
 /// named once on stderr (docs/SOUND.md keeps it open for the maintainer).
 fn heard(e: &mut Engine, this: Ptr, call: &str) {
-    let Some(rate) = e.kernel.sound.mix.as_ref().map(|m| m.rate) else {
+    let Some(rate) = state!(e).sound.mix.as_ref().map(|m| m.rate) else {
         return;
     };
     let b = buffer(e, this).clone();
@@ -2681,8 +2677,7 @@ fn heard(e: &mut Engine, this: Ptr, call: &str) {
             b.effect.map_or(String::new(), |fx| format!(", {fx}")),
         )
     };
-    let apl = e
-        .kernel
+    let apl = state!(e)
         .sound
         .mix
         .as_ref()
@@ -2724,10 +2719,10 @@ fn heard(e: &mut Engine, this: Ptr, call: &str) {
 /// converter: a frequency that moves by more than 1/500 of the rate turns on the second one
 /// for every buffer (`super::resampler`).
 fn refresh_voice(e: &mut Engine, at: u32) {
-    let Some(rate) = e.kernel.sound.mix.as_ref().map(|m| m.rate) else {
+    let Some(rate) = state!(e).sound.mix.as_ref().map(|m| m.rate) else {
         return;
     };
-    let Some(b) = e.kernel.sound.buffers.get(&at) else {
+    let Some(b) = state!(e).sound.buffers.get(&at) else {
         return;
     };
     if b.flags & DSBCAPS_PRIMARYBUFFER != 0 {
@@ -2744,7 +2739,7 @@ fn refresh_voice(e: &mut Engine, at: u32) {
     // playing converter's `SetRate` (`super::resampler`, at its next period). (`with_voice`
     // written out, so the buffers are read in place.)
     tick(e);
-    let sound = &e.kernel.sound;
+    let sound = &state!(e).sound;
     let Some(mix) = &sound.mix else {
         return;
     };
@@ -2780,15 +2775,14 @@ fn refresh_voice(e: &mut Engine, at: u32) {
 
 /// The 3D buffers' voices brought up to date (after the listener changed).
 fn refresh_3d(e: &mut Engine) {
-    if e.kernel.sound.mix.is_none() {
+    if state!(e).sound.mix.is_none() {
         return;
     }
     // In address order, found one after another, with no list: `refresh_voice` adds, removes
     // and reflags no buffer (when it turns the second converter on, it only moves the cursors
     // of the buffers that play).
     let mut from = 0;
-    while let Some(at) = e
-        .kernel
+    while let Some(at) = state!(e)
         .sound
         .buffers
         .range(from..)
@@ -2806,7 +2800,7 @@ fn refresh_3d(e: &mut Engine) {
 /// The layout the game's device mixes in now (two channels before the output knows the
 /// endpoint's, and in the tests that set none).
 fn device_layout(e: &Engine) -> Layout {
-    e.kernel
+    state_ref!(e)
         .sound
         .layout
         .map_or(Layout::STEREO, |d| d.current())
@@ -2815,7 +2809,12 @@ fn device_layout(e: &Engine) -> Layout {
 /// The listener's settings in effect, as the 3D stage reads them; without a listener the DLL's
 /// defaults (at the origin, facing +z with +y up, factors 1), which leave positions as they are.
 fn listener_now(e: &Engine) -> super::ds3d::Listener {
-    let l = e.kernel.sound.listeners.values().next().map(|(_, l)| *l);
+    let l = state_ref!(e)
+        .sound
+        .listeners
+        .values()
+        .next()
+        .map(|(_, l)| *l);
     match l {
         Some(l) => super::ds3d::Listener {
             position: l.position,
@@ -2866,7 +2865,7 @@ fn part_after(part: u32, n: u64, frequency: u32) -> u32 {
 /// (`super::sound_out::device_rate`; the measured device's 48000 when Windows names none, where
 /// DirectSound would make no device); the tests' 48000.
 fn device_rate(e: &Engine) -> u32 {
-    if let Some(m) = &e.kernel.sound.mix {
+    if let Some(m) = &state_ref!(e).sound.mix {
         return m.rate;
     }
     #[cfg(test)]
@@ -2894,7 +2893,7 @@ fn lanes(b: &Buffer) -> bool {
 /// buffer gets its frame counter at its first `Play`.
 fn steps_of(e: &mut Engine, this: Ptr) -> Steps {
     let device = device_rate(e);
-    let apl = e.kernel.sound.apl;
+    let apl = state!(e).sound.apl;
     let b = buffer(e, this);
     if apl {
         if b.apl.is_none() {
@@ -3104,11 +3103,11 @@ fn unlock(e: &mut Engine, this: Ptr, _p1: u32, _n1: u32, _p2: u32, _n2: u32) -> 
     );
     b.locks -= 1;
     let (data, bytes) = (b.data, b.bytes);
-    if e.kernel.sound.mix.is_some() {
+    if state!(e).sound.mix.is_some() {
         // `with_voice` written out: the samples are read straight into the voice's copy, which
         // has the buffer's size (a new copy otherwise), instead of into a new one each time.
         tick(e);
-        if let Some(m) = &e.kernel.sound.mix {
+        if let Some(m) = &state!(e).sound.mix {
             let mut voices = m.voices.lock().expect("the voices");
             if let Some(voice) = voices.all.get_mut(&this.addr()) {
                 // With the distortion the samples are the effect's input; the voice plays its
@@ -3384,7 +3383,7 @@ fn set_fx(e: &mut Engine, this: Ptr, count: u32, descriptions: Ptr, results: Ptr
         b.effect = Some(name);
         b.fx_params = DISTORTION_DEFAULTS;
         // The voice now plays the effect's output (`super::dsfx`).
-        if name == "distortion" && e.kernel.sound.mix.is_some() {
+        if name == "distortion" && state!(e).sound.mix.is_some() {
             let b = buffer(e, this).clone();
             with_voice(e, this.addr(), |m, at| {
                 if let Some(v) = m.all.get_mut(&at) {
@@ -3430,15 +3429,15 @@ fn get_object_in_path(
         b.effect == Some(name) && name == "distortion",
         "GetObjectInPath({name}) without SetFX is not provided"
     );
-    let table = e.kernel.sound.distortion_vtable;
+    let table = state!(e).sound.distortion_vtable;
     let at = object(e, table);
-    e.kernel.sound.distortions.insert(at, (1, this.addr()));
+    state!(e).sound.distortions.insert(at, (1, this.addr()));
     e.mem.set_u32(out.addr(), at);
     DS_OK
 }
 
 fn distortion(e: &mut Engine, this: Ptr) -> &mut (u32, u32) {
-    e.kernel
+    state!(e)
         .sound
         .distortions
         .get_mut(&this.addr())
@@ -3456,7 +3455,7 @@ fn distortion_release(e: &mut Engine, this: Ptr) -> u32 {
     d.0 -= 1;
     let left = d.0;
     if left == 0 {
-        e.kernel.sound.distortions.remove(&this.addr());
+        state!(e).sound.distortions.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -3475,10 +3474,10 @@ fn distortion_set_all_parameters(e: &mut Engine, this: Ptr, params: Ptr) -> u32 
         return DSERR_INVALIDPARAM;
     }
     let owner = distortion(e, this).1;
-    if let Some(b) = e.kernel.sound.buffers.get_mut(&owner) {
+    if let Some(b) = state!(e).sound.buffers.get_mut(&owner) {
         b.fx_params = p;
         let b = b.clone();
-        if e.kernel.sound.mix.is_some() {
+        if state!(e).sound.mix.is_some() {
             let c = super::dsfx::Coefficients::new(b.rate(), p, edge_table());
             with_voice(e, owner, |m, at| {
                 if let Some(fx) = m.all.get_mut(&at).and_then(|v| v.fx.as_mut()) {
@@ -3492,7 +3491,7 @@ fn distortion_set_all_parameters(e: &mut Engine, this: Ptr, params: Ptr) -> u32 
 
 /// The buffer a 3D interface belongs to.
 fn owner(e: &Engine, this: Ptr) -> u32 {
-    *e.kernel
+    *state_ref!(e)
         .sound
         .buffers3d
         .get(&this.addr())
@@ -3501,7 +3500,7 @@ fn owner(e: &Engine, this: Ptr) -> u32 {
 
 /// `AddRef()` on the 3D interface: its own count (measured, [`release_buffer`]).
 fn buffer3d_add_ref(e: &mut Engine, this: Ptr) -> u32 {
-    if let Some(n) = e.kernel.sound.dead3d.get_mut(&this.addr()) {
+    if let Some(n) = state!(e).sound.dead3d.get_mut(&this.addr()) {
         *n = n.wrapping_add(1);
         return *n;
     }
@@ -3514,7 +3513,7 @@ fn buffer3d_add_ref(e: &mut Engine, this: Ptr) -> u32 {
 /// `Release()` on the 3D interface: its own count, which wraps below 0 (measured,
 /// [`release_buffer`]); the buffer goes once both counts are 0.
 fn buffer3d_release(e: &mut Engine, this: Ptr) -> u32 {
-    if let Some(n) = e.kernel.sound.dead3d.get_mut(&this.addr()) {
+    if let Some(n) = state!(e).sound.dead3d.get_mut(&this.addr()) {
         *n = n.wrapping_sub(1);
         return *n;
     }
@@ -3614,7 +3613,7 @@ fn buffer3d_set_velocity(e: &mut Engine, this: Ptr, x: f32, y: f32, z: f32, appl
 }
 
 fn listener(e: &mut Engine, this: Ptr) -> &mut (u32, Listener) {
-    e.kernel
+    state!(e)
         .sound
         .listeners
         .get_mut(&this.addr())
@@ -3632,8 +3631,8 @@ fn listener_release(e: &mut Engine, this: Ptr) -> u32 {
     l.0 -= 1;
     let left = l.0;
     if left == 0 {
-        e.kernel.sound.listeners.remove(&this.addr());
-        for b in e.kernel.sound.buffers.values_mut() {
+        state!(e).sound.listeners.remove(&this.addr());
+        for b in state!(e).sound.buffers.values_mut() {
             if b.listener == this.addr() {
                 b.listener = 0;
             }
@@ -3872,7 +3871,7 @@ fn listener_commit(e: &mut Engine, this: Ptr) -> u32 {
     let l = &mut listener(e, this).1;
     let pending = std::mem::take(&mut l.pending);
     apply_listener(l, pending);
-    for b in e.kernel.sound.buffers.values_mut() {
+    for b in state!(e).sound.buffers.values_mut() {
         let p = std::mem::take(&mut b.pending3d);
         if let Some(v) = p.position {
             b.position = v;
@@ -4144,7 +4143,7 @@ mod tests {
         // The 3D interface counts its own references (measured).
         assert_eq!(e.vcall(three_d, 8, &[]).u32(), 0);
         assert_eq!(e.vcall(b, 8, &[]).u32(), 0);
-        assert!(e.kernel.sound.buffers.is_empty());
+        assert!(state!(e).sound.buffers.is_empty());
     }
 
     /// Measured (`refmeasure`, 2026-10-27): the buffer and its 3D interface count apart; the
@@ -4181,16 +4180,16 @@ mod tests {
             .map(|&o| e.vcall(o, 8, &[]).u32())
             .collect();
         assert_eq!(answers, [1, 0, 2, 1, 0]);
-        assert!(e.kernel.sound.buffers.is_empty());
+        assert!(state!(e).sound.buffers.is_empty());
         // The buffer first: it stays until the 3D interface goes.
         let (_, b) = create(&mut e, ds, 0x302b0, false, 1, 44100);
         buffer8_of(&mut e, b);
         let t = three_d_of(&mut e, b);
         assert_eq!(e.vcall(b, 8, &[]).u32(), 1);
         assert_eq!(e.vcall(b, 8, &[]).u32(), 0);
-        assert!(e.kernel.sound.buffers.contains_key(&b));
+        assert!(state!(e).sound.buffers.contains_key(&b));
         assert_eq!(e.vcall(t, 8, &[]).u32(), 0);
-        assert!(e.kernel.sound.buffers.is_empty());
+        assert!(state!(e).sound.buffers.is_empty());
     }
 
     #[test]
@@ -4317,7 +4316,7 @@ mod tests {
     fn second_converter(e: &mut Engine, ds: u32) {
         let (_, x) = create(e, ds, 0x2e0, false, 1, 44100);
         assert_eq!(e.vcall(x, 0x44, &[30000]).u32(), DS_OK);
-        assert!(e.kernel.sound.apl);
+        assert!(state!(e).sound.apl);
     }
 
     /// Measured: the first `Play` of a 22050 Hz mono 16-bit looping buffer on the platform clock's
@@ -4850,7 +4849,7 @@ mod tests {
         let mut e = engine();
         let ds = start_up(&mut e);
         // Measured with the second converter on: the `apl` and `big` parts.
-        e.kernel.sound.apl = f[0].ends_with(" apl") || f[0].ends_with(" big");
+        state!(e).sound.apl = f[0].ends_with(" apl") || f[0].ends_with(" big");
         let b = create_format(&mut e, ds, (channels, rate, bits), bytes);
         let mut out = Vec::new();
         let (mut at, mut off, mut seg, mut seg_at) = (0u32, 0u32, 0u32, 0u32);
@@ -4927,7 +4926,7 @@ mod tests {
     /// Every replay program in the file `NV_REPLAY_PROGRAMS` (`tools/programs.pl`) through the
     /// layer, each line `id<TAB>reads` (or `PANIC message`) written to `NV_REPLAY_OUT`, for
     /// `tools/cmp2.pl` to set against the measured reads period by period (`cargo test -p
-    /// engine-core --lib -- --ignored measured_replay`; `cmp2.pl programs out abs 0` compares
+    /// engine-platform --lib -- --ignored measured_replay`; `cmp2.pl programs out abs 0` compares
     /// every read). A second converter turned on in the measurement (the `apl` and `big` parts)
     /// is turned on here by the line's part. The counts per data set and the lines that differ
     /// are in docs/SOUND.md.
@@ -4963,7 +4962,7 @@ mod tests {
     /// the layer: the same calls after the same number of periods (the measured write cursor's
     /// changes), the cursors read at every period. Checks that nothing stops and that right
     /// after `SetFrequency` both cursors read as just before it, as measured in every case
-    /// (`cargo test -p engine-core --lib -- --ignored freqphase_replay --nocapture`).
+    /// (`cargo test -p engine-platform --lib -- --ignored freqphase_replay --nocapture`).
     #[test]
     #[ignore]
     fn freqphase_replay() {
@@ -5297,9 +5296,9 @@ mod tests {
         assert_eq!(position(&mut e, b).1, 2 * (33 + 441 + 221));
         e.clock_ms = 40; // 441.6
         assert_eq!(position(&mut e, b).1, 2 * (33 + 441 + 442));
-        assert!(!e.kernel.sound.apl);
+        assert!(!state!(e).sound.apl);
         e.vcall(b, 0x44, &[44100]);
-        assert!(e.kernel.sound.apl);
+        assert!(state!(e).sound.apl);
         assert_eq!(
             position(&mut e, b),
             (2 * 916, 2 * 916, 5),
@@ -5343,7 +5342,7 @@ mod tests {
     /// The output on, at the test format's rate, without a device: the tests render by hand.
     fn hear(e: &mut Engine) -> Arc<Mutex<Voices>> {
         let voices = Arc::new(Mutex::new(Voices::default()));
-        e.kernel.sound.mix = Some(Mix {
+        state!(e).sound.mix = Some(Mix {
             voices: voices.clone(),
             rate: 22050,
             output: None,
@@ -5365,7 +5364,7 @@ mod tests {
 
     /// The bits the output gets and the cursors the game reads over 2 s of buffers played, moved,
     /// refilled, retuned and stopped through the interface, as one hash; the same as the build
-    /// before the allocation work (`cargo test --release -p engine-core --lib output_bits --
+    /// before the allocation work (`cargo test --release -p engine-platform --lib output_bits --
     /// --ignored --nocapture`), but for the cursors, changed 2026-10-31 and 2026-11-01 (measured,
     /// module documentation): a buffer played again after its end goes on in the steps it was
     /// taking, after `SetFrequency` the play cursor goes on trailing, the buffers here, at the
@@ -5504,7 +5503,7 @@ mod tests {
 
     /// Not a check: the host heap allocations of the buffers' per-frame calls with the output on
     /// (the game's thread) and of the mixer's 10 ms periods (the output's thread), for the
-    /// frame-rate work (`cargo test --release -p engine-core --lib allocations_per -- --ignored
+    /// frame-rate work (`cargo test --release -p engine-platform --lib allocations_per -- --ignored
     /// --nocapture`).
     #[test]
     #[ignore]
@@ -5766,7 +5765,7 @@ mod tests {
 
     /// The buffer's `IDirectSound3DBuffer`.
     fn buffer3d_of(e: &mut Engine, b: u32) -> u32 {
-        let three_d = e.kernel.sound.buffers[&b].three_d;
+        let three_d = state!(e).sound.buffers[&b].three_d;
         if three_d != 0 {
             return three_d;
         }
@@ -5797,7 +5796,7 @@ mod tests {
         let voices = hear(&mut e);
         let (_, b) = create(&mut e, ds, 0x2e0, false, 1, 44100);
         // Samples: a ramp, written through Lock/Unlock.
-        let data = e.kernel.sound.buffers[&b].data;
+        let data = state!(e).sound.buffers[&b].data;
         let samples: Vec<u8> = (0..22050i32)
             .flat_map(|i| (((i * 7) % 2000 - 1000) as i16).to_le_bytes())
             .collect();
@@ -5912,7 +5911,7 @@ mod tests {
         let samples: Vec<u8> = (0..22050i32)
             .flat_map(|i| (((i * 7) % 2000 - 1000) as i16).to_le_bytes())
             .collect();
-        let data = e.kernel.sound.buffers[&b].data;
+        let data = state!(e).sound.buffers[&b].data;
         e.mem.write(data, &samples);
         e.vcall(b, 0x2c, &[0, 44100, 0x1a00, 0x1a04, 0, 0, 0]);
         e.vcall(b, 0x4c, &[e.mem.u32(0x1a00), 44100, 0, 0]);
@@ -6136,7 +6135,7 @@ mod tests {
         }
         // The output thread's call in 8 channels: no stop (it used to stop at sound start).
         let mut out = vec![0f32; 8 * 480];
-        let voices = e.kernel.sound.mix.as_ref().unwrap().voices.clone();
+        let voices = state!(e).sound.mix.as_ref().unwrap().voices.clone();
         super::super::sound_out::Source::render(&mut *voices.lock().unwrap(), 48000, 8, &mut out);
         assert!(out.iter().any(|&x| x != 0.0));
     }
@@ -6307,13 +6306,13 @@ mod tests {
         let b = made(&mut e, ds, 0x2e0, false, 1, 48000, 16, &data);
         e.vcall(a, 0x30, &[0, 0, 1]);
         let _ = mixed(&e, 480);
-        assert!(!e.kernel.sound.apl, "made while one other exists");
+        assert!(!state!(e).sound.apl, "made while one other exists");
         e.vcall(b, 8, &[]);
         let c = made(&mut e, ds, 0x2e0, false, 1, 48000, 16, &data);
-        assert!(!e.kernel.sound.apl, "the released buffer does not count");
+        assert!(!state!(e).sound.apl, "the released buffer does not count");
         let _ = made(&mut e, ds, 0x2e0, false, 1, 48000, 16, &data);
-        assert!(e.kernel.sound.apl, "made while two exist");
-        let m = e.kernel.sound.mix.as_ref().unwrap();
+        assert!(state!(e).sound.apl, "made while two exist");
+        let m = state!(e).sound.mix.as_ref().unwrap();
         let v = m.voices.lock().unwrap();
         assert!(v.apl && v.all[&a].apl && v.all[&c].apl);
     }
@@ -6344,7 +6343,7 @@ mod tests {
         });
         assert_eq!(asked, [Some(mix), None]);
         assert_eq!(device_layout(&e), Layout::STEREO);
-        assert!(e.kernel.sound.mix.as_ref().unwrap().output.is_some());
+        assert!(state!(e).sound.mix.as_ref().unwrap().output.is_some());
         let out = mixed(&e, 480);
         assert_eq!(
             out.len(),
@@ -6352,11 +6351,11 @@ mod tests {
             "the game's stream in the endpoint's two channels"
         );
         assert!(out.iter().any(|&x| x != 0.0));
-        e.kernel.sound.mix.as_mut().unwrap().output = None;
+        state!(e).sound.mix.as_mut().unwrap().output = None;
         reopen(&mut e, Layout::STEREO, |_| {
             Ok(Output::idle(44100, Layout::STEREO))
         });
-        assert!(e.kernel.sound.mix.as_ref().unwrap().output.is_none());
+        assert!(state!(e).sound.mix.as_ref().unwrap().output.is_none());
     }
 
     /// `GetSpeakerConfig` answers from the endpoint's mix format (measured: 8 for 0x63F,
@@ -6371,7 +6370,7 @@ mod tests {
         ] {
             let mut e = engine();
             let ds = start_up(&mut e);
-            e.kernel.sound.layout = Some(DeviceLayout::new(layout_of_mask(mask)));
+            state!(e).sound.layout = Some(DeviceLayout::new(layout_of_mask(mask)));
             e.mem.set_u32(0x1100, 0xdead);
             assert_eq!(e.vcall(ds, 0x20, &[0x1100]).u32(), result);
             assert_eq!(e.mem.u32(0x1100), want);
@@ -6491,8 +6490,8 @@ mod tests {
             return Err("a gain changed while playing on two channels (the stereo kernels' ramp)");
         }
         if apl {
-            e.kernel.sound.apl = true;
-            e.kernel
+            state!(e).sound.apl = true;
+            state!(e)
                 .sound
                 .mix
                 .as_ref()
@@ -6596,7 +6595,7 @@ mod tests {
                         e.vcall(o3, 0x40, &[1.0e9f32.to_bits(), 0]);
                         e.vcall(o3, 0x4c, &[3.0f32.to_bits(), zero, zero, 0]);
                         lock_buffer = o;
-                        if let (Some(q), Some(m)) = (quiet, &e.kernel.sound.mix) {
+                        if let (Some(q), Some(m)) = (quiet, &state!(e).sound.mix) {
                             m.voices.lock().unwrap().game.silence = q;
                         }
                     }
@@ -6622,7 +6621,7 @@ mod tests {
     /// sample, as a program named `FalloutNV.exe` on this machine's 8-channel endpoint and under
     /// another name on its two-channel one; the folders in `NV_DSMIX_SURROUND`, separated by `;`)
     /// replayed through the layer and compared bit for bit, packet by packet, from the packet
-    /// the case's voice starts in to the last packet captured whole: `cargo test -p engine-core
+    /// the case's voice starts in to the last packet captured whole: `cargo test -p engine-platform
     /// --lib -- --ignored dsmix_surround --nocapture`. A folder made with `DSMIX_LOCKFIRST` has
     /// the game's device locked before every case; in one made without it the cases after the one
     /// that locked it. The layer turns the second converter on in a case as DirectSound does (a

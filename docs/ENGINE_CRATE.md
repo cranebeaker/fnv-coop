@@ -65,13 +65,14 @@ crates under it; the graph has no cycles:
 
 | Crate | Holds | Depends on |
 | --- | --- | --- |
-| `engine-core` | `Engine`, `Mem`, `abi`, `ptr`, `x87`, `types`, `exe`, the static initializer and `atexit` tables (`static_init`, `static_exit`, `data/`), the prelude and the `entry!`/`args!`/`layout!` macros; units `crt.rs` and `platform.rs` | - |
+| `engine-core` | `Engine`, `Mem`, `abi`, `ptr`, `x87`, `types`, `exe`, the static initializer and `atexit` tables (`static_init`, `static_exit`, `data/`), the prelude and the `entry!`/`args!`/`layout!` macros; units `crt.rs` and `platform.rs` (the core of the platform layer: kernel objects, threads, `VirtualAlloc`, the memory manager, the clock, the loader's module handles; its `Layer` joins `engine-platform`) | - |
+| `engine-platform` | the rest of the platform layer, not translation units: the window, Direct3D 9 and D3DX (modelled and real), DirectInput, DirectSound and the mixer, DirectShow, Bink, Ogg Vorbis, `mmio`, files, `LoadLibraryA`, the process, NVAPI (`src/*.rs`, formerly `engine-core`'s `units/platform/`; [below](#the-platform-crate)) | core |
 | `engine-gamebryo` | `nimain`, `nianimation`, `nicollision`, `niparticle`, `nisystem`, `nixenonrenderer` | core |
 | `engine-bs` | `bsaudio`, `bscore`, `bsmain`, `bsmenu`, `bsmovie`, `bsshader`, `bssystem` | core, gamebryo |
 | `engine-havok` | `havok_sdk`, `bshavok` | core, gamebryo |
 | `engine-speedtree` | `speedtree` | core |
 | `engine-fallout-*` (twelve crates, [below](#the-fallout-crates)) | the game's own units: every `fallout_*` subsystem, `unplaced`, `facegen`, `d3dx9`, `remotelog`, split by area; the `extra_data` and `reference` adapters (in `engine-fallout-cell`) | all of the above, and the fallout crates below them |
-| `engine` | nothing of its own: re-exports every crate (`engine::units::<subsystem>`, `engine::prelude`, ...) and registers every function | all |
+| `engine` | nothing of its own: re-exports every crate (`engine::units::<subsystem>`, `engine::prelude`, ...) and registers every function | all (`engine-platform` too) |
 
 The grouping follows the code: Rust references between subsystems (layouts,
 shared helpers) only point down, and nearly every unit test only reaches
@@ -107,6 +108,37 @@ double a callee in the game's own units (then `engine-fallout`: `__allshl` in tw
   (`e.register(addr, ...)`), as for an untranslated one.
 - `engine-core`'s `test-support` feature exposes the form-constructor
   checker (`units::crt::ctor_test`) to the other crates' tests.
+
+### The platform crate
+
+The platform layer's Windows side is its own crate, `engine-platform`, so a change to the
+window, Direct3D 9, DirectInput, DirectSound, files or the other platform code rebuilds only it
+and the crates above it (`engine`, `host`, the viewer), not every engine part crate. Its files
+were `engine-core`'s `units/platform/` folder (moved whole; `src/*.rs`); they are not
+translation units, so the crate has no `units/` folder for `ledger units` to generate.
+
+- **What stays in the core** (`units/platform.rs`, `units/platform/loader.rs`): what the part
+  crates and their tests use: the kernel objects behind handles, threads and their waits,
+  `VirtualAlloc`, the memory manager, `BSFile` memory files, the clock, the critical sections
+  and interlocked calls, TLS, and the loader's module handles, KERNEL32 procedures by name and
+  fiber-local storage (the CRT's start-up finds them). Part crates do not depend on
+  `engine-platform`; only `engine` (which registers it like a part) and `host` do.
+- **How it joins** (`engine_core::units::platform::Layer`, `engine_platform::LAYER`): the
+  layer's `units::funcs` installs it, and `Engine::new` runs that before it makes the kernel,
+  in every program that assembles the layer (the `engine` facade, the layer's own tests).
+  Then `platform::imports()` answers the layer's imports after the core's (no name is in
+  both, so `register_imports` finds the same function as before); each engine's
+  `Kernel::platform` holds the layer's `State` (the DirectInput, DirectSound and Direct3D 9
+  objects, the windows, the run's disk and the process side; `state!(e).sound` in the layer
+  where it was `e.kernel.sound`, `state_ref!(e).sound` to read it through a shared borrow,
+  `engine_platform::state(&e.kernel.platform)` outside);
+  its file and search handles are `KernelObject::File`/`FindFile` holding an `Opaque`
+  object, and `CloseHandle` on a file runs the layer's `file_closed`; `GetProcAddress` on
+  `D3D9.DLL` or `nvapi.dll` asks the layer's `proc_address`. A program without the layer (a
+  part crate's tests) has the core's imports only.
+- **Tests:** the layer's tests are its own (`cargo test -p engine-platform --lib`), with the
+  C runtime's stdio tests that open files (`crt_stdio_tests.rs`, from `crt/stdio.rs`, which reach
+  the core's addresses through `engine-core`'s `test-support` feature).
 
 ### The fallout crates
 
@@ -264,7 +296,9 @@ $L scaffold "fallout/ai/processlists.cpp" # create its file (lead)
      `units/platform.rs` provides the ones with a Rust stand-in
      (interlocked operations, critical sections, clocks, kernel objects,
      virtual memory, thread-local storage, `GetSystemInfo`,
-     `GetCurrentProcess`); report others you need.
+     `GetCurrentProcess`; the window, Direct3D, sound, input and file ones are
+     `engine-platform`'s, which a part crate's tests do not have); report
+     others you need.
    - A value the code passes in x87 `ST0` (compiler helpers such as
      `_ftol2`, `00ec62c0`) is a leading `f64` argument (two words).
    - A local the game keeps on its stack and passes by address (a scope

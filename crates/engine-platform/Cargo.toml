@@ -1,0 +1,24 @@
+[package]
+name = "engine-platform"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The platform layer of the engine (ADR-0006): the window, Direct3D 9 and D3DX, DirectInput, DirectSound, DirectShow, Bink, Ogg Vorbis, mmio, files, the loader and the process, joined to engine-core's kernel through its Layer; only the engine facade and the host depend on it"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+# The Bink layer (bink.rs) decodes with the repository's own Bink 1 decoder.
+bink = { path = "../bink" }
+mp3 = { path = "../mp3" }
+vorbis = { path = "../vorbis" }
+
+# The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008, d3d9real.rs):
+# the real window, device and resources.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
+
+# The tests of the C runtime's stdio that moved here (crt_stdio_tests.rs) and of the process side
+# use the core's addresses and helpers behind this feature.
+[dev-dependencies]
+engine-core = { path = "../engine-core", features = ["test-support"] }

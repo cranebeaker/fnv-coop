@@ -2,7 +2,7 @@
 //! copied into `DIR`, so a later run can start from them through the main menu (CONTINUE or
 //! LOAD) instead of replaying the opening.
 //!
-//! Files the game writes stay in engine memory (`engine::units::platform::files::Disk`); nothing
+//! Files the game writes stay in engine memory (`engine_platform::files::Disk`); nothing
 //! reaches the disk unless this is asked for. Only files whose name ends in `.fos` are copied,
 //! each under its own name (the run's names are lower case). A file is written to a temporary
 //! name first and then renamed, so a reader never sees half of it. A copy is made again whenever
@@ -75,7 +75,7 @@ pub fn copy_saves(e: &Engine) -> Vec<String> {
 pub fn copy_changed(e: &Engine, dir: &Path, done: &mut HashMap<Vec<u8>, u64>) -> Vec<String> {
     use std::hash::{Hash, Hasher};
     let mut copied = Vec::new();
-    for (key, data) in &e.kernel.disk.files {
+    for (key, data) in &engine_platform::state(&e.kernel.platform).disk.files {
         if !key.ends_with(b".fos") {
             continue;
         }
@@ -137,11 +137,11 @@ mod tests {
         let mut e = Engine::new();
         let saves = br"c:\scratch\my games\falloutnv\saves\";
         let key = |name: &str| [saves.as_slice(), name.as_bytes()].concat();
-        e.kernel
+        engine_platform::state_mut(&mut e.kernel.platform)
             .disk
             .files
             .insert(key("quicksave.fos"), b"FO3SAVEGAME one".to_vec());
-        e.kernel
+        engine_platform::state_mut(&mut e.kernel.platform)
             .disk
             .files
             .insert(key("falloutprefs.ini"), b"x".to_vec());
@@ -157,7 +157,7 @@ mod tests {
         assert!(!dir.join("falloutprefs.ini").exists());
         assert!(!dir.join("quicksave.fos.part").exists());
         assert!(copy_changed(&e, &dir, &mut done).is_empty());
-        e.kernel
+        engine_platform::state_mut(&mut e.kernel.platform)
             .disk
             .files
             .insert(key("quicksave.fos"), b"FO3SAVEGAME two".to_vec());

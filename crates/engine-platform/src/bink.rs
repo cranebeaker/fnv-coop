@@ -610,7 +610,10 @@ mod tests {
     fn engine(bytes: Vec<u8>) -> (Engine, Ptr) {
         let mut e = Engine::new();
         e.kernel.current_directory = b"C:\\Game".to_vec();
-        e.kernel.disk.files.insert(PATH.to_ascii_lowercase(), bytes);
+        state!(e)
+            .disk
+            .files
+            .insert(PATH.to_ascii_lowercase(), bytes);
         let name = e.mem.alloc(64);
         e.mem.set_cstr(name, b"Data\\Video\\Test.bik");
         (e, Ptr::new(name))

@@ -261,7 +261,7 @@ struct Direct3D {
     references: u32,
 }
 
-/// The Direct3D 9 objects (`Kernel::graphics`).
+/// The Direct3D 9 objects (`State::graphics`).
 #[derive(Debug, Default)]
 pub struct Graphics {
     adapter: Option<Adapter>,
@@ -287,13 +287,13 @@ pub struct Graphics {
 /// Gives the layer the player's adapter table (`scripts/d3d9-capture`'s output).
 pub fn load_adapter_table(e: &mut Engine, table: &str) {
     let adapter = Adapter::parse(table);
-    e.kernel.graphics.nvapi.table = adapter.nvapi.clone();
-    e.kernel.graphics.adapter = Some(adapter);
+    state!(e).graphics.nvapi.table = adapter.nvapi.clone();
+    state!(e).graphics.adapter = Some(adapter);
 }
 
 /// The loaded adapter; without one the run stops and says how to capture it.
 fn adapter(e: &mut Engine) -> &Adapter {
-    match e.kernel.graphics.adapter.as_ref() {
+    match state!(e).graphics.adapter.as_ref() {
         Some(a) => a,
         None => panic!("the Direct3D 9 adapter table is not loaded: {CAPTURE_HINT}"),
     }
@@ -470,7 +470,7 @@ pub fn system_metric(e: &mut Engine, index: u32) -> Option<u32> {
 
 /// Whether `object` is an `IDirect3D9` of this layer.
 pub fn is_direct3d(e: &Engine, object: u32) -> bool {
-    e.kernel.graphics.objects.contains_key(&object)
+    state_ref!(e).graphics.objects.contains_key(&object)
 }
 
 fn register_code(e: &mut Engine) {
@@ -529,9 +529,9 @@ fn register_code(e: &mut Engine) {
 /// registered on first use), or `None` for a name the DLL doesn't export.
 pub fn proc_address(e: &mut Engine, name: &[u8]) -> Option<u32> {
     let index = PROCS.iter().position(|p| p.eq_ignore_ascii_case(name))?;
-    if !e.kernel.graphics.procs_registered {
+    if !state!(e).graphics.procs_registered {
         e.register(PROC_CODE, crate::entry!(0, direct3d_create9(u32) -> u32).1);
-        e.kernel.graphics.procs_registered = true;
+        state!(e).graphics.procs_registered = true;
     }
     Some(PROC_CODE + 4 * index as u32)
 }
@@ -544,17 +544,17 @@ pub fn direct3d_create9(e: &mut Engine, sdk: u32) -> u32 {
     if sdk != D3D_SDK_VERSION && sdk != D3D_SDK_VERSION_DEBUG {
         return 0;
     }
-    if e.kernel.graphics.d3d9_vtable == 0 {
+    if state!(e).graphics.d3d9_vtable == 0 {
         register_code(e);
         let table = e.mem.alloc(4 * D3D9_SLOTS.len() as u32);
         for i in 0..D3D9_SLOTS.len() as u32 {
             e.mem.set_u32(table + 4 * i, D3D9_CODE + 4 * i);
         }
-        e.kernel.graphics.d3d9_vtable = table;
+        state!(e).graphics.d3d9_vtable = table;
     }
     let object = e.mem.alloc(8);
-    e.mem.set_u32(object, e.kernel.graphics.d3d9_vtable);
-    e.kernel
+    e.mem.set_u32(object, state!(e).graphics.d3d9_vtable);
+    state!(e)
         .graphics
         .objects
         .insert(object, Direct3D { references: 1 });
@@ -564,7 +564,7 @@ pub fn direct3d_create9(e: &mut Engine, sdk: u32) -> u32 {
 }
 
 fn this_object(e: &mut Engine, this: Ptr) -> &mut Direct3D {
-    e.kernel
+    state!(e)
         .graphics
         .objects
         .get_mut(&this.addr())
@@ -589,7 +589,7 @@ fn release(e: &mut Engine, this: Ptr) -> u32 {
     d.references -= 1;
     let left = d.references;
     if left == 0 {
-        e.kernel.graphics.objects.remove(&this.addr());
+        state!(e).graphics.objects.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left

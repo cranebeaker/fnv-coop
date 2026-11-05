@@ -7,12 +7,12 @@ in `scripts/`.
 
 | Layer | Module | What it replaces | Checked against | Result |
 | --- | --- | --- | --- | --- |
-| Music | `platform/dshow.rs`, `crates/mp3` | DirectShow's filter graph and MP3 decoder | `scripts/dshow-measure` | Graph answers as measured. All 199 tracks are the same length, and 99.9748% of samples are identical |
-| Wave files | `platform/mmio.rs` | `mmio*` | `scripts/mmio-measure` | Edge cases as measured |
-| DirectSound | `platform/dsound.rs` | DirectSound 8 objects, cursors | `scripts/dsound-capture` | Answers and cursors as measured |
-| Mixer | `platform/mixer.rs`, `platform/resampler.rs`, `platform/sound_out.rs` | DirectSound's mixer, the device | `scripts/dsmix-measure` (WASAPI loopback, `DSMIX_HOOK`, `DSMIX_SURROUND`), `scripts/dsound-oracle` (the DLLs in a test program) | 2D path, 3D stage, distortion and both resamplers bit-exact (translated from the player's DLLs); 5.1 and 7.1 devices as DirectSound places each buffer, its 2-channel stream until the first 3D buffer and the 4 ms gain ramp (measured on 8 channels) |
-| Voices and sounds | `platform/vorbisfile.rs`, `crates/vorbis` | `libvorbisfile.dll`/`libvorbis.dll` (1.2.0) | `scripts/vorbis-record` | Bit-exact at 24-bit and 53-bit x87; 64-bit not provided |
-| Movie sound | `platform/bink.rs` | Bink's DirectSound sound system | `nv-bink --sound-system`, `--wait --sound` | `BinkSetSoundSystem` answers 1 as measured; the movie track plays as a mixer voice on the clock schedule (output off by default) |
+| Music | `engine-platform/src/dshow.rs`, `crates/mp3` | DirectShow's filter graph and MP3 decoder | `scripts/dshow-measure` | Graph answers as measured. All 199 tracks are the same length, and 99.9748% of samples are identical |
+| Wave files | `engine-platform/src/mmio.rs` | `mmio*` | `scripts/mmio-measure` | Edge cases as measured |
+| DirectSound | `engine-platform/src/dsound.rs` | DirectSound 8 objects, cursors | `scripts/dsound-capture` | Answers and cursors as measured |
+| Mixer | `engine-platform/src/mixer.rs`, `engine-platform/src/resampler.rs`, `engine-platform/src/sound_out.rs` | DirectSound's mixer, the device | `scripts/dsmix-measure` (WASAPI loopback, `DSMIX_HOOK`, `DSMIX_SURROUND`), `scripts/dsound-oracle` (the DLLs in a test program) | 2D path, 3D stage, distortion and both resamplers bit-exact (translated from the player's DLLs); 5.1 and 7.1 devices as DirectSound places each buffer, its 2-channel stream until the first 3D buffer and the 4 ms gain ramp (measured on 8 channels) |
+| Voices and sounds | `engine-platform/src/vorbisfile.rs`, `crates/vorbis` | `libvorbisfile.dll`/`libvorbis.dll` (1.2.0) | `scripts/vorbis-record` | Bit-exact at 24-bit and 53-bit x87; 64-bit not provided |
+| Movie sound | `engine-platform/src/bink.rs` | Bink's DirectSound sound system | `nv-bink --sound-system`, `--wait --sound` | `BinkSetSoundSystem` answers 1 as measured; the movie track plays as a mixer voice on the clock schedule (output off by default) |
 
 ## Hearing the game (`NV_SOUND=out`)
 
@@ -79,7 +79,7 @@ These were measured on a device without audio enhancements (Virtual Desktop Audi
 
 - A 3D buffer and a buffer with the distortion: see below (translated from the DLLs).
 
-**Resampling: DirectSound's two converters** (`platform/resampler.rs`, translated from the
+**Resampling: DirectSound's two converters** (`engine-platform/src/resampler.rs`, translated from the
 player's `dsound.dll` and `RESAMPLEDMO.DLL`, 2026-10-28). Every game buffer has
 `DSBCAPS_CTRLFREQUENCY`, so every one gets a source-rate converter, and which one is the
 device's state:
@@ -250,7 +250,7 @@ a formula is measured from the player's own `dsdmo.dll` when the game first play
   1135 Hz, pre-lowpass cutoff 5000 Hz. The I3DL2 reverb (`00af1430`) is not registered on
   Windows 11 (captured `REGDB_E_CLASSNOTREG`), so it is never heard.
 
-### The 3D stage (`platform/ds3d.rs`)
+### The 3D stage (`engine-platform/src/ds3d.rs`)
 
 For a stereo device (`CMultiPan3dObject`; other layouts below, "More than two channels"):
 1. **Listener frame.** The offset from the listener is turned by three angles taken from the
@@ -289,7 +289,7 @@ The 54 others are the device-period tails every capture loses (Mixer above), at 
 The old approximate law (`NEAR_SHARE`, "the power sums to a third") is gone: the third was the
 -5 dB of the distance stage and the -3 dB of an even split.
 
-### The distortion (`platform/dsfx.rs`)
+### The distortion (`engine-platform/src/dsfx.rs`)
 
 Per sample, in `f32`: a one-pole lowpass; a waveshaper on the integer part of the value (an
 integer "float" with an exponent of 2 to 5 bits chosen by the edge); the gain; a two-state
@@ -367,7 +367,7 @@ headset's per-app processing, keyed by the name, deterministic). Players whose W
 5.1 or 7.1 get more than two channels under any name. The port must run as `FalloutNV.exe`
 (NVIDIA's driver profile, also keyed by the name, removes the white dots), and its mixer used to
 stop at sound start on anything but two channels. It now hands Windows what DirectSound hands it
-(`platform/speakers.rs`, `mixer.rs`, `ds3d.rs`, `dsound.rs`, `sound_out.rs`).
+(`engine-platform/src/speakers.rs`, `mixer.rs`, `ds3d.rs`, `dsound.rs`, `sound_out.rs`).
 
 **Measured** (`scripts/dsmix-measure` mode `DSMIX_SURROUND`, 2026-11-03, private results in
 `build43-scratch/measure/sound71/measure`): the tool wraps `IAudioClient` and
@@ -610,13 +610,13 @@ With that constant, the crafted blocks and all 63,575 game files match at
 No bytes from the DLL are in the repository. The constant is the `f32` value of
 `pi`, computed in the code.
 
-`platform/vorbisfile.rs` decodes at the calling thread's precision: 24 or 53
+`engine-platform/src/vorbisfile.rs` decodes at the calling thread's precision: 24 or 53
 bits. 64-bit precision is not provided (not measured).
 
 ## Bink with sound
 
 The game calls `BinkSetSoundSystem(BinkOpenDirectSound, 0)` (`00ec1680`). An
-earlier measurement (2026-10-23) recorded the answer as 0, and `platform/bink.rs`
+earlier measurement (2026-10-23) recorded the answer as 0, and `engine-platform/src/bink.rs`
 was written to match it: no sound, frames timed by the clock. That measurement
 was wrong: `nv-bink` passed a garbled export name to `GetProcAddress`, so it
 handed the DLL a NULL function.

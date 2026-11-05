@@ -422,7 +422,7 @@ impl MainEnd {
 }
 
 /// The code and the rest (where it was, `(in ..)`) of a stop that is the game's own
-/// `ExitProcess`: the platform's `ExitProcess` (`engine::units::platform::window::exit_process`)
+/// `ExitProcess`: the platform's `ExitProcess` (`engine_platform::window::exit_process`)
 /// stops the engine with `ExitProcess(C): the game ended its process (not provided)` at the start
 /// of the stop's text, also through the CRT's `___crtExitProcess` (`00eccca9`, which calls it
 /// first) and from a game thread (whose stop reaches main with its text first).
@@ -1589,7 +1589,7 @@ impl crate::Host {
     }
 
     /// The viewer's keyboard for the game's DirectInput keyboard
-    /// (`engine::units::platform::dinput::key`): `down` holds every DirectInput key code (the
+    /// (`engine_platform::dinput::key`): `down` holds every DirectInput key code (the
     /// scan code) down this frame; each change becomes a key event.
     pub fn set_keys_down(&mut self, down: &[u8]) {
         self.join();
@@ -1599,7 +1599,7 @@ impl crate::Host {
         // script drives the run ([`real_input_reaches_game`]).
         #[cfg(windows)]
         let window_keys = if real_input_reaches_game() {
-            engine::units::platform::d3d9real::held_keys()
+            engine_platform::d3d9real::held_keys()
         } else {
             [false; 256]
         };
@@ -1610,7 +1610,7 @@ impl crate::Host {
                 .iter()
                 .any(|&(at, c, hold)| c == code && frame >= at && frame < at + hold);
             let held = down.contains(&code) || scripted || window_keys[code as usize];
-            engine::units::platform::dinput::key(&mut self.engine, code, held);
+            engine_platform::dinput::key(&mut self.engine, code, held);
         }
     }
 
@@ -1621,7 +1621,7 @@ impl crate::Host {
         // The real game window's mouse (`NV_D3D9=real`, Windows) moves and clicks too.
         #[cfg(windows)]
         let (motion, buttons) = {
-            let w = engine::units::platform::d3d9real::take_input();
+            let w = engine_platform::d3d9real::take_input();
             let mut b = buttons;
             for (held, window) in b.iter_mut().zip(w.buttons) {
                 *held |= window;
@@ -1661,9 +1661,9 @@ impl crate::Host {
             }
         }
         let e = &mut self.engine;
-        engine::units::platform::dinput::mouse_move(e, motion[0], motion[1], motion[2]);
+        engine_platform::dinput::mouse_move(e, motion[0], motion[1], motion[2]);
         for (button, down) in buttons.into_iter().enumerate() {
-            engine::units::platform::dinput::mouse_button(e, button, down);
+            engine_platform::dinput::mouse_button(e, button, down);
         }
     }
 
@@ -2256,7 +2256,7 @@ mod tests {
         const EXIT_PROCESS: u32 = 0x00fd_f0ec;
         let mut e = Engine::new();
         e.register(EXIT_PROCESS, |e, words| {
-            engine::units::platform::window::exit_process(e, words[0]);
+            engine_platform::window::exit_process(e, words[0]);
             Ret::default()
         });
         e.register(WIN_MAIN, |e, _| e.call(EXIT_PROCESS, &[0]));
@@ -2291,7 +2291,7 @@ mod tests {
     fn the_platforms_exit_process_text_gives_its_code() {
         let mut e = Engine::new();
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            engine::units::platform::window::exit_process(&mut e, 255)
+            engine_platform::window::exit_process(&mut e, 255)
         }))
         .expect_err("ExitProcess does not return");
         let text = payload.downcast_ref::<String>().expect("its text").clone();
@@ -2329,7 +2329,7 @@ mod tests {
             // Boxed before main starts: its coroutine keeps the engine's address.
             let mut e = Box::new(Engine::new());
             e.register(EXIT_PROCESS, |e, words| {
-                engine::units::platform::window::exit_process(e, words[0]);
+                engine_platform::window::exit_process(e, words[0]);
                 Ret::default()
             });
             e.register(WIN_MAIN, start);

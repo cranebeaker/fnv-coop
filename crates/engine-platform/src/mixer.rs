@@ -1487,7 +1487,7 @@ mod tests {
     }
 
     /// The mix's bits are those of the build before the allocation work (captured there with this
-    /// machine's `RESAMPLEDMO.DLL`): `cargo test --release -p engine-core --lib mix_bits --
+    /// machine's `RESAMPLEDMO.DLL`): `cargo test --release -p engine-platform --lib mix_bits --
     /// --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -1501,7 +1501,7 @@ mod tests {
     }
 
     /// Not a check: the mixer's host heap allocations per 10 ms period of [`every_path`] (the
-    /// output's thread), for the frame-rate work (`cargo test --release -p engine-core --lib
+    /// output's thread), for the frame-rate work (`cargo test --release -p engine-platform --lib
     /// allocations_per -- --ignored --nocapture`).
     #[test]
     #[ignore]
@@ -1571,7 +1571,7 @@ mod tests {
 
     /// Every `DSMIX_SRC` capture (`scripts/dsmix-measure` with `DSMIX_HOOK`, the folder in
     /// `NV_DSMIX_SRC`) against the mixer, sample for sample until the voice ends and the silence
-    /// after it: `cargo test -p engine-core --lib -- --ignored dsmix_src`. The cases after the
+    /// after it: `cargo test -p engine-platform --lib -- --ignored dsmix_src`. The cases after the
     /// first large frequency change are on the second converter; the changes while playing (their
     /// period is the capture's timing) are left out.
     #[test]
@@ -1658,7 +1658,7 @@ mod tests {
     /// distortion) against the mixer: the voice played from its start and moved
     /// ([`Voice::move_to`]; a distortion restarted there, `super::dsfx::Chain::start`) at each
     /// period boundary in turn; the boundary that gives the capture sample for sample is named,
-    /// and so is any other way of moving that would give it (`cargo test -p engine-core --lib --
+    /// and so is any other way of moving that would give it (`cargo test -p engine-platform --lib --
     /// --ignored dsmix_setpos --nocapture`).
     #[test]
     #[ignore]
@@ -1767,7 +1767,7 @@ mod tests {
     /// added in `f32` in the list's order, newest first: C, B, A), the moved voice reading from
     /// its new frame from each frame in turn before the first that differs without the move,
     /// in each order of the three; the orders that give the capture sample for sample are named
-    /// (`cargo test -p engine-core --lib -- --ignored dsmix_setpos_order --nocapture`).
+    /// (`cargo test -p engine-platform --lib -- --ignored dsmix_setpos_order --nocapture`).
     #[test]
     #[ignore]
     fn dsmix_setpos_order_captures() {

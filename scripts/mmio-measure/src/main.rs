@@ -1,6 +1,6 @@
 //! mmio-measure: how WinMM's buffered file I/O (`mmioOpenA`, `mmioDescend`, `mmioAscend`,
 //! `mmioRead`, `mmioGetInfo`, `mmioAdvance`, `mmioClose`) drives a custom I/O procedure, for the
-//! platform's mmio layer (`engine_core::units::platform::mmio`).
+//! platform's mmio layer (`engine_platform::mmio`).
 //!
 //! FalloutNV.exe 1.4.0.525 reads every WAV through its own I/O procedure (`00af0400`, four-character
 //! code `WAV\0`) with `MMIO_ALLOCBUF`, in the order of `00aeb270`. This tool makes the same calls

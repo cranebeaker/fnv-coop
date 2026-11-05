@@ -14,7 +14,8 @@
 //!
 //! This crate holds the model ([`Engine`], [`Mem`], [`abi`], [`ptr`],
 //! [`x87`], [`sse`], [`types`], [`exe`], the static initializer and `atexit` tables)
-//! and the units every other part calls (`units/crt.rs`, `units/platform.rs`).
+//! and the units every other part calls (`units/crt.rs`, `units/platform.rs`: the core of the
+//! platform layer; the rest of it is the `engine-platform` crate).
 //! The other units are in the part crates (`crates/engine-<part>`), and the
 //! `engine` crate assembles them: [`Engine::new`] registers this crate's
 //! functions and those of the parts the final program links ([`assemble!`]).
@@ -78,7 +79,7 @@ pub mod watch_check;
 pub mod x87;
 
 pub use abi::{AbiFn, Ret};
-pub use engine::{Engine, OpenHandler};
+pub use engine::{AddrMap, AddrSet, Engine, OpenHandler};
 pub use mem::Mem;
 pub use ptr::{Field, Inline, Layout, Ptr, Scalar};
 

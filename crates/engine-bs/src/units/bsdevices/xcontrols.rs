@@ -3,7 +3,7 @@
 //!
 //! The game's `Controls` object reading its devices each frame. Its device calls go through the
 //! `IDirectInputDevice8A` vtables (the platform's DirectInput 8 layer,
-//! `units::platform::dinput`) and `XInputGetState`.
+//! `engine-platform`'s `dinput`) and `XInputGetState`.
 
 #[allow(unused_imports)]
 use crate::prelude::*;

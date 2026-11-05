@@ -468,7 +468,7 @@ the tool's own process and records every DirectSound call the library makes
 (device, buffers, locks, cursor polls, with times) and each frame's go to
 `dsound.tsv` (`src/dshook.rs`). These
 are the measurements behind the engine's platform Bink layer
-(`crates/engine-core/src/units/platform/bink.rs`).
+(`crates/engine-platform/src/bink.rs`).
 
 Loads the given `binkw32.dll` (the one in the game folder; it is only read),
 switches sound off with `BinkSetSoundTrack(0, NULL)`, opens the movie with

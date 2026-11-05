@@ -148,7 +148,7 @@ struct Object {
 #[derive(Debug, Clone, Default)]
 struct Bindings {
     /// Stream sources: (buffer, offset, stride), held.
-    streams: crate::engine::AddrMap<u32, (u32, u32, u32)>,
+    streams: engine_core::AddrMap<u32, (u32, u32, u32)>,
     indices: u32,
     declaration: u32,
     fvf: u32,
@@ -161,22 +161,22 @@ struct Bindings {
     constants_set: Vec<u64>,
     /// The stride `GetStreamSource` reports for a stream that holds no buffer (0 unless a
     /// failed `DrawPrimitiveUP` left one, measured).
-    empty_strides: crate::engine::AddrMap<u32, u32>,
+    empty_strides: engine_core::AddrMap<u32, u32>,
     /// Whether a `DrawPrimitiveUP` has succeeded in a scene on this device (from then on the
     /// runtime takes them outside a scene too, measured).
     drawn_from_memory: bool,
 }
 
-/// The buffers, shaders and declarations (`Kernel::graphics`).
+/// The buffers, shaders and declarations (`State::graphics`).
 #[derive(Debug, Default)]
 pub struct Resources {
     vtables: HashMap<u32, u32>,
-    objects: crate::engine::AddrMap<u32, Object>,
-    bindings: crate::engine::AddrMap<u32, Bindings>,
+    objects: engine_core::AddrMap<u32, Object>,
+    bindings: engine_core::AddrMap<u32, Bindings>,
 }
 
 fn resources(e: &mut Engine) -> &mut Resources {
-    &mut e.kernel.graphics.device_objects.resources
+    &mut state!(e).graphics.device_objects.resources
 }
 
 fn object(e: &mut Engine, this: Ptr) -> &mut Object {
@@ -615,7 +615,7 @@ fn hold(e: &mut Engine, old: u32, new: u32) {
 /// The object `new` (0 for none) when it is one of this module's objects of kind `code`
 /// (`Err` when it is not), looked up once for both the check and the count [`hold`] adds.
 fn checked(
-    objects: &mut crate::engine::AddrMap<u32, Object>,
+    objects: &mut engine_core::AddrMap<u32, Object>,
     new: u32,
     code: u32,
 ) -> Result<Option<&mut Object>, ()> {
@@ -873,8 +873,7 @@ fn set_constants(e: &mut Engine, this: Ptr, kind: u8, start: u32, data: Ptr, cou
         .checked_add((4 * words * count).saturating_sub(1));
     if last.is_some_and(|last| e.mem.is_mapped(data.addr()) && e.mem.is_mapped(last)) {
         let mem = &e.mem;
-        let b = e
-            .kernel
+        let b = state!(e)
             .graphics
             .device_objects
             .resources
@@ -941,8 +940,7 @@ pub(super) fn constant_registers(
     start: u32,
     count: u32,
 ) -> Option<&[[u32; 4]]> {
-    let b = e
-        .kernel
+    let b = state_ref!(e)
         .graphics
         .device_objects
         .resources
@@ -999,7 +997,7 @@ constants!(set_pixel_constant_b, get_pixel_constant_b, 5);
 
 /// Whether the device has a buffer of its own in `D3DPOOL_DEFAULT` alive (`Reset` refuses then).
 pub(super) fn default_pool_alive(e: &Engine, device: u32) -> bool {
-    e.kernel
+    state_ref!(e)
         .graphics
         .device_objects
         .resources

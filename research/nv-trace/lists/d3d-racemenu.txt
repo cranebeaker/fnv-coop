@@ -1,6 +1,6 @@
 # Milestone 3: the Direct3D 9 calls in the race menu, for `nv-trace d3d` (draw-by-draw state).
 # Device methods are named by the port's addresses for them: 7e020200 + 4 * vtable slot
-# (crates/engine-core/src/units/platform/d3d9device.rs); the real recorder hooks the same slots
+# (crates/engine-platform/src/d3d9device.rs); the real recorder hooks the same slots
 # of the game's device. Calls are stdcall with `this` (the device) as w0 on both sides.
 # D3DX imports are named by the exe's import slots (00fdf3fc ...), as the port registers them.
 #

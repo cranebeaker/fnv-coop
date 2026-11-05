@@ -56,7 +56,7 @@ pub struct Window {
     pub rect: [i32; 4],
 }
 
-/// The window side's state (`Kernel::windows`).
+/// The window side's state (`State::windows`).
 #[derive(Debug, Default)]
 pub struct Windows {
     pub classes: Vec<Class>,
@@ -246,9 +246,9 @@ fn class_name_matches(e: &Engine, class: &Class, name: u32) -> bool {
 /// title, when given); 0 when there is none. Only this process's windows exist here.
 pub fn find_window_a(e: &mut Engine, class: u32, title: Ptr) -> u32 {
     let title = (!title.is_null()).then(|| e.mem.cstr(title.addr()));
-    let found = e.kernel.windows.windows.iter().find(|(_, w)| {
+    let found = state_ref!(e).windows.windows.iter().find(|(_, w)| {
         let class_ok = class == 0
-            || e.kernel
+            || state_ref!(e)
                 .windows
                 .classes
                 .iter()
@@ -261,32 +261,32 @@ pub fn find_window_a(e: &mut Engine, class: u32, title: Ptr) -> u32 {
 // Platform: replaces USER32.DLL SetForegroundWindow (import)
 /// `SetForegroundWindow(window)`: true for a window of this layer.
 pub fn set_foreground_window(e: &mut Engine, window: u32) -> u32 {
-    u32::from(e.kernel.windows.windows.contains_key(&window))
+    u32::from(state!(e).windows.windows.contains_key(&window))
 }
 
 // Platform: replaces KERNEL32.DLL GetCommandLineW (import)
 /// `GetCommandLineW()`: the process's command line, made once: the executable's path, quoted,
 /// as Steam starts the game (`Kernel::current_directory` + `FalloutNV.exe`), no arguments.
 pub fn get_command_line_w(e: &mut Engine) -> u32 {
-    if e.kernel.windows.command_line_at == 0 {
-        if e.kernel.windows.command_line.is_empty() {
+    if state!(e).windows.command_line_at == 0 {
+        if state!(e).windows.command_line.is_empty() {
             let mut text = String::from("\"");
             text.push_str(&String::from_utf8_lossy(&e.kernel.current_directory));
             if !text.ends_with('\\') && text.len() > 1 {
                 text.push('\\');
             }
             text.push_str("FalloutNV.exe\"");
-            e.kernel.windows.command_line = text.encode_utf16().collect();
+            state!(e).windows.command_line = text.encode_utf16().collect();
         }
-        let units = e.kernel.windows.command_line.clone();
+        let units = state!(e).windows.command_line.clone();
         let at = e.mem.alloc(2 * (units.len() as u32 + 1));
         for (i, u) in units.iter().enumerate() {
             e.mem.set_u16(at + 2 * i as u32, *u);
         }
         e.mem.set_u16(at + 2 * units.len() as u32, 0);
-        e.kernel.windows.command_line_at = at;
+        state!(e).windows.command_line_at = at;
     }
-    e.kernel.windows.command_line_at
+    state!(e).windows.command_line_at
 }
 
 /// A NUL-terminated UTF-16 string's code units.
@@ -450,7 +450,7 @@ pub fn register_class_a(e: &mut Engine, class: Ptr) -> u32 {
         "RegisterClassA by atom is not provided"
     );
     let name = e.mem.cstr(name_word);
-    if e.kernel
+    if state!(e)
         .windows
         .classes
         .iter()
@@ -459,7 +459,7 @@ pub fn register_class_a(e: &mut Engine, class: Ptr) -> u32 {
         last_error(e, ERROR_CLASS_ALREADY_EXISTS);
         return 0;
     }
-    let atom = FIRST_ATOM + e.kernel.windows.classes.len() as u32;
+    let atom = FIRST_ATOM + state!(e).windows.classes.len() as u32;
     let record = Class {
         atom,
         name,
@@ -468,7 +468,7 @@ pub fn register_class_a(e: &mut Engine, class: Ptr) -> u32 {
         instance: e.mem.u32(c + 16),
         menu_name: e.mem.u32(c + 32),
     };
-    e.kernel.windows.classes.push(record);
+    state!(e).windows.classes.push(record);
     atom
 }
 
@@ -530,8 +530,7 @@ pub fn create_window_ex_a(
     _instance: u32,
     _parameter: u32,
 ) -> u32 {
-    let Some(atom) = e
-        .kernel
+    let Some(atom) = state_ref!(e)
         .windows
         .classes
         .iter()
@@ -566,7 +565,7 @@ pub fn create_window_ex_a(
         rect,
         if child { parent } else { 0 },
     );
-    e.kernel.windows.windows.insert(
+    state!(e).windows.windows.insert(
         handle,
         Window {
             class: atom,
@@ -585,7 +584,7 @@ pub fn create_window_ex_a(
 }
 
 fn window(e: &mut Engine, handle: u32) -> Option<&mut Window> {
-    e.kernel.windows.windows.get_mut(&handle)
+    state!(e).windows.windows.get_mut(&handle)
 }
 
 // Platform: replaces USER32.DLL GetWindowLongA (import)
@@ -611,8 +610,7 @@ pub fn get_class_long_a(e: &mut Engine, handle: u32, index: i32) -> u32 {
         last_error(e, ERROR_INVALID_WINDOW_HANDLE);
         return 0;
     };
-    let class = e
-        .kernel
+    let class = state!(e)
         .windows
         .classes
         .iter()
@@ -706,9 +704,9 @@ pub fn peek_message_a(
         "PeekMessageA with a filter is not provided"
     );
     let next = if remove & PM_REMOVE != 0 {
-        e.kernel.windows.queue.pop_front()
+        state!(e).windows.queue.pop_front()
     } else {
-        e.kernel.windows.queue.front().copied()
+        state!(e).windows.queue.front().copied()
     };
     if let Some(words) = next {
         for (i, w) in words.iter().enumerate() {
@@ -716,7 +714,7 @@ pub fn peek_message_a(
         }
         return 1;
     }
-    e.kernel.windows.frames += 1;
+    state!(e).windows.frames += 1;
     crate::thread_host::end_main_frame(e);
     0
 }
@@ -744,11 +742,10 @@ pub fn dispatch_message_a(e: &mut Engine, msg: Ptr) -> u32 {
         e.mem.u32(m + 8),
         e.mem.u32(m + 12),
     );
-    let Some(class) = e.kernel.windows.windows.get(&window).map(|w| w.class) else {
+    let Some(class) = state!(e).windows.windows.get(&window).map(|w| w.class) else {
         return 0;
     };
-    let procedure = e
-        .kernel
+    let procedure = state!(e)
         .windows
         .classes
         .iter()
@@ -756,6 +753,17 @@ pub fn dispatch_message_a(e: &mut Engine, msg: Ptr) -> u32 {
         .map(|c| c.procedure)
         .expect("the window's class");
     e.call(procedure, &[window, message, w, l]).u32()
+}
+
+// Platform: replaces USER32.DLL GetSystemMetrics (import)
+/// `GetSystemMetrics(index)`: the screen metrics the Direct3D 9 layer's capture recorded for a
+/// program without a DPI-awareness manifest (`d3d9::system_metric`: `SM_CXSCREEN`,
+/// `SM_CYSCREEN`, `SM_CMONITORS`). Other metrics are not provided.
+pub fn get_system_metrics(e: &mut Engine, index: u32) -> u32 {
+    match super::d3d9::system_metric(e, index) {
+        Some(value) => value,
+        None => panic!("GetSystemMetrics({index:#x}) is not provided"),
+    }
 }
 
 #[cfg(test)]
@@ -794,7 +802,7 @@ mod tests {
     #[test]
     fn set_window_text_titles_the_record() {
         let mut e = Engine::new();
-        e.kernel.windows.windows.insert(
+        state!(e).windows.windows.insert(
             0x10,
             Window {
                 class: 1,
@@ -808,7 +816,7 @@ mod tests {
         let text = e.mem.alloc(32);
         e.mem.write(text, b"Loading 12/40\0");
         assert_eq!(set_window_text_a(&mut e, 0x10, Ptr::new(text)), 1);
-        assert_eq!(e.kernel.windows.windows[&0x10].title, b"Loading 12/40");
+        assert_eq!(state!(e).windows.windows[&0x10].title, b"Loading 12/40");
         assert_eq!(set_window_text_a(&mut e, 0x99, Ptr::new(text)), 0);
         assert_eq!(e.kernel.last_error, ERROR_INVALID_WINDOW_HANDLE);
     }
@@ -816,7 +824,7 @@ mod tests {
     #[test]
     fn command_line_to_argv_makes_one_block() {
         let mut e = Engine::new();
-        e.kernel.windows.command_line = wide_of("\"C:\\G\\FalloutNV.exe\" -nocloud");
+        state!(e).windows.command_line = wide_of("\"C:\\G\\FalloutNV.exe\" -nocloud");
         let line = get_command_line_w(&mut e);
         let count = e.mem.alloc(4);
         let block = command_line_to_argv_w(&mut e, Ptr::new(line), Ptr::new(count));
@@ -858,8 +866,8 @@ mod tests {
         let mut e = Engine::new();
         let msg = e.mem.alloc(28);
         assert_eq!(peek_message_a(&mut e, Ptr::new(msg), 0, 0, 0, 1), 0);
-        assert_eq!(e.kernel.windows.frames, 1);
-        e.kernel.windows.queue.push_back([7, 0x12, 0, 0, 0, 0, 0]);
+        assert_eq!(state!(e).windows.frames, 1);
+        state!(e).windows.queue.push_back([7, 0x12, 0, 0, 0, 0, 0]);
         assert_eq!(peek_message_a(&mut e, Ptr::new(msg), 0, 0, 0, 1), 1);
         assert_eq!(e.mem.u32(msg + 4), 0x12);
     }

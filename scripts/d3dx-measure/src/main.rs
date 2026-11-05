@@ -1,6 +1,6 @@
 //! d3dx-measure: calls the player's `d3dx9_38.dll` in a 32-bit process on many inputs and writes
 //! each call's inputs and results bit for bit (hex words), for checking the platform's own D3DX
-//! functions (`engine_core::units::platform::d3dx`) against. Only the DLL's documented entry
+//! functions (`engine_platform::d3dx`) against. Only the DLL's documented entry
 //! points are called; nothing of the DLL itself is read or written out. The DLL picks a
 //! CPU-specific path, so the answers are this machine's: the first lines name the CPU.
 //!

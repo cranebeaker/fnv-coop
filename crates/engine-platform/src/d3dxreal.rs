@@ -176,7 +176,7 @@ pub struct Objects {
 const HANDLE_BASE: u32 = 0x7e30_0000;
 
 fn objects(e: &mut Engine) -> &mut Objects {
-    &mut e.kernel.graphics.d3dx
+    &mut state!(e).graphics.d3dx
 }
 
 fn register(e: &mut Engine) {
@@ -1244,7 +1244,7 @@ mod tests {
         let Some(device) = test_device() else {
             return;
         };
-        let text = include_str!("../../../data/d3dx/texture_levels_64.tsv");
+        let text = include_str!("../data/d3dx/texture_levels_64.tsv");
         for (name, width, format) in [("dxt5-32x32", 32, "DXT5"), ("argb-16x16", 16, "ARGB")] {
             let want: Vec<Vec<&str>> = text
                 .lines()
@@ -1424,7 +1424,7 @@ mod tests {
             );
         }
         assert_eq!(
-            e.kernel.graphics.d3dx_texture_sources,
+            state!(e).graphics.d3dx_texture_sources,
             vec![TextureSource::Dll],
             "every call through the DLL, said once"
         );

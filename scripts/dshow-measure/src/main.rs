@@ -1,5 +1,5 @@
 //! dshow-measure: what DirectShow's filter graph answers for the game's music, for the
-//! platform's filter graph (`engine_core::units::platform::dshow`). 32-bit, as the game.
+//! platform's filter graph (`engine_platform::dshow`). 32-bit, as the game.
 //! Reads the MP3 files given (the player's `Data\Music`, read only); writes nothing but stdout.
 //! The graph's sound is muted (`put_Volume(-10000)`) before it runs.
 //!

@@ -1,5 +1,5 @@
 //! dsound-oracle: compares the platform's DirectSound 3D stage and distortion
-//! (`engine-core` `platform/ds3d.rs` and `platform/dsfx.rs`, compiled in here as they are) with
+//! (`engine-platform` `src/ds3d.rs` and `src/dsfx.rs`, compiled in here as they are) with
 //! the player's own `dsound.dll` and `dsdmo.dll`, run in this 32-bit process like the game's.
 //! Nothing is heard and no device or setting is changed: the 3D buffers play silence, and the
 //! effect runs on our test signals in memory.
@@ -22,11 +22,11 @@
 //! Prints the counts of exact cases and the first differences; exits 1 on any difference.
 #![allow(dead_code)]
 
-#[path = "../../../crates/engine-core/src/units/platform/ds3d.rs"]
+#[path = "../../../crates/engine-platform/src/ds3d.rs"]
 mod ds3d;
-#[path = "../../../crates/engine-core/src/units/platform/dsfx.rs"]
+#[path = "../../../crates/engine-platform/src/dsfx.rs"]
 mod dsfx;
-#[path = "../../../crates/engine-core/src/units/platform/mixer.rs"]
+#[path = "../../../crates/engine-platform/src/mixer.rs"]
 mod mixer;
 
 use std::ffi::c_void;

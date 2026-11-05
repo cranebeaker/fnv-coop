@@ -1,5 +1,5 @@
 //! Scripted keys fed into the game's own DirectInput keyboard, the way the port's platform
-//! layer feeds them (`crates/engine-core/src/units/platform/dinput.rs`): no system-wide input
+//! layer feeds them (`crates/engine-platform/src/dinput.rs`): no system-wide input
 //! is synthesised, so nothing can reach another program.
 //!
 //! The exe's `DINPUT8!DirectInput8Create` import is redirected ([`crate::iat`]) to

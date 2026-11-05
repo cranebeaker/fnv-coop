@@ -1029,8 +1029,8 @@ fn choose_source(e: &mut Engine, device: Option<u32>) -> TextureSource {
     #[cfg(not(windows))]
     let dll = false;
     let source = texture_source(real, dll);
-    if !e.kernel.graphics.d3dx_texture_sources.contains(&source) {
-        e.kernel.graphics.d3dx_texture_sources.push(source);
+    if !state!(e).graphics.d3dx_texture_sources.contains(&source) {
+        state!(e).graphics.d3dx_texture_sources.push(source);
         match source {
             TextureSource::Dll => eprintln!(
                 "D3DX textures: through the player's 64-bit d3dx9_38.dll in this process, on the real device"
@@ -1045,7 +1045,7 @@ fn choose_source(e: &mut Engine, device: Option<u32>) -> TextureSource {
 
 /// Gives the layer the machine-local texture cache folder (`scripts/d3dx-texture-capture`).
 pub fn set_texture_cache(e: &mut Engine, dir: std::path::PathBuf) {
-    e.kernel.graphics.d3dx_texture_cache = Some(dir);
+    state!(e).graphics.d3dx_texture_cache = Some(dir);
 }
 
 /// How to fill the texture cache, for the stop when an entry is missing (after the reason the
@@ -1241,7 +1241,7 @@ fn create_from_file(
         unreachable!("the DLL answers only on Windows, above");
     };
     let key = texture_key(call, &bytes);
-    let Some(dir) = e.kernel.graphics.d3dx_texture_cache.clone() else {
+    let Some(dir) = state!(e).graphics.d3dx_texture_cache.clone() else {
         panic!(
             "D3DX{call}: no texture cache is set (the cache is used: {why}): {TEXTURE_CACHE_HINT}"
         );
@@ -1401,7 +1401,7 @@ mod tests {
     /// The measured calls kept as test data (`data/d3dx/matrix_multiply.tsv`, from
     /// `scripts/d3dx-measure`): alias, control word, M1, M2, the DLL's result, returned.
     fn measured() -> Vec<(String, [u32; 16], [u32; 16], [u32; 16])> {
-        let text = include_str!("../../../data/d3dx/matrix_multiply.tsv");
+        let text = include_str!("../data/d3dx/matrix_multiply.tsv");
         let words = |t: &str| -> [u32; 16] {
             let v: Vec<u32> = t
                 .split(' ')
@@ -1421,7 +1421,7 @@ mod tests {
 
     /// The cost of the matrix helpers the renderer calls per object (`D3DXMatrixMultiply`,
     /// `D3DXMatrixMultiplyTranspose`, `D3DXMatrixTranspose`), per call, on matrices of ordinary
-    /// floats in engine memory (TEST DATA). `cargo test --release -p engine-core --lib
+    /// floats in engine memory (TEST DATA). `cargo test --release -p engine-platform --lib
     /// cost_of_d3dx -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -1552,7 +1552,7 @@ mod tests {
     type MeasuredCase = (String, [u32; 16], [u32; 16], [u32; 16]);
 
     fn measured_transpose() -> Vec<MeasuredCase> {
-        let text = include_str!("../../../data/d3dx/matrix_multiply_transpose.tsv");
+        let text = include_str!("../data/d3dx/matrix_multiply_transpose.tsv");
         let words = |t: &str| -> [u32; 16] {
             let v: Vec<u32> = t
                 .split(' ')
@@ -1571,7 +1571,7 @@ mod tests {
 
     #[test]
     fn vector_transforms_match_the_measured_dll_bit_for_bit() {
-        let text = include_str!("../../../data/d3dx/vector_transforms.tsv");
+        let text = include_str!("../data/d3dx/vector_transforms.tsv");
         let words = |t: &str| -> Vec<u32> {
             t.split(' ')
                 .map(|w| u32::from_str_radix(w.trim(), 16).unwrap())
@@ -1616,7 +1616,7 @@ mod tests {
 
     #[test]
     fn transpose_matches_the_measured_dll_bit_for_bit() {
-        let text = include_str!("../../../data/d3dx/matrix_transpose.tsv");
+        let text = include_str!("../data/d3dx/matrix_transpose.tsv");
         let words = |t: &str| -> [u32; 16] {
             let v: Vec<u32> = t
                 .split(' ')
@@ -1670,12 +1670,10 @@ mod tests {
 
     #[test]
     fn the_import_slot_is_registered_by_name() {
-        assert!(crate::units::platform::imports()
-            .iter()
-            .any(|(dll, name, _)| {
-                *dll == "d3dx9_38.dll" && *name == "D3DXMatrixMultiplyTranspose"
-            }));
-        let table = crate::units::platform::imports();
+        assert!(crate::imports().iter().any(|(dll, name, _)| {
+            *dll == "d3dx9_38.dll" && *name == "D3DXMatrixMultiplyTranspose"
+        }));
+        let table = crate::imports();
         assert!(table
             .iter()
             .any(|(dll, name, _)| *dll == "d3dx9_38.dll" && *name == "D3DXMatrixMultiply"));
@@ -1880,9 +1878,13 @@ mod tests {
             choose_source(&mut e, Some(device)),
             TextureSource::Cache(_)
         ));
-        assert_eq!(e.kernel.graphics.d3dx_texture_sources.len(), 1, "said once");
+        assert_eq!(
+            state!(e).graphics.d3dx_texture_sources.len(),
+            1,
+            "said once"
+        );
         choose_source(&mut e, Some(device));
-        assert_eq!(e.kernel.graphics.d3dx_texture_sources.len(), 1);
+        assert_eq!(state!(e).graphics.d3dx_texture_sources.len(), 1);
     }
 
     #[test]
@@ -1996,7 +1998,7 @@ mod tests_yaw_pitch_roll {
     fn rotation_yaw_pitch_roll_matches_the_dll() {
         for (cw, [yaw, pitch, roll], want) in MEASURED {
             let mut e = Engine::new();
-            crate::units::crt::set_x87_control_word(&mut e, *cw);
+            engine_core::units::crt::set_x87_control_word(&mut e, *cw);
             let out = e.mem.alloc(64);
             assert_eq!(
                 matrix_rotation_yaw_pitch_roll(&mut e, Ptr::new(out), *yaw, *pitch, *roll),
@@ -2029,7 +2031,7 @@ mod tests_yaw_pitch_roll {
             );
         }
         // The import is registered under its name.
-        assert!(crate::units::platform::imports()
+        assert!(crate::imports()
             .iter()
             .any(|(dll, name, _)| *dll == "d3dx9_38.dll"
                 && *name == "D3DXMatrixRotationYawPitchRoll"));
@@ -2124,7 +2126,7 @@ mod tests_vec3_normalize {
         };
         for (cw, input, want) in MEASURED {
             let mut e = Engine::new();
-            crate::units::crt::set_x87_control_word(&mut e, *cw);
+            engine_core::units::crt::set_x87_control_word(&mut e, *cw);
             let v = e.mem.alloc(12);
             for (i, w) in words(input).iter().enumerate() {
                 e.mem.set_u32(v + 4 * i as u32, *w);

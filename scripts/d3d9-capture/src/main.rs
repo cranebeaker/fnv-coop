@@ -1,5 +1,5 @@
 //! d3d9-capture: what Direct3D 9 answers on this machine for adapter 0, as the table the platform's
-//! Direct3D 9 layer reads (`engine_core::units::platform::d3d9`), written to stdout. Each line:
+//! Direct3D 9 layer reads (`engine_platform::d3d9`), written to stdout. Each line:
 //! the query, its words (space separated, hex), the HRESULT or count, and the bytes it wrote as
 //! hex. Built without a DPI-awareness manifest, as FalloutNV.exe runs, so the screen metrics are
 //! the ones the game sees. The table describes the player's own hardware: it stays on the

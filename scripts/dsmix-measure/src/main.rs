@@ -1,6 +1,6 @@
 //! dsmix-measure: what DirectSound 8 sends to the sound device for a known buffer and known
 //! settings, captured with WASAPI loopback on the default output device, for the platform's
-//! mixer (`engine_core::units::platform::mixer`). 32-bit, as the game. The test sounds are
+//! mixer (`engine_platform::mixer`). 32-bit, as the game. The test sounds are
 //! made up (noise from a fixed generator, quiet: about -30 dBFS) and short; they are heard on
 //! the speakers while it runs. Writes `<out-dir>/<case>.f32` (the device's samples as captured,
 //! interleaved) and `<out-dir>/cases.tsv` (the case, its settings, the device format, frames

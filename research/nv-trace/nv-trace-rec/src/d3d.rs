@@ -2,7 +2,7 @@
 //!
 //! A list names a device method by the address the port's platform layer gives it:
 //! `DEVICE_CODE + 4 * slot` with `DEVICE_CODE = 0x7e020200`
-//! (`crates/engine-core/src/units/platform/d3d9device.rs`), the slot being the method's index in
+//! (`crates/engine-platform/src/d3d9device.rs`), the slot being the method's index in
 //! `IDirect3DDevice9`'s vtable (`SetTexture` 65 is `7e020304`). The port records its calls under
 //! that address natively; here the exe's `Direct3DCreate9` import is redirected
 //! ([`crate::iat`]), `IDirect3D9::CreateDevice` (slot 16) is patched in the object's vtable,

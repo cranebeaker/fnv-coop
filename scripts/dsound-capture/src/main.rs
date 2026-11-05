@@ -1,12 +1,12 @@
 //! dsound-capture: what DirectSound 8 answers on this machine to the calls FalloutNV.exe 1.4.0.525
-//! makes, as the platform's sound table (`engine_core::units::platform::dsound`), written to
+//! makes, as the platform's sound table (`engine_platform::dsound`), written to
 //! stdout. 32-bit, as the game. The table describes the player's own sound device: it stays on
 //! the player's machine (git-ignored), never in the repository. Windows only:
 //!
 //! `cargo run --release --target i686-pc-windows-msvc --manifest-path scripts/dsound-capture/Cargo.toml > %LOCALAPPDATA%\nv-rs\dsound.tsv`
 //! (or any file `NV_DSOUND_TABLE` names).
 //!
-//! What the game calls (see `crates/engine-core/src/units/platform/dsound.rs`):
+//! What the game calls (see `crates/engine-platform/src/dsound.rs`):
 //! - `BSWin32Audio::Init` `00aea230`: `DirectSoundCreate8(NULL)`, `SetCooperativeLevel(window,
 //!   DSSCL_PRIORITY)`, `GetCaps`, the primary buffer (`DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRL3D |
 //!   DSBCAPS_CTRLVOLUME`), its `IDirectSound3DListener`, `SetPosition` and `SetDopplerFactor`.

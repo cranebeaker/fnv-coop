@@ -1,6 +1,6 @@
 //! `--game` and `--wait`: the library driven the way FalloutNV.exe 1.4.0.525
-//! drives it, so the platform's Bink layer (`engine-core`'s
-//! `units::platform::bink`) can be checked against the same calls.
+//! drives it, so the platform's Bink layer (`engine-platform`'s
+//! `bink`) can be checked against the same calls.
 //!
 //! `--game` follows the game's frame copy (`00ec14d0`) and its texture tiles
 //! (`00ebf8e0`, `00ebfda0`): `BinkDoFrame`, then for each 256x256 tile, row

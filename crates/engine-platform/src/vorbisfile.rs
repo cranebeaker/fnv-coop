@@ -58,7 +58,7 @@ impl std::fmt::Debug for Files {
 
 /// The decoding thread's precision; 64 bits is not provided (module documentation).
 fn precision(e: &mut Engine, call: &str) -> Precision {
-    let word = crate::units::crt::x87_control_word(e);
+    let word = engine_core::units::crt::x87_control_word(e);
     match (word >> 8) & 3 {
         0 => Precision::Bits24,
         2 => Precision::Bits53,
@@ -122,7 +122,7 @@ pub fn ov_open_callbacks(
             for (k, w) in words.into_iter().enumerate() {
                 e.mem.set_i32(info + 4 * k as u32, w);
             }
-            let sound = &mut e.kernel.sound.vorbis;
+            let sound = &mut state!(e).sound.vorbis;
             assert!(
                 !sound.open.contains_key(&vf.addr()),
                 "ov_open_callbacks on an open OggVorbis_File is not provided"
@@ -142,7 +142,7 @@ pub fn ov_open_callbacks(
 }
 
 fn file<'a>(e: &'a mut Engine, vf: Ptr, call: &str) -> &'a mut (VorbisFile, u32) {
-    e.kernel
+    state!(e)
         .sound
         .vorbis
         .open
@@ -189,7 +189,7 @@ pub fn ov_read(
     }
     // The decoder writes the samples it gives and reads nothing of the buffer: the last read's
     // room serves, its length the one asked.
-    let mut out = std::mem::take(&mut e.kernel.sound.vorbis.read);
+    let mut out = std::mem::take(&mut state!(e).sound.vorbis.read);
     out.resize(length as usize, 0);
     let n = file(e, vf, "ov_read").0.read(&mut out);
     if n > 0 {
@@ -198,13 +198,13 @@ pub fn ov_read(
             e.mem.set_u32(bitstream.addr(), 0);
         }
     }
-    e.kernel.sound.vorbis.read = out;
+    state!(e).sound.vorbis.read = out;
     n as i32
 }
 
 /// `ov_clear(vf)`: closes the stream (the game passes no close callback); 0.
 pub fn ov_clear(e: &mut Engine, vf: Ptr) -> i32 {
-    if let Some((_, info)) = e.kernel.sound.vorbis.open.remove(&vf.addr()) {
+    if let Some((_, info)) = state!(e).sound.vorbis.open.remove(&vf.addr()) {
         e.mem.free(info);
     }
     0
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn a_file_that_is_not_ogg_vorbis_is_refused_after_reading_it_through_the_callbacks() {
         let mut e = Engine::new();
-        crate::units::crt::set_x87_control_word(&mut e, 0x007f);
+        engine_core::units::crt::set_x87_control_word(&mut e, 0x007f);
         let r = open(&mut e, &[0x55; 70000]);
         assert_eq!(r, -132);
         let calls = FILE.with(|f| f.borrow().2.clone());
@@ -297,14 +297,14 @@ mod tests {
                 "read 65536"
             ]
         );
-        assert!(e.kernel.sound.vorbis.open.is_empty());
+        assert!(state!(e).sound.vorbis.open.is_empty());
     }
 
     #[test]
     #[should_panic(expected = "is not provided: the player's libvorbis computes on the x87 unit")]
     fn decoding_at_64_bits_stops() {
         let mut e = Engine::new();
-        crate::units::crt::set_x87_control_word(&mut e, 0x037f);
+        engine_core::units::crt::set_x87_control_word(&mut e, 0x037f);
         open(&mut e, b"OggS");
     }
 }

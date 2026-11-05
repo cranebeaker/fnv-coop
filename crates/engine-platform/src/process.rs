@@ -32,7 +32,7 @@ pub const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 /// `HEAP_ZERO_MEMORY`.
 pub const HEAP_ZERO_MEMORY: u32 = 8;
 
-/// The process side's state (`Kernel::process`).
+/// The process side's state (`State::process`).
 #[derive(Debug, Default)]
 pub struct Process {
     /// Where `GetCommandLineA`'s text is (0: not made yet).
@@ -85,7 +85,7 @@ pub fn get_module_file_name_a(e: &mut Engine, module: u32, buffer: Ptr, size: u3
 /// as ANSI, made once; the same pointer on every call (measured). A character outside ASCII is
 /// not provided (the code page's table is not captured; stops the run).
 pub fn get_command_line_a(e: &mut Engine) -> u32 {
-    if e.kernel.process.command_line_a_at == 0 {
+    if state!(e).process.command_line_a_at == 0 {
         let mut at = super::window::get_command_line_w(e);
         let mut text = Vec::new();
         loop {
@@ -102,9 +102,9 @@ pub fn get_command_line_a(e: &mut Engine) -> u32 {
         }
         let block = e.mem.alloc(text.len() as u32 + 1);
         e.mem.set_cstr(block, &text);
-        e.kernel.process.command_line_a_at = block;
+        state!(e).process.command_line_a_at = block;
     }
-    e.kernel.process.command_line_a_at
+    state!(e).process.command_line_a_at
 }
 
 /// The process's environment as `GetEnvironmentStringsW` lays it out (module comment): the
@@ -134,7 +134,7 @@ pub fn get_environment_strings_w(e: &mut Engine) -> u32 {
     for (i, unit) in units.iter().enumerate() {
         e.mem.set_u16(block + 2 * i as u32, *unit);
     }
-    e.kernel.process.environment_blocks.insert(block);
+    state!(e).process.environment_blocks.insert(block);
     block
 }
 
@@ -143,7 +143,7 @@ pub fn get_environment_strings_w(e: &mut Engine) -> u32 {
 /// TRUE, the last error left as it was (measured). Any other address is not provided.
 pub fn free_environment_strings_w(e: &mut Engine, block: u32) -> u32 {
     assert!(
-        e.kernel.process.environment_blocks.remove(&block),
+        state!(e).process.environment_blocks.remove(&block),
         "FreeEnvironmentStringsW({block:#x}): not a block GetEnvironmentStringsW answered (not provided)"
     );
     e.mem.free(block);
@@ -159,7 +159,7 @@ pub fn free_environment_strings_w(e: &mut Engine, block: u32) -> u32 {
 /// call answered that one; each later call answered the one before. The filter is only kept:
 /// nothing here raises an unhandled exception to call it.
 pub fn set_unhandled_exception_filter(e: &mut Engine, filter: u32) -> u32 {
-    std::mem::replace(&mut e.kernel.process.unhandled_exception_filter, filter)
+    std::mem::replace(&mut state!(e).process.unhandled_exception_filter, filter)
 }
 
 // Platform: replaces KERNEL32.DLL GetCurrentProcessId (import)
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn heap_blocks_grow_with_zeros_and_free() {
         let mut e = engine();
-        let heap = super::super::heap_create(&mut e, 0, 0x1000, 0);
-        let block = crate::units::crt::crt_alloc(&mut e, 0x20);
+        let heap = engine_core::units::platform::test_support::heap_create(&mut e, 0, 0x1000, 0);
+        let block = engine_core::units::crt::stdio::test_support::crt_alloc(&mut e, 0x20);
         let pattern: Vec<u8> = (1..=0x20).collect();
         e.mem.write(block, &pattern);
         e.kernel.last_error = 0x1234;

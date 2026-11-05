@@ -15,7 +15,7 @@
 //! keyboard and mouse the game reads through DirectInput.
 //!
 //! The real device is created with `D3DCREATE_FPU_PRESERVE` added to the game's flags: the
-//! game's x87 precision switch is modelled (`crate::units::platform::direct3d_device_created`,
+//! game's x87 precision switch is modelled (`crate::direct3d_device_created`,
 //! from the game's own flags), and the host thread's floating-point state is not the game's.
 
 use crate::Engine;
@@ -59,18 +59,18 @@ enum Object {
 pub struct Real {
     windows: HashMap<u32, isize>,
     d3d: Option<IDirect3D9>,
-    objects: crate::engine::AddrMap<u32, Object>,
+    objects: engine_core::AddrMap<u32, Object>,
     /// Open locks of buffers: (offset, size, flags), innermost last.
-    locks: crate::engine::AddrMap<u32, Vec<(u32, u32, u32)>>,
+    locks: engine_core::AddrMap<u32, Vec<(u32, u32, u32)>>,
     /// The buffers made with `D3DUSAGE_DYNAMIC` (their locks pass `DISCARD`/`NOOVERWRITE` on).
-    dynamic: crate::engine::AddrSet<u32>,
+    dynamic: engine_core::AddrSet<u32>,
     /// The differences already printed: (call, model's answer, real answer).
     logged: HashSet<(&'static str, u32, u32)>,
     /// Bindings the model took whose object has no real counterpart, by (device, binding: a
     /// stream number, or [`INDICES`], [`DECLARATION`], [`VERTEX_SHADER`], [`PIXEL_SHADER`]).
     /// The real binding is set to null instead, and the real draws are skipped while any is
     /// left: a pure device does not check what it draws with.
-    broken: crate::engine::AddrSet<(u32, u32)>,
+    broken: engine_core::AddrSet<(u32, u32)>,
     /// Real objects whose modelled ones are destroyed, released at the next `Present` ([`forget`]).
     graveyard: Vec<Object>,
     /// The vertices of the last `DrawPrimitiveUP`, kept so the next one reuses the room (no
@@ -89,12 +89,12 @@ impl std::fmt::Debug for Real {
 }
 
 fn real(e: &mut Engine) -> &mut Real {
-    &mut e.kernel.graphics.real
+    &mut state!(e).graphics.real
 }
 
 /// The real window of a modelled window handle, when it has one.
 pub fn real_window(e: &Engine, handle: u32) -> Option<isize> {
-    e.kernel.graphics.real.windows.get(&handle).copied()
+    state_ref!(e).graphics.real.windows.get(&handle).copied()
 }
 
 /// `D3DPRESENT_INTERVAL_IMMEDIATE`.
@@ -160,7 +160,7 @@ fn words<const N: usize>(e: &Engine, at: u32) -> [u32; N] {
 /// call, tens of thousands a frame.
 #[inline]
 fn device(e: &Engine, this: u32) -> Option<std::mem::ManuallyDrop<IDirect3DDevice9>> {
-    match e.kernel.graphics.real.objects.get(&this) {
+    match state_ref!(e).graphics.real.objects.get(&this) {
         // SAFETY: an interface is one non-null COM pointer; the copy is never released.
         Some(Object::Device(d)) => Some(std::mem::ManuallyDrop::new(unsafe {
             std::mem::transmute_copy(d)
@@ -173,7 +173,7 @@ fn device(e: &Engine, this: u32) -> Option<std::mem::ManuallyDrop<IDirect3DDevic
 /// other code, the D3DX texture loader in `super::d3dxreal`); `None` when the forwarding is off or
 /// the real `CreateDevice` failed.
 pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
-    match e.kernel.graphics.real.objects.get(&this) {
+    match state_ref!(e).graphics.real.objects.get(&this) {
         Some(Object::Device(d)) => Some(d.clone()),
         _ => None,
     }
@@ -182,13 +182,13 @@ pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
 /// Whether any of the game's modelled devices has a real one behind it (for a D3DX call that
 /// takes no device, the image info).
 pub fn any_real_device(e: &Engine) -> bool {
-    e.kernel
+    state_ref!(e)
         .graphics
         .device_objects
         .device_addresses()
         .any(|d| {
             matches!(
-                e.kernel.graphics.real.objects.get(&d),
+                state_ref!(e).graphics.real.objects.get(&d),
                 Some(Object::Device(_))
             )
         })
@@ -913,7 +913,7 @@ pub fn present(
 // The device's state.
 
 fn surface_of(e: &Engine, surface: u32) -> Option<IDirect3DSurface9> {
-    match e.kernel.graphics.real.objects.get(&surface) {
+    match state_ref!(e).graphics.real.objects.get(&surface) {
         Some(Object::Surface(s)) => Some(s.clone()),
         _ => None,
     }
@@ -1064,7 +1064,7 @@ pub fn set_texture(e: &mut Engine, this: u32, sampler: u32, texture: u32, model:
         face_check_bind(sampler, texture);
     }
     let Some(d) = device(e, this) else { return };
-    let r = match e.kernel.graphics.real.objects.get(&texture) {
+    let r = match state!(e).graphics.real.objects.get(&texture) {
         _ if texture == 0 => unsafe { d.SetTexture(sampler, None::<&IDirect3DBaseTexture9>) },
         Some(Object::Texture(t)) => unsafe { d.SetTexture(sampler, t) },
         Some(Object::Cube(t)) => unsafe { d.SetTexture(sampler, t) },
@@ -1301,7 +1301,7 @@ pub fn buffer_created(
 
 /// The game locked the modelled buffer `buffer` (recorded for its unlock).
 pub fn buffer_locked(e: &mut Engine, buffer: u32, offset: u32, size: u32, flags: u32, model: u32) {
-    if model != 0 || !e.kernel.graphics.real.objects.contains_key(&buffer) {
+    if model != 0 || !state!(e).graphics.real.objects.contains_key(&buffer) {
         return;
     }
     real(e)
@@ -1324,13 +1324,13 @@ pub fn buffer_unlocked(e: &mut Engine, buffer: u32, bits: u32, length: u32, mode
         return;
     }
     let size = if size == 0 { length - offset } else { size };
-    let pass = if e.kernel.graphics.real.dynamic.contains(&buffer) {
+    let pass = if state!(e).graphics.real.dynamic.contains(&buffer) {
         flags & (LOCK_DISCARD | LOCK_NOOVERWRITE)
     } else {
         0
     };
     let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
-    let r = match e.kernel.graphics.real.objects.get(&buffer) {
+    let r = match state!(e).graphics.real.objects.get(&buffer) {
         Some(Object::VertexBuffer(b)) => unsafe { b.Lock(offset, size, &mut data, pass) },
         Some(Object::IndexBuffer(b)) => unsafe { b.Lock(offset, size, &mut data, pass) },
         _ => return,
@@ -1340,7 +1340,7 @@ pub fn buffer_unlocked(e: &mut Engine, buffer: u32, bits: u32, length: u32, mode
     }
     let to = unsafe { std::slice::from_raw_parts_mut(data as *mut u8, size as usize) };
     e.mem.read(bits + offset, to);
-    let _ = match e.kernel.graphics.real.objects.get(&buffer) {
+    let _ = match state!(e).graphics.real.objects.get(&buffer) {
         Some(Object::VertexBuffer(b)) => unsafe { b.Unlock() },
         Some(Object::IndexBuffer(b)) => unsafe { b.Unlock() },
         _ => Ok(()),
@@ -1392,7 +1392,7 @@ pub fn declaration_created(e: &mut Engine, this: u32, declaration: u32, elements
 
 pub fn set_vertex_declaration(e: &mut Engine, this: u32, declaration: u32, model: u32) {
     let Some(d) = device(e, this) else { return };
-    let r = match e.kernel.graphics.real.objects.get(&declaration) {
+    let r = match state!(e).graphics.real.objects.get(&declaration) {
         _ if declaration == 0 => unsafe {
             d.SetVertexDeclaration(None::<&IDirect3DVertexDeclaration9>)
         },
@@ -1424,7 +1424,7 @@ pub fn set_shader(e: &mut Engine, this: u32, shader: u32, pixel: bool, model: u3
         face_check_shader(shader, pixel);
     }
     let Some(d) = device(e, this) else { return };
-    let r = match (pixel, e.kernel.graphics.real.objects.get(&shader)) {
+    let r = match (pixel, state!(e).graphics.real.objects.get(&shader)) {
         (false, _) if shader == 0 => unsafe { d.SetVertexShader(None::<&IDirect3DVertexShader9>) },
         (true, _) if shader == 0 => unsafe { d.SetPixelShader(None::<&IDirect3DPixelShader9>) },
         (false, Some(Object::VertexShader(s))) => unsafe { d.SetVertexShader(s) },
@@ -1542,7 +1542,7 @@ pub fn set_stream_source(
     model: u32,
 ) {
     let Some(d) = device(e, this) else { return };
-    let r = match e.kernel.graphics.real.objects.get(&buffer) {
+    let r = match state!(e).graphics.real.objects.get(&buffer) {
         _ if buffer == 0 => unsafe {
             d.SetStreamSource(stream, None::<&IDirect3DVertexBuffer9>, offset, stride)
         },
@@ -1564,7 +1564,7 @@ pub fn set_stream_source(
 
 pub fn set_indices(e: &mut Engine, this: u32, buffer: u32, model: u32) {
     let Some(d) = device(e, this) else { return };
-    let r = match e.kernel.graphics.real.objects.get(&buffer) {
+    let r = match state!(e).graphics.real.objects.get(&buffer) {
         _ if buffer == 0 => unsafe { d.SetIndices(None::<&IDirect3DIndexBuffer9>) },
         Some(Object::IndexBuffer(b)) => unsafe { d.SetIndices(b) },
         _ => {
@@ -1598,7 +1598,7 @@ fn mended(e: &mut Engine, device: u32, binding: u32) {
 
 /// Whether the real draws of `device` are skipped (a binding without a real counterpart).
 fn skipped(e: &mut Engine, device: u32) -> bool {
-    let broken = &e.kernel.graphics.real.broken;
+    let broken = &state!(e).graphics.real.broken;
     let any = !broken.is_empty() && broken.iter().any(|&(d, _)| d == device);
     if any {
         missing(e, "a draw skipped: a binding has no real counterpart");
@@ -1703,7 +1703,7 @@ pub fn draw_primitive_up(
 
 fn base_texture(e: &Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
     use windows::core::Interface;
-    match e.kernel.graphics.real.objects.get(&texture) {
+    match state_ref!(e).graphics.real.objects.get(&texture) {
         Some(Object::Texture(t)) => t.cast().ok(),
         Some(Object::Cube(t)) => t.cast().ok(),
         _ => None,
@@ -1793,7 +1793,7 @@ pub fn query_created(e: &mut Engine, this: u32, query: u32, kind: u32) {
 }
 
 fn query_of(e: &Engine, query: u32) -> Option<IDirect3DQuery9> {
-    match e.kernel.graphics.real.objects.get(&query) {
+    match state_ref!(e).graphics.real.objects.get(&query) {
         Some(Object::Query(q)) => Some(q.clone()),
         _ => None,
     }
@@ -2824,11 +2824,11 @@ mod tests {
         // The model rebinds stream 0: the first buffer goes before the real call.
         buffer_created(&mut e, device, second, false, 96, 8, 0, 0);
         forget(&mut e, first);
-        assert_eq!(e.kernel.graphics.real.graveyard.len(), 1);
+        assert_eq!(state!(e).graphics.real.graveyard.len(), 1);
         set_stream_source(&mut e, device, 0, second, 0, 24, 0);
         set_stream_source(&mut e, device, 0, 0, 0, 0, 0);
         present(&mut e, device, 0, 0, 0, 0, 0);
-        assert!(e.kernel.graphics.real.graveyard.is_empty());
+        assert!(state!(e).graphics.real.graveyard.is_empty());
     }
 
     /// A real device on a hidden window of the window thread, as an engine object at 0x1000
@@ -2838,7 +2838,7 @@ mod tests {
     }
 
     /// Not a check: the host heap allocations of the forwarded per-frame calls on a real device
-    /// (`cargo test --release -p engine-core --lib allocations_per -- --ignored --nocapture`);
+    /// (`cargo test --release -p engine-platform --lib allocations_per -- --ignored --nocapture`);
     /// nothing is listed where Direct3D 9 has no device.
     #[test]
     #[ignore]
@@ -2950,9 +2950,9 @@ mod tests {
         let t = base_texture(&e, texture).expect("the real texture");
         assert_eq!(unsafe { t.GetLOD() }, 1);
         assert!(
-            e.kernel.graphics.real.logged.is_empty(),
+            state!(e).graphics.real.logged.is_empty(),
             "no answer differed: {:?}",
-            e.kernel.graphics.real.logged
+            state!(e).graphics.real.logged
         );
     }
 }
@@ -3370,6 +3370,6 @@ pub(crate) mod stub {
 
     /// How many differences between the model's and the real answers were printed.
     pub(crate) fn logged(e: &Engine) -> usize {
-        e.kernel.graphics.real.logged.len()
+        state_ref!(e).graphics.real.logged.len()
     }
 }

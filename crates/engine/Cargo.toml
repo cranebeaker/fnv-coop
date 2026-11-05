@@ -27,6 +27,9 @@ engine-fallout-ai = { path = "../engine-fallout-ai" }
 engine-fallout-unplaced-a = { path = "../engine-fallout-unplaced-a" }
 engine-fallout-unplaced-b = { path = "../engine-fallout-unplaced-b" }
 engine-fallout-misc = { path = "../engine-fallout-misc" }
+# The platform layer (the window, Direct3D 9, DirectInput, DirectSound, files, ...): its own
+# crate, so a change there rebuilds no part crate; registered here like the parts.
+engine-platform = { path = "../engine-platform" }
 
 [dev-dependencies]
 # The opt-in real-script run (`tests/real_scda.rs`) reads the player's

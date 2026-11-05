@@ -8,6 +8,9 @@ rust-version.workspace = true
 
 [dependencies]
 engine = { path = "../engine" }
+# The platform layer (the window, Direct3D 9, DirectInput, DirectSound, files): the host drives
+# its input, sound output and adapter table.
+engine-platform = { path = "../engine-platform" }
 # The play loop's patched functions, registered over the engine's own at start-up
 # (crates/play-patch; empty on main).
 play-patch = { path = "../play-patch" }

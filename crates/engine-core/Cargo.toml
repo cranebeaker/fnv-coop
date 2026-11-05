@@ -4,25 +4,19 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The core of the engine crates: the game's memory model, Engine, the exe mapping, the static tables and the CRT and platform units (ADR-0006)"
+description = "The core of the engine crates: the game's memory model, Engine, the exe mapping, the static tables, the CRT units and the core of the platform layer (ADR-0006)"
 
 [features]
 # Test support that other engine crates' unit tests use (the form-constructor
-# checker `units::crt::ctor_test`); they enable it as a dev-dependency.
+# checker `units::crt::ctor_test`, and for `engine-platform` the addresses and helpers of
+# `units::crt::stdio::test_support` and `units::platform::test_support`); they enable it as a
+# dev-dependency.
 test-support = []
 
-[dependencies]
-# The platform's Bink layer (units/platform/bink.rs) decodes with the
-# repository's own Bink 1 decoder.
-bink = { path = "../bink" }
-mp3 = { path = "../mp3" }
-vorbis = { path = "../vorbis" }
-
-# The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008,
-# units/platform/d3d9real.rs): the real window, device and resources. Win32_System_Memory: the
-# guest memory's 4 GB host reservation (mem.rs, VirtualAlloc and VirtualFree).
+# Win32_System_Memory: the guest memory's 4 GB host reservation (mem.rs, VirtualAlloc and
+# VirtualFree). The platform layer's Windows APIs are the `engine-platform` crate's.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Memory"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(nv_chained_unwind_asm)"] }

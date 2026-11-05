@@ -113,7 +113,7 @@ pub struct State {
 }
 
 fn table(e: &Engine) -> &Table {
-    &e.kernel.graphics.nvapi.table
+    &state_ref!(e).graphics.nvapi.table
 }
 
 /// `LoadLibraryA("nvapi.dll")`'s answer.
@@ -138,9 +138,9 @@ pub fn proc_address(e: &mut Engine, name: &[u8]) -> u32 {
     }
     match table(e).procedure {
         Some(true) => {
-            if !e.kernel.graphics.nvapi.registered {
+            if !state!(e).graphics.nvapi.registered {
                 e.register(CODE_BASE, query_interface);
-                e.kernel.graphics.nvapi.registered = true;
+                state!(e).graphics.nvapi.registered = true;
             }
             CODE_BASE
         }
@@ -165,7 +165,7 @@ fn query_interface(e: &mut Engine, args: &[u32]) -> Ret {
     if !found {
         return Ret::default();
     }
-    let functions = &mut e.kernel.graphics.nvapi.functions;
+    let functions = &mut state!(e).graphics.nvapi.functions;
     let index = match functions.iter().position(|f| *f == id) {
         Some(i) => i,
         None => {
@@ -186,7 +186,7 @@ fn query_interface(e: &mut Engine, args: &[u32]) -> Ret {
 /// pass; any other id is not provided.
 fn function(e: &mut Engine, args: &[u32]) -> Ret {
     let address = *e.call_stack.last().expect("called through Engine::call");
-    let id = e.kernel.graphics.nvapi.functions[((address - FUNCTION_CODE) / 4) as usize];
+    let id = state!(e).graphics.nvapi.functions[((address - FUNCTION_CODE) / 4) as usize];
     let word = |i: usize| args.get(i).copied().unwrap_or(0);
     let (key, out) = match id {
         INITIALIZE => (format!("{id:x}"), 0),
@@ -231,7 +231,7 @@ fn function(e: &mut Engine, args: &[u32]) -> Ret {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::units::platform::d3d9;
+    use crate::d3d9;
 
     /// A made-up capture (not a real machine's): two display handles, one logical and one
     /// physical GPU, the SLI query refused.
@@ -255,7 +255,7 @@ mod tests {
             let f: Vec<&str> = line.split('\t').collect();
             assert!(table.take_line(&f));
         }
-        e.kernel.graphics.nvapi.table = table;
+        state!(e).graphics.nvapi.table = table;
         e
     }
 
@@ -315,7 +315,7 @@ mod tests {
         let mut e = Engine::new();
         let mut table = Table::default();
         assert!(table.take_line(&["NvApiLoad", "", "0", "7e"]));
-        e.kernel.graphics.nvapi.table = table;
+        state!(e).graphics.nvapi.table = table;
         assert_eq!(load_library(&mut e), 0);
         assert_eq!(e.kernel.last_error, 0x7e);
         let _ = d3d9::D3D_OK;

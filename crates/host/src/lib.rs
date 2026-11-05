@@ -126,7 +126,7 @@ impl Host {
         // `NV_SOUND=device` keeps the device's pace instead of the game's clock.
         if let Ok(mode @ ("out" | "device")) = std::env::var("NV_SOUND").as_deref() {
             let record = std::env::var_os("NV_SOUND_RECORD").map(std::path::PathBuf::from);
-            engine::units::platform::dsound::want_output(&mut engine, record, mode == "device");
+            engine_platform::dsound::want_output(&mut engine, record, mode == "device");
         }
         let mut movement = player_move::PlayerMovement::default();
         // Diagnostics: with `NV_MOVE_PROBE` set, start-up's `__mtinit` and `NiInit` are probe
@@ -227,10 +227,10 @@ pub fn texture_cache_path() -> Option<PathBuf> {
 /// Direct3D 9 query stops that stage and its message says how to capture the table.
 fn load_adapter_table(e: &mut Engine) {
     if let Some(text) = adapter_table_path().and_then(|p| std::fs::read_to_string(p).ok()) {
-        engine::units::platform::d3d9::load_adapter_table(e, &text);
+        engine_platform::d3d9::load_adapter_table(e, &text);
     }
     if let Some(dir) = texture_cache_path() {
-        engine::units::platform::d3dx::set_texture_cache(e, dir);
+        engine_platform::d3dx::set_texture_cache(e, dir);
     }
 }
 
