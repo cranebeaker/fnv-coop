@@ -186,7 +186,9 @@ impl<'a> Rig<'a> {
         }
     }
 
-    /// Everyone stands in `cell` at the given x positions (host, g1, g2).
+    /// Everyone stands in `cell` at the given x positions (host, g1, g2). This
+    /// is a harness move, as `coop cell`: each guest sends a test warp, and
+    /// the host's movement check lets it through in this test session (#74).
     fn stand(&mut self, cell: u32, xs: [f32; 3]) {
         for (i, g) in std::iter::once(&mut self.host)
             .chain(self.guests.iter_mut())
@@ -194,6 +196,10 @@ impl<'a> Rig<'a> {
         {
             g.player_cell = Some(f(cell));
             g.player_position = Some([xs[i], 1000.0, 0.0]);
+        }
+        for i in 0..self.guests.len() {
+            let warp = Msg::Roam(coop_core::roam::RoamMsg::TestWarp);
+            self.sim.guest_emit(i, vec![warp]);
         }
     }
 
@@ -301,6 +307,7 @@ impl<'a> Rig<'a> {
 
 fn setup<'a>(order: &'a LoadOrder, scripts: &'a ScriptCache, profile: &str, seed: u64) -> Rig<'a> {
     let mut r = Rig::new(order, scripts, profile, seed);
+    r.sim.host.live.test_warps = true;
     r.stand(CELL, [0.0, 10.0, 20.0]);
     r.run_ms(500);
     r

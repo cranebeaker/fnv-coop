@@ -240,6 +240,8 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
             // `coop cell CELL`: the player's scene becomes that cell (an editor id or a hex form id;
             // the cell need not exist: the live layer only sees the id)
             if let Some(c) = f(2) {
+                // a harness warp: the host's movement check lets it through in a test session (#74)
+                s.live_intent(Intent::TestWarp);
                 gs.player_cell = Some(c);
                 // an exterior cell is in its worldspace, as the viewer has it
                 gs.player_world = d.world_of_cell(c);

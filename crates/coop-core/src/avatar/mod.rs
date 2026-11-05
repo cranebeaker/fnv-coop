@@ -396,7 +396,8 @@ impl AvatarHub {
     }
 
     /// Whether `state` moves within the pace of `from` since its last
-    /// accepted sample (horizontal distance; a jump needs a warp).
+    /// accepted sample with a place (horizontal distance). A jump or a change
+    /// of space needs a warp.
     fn within_pace(&mut self, from: PlayerId, state: &AvatarState, now_ms: u64) -> bool {
         // no place (cell 0): the player loads. Not checked, and not the anchor.
         if state.cell == CellId(0) {
@@ -429,7 +430,9 @@ impl AvatarHub {
             .map(|v| v * v)
             .sum::<f32>()
             .sqrt();
-        if d <= pace.credit {
+        // a sample's cell is its space: the interior cell or the worldspace.
+        // Walking does not change it. A door, a fast travel or a warp does.
+        if state.cell == old.cell && d <= pace.credit {
             pace.credit -= d;
             return true;
         }
@@ -883,5 +886,23 @@ mod tests {
         }
         let q = 5 + 2 * WARP_SAMPLES;
         assert!(h.on_msg(200_000, PlayerId(1), at(q, 20.0)).is_some());
+    }
+
+    /// A change of space (another interior cell or worldspace) needs a warp
+    /// that the host sent, also at the same position.
+    #[test]
+    fn hub_needs_a_warp_for_another_space() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        let in_cell = |q: u32, cell: u32| AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(q),
+            state: st(cell, 10.0),
+        };
+        assert!(h.on_msg(0, PlayerId(1), in_cell(1, 1)).is_some());
+        assert!(h.on_msg(50, PlayerId(1), in_cell(2, 2)).is_none());
+        assert_eq!(h.too_far, 1);
+        h.open_warp(PlayerId(1));
+        assert!(h.on_msg(100, PlayerId(1), in_cell(3, 2)).is_some());
     }
 }
