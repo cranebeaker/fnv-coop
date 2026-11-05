@@ -1325,6 +1325,7 @@ impl CombatBridge {
                     live.combat.extras.created_as(&plan, id, cell);
                     gs.coop.live.combat.extras.insert(wf(id));
                     gs.coop.live.combat.stats.extras_made += 1;
+                    make_extra(order, gs, wf(id), base, FormId(cell.0), plan.pos);
                     gs.coop.live.spawns.push(SpawnNote {
                         id: wf(id),
                         base: Some(base),
@@ -1397,6 +1398,8 @@ impl CombatBridge {
             for id in far {
                 gs.coop.live.combat.extras.remove(&wf(id));
                 gs.coop.live.combat.stats.extras_cleared += 1;
+                gs.more.placed.refs.remove(&wf(id));
+                gs.disabled.insert(wf(id), true);
                 gs.coop.live.spawns.push(SpawnNote {
                     id: wf(id),
                     base: None,
@@ -1764,4 +1767,37 @@ pub fn bot_line(
 /// Light check that a game setting exists (kept for the diagnostics).
 pub fn setting(order: &LoadOrder, name: &str, default: f32) -> f32 {
     game_setting(order, name).unwrap_or(default)
+}
+
+/// The host makes a granted extra in its own world, as a made reference (as
+/// `PlaceAtMe` makes one). The guests make it from the `Spawned` message
+/// (`realize_spawned`). Before, the host only queued a `SpawnNote` that no
+/// code read: the extra was on the guests' screens and not on the host's.
+fn make_extra(
+    order: &LoadOrder,
+    gs: &mut GameState,
+    id: FormId,
+    base: FormId,
+    cell: FormId,
+    pos: [f32; 3],
+) {
+    let space = order
+        .get(cell)
+        .and_then(|r| order.world_of(&r))
+        .unwrap_or(cell);
+    gs.more.placed.refs.insert(
+        id,
+        crate::more_functions::placed::Made {
+            base,
+            space,
+            cell,
+            position: pos,
+            rotation: [0.0; 3],
+            count: 1,
+        },
+    );
+    gs.disabled.remove(&id);
+    gs.events.push(crate::scripting::Event::More(
+        crate::more_functions::Shown::Placed { reference: id },
+    ));
 }

@@ -917,8 +917,19 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         .map(|s| s.id)
         .collect();
     assert!(spawned.len() as u32 >= made);
-    // replicated: a guest hears about every extra
+    // the host's own world has every extra (it fights them too)
     let extras = r.host.coop.live.combat.extras.clone();
+    for e in &extras {
+        assert!(
+            r.host.more.placed.refs.contains_key(e),
+            "the host made extra {e}"
+        );
+        assert!(
+            r.host.place(&order, *e).is_some(),
+            "extra {e} has a place on the host"
+        );
+    }
+    // replicated: a guest hears about every extra
     assert!(r.until(30_000, |r| extras.iter().all(|e| r.sim.guests[1]
         .sync
         .live
@@ -937,6 +948,18 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         r.until(60_000, |r| r.host.coop.live.combat.stats.extras_cleared
             >= 1)
     );
+    let cleared: Vec<FormId> = extras
+        .iter()
+        .copied()
+        .filter(|e| !r.host.coop.live.combat.extras.contains(e))
+        .collect();
+    assert!(!cleared.is_empty());
+    for e in &cleared {
+        assert!(
+            !r.host.more.placed.refs.contains_key(e),
+            "the host removed cleared extra {e}"
+        );
+    }
     // solo: no extras at all
     let mut solo = coop_core::rules::Scaling::for_party(1, Mode::CoopBalanced);
     solo.extras = 0.0;
