@@ -4320,10 +4320,11 @@ pub fn fn_00952ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, out: u32) -> u32 
 // Translated from 00953060 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `PlayerCharacter::FocusOnActor` (Xbox PDB): turns the camera and the
 /// player towards the head of `actor` (dialogue). `strength` is clamped to
-/// `0..=1` and stored in `011e0d48` at the end (the previous call's blend
-/// decides how fast the turn is: at `0` the angle limit `011e0d40` is
-/// derived from the head's bound; below `1` the step is the frame time over
-/// `(1 - blend) * setting`, capped at 1). Nothing happens without an actor,
+/// `0..=1` and stored in `011e0d48` at the end. The blend read back from there
+/// is the previous call's and decides how fast the turn is (every read,
+/// 009533d2 to 009539ce, comes before that one write, 00953bfe): at `0` the
+/// angle limit `011e0d40` is derived from the head's bound; below `1` the step
+/// is the frame time over `(1 - blend) * setting`, capped at 1. Nothing happens without an actor,
 /// or when the actor is in another cell (another world space outside).
 /// The head is the node `008a30f0` names or the node named `Bip01 Speaker`;
 /// an actor with neither logs once. With `skip_turn == 0` the pitch
@@ -4451,11 +4452,13 @@ pub fn player_character_focus_on_actor(
                 let animation_data = e.call(0x0066_29f0, &args![owner]).u32();
                 if animation_data != 0 {
                     has_face_animation = true;
-                    focus_ease_view(e, this, bound, delta, blend);
+                    let previous = e.global::<f32>(FOCUS_BLEND);
+                    focus_ease_view(e, this, bound, delta, previous);
                 }
             }
             if skip_turn == 0 && head_found {
-                focus_turn(e, this, delta, angle_vector_a, angle_vector_b, blend);
+                let previous = e.global::<f32>(FOCUS_BLEND);
+                focus_turn(e, this, delta, angle_vector_a, angle_vector_b, previous);
             }
             if !has_face_animation {
                 let distance = e.call(0x0045_7990, &args![delta]).f64();
@@ -7751,7 +7754,7 @@ pub fn fn_0095c0a0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
     let above_lower = lower < ratio;
     if !above_upper && above_lower {
         play_heartbeat(e, player, HEARTBEAT_SOUND_ALP);
-    } else if !above_lower {
+    } else if lower >= ratio {
         play_heartbeat(e, player, HEARTBEAT_SOUND_BLP);
     }
     if e.vcall(player, 0x1d0, &args![]).u32() != 0 {
@@ -12428,6 +12431,7 @@ mod tests {
         e.set_global(PITCH_START_SETTING, 0.0f32);
         e.set_global(YAW_START_SETTING, 0.0f32);
         e.mem.set_f32(p + 0x674, 15.0);
+        e.set_global(FOCUS_BLEND, 1.0f32);
         start_log(&mut e);
         // Full blend: the pitch turn is frame time * (pitch error * rate).
         player_character_focus_on_actor(&mut e, player, actor, 1.0, 0);
@@ -12447,6 +12451,15 @@ mod tests {
         start_log(&mut e);
         player_character_focus_on_actor(&mut e, player, actor, 1.0, 1);
         assert!(calls_to(&e, 0x0093_1e50).is_empty());
+        // The previous call's blend decides, not this call's strength: after a
+        // call with 0 a call with 1 still takes the eased step, then stores 1.
+        e.set_global(FOCUS_BLEND, 0.0f32);
+        e.set_global(FOCUS_SMOOTHING_SETTING, 2.0f32);
+        start_log(&mut e);
+        player_character_focus_on_actor(&mut e, player, actor, 1.0, 0);
+        let pitch = calls_to(&e, 0x0093_1e50);
+        assert_eq!(f32::from_bits(pitch[0][1]), 0.25 * (0.5 - 0.1));
+        assert_eq!(e.global::<f32>(FOCUS_BLEND), 1.0);
     }
 
     #[test]
@@ -13530,6 +13543,11 @@ mod tests {
         start_log(&mut e);
         fn_0095c0a0(&mut e, player, buffer);
         assert_eq!(calls_to(&e, 0x00ad_7550)[0][2], HEARTBEAT_SOUND_BLP);
+        // A NaN ratio plays nothing (0095c55d, then 0095c5f3).
+        slot(&mut e, owner, 0xc, st0(f64::NAN));
+        start_log(&mut e);
+        fn_0095c0a0(&mut e, player, buffer);
+        assert!(calls_to(&e, 0x00ad_7550).is_empty());
         slot(&mut e, owner, 0xc, st0(9.0));
         start_log(&mut e);
         fn_0095c0a0(&mut e, player, buffer);

@@ -743,13 +743,13 @@ pub fn bs_face_gen_keyframe_multiple_merge_morph_data_from_ov2(
     } else {
         x87_store32(1.0)
     };
-    // The smaller of the two counts is computed and kept in a local nobody reads.
+    // The larger of the two counts is computed and kept in a local nobody reads.
     let first_count = quantity_count(e, from_first);
     let second_count = quantity_count(e, from_second);
     if first_count < second_count {
-        quantity_count(e, from_first);
-    } else {
         quantity_count(e, from_second);
+    } else {
+        quantity_count(e, from_first);
     }
     let kind = e.vcall(from_first, SLOT_GET_TYPE, &[]).u32();
     e.vcall(base, SLOT_SET_TYPE, &args![kind]);
@@ -2957,9 +2957,20 @@ mod tests {
         e.mem.set_u32(this.addr() + 4, 7);
         let first = keyframe(&mut e, vtable, 5, &[0.5, 2.0, 0.25, 2.0]);
         let second = keyframe(&mut e, vtable, 5, &[1.0, 0.75, 2.0, 2.0]);
+        e.call_log = Some(vec![]);
         assert!(e
             .call(0x0064_f0b0, &args![this, first, second, 0.5f32])
             .bool());
+        // The unread count: equal counts ask the first again (0064f26a, 0064f26f).
+        let asked: Vec<u32> = e
+            .call_log
+            .take()
+            .unwrap()
+            .iter()
+            .filter(|(a, _)| *a == QUANTITY_COUNT_0044EDB0)
+            .map(|(_, args)| args[0])
+            .collect();
+        assert_eq!(asked[..3], [first.addr(), second.addr(), first.addr()]);
         // Takes first's type; blends 0, second's 1, first's 2, leaves 3.
         assert_eq!(e.get(this, BSFaceGenKeyframeMultiple::eType), 5);
         assert_eq!(values(&e, this), vec![0.75, 0.75, 0.25, 0.0]);

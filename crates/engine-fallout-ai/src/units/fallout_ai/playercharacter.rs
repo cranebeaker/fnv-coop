@@ -3980,8 +3980,8 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
             e.vcall(mover, 0xc, &args![word_value]);
             let counter: f32 = e.global(CONTROL_COUNTER_011E0798);
             let counter_limit: f64 = e.global(CONTROL_COUNTER_LIMIT);
-            let in_state = e.vcall(this.addr(), 0x214, &args![]).u32();
             if counter as f64 > counter_limit {
+                let in_state = e.vcall(this.addr(), 0x214, &args![]).u32();
                 let in_state_again = if in_state != 0 {
                     e.vcall(this.addr(), 0x214, &args![]).u32()
                 } else {
@@ -16110,6 +16110,21 @@ mod tests {
         e.mem.set_u32(this.addr() + 0x68, process.addr());
         e.set_global(PLAYER_SINGLETON, this.addr());
         this
+    }
+
+    #[test]
+    fn update_asks_the_control_state_only_past_the_counter_limit() {
+        // 0093fc6a jumps past the slot 0x214 calls of 0093fc70 at or below the limit.
+        let mut e = engine();
+        let this = update_world(&mut e);
+        let table = e.mem.u32(this.addr());
+        e.register(0x00b0_0214, |_, _| Ret::default());
+        e.mem.set_u32(table + 0x214, 0x00b0_0214);
+        e.register(0x00b0_022c, |_, _| int(1));
+        e.mem.set_u32(table + 0x22c, 0x00b0_022c);
+        e.set_global(CONTROL_COUNTER_LIMIT, 1.0f64);
+        player_character_update(&mut e, this, 0.5);
+        assert!(called(&e, 0x00b0_0214).is_empty());
     }
 
     #[test]

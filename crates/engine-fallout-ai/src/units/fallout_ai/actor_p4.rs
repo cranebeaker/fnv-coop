@@ -5066,7 +5066,7 @@ pub fn fn_008ae000(e: &mut Engine, this: Ptr<Actor>, data: Ptr) {
                         let two: f64 = e.global(TWO);
                         let floor: f64 = e.global(IMPULSE_FLOOR_DOUBLE);
                         let doubled = f64::from(fn_008ae4a0(e, Ptr::new(radii))) * two;
-                        if f64::from(distance_squared) <= doubled {
+                        if !(f64::from(distance_squared) > doubled) {
                             let slope: f64 = e.global(IMPULSE_SLOPE);
                             let falloff = ((f64::from(inner_squared) * two
                                 - f64::from(distance_squared))
@@ -5142,7 +5142,7 @@ pub fn actor_get_location_on_reference(e: &mut Engine, this: Ptr<Actor>) -> u32 
         let rise = (height * factor) as f32;
         let slot = LOCATION_RING + 12 * e.global::<u32>(LOCATION_RING_INDEX);
         let top = f64::from(e.mem.f32(slot + 8)) + f64::from(rise);
-        if f64::from(ceiling) <= top {
+        if !(f64::from(ceiling) > top) {
             e.mem.set_f32(slot + 8, ceiling);
         } else {
             e.mem.set_f32(slot + 8, top as f32);
@@ -12992,6 +12992,11 @@ mod tests {
         let slot = e.call(0x008a_e4c0, &args![actor]).u32();
         assert_eq!(slot, LOCATION_RING + 12);
         assert_eq!(point(&e, Ptr::new(slot)), [1.0, 2.0, 9.0]);
+        // A NaN water level is stored: only a level above takes z + 6 (8ae5af, 8ae5b2).
+        e.register(0x0057_b0a0, |_, _| f32::NAN.into_ret());
+        let slot = e.call(0x008a_e4c0, &args![actor]).u32();
+        assert!(point(&e, Ptr::new(slot))[2].is_nan());
+        e.register(0x0057_b0a0, |_, _| 40.0f32.into_ret());
         // No cell, or a cell that fails 004518e0: the plain copy.
         e.register(0x0045_18e0, |_, _| 0.into_ret());
         let slot = e.call(0x008a_e4c0, &args![actor]).u32();

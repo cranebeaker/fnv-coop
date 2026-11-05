@@ -65,7 +65,7 @@ const LOG: u32 = 0x005b_5e40;
 const MESSAGE_NO_RENDER_TARGET: u32 = 0x0108_3ec4;
 const MESSAGE_SURFACE_FAILED: u32 = 0x0108_3e8c;
 const MESSAGE_FILE_FAILED: u32 = 0x0108_3e58;
-/// `004dc200` / `004dc1f0`: two integers whose ratio scales the width.
+/// `004dc200` / `004dc1f0`: two integers whose ratio scales the height.
 const SCREEN_NUMERATOR: u32 = 0x004d_c200;
 const SCREEN_DENOMINATOR: u32 = 0x004d_c1f0;
 /// `_ftol2_sse` (`00ec62c0`): the `double` argument as two words.
@@ -247,9 +247,9 @@ fn write_bmp(e: &mut Engine, file: u32, image: u32, header: u32, width: u32, hei
 /// the width and the height and a file path (0 for none); returns the image
 /// object (`00a7c190`) or 0 when no render target or surface could be made.
 ///
-/// A render target of the given size is made (`00b6b610`); the width is
+/// A render target of the given size is made (`00b6b610`); the height is
 /// scaled by `004dc200 / 004dc1f0` (a `float`, truncated by `_ftol2`) and
-/// written back to `*width`; the settings objects are told (`0094ae40`,
+/// written back to `*height` once the surface is locked; the settings objects are told (`0094ae40`,
 /// `00879860` with `{0.0, 1.0, 1.0, 1 - ratio}`, `008706b0`, `008798a0`, the
 /// rendering system's stages); a surface of height by width is created
 /// (slot `0x90`), the render target is copied into it (slot `0x80`), locked
@@ -316,8 +316,8 @@ pub fn screenshot_take_save_game_screen_shot(
         let numerator = e.call(SCREEN_NUMERATOR, &[]).i32();
         let denominator = e.call(SCREEN_DENOMINATOR, &[]).i32();
         let ratio = (numerator as f64 / denominator as f64) as f32;
-        let width_now = e.mem.i32(width.addr());
-        let scaled_width = e.call(FTOL, &args![width_now as f64 * ratio as f64]).u32();
+        let height_now = e.mem.i32(height.addr());
+        let scaled_height = e.call(FTOL, &args![height_now as f64 * ratio as f64]).u32();
         let player = e.global::<u32>(PLAYER_POINTER);
         e.call(PLAYER_UPDATE_CAMERA, &args![player, 0u32, 0u32]);
         let remaining = (1.0 - ratio as f64) as f32;
@@ -403,7 +403,7 @@ pub fn screenshot_take_save_game_screen_shot(
         );
         let bits = e.mem.u32(locked + 4);
 
-        e.mem.set_u32(width.addr(), scaled_width);
+        e.mem.set_u32(height.addr(), scaled_height);
         let block = e.call(OPERATOR_NEW, &args![IMAGE_SIZE]).u32();
         let image = if block != 0 {
             let image_width = e.mem.u32(width.addr());
@@ -575,7 +575,7 @@ mod tests {
             Options {
                 no_target: false,
                 surface_fails: false,
-                ratio: (2, 1),
+                ratio: (3, 2),
                 path_accepted: true,
                 file_opens: true,
                 camera_test: false,
@@ -818,17 +818,17 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_scales_the_width_and_converts_the_pixels() {
+    fn screenshot_scales_the_height_and_converts_the_pixels() {
         let (mut e, s) = scene(Options::default());
         let image = e.call(0x0087_8f60, &[s.width, s.height, 0]).u32();
         assert_eq!(image, IMAGE);
-        // 4 * 2.0 = 8: written back to the width.
-        assert_eq!(e.mem.u32(s.width), 8);
-        assert_eq!(e.mem.u32(s.height), 2);
+        // 2 * 1.5 = 3: written back to the height (0087931a..23); the width stays.
+        assert_eq!(e.mem.u32(s.width), 4);
+        assert_eq!(e.mem.u32(s.height), 3);
         let ftol = arguments(&s, FTOL);
         assert_eq!(ftol.len(), 1);
         let value = f64::from_bits(u64::from(ftol[0][0]) | u64::from(ftol[0][1]) << 32);
-        assert_eq!(value, 8.0);
+        assert_eq!(value, 3.0);
         // The render target gets the requested size, not the scaled one.
         let target = &arguments(&s, CREATE_RENDER_TARGET)[0];
         assert_eq!(target[1], 4);
@@ -842,22 +842,23 @@ mod tests {
                 0.0f32.to_bits(),
                 1.0f32.to_bits(),
                 1.0f32.to_bits(),
-                (-1.0f32).to_bits()
+                (-0.5f32).to_bits()
             ]
         );
         assert_eq!(arguments(&s, RESET_FLOATS)[0], vec![FLOAT_OWNER]);
-        // The surface is made of the height by the (not yet scaled) width and the
+        // The surface is made of the (not yet scaled) height by the width and the
         // format value.
         let create = &arguments(&s, SLOT_CREATE_SURFACE)[0];
         assert_eq!(create[..5], [DEVICE, 2, 4, 0x16, 2]);
-        // The image is made with the scaled width.
+        // The image is made with the width then the scaled height (00879346..58).
         assert_eq!(
             arguments(&s, IMAGE_CONSTRUCT)[0],
-            vec![IMAGE, 8, 2, IMAGE_DESCRIPTION, 1, 1]
+            vec![IMAGE, 4, 3, IMAGE_DESCRIPTION, 1, 1]
         );
         // Blue, green, red, alpha become red, green, blue.
         assert_eq!(e.mem.bytes(s.pixels, 6), vec![2, 1, 0, 6, 5, 4]);
-        assert_eq!(e.mem.u8(s.pixels + 47), 60);
+        assert_eq!(e.mem.u8(s.pixels + 35), 44);
+        assert_eq!(e.mem.u8(s.pixels + 36), 0);
         // The order of the main steps.
         let order = [
             SLOT_CREATE_SURFACE,
@@ -910,7 +911,7 @@ mod tests {
         assert_eq!(calls[calls.len() - 3].1, vec![MESSAGE_NO_RENDER_TARGET]);
         drop(calls);
         assert!(!addresses(&s).contains(&FTOL));
-        assert_eq!(e.mem.u32(s.width), 4);
+        assert_eq!(e.mem.u32(s.height), 2);
     }
 
     #[test]
@@ -926,8 +927,8 @@ mod tests {
         assert_eq!(calls[calls.len() - 3].1, vec![MESSAGE_SURFACE_FAILED]);
         drop(calls);
         assert!(!addresses(&s).contains(&SLOT_COPY_SURFACE));
-        // The width is only written back after the surface exists.
-        assert_eq!(e.mem.u32(s.width), 4);
+        // The height is only written back after the surface exists.
+        assert_eq!(e.mem.u32(s.height), 2);
     }
 
     #[test]
@@ -940,30 +941,30 @@ mod tests {
         assert_eq!(arguments(&s, PATH_PREPARE)[0], vec![path]);
         let writes = s.writes.borrow();
         assert_eq!(writes.len(), 2);
-        // 8 x 2 pixels, 3 bytes each.
+        // 4 x 3 pixels, 3 bytes each.
         let header = &writes[0];
         assert_eq!(header.len(), 0x36);
         assert_eq!(&header[0..2], b"BM");
         let word = |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().unwrap());
-        assert_eq!(word(2), 48 + 0x36);
+        assert_eq!(word(2), 36 + 0x36);
         assert_eq!(word(10), 0x36);
         assert_eq!(word(14), 0x28);
-        assert_eq!(word(18), 8);
-        assert_eq!(word(22), 2);
+        assert_eq!(word(18), 4);
+        assert_eq!(word(22), 3);
         assert_eq!(u16::from_le_bytes(header[26..28].try_into().unwrap()), 1);
         assert_eq!(u16::from_le_bytes(header[28..30].try_into().unwrap()), 24);
-        assert_eq!(word(34), 48);
+        assert_eq!(word(34), 36);
         assert!(header[38..].iter().all(|b| *b == 0));
-        // The first pixel written is the first of the second row, with red
+        // The first pixel written is the first of the last row, with red
         // and blue swapped back.
         let body = &writes[1];
-        assert_eq!(body.len(), 48);
-        let second_row = 8 * 3;
-        let pixels = e.mem.bytes(s.pixels, 48);
-        assert_eq!(body[0], pixels[second_row + 2]);
-        assert_eq!(body[1], pixels[second_row + 1]);
-        assert_eq!(body[2], pixels[second_row]);
-        assert_eq!(body[24], pixels[2]);
+        assert_eq!(body.len(), 36);
+        let last_row = 2 * 4 * 3;
+        let pixels = e.mem.bytes(s.pixels, 36);
+        assert_eq!(body[0], pixels[last_row + 2]);
+        assert_eq!(body[1], pixels[last_row + 1]);
+        assert_eq!(body[2], pixels[last_row]);
+        assert_eq!(body[last_row], pixels[2]);
         assert_eq!(arguments(&s, SLOT_FILE_DESTRUCT)[0], vec![FILE_OBJECT, 1]);
         assert_eq!(arguments(&s, FREE).len(), 1);
     }

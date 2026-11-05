@@ -7217,8 +7217,8 @@ pub fn fn_006d99a0(
 
 // Translated from 006da420 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The first half of `fn_006d99a0`: the unit direction of `heading`, the
-/// end point 256 units from `location` along it (or where the line of
-/// sight stops), and the same end point pulled in to where the two lines
+/// end point 256 units back from `location` against it (or where the line of
+/// sight stops; 006da4bc subtracts), and the same end point pulled in to where the two lines
 /// `distance` to either side stop when that is closer. Stores in `out` the
 /// vector from the end point to the location's position (the end point
 /// subtracted from the start, opposite to `fn_006d99a0`) and returns
@@ -7241,7 +7241,8 @@ pub fn fn_006da420(e: &mut Engine, out: Ptr, heading: f32, location: Ptr, distan
             .call(POINT3_TIMES_SCALAR, &args![forward, f.at(-0x168), probe])
             .u32();
         let end = f.at(-0x7c);
-        e.call(POINT3_ADD, &args![start, end, probe_vector]);
+        // Back along the heading (006da4bc, `00439ef0`).
+        e.call(POINT3_SUBTRACT, &args![start, end, probe_vector]);
         let hit = f.at(-0x10c);
         e.call(LOCATION_CONSTRUCT, &args![hit]);
         locations.push(hit);
@@ -15300,8 +15301,8 @@ mod tests {
             fn_006da420(&mut e, Ptr::new(out), 0.5, Ptr::new(location), 10.0),
             Ptr::new(out)
         );
-        // The end point is 256 ahead of the start: start - end.
-        assert_close(point(&e, out), [0.0, -256.0, 0.0]);
+        // The end point is 256 behind the start: start - end.
+        assert_close(point(&e, out), [0.0, 256.0, 0.0]);
         // Six locations: the copy, the line-of-sight result and four
         // sideways ones.
         assert_eq!(scene.built.borrow().len(), 6);

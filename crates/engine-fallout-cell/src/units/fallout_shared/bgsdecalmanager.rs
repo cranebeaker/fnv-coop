@@ -1836,8 +1836,8 @@ pub fn bgs_decal_manager_add_geometry_decal_recurse(
                 let sum = (e.mem.f32(offset) as f64 + e.mem.f32(offset + 4) as f64)
                     + e.mem.f32(offset + 8) as f64;
                 let quotient = reach * reach / value_5c as f64;
-                let below = quotient < sum;
-                !below
+                // TEST AH,1; JNZ: below and NaN go on to the next entry (004a1d99).
+                quotient >= sum
             });
             if refused {
                 return false;

@@ -8959,7 +8959,7 @@ fn do_trap(e: &mut Engine, frame_pointer: u32, this: Ptr<Actor>, trap: u32, trap
                 .call(VECTOR_ROOT_INTO, &args![velocity, under(0xb0)])
                 .u32();
             let length = e.call(VECTOR_LENGTH_FN, &args![rooted]).f32();
-            if min_velocity as f64 > length as f64 {
+            if !(min_velocity as f64 <= length as f64) {
                 damage = 0.0;
                 skip_damage = true;
             }

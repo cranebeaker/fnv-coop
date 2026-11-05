@@ -7445,7 +7445,8 @@ pub fn tes_data_handler_remove_item_barter_container(
             }
             continue;
         }
-        if !e.call(REFERENCE_HAS_CONTAINER, &args![original]).bool() {
+        // A pointer tested whole (0046f746).
+        if e.call(REFERENCE_HAS_CONTAINER, &args![original]).u32() == 0 {
             let list = e.call(REFERENCE_EXTRA_DATA_LIST, &args![original]).u32();
             e.call(EXTRA_REMOVE_OWNERSHIP, &args![list]);
             let list = e.call(REFERENCE_EXTRA_DATA_LIST, &args![original]).u32();
@@ -16802,6 +16803,11 @@ mod tests {
             calls(&e, 0x034b_1000),
             vec![vec![original, 0x0f_02, extra, 2, 0, 0, player, 0, 0, 1, 0]]
         );
+        // The test reads the whole pointer: a low byte of zero is still a container.
+        e.register(REFERENCE_HAS_CONTAINER, |_, _| ret(0x0100_0100));
+        start_log(&mut e);
+        e.call(0x0046_f640, &args![this, entry, 2u32, reference]);
+        assert_eq!(calls(&e, 0x034b_1000).len(), 1);
         // An original reference of zero ends the walk.
         e.register(EXTRA_GET_ORIGINAL_REFERENCE, |_, _| ret(0));
         start_log(&mut e);

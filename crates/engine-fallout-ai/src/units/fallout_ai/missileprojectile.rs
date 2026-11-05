@@ -197,9 +197,9 @@ fn setting_float(e: &mut Engine, setting: u32) -> f64 {
 ///   `FSUB`) and at or below 0.0 `009bc8f0` runs;
 /// - flag 0x80 (+0xc8) in state 4 keeps it stuck to its first hit: with the
 ///   hit's `NiAVObject` (`004b5820` of `00460140` of the hit's +0x1c) and a
-///   3D node, the hit's rotation times the matrix at +0x94 (`0062c250`)
-///   orients the node and the projectile (`0043fa80`, `009c6330`) and the
-///   node's translation (`00440460`) places it (`00575830`); then
+///   3D node, the hit's transform times the one at +0x94 (`0062c250`)
+///   orients the node and the projectile (`0043fa80`, `009c6330`) and its
+///   translation places the node (`00440460`) and the projectile (`00575830`); then
 ///   `Sync3DWithReference(1, 0)`;
 /// - otherwise, unless the byte at +0x90 is set, flag 1 is clear and the
 ///   state is not 3: the float at +0xd8 at or below 0.0 (or NaN) means
@@ -258,7 +258,9 @@ pub fn missile_projectile_update_projectile(e: &mut Engine, this: Ptr, time: f32
             };
             let node = node_3d(e, this);
             if object != 0 && node != 0 {
-                e.with_stack(0x24, |e, matrix| {
+                // The 13-word transform 0062c250 writes: the rotation, then the
+                // translation at +0x24 (EBP-0x40 and EBP-0x1c in 9b8203, 9b8231).
+                e.with_stack(0x34, |e, matrix| {
                     let rotate = e.call(WORLD_ROTATE_ADDRESS, &args![object]).u32();
                     e.call(
                         MATRIX_COMBINE,
@@ -266,8 +268,7 @@ pub fn missile_projectile_update_projectile(e: &mut Engine, this: Ptr, time: f32
                     );
                     e.call(NODE_SET_ROTATE, &args![node, matrix]);
                     e.call(SET_PROJECTILE_ORIENTATION, &args![this, matrix]);
-                });
-                e.with_stack(0xc, |e, point| {
+                    let point = matrix.addr() + 0x24;
                     e.call(NODE_TRANSLATE, &args![node, point]);
                     e.call(SET_LOCATION_ON_REFERENCE, &args![this, point]);
                 });
@@ -657,6 +658,15 @@ mod b025_tests {
         assert_eq!(
             calls_to(&e, SET_PROJECTILE_ORIENTATION),
             vec![vec![this, combine[0][1]]]
+        );
+        // The composed transform's translation places the node and the projectile.
+        assert_eq!(
+            calls_to(&e, NODE_TRANSLATE),
+            vec![vec![0x9000, combine[0][1] + 0x24]]
+        );
+        assert_eq!(
+            calls_to(&e, SET_LOCATION_ON_REFERENCE),
+            vec![vec![this, combine[0][1] + 0x24]]
         );
         assert_eq!(calls_to(&e, SYNC_3D_WITH_REFERENCE), vec![vec![this, 1, 0]]);
         assert!(calls_to(&e, MOVE_STEP).is_empty());

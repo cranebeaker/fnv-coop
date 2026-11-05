@@ -614,7 +614,7 @@ pub fn high_process_can_force_greet(e: &mut Engine, this: Ptr<HighProcess>, othe
     let value = e.mem.f32(object + 8);
     let level = e.call(0x0088_5560, &args![player, value, first]).f32();
     let level = f64::from(level);
-    if level >= e.global::<f64>(0x0107_3828) || level.is_nan() {
+    if level >= e.global::<f64>(0x0107_3828) {
         return false;
     }
     // sAnimAction (+0x2ec) as the switch value.
@@ -1384,10 +1384,7 @@ pub fn high_process_process_create_follow(e: &mut Engine, this: Ptr<HighProcess>
     let difference = (hour - package_hour) as f32;
     let wrapped = e.call(0x0040_8840, &args![difference]).f32();
     let limit = e.global::<f64>(0x0107_0c80);
-    if f64::from(wrapped) >= limit
-        || wrapped.is_nan()
-        || (e.mem.u32(process + 0x40) != 0 && wanted <= 0)
-    {
+    if f64::from(wrapped) >= limit || (e.mem.u32(process + 0x40) != 0 && wanted <= 0) {
         e.vcall(
             process,
             SLOT_ADD_TO_PROCEDURE_INDEX_RUNNING,
@@ -4318,12 +4315,22 @@ fn detection_state_set(e: &mut Engine, state: u32, level: i32, sight: u8, raw: i
 }
 
 /// The "level is above the threshold" test of `RunDetection`: `FCOMP` of the
-/// setting against the integer level, true when the setting is below it.
+/// setting against the integer level; `TEST AH,5`/`JP`: true when the setting is
+/// below it (8e4c13).
 fn detection_threshold_below(e: &mut Engine, level: i32) -> bool {
     let setting = e
         .call(SETTING_VALUE, &args![DETECTION_THRESHOLD_SETTING])
         .u32();
     f64::from(e.mem.f32(setting)) < f64::from(level)
+}
+
+/// The same compare with `TEST AH,1`/`JNZ`: true when the setting is at least the
+/// level, so a NaN setting skips the event (8e43c8, 8e4977).
+fn detection_threshold_reached(e: &mut Engine, level: i32) -> bool {
+    let setting = e
+        .call(SETTING_VALUE, &args![DETECTION_THRESHOLD_SETTING])
+        .u32();
+    f64::from(e.mem.f32(setting)) >= f64::from(level)
 }
 
 /// `RunDetection`'s player half (`008e42e7` to `008e4760`): the detection of
@@ -4366,7 +4373,7 @@ fn detect_player(e: &mut Engine, this: Ptr<HighProcess>, me: u32, other: u32, co
             )
             .i32();
         let mut raw = -100;
-        if !detection_threshold_below(e, level) {
+        if detection_threshold_reached(e, level) {
             let other_process = e.call(ACTOR_PROCESS, &args![other]).u32();
             let event = e
                 .vcall(
@@ -4467,7 +4474,7 @@ fn detect_loop_actor(
     {
         return;
     }
-    let mut far = radius < distance;
+    let mut far = !(radius >= distance);
     if !far {
         let from_player = e
             .call(DISTANCE_FROM_REFERENCE, &args![other, player, 0u32, 0u32])
@@ -4546,7 +4553,7 @@ fn detect_loop_actor(
                 .i32();
         }
         e.mem.set_u32(attack_word, 0);
-        if !detection_threshold_below(e, level) {
+        if detection_threshold_reached(e, level) {
             let other_process = e.call(ACTOR_PROCESS, &args![other]).u32();
             let event = e
                 .vcall(
@@ -4666,8 +4673,8 @@ pub fn high_process_run_detection(e: &mut Engine, this: Ptr<HighProcess>, actor:
     let distance_to_player = e
         .call(DISTANCE_FROM_REFERENCE, &args![me, player, 0u32, 0u32])
         .f64();
-    // `FCOMP`: continues only below the limit.
-    if !(distance_to_player < e.global::<f64>(DETECTION_DISTANCE_LIMIT)) {
+    // `FCOMP`: continues below the limit and on NaN.
+    if distance_to_player >= e.global::<f64>(DETECTION_DISTANCE_LIMIT) {
         return;
     }
     if e.mem.u8(DETECTION_ENABLED) == 0 {
@@ -4793,8 +4800,8 @@ const PLAYER_GREET_TEST: u32 = 0x0096_9860;
 const ROLL_ZERO_TO: u32 = 0x0047_6c00;
 const ROLL_TO_CHANCE: u32 = 0x0094_4480;
 const RANDOM_BETWEEN: u32 = 0x0064_65f0;
-/// Process slot `0x204` `(1)`, slot `0x514` is [`SLOT_GET_GENERIC_LOCATION`].
-const SLOT_PROCESS_0X204: u32 = 0x204;
+/// Actor slot `0x204` `(1)`, slot `0x514` of the process is [`SLOT_GET_GENERIC_LOCATION`].
+const SLOT_ACTOR_0X204: u32 = 0x204;
 /// Settings and constants: `011ce570`/`011cf998` and `011ce6c0`/`011cf70c`
 /// (floats, interior/exterior), `011cd838` (an integer), `011cd18c`,
 /// `011cd008` (floats); the doubles `0101a6b0`, `01020998`, `0102e430`,
@@ -5076,8 +5083,8 @@ fn flee_stages(
                 let frame = e.call(FRAME_TIME, &args![FRAME_TIMER]).f32();
                 e.call(FLEE_PACKAGE_ADD_TIME, &args![flee, frame]);
                 let time = e.call(FLEE_PACKAGE_TIME_VALUE, &args![flee]).f64();
-                // `FCOMP`: the package ends once its time reaches the limit.
-                if !(time < e.global::<f64>(FLEE_TIME_LIMIT)) {
+                // `FCOMP`: the package ends once its time reaches the limit, not on NaN.
+                if time >= e.global::<f64>(FLEE_TIME_LIMIT) {
                     e.vcall(
                         process,
                         SLOT_ADD_TO_PROCEDURE_INDEX_RUNNING,
@@ -5091,7 +5098,7 @@ fn flee_stages(
     }
     // No path: a flee request is built and given to the actor.
     if e.call(ACTOR_FLEE_ARRIVAL_CHECK, &args![actor]).bool() {
-        e.vcall(process, SLOT_PROCESS_0X204, &args![1u32]);
+        e.vcall(a, SLOT_ACTOR_0X204, &args![1u32]);
         e.call(FLEE_PACKAGE_CLEAR_TARGET, &args![flee, 0u32]);
         e.call(FLEE_PACKAGE_RESET_LOCATION, &args![flee, 0u32]);
         e.with_stack(FLEE_REQUEST_SIZE, |e, request| {
@@ -6273,7 +6280,7 @@ pub fn high_process_process_accompany(e: &mut Engine, this: Ptr<HighProcess>, ac
                     &args![target_mover_position, mover_gap, my_mover_position],
                 );
                 let follow_distance = e
-                    .call(PACKAGE_ESCORT_FOLLOW_DISTANCE, &args![target_package])
+                    .call(PACKAGE_ESCORT_FOLLOW_DISTANCE, &args![package])
                     .i32() as f32;
                 let squared_follow =
                     (f64::from(follow_distance) * f64::from(follow_distance)) as f32;
@@ -7880,8 +7887,8 @@ fn follow_chase(e: &mut Engine, f: &mut Follow) -> bool {
                     + e.global::<f64>(ONE_HOUR_BACK);
                 e.mem.set_f32(process + PROCESS_PURSUE_TIMER, timer as f32);
                 let timer = f64::from(e.mem.f32(process + PROCESS_PURSUE_TIMER));
-                // `FCOMP`: "less than" skips the give-up branch.
-                if !(timer < e.global::<f64>(FOLLOW_PURSUE_LIMIT)) {
+                // `FCOMP`: "less than" and NaN skip the give-up branch.
+                if timer >= e.global::<f64>(FOLLOW_PURSUE_LIMIT) {
                     if e.call(ACTOR_CREATURE_LIKE, &args![actor]).bool() {
                         let mut runner = 0u32;
                         if f.target != 0 && e.vcall(f.target, ACTOR_SLOT_IS_ACTOR, &args![]).bool()
@@ -12916,7 +12923,7 @@ pub fn fn_008f21f0(e: &mut Engine, this: Ptr<HighProcess>, actor: Ptr) {
     let distance = e
         .call(DISTANCE_FROM_REFERENCE, &args![actor, player, 0u32, 0u32])
         .f64();
-    let animation = if distance <= e.global::<f64>(TAKE_BACK_DISTANCE) {
+    let animation = if !(distance > e.global::<f64>(TAKE_BACK_DISTANCE)) {
         0x101u32
     } else {
         0x201u32
@@ -13759,7 +13766,7 @@ pub fn fn_008f2610(e: &mut Engine, this: Ptr<HighProcess>, actor: Ptr, _unused: 
                     e.with_stack(12, |e, zero| e.call(POINT_LENGTH_FLOAT, &args![zero]).f64());
                 let second =
                     e.with_stack(12, |e, zero| e.call(POINT_LENGTH_FLOAT, &args![zero]).f64());
-                if !(second < first) {
+                if second >= first {
                     travel_add_procedure(e, process, a);
                     let target = e.mem.u32(process + LOW_TARGET);
                     let target_process = e.call(ACTOR_PROCESS, &args![target]).u32();
@@ -15227,8 +15234,8 @@ fn update_detection_and_greeting(
             .call(DISTANCE_FROM_REFERENCE, &args![player, mobile, 0u32, 0u32])
             .f64();
         let setting = e.call(SETTING_VALUE, &args![SETTING_GREET_DISTANCE]).u32();
-        // The setting is compared as a float with the distance.
-        if !(f64::from(e.mem.f32(setting)) < distance) {
+        // The setting is compared as a float with the distance; NaN skips.
+        if f64::from(e.mem.f32(setting)) >= distance {
             let in_combat = e.with_stack(4, |e, flag| {
                 e.mem.set_u8(flag.addr(), 0);
                 e.call(PLAYER_IS_IN_COMBAT, &args![player, flag]).bool()
@@ -15433,7 +15440,7 @@ fn update_case_target_package_walk(
             .u32();
         let step = e.mem.f32(step);
         let stamp = e.get(this, HighProcess::fDetectListTimer);
-        if !(hour < step + stamp) {
+        if hour >= step + stamp {
             e.set(this, HighProcess::fDetectListTimer, hour);
             e.vcall(
                 process,
@@ -15867,7 +15874,7 @@ fn update_aware_timer(e: &mut Engine, this: Ptr<HighProcess>, mobile: u32, packa
     let mut package = package;
     let aware = e.get(this, HighProcess::fAwarePlayerTimer);
     let mut skip = false;
-    if aware < 0.0 {
+    if !(aware >= 0.0) {
         let run_once = e.vcall(process, SLOT_GET_RUN_ONCE_PACKAGE, &args![]).u32();
         if run_once == 0 {
             skip = true;
@@ -17579,8 +17586,8 @@ mod tests {
         assert!(e.call(0x008da420, &args![p, other]).bool());
         returning_float(&mut e, 0x0088_5560, f64::NAN);
         assert!(
-            !e.call(0x008da420, &args![p, other]).bool(),
-            "unordered refuses"
+            e.call(0x008da420, &args![p, other]).bool(),
+            "unordered goes on (8da542, 8da545)"
         );
     }
 
@@ -18928,6 +18935,14 @@ mod tests {
             calls_to(&e, slot_target(PROCESS_TABLE, 0x12c)),
             vec![vec![p.addr(), 0], vec![p.addr(), 0x0aaa_0000]]
         );
+        // With a follower still wanted a NaN time difference does not fire it
+        // (8db7dc, 8db7df).
+        let target = object_with_slots(&mut e, OTHER_TABLE, &[(ACTOR_SLOT_IS_ACTOR, 0)]);
+        let (p, actor, _, _, _) = follow_world(&mut e, 0, vec![target]);
+        returning_float(&mut e, 0x0040_8840, f64::NAN);
+        e.call_log = Some(vec![]);
+        e.call(0x008db4f0, &args![p, actor]);
+        assert!(calls_to(&e, slot_target(PROCESS_TABLE, 0x288)).is_empty());
     }
 
     #[test]
@@ -21475,6 +21490,12 @@ mod tests {
             calls_to(&e, process_slot(0x288)).is_empty(),
             "350 < 100 + 300"
         );
+        // The follow distance is the running package's (8e0de6, 8e0de9).
+        let running = calls_to(&e, PACKAGE_FLAG_10000)[0][0];
+        assert_eq!(
+            calls_to(&e, PACKAGE_ESCORT_FOLLOW_DISTANCE),
+            vec![vec![running]]
+        );
         // At 450 the procedure -1 is added.
         returning_float(&mut e, DISTANCE_FROM_REFERENCE, 450.0);
         e.call_log = Some(vec![]);
@@ -23827,6 +23848,29 @@ mod tests {
     }
 
     #[test]
+    fn test_high_process_run_detection_goes_on_at_a_nan_distance() {
+        // 8e4175, 8e4178: below and unordered go on.
+        let mut e = Engine::new();
+        let (p, actor) = detection_world(&mut e);
+        returning_float(&mut e, DISTANCE_FROM_REFERENCE, f64::NAN);
+        e.call(0x008e40d0, &args![p, actor, 0.5f32]);
+        assert_eq!(e.mem.f32(p.addr() + DETECTION_TIMER), 4.5);
+    }
+
+    #[test]
+    fn test_detection_threshold_forms_on_a_nan_setting() {
+        let mut e = Engine::new();
+        let setting = e.mem.alloc(4);
+        e.mem.set_f32(setting, f32::NAN);
+        returning(&mut e, SETTING_VALUE, setting);
+        assert!(!detection_threshold_reached(&mut e, 5));
+        assert!(!detection_threshold_below(&mut e, 5));
+        e.mem.set_f32(setting, 5.0);
+        assert!(detection_threshold_reached(&mut e, 5));
+        assert!(!detection_threshold_below(&mut e, 5));
+    }
+
+    #[test]
     fn test_high_process_run_detection_sets_the_timer_and_counter() {
         let mut e = Engine::new();
         let (p, actor) = detection_world(&mut e);
@@ -24074,6 +24118,32 @@ mod tests {
             calls_to(&e, process_slot(SLOT_ADD_TO_PROCEDURE_INDEX_RUNNING)),
             vec![vec![p.addr(), actor, 1]]
         );
+        // A NaN time does not end it (8de3bc, 8de3bf).
+        returning_float(&mut e, FLEE_PACKAGE_TIME_VALUE, f64::NAN);
+        e.call_log = Some(vec![]);
+        e.call(0x008dddf0, &args![p, actor]);
+        assert!(calls_to(&e, process_slot(SLOT_ADD_TO_PROCEDURE_INDEX_RUNNING)).is_empty());
+    }
+
+    #[test]
+    fn test_high_process_process_flee_arrival_goes_to_the_actor() {
+        // 8de407..15: slot 0x204 of the actor, not of the process.
+        let mut e = Engine::new();
+        let (p, actor, _) = flee_main_world(&mut e);
+        // Everything else on this path does nothing here.
+        e.map(0, 0x1000);
+        e.register(0, |_, _| Ret::default());
+        give_vtable(&mut e, actor, ACTOR_TABLE, &[(0x204, 0)]);
+        give_vtable(&mut e, p.addr(), PROCESS_TABLE, &[(0x204, 0)]);
+        returning(&mut e, FLEE_PACKAGE_FLAG_574900, 1);
+        returning(&mut e, ACTOR_FLEE_ARRIVAL_CHECK, 1);
+        e.call_log = Some(vec![]);
+        e.call(0x008dddf0, &args![p, actor]);
+        assert_eq!(
+            calls_to(&e, slot_target(ACTOR_TABLE, 0x204)),
+            vec![vec![actor, 1]]
+        );
+        assert!(calls_to(&e, process_slot(0x204)).is_empty());
     }
 
     // ---- Third session: `008e5e90` onwards ----
@@ -27212,6 +27282,17 @@ mod tests {
             calls_to(&e, process_slot(SLOT_PROCESS_TRAVEL)),
             vec![vec![p.addr(), actor, 0, 0, 0x201, 0]]
         );
+        // A NaN distance walks (8f231a, 8f231d: only above runs).
+        e.register(DISTANCE_FROM_REFERENCE, |_, _| Ret {
+            st0: f64::NAN,
+            ..Ret::default()
+        });
+        e.call_log = Some(vec![]);
+        e.call(0x008f21f0, &args![p, actor]);
+        assert_eq!(
+            calls_to(&e, process_slot(SLOT_PROCESS_TRAVEL)),
+            vec![vec![p.addr(), actor, 0, 0, 0x101, 0]]
+        );
     }
 
     /// A world for `ProcessFollowOneHour` and `ProcessActivateOneHour`.
@@ -28655,8 +28736,16 @@ mod tests {
             &[(SLOT_GET_RUN_ONCE_PACKAGE, 0)],
         );
         e.set(p, HighProcess::fAwarePlayerTimer, -1.0);
+        e.call_log = Some(vec![]);
         e.call(0x008e_eec0, &args![p, actor]);
         assert_eq!(e.get(p, HighProcess::fAwarePlayerTimer), -1.0);
+        let negative = calls_to(&e, FRAME_TIME).len();
+        // A NaN timer goes to the same test as a negative one (8eff1c, 8eff1f) and
+        // stops there, so it asks for the frame time no more often.
+        e.set(p, HighProcess::fAwarePlayerTimer, f32::NAN);
+        e.call_log = Some(vec![]);
+        e.call(0x008e_eec0, &args![p, actor]);
+        assert_eq!(calls_to(&e, FRAME_TIME).len(), negative);
     }
 
     #[test]

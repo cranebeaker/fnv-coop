@@ -1629,7 +1629,16 @@ pub fn fn_0068cb60(
             } else {
                 let temp_vertices = e.get(this, Decal::pTempVertexArray).addr();
                 copy_words(e, temp_vertices + 12 * next as u32, source_vertex, 3);
-                let created = new_object(e, 0x10, DECAL_VERTEX_CONSTRUCT, &[]);
+                // Through the runtime's `operator new`, which leaves the block
+                // as it is: `00aa13e0` (the other objects here) reaches the same
+                // heap but also clears it (0068cf8d; freed by 007b3fa0 with
+                // `00401030`).
+                let block = e.call(RUNTIME_NEW, &args![0x10u32]).u32();
+                let created = if block == 0 {
+                    0
+                } else {
+                    e.call(DECAL_VERTEX_CONSTRUCT, &args![block]).u32()
+                };
                 let temp_vertices = e.get(this, Decal::pTempVertexArray).addr();
                 copy_words(e, created, temp_vertices + 12 * next as u32, 3);
                 e.mem.set_i16(created + 0xc, next as i16);
@@ -1753,7 +1762,8 @@ pub fn bstempeffectsimpledecal_clip_mesh(e: &mut Engine, this: Ptr<Decal>, geome
         VECTOR_CONSTRUCTOR,
         &args![polygon_normals, 12u32, 9i32, EMPTY_CONSTRUCTOR],
     );
-    let polygon_indices = frame.take(12);
+    // Nine words, one for each vertex a clipped polygon can have (0068d5de..f9).
+    let polygon_indices = frame.take(0x24);
     let edge_first = frame.take(12);
     let edge_second = frame.take(12);
     let cross = frame.take(12);
@@ -4102,6 +4112,18 @@ mod tests {
     }
 
     #[test]
+    fn clip_mesh_gives_the_clipped_polygon_nine_index_words() {
+        let (mut e, decal, geometry) = processing_scene();
+        set_box_planes(&mut e, decal);
+        e.call_log = Some(vec![]);
+        e.call(0x0068_d230, &args![decal, geometry]);
+        // Vertices, normals, then the indices: the first edge comes after nine words.
+        let normals = calls_to(&e, VECTOR_CONSTRUCTOR)[1][0];
+        let edge_first = calls_to(&e, POINT3_SUBTRACT)[0][1];
+        assert_eq!(edge_first, normals + 0x6c + 0x24);
+    }
+
+    #[test]
     fn clip_mesh_flips_odd_strip_triangles_and_skips_degenerate_ones() {
         let (mut e, decal, geometry) = processing_scene();
         set_box_planes(&mut e, decal);
@@ -4266,6 +4288,22 @@ mod tests {
         let old_to_new = e.get(decal, Decal::pOldToNewIndexArray).addr();
         assert_eq!(e.mem.i16(old_to_new), -1);
         assert_eq!(e.mem.block_size(old_to_new), Some(16));
+    }
+
+    #[test]
+    fn polygon_vertices_come_from_the_runtime_new() {
+        let (mut e, decal) = polygon_scene();
+        let up = [0.0, 0.0, 1.0];
+        e.call_log = Some(vec![]);
+        call_polygon(
+            &mut e,
+            decal,
+            &[0xffff_ffff; 3],
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[up; 3],
+        );
+        assert_eq!(calls_to(&e, RUNTIME_NEW), vec![vec![0x10]; 3]);
+        assert!(calls_to(&e, OPERATOR_NEW).iter().all(|a| a[0] != 0x10));
     }
 
     #[test]

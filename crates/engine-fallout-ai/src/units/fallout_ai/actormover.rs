@@ -902,12 +902,12 @@ fn pathing_shortcut(
     let horizontal = e.call(POINT_LENGTH_SQUARED_XY, &args![frame + 0xe8]).f64();
     let radius = e.call(REQUEST_TARGET_RADIUS, &args![request]).f64();
     let radius_again = e.call(REQUEST_TARGET_RADIUS, &args![request]).f64();
-    if radius_again * radius < horizontal {
+    if !(radius_again * radius >= horizontal) {
         return None;
     }
     let height = e.mem.f32(frame + 0xe8 + 8);
     let height = e.call(FLOAT_ABS, &args![fpu_copy(height)]).f64();
-    if e.call(REQUEST_GOAL_Z_DELTA, &args![request]).f64() < height {
+    if !(e.call(REQUEST_GOAL_Z_DELTA, &args![request]).f64() >= height) {
         return None;
     }
 

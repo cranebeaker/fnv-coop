@@ -1791,8 +1791,9 @@ pub fn fn_00969fa0(e: &mut Engine, this: Ptr<PlayerCharacter>) {
         return;
     }
     let cell = e.call(ACTOR_PROCESS_OF_THIS, &args![the_player]).u32();
+    // The second test passes when its byte is set (0096a15a jumps past the message).
     if e.call(CELL_TEST_5444C0, &args![cell]).bool()
-        || e.call(SLEEP_TEST_944360, &args![the_player]).bool()
+        || !e.call(SLEEP_TEST_944360, &args![the_player]).bool()
     {
         show_message(e, MESSAGE_SIXTH);
         return;
@@ -3863,7 +3864,7 @@ mod tests {
             ),
             (
                 "944360",
-                |e, _| double(e, SLEEP_TEST_944360, eax(1)),
+                |e, _| double(e, SLEEP_TEST_944360, eax(0)),
                 MESSAGE_SIXTH,
             ),
             (
@@ -3897,6 +3898,7 @@ mod tests {
             let position = e.mem.alloc(0x10);
             slot(&mut e, player.addr(), 0x448, eax(0));
             slot(&mut e, player.addr(), 0x1f4, eax(position));
+            double(&mut e, SLEEP_TEST_944360, eax(1));
             set_up(&mut e, player);
             e.call_log = Some(vec![]);
             e.call(0x00969fa0, &args![player]);
@@ -3930,6 +3932,7 @@ mod tests {
         double(&mut e, ACTOR_PROCESS_OF_THIS, eax(place));
         let position = e.mem.alloc(0x10);
         slot(&mut e, player.addr(), 0x1f4, eax(position));
+        double(&mut e, SLEEP_TEST_944360, eax(1));
         e.call_log = Some(vec![]);
         e.call(0x00969fa0, &args![player]);
         assert!(calls(&e, SHOW_MESSAGE).is_empty());

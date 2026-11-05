@@ -1296,8 +1296,8 @@ pub fn high_process_get_save_size(e: &mut Engine, this: Ptr, flags: u32, context
     if e.call(USE_SAVE_GAME_BLOCKS, &args![tes]).bool() {
         size = size.wrapping_add(4 + 2);
     }
-    // 1 + 1 + 1 + 1, 4 + 2 + 2, then ten words of 4.
-    size = size.wrapping_add(4 + 4 + 2 + 2 + 40);
+    // 1 + 1 + 1 + 1, 4 + 2 + 2, then eleven words of 4 (8fa6dd..8fa74b).
+    size = size.wrapping_add(4 + 4 + 2 + 2 + 44);
     if e.call(SAVE_VERSION, &args![tes]).u8() >= 0x32 {
         size = size.wrapping_add(4);
     }
@@ -5608,7 +5608,7 @@ pub fn high_process_fade_update(e: &mut Engine, this: Ptr, actor: u32) -> bool {
     let state = e.mem.u32(base + FADE_STATE);
     if state == 0 {
         let one = e.global::<f64>(ONE_DOUBLE);
-        let below_one = f64::from(e.mem.f32(base + FADE_ALPHA)) < one;
+        let below_one = !(f64::from(e.mem.f32(base + FADE_ALPHA)) >= one);
         if !below_one {
             return false;
         }
@@ -7773,7 +7773,7 @@ pub fn fn_009026c0(e: &mut Engine, this: Ptr, actor: u32, state: u32, inside: u8
                 .u32();
             e.call(0x004a_7290, &args![result]).f32()
         });
-        if radius_squared <= length {
+        if !(radius_squared > length) {
             continue;
         }
         if guard != 0 {
@@ -9318,13 +9318,13 @@ mod tests {
         let size = e
             .call(0x008f_a630, &args![this, 0x1000_0000u32, 0u32])
             .u16();
-        assert_eq!(size, 306);
+        assert_eq!(size, 310);
         // An old version without blocks: only the base fields.
         e.register_double(0x008d_f040, |_, _| ret(0x10));
         e.register_double(0x0086_2110, |_, _| ret(0));
         counted.set(0);
         let size = e.call(0x008f_a630, &args![this, 0u32, 0u32]).u16();
-        assert_eq!(size, 218);
+        assert_eq!(size, 222);
         // With logging on and no world space the size is logged.
         let flag = e.mem.alloc(4);
         e.mem.set_u8(flag, 1);
@@ -9335,7 +9335,7 @@ mod tests {
         let logged = calls_to(&e, 0x0040_fbe0);
         assert_eq!(logged.len(), 1);
         assert_eq!(logged[0][0], 0x0101_2c78);
-        assert_eq!(logged[0][1], 218 - 100);
+        assert_eq!(logged[0][1], 222 - 100);
     }
 
     /// Gives the process distinct values in the fields the save writes.
@@ -10944,6 +10944,12 @@ mod tests {
         e.call_log = Some(vec![]);
         assert!(!e.call(0x008f_ec10, &args![process, actor]).bool());
         assert!(calls_to(&e, 0x008c_4640).is_empty());
+        // A NaN alpha is reset like a low one (8fec36, 8fec39).
+        e.mem.set_f32(process + 0x3ec, f32::NAN);
+        e.call_log = Some(vec![]);
+        assert!(!e.call(0x008f_ec10, &args![process, actor]).bool());
+        assert_eq!(e.mem.f32(process + 0x3ec), 1.0);
+        assert_eq!(calls_to(&e, 0x008c_4640), vec![vec![actor]]);
     }
 
     #[test]
@@ -13695,6 +13701,26 @@ mod tests {
         stub(&mut e, 0x0067_a7e0, 0);
         e.call_log = Some(vec![]);
         e.call(0x0090_26c0, &args![proc, actor, state, 0u8]);
+        assert!(calls_to(&e, 0x009f_2970).is_empty());
+    }
+
+    #[test]
+    fn test_fn_009026c0_skips_a_candidate_at_a_nan_distance() {
+        // 00902934, 00902937: only a radius above the length goes on.
+        let mut e = Engine::new();
+        let (proc, actor, state, _candidate) = intruder_setup(&mut e);
+        let table = e.mem.u32(proc);
+        e.mem.set_u32(table + 0x294, 0x00aa_f294);
+        e.mem.set_u32(table + 0x2a4, 0x00aa_f2a4);
+        stub(&mut e, 0x00aa_f294, 0);
+        stub(&mut e, 0x00aa_f2a4, 0);
+        stub(&mut e, 0x0067_f390, 0);
+        stub_float(&mut e, 0x004a_7290, f64::NAN);
+        // Walking back after no candidate does nothing here.
+        e.map(0, 0x1000);
+        stub(&mut e, 0, 0);
+        e.call_log = Some(vec![]);
+        e.call(0x0090_26c0, &args![proc, actor, state, 1u8]);
         assert!(calls_to(&e, 0x009f_2970).is_empty());
     }
 

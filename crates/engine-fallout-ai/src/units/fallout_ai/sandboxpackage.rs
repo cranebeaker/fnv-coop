@@ -1177,7 +1177,7 @@ fn may_use(e: &mut Engine, reference: u32, actor: u32) -> bool {
 // Translated from 009f5070 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The scan's reference callback (cdecl: the reference and the functor of
 /// the actor and the sandbox data); always answers false (go on), and
-/// false early when it skips. A reference flagged 0x20, 0x4000 or 0x800,
+/// false early when it skips. No reference, one flagged 0x20, 0x4000 or 0x800,
 /// or one the actor's virtual `+0x1A0` and `008859e0` turn down, a missing
 /// actor, base form or package, and `0057b500` skip it. By its base form's
 /// type: 0x30 (with `009f54b0` allowed and the actor allowed to use it) an
@@ -1200,18 +1200,18 @@ pub fn fn_009f5070(e: &mut Engine, reference: Ptr, functor: Ptr) -> bool {
     if actor == 0 || e.call(REFERENCE_BASE_FORM, &args![actor]).u32() == 0 {
         return false;
     }
-    if reference != 0 {
-        if e.call(REFERENCE_FLAG_0X20, &args![reference]).bool()
-            || e.call(REFERENCE_FLAG_0X4000, &args![reference]).bool()
-            || e.call(REFERENCE_FLAG_0X800, &args![reference]).bool()
-        {
-            return false;
-        }
-        if e.vcall(actor, 0x1a0, &args![0u32]).bool()
-            && !e.call(ACTOR_TEST_008859E0, &args![actor, reference]).bool()
-        {
-            return false;
-        }
+    // No reference skips like a flagged one (009f50bf).
+    if reference == 0
+        || e.call(REFERENCE_FLAG_0X20, &args![reference]).bool()
+        || e.call(REFERENCE_FLAG_0X4000, &args![reference]).bool()
+        || e.call(REFERENCE_FLAG_0X800, &args![reference]).bool()
+    {
+        return false;
+    }
+    if e.vcall(actor, 0x1a0, &args![0u32]).bool()
+        && !e.call(ACTOR_TEST_008859E0, &args![actor, reference]).bool()
+    {
+        return false;
     }
     let package = e
         .call(MOBILE_OBJECT_GET_CURRENT_PACKAGE, &args![actor])
@@ -1307,23 +1307,24 @@ fn flagged_cell(e: &mut Engine, reference: u32) -> u32 {
 }
 
 /// The location's extra data 0x51 starts its change time: 0, then with
-/// extra data 0x6F the timer plus its float times 1000 (truncated).
-fn start_change_time(e: &mut Engine, base: u32) {
+/// extra data 0x6F the timer plus its float times 1000 (truncated). Answers
+/// whether it started.
+fn start_change_time(e: &mut Engine, base: u32) -> bool {
     let location = e.mem.u32(base + LOCATION);
     if e.call(EXTRA_DATA_LIST, &args![location]).u32() == 0 {
-        return;
+        return false;
     }
     let location = e.mem.u32(base + LOCATION);
     let list = e.call(EXTRA_DATA_LIST, &args![location]).u32();
     if e.call(EXTRA_DATA_0X51, &args![list]).u32() == 0 {
-        return;
+        return false;
     }
     e.mem.set_u32(base + NEXT_TIME_TO_CHANGE_LOCATIONS, 0);
     let location = e.mem.u32(base + LOCATION);
     let list = e.call(EXTRA_DATA_LIST, &args![location]).u32();
     let extra = e.call(EXTRA_DATA_0X6F, &args![list]).u32();
     if extra == 0 {
-        return;
+        return true;
     }
     let start = now(e);
     let seconds = e.call(FLOAT_AT_0, &args![extra]).f64();
@@ -1333,6 +1334,7 @@ fn start_change_time(e: &mut Engine, base: u32) {
         base + NEXT_TIME_TO_CHANGE_LOCATIONS,
         start.wrapping_add(milliseconds),
     );
+    true
 }
 
 // Translated from 009f56b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1347,8 +1349,9 @@ fn start_change_time(e: &mut Engine, base: u32) {
 /// 0x15, 0x1B, 0x20 and 0x21), not below 0.0; still 0.0, the default
 /// distance setting. The actor's virtual `+0x2CC` (position, distance,
 /// flag, 1) moves it; when it does, the location's change time starts
-/// (extra data 0x51 and 0x6F) if unset, and for procedures 0 to 5 the
-/// duration is recomputed (`006435c0`).
+/// (extra data 0x51 and 0x6F) if unset, and only then, for procedures 0 to 5,
+/// the duration is recomputed (`006435c0`; 009f596d, 009f5980 and 009f599a jump
+/// past it).
 pub fn fn_009f56b0(e: &mut Engine, this: Ptr, actor: Ptr, distance: f32) -> bool {
     let base = this.addr();
     if actor.is_null() {
@@ -1439,17 +1442,19 @@ pub fn fn_009f56b0(e: &mut Engine, this: Ptr, actor: Ptr, distance: f32) -> bool
     if !moved {
         return false;
     }
-    if e.mem.u32(base + NEXT_TIME_TO_CHANGE_LOCATIONS) == 0xffff_ffff {
-        start_change_time(e, base);
-    }
-    let procedure = e.mem.i32(base + PROCEDURE);
-    if procedure > -1 && procedure < 6 {
-        let value = e.call(ACTOR_VALUE_0087F990, &args![mover]).u32();
-        let duration = e
-            .call(PROCEDURE_DURATION_006435C0, &args![value, procedure])
-            .f64();
-        e.mem
-            .set_u32(base + PROCEDURE_DURATION, x87_store32(duration));
+    // The procedure's duration is worked out only when the change time starts
+    // (009f596d, 009f5980 and 009f599a jump past 009f5a02..35).
+    if e.mem.u32(base + NEXT_TIME_TO_CHANGE_LOCATIONS) == 0xffff_ffff && start_change_time(e, base)
+    {
+        let procedure = e.mem.i32(base + PROCEDURE);
+        if procedure > -1 && procedure < 6 {
+            let value = e.call(ACTOR_VALUE_0087F990, &args![mover]).u32();
+            let duration = e
+                .call(PROCEDURE_DURATION_006435C0, &args![value, procedure])
+                .f64();
+            e.mem
+                .set_u32(base + PROCEDURE_DURATION, x87_store32(duration));
+        }
     }
     true
 }
@@ -2994,6 +2999,15 @@ mod sandbox_tests {
     }
 
     #[test]
+    fn scan_callback_skips_no_reference() {
+        let mut e = Engine::new();
+        let (functor, _, _, _) = callback_setup(&mut e, 0x2f);
+        e.call_log = Some(vec![]);
+        assert!(!e.call(0x009f_5070, &args![0u32, functor]).bool());
+        assert!(calls_to(&e, MOBILE_OBJECT_GET_CURRENT_PACKAGE).is_empty());
+    }
+
+    #[test]
     fn scan_callback_adds_food_dialogue_idle_and_furniture() {
         // Food (0x2F).
         let mut e = Engine::new();
@@ -3082,18 +3096,22 @@ mod sandbox_tests {
         assert!(calls_to(&e, REFERENCE_BASE_FORM).is_empty());
     }
 
+    fn move_to_location_doubles(e: &mut Engine) {
+        constants(e);
+        answer(e, REFERENCE_GET_WORLD_SPACE, 0x30);
+        answer(e, REFERENCE_CELL, 0);
+        e.map(SPECIAL_BASE_B, 8);
+        word_of(e, REFERENCE_BASE_FORM, 0x20);
+        e.register(FORM_TYPE, |e, a| u32::from(e.mem.u8(a[0] + 4)).into_ret());
+        answer_float(e, REFERENCE_GET_MODEL_BOUND_SIZE, 30.0);
+        answer(e, EXTRA_DATA_LIST, 0);
+        answer(e, ACTOR_VALUE_0087F990, 1);
+    }
+
     #[test]
     fn move_to_location_with_the_right_distance() {
         let mut e = Engine::new();
-        constants(&mut e);
-        answer(&mut e, REFERENCE_GET_WORLD_SPACE, 0x30);
-        answer(&mut e, REFERENCE_CELL, 0);
-        e.map(SPECIAL_BASE_B, 8);
-        word_of(&mut e, REFERENCE_BASE_FORM, 0x20);
-        e.register(FORM_TYPE, |e, a| u32::from(e.mem.u8(a[0] + 4)).into_ret());
-        answer_float(&mut e, REFERENCE_GET_MODEL_BOUND_SIZE, 30.0);
-        answer(&mut e, EXTRA_DATA_LIST, 0);
-        answer(&mut e, ACTOR_VALUE_0087F990, 1);
+        move_to_location_doubles(&mut e);
         answer_float(&mut e, PROCEDURE_DURATION_006435C0, 5.0);
         let actor = object(&mut e, &[(0x100, 0x0600_0100), (0x2cc, 0x0600_02cc)]);
         answer(&mut e, 0x0600_0100, 1);
@@ -3114,8 +3132,9 @@ mod sandbox_tests {
             calls_to(&e, 0x0600_02cc),
             vec![vec![actor, 0x4444, 50.0f32.to_bits(), 1, 1]]
         );
-        assert_eq!(e.mem.f32(this + PROCEDURE_DURATION), 5.0);
-        assert_eq!(calls_to(&e, PROCEDURE_DURATION_006435C0), vec![vec![1, 2]]);
+        // A move with a change time running leaves the duration alone.
+        assert_eq!(e.mem.f32(this + PROCEDURE_DURATION), 0.0);
+        assert!(calls_to(&e, PROCEDURE_DURATION_006435C0).is_empty());
         // Types 0x15, 0x1B, 0x20, 0x21 add nothing; a given distance wins.
         e.mem.set_u8(form + 4, 0x1b);
         e.call(0x009f_56b0, &args![this, actor, 0.0f32]);
@@ -3147,6 +3166,41 @@ mod sandbox_tests {
             vec![vec![package, actor, 0, (-1.0f32).to_bits(), 0]]
         );
         assert!(!e.call(0x009f_56b0, &args![this, 0u32, 0.0f32]).bool());
+    }
+
+    #[test]
+    fn moving_works_out_the_duration_only_when_the_change_time_starts() {
+        let mut e = Engine::new();
+        move_to_location_doubles(&mut e);
+        answer_float(&mut e, PROCEDURE_DURATION_006435C0, 5.0);
+        let actor = object(&mut e, &[(0x100, 0x0600_0100), (0x2cc, 0x0600_02cc)]);
+        answer(&mut e, 0x0600_0100, 1);
+        answer(&mut e, 0x0600_02cc, 1);
+        let location = object(&mut e, &[(0x100, 0x0600_1100), (0x1f4, 0x0600_11f4)]);
+        answer(&mut e, 0x0600_1100, 0);
+        answer(&mut e, 0x0600_11f4, 0x4444);
+        let form = e.mem.alloc(8);
+        e.mem.set_u8(form + 4, 0x40);
+        e.mem.set_u32(location + 0x20, form);
+        let this = data(&mut e);
+        e.mem.set_u32(this + LOCATION, location);
+        e.mem.set_u32(this + PROCEDURE, 2);
+        e.call_log = Some(vec![]);
+        // No extra data 0x51: the change time stays unset, no duration.
+        e.mem
+            .set_u32(this + NEXT_TIME_TO_CHANGE_LOCATIONS, 0xffff_ffff);
+        answer(&mut e, EXTRA_DATA_LIST, 0x7000);
+        answer(&mut e, EXTRA_DATA_0X51, 0);
+        assert!(e.call(0x009f_56b0, &args![this, actor, 0.0f32]).bool());
+        assert_eq!(e.mem.u32(this + NEXT_TIME_TO_CHANGE_LOCATIONS), 0xffff_ffff);
+        assert_eq!(e.mem.f32(this + PROCEDURE_DURATION), 0.0);
+        // With it the time starts and the duration is worked out.
+        answer(&mut e, EXTRA_DATA_0X51, 1);
+        answer(&mut e, EXTRA_DATA_0X6F, 0);
+        assert!(e.call(0x009f_56b0, &args![this, actor, 0.0f32]).bool());
+        assert_eq!(e.mem.u32(this + NEXT_TIME_TO_CHANGE_LOCATIONS), 0);
+        assert_eq!(e.mem.f32(this + PROCEDURE_DURATION), 5.0);
+        assert_eq!(calls_to(&e, PROCEDURE_DURATION_006435C0), vec![vec![1, 2]]);
     }
 
     #[test]

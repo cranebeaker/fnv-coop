@@ -4598,8 +4598,10 @@ fn copy_extra_onto_dropped(e: &mut Engine, dropped: u32, split: u32) {
 /// `0041c900`, the scale and extras of `split` (flag: `other` is null),
 /// and the starting world or cell of its list is set to itself when it has
 /// none (`GetStartingWorldOrCell`, `SetStartingWorldOrCellForRef`, then
-/// virtual 0x48 with 0x400); then `DropItemIntoWorld` places it. The temporary
-/// `ItemChange` and `split` are deleted and the follow-up checks run.
+/// virtual 0x48 with 0x400); then `DropItemIntoWorld` places it (`keep_placed`:
+/// its answer becomes `*result`, on the path through 004c5dd4; the path through
+/// 004c4737 keeps the reference). The temporary `ItemChange` and `split` are
+/// deleted and the follow-up checks run.
 #[allow(clippy::too_many_arguments)]
 fn drop_referenced_item(
     e: &mut Engine,
@@ -4613,6 +4615,7 @@ fn drop_referenced_item(
     rotation: u32,
     temp: &mut u32,
     result: &mut u32,
+    keep_placed: bool,
 ) {
     if *split != 0 {
         *result = e.call(EXTRA_GET_REFERENCE_POINTER, &args![*split]).u32();
@@ -4643,9 +4646,12 @@ fn drop_referenced_item(
         e.vcall(*result, 0x48, &args![0x400u32]);
     }
     let entry_form = e.mem.u32(entry + 8);
-    inventory_changes_drop_item_into_world(
+    let placed = inventory_changes_drop_item_into_world(
         e, this, actor, entry_form, count, *result, position, rotation,
     );
+    if keep_placed {
+        *result = placed;
+    }
     delete_item_change(e, *temp);
     *temp = 0;
     delete_object(e, *split);
@@ -5162,6 +5168,7 @@ pub fn fn_004c37d0(
                                     rotation,
                                     &mut temp,
                                     &mut result,
+                                    false,
                                 );
                             }
                         } else if target != 0 {
@@ -5512,6 +5519,7 @@ pub fn fn_004c37d0(
                                         rotation,
                                         &mut temp,
                                         &mut result,
+                                        true,
                                     );
                                 }
                                 delete_item_change(e, temp);
@@ -6691,8 +6699,8 @@ pub fn fn_004c94f0(e: &mut Engine, this: Ptr<InventoryChanges>, index: i32) -> u
                     if entry != 0 {
                         let copy_lists = !(item_change_get_script(e, Ptr::new(entry)) == 0
                             && item_change_get_hot_key(e, Ptr::new(entry)) < 0
-                            && item_change_get_item_ownership(e, Ptr::new(entry)) as i32
-                                == entry_number(e, result));
+                            && item_change_get_item_ownership(e, Ptr::new(entry))
+                                == e.get(this, InventoryChanges::pRef).addr());
                         if copy_lists && e.mem.u32(entry) != 0 && {
                             let head = e.mem.u32(entry);
                             e.call(LIST_COUNT_NONNULL, &args![head]).u32() != 0
@@ -6950,7 +6958,14 @@ fn entry_counts_as_one(e: &mut Engine, entry: u32) -> bool {
 /// less the lists' when positive; `-count` or `count` without an entry),
 /// the form and, when the entry has a script, a hot key or another owner,
 /// copies of its extra lists.
-fn fill_item_from_entry(e: &mut Engine, result: u32, entry: u32, count: i32, object: u32) {
+fn fill_item_from_entry(
+    e: &mut Engine,
+    this: Ptr<InventoryChanges>,
+    result: u32,
+    entry: u32,
+    count: i32,
+    object: u32,
+) {
     if entry != 0 {
         if count < 0 {
             let number = count.wrapping_add(entry_number(e, entry));
@@ -6970,8 +6985,8 @@ fn fill_item_from_entry(e: &mut Engine, result: u32, entry: u32, count: i32, obj
     if entry != 0 {
         let copy_lists = !(item_change_get_script(e, Ptr::new(entry)) == 0
             && item_change_get_hot_key(e, Ptr::new(entry)) < 0
-            && item_change_get_item_ownership(e, Ptr::new(entry)) as i32
-                == entry_number(e, result));
+            && item_change_get_item_ownership(e, Ptr::new(entry))
+                == e.get(this, InventoryChanges::pRef).addr());
         if copy_lists && e.mem.u32(entry) != 0 && {
             let head = e.mem.u32(entry);
             e.call(LIST_COUNT_NONNULL, &args![head]).u32() != 0
@@ -7107,7 +7122,7 @@ pub fn inventory_changes_get_next_oei_fast_inventory_item(
                     {
                         let created = new_default_item_change(e);
                         e.mem.set_u32(iterator + 0xc, created);
-                        fill_item_from_entry(e, created, entry, count, object);
+                        fill_item_from_entry(e, this, created, entry, count, object);
                     } else if entry != 0 {
                         if e.mem.u32(entry) != 0 {
                             item_change_get_amount_non_default_extra(e, Ptr::new(entry));
@@ -7819,8 +7834,9 @@ fn fix_default_health(e: &mut Engine, entry: u32) {
                 let count = e.call(EXTRA_GET_COUNT, &args![list]).u16() as i16 as i32;
                 e.call(EXTRA_REMOVE_COUNT, &args![list]);
                 if fn_004bca60(e, Ptr::new(list)) {
-                    let head = e.mem.u32(entry);
-                    list_call_with_item(e, LIST_REMOVE, head, list);
+                    // On the walked node, not the head (4cbdb8, 4ccc44): the last
+                    // node of several then stays, with no item.
+                    list_call_with_item(e, LIST_REMOVE, node, list);
                     delete_object(e, list);
                     node = e.mem.u32(entry);
                 } else {
@@ -7832,6 +7848,19 @@ fn fix_default_health(e: &mut Engine, entry: u32) {
         }
         node = list_next(e, node);
     }
+}
+
+/// Whether this very entry is still in the changes (by its address, so another
+/// entry of the same form does not stand in for it).
+fn changes_hold_entry(e: &mut Engine, this: Ptr<InventoryChanges>, entry: u32) -> bool {
+    let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
+    while node != 0 {
+        if list_item(e, node) == entry {
+            return true;
+        }
+        node = list_next(e, node);
+    }
+    false
 }
 
 /// Removes the player ownership from every extra list of an entry of the
@@ -9240,7 +9269,16 @@ pub fn fn_004ce380(
                 e, this, actor, form, set_owner, number, 0, 0, target, 0, 0, 1, 0, entry,
             );
             taken = true;
-            announce_if_player(e, target, form, quiet, remaining, number, 0);
+            // The number is shown as it is after the removal (4cf09b, 4cf09e). The
+            // exe reads it even when the removal deleted the entry; that only
+            // happens to one whose number is 0, which its destructor (004bc5f0)
+            // leaves in place, so a deleted entry shows 0 here without the read.
+            let shown = if changes_hold_entry(e, this, entry) {
+                e.mem.u32(entry + 4) as i32
+            } else {
+                0
+            };
+            announce_if_player(e, target, form, quiet, remaining, shown, 0);
             remaining = 0;
             node = e.mem.u32(this.addr());
         }
@@ -15344,6 +15382,59 @@ mod tests {
     }
 
     #[test]
+    fn dropping_a_referenced_list_of_the_entry_returns_what_was_placed() {
+        // 004c5dd4 stores DropItemIntoWorld's answer on this path.
+        let mut e = tx2();
+        for address in [
+            EXTRA_FN_0041C900,
+            EXTRA_GET_SCALE_FLOAT,
+            REFERENCE_SET_SCALE,
+            EXTRA_COPY_FOR_REFERENCE,
+            EXTRA_FINISH_COPY,
+            EXTRA_GET_STARTING_WORLD_OR_CELL,
+            EXTRA_SET_STARTING_WORLD_OR_CELL,
+        ] {
+            stub(&mut e, address);
+        }
+        e.register(vcall_address(0xc4), |_, _| Ret::default());
+        e.register(EXTRA_GET_REFERENCE_POINTER, |e, a| {
+            returns(e.mem.u32(a[0] + X_REFERENCE))
+        });
+        e.set_global(GAME_DATA_MANAGER_GLOBAL, 0x7000u32);
+        let placed = object(&mut e);
+        e.mem.set_u32(0x0210_2300, placed);
+        e.register(REFERENCE_WORLD_SPACE, |_, _| returns(0x333));
+        e.register(REFERENCE_PARENT_CELL, |_, _| returns(0));
+        e.register(DROPPED_REFERENCE_TEST, |_, _| returns(0));
+        e.register(PLACE_OBJECT, |e, _| returns(e.mem.u32(0x0210_2300)));
+        let owner = object(&mut e);
+        let base = form(&mut e, 0x1f, 0, 0);
+        set(&mut e, owner, 0x20, base);
+        let this = inventory(&mut e, &[], owner);
+        let item = form(&mut e, 0x1f, 0, 0);
+        let referenced = object(&mut e);
+        let list = extra(&mut e);
+        set(&mut e, list, X_REFERENCE, referenced);
+        set(&mut e, list, 4, 1);
+        set(&mut e, list, X_COUNT, 1);
+        set(&mut e, list, X_ITEMS_IN_LIST, 1);
+        let change = entry(&mut e, item, &[list], 1);
+        put_entry(&mut e, this, change);
+        let position = e.mem.alloc(12);
+        let rotation = e.mem.alloc(12);
+        let result = e
+            .call(
+                0x004c37d0,
+                &args![
+                    this, owner, item, 0u32, 1i32, 0u32, 1u32, 0u32, position, rotation, 1u32,
+                    0u32, 0u32
+                ],
+            )
+            .u32();
+        assert_eq!(result, placed);
+    }
+
+    #[test]
     fn removal_of_items_only_the_container_holds_records_a_negative_entry() {
         let mut e = tx2();
         let owner = object(&mut e);
@@ -15783,6 +15874,59 @@ mod tests {
         assert_eq!(&guard[1..], &[0x36, 1, SOURCE_FILE_NAME, 0x187f]);
     }
 
+    /// A stack whose entry has an extra list, no script and no hot key: its
+    /// lists are looked at unless the entry's owner is the inventory's owner.
+    fn owned_stack(e: &mut Engine, listed_owner: u32) -> Ptr<InventoryChanges> {
+        let owner = object(e);
+        let this = inventory(e, &[], owner);
+        let loose = form(e, 0x20, 0, 0);
+        give_container(e, owner, &[(2, loose)]);
+        let list = extra(e);
+        set(
+            e,
+            list,
+            X_OWNERSHIP,
+            if listed_owner == 0 {
+                owner
+            } else {
+                listed_owner
+            },
+        );
+        set(e, list, X_ITEMS_IN_LIST, 1);
+        set(e, list, X_HOT_KEY, 0xffff_ffff);
+        let change = entry(e, loose, &[list], 3);
+        put_entry(e, this, change);
+        this
+    }
+
+    #[test]
+    fn a_stack_owned_by_the_inventory_owner_does_not_copy_its_lists() {
+        // The owner reference at +4 of the inventory decides (4c97ca..d5).
+        let mut e = tx4();
+        let this = owned_stack(&mut e, 0);
+        e.call(0x004c94f0, &args![this, 0i32]);
+        let owned = calls(&e, LIST_COUNT_NONNULL).len();
+        let mut e = tx4();
+        let this = owned_stack(&mut e, 0x5555);
+        e.call(0x004c94f0, &args![this, 0i32]);
+        assert_eq!(calls(&e, LIST_COUNT_NONNULL).len(), owned + 1);
+    }
+
+    #[test]
+    fn a_fast_stack_owned_by_the_inventory_owner_does_not_copy_its_lists() {
+        // The same test in the fast iteration (4ca5dd..e8).
+        let mut e = tx4();
+        let this = owned_stack(&mut e, 0);
+        let iterator = e.call(0x004ca200, &args![this]).u32();
+        e.call(0x004ca330, &args![this, iterator]);
+        let owned = calls(&e, LIST_COUNT_NONNULL).len();
+        let mut e = tx4();
+        let this = owned_stack(&mut e, 0x5555);
+        let iterator = e.call(0x004ca200, &args![this]).u32();
+        e.call(0x004ca330, &args![this, iterator]);
+        assert_eq!(calls(&e, LIST_COUNT_NONNULL).len(), owned + 1);
+    }
+
     #[test]
     fn fast_iteration_returns_the_same_stacks_one_call_at_a_time() {
         let mut e = tx4();
@@ -16092,6 +16236,43 @@ mod tests {
         assert!(calls(&e, EXTRA_REMOVE_HEALTH).contains(&vec![pristine]));
         assert!(calls(&e, EXTRA_REMOVE_COUNT).contains(&vec![pristine]));
         assert!(!calls(&e, EXTRA_REMOVE_HEALTH).contains(&vec![damaged]));
+    }
+
+    #[test]
+    fn a_default_health_list_is_unlinked_from_its_own_node() {
+        let mut e = tx6();
+        e.register(RT_DYNAMIC_CAST, |e, a| {
+            let kind = e.mem.u8(a[0] + F_TYPE);
+            returns(match a[3] {
+                TYPE_TES_HEALTH_FORM if a[0] != 0 && kind == 0x18 => a[0],
+                _ => 0,
+            })
+        });
+        e.register(vcall_address(0x10), |e, a| {
+            returns(e.mem.u32(a[0] + F_HEALTH))
+        });
+        let owner = object(&mut e);
+        let this = inventory(&mut e, &[], owner);
+        let armor = big_form(&mut e, 0x18, 0);
+        set(&mut e, armor, F_HEALTH, 100);
+        give_container(&mut e, owner, &[(1, armor)]);
+        let damaged = extra(&mut e);
+        e.mem.set_f32(damaged + X_HEALTH, 40.0);
+        set(&mut e, damaged, 4, 1);
+        set(&mut e, damaged, X_COUNT, 1);
+        set(&mut e, damaged, X_ITEMS_IN_LIST, 1);
+        let pristine = extra(&mut e);
+        e.mem.set_f32(pristine + X_HEALTH, 100.0);
+        set(&mut e, pristine, X_COUNT, 1);
+        set(&mut e, pristine, X_ITEMS_IN_LIST, 1);
+        let change = entry(&mut e, armor, &[damaged, pristine], 1);
+        put_entry(&mut e, this, change);
+        let head = e.mem.u32(change);
+        let second = e.mem.u32(head + 4);
+        e.call(0x004cbbc0, &args![this]);
+        let removals = calls(&e, LIST_REMOVE);
+        assert_eq!(removals.len(), 1);
+        assert_eq!(removals[0][0], second);
     }
 
     /// `tx6()` plus the form creation, scripting and package doubles of the
@@ -16521,6 +16702,40 @@ mod tests {
         transfer_all(&mut e, 0x004ce380, this, owner, PLAYER, [0; 4], -1, 0);
         assert_eq!(calls(&e, FORMAT_STRING).len(), 1);
         assert!(calls(&e, SHOW_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn transfer_of_a_list_without_a_count_shows_the_number_after_the_removal() {
+        // 4cf09b reads the entry's number after the removal call (4cf02f).
+        let mut e = tx8();
+        let owner = object(&mut e);
+        let this = inventory(&mut e, &[], owner);
+        let item = big_form(&mut e, 0x19, 4);
+        give_container(&mut e, owner, &[]);
+        let list = extra(&mut e);
+        set(&mut e, list, X_COUNT, 0);
+        set(&mut e, list, X_ITEMS_IN_LIST, 1);
+        let change = entry(&mut e, item, &[list], 2);
+        put_entry(&mut e, this, change);
+        transfer_all(&mut e, 0x004ce380, this, owner, PLAYER, [0; 4], -1, 0);
+        let formats = calls(&e, FORMAT_STRING);
+        assert_eq!(formats[0][1..3], [FORMAT_COUNT_NAME, 0]);
+    }
+
+    #[test]
+    fn a_kept_entry_is_found_by_its_address_behind_another_of_its_form() {
+        let mut e = tx8();
+        let owner = object(&mut e);
+        let this = inventory(&mut e, &[], owner);
+        let item = big_form(&mut e, 0x19, 4);
+        let front = entry(&mut e, item, &[], 0);
+        put_entry(&mut e, this, front);
+        let change = entry(&mut e, item, &[], 2);
+        put_entry(&mut e, this, change);
+        assert!(changes_hold_entry(&mut e, this, change));
+        assert!(changes_hold_entry(&mut e, this, front));
+        let gone = entry(&mut e, item, &[], 2);
+        assert!(!changes_hold_entry(&mut e, this, gone));
     }
 
     #[test]

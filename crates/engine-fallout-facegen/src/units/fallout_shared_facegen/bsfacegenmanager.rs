@@ -3124,8 +3124,8 @@ pub fn fn_00652510(e: &mut Engine, actor: u32) {
         let mut value = fn_00652230(e, first, 0, 0, index).to_bits();
         if e.global::<u8>(SWEEP_DOWN) != 0 {
             value = x87_store32(x87_add(x87_load32(value), e.global::<f64>(SWEEP_STEP)));
-            // FCOMP; TEST AH,1; JNZ: turns once no longer below 10.
-            if !(x87_load32(value) < e.global::<f64>(SWEEP_TOP)) {
+            // FCOMP; TEST AH,1; JNZ: turns once no longer below 10, not on NaN.
+            if x87_load32(value) >= e.global::<f64>(SWEEP_TOP) {
                 e.set_global(SWEEP_DOWN, 0u8);
             }
         } else {
@@ -7064,5 +7064,10 @@ mod n085_tests {
         e.mem.set_u32(current, 9.75f32.to_bits());
         e.call(0x0065_2510, &args![actor]);
         assert_eq!(e.global::<u8>(SWEEP_DOWN), 0);
+        // A NaN value does not turn it (00652662, 00652665).
+        e.set_global(SWEEP_DOWN, 1u8);
+        e.mem.set_u32(current, f32::NAN.to_bits());
+        e.call(0x0065_2510, &args![actor]);
+        assert_eq!(e.global::<u8>(SWEEP_DOWN), 1);
     }
 }

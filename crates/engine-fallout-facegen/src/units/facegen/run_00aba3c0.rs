@@ -117,6 +117,7 @@ type AllocateFn = fn(&mut Engine, u32) -> u32;
 type CopyFn = fn(&mut Engine, u32, u32, u32, u32) -> u32;
 type FillFn = fn(&mut Engine, u32, u32, u32, u32);
 type ConstructFn = fn(&mut Engine, Ptr, Ptr) -> Ptr;
+type AssignFn = fn(&mut Engine, u32, u32, u32);
 
 /// The parts of a `resize(count, value)` instance that differ: the element size, the
 /// insert-n (`thiscall`: where proxy, where pointer, count, address of the value), the
@@ -843,9 +844,9 @@ struct ObjectInsertShape {
     /// The element's copy constructor (`thiscall`: the source) and destructor.
     construct: ConstructFn,
     destruct: u32,
-    /// The assignment over a range (`cdecl`: first, last, value) and the backward move
-    /// (`cdecl`, six words: first, last, end and three tags).
-    assign: u32,
+    /// The assignment of the value over a range (first, last, value).
+    assign: AssignFn,
+    /// The backward move (`cdecl`, six words: first, last, end and three tags).
     move_backward: u32,
 }
 
@@ -928,7 +929,7 @@ fn insert_objects(
                 .wrapping_add(e.mem.u32(vector + VECTOR_LAST));
             e.mem.set_u32(vector + VECTOR_LAST, last);
             let end = last.wrapping_sub(count.wrapping_mul(bytes));
-            e.call(shape.assign, &args![at, end, temporary]);
+            (shape.assign)(e, at, end, temporary);
         } else {
             let old_last = e.mem.u32(vector + VECTOR_LAST);
             let last = e.mem.u32(vector + VECTOR_LAST);
@@ -941,7 +942,7 @@ fn insert_objects(
                 &args![at, tail, old_last, 0u32, 0u32, 0u32],
             );
             let end = count.wrapping_mul(bytes).wrapping_add(at);
-            e.call(shape.assign, &args![at, end, temporary]);
+            (shape.assign)(e, at, end, temporary);
         }
         e.call(shape.destruct, &args![temporary]);
     });
@@ -970,7 +971,9 @@ pub fn fn_00abf210(e: &mut Engine, this: Ptr, _unused_1: u32, at: u32, count: u3
         },
         construct: fn_00ac0530,
         destruct: VALUE_34_DESTRUCT,
-        assign: 0x00ac_1670,
+        assign: |e, first, last, value| {
+            e.call(0x00ac_1670, &args![first, last, value]);
+        },
         move_backward: 0x00ac_1f60,
     };
     insert_objects(e, this, at, count, value, &shape);
@@ -981,7 +984,8 @@ pub fn fn_00abf210(e: &mut Engine, this: Ptr, _unused_1: u32, at: u32, count: u3
 /// Unnamed in the engine map: a 0x38-byte-element vector's `_Insert_n(where, count, value)`,
 /// as `00abf210` with the maximum 0x4924924, the allocation `0065e5e0`, the copies `00ac37d0`
 /// and `00ac1fa0`, the fill `00ac2650`, the element copy `00ac05b0` and destructor `0065edd0`,
-/// the range assignment `00ac2760` and the backward move `00ac2020`.
+/// the element assignment `00ac2760` in a loop over the range (00ac01d6..0202,
+/// 00ac0331..60) and the backward move `00ac2020`.
 pub fn fn_00abfa90(e: &mut Engine, this: Ptr, _unused_1: u32, at: u32, count: u32, value: u32) {
     let shape = ObjectInsertShape {
         size: 0x38,
@@ -998,7 +1002,13 @@ pub fn fn_00abfa90(e: &mut Engine, this: Ptr, _unused_1: u32, at: u32, count: u3
         },
         construct: fn_00ac05b0,
         destruct: VALUE_38_DESTRUCT,
-        assign: 0x00ac_2760,
+        assign: |e, first, last, value| {
+            let mut element = first;
+            while element != last {
+                e.call(0x00ac_2760, &args![element, value]);
+                element = element.wrapping_add(0x38);
+            }
+        },
         move_backward: 0x00ac_2020,
     };
     insert_objects(e, this, at, count, value, &shape);
@@ -4199,6 +4209,40 @@ mod tests {
             assert_eq!(calls_to(&log, destroy).len(), 1, "{insert:08x}");
             assert_eq!(e.mem.u32(vector.addr() + VECTOR_LAST), new_first + 4 * size);
         }
+    }
+
+    #[test]
+    fn the_0x38_insert_assigns_the_value_to_each_new_element() {
+        let mut e = engine();
+        e.register(0x00ac_1fa0, |_, a| a[0].into_ret());
+        quiet(
+            &mut e,
+            &[
+                VALUE_38_DESTRUCT,
+                STRING_TIDY,
+                STRING_ASSIGN,
+                0x0065_dc90,
+                0x0065_cfd0,
+                0x00ad_33c0,
+                0x00ac_2760,
+                0x00ac_2020,
+            ],
+        );
+        let vector = element_vector(&mut e, &[0; 0x1c], 0x38, 8);
+        let first = e.mem.u32(vector.addr() + VECTOR_FIRST);
+        e.mem.set_u32(vector.addr() + VECTOR_LAST, first + 3 * 0x38);
+        let value = e.mem.alloc(0x38);
+        e.call_log = Some(vec![]);
+        // Two new elements in the middle, through the moved tail.
+        e.call(0x00ab_fa90, &args![vector, 0u32, first + 0x38, 2u32, value]);
+        let log = e.call_log.take().unwrap();
+        let assigned = calls_to(&log, 0x00ac_2760);
+        assert_eq!(assigned.len(), 2);
+        assert_eq!(assigned[0][0], first + 0x38);
+        assert_eq!(assigned[1][0], first + 2 * 0x38);
+        assert_eq!(assigned[0][1], assigned[1][1]);
+        // The source is the temporary, not an element of the vector.
+        assert!(assigned[0][1] < first || assigned[0][1] >= first + 8 * 0x38);
     }
 
     #[test]

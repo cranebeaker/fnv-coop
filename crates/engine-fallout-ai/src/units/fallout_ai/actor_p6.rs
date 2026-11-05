@@ -187,9 +187,9 @@ const FORMAT_TWO_STRINGS: u32 = 0x0101_2058;
 /// The empty string the message buffer is initialised with.
 const EMPTY_STRING: u32 = 0x0101_1584;
 /// Icon path `Interface\Icons\Message Icons\glow_message_vaultboy_very_happy.dds`.
-const ICON_VERY_HAPPY: u32 = 0x0102_5cc4;
+const ICON_VERY_HAPPY: u32 = 0x0103_a830;
 /// Sound name `UIPopUpMessageGeneral`.
-const SOUND_POPUP_GENERAL: u32 = 0x0103_a830;
+const SOUND_POPUP_GENERAL: u32 = 0x0102_5cc4;
 /// Icon path `Interface\Icons\Message Icons\glow_message_vaultboy_surprised.dds`.
 const ICON_SURPRISED: u32 = 0x0104_9638;
 /// `float` display time of the messages.
@@ -4704,7 +4704,8 @@ mod tests {
         let shown = calls_to(&e, SHOW_MESSAGE);
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0][0], 0x6000);
-        assert_eq!(shown[0][2..5], [1, ICON_VERY_HAPPY, SOUND_POPUP_GENERAL]);
+        // The icon then the sound name (8b9587, 8b9582, pushed in reverse).
+        assert_eq!(shown[0][2..5], [1, 0x0103_a830, 0x0102_5cc4]);
         assert_eq!(f32::from_bits(shown[0][5]), 2.0);
     }
 

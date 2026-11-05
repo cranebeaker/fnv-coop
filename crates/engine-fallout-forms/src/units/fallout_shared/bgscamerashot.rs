@@ -731,8 +731,8 @@ pub fn fn_0058cf60(e: &mut Engine, this: Ptr<BgsCameraShot>, time: u32) {
             let limit = e.call(SETTING_FLOAT, &args![0x011c_a7d0u32]).u32();
             let limit = e.mem.u32(limit);
             // FCOMP; FNSTSW; TEST AH,1; JNZ: reached unless the setting is
-            // below the distance (NaN included).
-            !(x87_load32(limit) < distance)
+            // below the distance or that is NaN.
+            x87_load32(limit) >= distance
         });
         if reached {
             e.mem.set_u8(base + 0x75, 1);
@@ -845,9 +845,9 @@ fn camera_blend(e: &mut Engine, this: Ptr<BgsCameraShot>, first_frame: bool, tim
     let distance = e.call(POINT_LENGTH, &args![BLEND_OFFSET]).f64();
     let limit = e.call(SETTING_FLOAT, &args![0x011c_a76cu32]).u32();
     let limit = e.mem.u32(limit);
-    // FCOMP; FNSTSW; TEST AH,1; JNZ: the blend goes on only while the
-    // setting is below the distance.
-    if !(x87_load32(limit) < distance) {
+    // FCOMP; FNSTSW; TEST AH,1; JNZ: the blend goes on while the setting is
+    // below the distance, and on NaN.
+    if x87_load32(limit) >= distance {
         end_blend(e);
         return;
     }
@@ -863,7 +863,7 @@ fn camera_blend(e: &mut Engine, this: Ptr<BgsCameraShot>, first_frame: bool, tim
     let elapsed = x87_sub(x87_load32(time), x87_m32(e.global::<u32>(BLEND_START)));
     let fraction = x87_store32(x87_mul(inverse, elapsed));
     e.set_global(BLEND_FRACTION, fraction);
-    if !(x87_load32(fraction) < e.global::<f64>(ONE_DOUBLE)) {
+    if x87_load32(fraction) >= e.global::<f64>(ONE_DOUBLE) {
         end_blend(e);
         return;
     }
@@ -1905,6 +1905,14 @@ mod n085_tests {
         assert_eq!(e.global::<f32>(BLEND_FRACTION), 1.0);
         assert_eq!(e.global::<u8>(BLEND_ACTIVE), 0);
         assert!(calls(&e, POINT_SCALE).is_empty());
+        // A NaN fraction goes on to the point blend (0058d331).
+        e.set_global(BLEND_ACTIVE, 1u8);
+        e.set_global(BLEND_START, f32::NAN);
+        e.set_global(BLEND_LENGTH, 2.0f32);
+        e.call_log = Some(vec![]);
+        e.call(0x0058_cf60, &args![this, 3.0f32.to_bits()]);
+        assert_eq!(e.global::<u8>(BLEND_ACTIVE), 1);
+        assert!(!calls(&e, POINT_SCALE).is_empty());
 
         // Past the first frame with the player's +0x22C false: first person.
         let mut e = Engine::new();

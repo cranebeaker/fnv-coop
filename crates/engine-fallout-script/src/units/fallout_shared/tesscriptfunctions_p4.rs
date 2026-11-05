@@ -679,12 +679,9 @@ pub fn fn_005c9cf0(e: &mut Engine, a: ScriptArgs) -> bool {
         let radius = e.call(BOUND_RADIUS, &args![bound]).f64();
         let half: f64 = e.global(HALF);
         let half_radius = (radius * half) as f32;
-        // `FCOMPP`/`TEST AH,0x41`: the default is kept unless it is greater
-        // (or the comparison is unordered).
-        if !matches!(
-            length.partial_cmp(&half_radius),
-            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
-        ) {
+        // `FCOMPP`/`TEST AH,0x41`/`JNZ`: the default is kept unless it is greater;
+        // an unordered comparison keeps it too (005c9d73).
+        if length > half_radius {
             length = half_radius;
         }
     }
@@ -3940,6 +3937,12 @@ mod tests {
         assert_eq!(vertices[12..], [0.0, 0.0, -4.0, 0.0, 0.0, 4.0]);
         // A bound exactly as large as the default keeps the default.
         let (mut e, reference) = axes_engine(Some(20.0));
+        let a = script(&mut e, reference);
+        start_log(&mut e);
+        assert!(run(&mut e, 0x005c_9cf0, a));
+        assert_eq!(lines_made(&e).0[0], -10.0);
+        // A NaN bound keeps it too (005c9d73).
+        let (mut e, reference) = axes_engine(Some(f32::NAN));
         let a = script(&mut e, reference);
         start_log(&mut e);
         assert!(run(&mut e, 0x005c_9cf0, a));

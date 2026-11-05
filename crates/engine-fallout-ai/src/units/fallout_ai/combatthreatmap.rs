@@ -973,7 +973,8 @@ pub fn fn_009a5670(
             let start_time = fn_009a5780(e, threat, Ptr::new(start));
             let start_time = e.call(0x006a_7f50, &args![start_time]).f64();
             let compare_time = e.call(0x006a_7f50, &args![compare_slot]).f64();
-            let starts_later = compare_time < start_time;
+            // TEST AH,1; JNZ: below and NaN go on to the score (009a570b).
+            let starts_later = !(compare_time >= start_time);
             if !starts_later {
                 continue;
             }
@@ -2904,6 +2905,19 @@ mod tests {
         let lock = map.addr() + 0x10;
         assert_eq!(calls_to(&e, LOCK_ENTER), [[lock]]);
         assert_eq!(calls_to(&e, LOCK_LEAVE), [[lock]]);
+    }
+
+    #[test]
+    fn summed_score_counts_a_threat_with_a_nan_start_time() {
+        // 009a570b, 009a570e: below and NaN go on to the score.
+        let (mut e, map, threats) = summing_world();
+        e.set(threats[0], CombatThreat::fStartTime, f32::NAN.to_bits());
+        e.call_log = Some(vec![]);
+        e.call(
+            0x009a5670,
+            &args![map, 11.0f32, 1.0f32, 0.0f32, 0u32, 1.0f32, 1.0f32, 100.0f32, 0.5f32],
+        );
+        assert_eq!(calls_to(&e, THREAT_IN_WINDOW).len(), 2);
     }
 
     #[test]

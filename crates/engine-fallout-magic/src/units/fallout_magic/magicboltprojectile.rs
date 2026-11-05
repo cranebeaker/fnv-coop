@@ -998,8 +998,8 @@ pub fn fn_00812700(e: &mut Engine, this: Ptr, time: f32, segment: u32) {
         );
         let limit = e.call(SETTING_VALUE, &args![0x011d_1b14u32]).u32();
         let limit = x87_load32(e.mem.u32(limit));
-        // FCOMP / TEST AH,5 / JP: true when the setting is below or equal.
-        let aged = limit <= age;
+        // FCOMP / TEST AH,5 / JP: true when the setting is strictly below.
+        let aged = limit < age;
         let speed = x87_quiet_bits(e.mem.u32(this.addr().wrapping_add(0x88)));
         let length = x87_store32(e.call(POINT_LENGTH, &args![difference]).f64());
         let shader = e.call(POINTER_GET, &args![segment]).u32();
@@ -1021,7 +1021,7 @@ pub fn fn_00812700(e: &mut Engine, this: Ptr, time: f32, segment: u32) {
 // Translated from 00812890 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MagicBoltProjectile::PostProcess` (Xbox PDB): with the caster actor's magic node
 /// (its `MagicCaster` part's slot +0x30), a controller and a node at +0xB4: when `006ca4e0`
-/// is at most `0.5` and the caster is the player with `004eaf60` false, the node moves to
+/// is below `0.5` and the caster is the player with `004eaf60` false, the node moves to
 /// the magic node; when `006ca4e0` is above `0.0`, the node points at the controller's
 /// position ([`bhk_character_controller_get_position`]); the node is updated (`0.0`).
 /// Answers false then, true when any of the three is missing.
@@ -1051,8 +1051,8 @@ pub fn magic_bolt_projectile_post_process(e: &mut Engine, this: Ptr) -> bool {
         return true;
     }
     let value = e.call(FLOAT_90, &args![this]).f64();
-    // FCOMP / TEST AH,5 / JP: on when at most (ordered).
-    if value <= e.mem.f64(HALF)
+    // FCOMP / TEST AH,5 / JP: on when strictly below.
+    if value < e.mem.f64(HALF)
         && actor == e.mem.u32(PLAYER)
         && !{
             let player = e.mem.u32(PLAYER);
@@ -1113,7 +1113,7 @@ fn controller_position(e: &mut Engine, this: Ptr, out: u32) {
 }
 
 /// `00bc28b0` on the main shader, or (while moving) only when `+0x140 * the shader's
-/// float` of the shader is at most `006ca4e0 * +0x88`.
+/// float` of the shader is below `006ca4e0 * +0x88`.
 fn update_main_shader(
     e: &mut Engine,
     this: Ptr,
@@ -1131,8 +1131,8 @@ fn update_main_shader(
         let count = e.call(WORD_140, &args![shader]).i32();
         let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
         let per = fn_008133b0(e, Ptr::new(shader));
-        // FCOMP / TEST AH,5 / JP: on when at most (ordered).
-        x87_mul(per, f64::from(count)) <= reach
+        // FCOMP / TEST AH,5 / JP: on when strictly below.
+        x87_mul(per, f64::from(count)) < reach
     } else {
         true
     };
@@ -2483,6 +2483,10 @@ mod magic_bolt_tests {
         e.register(FLOAT_A4, |_, _| st0(30.0));
         e.call(0x0081_2700, &args![this, 0.5f32, segment]);
         assert_eq!(calls(&e, SHADER_UPDATE_SEGMENT)[1][4], 1);
+        // An age equal to the setting is not above it (008127a6).
+        e.register(FLOAT_A4, |_, _| st0(21.0));
+        e.call(0x0081_2700, &args![this, 0.5f32, segment]);
+        assert_eq!(calls(&e, SHADER_UPDATE_SEGMENT)[2][4], 0);
     }
 
     #[test]
@@ -2532,6 +2536,29 @@ mod magic_bolt_tests {
         assert!(!e.call(0x0081_2890, &args![this]).bool());
         assert_eq!(calls(&e, NODE_SET_TRANSLATE).len(), 1);
         assert_eq!(calls(&e, NODE_POSITION).last().unwrap()[0], 0x4400);
+        // At exactly 0.5 it stays where it is (0081298d).
+        e.register(FLOAT_90, |_, _| st0(0.5));
+        assert!(!e.call(0x0081_2890, &args![this]).bool());
+        assert_eq!(calls(&e, NODE_SET_TRANSLATE).len(), 1);
+    }
+
+    #[test]
+    fn the_main_shader_updates_while_moving_only_strictly_below_the_reach() {
+        let mut e = engine();
+        let (this, _) = bolt(&mut e);
+        quiet(&mut e, &[SHADER_UPDATE]);
+        e.register(WORD_140, |_, _| 2u32.into_ret());
+        let shader = e.mem.alloc(0x180);
+        e.mem.set_f32(shader + 0x144, 3.0);
+        e.mem.set_u32(this + 0xa8, shader);
+        e.mem.set_f32(this + 0x88, 1.0);
+        // 2 * 3 against 6: equal does nothing (00813026, 008131b9).
+        e.register(FLOAT_90, |_, _| st0(6.0));
+        update_main_shader(&mut e, Ptr::new(this), 0.5, true, &|_: &mut Engine| 0);
+        assert!(calls(&e, SHADER_UPDATE).is_empty());
+        e.register(FLOAT_90, |_, _| st0(6.5));
+        update_main_shader(&mut e, Ptr::new(this), 0.5, true, &|_: &mut Engine| 0);
+        assert_eq!(calls(&e, SHADER_UPDATE).len(), 1);
     }
 
     #[test]

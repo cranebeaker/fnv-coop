@@ -835,7 +835,8 @@ fn scatter_points(e: &mut Engine, ebp: u32) {
                 let slot = normal + 4 * i;
                 let value = (e.mem.f32(slot) as f64 * half + half) as f32;
                 e.mem.set_f32(slot, value);
-                if not_below(e.mem.f32(slot) as f64, ceiling) {
+                // TEST AH,1; JNZ: NaN keeps its value (0057e715).
+                if e.mem.f32(slot) as f64 >= ceiling {
                     let clamp = quiet(e.global::<f32>(NORMAL_CLAMP));
                     e.mem.set_f32(slot, clamp);
                 }

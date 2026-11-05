@@ -239,7 +239,8 @@ pub fn muzzle_flash_update(e: &mut Engine, this: Ptr<MuzzleFlash>, elapsed: f32,
     let mut elapsed = elapsed;
     let scaled_by_mode = e.call(MODE_GET, &args![MODE_OBJECT]).u32() == 4 && {
         let divisor = e.call(TIME_DIVISOR, &args![]).f64();
-        !at_most_zero(e, divisor)
+        // Only above zero (9bb179): NaN goes to the other branch.
+        divisor > e.global::<f64>(ZERO)
     };
     if scaled_by_mode {
         let divisor = e.call(TIME_DIVISOR, &args![]).f64();
@@ -874,6 +875,12 @@ mod tests {
         );
         // 0.5 / 0.0 is infinity.
         assert_eq!(e.get(this, MuzzleFlash::fEnableTimer), f32::NEG_INFINITY);
+        // A NaN divisor goes to the actor branch as well (9bb179, 9bb17c).
+        stub_float(&mut e, TIME_DIVISOR, f64::NAN);
+        e.call_log = Some(vec![]);
+        e.call(0x009b_b080, &args![this, 0.5f32, Ptr::<()>::new(reference)]);
+        let log = e.call_log.take().unwrap();
+        assert_eq!(calls(&log, slot_target(sub_vtable, 8)).len(), 1);
 
         // Without a node nothing happens.
         let bare = flash(&mut e, 0, 0);

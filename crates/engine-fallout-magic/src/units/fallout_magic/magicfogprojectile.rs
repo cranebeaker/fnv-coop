@@ -933,8 +933,8 @@ fn fog_move(e: &mut Engine, this: Ptr, time: f32) {
             e.vcall(base, 0xc4, &args![1u32]);
         }
         let pace = x87_div(x87_load32(length), x87_m32(time.to_bits()));
-        // FCOMP / TEST AH,5 / JP: stopped when at most 5.0 (ordered).
-        if pace <= e.mem.f64(FIVE) {
+        // FCOMP / TEST AH,5 / JP: stopped when strictly below 5.0.
+        if pace < e.mem.f64(FIVE) {
             let [x, y, z] = read_point(e, DEFAULT_POINT);
             e.vcall(base, 0x304, &args![x, y, z, 0u32, 0u32, 0u32]);
         }
@@ -1639,12 +1639,16 @@ mod magic_fog_tests {
             vec![vec![0, (-107.0f32).to_bits()]]
         );
         assert_eq!(e.mem.f32(this + 0x8c), 2.0);
-        // Distance 2 beyond the limit (0): slot +0xC4; pace 2 / 0.5 = 4 <= 5: stopped.
+        // Distance 2 beyond the limit (0): slot +0xC4; pace 2 / 0.5 = 4 < 5: stopped.
         assert_eq!(calls(&e, slot(0, 0xc4)), vec![vec![this, 1]]);
         assert_eq!(
             calls(&e, slot(0, 0x304)),
             vec![vec![this, 0, 0, 0, 0, 0, 0]]
         );
+        // A pace of exactly 5 does not stop it (0081a55a).
+        e.register(POINT_LENGTH, |_, _| st0(2.5));
+        e.call(0x0081_a320, &args![this, 0.5f32]);
+        assert_eq!(calls(&e, slot(0, 0x304)).len(), 1);
     }
 
     #[test]

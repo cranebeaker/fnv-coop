@@ -2095,7 +2095,8 @@ pub fn fn_006986d0(e: &mut Engine, this: Ptr) -> bool {
     let info = e
         .call(0x0069_3d70, &args![map, allocator_state])
         .ptr::<Ptr>();
-    if !e.call(0x0068_efb0, &args![this]).bool() {
+    // 0068efb0 answers a pointer, tested whole (00698719).
+    if e.call(0x0068_efb0, &args![this]).u32() == 0 {
         let allocation = e.call(0x0040_1000, &args![0x5cu32]).u32();
         let created = if allocation == 0 {
             Ptr::NULL
@@ -5035,6 +5036,9 @@ mod tests {
         assert_eq!(&*lookup.borrow(), &[vec![map.addr(), 0x5500]]);
         assert_eq!(&*exists.borrow(), &[vec![this.addr()]]);
         assert_eq!(&*update.borrow(), &[vec![info.addr(), this.addr()]]);
+        // A pointer whose low byte is 0 exists too.
+        recorder(&mut e, 0x0068_efb0, 0x0100_0100);
+        assert!(!fn_006986d0(&mut e, this));
     }
 
     #[test]

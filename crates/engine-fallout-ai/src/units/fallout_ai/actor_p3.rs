@@ -12827,7 +12827,7 @@ fn hit_me_kill_effect(e: &mut Engine, s: &mut HitMe) {
         e.call(HANDLE_ENTRY_POINT, &args![0x2eu32, aggressor, out]);
         e.mem.f32(out.addr())
     });
-    if (chance as f64) <= e.global::<f64>(ZERO_DOUBLE) {
+    if !((chance as f64) > e.global::<f64>(ZERO_DOUBLE)) {
         return;
     }
     if e.call(GET_SAVED_ACQUIRE_OBJECT, &args![this]).u32() == 0 {
@@ -12916,11 +12916,11 @@ fn hit_me_knockback(e: &mut Engine, s: &mut HitMe) {
         e.call(HANDLE_ENTRY_POINT, &args![0x34u32, aggressor, weapon, out]);
         e.mem.f32(out.addr())
     });
-    if (chance as f64) <= e.global::<f64>(ZERO_DOUBLE) {
+    if !((chance as f64) > e.global::<f64>(ZERO_DOUBLE)) {
         return;
     }
     let roll = e.call(RANDOM_FLOAT, &args![0.0f32, 1.0f32]).f64();
-    if roll > chance as f64 {
+    if !(chance as f64 >= roll) {
         return;
     }
     let owner = this.addr() + 0xa4;

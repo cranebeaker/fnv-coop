@@ -4042,6 +4042,16 @@ pub fn animation_start_group(e: &mut Engine, this: Ptr<Animation>, group: u16, s
     animation_start_group_ov2(e, this, sequence, group, slot)
 }
 
+/// In menu mode, whether the animation's root is the player's node 0; the root and the node
+/// are only asked for in menu mode (00494c31..52, 00494e32..53).
+fn root_is_first_person_in_menu(e: &mut Engine, animation: u32, player: u32) -> bool {
+    if !e.call(IS_IN_MENU_MODE, &args![]).bool() {
+        return false;
+    }
+    let root = ni_pointer_get(e, animation + Animation::pAnimRoot.off);
+    root == e.call(PLAYER_NODE, &args![player, 0u32]).u32()
+}
+
 // Translated from 004949a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Animation::StartGroup_ov2` (Xbox PDB): puts `sequence` (the sequence of
 /// group `group`) into slot `slot_arg` (-1 = the slot of the group's type;
@@ -4144,12 +4154,8 @@ pub fn animation_start_group_ov2(
         return Ptr::new(sequence);
     }
 
-    let in_menu = e.call(IS_IN_MENU_MODE, &args![]).bool();
-    let root = ni_pointer_get(e, a + Animation::pAnimRoot.off);
-    let first_node = e.call(PLAYER_NODE, &args![player, 0u32]).u32();
     let pipboy_object: u32 = e.global(PIPBOY_QUERY_OBJECT);
-    let skip_clearing = in_menu
-        && root == first_node
+    let skip_clearing = root_is_first_person_in_menu(e, a, player)
         && !e.call(PIPBOY_QUERY, &args![pipboy_object]).bool()
         && e.call(WORD_AT_8, &args![VATS_OBJECT]).u32() == 0;
     if !skip_clearing {
@@ -4202,10 +4208,7 @@ pub fn animation_start_group_ov2(
         .set_u32(current_sequence_at(this, slot_index), sequence);
 
     // Whether the new sequence can be morphed from the old one.
-    let in_menu = e.call(IS_IN_MENU_MODE, &args![]).bool();
-    let root = ni_pointer_get(e, a + Animation::pAnimRoot.off);
-    let first_node = e.call(PLAYER_NODE, &args![player, 0u32]).u32();
-    if (!in_menu || root != first_node) && sequence != 0 && current != 0 {
+    if !root_is_first_person_in_menu(e, a, player) && sequence != 0 && current != 0 {
         let new_group = fn_0048f7f0(e, Ptr::new(sequence));
         let old_group = fn_0048f7f0(e, Ptr::new(current));
         e.with_stack(4, |e, new_ref| {
@@ -11910,6 +11913,15 @@ mod tests {
             ]]
         );
         assert!(arguments_of(&log, MANAGER_ACTIVATE).is_empty());
+    }
+
+    #[test]
+    fn starting_a_group_outside_the_menus_does_not_ask_for_the_player_node() {
+        let mut f = start_fixture();
+        start_log(&mut f.e);
+        f.start();
+        let log = end_log(&mut f.e);
+        assert!(arguments_of(&log, PLAYER_NODE).is_empty());
     }
 
     #[test]

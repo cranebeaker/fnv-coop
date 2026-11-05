@@ -54,6 +54,12 @@ fn product_not_positive(a: u32, b: u32, zero: f64) -> bool {
     x87_mul(x87_load32(a), x87_m32(b)) <= zero
 }
 
+/// `FLD a; FMUL b; FCOMP 0.0; TEST AH,0x41; JNZ`: whether the jump is not taken,
+/// that is `a * b > 0` (false on NaN, where the `JP` form above is also false).
+fn product_positive(a: u32, b: u32, zero: f64) -> bool {
+    x87_mul(x87_load32(a), x87_m32(b)) > zero
+}
+
 /// `FLD a; FSUB b; FDIVR a`: `a / (a - b)`, stored as a `float`.
 fn ratio(a: u32, b: u32) -> u32 {
     x87_store32(x87_div(x87_m32(a), x87_sub(x87_load32(a), x87_m32(b))))
@@ -142,7 +148,7 @@ pub fn fn_006ba3d0(e: &mut Engine, result: Ptr, a: Ptr, b: Ptr, c: Ptr, d: Ptr) 
             .u32();
         e.call(POINT2_ADD, &args![c, point, scaled]);
         let zero: f64 = e.global(ZERO);
-        if product_not_positive(side_b, side_a, zero) {
+        if !product_positive(side_b, side_a, zero) {
             copy_words(e, result.addr(), point, 2);
             return;
         }
@@ -189,7 +195,7 @@ pub fn fn_006ba550(e: &mut Engine, result: Ptr, a: Ptr, b: Ptr, c: Ptr, d: Ptr) 
             .u32();
         e.call(POINT_ADD, &args![a, point, scaled]);
         let zero: f64 = e.global(ZERO);
-        if product_not_positive(side_b, side_a, zero) {
+        if !product_positive(side_b, side_a, zero) {
             copy_words(e, result.addr(), point, 3);
             return;
         }
@@ -557,6 +563,13 @@ mod tests {
         // Equal ends: a.
         e.call(0x006b_a550, &args![result, a, a, c, d]);
         assert_eq!(read(&e, result, 3), vec![0.0, 0.0, 1.0]);
+        // An unordered product takes the crossing point, not the end b
+        // (006ba4cf, 006ba63f).
+        let unordered = point(&mut e, &[f32::NAN, 0.0, 1.0]);
+        e.call(0x006b_a3d0, &args![result, unordered, b, c2, d2]);
+        assert!(read(&e, result, 2)[0].is_nan());
+        e.call(0x006b_a550, &args![result, unordered, b, c2, d2]);
+        assert!(read(&e, result, 3)[0].is_nan());
     }
 
     #[test]

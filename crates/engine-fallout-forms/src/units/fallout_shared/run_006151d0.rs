@@ -239,17 +239,19 @@ fn change_reputation(e: &mut Engine, this: Ptr, which: i32, amount: ChangeAmount
         let value = x87_load32(e.mem.u32(field));
         let clamped = if raise {
             let maximum = x87_load32(e.mem.u32(base + 0x40));
-            if value <= maximum {
-                e.mem.u32(field)
-            } else {
+            // TEST AH,5; JP: the maximum only when it is below (006157a5).
+            if maximum < value {
                 e.mem.u32(base + 0x40)
+            } else {
+                e.mem.u32(field)
             }
         } else {
             let floor: f64 = e.global(REPUTATION_FLOOR);
-            if value >= floor {
-                e.mem.u32(field)
-            } else {
+            // TEST AH,5; JP: zero only when below the floor (00615a70).
+            if value < floor {
                 0
+            } else {
+                e.mem.u32(field)
             }
         };
         e.mem.set_u32(field, x87_quiet_bits(clamped));
@@ -257,7 +259,15 @@ fn change_reputation(e: &mut Engine, this: Ptr, which: i32, amount: ChangeAmount
             (true, true) => (0x011c_bac0u32, 0x011c_bd5cu32, 1u32),
             (false, true) => (0x011c_ba58, 0x011c_bad0, 0),
             (true, false) => (0x011c_bb98, 0x011c_bc34, 0),
-            (false, false) => (0x011c_ba94, 0x011c_ba00, 1),
+            // Lowering infamy by a level takes 011cbad0 (006161fe), not 011cba00.
+            (false, false) => {
+                let message = if matches!(amount, ChangeAmount::Level(_)) {
+                    0x011c_bad0
+                } else {
+                    0x011c_ba00
+                };
+                (0x011c_ba94, message, 1)
+            }
         };
         let line = e.call(SETTING_STRING, &args![text_setting]).u32();
         let name = e.call(STRING_TEXT, &args![base + 0x18]).u32();
@@ -774,10 +784,16 @@ mod tests_n042 {
         assert_eq!(e.mem.u32(this + 0x4c), 1);
         assert_eq!(calls(&log, SPRINTF)[0][4], 0x011c_ba95);
         assert_eq!(calls(&log, SHOW_MESSAGE)[0][2], 0x011c_ba01);
-        // A NaN result is clamped to 0.
+        // A NaN result is kept: only an ordered below goes to 0 (00615a70).
         e.mem.set_u32(this + 0x48, 0x7fc0_0000);
         e.call(0x0061_5a00, &args![this, 0u32, 1.0f32]);
-        assert_eq!(e.mem.u32(this + 0x48), 0);
+        assert_eq!(e.mem.u32(this + 0x48), 0x7fc0_0000);
+        // Raising to a NaN keeps it too: only an ordered maximum below goes to it
+        // (006157a5).
+        e.mem.set_f32(this + 0x40, 100.0);
+        e.mem.set_u32(this + 0x44, 0x7fc0_0000);
+        e.call(0x0061_5730, &args![this, 1u32, 1.0f32]);
+        assert_eq!(e.mem.u32(this + 0x44), 0x7fc0_0000);
     }
 
     #[test]
@@ -793,6 +809,11 @@ mod tests_n042 {
         let (_, log) = run(&mut e, 0x0061_5fa0, &[this, 1, 5]);
         assert_eq!(f32::from_bits(e.mem.u32(this + 0x44)), 1.0);
         assert_eq!(calls(&log, SETTING_FLOAT), vec![vec![0x011c_bb70]]);
+        // Infamy lowered by a level and by an amount take different messages.
+        let (_, log) = run(&mut e, 0x0061_5fa0, &[this, 0, 5]);
+        assert_eq!(calls(&log, SHOW_MESSAGE)[0][2], 0x011c_bad0 + 1);
+        let (_, log) = run(&mut e, 0x0061_5a00, &[this, 0, 1.0f32.to_bits()]);
+        assert_eq!(calls(&log, SHOW_MESSAGE)[0][2], 0x011c_ba00 + 1);
         for level in [0u32, 6, 0xffff_ffff] {
             let (_, log) = run(&mut e, 0x0061_5c90, &[this, 1, level]);
             assert!(log.is_empty());
