@@ -36,6 +36,19 @@ use crate::GameFiles;
 
 /// How long a guest waits for the host before giving up.
 const JOIN_WAIT: Duration = Duration::from_secs(90);
+/// How long a guest that knows the host's place waits for the join snapshot
+/// before it loads the place anyway.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(10);
+
+/// True when a guest may load the host's place: it knows the place, and it
+/// has the host's state (the join snapshot) or waited [`SNAPSHOT_WAIT`] for it.
+/// The snapshot comes after the place on the same reliable lane, so on a lossy
+/// link it can come later. A cell loaded before it sets its people up from the
+/// guest's own new game: Doc Mitchell then had only his "We can chat later"
+/// line, and the guest's talk got no menu.
+fn may_load_place(place_known: bool, has_state: bool, waited: Duration) -> bool {
+    place_known && (has_state || waited > SNAPSHOT_WAIT)
+}
 /// Seconds between state dumps.
 const DUMP_EVERY: f32 = 1.0;
 
@@ -269,11 +282,15 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
     }
     if role == Role::Guest {
         let begun = Instant::now();
+        let mut place_since: Option<Instant> = None;
         let place = loop {
             session.poll(0.016);
             // the host's place and how far its own opening is both arrive right after the join
             if let (Some(p), Some(_)) = (session.host_place(), session.host_opening()) {
-                break p;
+                let since = *place_since.get_or_insert_with(Instant::now);
+                if may_load_place(true, session.is_connected(), since.elapsed()) {
+                    break p;
+                }
             }
             if let Some(why) = session.last_error().map(str::to_string) {
                 session.log_event(
@@ -761,4 +778,25 @@ fn at_exit(
         "exit",
         &live,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_guest_loads_the_place_after_the_hosts_state() {
+        let short = Duration::from_millis(300);
+        assert!(!may_load_place(false, true, short), "no place yet");
+        assert!(
+            !may_load_place(true, false, short),
+            "the place, not the state yet"
+        );
+        assert!(may_load_place(true, true, short), "the place and the state");
+        let long = SNAPSHOT_WAIT + Duration::from_millis(1);
+        assert!(
+            may_load_place(true, false, long),
+            "no state after the wait: load anyway"
+        );
+    }
 }
