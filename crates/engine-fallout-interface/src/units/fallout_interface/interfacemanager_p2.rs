@@ -1691,7 +1691,7 @@ pub fn fn_00719580(e: &mut Engine, tile: Ptr) {
     }
     if matches {
         e.call(GET_MANAGER, &args![]);
-        let ready = e.call(MANAGER_READY, &args![]).bool() as u32;
+        let ready = e.call(MANAGER_READY, &args![]).u8() as u32;
         let trait_id = e.call(TEXT_TO_TRAIT, &args![READY_TRAIT_NAME]).u32();
         e.call(TILE_SET_VALUE, &args![tile, trait_id, ready]);
         e.call(TILE_SET_NEEDS_UPDATE, &args![tile, 4u32]);
@@ -1707,12 +1707,12 @@ pub fn fn_00719580(e: &mut Engine, tile: Ptr) {
 /// `007d6c30`. The word it is passed is not read.
 pub fn fn_00719630(e: &mut Engine, this: Ptr<InterfaceManagerFields>, _unused_1: u32) {
     e.call(GET_MANAGER, &args![]);
-    let ready = e.call(MANAGER_READY, &args![]).bool() as u32;
+    let ready = e.call(MANAGER_READY, &args![]).u8() as u32;
     e.call(SET_NAMED_VALUE, &args![NAMED_VALUE_FIRST, ready]);
     e.call(GET_MANAGER, &args![]);
-    let ready = e.call(MANAGER_READY, &args![]).bool() as u32;
+    let ready = e.call(MANAGER_READY, &args![]).u8() as u32;
     e.call(SET_NAMED_VALUE, &args![NAMED_VALUE_SECOND, ready]);
-    let ready = e.call(MANAGER_READY, &args![]).bool() as u32;
+    let ready = e.call(MANAGER_READY, &args![]).u8() as u32;
     let trait_id = e.call(TEXT_TO_TRAIT, &args![ROOT_TRAIT_NAME]).u32();
     // InterfaceManager::pStringRoot (Xbox PDB) +0xA0
     let string_root = e.mem.u32(this.addr() + 0xA0);
@@ -1738,7 +1738,7 @@ pub fn fn_00719630(e: &mut Engine, this: Ptr<InterfaceManagerFields>, _unused_1:
             let child = e.mem.u32(item);
             if child != 0 && e.call(TILE_GET_MENU, &args![child]).u32() != 0 {
                 let menu = e.call(TILE_GET_MENU, &args![child]).u32();
-                let ready = e.call(MANAGER_READY, &args![]).bool() as u32;
+                let ready = e.call(MANAGER_READY, &args![]).u8() as u32;
                 e.vcall(menu, 0x44, &args![ready]);
             }
         }

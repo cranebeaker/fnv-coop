@@ -147,6 +147,12 @@ pub fn fn_00599d70(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
 /// multiplies by (1) or subtracts (2) its amount (`00759450`) in x87
 /// arithmetic stored as a `float`; the copy is deleted (`004702f0(1)`). No
 /// list: `value` itself.
+///
+/// The exe leaks a non-empty copy: its delete reads the local the second loop has
+/// walked to 0 (a132, a19e, a1aa), so only an empty copy is deleted there. The port
+/// frees it either way. Nothing else holds it: the local goes only to `0096a2d0`,
+/// `005ae3d0` and `00905820` as `this`, which keep no pointer to the head (`00470440`
+/// copies the item word into each new node), and the list's delete leaves the effects.
 pub fn fn_0059a030(e: &mut Engine, kind: u32, effects: u32, value: f32) -> f32 {
     let mut result = x87_quiet_bits(value.to_bits());
     if effects == 0 {

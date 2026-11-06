@@ -5691,6 +5691,19 @@ pub fn fn_0085fed0(
     }
 }
 
+/// The word `008600b0` prints for the level: `FISTP` qword with the rounding forced to truncation
+/// (860282), its low word pushed (86028b). At or above 2^63 it stores the integer indefinite,
+/// whose low word is 0, where a cast would saturate to all ones; the other overflow and NaN do
+/// cast to a low word of 0.
+fn level_text_word(level: f32) -> u32 {
+    let value = f64::from(level).trunc();
+    if value >= 9_223_372_036_854_775_808.0 {
+        0
+    } else {
+        value as i64 as u32
+    }
+}
+
 // Translated from 008600b0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the description of a save from its header into the buffers the
 /// caller gives (each of 300 characters, and any of them may be null): when
@@ -5783,8 +5796,7 @@ pub fn fn_008600b0(
         );
     }
     if !level_text_out.is_null() {
-        // `FISTP` with the rounding forced to truncation.
-        let truncated = (e.mem.f32(level) as f64).trunc() as i64 as u32;
+        let truncated = level_text_word(e.mem.f32(level));
         let word = e
             .call(PATH_OBJECT_GET, &args![SAVE_LEVEL_PREFIX_TEXT])
             .u32();
@@ -13256,6 +13268,19 @@ mod tests {
         });
         quiet(e, &[FIXED_STRING_DESTRUCT]);
         events
+    }
+
+    #[test]
+    fn the_level_text_takes_the_low_word_of_the_truncated_qword() {
+        // 008600b0: 860282 FISTP qword, truncating; out of range or NaN it stores
+        // 0x8000000000000000, so 86028b pushes 0.
+        assert_eq!(level_text_word(12.75), 12);
+        assert_eq!(level_text_word(-1.5), 0xffff_ffff);
+        assert_eq!(level_text_word(4_294_967_808.0), 512);
+        assert_eq!(level_text_word(9.223_372e18), 0);
+        assert_eq!(level_text_word(f32::INFINITY), 0);
+        assert_eq!(level_text_word(f32::NEG_INFINITY), 0);
+        assert_eq!(level_text_word(f32::NAN), 0);
     }
 
     #[test]

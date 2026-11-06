@@ -51,8 +51,8 @@ const ADD_FORM_TO_DATA_HANDLER: u32 = 0x0046_03b0;
 /// `BGSEquipType::GetEquipType` (Xbox PDB), `cdecl` with one word, a form: -1 for null;
 /// otherwise by its form type (`00401170`; the exe's byte map and jump table in `.text`,
 /// `004794f0` and `004794d8`, are these arms) the word `00726070` reads at a component of the
-/// form (its +4): type 0x18 at +0x154, 0x1a at +0x14c, 0x1d at +0x8c, 0x29 at +0xc4, 0x2f at
-/// +0x9c; -1 for any other type.
+/// form (its +4): type 0x18 at +0x154, 0x1a at +0x14c, 0x1d at +0x8c, 0x28 (a weapon) at +0xc4
+/// (map index 0x10 is table entry 3, 00479472), 0x2f at +0x9c; -1 for any other type.
 pub fn bgs_equip_type_get_equip_type(e: &mut Engine, form: Ptr) -> u32 {
     if form.is_null() {
         return u32::MAX;
@@ -62,7 +62,7 @@ pub fn bgs_equip_type_get_equip_type(e: &mut Engine, form: Ptr) -> u32 {
         0x00 => 0x154,
         0x02 => 0x14c,
         0x05 => 0x8c,
-        0x11 => 0xc4,
+        0x10 => 0xc4,
         0x17 => 0x9c,
         _ => return u32::MAX,
     };
@@ -263,8 +263,9 @@ mod tests {
             (0x18u8, 1u32),
             (0x1a, 2),
             (0x1d, 3),
-            (0x29, 4),
+            (0x28, 4),
             (0x2f, 5),
+            (0x29, u32::MAX),
             (0x19, u32::MAX),
             (0x30, u32::MAX),
             (0x17, u32::MAX),

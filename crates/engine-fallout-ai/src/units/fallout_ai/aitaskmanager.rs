@@ -1387,7 +1387,7 @@ pub fn movement_task_data_handle_mob_message(
         }
     } else if e.mem.u8(mob.addr() + ACTOR_PROCESS_ME) != 0 {
         let player = player_character(e);
-        let sleeping = e.call(0x0094_df60, &args![player]).bool();
+        let sleeping = e.call(0x0094_df60, &args![player]).u8();
         e.vcall(mob.addr(), 0x348, &args![0.0f32, sleeping]);
     }
     let updated = e.get(this, MovementTaskData::iUpdated);

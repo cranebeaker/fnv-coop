@@ -329,10 +329,14 @@ pub fn fn_009ac9c0(
     let mut explosion = Ptr::new(0);
 
     if !definition.is_null() {
+        // 9ac9fd, 9aca2e: the owner given to the constructor (9acb53) is this local,
+        // the projectile's shooter when slot 0x224 says the owner is a projectile.
+        let mut constructor_owner = owner;
         if !owner.is_null() {
             if e.vcall(owner.addr(), 0x224, &args![]).bool() {
-                let owner_base = e.call(0x0087_4480, &args![owner]).ptr::<()>();
-                if owner_base == player {
+                let shooter = e.call(0x0087_4480, &args![owner]).ptr::<()>();
+                constructor_owner = shooter;
+                if shooter == player {
                     let entry_value = e.call(0x0047_6c90, &args![owner]).u32();
                     e.with_stack(4, |e, output| {
                         e.mem.set_f32(output.addr(), damage_multiplier);
@@ -358,37 +362,41 @@ pub fn fn_009ac9c0(
                     damage_multiplier = e.mem.f32(output.addr());
                 });
             }
-        } else if owner == player {
-            let process = e.call(0x008d_8520, &args![player]).ptr::<()>();
-            let saved_object = if process.is_null() {
-                0
-            } else {
-                e.vcall(process.addr(), 0x148, &args![]).u32()
-            };
-            let entry_value = if saved_object == 0 {
-                0
-            } else {
-                e.call(0x0044_ddc0, &args![saved_object]).u32()
-            };
-            e.with_stack(4, |e, output| {
-                e.mem.set_f32(output.addr(), damage_multiplier);
-                e.call(0x005e_58f0, &args![0x48u32, player, entry_value, output]);
-                damage_multiplier = e.mem.f32(output.addr());
-            });
         }
 
         let allocation = e.call(0x0040_1000, &args![0x104u32]).ptr::<()>();
         if !allocation.is_null() {
-            explosion = explosion_ctor_ov2(
-                e, allocation, definition, owner, cell, x, y, z, m00, m01, m02, m10, m11, m12, m20,
-                m21, m22,
-            );
+            explosion = e
+                .call(
+                    0x009a_c200,
+                    &args![
+                        allocation,
+                        definition,
+                        constructor_owner,
+                        cell,
+                        x,
+                        y,
+                        z,
+                        m00,
+                        m01,
+                        m02,
+                        m10,
+                        m11,
+                        m12,
+                        m20,
+                        m21,
+                        m22
+                    ],
+                )
+                .ptr();
         }
-    }
 
-    let base_damage = e.call(0x0064_4930, &args![explosion]).f32();
-    let scaled_damage = quiet_f32(((base_damage as f64) * (damage_multiplier as f64)) as f32);
-    e.call(0x0040_7880, &args![explosion, scaled_damage]);
+        // 9ac9f7 JZ 9acb9f: a null definition skips this scaling. A failed allocation
+        // does not (9acb82 reaches it with a null explosion).
+        let base_damage = e.call(0x0064_4930, &args![explosion]).f32();
+        let scaled_damage = quiet_f32(((base_damage as f64) * (damage_multiplier as f64)) as f32);
+        e.call(0x0040_7880, &args![explosion, scaled_damage]);
+    }
 
     if !explosion.is_null() {
         let current_owner = fn_009acce0(e, explosion);
@@ -1185,9 +1193,12 @@ pub fn fn_009ae5d0(e: &mut Engine, this: Ptr, _unused_1: u32) {
         e.call(0x008d_0600, &args![0x011e_0e80u32, owner, target]);
     }
 
-    let age = e.mem.f32(this.addr() + 0x90);
-    let now = e.call(0x0051_b8e0, &args![this]).f32();
-    if now > age && e.mem.u8(this.addr() + 0xd5) == 0 {
+    // 9ae642 TEST AH,0x41, JP skips: the build time +0x90 above the age or unordered. So
+    // this runs at equality, and with both 0 on the very first update (009ae580 adds the
+    // frame time only after this call).
+    let age = e.call(0x0051_b8e0, &args![this]).f32();
+    let build_time = e.mem.f32(this.addr() + 0x90);
+    if build_time <= age && e.mem.u8(this.addr() + 0xd5) == 0 {
         e.call(0x009a_fcc0, &args![this]);
     }
 
@@ -7744,6 +7755,35 @@ mod tests {
         assert_eq!(e.mem.u32(0x3020), 0x1655);
     }
 
+    /// `009ae5d0` up to its build-time test, with the build time at +0x90 and the
+    /// age the first answer of `0051b8e0`; true when `009afcc0` ran.
+    fn explosion_update_runs_the_build_step(build_time: f32, age: f32) -> bool {
+        let mut e = list_engine();
+        e.mem.set_u32(0x10e4, 1);
+        e.mem.set_f32(0x1090, build_time);
+        let mut times = [age, 0.0, 0.0].into_iter();
+        e.register_double(0x0051_b8e0, move |_, _| times.next().unwrap().into_ret());
+        e.register(0x009a_fcc0, |_, _| Ret::default());
+        // No physics answer: the underwater part is skipped; the lifetime is long.
+        e.register(0x008d_6f30, |_, _| 0u32.into_ret());
+        e.register(0x0050_7e10, |_, _| 4.0f32.into_ret());
+        fn_009ae5d0(&mut e, Ptr::new(0x1000), 0);
+        let log = e.call_log.unwrap();
+        log.iter().any(|call| call.0 == 0x009a_fcc0)
+    }
+
+    #[test]
+    fn explosion_update_build_step_runs_at_equal_times_but_not_on_nan() {
+        // 009ae5d0: 9ae638 FLD +0x90, 9ae63e FCOMPP against the age, 9ae642 TEST AH,0x41,
+        // 9ae645 JP over the call: AH&0x41 is 0x40 for equal (odd parity, runs), 0x01 for
+        // build below age (runs), 0 for above and 0x41 for unordered (both skip).
+        assert!(explosion_update_runs_the_build_step(0.0, 0.0));
+        assert!(explosion_update_runs_the_build_step(1.0, 2.0));
+        assert!(!explosion_update_runs_the_build_step(2.0, 1.0));
+        assert!(!explosion_update_runs_the_build_step(f32::NAN, 1.0));
+        assert!(!explosion_update_runs_the_build_step(1.0, f32::NAN));
+    }
+
     #[test]
     fn explosion_update_handles_first_target_age_and_expiration_gates() {
         let mut e = list_engine();
@@ -7958,17 +7998,11 @@ mod tests {
     }
 
     #[test]
-    fn explosion_factory_skips_creation_for_null_definition() {
+    fn explosion_factory_does_nothing_for_null_definition() {
+        // 009ac9c0: 9ac9f7 JZ 9acb9f goes past 00644930 and 00407880, and 9acba3 past
+        // the rest. Those callees are not stubbed: a call to them would stop the test.
         let mut e = list_engine();
         e.map(0x011d_e000, 0x1000);
-        e.register(0x0064_4930, |_, a| {
-            assert_eq!(a, &[0]);
-            8.0f32.into_ret()
-        });
-        e.register(0x0040_7880, |_, a| {
-            assert_eq!(a, &[0, 8.0f32.to_bits()]);
-            Ret::default()
-        });
 
         let result = fn_009ac9c0(
             &mut e,
@@ -7990,13 +8024,87 @@ mod tests {
             12,
         );
         assert!(result.is_null());
-        assert_eq!(
-            e.call_log.unwrap(),
-            vec![
-                (0x0064_4930, vec![0]),
-                (0x0040_7880, vec![0, 8.0f32.to_bits()]),
-            ]
+        assert_eq!(e.call_log.unwrap(), vec![]);
+    }
+
+    /// `009ac9c0` with stubs up to and including the constructor, which answers
+    /// null so the factory ends after the damage scaling.
+    fn factory_with_stubbed_constructor(e: &mut Engine, owner: u32) -> Vec<(u32, Vec<u32>)> {
+        e.register(0x0040_1000, |_, _| 0x7000u32.into_ret());
+        e.register(0x009a_c200, |_, _| 0u32.into_ret());
+        e.register(0x0064_4930, |_, _| 8.0f32.into_ret());
+        e.register(0x0040_7880, |_, _| Ret::default());
+        fn_009ac9c0(
+            e,
+            Ptr::new(0x5000),
+            Ptr::new(owner),
+            Ptr::new(0),
+            Ptr::new(0x3000),
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
         );
+        e.call_log.take().unwrap()
+    }
+
+    #[test]
+    fn explosion_factory_gives_the_constructor_the_shooter_of_a_projectile() {
+        // 009ac9c0: 9aca2e stores 00874480's answer in [EBP-0x18], 9acb53 pushes it, so
+        // the explosion's +0xc8 holds the shooter and not the projectile.
+        let mut e = list_engine();
+        e.map(0x011d_e000, 0x1000);
+        e.set_global(0x011d_ea3c, 0x3000u32);
+        e.mem.set_u32(0x2000, 0x4000);
+        e.mem.set_u32(0x4224, 0x6000_0224);
+        e.register(0x6000_0224, |_, _| true.into_ret());
+        e.register(0x0087_4480, |_, a| {
+            assert_eq!(a, &[0x2000]);
+            0x2800u32.into_ret()
+        });
+        let log = factory_with_stubbed_constructor(&mut e, 0x2000);
+        let constructed = log.iter().find(|call| call.0 == 0x009a_c200).unwrap();
+        assert_eq!(
+            constructed.1,
+            vec![0x7000, 0x5000, 0x2800, 0x3000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        );
+        // The shooter is not the player: no perk entry.
+        assert!(!log.iter().any(|call| call.0 == 0x005e_58f0));
+    }
+
+    #[test]
+    fn explosion_factory_keeps_an_owner_that_is_not_a_projectile() {
+        // 009ac9c0: 9ac9fd [EBP-0x18] = owner; 9aca1e JZ leaves it.
+        let mut e = list_engine();
+        e.map(0x011d_e000, 0x1000);
+        e.set_global(0x011d_ea3c, 0x3000u32);
+        e.mem.set_u32(0x2000, 0x4000);
+        e.mem.set_u32(0x4224, 0x6000_0224);
+        e.register(0x6000_0224, |_, _| false.into_ret());
+        let log = factory_with_stubbed_constructor(&mut e, 0x2000);
+        let constructed = log.iter().find(|call| call.0 == 0x009a_c200).unwrap();
+        assert_eq!(constructed.1[2], 0x2000);
+    }
+
+    #[test]
+    fn explosion_factory_takes_no_perk_branch_for_a_null_owner_and_null_player() {
+        // 009ac9c0: 9aca84 tests the owner before comparing it with the player. The
+        // player's callees are not stubbed: entering the branch would stop the test.
+        let mut e = list_engine();
+        e.map(0x011d_e000, 0x1000);
+        e.set_global(0x011d_ea3c, 0u32);
+        let log = factory_with_stubbed_constructor(&mut e, 0);
+        assert!(!log.iter().any(|call| call.0 == 0x008d_8520));
+        let constructed = log.iter().find(|call| call.0 == 0x009a_c200).unwrap();
+        assert_eq!(constructed.1[2], 0);
     }
 
     #[test]

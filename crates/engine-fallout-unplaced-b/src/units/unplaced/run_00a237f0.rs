@@ -408,7 +408,7 @@ pub fn fn_00a23d40(e: &mut Engine, this: Ptr<Controls>, control: i32) {
 /// Gamepad query (false without an active gamepad). 0x13 / 0x14: the left
 /// stick's Y is above `0x1ea9` / below `-0x1ea9`; 0x16 / 0x17 the same for X.
 /// 0x10 / 0x11: the trigger byte, by `mode` (0 = held, 1 = went down since
-/// the previous poll, 2 = went up, 3 = changed). Any other control: its
+/// the previous poll, 2 = went up, 3 = any change of the byte). Any other control: its
 /// button mask (`fn_00a24080`) tested against the button word and the
 /// previous one the same way.
 pub fn fn_00a23e10(e: &mut Engine, this: Ptr<Controls>, control: i32, mode: u32) -> bool {
@@ -430,12 +430,13 @@ pub fn fn_00a23e10(e: &mut Engine, this: Ptr<Controls>, control: i32, mode: u32)
         _ => None,
     };
     if let Some((now, before)) = trigger {
-        let now = e.mem.u8(now) != 0;
-        let before = e.mem.u8(before) != 0;
+        let now = e.mem.u8(now);
+        let before = e.mem.u8(before);
         match mode {
-            0 => result |= now,
-            1 => result |= now && !before,
-            2 => result |= !now && before,
+            0 => result |= now != 0,
+            1 => result |= now != 0 && before == 0,
+            2 => result |= now == 0 && before != 0,
+            // a23f2a, a23faa: the two raw bytes, so a pull that moves counts as changed.
             3 => result |= now != before,
             _ => {}
         }
@@ -1408,6 +1409,18 @@ mod tests {
         assert!(!fn_00a23e10(&mut e, this, 0x10, 2));
         assert!(fn_00a23e10(&mut e, this, 0x10, 3));
         assert!(!fn_00a23e10(&mut e, this, 0x10, 4));
+        // 00a23e10, a23f1c..a23f2c and a23f9c..a23fac: mode 3 compares the raw bytes, so a
+        // pull moving from one nonzero value to another counts as changed.
+        e.mem.set_u8(GAMEPAD_LEFT_TRIGGER_PREVIOUS, 100);
+        assert!(fn_00a23e10(&mut e, this, 0x10, 3));
+        assert!(!fn_00a23e10(&mut e, this, 0x10, 1));
+        e.mem.set_u8(GAMEPAD_LEFT_TRIGGER_PREVIOUS, 200);
+        assert!(!fn_00a23e10(&mut e, this, 0x10, 3));
+        e.mem.set_u8(GAMEPAD_LEFT_TRIGGER_PREVIOUS, 0);
+        e.mem.set_u8(GAMEPAD_RIGHT_TRIGGER, 7);
+        e.mem.set_u8(GAMEPAD_RIGHT_TRIGGER_PREVIOUS, 9);
+        assert!(fn_00a23e10(&mut e, this, 0x11, 3));
+        e.mem.set_u8(GAMEPAD_RIGHT_TRIGGER, 0);
         // Right trigger: up now, down before.
         e.mem.set_u8(GAMEPAD_RIGHT_TRIGGER_PREVIOUS, 1);
         assert!(!fn_00a23e10(&mut e, this, 0x11, 0));

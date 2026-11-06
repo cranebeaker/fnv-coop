@@ -292,7 +292,7 @@ pub fn bhk_binary_action_add(e: &mut Engine, this: Ptr, world: Ptr) -> bool {
 /// Havok action) equals the word at `+0x24` of the object the world's virtual slot 0x94
 /// answers (0 for none) and the Havok action exists, sets entity B to 0 (`00cf4d30`).
 /// Answers the byte `bhkAction::Remove` answered.
-pub fn bhk_binary_action_remove(e: &mut Engine, this: Ptr) -> bool {
+pub fn bhk_binary_action_remove(e: &mut Engine, this: Ptr) -> u8 {
     let (word, saved) = enter_scope(e);
     let hk_world = e.vcall(this.addr(), 0x94, &args![]).u32();
     let world = if hk_world == 0 {
@@ -300,9 +300,9 @@ pub fn bhk_binary_action_remove(e: &mut Engine, this: Ptr) -> bool {
     } else {
         e.mem.u32(hk_world + 0x350)
     };
-    let mut removed = false;
+    let mut removed = 0;
     if world != 0 {
-        removed = e.call(ACTION_REMOVE, &args![this]).bool();
+        removed = e.call(ACTION_REMOVE, &args![this]).u8();
         let entity = entity_of(e, this.addr(), 0x1c);
         let fixed_world = e.vcall(world, 0x94, &args![]).u32();
         let fixed_entity = if fixed_world == 0 {
@@ -360,7 +360,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c8aa80, bhk_binary_action_register_streamables(Ptr, Ptr) -> u32),
         entry!(0x00c8aac0, bhk_binary_action_save_binary(Ptr, Ptr)),
         entry!(0x00c8ab30, bhk_binary_action_add(Ptr, Ptr) -> bool),
-        entry!(0x00c8ac00, bhk_binary_action_remove(Ptr) -> bool),
+        entry!(0x00c8ac00, bhk_binary_action_remove(Ptr) -> u8),
         entry!(0x00c8ad40, bhk_binary_action_get_viewer_strings(Ptr, Ptr)),
     ]
 }
@@ -731,8 +731,9 @@ mod tests {
         let mut e = Engine::new();
         let word = e.tls() + SCOPE_WORD;
         e.mem.set_u32(word, 0x55);
+        // ac77 MOV BL,AL, acc5 MOV AL,BL: the callee's raw byte goes back.
         e.register(ACTION_REMOVE, |_, _| Ret {
-            eax: 1,
+            eax: 0x102,
             ..Ret::default()
         });
         e.register(HK_SET_ENTITY_B, nothing);
@@ -754,11 +755,11 @@ mod tests {
         e.call_log = Some(vec![]);
         // Not the fixed entity: only bhkAction::Remove's answer.
         e.mem.set_u32(fixed_holder + 0x24, 0x1234);
-        assert_eq!(e.call(0x00c8ac00, &args![this]).u32(), 1);
+        assert_eq!(e.call(0x00c8ac00, &args![this]).u32(), 2);
         assert!(calls(&e, HK_SET_ENTITY_B).is_empty());
         // The fixed entity: entity B is cleared.
         e.mem.set_u32(fixed_holder + 0x24, entity_b);
-        assert_eq!(e.call(0x00c8ac00, &args![this]).u32(), 1);
+        assert_eq!(e.call(0x00c8ac00, &args![this]).u32(), 2);
         assert_eq!(calls(&e, HK_SET_ENTITY_B), [[hk, 0]]);
         // No bhkWorld: false and nothing removed.
         e.mem.set_u32(hk_world + 0x350, 0);

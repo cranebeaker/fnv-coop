@@ -991,8 +991,11 @@ pub fn fn_006e8ab0(e: &mut Engine, this: Ptr<PathingSolution>, other: Ptr<Pathin
     e.set(other, PathingSolution::iFirstLoadedVirtualNodeIndex, first);
     let last = e.get(this, PathingSolution::iLastLoadedVirtualNodeIndex);
     e.set(other, PathingSolution::iLastLoadedVirtualNodeIndex, last);
-    let incomplete = e.get(this, PathingSolution::bIncompletePath);
-    e.set(other, PathingSolution::bIncompletePath, incomplete);
+    let incomplete = e.mem.u8(this.addr() + PathingSolution::bIncompletePath.off);
+    e.mem.set_u8(
+        other.addr() + PathingSolution::bIncompletePath.off,
+        incomplete,
+    );
     fn_006e9410(
         e,
         this.at(PathingSolution::VirtualPathingNodes),

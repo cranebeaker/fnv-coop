@@ -1867,8 +1867,10 @@ pub fn bgs_decal_manager_add_geometry_decal_recurse(
     let query_size = fn_004a1ff0(e, Ptr::new(target));
     if query_size > 1000 && setting_flag(e, SETTING_OCCLUSION_QUERY) && e.mem.u8(p + 0x72) != 0 {
         e.mem.set_u8(decal + DECAL_QUERY_PENDING, 1);
-        let clear = e.get(this, BGSDecalManager::bClearQueryTexture);
-        e.mem.set_u8(decal + DECAL_CLEAR_QUERY_TEXTURE, clear as u8);
+        let clear = e
+            .mem
+            .u8(this.addr() + BGSDecalManager::bClearQueryTexture.off);
+        e.mem.set_u8(decal + DECAL_CLEAR_QUERY_TEXTURE, clear);
         e.set(this, BGSDecalManager::bClearQueryTexture, false);
     }
     if e.mem.u32(p + 0x48) != 0 {

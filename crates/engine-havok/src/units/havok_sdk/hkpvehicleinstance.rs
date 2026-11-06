@@ -1541,7 +1541,7 @@ pub fn hkp_vehicle_instance_update_components(
 /// Thiscall, two stack words (`RET 8`): `step_info` and `collision_output`. Between profile
 /// records (labels `010eb86c` and `010c41f8`) it builds the exe's local frame (`0xc4` bytes):
 /// a float array of the wheel count at `+4` (buffer `+0x10`, capacity word `0x80000010`), a
-/// scratch block of vectors at `+0x4c`, and a second array at `+0x74` (size the wheel count,
+/// scratch block of vectors at `+0x54`, and a second array at `+0x74` (size the wheel count,
 /// buffer `+0x80`, capacity word `0x80000010`); runs `updateComponents` (`step_info`,
 /// `collision_output`, the vectors, the two arrays) then `simulateVehicle` (`step_info`, the
 /// vectors, the two arrays), and frees both arrays' buffers through the allocator (slot `0x10`)
@@ -1559,7 +1559,7 @@ pub fn hkp_vehicle_instance_step_vehicle_using_wheel_collide_output(
     e.with_stack(0xc4, |e, frame| {
         let f = frame.addr();
         let outputs = f + 4;
-        let vectors = f + 0x4c;
+        let vectors = f + 0x54;
         let inputs = f + 0x74;
         e.mem.set_u32(inputs + 4, wheels as u32);
         e.mem.set_u32(inputs + 8, 0x8000_0010);
@@ -3238,6 +3238,7 @@ mod tests {
         let step_info = e.mem.alloc(0x10);
         e.mem.set_f32(step_info + 8, 0.25);
         let collision = e.mem.alloc(0x60);
+        let frame = e.next_stack_local(0xc4);
         e.call(0x00e3_9030, &args![this, step_info, collision]);
         let calls = slot_calls(&log, 0xc);
         let order: Vec<u32> = calls.iter().map(|a| a[0]).collect();
@@ -3249,6 +3250,10 @@ mod tests {
         assert_eq!(stepped.len(), 1);
         assert_eq!(stepped[0][..2], [body + 0xe0, dt]);
         assert_eq!(stepped[0][2], calls[6][3]);
+        // 00e39030: 90c1 LEA EDX,[ESP+0x68] with two pushes is exe +0x60, clear of the first
+        // array's inline 0x10 words at exe +0x1c..+0x5c (90a1..90bd). The frame here starts at
+        // exe +0xc.
+        assert_eq!(stepped[0][2], frame + 0x54);
         assert!(calls_to(&log, ALLOCATOR_FREE).is_empty());
         let first = log.borrow().iter().position(|(a, _)| *a == ENTITY_ACTIVATE);
         assert_eq!(first, Some(7));

@@ -805,8 +805,8 @@ pub fn hkp_convex_vertices_shape_ctor(
 /// row0) + (v.z * row2 + row3)`, stores them with `copyVertexData` (stride 16), then moves
 /// every plane equation: the normal goes through `hkVector4::setRotatedDir` with the first
 /// three rows and the fourth component becomes `(n.z * t.z + w) + (n.y * t.y + n.x * t.x)`
-/// where `t` is built from the columns of the rotation and the negated fourth row. A plane
-/// count of 0 or less still runs the loop once, as the exe does. Frees the block through the
+/// where `t` is built from the columns of the rotation and the negated fourth row. A vertex or
+/// plane count of 0 or less still runs that loop once, as the exe does. Frees the block through the
 /// allocator (slot `0x10`) only if it is owned.
 pub fn hkp_convex_vertices_shape_transform_vertices_and_plane_equations(
     e: &mut Engine,
@@ -831,8 +831,10 @@ pub fn hkp_convex_vertices_shape_transform_vertices_and_plane_equations(
             std::array::from_fn(|row| load_vec(e, matrix.addr() + 0x10 * row as u32));
         let data = e.mem.u32(array);
         let size = e.mem.i32(array + 4);
+        // 9db4..9de7: tested only at the bottom, so an empty array still moves the 16 bytes
+        // before its data (9da2..9da7 EAX = data + (size - 1) * 16).
         let mut index = size - 1;
-        while index >= 0 {
+        loop {
             let at = data.wrapping_add((index as u32).wrapping_mul(0x10));
             let vertex = load_vec(e, at);
             let moved = std::array::from_fn(|lane| {
@@ -841,6 +843,9 @@ pub fn hkp_convex_vertices_shape_transform_vertices_and_plane_equations(
             });
             store_vec(e, at, moved);
             index -= 1;
+            if index < 0 {
+                break;
+            }
         }
         hkp_convex_vertices_shape_copy_vertex_data(e, this, Ptr::new(data), 0x10, size);
 
@@ -1728,6 +1733,36 @@ mod tests {
         assert!(events.borrow().iter().all(|(tag, _)| *tag != "alloc"));
         assert_eq!(e.mem.u32(other + 0x54), 0);
         assert_eq!(e.mem.u32(other + 0x58), 0);
+    }
+
+    #[test]
+    fn transform_of_a_shape_without_vertices_still_moves_one_entry() {
+        // 00d59cc0: 9d95 DEC ECX, 9da2..9da7 EAX = data + (size - 1) * 16, 9db4..9dde the body
+        // with no test before it, 9de5 CMP ECX,EBX (EBX 0), 9de7 JGE at the bottom: an empty
+        // array reads, moves and writes the 16 bytes before its data.
+        let mut e = engine();
+        let (router, _events) = services(&mut e);
+        let this = hull(&mut e).addr();
+        e.mem.set_u32(this + NUM_VERTICES, 0);
+        let table = e.mem.alloc(0x40);
+        e.mem.set_u32(table + 0x2c, 0x0900_002c);
+        e.mem.set_u32(this, table);
+        e.register_double(0x0900_002c, move |_, _| ret(0));
+        let base = e.mem.alloc(0x400) + 0x100;
+        e.mem.set_u32(router, base);
+        store_vec(&mut e, base - 0x10, [1.0, 0.0, 0.0, 0.0]);
+        let planes = e.mem.alloc(0x20);
+        store_vec(&mut e, planes, [1.0, 0.0, 0.0, 5.0]);
+        e.mem.set_u32(this + 0x54, planes);
+        e.mem.set_u32(this + 0x58, 1);
+        e.mem.set_u32(this + 0x5c, 0x8000_0001);
+        let matrix = e.mem.alloc(0x40);
+        store_vec(&mut e, matrix, [0.0, 1.0, 0.0, 0.0]);
+        store_vec(&mut e, matrix + 0x10, [-1.0, 0.0, 0.0, 0.0]);
+        store_vec(&mut e, matrix + 0x20, [0.0, 0.0, 1.0, 0.0]);
+        store_vec(&mut e, matrix + 0x30, [1.0, 2.0, 3.0, 1.0]);
+        e.call(0x00d5_9cc0, &args![this, matrix]);
+        assert_eq!(load_vec(&e, base - 0x10), [1.0, 3.0, 3.0, 1.0]);
     }
 
     #[test]

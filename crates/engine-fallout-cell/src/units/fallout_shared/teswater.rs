@@ -2271,16 +2271,23 @@ pub fn tes_water_system_update_water_shader_properties_ov2(
     let value = float_getter(e, 0x0094_42a0, water_form);
     e.set(property, WaterShaderProperty::fUVScale, value);
 
-    let old_reflections = e.get(property, WaterShaderProperty::bReflections);
-    let old_refractions = e.get(property, WaterShaderProperty::bRefractions);
-    let old_depth = e.get(property, WaterShaderProperty::bDepth);
+    let old_reflections = e
+        .mem
+        .u8(property.addr() + WaterShaderProperty::bReflections.off);
+    let old_refractions = e
+        .mem
+        .u8(property.addr() + WaterShaderProperty::bRefractions.off);
+    let old_depth = e.mem.u8(property.addr() + WaterShaderProperty::bDepth.off);
     let reflections = fn_004e3c50(e, base_form) && setting_flag(e, SETTING_USE_WATER_REFLECTIONS);
     e.set(property, WaterShaderProperty::bReflections, reflections);
     let refractions = fn_004e3280(e, base_form) && setting_flag(e, SETTING_USE_WATER_REFRACTIONS);
     e.set(property, WaterShaderProperty::bRefractions, refractions);
     let depth = fn_004e32e0(e, base_form) && setting_flag(e, SETTING_USE_WATER_DEPTH);
     e.set(property, WaterShaderProperty::bDepth, depth);
-    if reflections != old_reflections || refractions != old_refractions || depth != old_depth {
+    if u8::from(reflections) != old_reflections
+        || u8::from(refractions) != old_refractions
+        || u8::from(depth) != old_depth
+    {
         fn_004e3c00(e, property);
         let wading = address_of(group, PlaceableWaterGroup::spWadingWaterGeometry);
         if pointer_in_slot(e, wading) != 0 {

@@ -2375,8 +2375,8 @@ pub fn bhk_world_get_viewer_strings(e: &mut Engine, this: Ptr<BhkWorld>, strings
         e.mem.set_u32(slot.addr(), text);
         append_viewer_string(e, strings, slot);
 
-        let enabled = e.get(this, BhkWorld::bEnabled);
-        e.mem.set_u8(slot.addr(), enabled as u8);
+        let enabled = e.mem.u8(this.addr() + BhkWorld::bEnabled.off);
+        e.mem.set_u8(slot.addr(), enabled);
         let word = e.mem.u32(slot.addr());
         let text = e.call(0x00a7_d370, &args![0x0109_c7d8u32, word]).u32();
         e.mem.set_u32(slot.addr(), text);
@@ -7150,6 +7150,8 @@ mod tests {
             Ret::default()
         });
         log(&mut e);
+        // 00c692d7..00c692e8: the raw byte +0x15 goes in the word's low byte.
+        e.mem.set_u8(this.addr() + BhkWorld::bEnabled.off, 2);
         e.call(0x00c6_9240, &args![this, strings]);
         let seen = calls(&mut e);
         assert_eq!(calls_to(&seen, 0x00c8_78c0), [[this.addr(), strings]]);
@@ -7160,7 +7162,7 @@ mod tests {
             (0..11).collect::<Vec<_>>()
         );
         assert_eq!(pushed[0].1, 0x1000);
-        assert_eq!(pushed[1].1, 0x0109_c7d8 ^ 1);
+        assert_eq!(pushed[1].1, 0x0109_c7d8 ^ 2);
         assert_eq!(pushed[2].1, 0x010c_41ec ^ 1);
         assert_eq!(pushed[3].1, 0x010c_41e4 + 100);
         assert_eq!(pushed[10].1, 0x010c_4190 + 107);
@@ -7168,8 +7170,8 @@ mod tests {
         assert_eq!(*grown.borrow(), [6, 10, 14]);
         // The flag strings receive the previous string pointer in the upper bytes.
         let flag_calls = calls_to(&seen, 0x00a7_d370);
-        assert_eq!(flag_calls[0], [0x0109_c7d8, 0x1001]);
-        assert_eq!(flag_calls[1][1], (0x0109_c7d8 ^ 1) & !0xff | 1);
+        assert_eq!(flag_calls[0], [0x0109_c7d8, 0x1002]);
+        assert_eq!(flag_calls[1][1], (0x0109_c7d8 ^ 2) & !0xff | 1);
         assert_scope_restored(&mut e, tls);
     }
 

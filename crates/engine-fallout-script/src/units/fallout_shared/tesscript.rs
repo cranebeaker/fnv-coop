@@ -2066,7 +2066,7 @@ pub fn script_compare_result_scripts(
     if e.get(header, ScriptHeader::refObjectCount) != e.mem.u32(other_header + 4) {
         return true;
     }
-    if e.get(header, ScriptHeader::bIsCompiled) as u8 != e.mem.u8(other_header + 0x12) {
+    if e.mem.u8(header.addr() + ScriptHeader::bIsCompiled.off) != e.mem.u8(other_header + 0x12) {
         return true;
     }
     let other_data = e.call(SCRIPT_COMPILE_DATA_OF, &args![other]).u32();
@@ -6004,6 +6004,14 @@ mod tests {
         assert!(e.call(0x005a_b240, &args![this, 0u32]).bool());
         let other = comparable_script(&mut e, &[1, 2], "run");
         assert!(!e.call(0x005a_b240, &args![this, other]).bool());
+        // 005ab28f, 005ab296, 005ab29a: the two raw bytes are compared.
+        let compiled = ScriptHeader::bIsCompiled.off;
+        e.mem.set_u8(script_header(this).addr() + compiled, 2);
+        e.mem.set_u8(script_header(other).addr() + compiled, 2);
+        assert!(!e.call(0x005a_b240, &args![this, other]).bool());
+        e.mem.set_u8(script_header(other).addr() + compiled, 1);
+        assert!(e.call(0x005a_b240, &args![this, other]).bool());
+        e.mem.set_u8(script_header(this).addr() + compiled, 1);
         // Size, reference count, compiled flag.
         let bigger = comparable_script(&mut e, &[1, 2, 3], "run");
         assert!(e.call(0x005a_b240, &args![this, bigger]).bool());

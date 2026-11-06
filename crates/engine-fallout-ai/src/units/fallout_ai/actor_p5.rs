@@ -368,7 +368,7 @@ pub fn actor_get_should_help(e: &mut Engine, this: Ptr<Actor>, other: Ptr<Actor>
 /// Reloads the targets of the actor's animation (virtual slot `0x1E4`) with
 /// the queued flag `bReloadTargetQueued`, then clears that flag.
 pub fn fn_008b0ac0(e: &mut Engine, this: Ptr<Actor>) {
-    let queued = e.get(this, Actor::bReloadTargetQueued);
+    let queued = u32::from(e.mem.u8(this.addr() + Actor::bReloadTargetQueued.off));
     let animation = e.vcall(this.addr(), 0x1e4, &args![]).u32();
     e.call(ANIMATION_RELOAD_TARGETS, &args![animation, queued]);
     e.set(this, Actor::bReloadTargetQueued, 0);
@@ -865,15 +865,15 @@ pub fn fn_008b1070(e: &mut Engine, this: Ptr<Actor>) {
         && e.vcall(process.addr(), 0x148, &args![]).u32() != 0
     {
         let item = e.vcall(process.addr(), 0x148, &args![]).u32();
-        let flag = e.call(0x004b_da70, &args![item, 6u32]).bool();
+        let flag = e.call(0x004b_da70, &args![item, 6u32]).u8();
         let item = e.vcall(process.addr(), 0x148, &args![]).u32();
         let item_value = e.call(0x0044_ddc0, &args![item]).u32();
         let rate = e.call(0x0070_9430, &args![item_value, flag]).f64();
         let zero: f64 = e.global(ZERO_DOUBLE);
         if rate <= zero {
             let item = e.vcall(process.addr(), 0x148, &args![]).u32();
-            let second = e.call(0x004b_da70, &args![item, 2u32]).bool();
-            let drawn = e.call(0x008a_16d0, &args![this]).bool();
+            let second = e.call(0x004b_da70, &args![item, 2u32]).u8();
+            let drawn = e.call(0x008a_16d0, &args![this]).u8();
             let item = e.vcall(process.addr(), 0x148, &args![]).u32();
             let item_value = e.call(0x0044_ddc0, &args![item]).u32();
             e.vcall(this.addr(), 0x3ec, &args![item_value, drawn, second, 0u32]);
@@ -1059,7 +1059,7 @@ pub fn fn_008b19c0(e: &mut Engine, this: Ptr<Actor>, source: u32) -> bool {
     e.call(0x0067_0fc0, &args![package, 0x1cu32]);
     let flag = fn_008b1ff0(e, Ptr::new(source));
     e.call(0x0082_6b40, &args![package, flag]);
-    let flag = e.call(0x0067_efd0, &args![source]).bool();
+    let flag = e.call(0x0067_efd0, &args![source]).u8();
     e.call(0x0082_6b90, &args![package, flag]);
     e.call(0x0098_4f60, &args![package, 10u32]);
     let location = e.call(0x0055_b980, &args![source]).u32();
@@ -1089,13 +1089,13 @@ pub fn fn_008b19c0(e: &mut Engine, this: Ptr<Actor>, source: u32) -> bool {
     if target != 0 {
         e.call(0x007b_3fa0, &args![target, 1u32]);
     }
-    let flag = e.call(0x0067_27b0, &args![source]).bool();
+    let flag = e.call(0x0067_27b0, &args![source]).u8();
     e.call(0x0067_2aa0, &args![package, flag]);
     let seconds = e.call(0x0067_2850, &args![source]).f32();
     e.call(0x0067_2c40, &args![package, seconds]);
     let topic = e.call(0x0067_2760, &args![source]).u32();
     e.call(0x0067_29d0, &args![package, topic]);
-    let flag = e.call(0x0067_2800, &args![source]).bool();
+    let flag = e.call(0x0067_2800, &args![source]).u8();
     e.call(0x0067_2b70, &args![package, flag]);
     process_call(e, this.addr(), 0x28, &args![]);
     // MiddleHighProcess::SetBSBound (Xbox PDB), on the player singleton

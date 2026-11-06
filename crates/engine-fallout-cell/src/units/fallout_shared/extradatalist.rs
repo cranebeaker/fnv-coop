@@ -4474,8 +4474,11 @@ pub fn fn_00418900(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     let to: Ptr<BSSoundHandle> = this.cast();
     let sound_id = e.get(from, BSSoundHandle::iSoundID);
     e.set(to, BSSoundHandle::iSoundID, sound_id);
-    let assume_success = e.get(from, BSSoundHandle::bAssumeSuccess);
-    e.set(to, BSSoundHandle::bAssumeSuccess, assume_success);
+    let assume_success = e.mem.u8(from.addr() + BSSoundHandle::bAssumeSuccess.off);
+    e.mem.set_u8(
+        to.addr() + BSSoundHandle::bAssumeSuccess.off,
+        assume_success,
+    );
     let state = e.get(from, BSSoundHandle::eState);
     e.set(to, BSSoundHandle::eState, state);
     this

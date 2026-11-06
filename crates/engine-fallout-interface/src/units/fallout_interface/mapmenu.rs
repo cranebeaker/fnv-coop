@@ -5297,7 +5297,7 @@ pub fn fn_00799dc0(e: &mut Engine, this: Ptr<MapMenu>) {
         e.call(TILE_SET_STRING, &args![tile_6, title, name, 1u32]);
     }
     e.set(this, MapMenu::pHighlightedMapMarker, found);
-    let companion = u32::from(e.call(TILE_IS_TRUE, &args![found, 0x1004u32]).bool());
+    let companion = u32::from(e.call(TILE_IS_TRUE, &args![found, 0x1004u32]).u8());
     let tile_11 = map_tile(e, base, 11);
     e.call(TILE_SET_INT, &args![tile_11, 0xfafu32, companion]);
 }

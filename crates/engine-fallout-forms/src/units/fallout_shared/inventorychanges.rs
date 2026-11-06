@@ -2674,7 +2674,9 @@ pub fn inventory_changes_set_hot_key_item(
             if chosen == 0 {
                 let new_list = new_extra_list(e);
                 e.call(EXTRA_SET_HOT_KEY, &args![new_list, hot_key as u8 as u32]);
-                let number = e.get(item, ItemChange::iNumber);
+                // 4bf9c8: the entry's own number, not the item argument's (a fast
+                // iteration copy holds the entry's number plus the base container's).
+                let number = e.get(Ptr::<ItemChange>::new(entry), ItemChange::iNumber);
                 let counted = item_change_get_extra_total_count(e, Ptr::new(entry), false);
                 let worn = item_change_get_worn(e, Ptr::new(entry), 0);
                 let remaining = number.wrapping_sub(counted).wrapping_sub(worn as i32);
@@ -7358,7 +7360,11 @@ pub fn inventory_changes_get_next_oei_fast_inventory_item(
 /// virtual 0x4. Returns the cast result that answered, else 0. `alchemy_first`
 /// is the order the two casts are asked in (the container pass asks the
 /// `AlchemyItem` first, the changes pass the `IngredientItem`).
-fn food_form(e: &mut Engine, form: u32, alchemy_first: bool) -> u32 {
+///
+/// `alchemy` is the exe's one local [EBP-0x28], zeroed once before both passes (4cb04d) and
+/// written only when the ingredient cast is null (4cb0c2, 4cb244), so an ingredient is also
+/// accepted when the last alchemy item's test says yes; the answer stays the ingredient.
+fn food_form(e: &mut Engine, form: u32, alchemy_first: bool, alchemy: &mut u32) -> u32 {
     let ingredient = e
         .call(
             RT_DYNAMIC_CAST,
@@ -7371,20 +7377,23 @@ fn food_form(e: &mut Engine, form: u32, alchemy_first: bool) -> u32 {
             ],
         )
         .u32();
-    let mut alchemy = 0u32;
     if ingredient == 0 {
-        alchemy = e
+        *alchemy = e
             .call(
                 RT_DYNAMIC_CAST,
                 &args![form, 0u32, TYPE_TES_BOUND_OBJECT, TYPE_ALCHEMY_ITEM, 0u32],
             )
             .u32();
     }
-    let selected = if ingredient != 0 { ingredient } else { alchemy };
-    let (first, second) = if alchemy_first {
-        (alchemy, ingredient)
+    let selected = if ingredient != 0 {
+        ingredient
     } else {
-        (ingredient, alchemy)
+        *alchemy
+    };
+    let (first, second) = if alchemy_first {
+        (*alchemy, ingredient)
+    } else {
+        (ingredient, *alchemy)
     };
     if first != 0 && e.vcall(first + 0x3c, 4, &args![]).bool() {
         return selected;
@@ -7405,13 +7414,14 @@ fn food_form(e: &mut Engine, form: u32, alchemy_first: bool) -> u32 {
 /// 0 when there is none. The C++ exception frame is not translated.
 pub fn inventory_changes_get_best_food(e: &mut Engine, this: Ptr<InventoryChanges>) -> u32 {
     with_scope_guard(e, 0x1afa, |e| {
+        let mut alchemy = 0u32;
         let container = fn_004bffb0(e, this);
         let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
         while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
             let object = list_item(e, node);
             let form = e.mem.u32(object + 4);
             // The container pass asks the alchemy item first.
-            let selected = food_form(e, form, true);
+            let selected = food_form(e, form, true, &mut alchemy);
             if selected != 0 {
                 let entry = inventory_changes_get_object_in_list(e, this, selected, 1, 0);
                 let counted = entry == 0 || {
@@ -7431,7 +7441,7 @@ pub fn inventory_changes_get_best_food(e: &mut Engine, this: Ptr<InventoryChange
         while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
             let item_slot = list_item(e, node);
             let form = e.mem.u32(item_slot + 8);
-            let selected = food_form(e, form, false);
+            let selected = food_form(e, form, false, &mut alchemy);
             if selected != 0 {
                 let container = fn_004bffb0(e, this);
                 if !e
@@ -13935,6 +13945,25 @@ mod tests {
     }
 
     #[test]
+    fn set_hot_key_item_counts_a_new_list_from_the_entrys_number() {
+        // 004bf800: 4bf9c8 MOV ECX,[EBP-0x14], the entry 004bfba0 found, then 00726070;
+        // the item argument's number is not read here. Entry 5, one list of 2: 3 left,
+        // whatever the passed item holds.
+        let mut e = more();
+        e.mem.set_u32(PLAYER, BIG_VTABLE);
+        let form_a = form(&mut e, 0x28, 0, 0);
+        let counted = hot_extra(&mut e, -1);
+        set(&mut e, counted, X_COUNT, 2);
+        let entry_a = entry(&mut e, form_a, &[counted], 5);
+        let this = inventory(&mut e, &[entry_a], 0);
+        let item = change(&mut e, 0, form_a);
+        e.set(item, ItemChange::iNumber, 9);
+        e.call(0x004bf800, &args![this, item, 0u32, 6i32]);
+        let lists = items(&e, e.mem.u32(entry_a));
+        assert_eq!(e.mem.u32(lists[1] + X_COUNT), 3);
+    }
+
+    #[test]
     fn set_hot_key_item_adds_a_change_when_the_form_has_none() {
         let mut e = more();
         e.mem.set_u32(PLAYER, BIG_VTABLE);
@@ -16043,6 +16072,42 @@ mod tests {
         assert_eq!(e.call(0x004cafe0, &args![this]).u32(), fruit);
         let guard = &calls(&e, SCOPE_GUARD_OPEN)[0];
         assert_eq!(&guard[1..], &[0x36, 1, SOURCE_FILE_NAME, 0x1afa]);
+    }
+
+    #[test]
+    fn best_food_keeps_the_last_alchemy_items_answer_for_a_later_ingredient() {
+        // 004cafe0: [EBP-0x28] is zeroed once (4cb04d) and 4cb098 leaves it when the ingredient
+        // cast answers, so 4cb0d3..4cb0ef tests the stew again for the rock: the answer is the
+        // rock (4cb0d0), though its own test is false. The stew itself was passed over: the
+        // changes cancel it (4cb150).
+        let mut e = tx5();
+        let owner = object(&mut e);
+        let this = inventory(&mut e, &[], owner);
+        let stew = food(&mut e, 0x30, true);
+        let rock = food(&mut e, 0x2f, false);
+        give_container(&mut e, owner, &[(2, stew), (1, rock)]);
+        let change = entry(&mut e, stew, &[], -2);
+        put_entry(&mut e, this, change);
+        let found = e.call(0x004cafe0, &args![this]).u32();
+        assert_eq!(e.mem.u32(found + 8), rock);
+    }
+
+    #[test]
+    fn best_food_changes_pass_also_sees_the_first_passes_alchemy_item() {
+        // 004cafe0: the second loop (4cb1d6) has no zeroing of its own: 4cb273..4cb28f tests the
+        // same local, so with a cancelled stew in the container an entry of the changes that
+        // is an ingredient with a false test of its own and a positive number answers.
+        let mut e = tx5();
+        let owner = object(&mut e);
+        let this = inventory(&mut e, &[], owner);
+        let stew = food(&mut e, 0x30, true);
+        let rock = food(&mut e, 0x2f, false);
+        give_container(&mut e, owner, &[(2, stew)]);
+        let change = entry(&mut e, stew, &[], -2);
+        put_entry(&mut e, this, change);
+        let stone = entry(&mut e, rock, &[], 3);
+        put_entry(&mut e, this, stone);
+        assert_eq!(e.call(0x004cafe0, &args![this]).u32(), stone);
     }
 
     #[test]

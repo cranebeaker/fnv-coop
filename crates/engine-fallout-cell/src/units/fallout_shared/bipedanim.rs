@@ -806,7 +806,7 @@ fn fire_weapon_state(e: &mut Engine, this: Ptr<BipedAnim>, requester: Ptr) {
     } else {
         e.call(ACTOR_ANIMATION, &args![requester]).u32()
     };
-    let drawn = e.call(IS_WEAPON_DRAWN, &args![requester]).bool();
+    let drawn = u32::from(e.call(IS_WEAPON_DRAWN, &args![requester]).u8());
     e.vcall(process, 0x1cc, &args![drawn, this, animation, requester]);
 }
 
@@ -4871,7 +4871,8 @@ mod tests {
         returns(&mut e, FN_004AEED0, 0x9090);
         returns(&mut e, GET_BIPED, 0x1);
         returns(&mut e, ACTOR_ANIMATION, 0x3131);
-        returns(&mut e, IS_WEAPON_DRAWN, 1);
+        // ba5b, ba60: 008a16d0's raw AL, zero-extended.
+        returns(&mut e, IS_WEAPON_DRAWN, 2);
         log(&mut e);
         fn_004ab750(&mut e, this, Ptr::new(form), 0);
         let calls = log(&mut e);
@@ -4880,7 +4881,7 @@ mod tests {
         let target = slot_target(&e, process, 0x1cc);
         assert_eq!(
             calls_to(&calls, target),
-            vec![vec![process, 1, this.addr(), 0x3131, requester]]
+            vec![vec![process, 2, this.addr(), 0x3131, requester]]
         );
         // The flags object blocks the announcement.
         returns(&mut e, FLAGS_OBJECT_FLAG, 1);

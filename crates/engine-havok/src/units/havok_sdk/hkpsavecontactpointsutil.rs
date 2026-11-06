@@ -462,25 +462,27 @@ pub fn hkp_save_contact_points_util_deserialize_1n_track(
     0
 }
 
-/// The sort over an array (`00cd1e20`, thiscall `(array, allocator, count, first, second)`).
-const SORT_ARRAY: u32 = 0x00cd_1e20;
+/// Insert into an array (`00cd1e20`, thiscall `(array, allocator, index, words, count)`; it can
+/// reallocate the array).
+const ARRAY_INSERT_AT: u32 = 0x00cd_1e20;
 
 // Translated from 00dcda40 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed (cdecl, three words `(converter, group, container)`): saves the contact points of a
-/// group. The group keeps `+0x28` an array of items, `+0x2C` their count, `+0x34` and `+0x38` the
-/// two words `00cd1e20` sorts them with, and `+0x78` the context; every item keeps `+0x5C` an
+/// group. The group keeps `+0x28` an array of items, `+0x2C` their count, `+0x34` and `+0x38` a
+/// second array of items and its count, and `+0x78` the context; every item keeps `+0x5C` an
 /// array of block pointers, `+0x60` their count and `+0x58` the size of the last block.
 ///
 /// A local array of the item pointers is taken from the allocator (slot `0xC`, which grants a
 /// byte count; the array is sized for what it granted, and nothing is taken for an empty
-/// group), copied from the group's array and sorted with `00cd1e20`. For each item and each of
+/// group), copied from the group's array, and the second array is inserted at its end with
+/// `00cd1e20`. For each item of both, read from the array as it is now, and each of
 /// its blocks (a block is `0x200` bytes, the last one the item's `+0x58` bytes) every entry
 /// (its size is the byte at `+3`) is serialized into a new `0x140`-byte record (`00dce930`, then
 /// `serializeCollisionEntry(converter, entry, context, record)`); a record that serialized
 /// (answer 0) is handed to `00dcec70` on `container`; the record loses its reference either way.
 /// The local array is freed through slot `0x10` unless it was never taken.
 pub fn fn_00dcda40(e: &mut Engine, converter: Ptr, group: Ptr, container: Ptr) {
-    // The exe's frame (`SUB ESP,0x10`, four pushes) taken with the arguments: the sorted array
+    // The exe's frame (`SUB ESP,0x10`, four pushes) taken with the arguments: the local array
     // at +0x14 (00dcda4d, 00dcdaf3), the return address at +0x20; the byte count goes to the
     // allocator through the `group` argument's own slot, +0x28 (00dcda9c).
     e.with_stack(0x30, |e, frame| {
@@ -519,17 +521,22 @@ fn fn_00dcda40_in_frame(e: &mut Engine, frame: u32, converter: Ptr, group: Ptr, 
                 .set_u32(data.wrapping_add(index.wrapping_mul(4)), item);
         }
     }
-    let sort_second = e.mem.u32(group + 0x38);
-    let sort_first = e.mem.u32(group + 0x34);
+    let inserted_count = e.mem.u32(group + 0x38);
+    let inserted = e.mem.u32(group + 0x34);
     let allocator_object = allocator(e);
     let array = frame + 0x14;
     e.mem.set_u32(array, data);
     e.mem.set_u32(array + 4, count as u32);
     e.mem.set_u32(array + 8, capacity);
     e.call(
-        SORT_ARRAY,
-        &args![array, allocator_object, count, sort_first, sort_second],
+        ARRAY_INSERT_AT,
+        &args![array, allocator_object, count, inserted, inserted_count],
     );
+    // dcdafc, dcdb0c, dcdbb9, dcdbcf: the insert can reallocate, and the rest works on the
+    // array's new words.
+    let data = e.mem.u32(array);
+    let count = e.mem.i32(array + 4);
+    let capacity = e.mem.u32(array + 8);
     if count > 0 {
         let mut item_index: u32 = 0;
         loop {
@@ -2222,18 +2229,18 @@ mod tests {
         log_double(e, log, REMOVE_REFERENCE, 0);
     }
 
-    /// The sort `00cd1e20` of `00dcda40`: logs its words and, behind them, the array header
+    /// The insert `00cd1e20` of `00dcda40`: logs its words and, behind them, the array header
     /// and the first `count` elements.
-    fn sort_double(e: &mut Engine, log: &Log) {
-        let sort_log = Rc::clone(log);
-        e.register_double(SORT_ARRAY, move |e, a| {
+    fn insert_double(e: &mut Engine, log: &Log) {
+        let insert_log = Rc::clone(log);
+        e.register_double(ARRAY_INSERT_AT, move |e, a| {
             let mut words = a.to_vec();
             let size = e.mem.i32(a[0] + 4);
             words.extend([e.mem.u32(a[0]), e.mem.u32(a[0] + 4), e.mem.u32(a[0] + 8)]);
             for index in 0..size.max(0) as u32 {
                 words.push(e.mem.u32(e.mem.u32(a[0]) + 4 * index));
             }
-            sort_log.borrow_mut().push((SORT_ARRAY, words));
+            insert_log.borrow_mut().push((ARRAY_INSERT_AT, words));
             Ret::default()
         });
     }
@@ -2243,23 +2250,23 @@ mod tests {
         let mut e = engine();
         let log = new_log();
         let allocator = router(&mut e, &log);
-        sort_double(&mut e, &log);
+        insert_double(&mut e, &log);
         let (group, entries) = group(&mut e, 2);
         record_doubles(&mut e, &log, entries[1]);
         let converter = e.mem.alloc(8);
         let container = e.mem.alloc(8);
-        // The sorted array sits at +0x14 of the exe's 0x30-byte frame (with the arguments).
+        // The local array sits at +0x14 of the exe's 0x30-byte frame (with the arguments).
         let frame = e.next_stack_local(0x30);
         e.call(0x00dc_da40, &args![converter, group, container]);
         let list = e.mem.u32(group + 0x28);
-        // The sort sees: this, allocator, count, the two words, the array header and the items.
-        let sort = calls(&log, SORT_ARRAY);
-        assert_eq!(sort.len(), 1);
-        assert_eq!(sort[0][0], frame + 0x14);
-        assert_eq!(sort[0][1..5], [allocator, 2, 0x11, 0x22]);
-        let data = sort[0][5];
+        // The insert sees: this, allocator, index, the two words, the array header and the items.
+        let insert = calls(&log, ARRAY_INSERT_AT);
+        assert_eq!(insert.len(), 1);
+        assert_eq!(insert[0][0], frame + 0x14);
+        assert_eq!(insert[0][1..5], [allocator, 2, 0x11, 0x22]);
+        let data = insert[0][5];
         assert_eq!(
-            sort[0][5..],
+            insert[0][5..],
             [data, 2, 4, e.mem.u32(list), e.mem.u32(list + 4)]
         );
         // 8 bytes asked for, 16 granted: the array holds 4 elements and is freed as 16 bytes.
@@ -2310,17 +2317,69 @@ mod tests {
     }
 
     #[test]
-    fn fn_00dcda40_sorts_an_empty_group_without_taking_memory() {
+    fn fn_00dcda40_goes_on_with_the_array_as_the_insert_left_it() {
+        // 00dcda40: dcdafc re-tests the size, dcdb0c and dcdb9c read the data again, dcdbb9
+        // takes the new size; the free uses the new capacity (dcdbcf..dcdbf1) and data
+        // (dcdbf2). 00cd1d80 grows and moves the array, and sets the size to old + inserted.
         let mut e = engine();
         let log = new_log();
         let allocator = router(&mut e, &log);
-        sort_double(&mut e, &log);
+        let (group, entries) = group(&mut e, 2);
+        record_doubles(&mut e, &log, 0);
+        let converter = e.mem.alloc(8);
+        let container = e.mem.alloc(8);
+        // A third item, from the second array, with one entry.
+        let block = e.mem.alloc(0x200);
+        e.mem.set_u8(block + 3, 0x20);
+        let blocks = e.mem.alloc(4);
+        e.mem.set_u32(blocks, block);
+        let third = e.mem.alloc(0x80);
+        e.mem.set_u32(third + 0x5c, blocks);
+        e.mem.set_u32(third + 0x60, 1);
+        e.mem.set_u32(third + 0x58, 0x20);
+        let moved = e.mem.alloc(0x20);
+        e.register_double(ARRAY_INSERT_AT, move |e, a| {
+            let array = a[0];
+            let old = e.mem.u32(array);
+            for index in 0..2 {
+                let item = e.mem.u32(old + 4 * index);
+                e.mem.set_u32(moved + 4 * index, item);
+                // The old block must not be read again.
+                e.mem.set_u32(old + 4 * index, 0);
+            }
+            e.mem.set_u32(moved + 8, third);
+            e.mem.set_u32(array, moved);
+            e.mem.set_u32(array + 4, 3);
+            e.mem.set_u32(array + 8, 8);
+            Ret::default()
+        });
+        e.call(0x00dc_da40, &args![converter, group, container]);
+        let serialized = calls(&log, SERIALIZE_COLLISION_ENTRY);
+        assert_eq!(
+            serialized.iter().map(|call| call[1]).collect::<Vec<_>>(),
+            vec![entries[0], entries[1], entries[2], block]
+        );
+        assert_eq!(
+            calls(&log, ARRAY_FREE_DOUBLE),
+            vec![vec![allocator, moved, 32]]
+        );
+    }
+
+    #[test]
+    fn fn_00dcda40_inserts_into_an_empty_group_without_taking_memory() {
+        let mut e = engine();
+        let log = new_log();
+        let allocator = router(&mut e, &log);
+        insert_double(&mut e, &log);
         record_doubles(&mut e, &log, 0);
         let (group, _) = group(&mut e, 0);
         e.call(0x00dc_da40, &args![0u32, group, 0u32]);
-        let sort = calls(&log, SORT_ARRAY);
-        assert_eq!(sort.len(), 1);
-        assert_eq!(sort[0][1..], [allocator, 0, 0x11, 0x22, 0, 0, 0x8000_0000]);
+        let insert = calls(&log, ARRAY_INSERT_AT);
+        assert_eq!(insert.len(), 1);
+        assert_eq!(
+            insert[0][1..],
+            [allocator, 0, 0x11, 0x22, 0, 0, 0x8000_0000]
+        );
         assert!(calls(&log, ARRAY_ALLOCATE_DOUBLE).is_empty());
         assert!(calls(&log, ARRAY_FREE_DOUBLE).is_empty());
         assert!(calls(&log, SERIALIZE_COLLISION_ENTRY).is_empty());

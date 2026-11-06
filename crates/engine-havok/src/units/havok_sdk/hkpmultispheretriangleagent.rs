@@ -72,6 +72,9 @@ const FRAME_CACHE: u32 = 0x190;
 const RECORD_NORMAL: u32 = 0x10;
 const RECORD_DISTANCE: u32 = 0x1c;
 const RECORD_ID: u32 = 0x20;
+/// The record `getClosestPoints` gives the collector also names both bodies.
+const RECORD_BODY_A: u32 = 0x20;
+const RECORD_BODY_B: u32 = 0x24;
 /// Bytes one contact point takes in the output.
 const POINT_SIZE: u32 = 0x30;
 
@@ -179,8 +182,8 @@ fn find_penetration(
 
 /// What `getClosestPoints` does with the frame: for every sphere whose distance is below the
 /// sum of the radii plus the input's tolerance (the `float` at `input + 8`), builds a record
-/// (position, normal and the distance minus the radii in the normal's fourth lane) in the frame
-/// and hands it to the collector (`vcall` slot 4).
+/// (position, normal and the distance minus the radii in the normal's fourth lane, both bodies at
+/// `+0x20` and `+0x24`) in the frame and hands it to the collector (`vcall` slot 4).
 fn report_closest_points(
     e: &mut Engine,
     frame: u32,
@@ -192,6 +195,10 @@ fn report_closest_points(
 ) {
     let multi = e.mem.u32(bodies.0);
     let triangle = e.mem.u32(bodies.1);
+    // 00d38599, 00d385a0 and 00d388c5, 00d388cc: once, before the loop.
+    let record = frame + FRAME_RECORD;
+    e.mem.set_u32(record + RECORD_BODY_A, bodies.0);
+    e.mem.set_u32(record + RECORD_BODY_B, bodies.1);
     for index in 0..count.max(0) as u32 {
         let sum = x87_sum(
             e.mem.f32(triangle + TRIANGLE_RADIUS),
@@ -201,7 +208,6 @@ fn report_closest_points(
         let threshold = x87_sum(e.mem.f32(input + 8), sum);
         if distance < threshold {
             let scale = x87_difference(e.mem.f32(triangle + TRIANGLE_RADIUS), distance);
-            let record = frame + FRAME_RECORD;
             write_record(
                 e,
                 frame,
@@ -961,6 +967,32 @@ mod tests {
         let closest = w.closest.borrow();
         assert_ne!(closest[0].cache, w.agent + CACHE);
         assert_eq!(closest[0].cache, closest[1].cache);
+    }
+
+    #[test]
+    fn closest_point_records_hold_both_bodies() {
+        // 00d38390: 8599 and 85a0 store body A and body B at record+0x20 and +0x24 (the record
+        // is ESP+0x80); 00d386c0: 88c5 and 88cc the same (the record is ESP+0x90, two pushes).
+        for address in [0x00d3_8390u32, 0x00d3_86c0] {
+            let mut w = world();
+            profile_stream(&mut w.e);
+            let seen: Rc<RefCell<Vec<[u32; 2]>>> = Rc::default();
+            let log = Rc::clone(&seen);
+            w.e.register_double(FAKE_COLLECT, move |e, a| {
+                log.borrow_mut()
+                    .push([e.mem.u32(a[1] + 0x20), e.mem.u32(a[1] + 0x24)]);
+                Ret::default()
+            });
+            if address == 0x00d3_8390 {
+                w.e.call(
+                    address,
+                    &args![w.agent, w.body_a, w.body_b, w.input, COLLECTOR],
+                );
+            } else {
+                w.e.call(address, &args![w.body_a, w.body_b, w.input, COLLECTOR]);
+            }
+            assert_eq!(*seen.borrow(), vec![[w.body_a, w.body_b]]);
+        }
     }
 
     #[test]

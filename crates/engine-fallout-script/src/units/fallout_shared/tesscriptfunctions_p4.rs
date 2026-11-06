@@ -1268,6 +1268,13 @@ pub fn fn_005ca670(e: &mut Engine, a: ScriptArgs) -> bool {
     event_flag_command(e, a, 0x80)
 }
 
+/// `005ca6e0`, a7c6 TEST AH,0x44, a7c9 JNP back: only a result equal to 0.0 goes on (C3 alone, odd
+/// parity); unordered sets C3 and C2 (even parity) and leaves, like any other value. `005ca1c0`
+/// writes only 0.0 or 1.0 just before, so the unordered arm is not reached.
+fn event_search_goes_on(result: f64) -> bool {
+    result == 0.0
+}
+
 // Translated from 005ca6e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// An event flag command with mask `0x100` whose argument may be a list
 /// form (form type `0x55`). A plain argument (or none) is asked for as the
@@ -1293,10 +1300,7 @@ pub fn fn_005ca6e0(e: &mut Engine, a: ScriptArgs) -> bool {
             0
         };
         fn_005ca1c0(e, 0x100, a.this_obj, entry, a.event_list, a.result);
-        // The loop goes on while the result compares equal to (or
-        // unordered with) 0.0.
-        let result = e.mem.f64(a.result.addr());
-        if !(result == 0.0 || result.is_nan()) {
+        if !event_search_goes_on(e.mem.f64(a.result.addr())) {
             break;
         }
     }
@@ -3174,6 +3178,16 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_event_list_search_goes_on_only_at_exactly_zero() {
+        // 005ca6e0: a7c0 FLDZ, a7c2 FCOMP double, a7c6 TEST AH,0x44, a7c9 JNP back: AH&0x44 is
+        // 0x40 for equal (odd parity), 0x44 for unordered and 0 otherwise (even parity).
+        assert!(event_search_goes_on(0.0));
+        assert!(event_search_goes_on(-0.0));
+        assert!(!event_search_goes_on(1.0));
+        assert!(!event_search_goes_on(f64::NAN));
+    }
 
     // Fake virtual functions the tests put into vtables.
     /// Returns the address `object + 0xe4`.

@@ -586,8 +586,9 @@ pub fn fn_00997520(
     e.set(this, CombatCoverSearchInfo::iPreviousCoverLocationKey, key);
     let state = e.get(other, CombatCoverSearchInfo::ePreviousCoverState);
     e.set(this, CombatCoverSearchInfo::ePreviousCoverState, state);
-    let used = e.get(other, CombatCoverSearchInfo::bUsedLastSeenLocation);
-    e.set(this, CombatCoverSearchInfo::bUsedLastSeenLocation, used);
+    let used_at = CombatCoverSearchInfo::bUsedLastSeenLocation.off;
+    let used = e.mem.u8(other.addr() + used_at);
+    e.mem.set_u8(this.addr() + used_at, used);
 }
 
 // Translated from 009975c0 (decompiled, FalloutNV.exe 1.4.0.525)

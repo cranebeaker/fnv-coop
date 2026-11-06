@@ -102,13 +102,18 @@ fn allocation_bytes(cells: u32) -> u32 {
         .unwrap_or(u32::MAX)
 }
 
-/// Swaps the 16-bit value at `address` in place when `swaps` (the other
-/// byte order), as the loader does, and returns it.
+/// The 16-bit value at `address`, copied to a local (dc4f, dc52) that is swapped when `swaps`
+/// (the other byte order; dc78, dc7c): the word in the chunk stays as it was.
 fn read_short(e: &mut Engine, address: u32, swaps: bool) -> u16 {
-    if swaps {
-        e.call(SWAP_16, &args![address, 0u32]);
+    let value = e.mem.u16(address);
+    if !swaps {
+        return value;
     }
-    e.mem.u16(address)
+    e.with_stack(4, |e, local| {
+        e.mem.set_u16(local.addr(), value);
+        e.call(SWAP_16, &args![local, 0u32]);
+        e.mem.u16(local.addr())
+    })
 }
 
 // Translated from 0069da40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -366,6 +371,10 @@ mod tests {
         // One swap per cell count (four) and one per triangle (four).
         let swaps16 = calls(&e).iter().filter(|c| c.0 == SWAP_16).count();
         assert_eq!(swaps16, 8);
+        // 0069da40: dc4f, dc52 copy the count word to a local, dc78, dc7c swap that: the first
+        // cell's count stays in the chunk in the file's order; its triangle is swapped in place.
+        assert_eq!(e.mem.u16(data + 0x24), 1u16.swap_bytes());
+        assert_eq!(e.mem.u16(data + 0x26), 7);
     }
 
     #[test]

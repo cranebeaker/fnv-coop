@@ -69,8 +69,7 @@ pub fn hk_cpu_fire_jacobian_setup_callback_job(
                     let word = e.mem.u32(object + 0x18);
                     e.mem.set_u32(input + field, word);
                 }
-                let flags = e.mem.u8(item + 0x12);
-                if flags & 9 != 0 {
+                if e.mem.u8(item + 0x12) & 9 != 0 {
                     let target = e.mem.u32(item);
                     let object = e.mem.u32(target + 0xc);
                     let before = e.mem.u32(target + 0x10);
@@ -88,7 +87,8 @@ pub fn hk_cpu_fire_jacobian_setup_callback_job(
                         e.mem.set_u16(record + 0x14, word);
                     }
                 }
-                if flags & 4 != 0 {
+                // 4d58: read again, after the callbacks above.
+                if e.mem.u8(item + 0x12) & 4 != 0 {
                     let object = e.mem.u32(e.mem.u32(item) + 0xc);
                     e.vcall(object, 0x38, &args![input]);
                 }
@@ -261,5 +261,42 @@ mod tests {
                 LABEL_JOB_END
             ]
         );
+    }
+
+    #[test]
+    fn the_flag_byte_is_read_again_after_the_callbacks() {
+        // 00d94c40: 4d01 TEST [ESI+0x12],9 before the call at 4d32, 4d58 TEST [ESI+0x12],4 after
+        // it: a callback that sets bit 2 reaches the virtual call, one that clears it does not.
+        for (flags, changed, reaches_the_virtual) in [(1u8, 5u8, true), (5, 1, false)] {
+            let (mut e, rig) = job_rig();
+            let allocator = logging_object(&mut e, &rig.log, ALLOCATOR);
+            let router = e.mem.alloc(0x20);
+            e.mem.set_u32(router + 0x10, allocator);
+            e.register_double(MEMORY_ROUTER, move |_, _| Ret {
+                eax: router,
+                ..Ret::default()
+            });
+            let callbacks = logging_object(&mut e, &rig.log, CALLBACKS);
+            let only = item(&mut e, flags, callbacks);
+            let at = only.item;
+            e.register_double(FIRE_CALLBACKS, move |e, _| {
+                e.mem.set_u8(at + 0x12, changed);
+                Ret::default()
+            });
+            let owner = e.mem.alloc(0x100);
+            let list = e.mem.alloc(0x20);
+            e.mem.set_u32(list, only.item);
+            e.mem.set_u32(list + 4, only.record);
+            let set = e.mem.alloc(0x80);
+            e.mem.set_u32(set + 0x70, list);
+            e.mem.set_u32(set + 0x74, 1);
+            let job = e.mem.alloc(0x40);
+            e.mem.set_u32(job + 0x18, set);
+            e.call(0x00d9_4c40, &args![owner, 0x99u32, job]);
+            assert_eq!(
+                !calls(&rig.log, CALLBACKS + 0x38).is_empty(),
+                reaches_the_virtual
+            );
+        }
     }
 }

@@ -3621,7 +3621,7 @@ pub fn tes_object_refr_set_object_reference(e: &mut Engine, this: Ptr<TESObjectR
     let me = this.addr();
     // OBJ_REFR::pObjectReference (Xbox PDB) +0x20
     e.mem.set_u32(me + 0x20, object);
-    let destructible = e.call(0x0047_53d0, &args![object]).bool();
+    let destructible = e.call(0x0047_53d0, &args![object]).u8();
     e.call(0x0048_46a0, &args![me, u32::from(destructible)]);
     if e.vcall(me, 0xfc, &args![]).bool() {
         let flag = fn_0055e200(e, Ptr::new(object + 0x30));

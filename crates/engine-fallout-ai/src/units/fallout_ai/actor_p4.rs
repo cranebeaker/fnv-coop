@@ -1897,8 +1897,8 @@ pub fn actor_set_has_been_eaten(e: &mut Engine, this: Ptr<Actor>, value: u8) {
 /// controller, model or `"Bip01 NonAccum"` node. Otherwise whether
 /// `limit >= node height - controller height` (the node's vector is read
 /// at `0045bb80`, the controller's position with `GetPosition`; a NaN
-/// compares true).
-#[allow(clippy::neg_cmp_op_on_partial_ord)] // a NaN compares true, as the x87 test does
+/// compares false: 8a8389 FCOMPP, 8a838d TEST AH,1, 8a8390 JNZ to the store of 0, and C0
+/// is set when unordered).
 pub fn actor_is_close_to_ground(e: &mut Engine, this: Ptr<Actor>, limit: f32) -> bool {
     let controller = e.call(0x0093_06d0, &args![this]).u32();
     if controller == 0 {
@@ -1918,7 +1918,7 @@ pub fn actor_is_close_to_ground(e: &mut Engine, this: Ptr<Actor>, limit: f32) ->
         e.call(SELF, &args![position]);
         e.call(CHARACTER_GET_POSITION, &args![controller, position]);
         let height = (f64::from(node_z) - f64::from(e.mem.f32(position.addr() + 8))) as f32;
-        !(limit < height)
+        limit >= height
     })
 }
 
@@ -9136,6 +9136,14 @@ mod tests {
         assert!(!e.call(0x008a_8300, &args![actor, 5.0f32]).bool());
         assert!(e.call(0x008a_8300, &args![actor, 6.0f32]).bool());
         assert!(e.call(0x008a_8300, &args![actor, 7.0f32]).bool());
+        // 008a8300: 8a8389 FCOMPP, 8a838d TEST AH,1, 8a8390 JNZ to the store of 0 (8a839b): C0 is
+        // set when unordered, so a NaN limit or height answers false.
+        assert!(!e.call(0x008a_8300, &args![actor, f32::NAN]).bool());
+        e.register(CHARACTER_GET_POSITION, |e, a| {
+            e.mem.set_f32(a[1] + 8, f32::NAN);
+            Ret::default()
+        });
+        assert!(!e.call(0x008a_8300, &args![actor, 7.0f32]).bool());
         // No node, no model, no controller: true.
         e.register(0x004a_ae30, |_, _| 0.into_ret());
         assert!(e.call(0x008a_8300, &args![actor, 0.0f32]).bool());

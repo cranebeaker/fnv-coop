@@ -4032,7 +4032,7 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         let rate = tes_object_weap_get_ammo_regen_rate(e, Ptr::new(weapon), modification);
         let mut subtract_loaded = true;
         if rate > e.global::<f64>(0x0101_2060) {
-            let modification = e.call(0x004b_da70, &args![item_change, 2_u32]).bool();
+            let modification = e.call(0x004b_da70, &args![item_change, 2_u32]).u8();
             reserve = e.call(0x004f_e160, &args![weapon, modification]).i32() as f32;
             subtract_loaded = false;
         }
@@ -4117,7 +4117,7 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     hud_set_float(e, condition_tile, 0xfa9, condition_alpha);
     if condition != e.mem.f32(0x011a_0110) {
         let health = e.call(0x004b_cdb0, &args![item_change, 0_u32]).f32();
-        let has_mod = e.call(0x004b_da70, &args![item_change, 10_u32]).bool();
+        let has_mod = e.call(0x004b_da70, &args![item_change, 10_u32]).u8();
         let maximum = e.call(0x004b_cf00, &args![weapon, has_mod]).i32() as f32;
         let ratio = (f64::from(health) / f64::from(maximum)) as f32;
         let ratio = e.call(0x0040_4010, &args![0.0_f32, ratio]).f32();

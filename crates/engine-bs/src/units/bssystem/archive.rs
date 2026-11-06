@@ -4331,10 +4331,13 @@ pub fn fn_00afa8e0(
     if e.get(this, Archive::oFlags) & 1 == 0 || e.get(this, Archive::oFlags) & 2 == 0 {
         return 0;
     }
-    e.with_stack(0x210, |e, locals| {
+    // The exe's locals: the directory at EBP-0x220, the name at EBP-0x118 (0x104 bytes each,
+    // a94c, a958), the two indices clear of it at EBP-0x4 and EBP-0x8 (a97a, a976).
+    e.with_stack(0x220, |e, locals| {
         let split_directory = locals.addr();
         let split_name = split_directory + 0x108;
-        let indices = split_directory + 0x208;
+        let first_index = split_directory + 0x21c;
+        let second_index = split_directory + 0x218;
         e.call(
             SPLITPATH_S,
             &args![
@@ -4354,16 +4357,16 @@ pub fn fn_00afa8e0(
             this,
             Ptr::new(directory),
             Ptr::new(file),
-            Ptr::new(indices),
-            Ptr::new(indices + 4),
+            Ptr::new(first_index),
+            Ptr::new(second_index),
             Ptr::NULL,
         ) {
             return 0;
         }
-        let directory_index = e.mem.u32(indices);
+        let directory_index = e.mem.u32(first_index);
         let own_directory = fn_00af94c0(e, this, directory_index);
-        let file_index = e.mem.u32(indices + 4);
-        let directory_index = e.mem.u32(indices);
+        let file_index = e.mem.u32(second_index);
+        let directory_index = e.mem.u32(first_index);
         let own_name = fn_00af96d0(e, this, directory_index, file_index);
         let length = e.call(STRLEN, &args![own_directory]).u32();
         let directory_copy = allocate(e, length.wrapping_add(1));
@@ -7422,6 +7425,48 @@ mod tests {
         assert_eq!(
             e.call(0x00af_a8e0, &args![a, directory, missing, other])
                 .u32(),
+            0
+        );
+    }
+
+    #[test]
+    fn collision_check_keeps_the_indices_off_a_long_file_name() {
+        // 00afa8e0: the name buffer is EBP-0x118 with 0x104 bytes (a951, a94c), so it ends at
+        // EBP-0x14; the indices are at EBP-0x8 and EBP-0x4 (a976, a97a). A 0x102-character
+        // name that matches stays whole and the answer is 0.
+        let (mut e, _) = engine();
+        let a = searchable(&mut e);
+        let long = vec![b'B'; 0x102];
+        let mut names = b"a.nif\0".to_vec();
+        names.extend_from_slice(&long);
+        names.push(0);
+        kept_names(&mut e, a, &names, &[0, 6]);
+        e.set(a, Archive::cArchiveFlags, 0x38);
+        let directory_names = text(&mut e, b"meshes");
+        let offsets = e.mem.alloc(8);
+        e.set(a, Archive::pDirectoryStringArray, directory_names);
+        e.set(a, Archive::pDirectoryStringOffsets, offsets);
+        e.register(SPLITPATH_S, |e, w| {
+            let path = e.mem.cstr(w[0]);
+            let cut = path.iter().rposition(|&c| c == b'\\').unwrap();
+            e.mem.set_cstr(w[3], &path[..cut]);
+            e.mem.set_cstr(w[5], &path[cut + 1..]);
+            Ret::default()
+        });
+        e.register(STRUPR_S, |e, w| {
+            let upper: Vec<u8> = e.mem.cstr(w[0]).to_ascii_uppercase();
+            e.mem.set_cstr(w[0], &upper);
+            Ret::default()
+        });
+        e.set_global(FLAG_SET_BY_00AF4460, 1u8);
+        e.set(a, Archive::oFlags, 3);
+        let directory = hash(&mut e, 0x20);
+        let file = hash(&mut e, 9);
+        let mut full = b"meshes\\".to_vec();
+        full.extend_from_slice(&long);
+        let path = text(&mut e, &full);
+        assert_eq!(
+            e.call(0x00af_a8e0, &args![a, directory, file, path]).u32(),
             0
         );
     }

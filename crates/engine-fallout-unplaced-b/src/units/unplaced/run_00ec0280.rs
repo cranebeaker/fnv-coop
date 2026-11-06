@@ -332,12 +332,13 @@ pub fn fn_00ec0550(e: &mut Engine, frame: Ptr, x: u32, y: u32, width: u32, heigh
 
 // Translated from 00ec0720 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map (cdecl: `device`, `x`, `y`, `width`, `height` as float bit
-/// patterns, `columns`, `rows`): draws one quad as a two-triangle fan of six-float vertices
+/// patterns, `columns`, `rows`): draws one tile as six lines (its four sides and two diagonals) of six-float vertices
 /// (position, 0, 1, 0, 0), built in a local frame as the exe copies them: `(x, y)`,
 /// `(x2, y)` twice, `(x2, y2)` twice, `(x, y2)` twice, with `x2 = columns * width + x` and
 /// `y2 = rows * height + y` (`FILD`, x87, stored as floats), and five more copies after
 /// them. The device (`IDirect3DDevice9` vtable) gets slot `0x10c` (0, 2, 0) and (0, 5, 0),
-/// `0x170` (0), `0x164` (0x104) and `0x14c` (6, 2, the first vertex, 0x18).
+/// `0x170` (0), `0x164` (0x104) and `0x14c` (`DrawPrimitiveUP`: type 2, a line list, count 6,
+/// the first vertex, 0x18; ec0a94..ec0a9f push them right to left).
 #[allow(clippy::too_many_arguments)]
 pub fn fn_00ec0720(
     e: &mut Engine,
@@ -391,7 +392,7 @@ pub fn fn_00ec0720(
         e.vcall(device, 0x10c, &args![0u32, 5u32, 0u32]);
         e.vcall(device, 0x170, &args![0u32]);
         e.vcall(device, 0x164, &args![0x104u32]);
-        e.vcall(device, 0x14c, &args![6u32, 2u32, first, 0x18u32]);
+        e.vcall(device, 0x14c, &args![2u32, 6u32, first, 0x18u32]);
     });
 }
 
@@ -663,11 +664,13 @@ mod n081_tests {
     }
 
     #[test]
-    fn quad_builds_the_fan_and_sets_the_states() {
+    fn tile_builds_the_line_list_and_sets_the_states() {
         let mut e = Engine::new();
         let d = device(&mut e);
         e.register_double(0x0079_014c, |e, a| {
-            assert_eq!(&a[1..], &[6, 2, a[3], 0x18]);
+            // 00ec0720: ec0a94 PUSH 0x18, ec0a9c the vertices, ec0a9d PUSH 6, ec0a9f PUSH 2, then
+            // the device: D3DPT_LINELIST (2) with 6 lines from 12 vertices.
+            assert_eq!(&a[1..], &[2, 6, a[3], 0x18]);
             assert_eq!(e.mem.f32(a[3]), 10.0);
             assert_eq!(e.mem.f32(a[3] + 4), 20.0);
             assert_eq!(e.mem.f32(a[3] + 0xc), 1.0);

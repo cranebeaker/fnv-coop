@@ -998,7 +998,7 @@ pub fn fn_0093ab30(e: &mut Engine, this: Ptr<PlayerCharacter>, actor_value: u32)
     // 0093ab39 pushes 0 and 0.0 before the thiscall 00525430 (plain RET); they
     // are the last two of the four words the cdecl 0066dca0 is given (ADD
     // ESP,0x10 after it).
-    let flag = e.call(0x0052_5430, &args![0x011f_2250u32]).bool();
+    let flag = e.call(0x0052_5430, &args![0x011f_2250u32]).u8();
     let cost = e
         .call(0x0066_dca0, &args![actor_value, flag, 0.0f32, 0u32])
         .f32();
@@ -2717,7 +2717,7 @@ pub fn player_character_clear_cells_if_target_not_loaded(
 /// (`00544520`/`00586210`).
 pub fn fn_0093d660(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool {
     let player = e.global::<u32>(PLAYER_SINGLETON);
-    let interior = e.call(0x0057_5d10, &args![player]).bool();
+    let interior = e.call(0x0057_5d10, &args![player]).u8();
     if e.call(0x0097_64a0, &args![PROCESS_LISTS, interior as u32])
         .bool()
     {
@@ -3559,7 +3559,9 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
             )
             .u32();
         let target = e.call(0x0056_f930, &args![targeted]).u32(); // -0x4c
-        let distant = e.get(this, PlayerCharacter::bTarget3DDistant);
+        let distant = e
+            .mem
+            .u8(this.addr() + PlayerCharacter::bTarget3DDistant.off);
         e.call(0x0077_2d10, &args![target, distant as u32]);
         e.call(
             NI_POINTER_ASSIGN,
@@ -4994,7 +4996,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     show_text(e, MESSAGE_SETTING_011D4948, icon);
                 } else {
                     let player = e.global::<u32>(PLAYER_SINGLETON);
-                    let interior = e.call(0x0057_5d10, &args![player]).bool();
+                    let interior = e.call(0x0057_5d10, &args![player]).u8();
                     if e.call(0x0097_64a0, &args![PROCESS_LISTS, interior as u32])
                         .bool()
                     {
@@ -5668,7 +5670,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
             let target_state = e.call(0x0044_ddc0, &args![target]).u32(); // -0x3c0
             let process = process_of(e, this);
             let weapon = e.vcall(process, 0x148, &args![]).u32();
-            let flag = e.call(0x004b_da70, &args![weapon, 6u32]).bool();
+            let flag = e.call(0x004b_da70, &args![weapon, 6u32]).u8();
             let rate = e.call(0x0070_9430, &args![target_state, flag as u32]).f64();
             if rate > zero {
                 let regen = e.call(0x0094_4300, &args![this]).f64();
@@ -5681,7 +5683,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     if regen <= zero {
                         let process = process_of(e, this);
                         let weapon = e.vcall(process, 0x148, &args![]).u32();
-                        let flag = e.call(0x004b_da70, &args![weapon, 6u32]).bool();
+                        let flag = e.call(0x004b_da70, &args![weapon, 6u32]).u8();
                         let rate = e.call(0x0070_9430, &args![target_state, flag as u32]).f32();
                         e.call(0x0094_42e0, &args![this, rate]);
                         let process = process_of(e, this);
@@ -5689,7 +5691,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                         let count = e.call(0x0072_6070, &args![list]).i32();
                         let process = process_of(e, this);
                         let weapon = e.vcall(process, 0x148, &args![]).u32();
-                        let flag = e.call(0x004b_da70, &args![weapon, 2u32]).bool();
+                        let flag = e.call(0x004b_da70, &args![weapon, 2u32]).u8();
                         let limit = e.call(0x004f_e160, &args![target_state, flag as u32]).i32();
                         if count < limit {
                             let next = count + 1;
@@ -8999,8 +9001,11 @@ fn input_in_frame(
         let turn_speed = e.global::<f32>(TURN_SPEED);
         let move_speed = e.global::<f32>(MOVE_SPEED_FACTOR);
         e.call(0x0089_5110, &args![this, move_speed, turn_speed]);
-        let actually = e.get(this, PlayerCharacter::bActually3rdPerson);
-        e.set(this, PlayerCharacter::b3rdPerson, actually);
+        let actually = e
+            .mem
+            .u8(this.addr() + PlayerCharacter::bActually3rdPerson.off);
+        e.mem
+            .set_u8(this.addr() + PlayerCharacter::b3rdPerson.off, actually);
         if e.call(0x005a_1e50, &args![this]).u8() != 0 {
             e.call(0x0094_df80, &args![this]);
         }
@@ -10715,7 +10720,8 @@ fn update_camera_in_frame(
         vats_camera(e, frame);
     } else if !e.get(this, PlayerCharacter::b3rdPerson)
         && e.mem.u8(FREE_CAMERA_FLAG) == 0
-        && e.get(this, PlayerCharacter::bWant3rdPerson) == e.get(this, PlayerCharacter::b3rdPerson)
+        && e.mem.u8(this.addr() + PlayerCharacter::bWant3rdPerson.off)
+            == e.mem.u8(this.addr() + PlayerCharacter::b3rdPerson.off)
     {
         first_person_camera(e, this, frame);
     } else {

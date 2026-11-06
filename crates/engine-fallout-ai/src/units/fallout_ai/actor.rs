@@ -479,8 +479,8 @@ pub fn fn_0087d890(e: &mut Engine, this: Ptr<Actor>, add_to_process_lists: bool)
 // Translated from 0087dcb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Actor::~Actor` (Xbox PDB), the body: puts the vtables back, deletes the
 /// ragdoll controller and the penetration utility, releases the sound handle of
-/// the reference's extra data, switches the NPC radio off, and, unless the
-/// shutdown check `004077c0` says the world is going away, takes the actor out
+/// the reference's extra data, switches the NPC radio off, deletes the two combat
+/// arrays (+0x12c, +0x130; ddd8..de2e), and, unless the shutdown check `004077c0` says the world is going away, takes the actor out
 /// of the player's combat and perceived lists, the process lists, the lip-sync
 /// manager, its magic, and its process; then runs the destructors of the
 /// members and the `MobileObject` base. The scalar-deleting wrapper and the
@@ -510,6 +510,14 @@ pub fn actor_destructor(e: &mut Engine, this: Ptr<Actor>) {
         e.call(0x00ad_8d10, &args![handle]);
     }
     e.call(0x0083_5980, &args![this]);
+    let target_array = e.get(this, Actor::pCurrentCombatTargetArray);
+    if !target_array.is_null() {
+        e.vcall(target_array.addr(), 0, &args![1u32]);
+    }
+    let member_array = e.get(this, Actor::pCurrentCombatMemberArray);
+    if !member_array.is_null() {
+        e.vcall(member_array.addr(), 0, &args![1u32]);
+    }
     if !e.call(0x0040_77c0, &args![this]).bool() {
         let player = e.global::<u32>(PLAYER_POINTER);
         e.call(REMOVE_FROM_PLAYER_COMBAT_LIST, &args![player, this]);
@@ -2125,7 +2133,7 @@ pub fn actor_difficulty_level_adjust_health_modifier(
     modifier: f32,
     _unused_1: u32,
 ) -> f32 {
-    let flag = e.vcall(this.addr(), 0x360, &args![]).bool();
+    let flag = e.vcall(this.addr(), 0x360, &args![]).u8();
     let player = e.global::<u32>(PLAYER_POINTER);
     let difficulty = e.call(0x005b_e4d0, &args![player]).u32();
     let factor = e.call(0x0064_8cb0, &args![difficulty, 0x10u32, flag]).f32();
@@ -4940,6 +4948,32 @@ mod tests {
         assert!(pos(0x0093_7030) < pos(0x0082_2a80));
         assert!(pos(0x0082_2a80) < pos(0x0081_53b0));
         assert_eq!(*calls.last().unwrap(), 0x0092_ec40);
+    }
+
+    #[test]
+    fn destructor_deletes_the_two_combat_arrays_between_00835980_and_the_shutdown_check() {
+        // 0087dcb0: +0x12c at ddd8..ddfc and +0x130 at de0a..de2e, each through
+        // slot 0 with 1, after 00835980 (ddd0) and before 004077c0 (de3f).
+        let (mut e, actor, _, _) = destructor_setup();
+        let targets = object(&mut e, 0x10, 0x0203_0000, &[0]);
+        let members = object(&mut e, 0x10, 0x0204_0000, &[0]);
+        e.set(actor, Actor::pCurrentCombatTargetArray, targets);
+        e.set(actor, Actor::pCurrentCombatMemberArray, members);
+        e.call_log = Some(vec![]);
+        e.call(0x0087_dcb0, &args![actor]);
+        assert_eq!(
+            args_of(&e, slot_target(0x0203_0000, 0)),
+            vec![targets.addr(), 1]
+        );
+        assert_eq!(
+            args_of(&e, slot_target(0x0204_0000, 0)),
+            vec![members.addr(), 1]
+        );
+        let calls = called(&e);
+        let pos = |addr| calls.iter().position(|a| *a == addr).unwrap();
+        assert!(pos(0x0083_5980) < pos(slot_target(0x0203_0000, 0)));
+        assert!(pos(slot_target(0x0203_0000, 0)) < pos(slot_target(0x0204_0000, 0)));
+        assert!(pos(slot_target(0x0204_0000, 0)) < pos(0x0040_77c0));
     }
 
     #[test]

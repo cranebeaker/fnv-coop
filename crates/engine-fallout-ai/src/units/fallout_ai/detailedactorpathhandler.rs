@@ -2704,8 +2704,9 @@ pub fn detailed_actor_path_handler_handle_previous_path_transition(
         }
         _ => {}
     }
-    let ignore = e.get(previous, H::bIgnoreLookAtPoint);
-    e.set(this, H::bIgnoreLookAtPoint, ignore);
+    let ignore = e.mem.u8(previous.addr() + H::bIgnoreLookAtPoint.off);
+    e.mem
+        .set_u8(this.addr() + H::bIgnoreLookAtPoint.off, ignore);
     copy_float_field(e, this, previous, H::fIgnoreLookAtPointTimer);
     if e.get(previous, H::bWaitingForUpdate) {
         e.set(this, H::bWaitingForUpdate, true);
@@ -7299,7 +7300,11 @@ mod tests {
         w.e.set(previous, H::fWaitTime, 2.5);
         w.e.set(previous, H::bWaitingForUpdate, true);
         set_point(&mut w.e, previous.addr() + 0x34, [1.0, 2.0, 3.0]);
+        w.e.mem
+            .set_u8(previous.addr() + H::bIgnoreLookAtPoint.off, 2);
         w.e.call(0x009e_3380, &args![w.this, previous]);
+        // 009e349f, 009e34a5: the raw byte.
+        assert_eq!(w.e.mem.u8(w.this.addr() + H::bIgnoreLookAtPoint.off), 2);
         assert_eq!(w.e.get(w.this, H::MoveMode), 0x201);
         assert_eq!(w.e.get(w.this, H::fRunWalkTime), 0.5);
         assert_eq!(w.e.get(w.this, H::eAvoidState), 2);

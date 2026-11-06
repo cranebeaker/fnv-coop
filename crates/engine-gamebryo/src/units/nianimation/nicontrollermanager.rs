@@ -1625,8 +1625,13 @@ pub fn fn_00a2f380(
         TIME_CONTROLLER_COPY_MEMBERS,
         &args![this, destination, process],
     );
-    let cumulative = e.get(this, NiControllerManager::m_bCumulative);
-    e.set(destination, NiControllerManager::m_bCumulative, cumulative);
+    let cumulative = e
+        .mem
+        .u8(this.addr() + NiControllerManager::m_bCumulative.off);
+    e.mem.set_u8(
+        destination.addr() + NiControllerManager::m_bCumulative.off,
+        cumulative,
+    );
     let sequences = this.at(NiControllerManager::m_kSequenceArray);
     let mut index = 0u32;
     if 0 < e.get(sequences, NiTArray::m_usSize) {

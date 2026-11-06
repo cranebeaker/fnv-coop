@@ -381,6 +381,8 @@ fn resize_in_frame(e: &mut Engine, this: Ptr, new_size: u32, value: LeafTextureA
             &args![this, result, erase_proxy, erase_position, last_proxy, last],
         );
     }
+    // b3db23..b3db36: the by-value texture's string (EBP+0x20) is tidied before the return.
+    e.call(STRING_TIDY, &args![frame + 0xf8, true, 0u32]);
 }
 
 /// Throws the parse-error exception with `message` (`"malformed ..."`):
@@ -642,6 +644,7 @@ mod tests {
     /// An engine with the globals the unit reads.
     fn leaf_engine() -> Engine {
         let mut e = Engine::new();
+        e.register_double(STRING_TIDY, |_, _| Ret::default());
         for page in [
             0x0101_6000,
             0x0101_7000,
@@ -802,6 +805,34 @@ mod tests {
             *word = 0x100 + i as u32;
         }
         LeafTextureArg(value)
+    }
+
+    #[test]
+    fn resize_tidies_the_string_of_the_value_on_every_path() {
+        // 00b3d910: all paths meet at b3db1c; b3db23 LEA ECX,[EBP+0x20], b3db2c PUSH 0, b3db2e
+        // PUSH 1, b3db36 CALL 0044a730. EBP+0xc is the value, so this is its word at +0x14.
+        for (size, new_size) in [(1u32, 4u32), (4, 1), (2, 2)] {
+            let mut e = leaf_engine();
+            let (vector, _) = texture_vector(&mut e, size);
+            let calls = recorded(
+                &mut e,
+                &[
+                    TEXTURE_VECTOR_INSERT,
+                    TEXTURE_VECTOR_ERASE,
+                    TEXTURE_ITERATOR_ADVANCE,
+                    INVALID_PARAMETER,
+                ],
+            );
+            let seen = Rc::new(RefCell::new(Vec::new()));
+            let log = seen.clone();
+            e.register_double(STRING_TIDY, move |e, a| {
+                log.borrow_mut().push((e.mem.u32(a[0]), a[1], a[2]));
+                Ret::default()
+            });
+            e.call(0x00b3_d910, &args![vector, new_size, marker_value()]);
+            assert_eq!(*seen.borrow(), vec![(0x100 + 5, 1, 0)]);
+            drop(calls);
+        }
     }
 
     #[test]
@@ -1087,7 +1118,14 @@ mod tests {
             STRING_ASSIGN,
             tidy,
         ];
-        let mut expected = vec![TEXTURE_VECTOR_CLEAR, tidy, TEXTURE_VECTOR_INSERT, tidy];
+        // 00b3d910's own tidy of its by-value texture comes right after the insert (b3db36).
+        let mut expected = vec![
+            TEXTURE_VECTOR_CLEAR,
+            tidy,
+            TEXTURE_VECTOR_INSERT,
+            tidy,
+            tidy,
+        ];
         expected.extend(file_tag);
         expected.push(tidy);
         expected.push(tidy);

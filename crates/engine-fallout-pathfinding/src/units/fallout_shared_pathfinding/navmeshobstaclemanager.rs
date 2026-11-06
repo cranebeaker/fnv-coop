@@ -1413,45 +1413,46 @@ pub fn nav_mesh_obstacle_manager_clear_all_obstacles(
                 index += 1;
             }
         }
+        for field in [
+            NavMeshObstacleManager::FormIDMap.off,
+            NavMeshObstacleManager::OpenDoorMap.off,
+            NavMeshObstacleManager::ClosedDoorMap.off,
+            NavMeshObstacleManager::RigidBodyToObstacleMap.off,
+        ] {
+            e.call(MAP_CLEAR, &args![base + field]);
+        }
+        for field in [
+            NavMeshObstacleManager::QueuedListOfDoorsToAdd.off,
+            NavMeshObstacleManager::QueuedListOfDoorsToRemove.off,
+            NavMeshObstacleManager::QueuedListOfRefsToAdd.off,
+            NavMeshObstacleManager::QueuedListOfRefsToRemove.off,
+        ] {
+            e.call(LIST_CLEAR, &args![base + field]);
+        }
+        e.call(
+            UPDATE_LIST_CLEAR,
+            &args![base + NavMeshObstacleManager::ObstaclesUpdateList.off],
+        );
+        e.call(
+            QUEUE_CLEAR,
+            &args![
+                base + NavMeshObstacleManager::ObstaclesToAddToUpdateList.off,
+                0u32
+            ],
+        );
+        e.call(
+            QUEUE_CLEAR,
+            &args![
+                base + NavMeshObstacleManager::ObstaclesToRemoveFromUpdateList.off,
+                0u32
+            ],
+        );
+        if e.get(this, NavMeshObstacleManager::bDrawObstacles) {
+            e.call(DRAW_OBSTACLES, &args![this, 0u32]);
+        }
+        // 0c1a: the last reference array is let go only now, after the clears and the draw.
         pointer_release(e, current);
     });
-    for field in [
-        NavMeshObstacleManager::FormIDMap.off,
-        NavMeshObstacleManager::OpenDoorMap.off,
-        NavMeshObstacleManager::ClosedDoorMap.off,
-        NavMeshObstacleManager::RigidBodyToObstacleMap.off,
-    ] {
-        e.call(MAP_CLEAR, &args![base + field]);
-    }
-    for field in [
-        NavMeshObstacleManager::QueuedListOfDoorsToAdd.off,
-        NavMeshObstacleManager::QueuedListOfDoorsToRemove.off,
-        NavMeshObstacleManager::QueuedListOfRefsToAdd.off,
-        NavMeshObstacleManager::QueuedListOfRefsToRemove.off,
-    ] {
-        e.call(LIST_CLEAR, &args![base + field]);
-    }
-    e.call(
-        UPDATE_LIST_CLEAR,
-        &args![base + NavMeshObstacleManager::ObstaclesUpdateList.off],
-    );
-    e.call(
-        QUEUE_CLEAR,
-        &args![
-            base + NavMeshObstacleManager::ObstaclesToAddToUpdateList.off,
-            0u32
-        ],
-    );
-    e.call(
-        QUEUE_CLEAR,
-        &args![
-            base + NavMeshObstacleManager::ObstaclesToRemoveFromUpdateList.off,
-            0u32
-        ],
-    );
-    if e.get(this, NavMeshObstacleManager::bDrawObstacles) {
-        e.call(DRAW_OBSTACLES, &args![this, 0u32]);
-    }
 }
 
 // Translated from 006c0c30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6448,6 +6449,11 @@ mod tests {
                 (DRAW_OBSTACLES, vec![base, 0]),
             ]
         );
+        // 006c09f0: 0c1a, the last call, releases the last array (0c17 EBP-0x14) after the clears
+        // and the draw at 0c0b.
+        let order = calls(&scene.e, &[DRAW_OBSTACLES, NI_POINTER_RELEASE]);
+        assert_eq!(order[order.len() - 2].0, DRAW_OBSTACLES);
+        assert_eq!(order[order.len() - 1].0, NI_POINTER_RELEASE);
     }
 
     #[test]

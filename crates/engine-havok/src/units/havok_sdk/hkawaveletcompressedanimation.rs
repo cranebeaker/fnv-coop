@@ -18,6 +18,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::units::havok_sdk::hkadeltacompressedanimation::profile_record as profile_record_with_stamp;
 use crate::units::havok_sdk::hkp3axissweep::MEMORY_ROUTER;
 use crate::units::havok_sdk::hkpbvagent::profile_start_record;
 use crate::units::havok_sdk::hkpsphereshape::{profile_record, PROFILE_END};
@@ -825,7 +826,8 @@ pub fn decompress_block_to_cache(
 /// run, the block is filled by `decompressBlockToCache` (`00e306d0`: `frame`, the block, `count`),
 /// slots `+0x2C`, `+0x24` `(address of the scratch count word, key, bytes)` and `+0x30` run, and the
 /// answer is the block. The scratch words are the exe's stack slots of the three stack arguments,
-/// here a 12-byte frame holding `animation`, `frame` and `count`.
+/// here a 12-byte frame holding `animation` (the record's time stamp when one was written), `frame`
+/// and `count`.
 pub fn retrieve_from_cache(
     e: &mut Engine,
     holder: u32,
@@ -833,7 +835,6 @@ pub fn retrieve_from_cache(
     frame: u32,
     count: u32,
 ) -> u32 {
-    profile_record(e, LABEL_CACHE);
     e.with_stack(12, |e, slots| {
         let slot_a = slots.addr();
         let slot_b = slot_a + 4;
@@ -841,6 +842,10 @@ pub fn retrieve_from_cache(
         e.mem.set_u32(slot_a, animation);
         e.mem.set_u32(slot_b, frame);
         e.mem.set_u32(slot_c, count);
+        // e307d9, e307dd: a written record's time stamp goes through the animation argument's slot.
+        if let Some(stamp) = profile_record_with_stamp(e, LABEL_CACHE) {
+            e.mem.set_u32(slot_a, stamp);
+        }
         let key = e.vcall(animation, 0x40, &args![e.mem.u32(slot_b)]).u32();
         let bytes = e
             .mem
@@ -2213,6 +2218,36 @@ mod tests {
             answer(e, 0x0900_0500 + slot, *value);
         }
         (animation, holder)
+    }
+
+    /// `00e307b0` with a cache whose slot 0x28 keeps the word its first argument points at.
+    fn word_the_cache_sees(e: &mut Engine) -> (u32, u32) {
+        let flag = e.mem.alloc(4);
+        e.mem.set_u8(flag, 1);
+        let (animation, holder) = cache_doubles(e, &[]);
+        answer(e, CACHE_KEY_SLOT, 9);
+        let seen = e.mem.alloc(4);
+        e.register_double(0x0900_0528, move |e, a| {
+            let word = e.mem.u32(a[1]);
+            e.mem.set_u32(seen, word);
+            Ret {
+                eax: flag,
+                ..Ret::default()
+            }
+        });
+        e.call(0x00e3_07b0, &args![holder, animation, 5u32, 3u32]);
+        (e.mem.u32(seen), animation)
+    }
+
+    #[test]
+    fn a_written_record_puts_its_time_stamp_in_the_animations_argument_slot() {
+        // 00e307b0: e307d7 RDTSC, e307d9 MOV [ESP+0x18],EAX inside the JNC at e307cf; that word
+        // is the first scratch argument of cache slots 0x28, 0x18, 0x20 (its delta sibling
+        // 00e34e80 does the same).
+        let mut e = engine();
+        install_big_stream(&mut e);
+        let (word, animation) = word_the_cache_sees(&mut e);
+        assert_ne!(word, animation);
     }
 
     #[test]

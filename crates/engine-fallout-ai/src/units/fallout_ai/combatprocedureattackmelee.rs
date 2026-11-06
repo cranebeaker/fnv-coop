@@ -747,7 +747,7 @@ pub fn fn_009cc510(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
         return;
     }
 
-    let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).bool();
+    let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).u8();
     let controller = controller_of(e, this);
     let no_weapon = e.call(CONTROLLER_WEAPON, &args![controller]).u32() == 0;
     let value = e
@@ -950,7 +950,7 @@ pub fn fn_009ccb20(
     if no_shout {
         e.mem.set_u8(shout.addr(), 0);
     } else {
-        let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).bool();
+        let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).u8();
         let fatigue = e.call(GET_FATIGUE_PERCENTAGE, &args![attacker]).f64();
         let style = style_of(e, this);
         let value = e
@@ -1360,7 +1360,9 @@ pub fn maneuver_decision(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) 
             .call(RESTRICTED_MOVES, &args![t + MOVEMENT_RESTRICTIONS])
             .u16();
         let style = style_of(e, this);
-        let ally = e.get(this, CombatProcedureAttackMelee::bRangedAllyWantsToShoot);
+        let ally = e
+            .mem
+            .u8(this.addr() + CombatProcedureAttackMelee::bRangedAllyWantsToShoot.off);
         let direction = e
             .call(
                 FORMULA_DODGE_DIRECTION,
@@ -2358,7 +2360,7 @@ pub fn fn_009cf090(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>, facing
     if roll >= chance {
         return;
     }
-    let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).bool();
+    let slot_230 = e.vcall(target, SLOT_TEST_230, &args![]).u8();
     let controller = controller_of(e, this);
     let no_weapon = e.call(CONTROLLER_WEAPON, &args![controller]).u32() == 0;
     let value = e

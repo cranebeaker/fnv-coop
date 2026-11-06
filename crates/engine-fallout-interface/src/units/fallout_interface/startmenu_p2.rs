@@ -1264,7 +1264,7 @@ pub fn start_menu_populate_options_list_box(e: &mut Engine, this: Ptr<StartMenu>
         let user_option = Ptr::<StartMenuUserOption>::new(array_item(e, USER_OPTIONS_ARRAY, index));
         if e.get(user_option, StartMenuUserOption::pfChangeFn) == CONTROLLER_OPTION_CHANGE_FN_B {
             e.set(this, StartMenu::field_1cc, item);
-            let active = e.call(INTERFACE_ACTIVE, &[]).bool();
+            let active = e.call(INTERFACE_ACTIVE, &[]).u8();
             let menu = instance(e);
             let enabled_trait = e.get(menu, StartMenu::ENABLED_TRAIT);
             set_int(e, item, enabled_trait, active as i32);
@@ -2978,10 +2978,10 @@ pub fn fn_007d6c30(e: &mut Engine) {
     if menu.is_null() {
         return;
     }
-    let active = e.call(INTERFACE_ACTIVE, &[]).bool();
+    let active = e.call(INTERFACE_ACTIVE, &[]).u8();
     let menu_tile = e.call(WORD_AT_4, &args![menu]).ptr::<()>();
     set_int(e, menu_tile, TRAIT_1009, active as i32);
-    let active = e.call(INTERFACE_ACTIVE, &[]).bool();
+    let active = e.call(INTERFACE_ACTIVE, &[]).u8();
     e.call(START_MENU_FN_7D30B0, &args![active]);
     if get_flag(e, menu, FLAG_ACTION_MAPPING) {
         e.call(START_MENU_CHOOSE_BACK, &[]);

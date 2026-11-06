@@ -1131,17 +1131,17 @@ pub fn fn_009dbc90(
         if e.vcall(actor.addr(), 0x21c, &[]).bool() {
             let base = e.call(ACTOR_BASE, &args![actor]).u32();
             let target = base + 0x30;
-            let cant_open_doors = e.vcall(target, 0x28, &[]).bool();
+            let cant_open_doors = e.vcall(target, 0x28, &[]).u8();
             e.call(
                 REQUEST_SET_CANT_OPEN_DOORS,
                 &args![request, cant_open_doors],
             );
         }
         let base = e.call(ACTOR_BASE, &args![actor]).u32();
-        let can_swim = e.call(BASE_CAN_SWIM, &args![base]).bool();
+        let can_swim = e.call(BASE_CAN_SWIM, &args![base]).u8();
         e.call(REQUEST_SET_CAN_SWIM, &args![request, can_swim]);
         let base = e.call(ACTOR_BASE, &args![actor]).u32();
-        let can_fly = e.call(BASE_CAN_FLY, &args![base]).bool();
+        let can_fly = e.call(BASE_CAN_FLY, &args![base]).u8();
         e.call(REQUEST_SET_CAN_FLY, &args![request, can_fly]);
         e.call(LOCATION_DESTRUCT, &args![location]);
     });
@@ -1503,7 +1503,9 @@ fn path_end_is_too_far(e: &mut Engine, this: Ptr<ActorMover>) -> bool {
     let radius = e.call(REQUEST_TARGET_RADIUS, &args![request]).f64();
     let request = current_request(e, this);
     let radius_again = e.call(REQUEST_TARGET_RADIUS, &args![request]).f64();
-    radius_again * radius < horizontal
+    // 9dc729 FCOMP, 9dc72e TEST AH,1, 9dc731 JNZ to the failure: unordered counts as too far.
+    let reach = radius_again * radius;
+    reach < horizontal || reach.is_nan() || horizontal.is_nan()
 }
 
 // Translated from 009dc780 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2882,10 +2884,10 @@ fn unstick_in_frame(e: &mut Engine, this: Ptr<ActorMover>, frame: u32) {
     fn_009deff0(e, Ptr::new(request), 1);
     e.call(REQUEST_SET_CANT_OPEN_DOORS, &args![request, 0u32]);
     let actor_base = e.call(ACTOR_BASE, &args![actor]).u32();
-    let can_swim = e.call(BASE_CAN_SWIM, &args![actor_base]).bool();
+    let can_swim = e.call(BASE_CAN_SWIM, &args![actor_base]).u8();
     e.call(REQUEST_SET_CAN_SWIM, &args![request, can_swim]);
     let actor_base = e.call(ACTOR_BASE, &args![actor]).u32();
-    let can_fly = e.call(BASE_CAN_FLY, &args![actor_base]).bool();
+    let can_fly = e.call(BASE_CAN_FLY, &args![actor_base]).u8();
     e.call(REQUEST_SET_CAN_FLY, &args![request, can_fly]);
     e.call(REQUEST_SET_BYTE_B, &args![request, 1u32]);
 
@@ -4939,6 +4941,18 @@ mod tests {
         assert_eq!(first(&log, SET_PATHING_FAILED).1, vec![r.mover.addr(), 1]);
         assert_eq!(r.e.get(r.mover, ActorMover::eState), STATE_FINISHED);
         assert_eq!(count(&log, REQUEST_TARGET_RADIUS), 2);
+    }
+
+    #[test]
+    fn result_five_fails_when_the_radius_is_nan() {
+        // 009dc5e0: 9dc729 FCOMP double, 9dc72e TEST AH,1, 9dc731 JNZ 9dc735: C0 is set when
+        // unordered, so a NaN takes the failure path.
+        let mut r = far_path_rig(10.0, 11.0);
+        r.e.register(REQUEST_TARGET_RADIUS, |_, _| ret_float(f64::NAN));
+        r.e.call_log = Some(vec![]);
+        r.e.call(0x009d_c5e0, &args![r.mover, 5u32]);
+        let log = calls(&mut r.e);
+        assert_eq!(first(&log, SET_PATHING_FAILED).1, vec![r.mover.addr(), 1]);
     }
 
     #[test]

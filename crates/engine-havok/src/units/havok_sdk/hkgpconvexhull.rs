@@ -1483,8 +1483,11 @@ pub fn hkgp_convex_hull_create_random_samples(
                             store_vec(e, sample.addr(), scaled);
                             e.call(SET_TRANSFORMED_POS, &args![sample, transform, sample]);
                             let implementation = e.get(hull, HkgpConvexHull::implementation);
-                            let indexed =
-                                u32::from(e.get(implementation, HkgpConvexHullImpl::indices_valid));
+                            let indexed = u32::from(
+                                e.mem
+                                    .u8(implementation.addr()
+                                        + HkgpConvexHullImpl::indices_valid.off),
+                            );
                             let answer = fn_00d76100(e, hull, sample, indexed, 0.0);
                             if answer {
                                 break;

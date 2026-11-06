@@ -121,8 +121,9 @@ pub fn bs_tree_manager_bs_tree_manager(
     let setting = e
         .call(SETTING_VALUE_BYTE, &args![FORCE_FULL_LOD_SETTING])
         .u32();
-    let full_lod = e.mem.u8(setting) != 0;
-    e.set(this, BSTreeManager::m_bForceFullLOD, full_lod);
+    let full_lod = e.mem.u8(setting);
+    e.mem
+        .set_u8(this.addr() + BSTreeManager::m_bForceFullLOD.off, full_lod);
 
     let material_memory = e.call(NI_ALLOCATE, &args![0x4cu32]).u32();
     let material = if material_memory != 0 {
@@ -380,9 +381,9 @@ mod tests {
                 COLOR_SETTER,
             ],
         );
-        // The settings: a full-LOD byte of 1, the tree distance word 100.
+        // The settings: a full-LOD byte of 2, the tree distance word 100.
         let setting_byte = e.mem.alloc(8);
-        e.mem.set_u8(setting_byte, 1);
+        e.mem.set_u8(setting_byte, 2);
         let setting_word = e.mem.alloc(8);
         e.mem.set_u32(setting_word, 100);
         e.register_double(SETTING_VALUE_BYTE, move |_, _| ret(setting_byte));
@@ -410,6 +411,11 @@ mod tests {
         assert!(e.get(this, BSTreeManager::bShowTrees));
         assert!(e.get(this, BSTreeManager::bShowLeaves));
         assert!(!e.get(this, BSTreeManager::bForceCompute));
+        // 006644e2, 006644e4: the setting's byte as it is.
+        assert_eq!(
+            e.mem.u8(this.addr() + BSTreeManager::m_bForceFullLOD.off),
+            2
+        );
         assert!(e.get(this, BSTreeManager::m_bForceFullLOD));
         let map = e.get(this, BSTreeManager::pBackgroundLoadedTreeMap);
         assert_ne!(map, Ptr::NULL);

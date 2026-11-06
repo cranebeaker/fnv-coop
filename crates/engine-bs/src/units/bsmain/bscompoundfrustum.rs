@@ -420,8 +420,11 @@ pub fn bs_compound_frustum_copy_members(e: &mut Engine, this: Frustum, target: F
             .set_u32(view_position(target).addr() + word * 4, value);
     }
     copy_frustum_planes(e, view_frustum(this).addr(), view_frustum(target).addr());
-    let prethreaded = e.get(this, BSCompoundFrustum::bPrethreaded);
-    e.set(target, BSCompoundFrustum::bPrethreaded, prethreaded);
+    let prethreaded = e.mem.u8(this.addr() + BSCompoundFrustum::bPrethreaded.off);
+    e.mem.set_u8(
+        target.addr() + BSCompoundFrustum::bPrethreaded.off,
+        prethreaded,
+    );
 
     let op_capacity = e.get(ops_array(this), BSSimpleArray::iReservedSize);
     bs_simple_array_function_op_set_size(e, ops_array(target), op_capacity, true);
@@ -2250,11 +2253,18 @@ mod tests {
             NiFrustumPlanes::m_uiActivePlanes,
             0x15,
         );
+        e.mem
+            .set_u8(source.addr() + BSCompoundFrustum::bPrethreaded.off, 2);
         e.call(0x00c4_77f0, &args![source, target]);
         assert_eq!(e.get(target, BSCompoundFrustum::iFreeOp), 3);
         assert_eq!(e.get(target, BSCompoundFrustum::iFreePlane), 2);
         assert_eq!(e.get(target, BSCompoundFrustum::iFirstOp), 1);
-        assert!(e.get(target, BSCompoundFrustum::bPrethreaded));
+        // 7859, 785b: the raw byte.
+        assert_eq!(
+            e.mem
+                .u8(target.addr() + BSCompoundFrustum::bPrethreaded.off),
+            2
+        );
         assert_eq!(e.mem.f32(view_position(target).addr()), 9.0);
         assert_eq!(
             e.get(view_frustum(target), NiFrustumPlanes::m_uiActivePlanes),

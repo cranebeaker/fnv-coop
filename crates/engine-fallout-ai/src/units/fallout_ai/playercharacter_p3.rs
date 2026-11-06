@@ -901,7 +901,8 @@ pub fn fn_0095de30(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32) {
     let spring_case = (camera_mode == 2
         || (camera_mode != 2 && e.call(READ_FIELD_8, &args![OBJECT_011F2250]).i32() == 3))
         && object_21cc != 0
-        && e.get(this, PlayerCharacter::bWant3rdPerson) == e.get(this, PlayerCharacter::b3rdPerson);
+        && e.mem.u8(this.addr() + PlayerCharacter::bWant3rdPerson.off)
+            == e.mem.u8(this.addr() + PlayerCharacter::b3rdPerson.off);
 
     if spring_case {
         let node = e.vcall(object_21cc, 0x1d0, &args![]).u32();

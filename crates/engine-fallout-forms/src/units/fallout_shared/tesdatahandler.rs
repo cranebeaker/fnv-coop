@@ -1787,7 +1787,7 @@ pub fn tes_data_handler_load_form(e: &mut Engine, form: Ptr, file: Ptr) -> bool 
     if had_master_flag {
         e.call(FORM_SET_FLAG_BIT_0, &args![form, 1u32]);
     } else {
-        let is_master = e.call(FILE_GET_MASTER, &args![file]).bool();
+        let is_master = e.call(FILE_GET_MASTER, &args![file]).u8();
         e.call(FORM_SET_FLAG_BIT_0, &args![form, is_master as u32]);
     }
     if e.call(FILE_GET_ACTIVE, &args![file]).bool() {

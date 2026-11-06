@@ -1832,10 +1832,11 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
             Ptr::new(animation),
         );
 
-        let third_person = e.get(this, PlayerCharacter::b3rdPerson);
+        let third_person = e.mem.u8(this.addr() + PlayerCharacter::b3rdPerson.off);
         e.set(this, PlayerCharacter::b3rdPerson, true);
         let node = e.call(0x0087_e060, &args![player, flag]).u32();
-        e.set(this, PlayerCharacter::b3rdPerson, third_person);
+        e.mem
+            .set_u8(this.addr() + PlayerCharacter::b3rdPerson.off, third_person);
 
         let current = e.call(0x0095_0a60, &args![player, 0u32]).u32();
         e.call(0x0049_6080, &args![current, 0u32, 0.0f32]);

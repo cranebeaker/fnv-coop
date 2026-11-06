@@ -3192,7 +3192,8 @@ pub fn fn_00971fd0(e: &mut Engine, this: Ptr<ProcessLists>, age: f32) -> u32 {
             e.call(0x008b_cc60, &args![crime, out.addr()]);
             e.call(0x0043_5e00, &args![out.addr()]).f32()
         });
-        if (age as f64) < (elapsed as f64) {
+        // 2099 FCOMPP, 209d TEST AH,1, 20a0 JNZ: C0 is also set when unordered, so NaN keeps it.
+        if age < elapsed || age.is_nan() || elapsed.is_nan() {
             previous = node;
             node = node_next(e, node);
             continue;
@@ -10588,6 +10589,27 @@ mod tests {
         assert_eq!(list_items(&e, list), vec![stale]);
         assert_eq!(list_items(&e, player_crimes), vec![0x7777]);
         assert_eq!(calls(&e, 0x0047_eb90), vec![vec![knower, 0]]);
+    }
+
+    #[test]
+    fn crime_with_a_nan_age_stays_in_the_list() {
+        // 00971fd0: 2099 FCOMPP against the age, 209d TEST AH,1, 20a0 JNZ 2184 (the keep branch):
+        // C0 is set for below and for unordered.
+        let (mut e, lists) = crime_world();
+        let stale = crime_of_kind(&mut e, 3);
+        e.register(0x008b_cc60, |_, a| Ret {
+            eax: a[1],
+            ..Ret::default()
+        });
+        e.register_double(0x0043_5e00, |_, _| Ret {
+            st0: f64::NAN,
+            ..Ret::default()
+        });
+        let list = make_list(&mut e, &[stale]);
+        set_crime_list(&mut e, lists, 3, list);
+        e.call_log = Some(vec![]);
+        assert_eq!(e.call(0x0097_1fd0, &args![lists, 10.0f32]).u32(), 0);
+        assert_eq!(list_items(&e, list), vec![stale]);
     }
 
     #[test]

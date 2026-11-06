@@ -3204,9 +3204,10 @@ pub fn fn_0078d6b0(e: &mut Engine, buffer: u32) {
     });
     e.call(SAVE_BYTES, &args![buffer, TIP_SCALE, 4u32, 0u32]);
     e.call(SAVE_BYTES, &args![buffer, TIP_VALUE, 4u32, 0u32]);
-    let locked = fn_0078a930(e);
+    // 0078d747: 0078a930's raw AL (the byte at 011cabb8), not a 0 or 1.
+    let locked = e.mem.u8(LIST_LOCKED);
     e.with_stack(1, |e, cell| {
-        e.mem.set_u8(cell.addr(), locked as u8);
+        e.mem.set_u8(cell.addr(), locked);
         e.call(SAVE_BYTES, &args![buffer, cell, 1u32, 0u32]);
     });
 }
@@ -7663,7 +7664,8 @@ mod tests {
         r.e.mem.set_u32(process + 4, 0x2468);
         r.stub(PLAYER_PROCESS, process);
         r.stub(PROCESS_VALUE, 0x1357);
-        r.e.mem.set_u8(LIST_LOCKED, 1);
+        // 0078d747, 0078d74c: 0078a930's raw AL is what is written.
+        r.e.mem.set_u8(LIST_LOCKED, 2);
         fn_0078d6b0(&mut r.e, 0xb0f0);
         assert_eq!(r.calls_to(SAVE_FORM_ID), vec![vec![0xb0f0, 0x1357, 0]]);
         assert_eq!(r.calls_to(PROCESS_VALUE), vec![vec![process]]);
@@ -7672,7 +7674,7 @@ mod tests {
         assert_eq!(chunks[0], 0x2468u32.to_le_bytes());
         assert_eq!(chunks[1], 0.5f32.to_le_bytes());
         assert_eq!(chunks[2], 5u32.to_le_bytes());
-        assert_eq!(chunks[3], vec![1]);
+        assert_eq!(chunks[3], vec![2]);
         for call in r.calls_to(SAVE_BYTES) {
             assert_eq!(call[0], 0xb0f0);
             assert_eq!(call[3], 0);

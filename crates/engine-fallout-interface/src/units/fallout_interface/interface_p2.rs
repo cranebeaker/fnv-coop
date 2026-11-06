@@ -2137,7 +2137,7 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
     let mut height_b: f32 = 0.0;
     let item_value = e.call(ITEM_GET_VALUE, &args![item]).f32();
     let player = e.global::<u32>(PLAYER);
-    let weight_flag = e.call(PLAYER_WEIGHT_FLAG, &args![player]).bool();
+    let weight_flag = e.call(PLAYER_WEIGHT_FLAG, &args![player]).u8();
     let form = item_form(e, item);
     let mut weight = e.call(GET_FORM_WEIGHT, &args![form, weight_flag]).f32();
     if item == 0 || display == 0 {

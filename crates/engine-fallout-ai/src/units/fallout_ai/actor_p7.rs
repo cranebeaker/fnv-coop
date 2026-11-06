@@ -1543,13 +1543,18 @@ pub fn is_actor_of_faction(e: &mut Engine, reference: Ptr, form: Ptr, actor: Ptr
 /// `cdecl`, three words: walks the list from node `node` and returns true as
 /// soon as `actor` is in the faction held by an entry (the faction is the word
 /// the entry's item points to). `_unused_2` is a name string the callers
-/// push. The game leaves `AL` undefined when the walk runs out; this returns
-/// false.
+/// push.
+///
+/// A node with a null item ends the walk with `006815c0`'s answer still in `EAX` (8c1222,
+/// 8c1225 JZ 8c1260), so `AL` is the low byte of the node's address: an empty faction list
+/// answers true unless that byte is 0. Both callers (8c105b, 8c11f2) only test the byte, so a
+/// `bool` carries it. Running off the end leaves 00726070's 0 in `EAX` and answers false; the
+/// callers do not pass a null list (8c1044 and 8c11d8 test it).
 pub fn fn_008c1210(e: &mut Engine, mut node: Ptr, actor: Ptr<Actor>, _unused_2: u32) -> bool {
     while !node.is_null() {
         let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
         if e.mem.u32(slot) == 0 {
-            return false;
+            return slot as u8 != 0;
         }
         let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
         let item = e.mem.u32(slot);
@@ -3671,11 +3676,40 @@ mod tests {
         assert!(fn_008c1210(&mut e, Ptr::new(n1), actor, 0));
         e.register_double(IS_IN_FACTION, |_, _| eax(0));
         assert!(!fn_008c1210(&mut e, Ptr::new(n1), actor, 0));
-        // An empty item slot ends the walk, and so does a null node.
-        e.mem.set_u32(n1, 0);
-        e.register_double(IS_IN_FACTION, |_, _| eax(1));
-        assert!(!fn_008c1210(&mut e, Ptr::new(n1), actor, 0));
+        // A null node ends the walk with EAX 0 (8c125b, 8c1214 JZ 8c1260).
         assert!(!fn_008c1210(&mut e, Ptr::NULL, actor, 0));
+        // 008c1210: an empty item slot ends the walk with EAX still the node address (006815c0
+        // answers ECX; 8c1222 CMP [EAX],0, 8c1225 JZ 8c1260), so AL is its low byte.
+        e.register_double(IS_IN_FACTION, |_, _| eax(1));
+        e.map(0x0300_0000, 0x1000);
+        assert!(fn_008c1210(&mut e, Ptr::new(0x0300_0108), actor, 0));
+        assert!(!fn_008c1210(&mut e, Ptr::new(0x0300_0100), actor, 0));
+        // The same exit further along the list: the first faction does not match, and the
+        // second node is empty.
+        e.register_double(IS_IN_FACTION, |_, _| eax(0));
+        let empty_tail = 0x0300_0208;
+        let head = node(&mut e, first, empty_tail);
+        assert!(fn_008c1210(&mut e, Ptr::new(head), actor, 0));
+    }
+
+    #[test]
+    fn an_npc_form_with_an_empty_faction_list_counts_every_actor() {
+        // 008c1010: form type 0x2a, 8c1053 CALL 008c1210, 8c105b MOVZX, 8c1060 JZ: the head node
+        // is NPC +0x5c (8c1035 ADD ECX,0x30, 005d8a70 ADD EAX,0x2c) and its item is 0, so the
+        // walk answers the low byte of that address and the answer is true without a faction.
+        let mut e = engine();
+        let actor = new_actor(&mut e);
+        let form = e.mem.alloc(0x100);
+        e.mem.set_u8(form + 4, 0x2a);
+        e.map(0x0300_0000, 0x1000);
+        double(&mut e, FACTION_LIST_OF, eax(0x0300_015c));
+        double(&mut e, IS_IN_FACTION, eax(0));
+        assert!(is_actor_of_faction(
+            &mut e,
+            Ptr::NULL,
+            Ptr::new(form),
+            actor.cast()
+        ));
     }
 
     // ---- 008c1270 .. 008c1680 --------------------------------------------

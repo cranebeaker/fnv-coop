@@ -738,7 +738,7 @@ pub fn queued_reference_use_distant_3d(e: &mut Engine, this: Ptr<QueuedReference
 /// `QueuedReference::AttachDistant3D` (Xbox PDB): gives the node the
 /// reference's position (virtual function `0x1f4` of the reference, stored
 /// by [`fn_00440460`]), orientation (`TESObjectREFR::GetOrientation` into a
-/// 12-byte buffer, copied by `0043fa80`) and scale (`GetScale`, filtered by
+/// 0x24-byte matrix, copied by `0043fa80`) and scale (`GetScale`, filtered by
 /// [`fn_00440490`]). When the current thread is the one recorded at +0x10 of
 /// the object at global `011dea0c`, the node is attached at once: the
 /// reference gets it as its 3D (`00570f70`), `TES` loads the reference
@@ -752,8 +752,9 @@ pub fn queued_reference_attach_distant_3d(e: &mut Engine, this: Ptr<QueuedRefere
     let reference = e.get(this, QueuedReference::pRef);
     let position = e.vcall(reference.addr(), 0x1f4, &args![]).u32();
     fn_00440460(e, node, Ptr::new(position));
-    // The 12-byte orientation buffer of the game's stack frame.
-    e.with_stack(12, |e, buffer| {
+    // The game's local for the orientation matrix (0044035a EBP-0x30, up to the frame head at
+    // EBP-0xc); 0056fa00 copies 9 dwords into it (0056fa70, 0056fa7b).
+    e.with_stack(0x24, |e, buffer| {
         let orientation = e
             .call(REFERENCE_GET_ORIENTATION, &args![reference, buffer])
             .u32();
@@ -4815,6 +4816,17 @@ mod tests {
         let this = task(e, reference);
         let node = Ptr::new(e.mem.alloc(0x70));
         (this, reference, node)
+    }
+
+    #[test]
+    fn attach_distant_3d_keeps_the_orientation_inside_its_stack_block() {
+        // 00440310: 0044035a EBP-0x30 with 0x24 bytes up to the frame head at EBP-0xc; 0056fa00
+        // copies 9 dwords into it (0056fa70 MOV ECX,9, 0056fa7b MOVSD.REP).
+        let mut e = engine();
+        e.mem.enable_block_check(true, true);
+        let (this, _, node) = attach_distant_3d_setup(&mut e, 5);
+        e.call(0x0044_0310, &args![this, node]);
+        assert_eq!(e.mem.u32(node.addr() + 0x34 + 32), 108);
     }
 
     #[test]

@@ -1729,7 +1729,7 @@ pub fn tes_load_grid_cell(
     {
         e.call(0x0049_c860, &args![cell]);
     }
-    let show_borders = e.get(this, TES::bShowLANDborders);
+    let show_borders = e.mem.u8(this.addr() + TES::bShowLANDborders.off);
     e.call(0x0053_fa40, &args![land, show_borders]);
 }
 
@@ -3062,12 +3062,15 @@ pub fn bs_audio_q_instance(e: &mut Engine) -> u32 {
 ///
 /// With no interior cell loaded: the last non-empty slot of the interior
 /// buffer (`uInterior Cell Buffer`) is taken; failing that the exterior
-/// buffer is sorted (`TES::SortExteriorBuffer`, `00454fc0`) and its last slot
-/// (above the first `grid * grid` slots, the loaded square) that is neither
-/// loaded (`TES::IsCellLoaded`) nor pinned (`00557090`) is taken.
-/// With an interior cell: the exterior buffer is searched the same way, then
-/// the interior buffer for a slot other than the loaded interior cell, then
-/// the whole exterior buffer from the front (which also runs `00453940`).
+/// buffer is sorted (`TES::SortExteriorBuffer`, `00454fc0`) and only its last
+/// non-empty slot (above the first `grid * grid` slots, the loaded square) is
+/// looked at: it is taken unless it is loaded (`TES::IsCellLoaded`) or pinned
+/// (`00557090`), and then nothing is unloaded (3b76, 3b8e JNZ 3baf out of the
+/// loop; only an empty slot goes on, 3b58).
+/// With an interior cell: the exterior buffer is searched for the last slot
+/// that is neither loaded nor pinned, going past those that are (3c26, 3c3e),
+/// then the interior buffer for a slot other than the loaded interior cell,
+/// then the whole exterior buffer from the front (which also runs `00453940`).
 /// After an unload with the first exterior slot empty and a world space, the
 /// terrain manager is told (`006fce00`).
 pub fn fn_00453a80(e: &mut Engine, this: Ptr<TES>) -> bool {
@@ -3092,13 +3095,14 @@ pub fn fn_00453a80(e: &mut Engine, this: Ptr<TES>) -> bool {
                 let buffer = e.get(this, TES::pExteriorBuffer).addr();
                 let slot = buffer.wrapping_add(index.wrapping_mul(4));
                 let cell = e.mem.u32(slot);
-                if cell != 0
-                    && !tes_is_cell_loaded(e, this, Ptr::new(cell), 1)
-                    && !e.call(0x0055_7090, &args![cell]).bool()
-                {
-                    taken = cell;
-                    let buffer = e.get(this, TES::pExteriorBuffer).addr();
-                    e.mem.set_u32(buffer.wrapping_add(index.wrapping_mul(4)), 0);
+                if cell != 0 {
+                    if !tes_is_cell_loaded(e, this, Ptr::new(cell), 1)
+                        && !e.call(0x0055_7090, &args![cell]).bool()
+                    {
+                        taken = cell;
+                        let buffer = e.get(this, TES::pExteriorBuffer).addr();
+                        e.mem.set_u32(buffer.wrapping_add(index.wrapping_mul(4)), 0);
+                    }
                     break;
                 }
                 index = index.wrapping_sub(1);
@@ -9650,8 +9654,25 @@ mod tests {
     #[test]
     fn unloading_without_an_interior_cell_takes_a_buffered_exterior_cell() {
         // The first 4 slots are the loaded square; the search runs from the
-        // end down to slot 4: slot 5 is loaded (cell state 3 is not what
-        // `TES::IsCellLoaded` calls loaded, state 6 is), slot 4 is free.
+        // end down to slot 4: slot 5 is empty and goes on (3b58), slot 4 is
+        // neither loaded nor pinned.
+        let (mut e, tes, _, exterior) = unload_engine(&[0, 0, 0], &[0, 0, 0, 0, 0x2100, 0]);
+        e.map(0x2100, 0x100);
+        e.mem.set_u8(0x2100 + 0x26, 3);
+        let log = run_logged(&mut e, |e| {
+            assert!(e.call(0x0045_3a80, &args![tes]).bool());
+        });
+        assert_eq!(count_calls(&log, 0x0045_4fc0), 1);
+        assert_eq!(e.mem.u32(exterior + 16), 0);
+        assert_eq!(count_calls(&log, 0x0046_2290), 1);
+        assert_eq!(calls_to(&log, 0x0046_2290)[0][1], 0x2100);
+    }
+
+    #[test]
+    fn unloading_without_an_interior_cell_stops_at_a_loaded_top_slot() {
+        // 00453a80: the last non-empty slot ends the search even when it is
+        // loaded (3b76 JNZ 3baf, 3baf JMP 3bb3 to 3d6b with nothing taken), so
+        // the free cell below it stays and the answer is false.
         let loaded = 0x2000;
         let (mut e, tes, _, exterior) = unload_engine(&[0, 0, 0], &[0, 0, 0, 0, 0x2100, loaded]);
         e.map(loaded, 0x100);
@@ -9659,24 +9680,40 @@ mod tests {
         e.map(0x2100, 0x100);
         e.mem.set_u8(0x2100 + 0x26, 3);
         let log = run_logged(&mut e, |e| {
-            assert!(e.call(0x0045_3a80, &args![tes]).bool());
+            assert!(!e.call(0x0045_3a80, &args![tes]).bool());
         });
-        assert_eq!(count_calls(&log, 0x0045_4fc0), 1);
-        // Slot 4 was taken (slot 5 is loaded and stays).
-        assert_eq!(e.mem.u32(exterior + 16), 0);
+        assert_eq!(e.mem.u32(exterior + 16), 0x2100);
         assert_eq!(e.mem.u32(exterior + 20), loaded);
-        assert_eq!(count_calls(&log, 0x0046_2290), 1);
-        assert_eq!(calls_to(&log, 0x0046_2290)[0][1], 0x2100);
+        assert_eq!(count_calls(&log, 0x0046_2290), 0);
     }
 
     #[test]
-    fn unloading_skips_cells_the_object_check_pins() {
+    fn unloading_without_an_interior_cell_stops_at_a_pinned_top_slot() {
+        // 00453a80: 3b8e JNZ 3baf, the same way out as a loaded slot.
         let (mut e, tes, _, exterior) = unload_engine(&[0, 0, 0], &[0, 0, 0, 0, 0x2100, 0x2200]);
         for cell in [0x2100u32, 0x2200] {
             e.map(cell, 0x100);
             e.mem.set_u8(cell + 0x26, 3);
         }
         // `00557090` pins the last one.
+        e.register_double(0x0055_7090, |_, a| Ret {
+            eax: (a[0] == 0x2200) as u32,
+            ..Ret::default()
+        });
+        assert!(!e.call(0x0045_3a80, &args![tes]).bool());
+        assert_eq!(e.mem.u32(exterior + 16), 0x2100);
+        assert_eq!(e.mem.u32(exterior + 20), 0x2200);
+    }
+
+    #[test]
+    fn unloading_with_an_interior_cell_goes_past_a_pinned_slot() {
+        // 00453a80: this search does go on (3c3e JNZ 3c61, 3c61 JMP 3bea).
+        let (mut e, tes, _, exterior) = unload_engine(&[0, 0, 0], &[0, 0, 0, 0, 0x2100, 0x2200]);
+        returns(&mut e, GET_INTERIOR_CELL, 0x6200);
+        for cell in [0x2100u32, 0x2200] {
+            e.map(cell, 0x100);
+            e.mem.set_u8(cell + 0x26, 3);
+        }
         e.register_double(0x0055_7090, |_, a| Ret {
             eax: (a[0] == 0x2200) as u32,
             ..Ret::default()

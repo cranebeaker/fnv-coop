@@ -309,11 +309,11 @@ pub fn fn_00853b90(e: &mut Engine, this: Ptr) {
             e.call(0x006b7f20, &args![map, iter, key, item]);
             let form_id = e.mem.u32(key);
             let entry = e.mem.u32(item);
-            let flags_word = e.mem.u32(entry);
             if e.call(0x00559450, &args![entry + 4]).u32() != 0 {
                 let version = e.call(0x0084b450, &args![entry + 4]).u8();
                 let overhead = e.call(0x00866450, &args![entry + 4]).u32();
                 let data = e.call(0x008663e0, &args![entry + 4]).u32();
+                let flags_word = e.mem.u32(entry);
                 let map_key = e.call(0x00849220, &args![entry + 4]).u32();
                 fn_008549b0(
                     e, this, form_id, 0, map_key, flags_word, data, overhead, 0, version,
@@ -321,11 +321,14 @@ pub fn fn_00853b90(e: &mut Engine, this: Ptr) {
             } else {
                 let form = e.call(0x004839c0, &args![form_id]).u32();
                 if form != 0 {
-                    fn_00854b10(e, this, Ptr::new(form), flags_word, Ptr::new(buffer));
+                    let mask = e.mem.u32(entry);
+                    fn_00854b10(e, this, Ptr::new(form), mask, Ptr::new(buffer));
                     let version = e.call(0x008a81c0, &args![buffer]).u8();
                     let debug = e.call(0x0044edb0, &args![buffer]).u32();
                     let overhead = e.call(0x00865b10, &args![buffer]).u32();
                     let data = fn_00853dc0(e, Ptr::new(buffer));
+                    // 853cb8: read again, after the form's Save (slot 0x54 from 00854b78).
+                    let flags_word = e.mem.u32(entry);
                     let map_key = e.call(0x00401170, &args![form]).u32();
                     fn_008549b0(
                         e, this, form_id, form, map_key, flags_word, data, overhead, debug, version,
@@ -1798,7 +1801,6 @@ mod stats_tests {
             (0x0085_3130, 0),
             (0x0084_4700, 0),
             (0x007a_7eb0, 0),
-            (0x7100_0054, 0),
         ] {
             spy(&mut e, &log, addr, result);
         }
@@ -1806,6 +1808,14 @@ mod stats_tests {
         e.register_double(0x0048_39c0, move |_, a| {
             assert_eq!(a, &[0x20]);
             form.into_ret()
+        });
+        // 00853b90: 853c82 reads [entry] for 00854b10, 853cb8 reads it again after the form's Save
+        // (slot 0x54, 00854b78): a Save that changes the word gives the record the new one.
+        let save_log = log.clone();
+        e.register_double(0x7100_0054, move |e, a| {
+            save_log.borrow_mut().push((0x7100_0054, a.to_vec()));
+            e.mem.set_u32(loaded, 0xcc);
+            Ret::default()
         });
         // The buffer's two words 00853dc0 subtracts; the reset (a spy here)
         // would clear them.
@@ -1830,7 +1840,7 @@ mod stats_tests {
         let record = inserts[1].1[1];
         assert_eq!(
             record_fields(&e, record),
-            [0x20, 0xbb, 0x200, 0x50, 0x40, form]
+            [0x20, 0xcc, 0x200, 0x50, 0x40, form]
         );
         assert_eq!(e.mem.u8(record + 0x18), 3);
         let set_at: Vec<_> = calls.iter().filter(|c| c.0 == 0x0084_4700).collect();
@@ -1848,6 +1858,9 @@ mod stats_tests {
         }
         let forms_saved: Vec<_> = calls.iter().filter(|c| c.0 == 0x7100_0054).collect();
         assert_eq!(forms_saved.len(), 1, "only the loaded form is saved");
+        // The save itself got the word as it was before.
+        let headers: Vec<_> = calls.iter().filter(|c| c.0 == 0x0086_5ad0).collect();
+        assert_eq!(headers[0].1[2], 0xbb);
     }
 
     /// The texts the report formats and prints (the exe's own strings,

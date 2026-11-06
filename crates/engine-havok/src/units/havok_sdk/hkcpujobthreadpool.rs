@@ -259,8 +259,12 @@ pub fn hk_cpu_job_thread_pool_destruct(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 00d2cfb0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00d2cfb0 - the exe sets bit 15 (flush-to-zero) of MXCSR before
-// anything else; the engine has no floating-point control state, so that is not modelled.
+// Translation incomplete: 00d2cfb0 - the exe sets bit 15 (flush-to-zero) of MXCSR right after the
+// thread number (d2cfcd..d2cfe0), and this thread is the only place it does so. Not modelled: these
+// threads start only when the world is multithreaded (`hkpWorld +0xf0` = 3; 00c6ae70 acquires the
+// pool then). The measured game steps with 00c91b10 on AI linear task thread 2 at MXCSR 0x1F80, so
+// no worker runs there. Setting the real register on this OS thread would also reach the x87
+// helpers, which do `f64`/`f32` work in SSE and which the exe's x87 code does not route through it.
 /// `hkWorkerThreadFunc` (Xbox PDB; cdecl, `thread` = the thread record): the worker thread's
 /// body. Stores its thread number in the thread-local slot, pins itself to its ideal
 /// processor, builds a memory router on its own stack and registers it with the memory system
