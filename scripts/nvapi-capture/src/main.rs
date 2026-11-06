@@ -23,6 +23,13 @@
 //! after a call with them set to ff<TAB>that call's status` (bytes the call wrote read the same in
 //! both; see [`twice`]).
 //! A line `NvApiEnd` closes the capture.
+//!
+//! The probe takes AMD's way instead when the adapter's vendor selector is 2: it loads
+//! `ATIMGPUD.dll` (Windows searches the program's folder first, and the game ships one there),
+//! finds `AtiQueryMgpuCount`, calls it (no arguments) and frees the DLL. The DLL asks AMD's
+//! driver. This tool does the same before the NvAPI calls, with the game folder's copy when
+//! there is one. Lines: `AtiLoad<TAB>game when the game folder's copy<TAB>found (1/0)<TAB>
+//! GetLastError when not found`, `AtiProc<TAB><TAB>found (1/0)`, `AtiCall<TAB><TAB>the answer`.
 use std::ffi::c_void;
 use std::io::Write;
 
@@ -32,6 +39,7 @@ extern "system" {
     fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
     fn GetLastError() -> u32;
     fn GetModuleHandleA(name: *const u8) -> *mut c_void;
+    fn FreeLibrary(module: *mut c_void) -> i32;
 }
 #[link(name = "d3d9")]
 extern "system" {
@@ -171,6 +179,8 @@ fn main() {
     let mut o = out.lock();
     unsafe {
         let d3d = direct3d(&mut o);
+        let folder = std::path::Path::new(&exe_path).parent().expect("the game's folder");
+        ati(&mut o, folder);
         let module = LoadLibraryA(b"nvapi.dll\0".as_ptr());
         if module.is_null() {
             writeln!(o, "NvApiLoad\t\t0\t{:x}", GetLastError()).unwrap();
@@ -239,6 +249,29 @@ fn main() {
         }
         writeln!(o, "NvApiEnd").unwrap();
     }
+}
+
+/// The probe's AMD way: `ATIMGPUD.dll` as the game finds it, `AtiQueryMgpuCount` and its answer.
+unsafe fn ati(o: &mut impl Write, folder: &std::path::Path) {
+    let local = folder.join("ATIMGPUD.dll");
+    let (place, name) = if local.exists() {
+        ("game", format!("{}\0", local.display()))
+    } else {
+        ("", "ATIMGPUD.dll\0".to_string())
+    };
+    let module = LoadLibraryA(name.as_ptr());
+    if module.is_null() {
+        writeln!(o, "AtiLoad\t{place}\t0\t{:x}", GetLastError()).unwrap();
+        return;
+    }
+    writeln!(o, "AtiLoad\t{place}\t1\t0").unwrap();
+    let query = GetProcAddress(module, b"AtiQueryMgpuCount\0".as_ptr());
+    writeln!(o, "AtiProc\t\t{}", u32::from(!query.is_null())).unwrap();
+    if !query.is_null() {
+        let query: Call0 = std::mem::transmute(query);
+        writeln!(o, "AtiCall\t\t{:x}", query() as u32).unwrap();
+    }
+    FreeLibrary(module);
 }
 
 /// Makes one call twice, its out bytes filled with 00 and then with ff (the first word set to

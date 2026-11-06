@@ -4,6 +4,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
+pub mod atimgpud;
 pub mod bink;
 pub mod d3d9;
 pub mod d3d9device;

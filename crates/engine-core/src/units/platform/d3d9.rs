@@ -123,6 +123,8 @@ pub struct Adapter {
     display_devices: HashMap<u32, (u32, Vec<u8>)>,
     /// The `NvApi*` lines (`scripts/nvapi-capture`).
     nvapi: super::nvapi::Table,
+    /// The `Ati*` lines (`scripts/nvapi-capture`).
+    ati: super::atimgpud::Table,
     /// The processor: the `ID` flag test's answer and `CPUID` leaves by number (`EAX EBX ECX
     /// EDX`), for the CRT's `__get_sse2_info`.
     cpu_id_flag_test: Option<u32>,
@@ -159,7 +161,7 @@ impl Adapter {
         for line in table.lines().filter(|l| !l.is_empty()) {
             let f: Vec<&str> = line.split('\t').collect();
             let hex = |i: usize| u32::from_str_radix(f[i], 16).expect("a hex result");
-            if a.nvapi.take_line(&f) {
+            if a.nvapi.take_line(&f) || a.ati.take_line(&f) {
                 continue;
             }
             match f[0] {
@@ -282,6 +284,8 @@ pub struct Graphics {
     pub(crate) device_objects: super::d3d9device::Objects,
     /// The NvAPI answers and the functions handed out (`super::nvapi`).
     pub(crate) nvapi: super::nvapi::State,
+    /// The `ATIMGPUD.dll` answers (`super::atimgpud`).
+    pub(crate) ati: super::atimgpud::Table,
     /// The machine-local D3DX texture cache folder (`super::d3dx`).
     pub(crate) d3dx_texture_cache: Option<std::path::PathBuf>,
     /// The real `d3d9.dll` objects behind the modelled ones (`NV_D3D9=real`, ADR-0008).
@@ -296,6 +300,7 @@ pub struct Graphics {
 pub fn load_adapter_table(e: &mut Engine, table: &str) {
     let adapter = Adapter::parse(table);
     e.kernel.graphics.nvapi.table = adapter.nvapi.clone();
+    e.kernel.graphics.ati = adapter.ati.clone();
     e.kernel.graphics.adapter = Some(adapter);
 }
 
