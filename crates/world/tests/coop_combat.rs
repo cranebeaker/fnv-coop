@@ -811,7 +811,14 @@ fn vats_is_real_time_for_everyone_else_and_resolves_on_the_host() {
     );
     let (_, results, spent) = r.guests[0].coop.live.combat.vats_results[0].clone();
     assert_eq!(results.len(), 2);
-    assert_eq!(spent, 40);
+    // two attacks at the cost the guest's world gives its attack (#74: the
+    // harness claims `vats::attack_cost`, and the host holds it to its own
+    // price of the same attack)
+    let settings = world::vats::Settings::load(&order);
+    let hand = world::combat::weapon_in_hand(&order, &r.guests[0], PLAYER_REF);
+    let cost = world::vats::attack_cost(&order, &r.guests[0], &settings, hand.as_ref());
+    assert!(cost >= 1.0, "{cost}");
+    assert_eq!(spent, 2 * cost.round() as u16);
     assert!(
         r.until(30_000, |r| world::combat::health(&order, &r.host, gecko)
             .unwrap()

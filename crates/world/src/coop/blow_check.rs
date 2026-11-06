@@ -14,6 +14,12 @@
 //! - a critical hit needs a chance above 0 for this striker, weapon and
 //!   victim (the roll itself is the guest's).
 //!
+//! - a V.A.T.S. attack (the blow's attack kind) is paid from the action
+//!   points of the host's copy of the guest: the host's price of that kind
+//!   ([`crate::vats::prices`]), shared by a shot's pellets. A queued shot
+//!   was paid when the host resolved its queue. Without the points, the
+//!   blow counts as a plain attack.
+//!
 //! A part the host does not grant is dropped from the blow, not the blow.
 //! A wrong weapon or follower refuses the blow.
 //!
@@ -66,6 +72,19 @@ pub struct Counted {
     pub damage: f64,
     /// The [`Blow`] flags the host did not grant.
     pub dropped: u8,
+    /// The host did not grant the V.A.T.S. attack (no points in its copy).
+    pub vats_dropped: bool,
+    /// The action points the host's copy of the guest paid for the blow.
+    pub ap: f32,
+}
+
+/// How the host pays for a V.A.T.S. blow.
+#[derive(Clone, Copy)]
+pub enum Pay<'a> {
+    /// From the copy's action points, at the host's prices.
+    Points(&'a crate::vats::Settings),
+    /// Paid already: a queued shot (`VatsHost::resolve`).
+    Paid,
 }
 
 /// The host's count of the `blows` of player `from` on `victim`, one result
@@ -78,6 +97,7 @@ pub fn count_blows(
     victim: FormId,
     blows: &[Blow],
     held: &BTreeSet<FormId>,
+    pay: Pay,
 ) -> Vec<Result<Counted, Refusal>> {
     let puppet = puppet_of(from);
     let places = Places {
@@ -110,7 +130,7 @@ pub fn count_blows(
                 }
                 match b.blast {
                     Some(blast) => count_blast(order, g, b, blast, victim, places, held),
-                    None => count_one(order, g, b, victim, sneaking, unseen),
+                    None => count_one(order, g, b, victim, sneaking, unseen, pay),
                 }
             })
             .collect()
@@ -125,6 +145,7 @@ fn count_one(
     victim: FormId,
     sneaking: bool,
     unseen: bool,
+    pay: Pay,
 ) -> Result<Counted, Refusal> {
     let attacker = b.by.map_or(PLAYER_REF, |f| FormId(f.0));
     let weapon = combat::weapon_in_hand(order, g, attacker);
@@ -132,15 +153,36 @@ fn count_one(
         return Err(Refusal::NotInHand);
     }
     let melee = weapon.as_ref().map_or(true, |w| w.is_melee());
+    // A V.A.T.S. attack's price, before the pellets share the damage.
+    let prices = match pay {
+        Pay::Points(s) => Some(crate::vats::prices(order, g, s)),
+        Pay::Paid => None,
+    };
     // A shot's pellets share its damage (`viewer::combat`, `world::combat::Weapon::shot`).
+    let mut pellets = 1u32;
     let weapon = weapon.map(|mut w| {
         if !melee {
             let ammo = w.ammo_in_use(order, g, attacker);
             let (count, _) = w.shot(order, ammo);
-            w.damage /= count.max(1) as f32;
+            pellets = count.max(1);
+            w.damage /= pellets as f32;
         }
         w
     });
+    // A V.A.T.S. attack pays its price from the copy's action points, shared
+    // by the shot's pellets (`vats::spend`, as the guest's own attack pays).
+    let mut kind = b.vats.filter(|_| attacker == PLAYER_REF);
+    let mut ap = 0.0;
+    if let (Some(k), Some(prices)) = (kind, prices) {
+        let price = prices.get(&k).map(|c| c / pellets as f32);
+        match price {
+            Some(c) if crate::vats::action_points(order, g) >= c => {
+                crate::vats::spend(g, c);
+                ap = c;
+            }
+            _ => kind = None,
+        }
+    }
     let mut flags = b.flags;
     if attacker != PLAYER_REF || !sneaking || !unseen {
         flags &= !Blow::SNEAK;
@@ -153,7 +195,7 @@ fn count_one(
     // The V.A.T.S. hit playing on the guest, for its damage and critical
     // multipliers (`vats::attack_damage_mult`, `vats::critical_bonus`).
     let saved = (g.vats.mode, g.vats.attack.take());
-    if let Some(kind) = b.vats.filter(|_| attacker == PLAYER_REF) {
+    if let Some(kind) = kind {
         g.vats.mode = crate::vats::mode::PLAYBACK;
         g.vats.attack = Some(crate::vats::AttackFacts {
             weapon: weapon.as_ref().map(|w| w.form_id),
@@ -189,6 +231,8 @@ fn count_one(
     Ok(Counted {
         damage: super::facts::scaled_damage(g, victim, attacker, f64::from(d.dealt)),
         dropped: b.flags & !flags,
+        vats_dropped: b.vats.is_some() && kind.is_none(),
+        ap,
     })
 }
 
@@ -258,5 +302,7 @@ fn count_blast(
     Ok(Counted {
         damage: super::facts::scaled_damage(g, victim, attacker, f64::from(dealt)),
         dropped: b.flags & !granted,
+        vats_dropped: false,
+        ap: 0.0,
     })
 }

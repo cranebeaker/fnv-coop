@@ -472,7 +472,9 @@ pub struct LiveHostAdapter {
     announced: BTreeSet<FormId>,
     next_loot_ms: u64,
     /// Guest hit requests that wait for the friendly-fire guard.
-    held_hits: Vec<(PlayerId, Msg)>,
+    /// A guest's hit requests, and whether a queue paid for them already
+    /// (a V.A.T.S. queue's hits).
+    held_hits: Vec<(PlayerId, Msg, bool)>,
     /// The part of a point each guest's named blows have dealt that no
     /// verdict has carried yet (the host counts them, `recount`).
     blow_carry: BTreeMap<PlayerId, HitCarry>,
@@ -490,6 +492,12 @@ pub struct LiveHostAdapter {
     held: BTreeMap<PlayerId, BTreeSet<FormId>>,
     /// When `note_held` next looks at the guests' hands.
     next_held_ms: u64,
+    /// When `action_points` next looks at the guests' copies.
+    next_ap_ms: u64,
+    /// When `action_points` last looked at each guest's copy.
+    ap_seen_ms: BTreeMap<PlayerId, u64>,
+    /// The game's V.A.T.S. settings, read once.
+    vats_settings: Option<crate::vats::Settings>,
 }
 
 /// Milliseconds between the guests' speed updates for the avatar check.
@@ -497,6 +505,9 @@ const PACE_EVERY_MS: u64 = 1_000;
 /// Milliseconds between looks at the guests' hands (`note_held`): shorter
 /// than a throw.
 const HELD_EVERY_MS: u64 = 250;
+/// Milliseconds between looks at the guests' action points
+/// (`action_points`).
+const AP_EVERY_MS: u64 = 250;
 
 /// The script state that says who is essential (`more_functions::is_essential`):
 /// `SetEssential` per base, `SetActorRefEssential` per reference, the
@@ -539,6 +550,9 @@ impl LiveHostAdapter {
             next_pace_ms: 0,
             held: BTreeMap::new(),
             next_held_ms: 0,
+            next_ap_ms: 0,
+            ap_seen_ms: BTreeMap::new(),
+            vats_settings: None,
         }
     }
 
@@ -660,7 +674,7 @@ impl LiveHostAdapter {
     pub fn hold_guest_hit(&mut self, from: PlayerId, msg: Msg) -> Option<Msg> {
         match msg {
             Msg::Actor(ActorMsg::Hit { .. }) if !from.is_host() => {
-                self.held_hits.push((from, msg));
+                self.held_hits.push((from, msg, false));
                 None
             }
             // a guest's dialogue pick waits for the line's conditions check
@@ -722,7 +736,17 @@ impl LiveHostAdapter {
     /// each blow from the host's copy of that guest replaces the guest's own
     /// count (`super::blow_check`). A refused blow deals nothing. The part of
     /// a point left waits for the next blows on the same victim.
-    fn recount(&mut self, cx: Ctx, gs: &mut GameState, from: PlayerId, m: Msg) -> Msg {
+    ///
+    /// `paid`: a V.A.T.S. queue paid for the blows already. Returns the
+    /// message and the action points the host's copy of the guest paid.
+    fn recount(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        from: PlayerId,
+        m: Msg,
+        paid: bool,
+    ) -> (Msg, f32) {
         let Msg::Actor(ActorMsg::Hit {
             actor,
             hit,
@@ -731,27 +755,38 @@ impl LiveHostAdapter {
             blows,
         }) = m
         else {
-            return m;
+            return (m, 0.0);
         };
         if blows.is_empty() {
-            return Msg::Actor(ActorMsg::Hit {
+            let m = Msg::Actor(ActorMsg::Hit {
                 actor,
                 hit,
                 amount,
                 npc: None,
                 blows,
             });
+            return (m, 0.0);
         }
         let victim = wf(actor);
         let mut total = 0.0;
+        let mut ap = 0.0;
         let none = BTreeSet::new();
         let held = self.held.get(&from).unwrap_or(&none);
-        let counted = super::blow_check::count_blows(cx.order, gs, from, victim, &blows, held);
+        let settings = self
+            .vats_settings
+            .get_or_insert_with(|| crate::vats::Settings::load(cx.order));
+        let pay = if paid {
+            super::blow_check::Pay::Paid
+        } else {
+            super::blow_check::Pay::Points(settings)
+        };
+        let counted = super::blow_check::count_blows(cx.order, gs, from, victim, &blows, held, pay);
         for r in counted {
             match r {
                 Ok(c) => {
                     total += c.damage;
-                    if c.dropped != 0 {
+                    ap += c.ap;
+                    if c.dropped != 0 || c.vats_dropped {
                         self.stats.blow_parts_dropped += 1;
                     }
                 }
@@ -765,13 +800,14 @@ impl LiveHostAdapter {
             .or_default()
             .take(victim, total, left)
             .unwrap_or(0);
-        Msg::Actor(ActorMsg::Hit {
+        let m = Msg::Actor(ActorMsg::Hit {
             actor,
             hit,
             amount: points,
             npc: None,
             blows,
-        })
+        });
+        (m, ap)
     }
 
     /// Gives the avatar check each guest's run speed (#74), from the host's
@@ -792,6 +828,69 @@ impl LiveHostAdapter {
                 crate::locomotion::speed(cx.order, g, &settings, PLAYER_REF, true, false)
             });
             live.avatars.set_speed(p, speed, now_ms);
+        }
+    }
+
+    /// Keeps each guest's V.A.T.S. action points in the host's copy of
+    /// that guest (#74). The copy pays what the host's resolve of the
+    /// guest's queues took (`VatsHost::take_spent`), as the guest's own
+    /// world does. The copy gets its points back while the guest is out of
+    /// V.A.T.S. (its marks), at the game's rate (`vats::restore`). The
+    /// host's resolve holds each queue to the copy's points and prices
+    /// (`vats::prices`). With shadows off, the host has no copy, and the
+    /// queue's claim is held only to the host's cap.
+    fn action_points(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) {
+        if !gs.coop.bank.enabled() {
+            return;
+        }
+        for (p, spent) in live.combat.vats.take_spent() {
+            if p != PlayerId::HOST && gs.coop.bank.parked.contains_key(&p.0) {
+                gs.with_player(p.0, |g| crate::vats::spend(g, f32::from(spent)));
+            }
+        }
+        if now_ms < self.next_ap_ms {
+            return;
+        }
+        self.next_ap_ms = now_ms + AP_EVERY_MS;
+        let s = self
+            .vats_settings
+            .get_or_insert_with(|| crate::vats::Settings::load(cx.order));
+        let in_vats: BTreeSet<PlayerId> = live.combat.vats.active().copied().collect();
+        let members: BTreeSet<PlayerId> = live.members().iter().copied().collect();
+        self.ap_seen_ms.retain(|p, _| members.contains(p));
+        live.combat.vats.keep_only(&members);
+        for p in members {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let seconds = self
+                .ap_seen_ms
+                .insert(p, now_ms)
+                .map_or(0.0, |t| now_ms.saturating_sub(t) as f32 / 1000.0);
+            let back = !in_vats.contains(&p);
+            let (most, points, prices) = gs.with_player(p.0, |g| {
+                if back {
+                    crate::vats::restore(cx.order, g, seconds);
+                }
+                (
+                    crate::vats::max_action_points(cx.order, g),
+                    crate::vats::action_points(cx.order, g),
+                    crate::vats::prices(cx.order, g, s),
+                )
+            });
+            let vats = &mut live.combat.vats;
+            // no action points in the copy: the host does not know them
+            if most <= 0.0 {
+                vats.known_ap.remove(&p);
+                vats.prices.remove(&p);
+                continue;
+            }
+            vats.known_ap.insert(p, points.clamp(0.0, 255.0) as u16);
+            let prices = prices
+                .into_iter()
+                .map(|(k, c)| (k, c.round().clamp(0.0, f32::from(u16::MAX)) as u16))
+                .collect();
+            vats.prices.insert(p, prices);
         }
     }
 
@@ -816,14 +915,14 @@ impl LiveHostAdapter {
 
     /// Also returns a notice to the striker of each dropped blow
     /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
-    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Outs, Outs) {
+    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Vec<(PlayerId, Msg, bool)>, Outs) {
         let (mut pass, mut blocked) = (Vec::new(), Vec::new());
-        for (from, m) in std::mem::take(&mut self.held_hits) {
+        for (from, m, paid) in std::mem::take(&mut self.held_hits) {
             let Msg::Actor(ActorMsg::Hit { actor, npc, .. }) = &m else {
                 continue;
             };
             if super::campaign::ffguard::allow_hit(cx.order, gs, from.0, wf(*actor)) {
-                pass.push((from, m));
+                pass.push((from, m, paid));
             } else {
                 let (actor, npc) = (*actor, npc.is_some());
                 blocked.push((from, Msg::Actor(ActorMsg::HitBlocked { actor, npc })));
@@ -850,6 +949,7 @@ impl LiveHostAdapter {
         self.registry.update(live);
         self.paces(cx, gs, live, now_ms);
         self.note_held(cx, gs, live, now_ms);
+        self.action_points(cx, gs, live, now_ms);
         super::campaign::party::refresh_positions(gs, &self.registry);
         // a guest's followers come along when the guest changes place
         let places = &mut self.pump.places;
@@ -896,10 +996,15 @@ impl LiveHostAdapter {
         // a guest's hit requests: the friendly-fire guard, then the same ledger
         // a guest's V.A.T.S. hits are that guest's hits: the same guard and count
         live.hold_vats_hits = true;
-        self.held_hits.append(&mut live.held_vats_hits);
+        let queued = live.held_vats_hits.drain(..).map(|(f, m)| (f, m, true));
+        self.held_hits.extend(queued);
         let (pass, blocked) = self.guarded_hits(cx, gs);
-        for (from, m) in pass {
-            let m = self.recount(cx, gs, from, m);
+        for (from, m, paid) in pass {
+            let (m, ap) = self.recount(cx, gs, from, m, paid);
+            // the next queue sees what the copy paid for these blows
+            if let Some(k) = live.combat.vats.known_ap.get_mut(&from) {
+                *k = k.saturating_sub(ap.ceil() as u16);
+            }
             outs.extend(live.on_msg(from, m, now_ms, auth));
         }
         // only a guest's blows are held, so each notice goes to a guest

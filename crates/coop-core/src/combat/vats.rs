@@ -9,6 +9,13 @@
 //! each shot from the shooter's AP (the lower of what they claim and what the
 //! host knows), rolls the hit chance deterministically from the queue id and
 //! shot index, and applies the party toughness to the damage.
+//!
+//! The host's world gives what it knows of each guest (#74), from its own
+//! copy of that guest: the action points ([`VatsHost::known_ap`]) and the
+//! cost of each attack the guest can make ([`VatsHost::prices`]). A shot
+//! costs the higher of its claim and the host's price for its attack kind.
+//! A shot of a kind the host does not price is not fired. The host's world
+//! takes what each guest spent ([`VatsHost::take_spent`]) from its copy.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -76,8 +83,14 @@ fn mix(mut x: u64) -> u64 {
 pub struct VatsHost {
     /// Limits.
     pub limits: VatsLimits,
-    /// AP the host knows for a player (from their shadow), when known.
+    /// AP the host knows for a player (from its copy of the player), when
+    /// known.
     pub known_ap: BTreeMap<PlayerId, u16>,
+    /// The cost of each V.A.T.S. attack kind a player can make (from the
+    /// host's copy of the player), when known.
+    pub prices: BTreeMap<PlayerId, BTreeMap<u8, u16>>,
+    /// AP each player spent since [`Self::take_spent`].
+    spent_by: BTreeMap<PlayerId, u16>,
     active: BTreeSet<PlayerId>,
     done: BTreeMap<(PlayerId, u32), (Vec<VatsResult>, u16)>,
     /// Queues resolved.
@@ -86,6 +99,8 @@ pub struct VatsHost {
     pub hits: u32,
     /// Shots refused for lack of AP.
     pub broke: u32,
+    /// Shots refused because the host does not price their attack.
+    pub not_offered: u32,
 }
 
 impl VatsHost {
@@ -123,23 +138,39 @@ impl VatsHost {
         let have = claimed_ap
             .min(self.limits.max_ap)
             .min(self.known_ap.get(&from).copied().unwrap_or(u16::MAX));
+        let prices = self.prices.get(&from);
         let mut left = have;
         let mut spent = 0u16;
         let mut results = Vec::new();
+        let unfired = |s: &VatsShot| VatsResult {
+            hit: false,
+            fired: false,
+            damage: 0,
+            limb: s.limb,
+            critical: false,
+        };
         for (i, s) in shots.iter().take(MAX_VATS_SHOTS).enumerate() {
-            if s.cost > left {
+            // the host's price of the shot's attack (no price known: the claim)
+            let cost = match prices {
+                None => Some(s.cost),
+                Some(p) => s
+                    .blow
+                    .and_then(|b| b.vats)
+                    .and_then(|k| p.get(&k))
+                    .map(|c| (*c).max(s.cost)),
+            };
+            let Some(cost) = cost else {
+                self.not_offered += 1;
+                results.push(unfired(s));
+                continue;
+            };
+            if cost > left {
                 self.broke += 1;
-                results.push(VatsResult {
-                    hit: false,
-                    fired: false,
-                    damage: 0,
-                    limb: s.limb,
-                    critical: false,
-                });
+                results.push(unfired(s));
                 continue;
             }
-            left -= s.cost;
-            spent = spent.saturating_add(s.cost);
+            left -= cost;
+            spent = spent.saturating_add(cost);
             let roll = mix(u64::from(from.0) << 40 ^ u64::from(id) << 8 ^ i as u64) % 1000;
             let chance = u64::from(s.chance.min(self.limits.max_chance));
             let hit = roll < chance && s.limb <= LIMB_COUNT;
@@ -168,6 +199,10 @@ impl VatsHost {
         if let Some(k) = self.known_ap.get_mut(&from) {
             *k = k.saturating_sub(spent);
         }
+        if spent > 0 {
+            let e = self.spent_by.entry(from).or_default();
+            *e = e.saturating_add(spent);
+        }
         self.queues += 1;
         self.done.insert((from, id), (results.clone(), spent));
         if self.done.len() > 256 {
@@ -176,5 +211,17 @@ impl VatsHost {
             }
         }
         (results, spent)
+    }
+
+    /// The AP each player spent on queues since the last call, for the
+    /// host's world to take from its copy of that player.
+    pub fn take_spent(&mut self) -> BTreeMap<PlayerId, u16> {
+        std::mem::take(&mut self.spent_by)
+    }
+
+    /// Forgets what the host knows of the players not in `keep`.
+    pub fn keep_only(&mut self, keep: &BTreeSet<PlayerId>) {
+        self.known_ap.retain(|p, _| keep.contains(p));
+        self.prices.retain(|p, _| keep.contains(p));
     }
 }

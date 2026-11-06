@@ -1412,6 +1412,157 @@ mod named_blows {
         assert_eq!(r.ha.stats.blows_refused, 0);
     }
 
+    /// Guest 1's copy on the host: the price of its machete's V.A.T.S.
+    /// attack and that attack's kind. The copy has 80 action points at most
+    /// and keeps `left` prices of them.
+    fn vats_points(r: &mut Rig, order: &LoadOrder, left: f32) -> (f32, u8) {
+        let s = world::vats::Settings::load(order);
+        r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(order, g, PLAYER_REF);
+            let kind = world::vats::attack_kind(w.as_ref().map(|w| w.animation));
+            let price = world::vats::attack_cost(order, g, &s, w.as_ref());
+            // the copy's most action points (Agility 5 in the game's formula)
+            g.actor_values
+                .insert((PLAYER_REF, world::vats::ACTION_POINTS), 80.0);
+            let most = world::vats::max_action_points(order, g);
+            assert!(price >= 1.0 && most > left * price, "{price} of {most}");
+            let key = (PLAYER_REF, world::vats::ACTION_POINTS);
+            g.value_damage.insert(key, f64::from(most - left * price));
+            (price, kind)
+        })
+    }
+
+    /// Guest 1's action points in the host's copy.
+    fn copy_points(r: &mut Rig, order: &LoadOrder) -> f32 {
+        r.host
+            .with_player(1, |g| world::vats::action_points(order, g))
+    }
+
+    /// Guest 1 enters (`true`) or leaves V.A.T.S.
+    fn vats_mark(r: &mut Rig, order: &LoadOrder, on: bool) {
+        let words = ["coop", "vatsmark", if on { "1" } else { "0" }];
+        assert!(world::coop::combat_live::bot_line(
+            order,
+            &mut r.guests[0],
+            &words,
+            &|_| None
+        ));
+    }
+
+    /// #74: the host prices a guest's queued V.A.T.S. shots from its copy of
+    /// the guest (`vats::prices`), not from the guest's claim of 0 points a
+    /// shot, and holds the queue to the copy's action points. The copy pays
+    /// what the queue spent: a second queue finds only what is left. Out of
+    /// V.A.T.S., the copy gets its points back at the game's rate. Mutation
+    /// twin: in V.A.T.S., it does not.
+    #[test]
+    fn the_host_holds_a_guests_vats_queue_to_its_copy() {
+        let (_d, order) = order("blow-vats-ap");
+        let scripts = ScriptCache::default();
+        let (mut r, _) = rig(&order, &scripts, 36, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        r.guests[0]
+            .equipped
+            .insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        vats_mark(&mut r, &order, true);
+        r.run_ms(600);
+        let (price, kind) = vats_points(&mut r, &order, 2.5);
+        r.run_ms(600);
+        let before = copy_points(&mut r, &order);
+        assert!(
+            (before - 2.5 * price).abs() < 0.01,
+            "no points back in V.A.T.S."
+        );
+        let ask = world::coop::combat_live::VatsAsk {
+            target: gecko,
+            limb: 0,
+            cost: 0,
+            chance: 0,
+            damage: 1,
+            blow: Some(named_vats(kind)),
+        };
+        r.guests[0].coop.live.combat.vats.extend([ask; 4]);
+        r.run_ms(600);
+        let results = r.guests[0].coop.live.combat.vats_results.clone();
+        assert_eq!(results.len(), 1, "the host answered the queue");
+        let fired = results[0].1.iter().filter(|x| x.fired).count();
+        assert_eq!(fired, 2, "two shots at the host's price");
+        assert_eq!(f32::from(results[0].2), 2.0 * price.round());
+        let left = copy_points(&mut r, &order);
+        assert!(
+            (left - (before - 2.0 * price.round())).abs() < 0.01,
+            "{left}"
+        );
+        r.guests[0].coop.live.combat.vats.extend([ask; 4]);
+        r.run_ms(600);
+        let results = r.guests[0].coop.live.combat.vats_results.clone();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[1].2, 0, "the second queue: nothing left");
+        assert_eq!(
+            copy_points(&mut r, &order),
+            left,
+            "no points back in V.A.T.S."
+        );
+        vats_mark(&mut r, &order, false);
+        r.run_ms(2_000);
+        let back = copy_points(&mut r, &order);
+        assert!(back > left + 1.0, "out of V.A.T.S.: {left} to {back}");
+    }
+
+    fn named_vats(kind: u8) -> Blow {
+        Blow {
+            part: Some(0),
+            vats: Some(kind),
+            ..named(MACHETE, 0)
+        }
+    }
+
+    /// #74: a guest's own V.A.T.S. attack (a blow that names its attack
+    /// kind) pays its price from the host's copy of the guest. The first
+    /// blow pays and counts as a V.A.T.S. attack. The second finds no
+    /// points in the copy: the host drops the V.A.T.S. part and counts a
+    /// plain attack.
+    #[test]
+    fn a_vats_blow_pays_from_the_copy_or_counts_as_a_plain_attack() {
+        let (_d, order) = order("blow-vats-pay");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 37, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        vats_mark(&mut r, &order, true);
+        r.run_ms(600);
+        let (price, kind) = vats_points(&mut r, &order, 1.5);
+        r.run_ms(600);
+        let plain = host_count(&mut r, &order, false);
+        let hit = |r: &mut Rig| {
+            r.guests[0].coop.live.pending_hits.push(PendingHit {
+                who: gecko,
+                amount: 4000.0,
+                by: PLAYER_REF,
+                blow: Some(named_vats(kind)),
+            });
+            r.run_ms(600);
+        };
+        hit(&mut r);
+        let left = copy_points(&mut r, &order);
+        assert!((left - 0.5 * price).abs() < 0.01, "paid one price: {left}");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 0);
+        let first = before - world::combat::health(&order, &r.host, gecko).unwrap();
+        hit(&mut r);
+        assert_eq!(copy_points(&mut r, &order), left, "nothing to pay with");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 1, "the V.A.T.S. part");
+        // the second blow counts as the plain attack, to the health left (the
+        // test world's V.A.T.S. adds nothing to the machete's damage)
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!((first - plain).abs() <= 1.0, "{first} of {before}, {plain}");
+        let second = before - after - first;
+        let rest = before - first;
+        assert!(
+            (second - plain.min(rest)).abs() <= 1.0,
+            "a plain attack: {second} {plain}"
+        );
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
     /// The gecko's place in the host's world, moved by `dx` units on x.
     fn beside_gecko(r: &Rig, order: &LoadOrder, dx: f32) -> [f32; 3] {
         let p = r.host.place(order, FormId(GECKO_REF)).expect("the gecko").2;

@@ -192,6 +192,8 @@ pub fn fighting(tag: &str) -> TempData {
         clip: u8,
         ammo: u32,
         reload: f32,
+        /// The V.A.T.S. cost (`DNAM` f32 at 68; second flags 0x08).
+        ap: f32,
     }
     let weapon = |id: u32, name: &str, damage: i16, g: Gun| {
         let mut d = edid(name);
@@ -219,6 +221,7 @@ pub fn fighting(tag: &str) -> TempData {
         dnam[48..52].copy_from_slice(&g.range.1.to_le_bytes());
         dnam[56..60].copy_from_slice(&g.flags2.to_le_bytes());
         dnam[64..68].copy_from_slice(&g.fire_rate.to_le_bytes());
+        dnam[68..72].copy_from_slice(&g.ap.to_le_bytes());
         dnam[88..92].copy_from_slice(&g.shots.to_le_bytes());
         dnam[92..96].copy_from_slice(&g.reload.to_le_bytes());
         dnam[104..108].copy_from_slice(&g.skill.to_le_bytes());
@@ -241,6 +244,7 @@ pub fn fighting(tag: &str) -> TempData {
         clip: 13,
         ammo: 0,
         reload: 0.0,
+        ap: 0.0,
     };
     let mut weapons = weapon(PISTOL, "TestCombatPistol", 16, gun);
     weapons.extend(weapon(
@@ -268,6 +272,8 @@ pub fn fighting(tag: &str) -> TempData {
             shots: 1.0,
             semi: (0.0, 0.0),
             skill: 38,
+            // one-handed melee's cost in FalloutNV.esm's table
+            ap: 15.0,
             ..gun
         },
     ));
