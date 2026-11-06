@@ -215,6 +215,9 @@ pub struct Engine {
     /// list: the region's lowest address and the current top (frames go down from the region's
     /// end); made at the thread's first local ([`Engine::with_stack`]).
     guest_stacks: Vec<Option<(u32, u32)>>,
+    /// The typed migration's seam on this engine: which families are on and may go direct
+    /// ([`crate::typed`]).
+    pub(crate) typed: crate::typed::State,
 }
 
 /// The bytes of each game thread's stack for `with_stack` locals.
@@ -243,8 +246,17 @@ impl Engine {
     /// (`units::crt`, `units::platform`) and those of the engine crates the
     /// program assembles ([`crate::assemble!`]): in the `engine` crate every
     /// part crate's, so every translated function; in a part crate's own
-    /// unit tests that crate's and those of the crates below it.
+    /// unit tests that crate's and those of the crates below it. Last, the typed families the
+    /// switch has on go over those translations ([`crate::typed::apply`]).
     pub fn new() -> Self {
+        let mut engine = Self::new_untyped();
+        crate::typed::apply(&mut engine);
+        engine
+    }
+
+    /// [`Engine::new`] with only the translations: the differential test's two engines
+    /// ([`crate::typed`]), whatever the switch says.
+    pub(crate) fn new_untyped() -> Self {
         let mut list = Vec::new();
         crate::units::funcs(&mut list);
         // SAFETY: `nv_engine_assembled_funcs` is the plain Rust function that
@@ -318,6 +330,7 @@ impl Engine {
             call_trace: crate::call_trace::for_new_engine(),
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
+            typed: Default::default(),
         };
         // The platform layer's state, when the program links the layer (`units::platform::Layer`:
         // its `units::funcs`, run above with the other crates' functions, installs it).
@@ -494,6 +507,7 @@ impl Engine {
     pub fn register(&mut self, addr: u32, f: AbiFn) {
         self.funcs.insert(addr, Callable::Abi(f));
         self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.typed.replaced(addr);
     }
 
     /// Registers a test double that keeps state (counts calls, returns a
@@ -507,6 +521,7 @@ impl Engine {
         self.funcs
             .insert(addr, Callable::Double(Rc::new(RefCell::new(f))));
         self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.typed.replaced(addr);
     }
 
     /// Calls the function at exe address `addr` with argument words in
@@ -570,7 +585,7 @@ impl Engine {
     /// record, return trace, block check, `NV_PROFILE`): [`Engine::call`] then takes its full
     /// path.
     #[inline(always)]
-    fn diagnosing(&self) -> bool {
+    pub(crate) fn diagnosing(&self) -> bool {
         // The hook and the nv-trace record are read as their pointer words, volatile: the
         // compiler otherwise tests four of these fields with a dozen vector instructions where
         // four compares do.
@@ -597,6 +612,11 @@ impl Engine {
     #[cold]
     #[inline(never)]
     fn call_full(&mut self, addr: u32, args: &[u32]) -> Ret {
+        // Every call takes this path while a diagnostic is on: typed calls go by address from
+        // here on, so the diagnostic sees them ([`crate::typed`]).
+        if self.typed.any_allowed() {
+            self.typed_sync();
+        }
         if let Some(log) = &mut self.call_log {
             log.push((addr, args.to_vec()));
         }
@@ -868,7 +888,7 @@ impl Engine {
         } else {
             self.push_frame(thread, size)
         };
-        let traced = self.call_trace.is_some();
+        let traced = self.call_trace.is_some() || self.typed_keeps_frames();
         if traced {
             self.stack_frames.push((block, size));
         }
@@ -915,6 +935,41 @@ impl Engine {
         if let Some(Some(stack)) = self.guest_stacks.get_mut(thread) {
             stack.1 = top.unwrap_or(stack.0 + GUEST_STACK_SIZE - STACK_TOP_RESERVE);
         }
+    }
+
+    /// Whether the differential test wants `with_stack` frames kept ([`crate::typed::diff`]); in a
+    /// program built without the core's `test-support` feature, never.
+    #[inline(always)]
+    fn typed_keeps_frames(&self) -> bool {
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.typed.keep_frames
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        {
+            false
+        }
+    }
+
+    /// What is registered at `addr`, as (its identity, it is a double that may keep state): the
+    /// differential test checks what a setup replaced.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn registered_identity(&self, addr: u32) -> Option<(usize, bool)> {
+        self.funcs.get(&addr).map(|f| match f {
+            Callable::Abi(f) => (*f as usize, false),
+            Callable::Double(d) => (Rc::as_ptr(d).cast::<()>() as usize, true),
+        })
+    }
+
+    /// The running thread's stack for `with_stack` locals as (lowest address, end), once made.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn guest_stack_region(&self) -> Option<(u32, u32)> {
+        let (base, _) = self
+            .guest_stacks
+            .get(self.kernel.threads.current)
+            .copied()
+            .flatten()?;
+        Some((base, base + GUEST_STACK_SIZE))
     }
 
     /// Takes a local of `size` bytes (rounded up to 8, zeroed) from game thread `thread`'s stack,

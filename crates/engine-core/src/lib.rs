@@ -13,7 +13,7 @@
 //! game's.
 //!
 //! This crate holds the model ([`Engine`], [`Mem`], [`abi`], [`ptr`],
-//! [`x87`], [`sse`], [`types`], [`exe`], the static initializer and `atexit` tables)
+//! [`x87`], [`sse`], [`types`], [`exe`], [`typed`], the static initializer and `atexit` tables)
 //! and the units every other part calls (`units/crt.rs`, `units/platform.rs`: the core of the
 //! platform layer; the rest of it is the `engine-platform` crate).
 //! The other units are in the part crates (`crates/engine-<part>`), and the
@@ -74,6 +74,7 @@ pub mod sse;
 pub mod static_exit;
 pub mod static_init;
 pub mod thread_host;
+pub mod typed;
 pub mod types;
 pub mod units;
 pub mod watch_check;
@@ -89,6 +90,7 @@ pub mod prelude {
     pub use crate::abi::{AbiFn, Arg, Ret, RetVal};
     pub use crate::cxx_exception::{caught_as, try_catch, Thrown, STD_EXCEPTION_NAME};
     pub use crate::ptr::{Field, Inline, Layout, Ptr, Scalar};
+    pub use crate::typed::FamilyId;
     pub use crate::x87::{
         x87_add, x87_div, x87_load32, x87_load64, x87_m32, x87_mul, x87_quiet, x87_quiet_bits,
         x87_round, x87_sqrt, x87_store32, x87_sub,
@@ -99,5 +101,5 @@ pub mod prelude {
         X87_STATUS_C2,
     };
     pub use crate::Engine;
-    pub use crate::{args, entry, layout};
+    pub use crate::{args, entry, layout, typed_call};
 }

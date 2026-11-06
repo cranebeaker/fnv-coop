@@ -40,3 +40,9 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo clippy --locked --workspace --all-targets -- -D warnings
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Its own workspace: what counts as a typed marker is defined there. `--check` stays out: the
+      # ledger holds line numbers, which every merge moves.
+      - name: Test the ledger
+        run: |
+          cargo test --locked --manifest-path scripts/ledger/Cargo.toml
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

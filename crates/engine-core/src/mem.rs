@@ -1261,6 +1261,42 @@ impl Mem {
         self.mapped_at(addr)
     }
 
+    /// The addresses of the mapped pages, lowest first (the differential test, `typed::diff`,
+    /// compares whole memories).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn mapped_pages(&self) -> Vec<u32> {
+        const STRETCH: usize = 1 << 12;
+        // SAFETY: the table holds a byte for each of the `PAGES` pages and stays committed while
+        // the block lives; only `&mut self` writes it.
+        let table = unsafe { std::slice::from_raw_parts(self.space.flag(0).cast_const(), PAGES) };
+        let mut out = Vec::new();
+        // A compare per stretch: nearly all of the table is zero, and this also runs in test builds.
+        for (k, stretch) in table.chunks_exact(STRETCH).enumerate() {
+            if stretch == [UNMAPPED; STRETCH] {
+                continue;
+            }
+            for (i, state) in stretch.iter().enumerate() {
+                if *state == MAPPED {
+                    out.push(((k * STRETCH + i) << PAGE_BITS) as u32);
+                }
+            }
+        }
+        out
+    }
+
+    /// The bytes of the mapped page at `page` (an address from [`Mem::mapped_pages`]).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn page_bytes(&self, page: u32) -> &[u8] {
+        assert!(self.is_mapped(page) && page & (PAGE as u32 - 1) == 0);
+        // SAFETY: the page is mapped, and only `&mut self` writes it.
+        unsafe {
+            std::slice::from_raw_parts(
+                self.host_page((page >> PAGE_BITS) as usize).cast_const(),
+                PAGE,
+            )
+        }
+    }
+
     /// Page `p`'s byte in the table of mapped pages ([`MAPPED`], [`KEPT`] or [`UNMAPPED`]; `p`
     /// an address shifted down by [`PAGE_BITS`], so below [`PAGES`]).
     #[inline(always)]

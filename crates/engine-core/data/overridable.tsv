@@ -1,0 +1,150 @@
+# Addresses a fix or a built-in extender feature can override (docs/ENGINE_CRATE.md, "Typed code"): a
+# typed function never calls one directly, and typed_call! never names one. Columns: address, the
+# direct Rust calls the translations already make to it (a ratchet: repo_hygiene.rs fails on a new one,
+# and asks to lower the number when one goes), and what overrides it. Sources: the plugins' literal
+# jumps at translated function entries, a lower bound (named constants and run-time addresses are
+# missed), nv-rs's own NV_UNCAP, and the four fixes-preset guards the audit left.
+00418b10	0	JIP
+0041af70	0	YUP,xNVSE
+004512a0	0	xNVSE
+00455490	0	script or frame function
+00474cb0	0	JG
+00482090	0	JIP
+00483a00	0	JG
+00493800	0	kNVSE
+004a0370	1	NVTF
+004a03c0	1	NVTF
+004ab400	1	JIP
+004bd570	2	ITR
+004bd820	1	JIP
+004bda70	4	JIP
+004bf630	4	JIP
+004c6a10	0	fixes preset guard
+004ca200	1	JIP
+004eec60	1	kNVSE
+004f0380	1	kNVSE
+0050de20	0	JIP
+0050f9e0	0	JIP
+00518f00	1	ITR
+00525a90	0	JIP
+00525b20	3	yUI
+005702e0	0	ITR
+0058e9d0	1	JIP
+00593870	2	script or frame function
+00595560	2	JIP
+005a5e70	1	JG
+005ac1e0	1	script or frame function
+005ac750	0	script or frame function
+005ac7a0	2	script or frame function
+005accb0	0	YUP,xNVSE
+005af3f0	1	xNVSE
+005b5e40	6	YUP,xNVSE
+005b6cd0	0	NVTF
+005c67e0	0	YUP,xNVSE
+005d2860	1	JIP
+005e0d20	0	script or frame function
+005e1160	0	script or frame function
+005e4810	2	ITR
+006047c0	1	JIP
+006155f0	1	ITR
+0061a310	1	JIP
+00623cb0	0	ITR
+00646260	0	JIP
+00646360	0	JIP
+00646d00	1	JIP
+0068f320	1	ITR
+0077a480	0	JIP
+0078ac60	2	JIP
+00866770	0	HeapReplacer
+00866d10	1	HeapReplacer
+00866e00	0	HeapReplacer
+0086ba60	2	HeapReplacer
+0086bae0	1	HeapReplacer
+0086c600	2	HeapReplacer
+0086e650	0	script or frame function
+0086ff70	1	script or frame function
+008706b0	1	JIP
+008a06c0	0	ITR
+008a8dd0	2	JIP
+008b39f0	0	ITR
+008bca90	0	JIP
+008d4e80	0	ITR
+00903180	0	kNVSE
+00980110	2	ITR
+009801b0	2	ITR
+00981520	0	ITR
+00986c60	0	ITR
+009ac5a0	1	fixes preset guard
+009b5a30	5	JIP
+009da7c0	0	ITR
+009f996e	0	JIP
+00a09330	0	ITR
+00a09410	3	ITR
+00a0a270	0	ITR
+00a0a300	0	ITR
+00a239e0	0	JIP
+00a2e1b0	0	kNVSE
+00a2e280	0	kNVSE
+00a2f800	0	kNVSE
+00a30540	0	kNVSE
+00a30900	3	kNVSE
+00a30c80	0	kNVSE
+00a34ba0	1	kNVSE
+00a34f20	2	kNVSE
+00a35030	1	kNVSE
+00a37260	0	kNVSE
+00a39960	1	kNVSE
+00a3fdb0	0	kNVSE
+00a41110	0	kNVSE
+00a5b460	0	JG
+00a5b690	0	JG,JIP
+00aa3e40	0	HeapReplacer
+00aa4060	0	HeapReplacer
+00aa4150	0	HeapReplacer
+00aa4200	0	HeapReplacer
+00aa42e0	0	HeapReplacer
+00aa44c0	2	HeapReplacer
+00aa4ee0	1	nv-rs uncap
+00aa53f0	0	HeapReplacer
+00aa5410	0	HeapReplacer
+00aa5460	0	HeapReplacer
+00aa54a0	1	HeapReplacer
+00aa5610	0	HeapReplacer
+00aa58d0	0	HeapReplacer
+00aa5c80	1	HeapReplacer
+00aa6840	0	HeapReplacer
+00aa6f90	0	HeapReplacer
+00aa7030	0	HeapReplacer
+00aa7290	0	HeapReplacer
+00aa7300	1	HeapReplacer
+00aa85c0	0	CellOffsetGenerator
+00aa8610	0	CellOffsetGenerator
+00aa8660	0	CellOffsetGenerator
+00ad89e0	0	ITR
+00ad8b60	0	ITR
+00ae5a50	2	ITR
+00afad00	1	JG
+00b54090	0	DepthResolve
+00bdf3e0	1	VanillaPlusTerrain
+00be0fe0	0	ShaderLoader
+00be1750	0	ShaderLoader
+00cad480	5	ITR
+00caf4d0	0	ITR
+00d1f5a0	0	ITR
+00d1f690	0	ITR
+00d4cca0	0	ITR
+00d4cf10	0	ITR
+00d53a80	0	fixes preset guard
+00e90c70	0	fixes preset guard
+00ec89e9	0	ImprovedConsole
+00eccf5d	0	HeapReplacer
+00ecd1c7	0	HeapReplacer
+00ecd291	30	HeapReplacer
+00ecd31f	0	HeapReplacer
+00ed0cdf	4	HeapReplacer
+00ed0d24	4	HeapReplacer
+00ed0d70	0	HeapReplacer
+00ed0dbe	0	HeapReplacer
+00eddd7d	0	HeapReplacer
+00ee1700	0	HeapReplacer
+00ee820a	0	JIP
