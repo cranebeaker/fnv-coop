@@ -82,6 +82,15 @@ pub mod ids {
     pub const FRAG_EXPLOSION: u32 = 0xB38;
     pub const FRAG_PROJECTILE: u32 = 0xB39;
     pub const FRAG: u32 = 0xB3A;
+    /// A fire grenade: the frag's explosion with the object effect
+    /// "TestBurn" (damage health: 5 points at once, then 2 points a second
+    /// for 3 seconds), its projectile and the weapon. `DAMAGE_HEALTH` is the
+    /// burn's effect.
+    pub const DAMAGE_HEALTH: u32 = 0xB3B;
+    pub const BURN: u32 = 0xB3C;
+    pub const FIRE_EXPLOSION: u32 = 0xB3D;
+    pub const FIRE_PROJECTILE: u32 = 0xB3E;
+    pub const FIRE: u32 = 0xB3F;
     /// The player's faction, as in the game.
     pub const PLAYER_FACTION: u32 = 0x1B2A4;
 }
@@ -165,6 +174,10 @@ pub fn fighting(tag: &str) -> TempData {
     let at = 24 + 6 + "TestFragProjectile".len() + 1 + 6 + 36;
     frag[at..at + 4].copy_from_slice(&FRAG_EXPLOSION.to_le_bytes());
     projectiles.extend(frag);
+    let mut fire = projectile(FIRE_PROJECTILE, "TestFireProjectile", 0x02, 2, 0.5, 1000.0);
+    let at = 24 + 6 + "TestFireProjectile".len() + 1 + 6 + 36;
+    fire[at..at + 4].copy_from_slice(&FIRE_EXPLOSION.to_le_bytes());
+    projectiles.extend(fire);
     // Explosions: DATA force, damage, radius, light, sound, flags at 20, …
     let mut explosion = edid("TestFragExplosion");
     let mut blast = vec![0u8; 52];
@@ -174,7 +187,40 @@ pub fn fighting(tag: &str) -> TempData {
     // the radius in units
     blast[20..24].copy_from_slice(&1u32.to_le_bytes());
     explosion.extend(sub(b"DATA", &blast));
-    let explosions = record(b"EXPL", FRAG_EXPLOSION, &explosion);
+    let mut explosions = record(b"EXPL", FRAG_EXPLOSION, &explosion);
+    // The fire grenade's explosion: the frag's data, with the object effect.
+    let mut fire = edid("TestFireExplosion");
+    fire.extend(sub(b"EITM", &BURN.to_le_bytes()));
+    fire.extend(sub(b"DATA", &blast));
+    explosions.extend(record(b"EXPL", FIRE_EXPLOSION, &fire));
+    // DamageHealth: MGEF DATA flags 0x75 (hostile, detrimental), archetype
+    // 0 (value modifier) at 64, actor value 16 (health) at 68.
+    let mut mgef = edid("TestDamageHealth");
+    let mut md = vec![0u8; 72];
+    md[0..4].copy_from_slice(&0x75u32.to_le_bytes());
+    md[12..16].copy_from_slice(&(-1i32).to_le_bytes());
+    md[16..20].copy_from_slice(&(-1i32).to_le_bytes());
+    md[68..72].copy_from_slice(&16i32.to_le_bytes());
+    mgef.extend(sub(b"DATA", &md));
+    let magic = record(b"MGEF", DAMAGE_HEALTH, &mgef);
+    // TestBurn: ENIT type 2 (weapon); two EFID + EFIT (magnitude, area 0,
+    // duration, type 1 touch, actor value 16): 5 at once, then 2 a second
+    // for 3 seconds.
+    let mut ench = edid("TestBurn");
+    ench.extend(sub(
+        b"ENIT",
+        &[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ));
+    for (magnitude, duration) in [(5u32, 0u32), (2, 3)] {
+        ench.extend(sub(b"EFID", &DAMAGE_HEALTH.to_le_bytes()));
+        let mut efit = magnitude.to_le_bytes().to_vec();
+        efit.extend(0u32.to_le_bytes());
+        efit.extend(duration.to_le_bytes());
+        efit.extend(1u32.to_le_bytes());
+        efit.extend(16i32.to_le_bytes());
+        ench.extend(sub(b"EFIT", &efit));
+    }
+    let enchantments = record(b"ENCH", BURN, &ench);
 
     // Weapons: DATA value, health, weight, damage, clip; DNAM (204 bytes).
     #[derive(Clone, Copy)]
@@ -327,6 +373,22 @@ pub fn fighting(tag: &str) -> TempData {
         Gun {
             animation: 10,
             projectile: FRAG_PROJECTILE,
+            range: (500.0, 1024.0),
+            flags2: 0x10A,
+            shots: 0.405,
+            semi: (0.0, 0.0),
+            skill: 35,
+            clip: 12,
+            ..gun
+        },
+    ));
+    weapons.extend(weapon(
+        FIRE,
+        "TestFireGrenade",
+        1,
+        Gun {
+            animation: 10,
+            projectile: FIRE_PROJECTILE,
             range: (500.0, 1024.0),
             flags2: 0x10A,
             shots: 0.405,
@@ -549,6 +611,8 @@ pub fn fighting(tag: &str) -> TempData {
     plugin.extend(group(*b"AMMO", 0, &ammo));
     plugin.extend(group(*b"FACT", 0, &factions));
     plugin.extend(group(*b"CSTY", 0, &styles));
+    plugin.extend(group(*b"MGEF", 0, &magic));
+    plugin.extend(group(*b"ENCH", 0, &enchantments));
     plugin.extend(group(*b"EXPL", 0, &explosions));
     plugin.extend(group(*b"PROJ", 0, &projectiles));
     plugin.extend(group(*b"WEAP", 0, &weapons));

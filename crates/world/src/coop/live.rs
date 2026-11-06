@@ -120,11 +120,6 @@ fn target_in(t: u32, me: PlayerId) -> FormId {
     }
 }
 
-/// Damage to the ledger's unit: whole points, at least one.
-fn hit_points(amount: f64) -> u16 {
-    amount.ceil().clamp(1.0, f64::from(MAX_HIT)) as u16
-}
-
 /// The part of a point a guest's blows have dealt that no request has
 /// carried yet, per victim. Rounding every frame's blow up to a whole point
 /// (the ledger counts whole points) made a fast weapon or a fist do twice
@@ -211,11 +206,16 @@ fn coalesce(hits: Vec<PendingHit>) -> Vec<(FormId, f64)> {
 /// an actor that it owns. The host's world runs all other NPC fights. A
 /// guest copy of such a fight (Doc Mitchell and a gecko) is not sent: the
 /// host would book it as this player's hit, with an assault crime on Doc.
+///
+/// The damage of an effect or a script (`PendingHit::effect`) by the
+/// player or a follower on an actor that the guest does not own is not
+/// sent (#74). The host's world deals it: the host casts the effects of
+/// each blow it counts (`blow_check`), and runs its own scripts.
 fn guest_sends(gs: &GameState, actors: &ActorClient, h: &PendingHit) -> bool {
-    h.by == PLAYER_REF
-        || gs.teammates.contains(&h.by)
-        || actors.owns(cf(h.by))
-        || actors.owns(cf(h.who))
+    if actors.owns(cf(h.by)) || actors.owns(cf(h.who)) {
+        return true;
+    }
+    !h.effect && (h.by == PLAYER_REF || gs.teammates.contains(&h.by))
 }
 
 /// Applies a host verdict to this machine's world without hooks.
@@ -441,8 +441,11 @@ pub struct LiveStats {
     /// A guest's blows the host refused (`super::blow_check::Refusal`).
     pub blows_refused: u32,
     /// A guest's blows the host counted without a part the guest named
-    /// (sneak, power, critical).
+    /// (sneak, power, critical, a V.A.T.S. attack).
     pub blow_parts_dropped: u32,
+    /// Damage the host's world dealt for a guest: an effect that a counted
+    /// blow of that guest started (whole points sent to the ledger).
+    pub effect_points: u32,
     /// Frames run.
     pub frames: u64,
 }
@@ -498,6 +501,15 @@ pub struct LiveHostAdapter {
     ap_seen_ms: BTreeMap<PlayerId, u64>,
     /// The game's V.A.T.S. settings, read once.
     vats_settings: Option<crate::vats::Settings>,
+    /// The part of a point of each guest's effect damage that the ledger
+    /// has not taken yet, per victim.
+    effect_carry: BTreeMap<PlayerId, HitCarry>,
+    /// The part of a point of the host player's damage, and of each NPC's
+    /// damage, that the ledger has not taken yet, per victim. An effect
+    /// deals a part of a point each frame (`magic::tick`): rounded up, the
+    /// ledger took a point each frame, and the world followed the ledger.
+    own_carry: HitCarry,
+    npc_carry: BTreeMap<FormId, HitCarry>,
 }
 
 /// Milliseconds between the guests' speed updates for the avatar check.
@@ -553,6 +565,9 @@ impl LiveHostAdapter {
             next_ap_ms: 0,
             ap_seen_ms: BTreeMap::new(),
             vats_settings: None,
+            effect_carry: BTreeMap::new(),
+            own_carry: HitCarry::default(),
+            npc_carry: BTreeMap::new(),
         }
     }
 
@@ -913,6 +928,89 @@ impl LiveHostAdapter {
         }
     }
 
+    /// Books the damage that the host's world dealt since the last call
+    /// (`gs.coop.live.hurts`) in the ledger, and adds it to `dealt` for
+    /// [`Self::raises`]. The damage of the host player or its follower is
+    /// the host's hit. The damage that a guest's counted blow started here
+    /// (an effect, #74) is that guest's ([`Self::effect_hits`]). Other
+    /// damage is an NPC's hit.
+    fn book_hurts(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        auth: &mut AuthorityTable,
+        now_ms: u64,
+        dealt: &mut BTreeMap<FormId, f64>,
+    ) -> Outs {
+        let mut outs = Vec::new();
+        let hurts = std::mem::take(&mut gs.coop.live.hurts);
+        for h in &hurts {
+            *dealt.entry(h.who).or_insert(0.0) += h.amount;
+        }
+        let me = gs.active_slot();
+        let slot = |h: &PendingHit| {
+            super::campaign::attribution::slot_of(h.by, me)
+                .or_else(|| super::campaign::owners::owner_of(gs, h.by))
+        };
+        let (mine, rest): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| slot(h) == Some(me));
+        let (theirs, npcs): (Vec<_>, Vec<_>) = rest.into_iter().partition(|h| slot(h).is_some());
+        let theirs: Vec<(u8, PendingHit)> = theirs
+            .into_iter()
+            .filter_map(|h| Some((slot(&h)?, h)))
+            .collect();
+        outs.extend(self.effect_hits(cx, gs, live, theirs));
+        // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
+        // credits no player: no XP and no threat for the host
+        for ((who, by), amount) in coalesce_npc(npcs) {
+            let left = crate::combat::health(cx.order, gs, who);
+            let carry = self.npc_carry.entry(by).or_default();
+            let Some(points) = carry.take(who, amount, left) else {
+                continue;
+            };
+            let m = self.own.actors.npc_hit(cf(who), cf(by), points);
+            self.stats.hits_sent += 1;
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
+        }
+        for (who, amount) in coalesce(mine) {
+            let left = crate::combat::health(cx.order, gs, who);
+            let Some(points) = self.own_carry.take(who, amount, left) else {
+                continue;
+            };
+            let m = self.own.actors.hit(cf(who), points);
+            self.stats.hits_sent += 1;
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
+        }
+        outs
+    }
+
+    /// The damage the host's world dealt for each guest (#74: an effect
+    /// that a counted blow of that guest started) goes to the ledger as that
+    /// guest's ([`HostLive::host_hit_for`]). The part of a point waits for
+    /// the next damage on the same victim.
+    fn effect_hits(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &mut HostLive,
+        hurts: Vec<(u8, PendingHit)>,
+    ) -> Outs {
+        let mut by: BTreeMap<(u8, FormId), f64> = BTreeMap::new();
+        for (slot, h) in hurts {
+            *by.entry((slot, h.who)).or_insert(0.0) += h.amount;
+        }
+        let mut outs = Vec::new();
+        for ((slot, who), amount) in by {
+            let left = crate::combat::health(cx.order, gs, who);
+            let carry = self.effect_carry.entry(PlayerId(slot)).or_default();
+            if let Some(points) = carry.take(who, amount, left) {
+                self.stats.effect_points += u32::from(points);
+                outs.extend(live.host_hit_for(PlayerId(slot), cf(who), points));
+            }
+        }
+        outs
+    }
+
     /// Also returns a notice to the striker of each dropped blow
     /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
     fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Vec<(PlayerId, Msg, bool)>, Outs) {
@@ -971,28 +1069,8 @@ impl LiveHostAdapter {
         }
         gs.coop.live.scaling = Some(live.rules.scaling(now_ms));
         // damage the host dealt itself goes through the one ledger
-        let hurts = std::mem::take(&mut gs.coop.live.hurts);
         let mut dealt: BTreeMap<FormId, f64> = BTreeMap::new();
-        for h in &hurts {
-            *dealt.entry(h.who).or_insert(0.0) += h.amount;
-        }
-        let me = gs.active_slot();
-        let (mine, npcs): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| {
-            super::campaign::attribution::slot_of(h.by, me) == Some(me)
-                || super::campaign::owners::owner_of(gs, h.by) == Some(me)
-        });
-        // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
-        // credits no player: no XP and no threat for the host
-        for ((who, by), amount) in coalesce_npc(npcs) {
-            let m = self.own.actors.npc_hit(cf(who), cf(by), hit_points(amount));
-            self.stats.hits_sent += 1;
-            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
-        }
-        for (who, amount) in coalesce(mine) {
-            let m = self.own.actors.hit(cf(who), hit_points(amount));
-            self.stats.hits_sent += 1;
-            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
-        }
+        outs.extend(self.book_hurts(cx, gs, live, auth, now_ms, &mut dealt));
         // a guest's hit requests: the friendly-fire guard, then the same ledger
         // a guest's V.A.T.S. hits are that guest's hits: the same guard and count
         live.hold_vats_hits = true;
@@ -1009,6 +1087,9 @@ impl LiveHostAdapter {
         }
         // only a guest's blows are held, so each notice goes to a guest
         outs.extend(blocked);
+        // the effects that the counted blows cast in this world dealt damage
+        // in this frame (#74): `raises` must see that damage in this frame
+        outs.extend(self.book_hurts(cx, gs, live, auth, now_ms, &mut dealt));
         outs.extend(self.raises(cx, gs, live, &dealt));
         // a guest's dialogue picks: the line's conditions as the picker, then the sessions
         outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));

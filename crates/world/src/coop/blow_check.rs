@@ -35,7 +35,13 @@
 //!   striker ([`crate::explosions::base_damage`]), shared by the falloff at
 //!   the victim's place in the host's world, then through the armour
 //!   ([`crate::explosions::hit_damage`]). A victim outside the radius there
-//!   takes nothing.
+//!   takes nothing;
+//! - the explosion's object effect (an incendiary's fire, a pulse's EMP) is
+//!   cast on the victim in the host's world, by the guest's puppet or its
+//!   follower (as [`crate::explosions::cast_enchantment`]). The host's
+//!   world deals that effect's damage. The ledger credits the guest with
+//!   the damage that the caster deals (an effect at once,
+//!   `LiveHostAdapter`). The guest does not send its own effect damage.
 
 use std::collections::BTreeSet;
 
@@ -76,6 +82,9 @@ pub struct Counted {
     pub vats_dropped: bool,
     /// The action points the host's copy of the guest paid for the blow.
     pub ap: f32,
+    /// The explosion's object effect (`ENCH`) that the host's world casts
+    /// on the victim (#74).
+    pub effect: Option<FormId>,
 }
 
 /// How the host pays for a V.A.T.S. blow.
@@ -129,7 +138,18 @@ pub fn count_blows(
                     return Err(Refusal::NotAFollower);
                 }
                 match b.blast {
-                    Some(blast) => count_blast(order, g, b, blast, victim, places, held),
+                    Some(blast) => {
+                        let c = count_blast(order, g, b, blast, victim, places, held)?;
+                        // the explosion's object effect on the victim
+                        // (`009b00a0`), cast by the striker as the host's
+                        // world knows it: the guest's puppet, else its
+                        // follower. The host's world deals its damage.
+                        if let Some(effect) = c.effect {
+                            let caster = b.by.map_or(puppet, |f| FormId(f.0));
+                            crate::magic::apply(order, g, victim, effect, caster, false);
+                        }
+                        Ok(c)
+                    }
                     None => count_one(order, g, b, victim, sneaking, unseen, pay),
                 }
             })
@@ -233,6 +253,7 @@ fn count_one(
         dropped: b.flags & !flags,
         vats_dropped: b.vats.is_some() && kind.is_none(),
         ap,
+        effect: None,
     })
 }
 
@@ -304,5 +325,6 @@ fn count_blast(
         dropped: b.flags & !granted,
         vats_dropped: false,
         ap: 0.0,
+        effect: e.enchantment,
     })
 }

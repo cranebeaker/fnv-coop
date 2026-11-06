@@ -40,6 +40,9 @@ pub struct PendingHit {
     /// What the player's or a follower's blow was (`None`: damage with no
     /// blow, or an NPC's blow).
     pub blow: Option<coop_core::actors::Blow>,
+    /// The damage of an effect or a script ([`crate::magic::change`]), not
+    /// of a blow.
+    pub effect: bool,
 }
 
 /// Damage the host just applied itself; the adapter feeds it to the ledger.
@@ -91,6 +94,9 @@ pub struct LiveFacts {
     /// The blow `Runner::blow_at` is landing now (its `combat::hurt` call
     /// names it in the guest's [`PendingHit`]).
     pub blow: Option<coop_core::actors::Blow>,
+    /// True while an effect or a script deals damage
+    /// ([`crate::magic::change`]): its [`PendingHit`] has the mark.
+    pub effect: bool,
     /// Host damage to feed to the host ledger.
     pub hurts: Vec<HurtRecord>,
     /// The scaling in force (copied from the rules each frame).
@@ -212,6 +218,7 @@ pub(crate) fn hurt_hooked(
             amount,
             by,
             blow,
+            effect: state.coop.live.effect,
         });
         return false;
     }
@@ -224,6 +231,7 @@ pub(crate) fn hurt_hooked(
             who,
             amount: dealt,
             by,
+            effect: state.coop.live.effect,
         });
     }
     killed

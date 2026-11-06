@@ -1296,6 +1296,7 @@ mod named_blows {
             amount: 4000.0,
             by: PLAYER_REF,
             blow: Some(named(MACHETE, 0)),
+            effect: false,
         });
         r.run_ms(3_000);
         let after = world::combat::health(&order, &r.host, gecko).unwrap();
@@ -1316,6 +1317,7 @@ mod named_blows {
             amount: 30.0,
             by: PLAYER_REF,
             blow: Some(named(PISTOL, 0)),
+            effect: false,
         });
         r.run_ms(3_000);
         assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
@@ -1336,6 +1338,7 @@ mod named_blows {
             amount: 50.0,
             by: PLAYER_REF,
             blow: Some(named(MACHETE, Blow::SNEAK)),
+            effect: false,
         });
         r.run_ms(3_000);
         let after = world::combat::health(&order, &r.host, gecko).unwrap();
@@ -1539,6 +1542,7 @@ mod named_blows {
                 amount: 4000.0,
                 by: PLAYER_REF,
                 blow: Some(named_vats(kind)),
+                effect: false,
             });
             r.run_ms(600);
         };
@@ -1675,6 +1679,7 @@ mod named_blows {
             amount: 30.0,
             by: PLAYER_REF,
             blow: Some(blow),
+            effect: false,
         });
         r.run_ms(3_000);
         assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
@@ -1712,22 +1717,110 @@ mod named_blows {
         }
     }
 
-    /// Mutation twin: without the host's count, the guest's number lands.
+    /// #74: the damage of an effect or a script in a guest's world
+    /// (`magic::change`) on an actor that the host owns is not sent: the
+    /// host's world deals effects and scripts itself. Mutation twin: damage
+    /// with no blow from elsewhere (the bot's `coop hit`, `combat::hurt`) is
+    /// sent, and the guest's number lands.
     #[test]
-    fn mutation_twin_a_blow_with_no_name_keeps_the_guests_number() {
-        let (_d, order) = order("blow-unnamed");
+    fn a_guests_effect_damage_stays_in_its_world() {
+        let (_d, order) = order("blow-effect");
         let scripts = ScriptCache::default();
         let (mut r, before) = rig(&order, &scripts, 34, MACHETE);
         let gecko = FormId(GECKO_REF);
-        r.guests[0].coop.live.pending_hits.push(PendingHit {
-            who: gecko,
-            amount: 3.0,
-            by: PLAYER_REF,
-            blow: None,
-        });
+        let health = |r: &Rig| world::combat::health(&order, &r.host, gecko).unwrap();
+        let hp = world::combat::av::HEALTH;
+        world::magic::change(&order, &mut r.guests[0], gecko, hp, -3.0, PLAYER_REF);
+        let hit = r.guests[0].coop.live.pending_hits[0];
+        assert!(hit.effect && hit.blow.is_none(), "{hit:?}");
+        assert!(
+            !r.guests[0].coop.live.effect,
+            "the mark ends with the damage"
+        );
         r.run_ms(3_000);
-        let after = world::combat::health(&order, &r.host, gecko).unwrap();
-        assert_eq!(before - after, 3.0);
+        assert_eq!(health(&r), before, "not sent");
+        world::combat::hurt(&order, &mut r.guests[0], gecko, 3.0, PLAYER_REF);
+        assert!(!r.guests[0].coop.live.pending_hits[0].effect);
+        r.run_ms(3_000);
+        assert_eq!(before - health(&r), 3.0, "the guest's number");
+    }
+
+    /// The guest's world sets off `explosion` of `weapon` at `at` on the
+    /// gecko (`Runner::explosion_hit`).
+    fn guest_blast_of(
+        r: &mut Rig,
+        order: &LoadOrder,
+        scripts: &ScriptCache,
+        weapon: u32,
+        explosion: u32,
+        at: [f32; 3],
+    ) {
+        let w = world::combat::Weapon::load(order, FormId(weapon)).unwrap();
+        world::scripting::Runner::new(order, scripts, &mut r.guests[0]).explosion_hit(
+            Some(PLAYER_REF),
+            FormId(GECKO_REF),
+            Some(&w),
+            4000.0,
+            Some((FormId(explosion), at)),
+        );
+    }
+
+    /// #74: a guest's explosion with an object effect (the fire grenade's
+    /// burn: 5 points at once, then 2 points a second for 3 seconds) burns
+    /// the gecko in the host's world, cast by the guest's puppet. The host's
+    /// world deals the burn. The ledger credits the guest with the part at
+    /// once, by its caster. The part over time, as the engine ticks it
+    /// (`magic::tick`), is struck by the victim itself and credits nobody.
+    /// Mutation twin: the frag's explosion has no object effect, and no burn
+    /// follows its blast.
+    #[test]
+    fn a_guests_fire_burns_in_the_hosts_world() {
+        let (_d, order) = order("blow-fire");
+        let scripts = ScriptCache::default();
+        let gecko = FormId(GECKO_REF);
+        for fire in [true, false] {
+            let (weapon, explosion) = if fire {
+                (FIRE, FIRE_EXPLOSION)
+            } else {
+                (FRAG, FRAG_EXPLOSION)
+            };
+            let (mut r, before) = rig(&order, &scripts, 38, weapon);
+            let at = beside_gecko(&r, &order, 350.0);
+            let blast = host_blast(&mut r, &order, at);
+            assert!(blast >= 1.0 && blast + 11.0 < before, "{blast} of {before}");
+            guest_blast_of(&mut r, &order, &scripts, weapon, explosion, at);
+            r.run_ms(500);
+            let burning = world::magic::is_target_of(&r.host, gecko, FormId(BURN));
+            assert_eq!(burning, fire, "the burn in the host's world");
+            let caster = r
+                .host
+                .active_effects
+                .iter()
+                .find(|e| e.target == gecko && e.source == FormId(BURN))
+                .and_then(|e| e.caster);
+            if fire {
+                assert_eq!(caster, Some(world::coop::facts::puppet_of(PlayerId(1))));
+            }
+            // the host's world ticks its effects, as the engine's frame does
+            for _ in 0..50 {
+                r.run_ms(100);
+                let mut run = world::scripting::Runner::new(&order, &scripts, &mut r.host);
+                world::magic::tick(&mut run, 0.1);
+            }
+            let lost = before - world::combat::health(&order, &r.host, gecko).unwrap();
+            let (at_once, over_time) = if fire { (5.0, 6.0) } else { (0.0, 0.0) };
+            let burn = at_once + over_time;
+            assert!(
+                (lost - (blast + burn)).abs() <= 1.0,
+                "{lost}: {blast} + {burn}"
+            );
+            assert_eq!(r.ha.stats.effect_points, at_once as u32, "the part at once");
+            let tally = r.host.coop.campaign.tally.get(&gecko);
+            let credit = tally.and_then(|t| t.get(&1)).copied().unwrap_or(0.0);
+            let owed = blast.floor() + at_once;
+            assert!((credit - owed).abs() <= 1.0, "credit {credit} of {owed}");
+            assert_eq!(r.ha.stats.blows_refused, 0);
+        }
     }
 }
 

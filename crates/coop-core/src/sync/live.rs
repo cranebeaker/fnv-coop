@@ -177,6 +177,18 @@ impl HostLive {
         std::mem::take(&mut self.local_inbox)
     }
 
+    /// The host's world dealt `amount` to `actor` for player `by` (#74): an
+    /// effect that a blow of that player started there. The ledger credits
+    /// `by` ([`crate::actors::ActorHost::hit_for`]).
+    pub fn host_hit_for(&mut self, by: PlayerId, actor: FormId, amount: u16) -> Outs {
+        let mut out = Vec::new();
+        for o in self.actors.hit_for(by, actor, amount) {
+            note_attribution(&mut self.combat.attributions, &o.msg);
+            self.route(o.aud, Msg::Actor(o.msg), &mut out);
+        }
+        out
+    }
+
     /// The warps sent to guests since the last call, for the host's world to
     /// find where each lands ([`AvatarHub::land_at`]).
     pub fn take_warps(&mut self) -> Vec<(PlayerId, WarpSent)> {

@@ -197,7 +197,10 @@ pub fn change(
 ) -> bool {
     if value == av::HEALTH {
         if amount < 0.0 {
+            // co-op: this damage is an effect's or a script's, not a blow's
+            let outer = std::mem::replace(&mut state.coop.live.effect, true);
             let died = crate::combat::hurt(order, state, who, -amount, by);
+            state.coop.live.effect = outer;
             // Effects and scripts' damage aren't hits (no `008ae000` push).
             crate::combat::not_a_hit(state, who);
             return died;
