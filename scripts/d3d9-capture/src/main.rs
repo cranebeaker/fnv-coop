@@ -11,6 +11,7 @@ use std::ffi::c_void;
 use std::io::Write;
 
 mod device;
+mod fullscreen;
 
 #[link(name = "d3d9")]
 extern "system" {
@@ -278,6 +279,12 @@ fn main() {
     let out = std::io::stdout();
     let mut o = out.lock();
     // `d3d9-capture device`: the device calls' answers (general behaviour, `device.rs`).
+    // `d3d9-capture fullscreen`: a full-screen device as the game asks for it (`fullscreen.rs`).
+    // It changes the display mode while the device lives.
+    if std::env::args().nth(1).as_deref() == Some("fullscreen") {
+        unsafe { fullscreen::measure(&mut o) };
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("device") {
         unsafe { device::measure(&mut o) };
         return;

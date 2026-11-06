@@ -472,7 +472,23 @@ pub fn window_border(e: &mut Engine, style: u32, menu: u32, ex_style: u32) -> Op
 }
 
 /// A captured screen metric (`GetSystemMetrics`), if the capture has it.
+///
+/// While a full-screen device lives, `SM_CXSCREEN` and `SM_CYSCREEN` are its mode's size
+/// (`d3d9-capture fullscreen`, 2026-11-06). The other metrics of the screen's size were not
+/// measured then and are not provided.
 pub fn system_metric(e: &mut Engine, index: u32) -> Option<u32> {
+    if let Some([width, height, ..]) = super::d3d9device::full_screen_mode(e) {
+        match index {
+            0 => return Some(width),
+            1 => return Some(height),
+            // SM_CXFULLSCREEN, SM_CYFULLSCREEN, SM_CXMAXTRACK to SM_CYMAXIMIZED, the virtual
+            // screen.
+            16 | 17 | 59..=62 | 76..=79 => {
+                panic!("GetSystemMetrics({index}) with a full-screen device is not provided")
+            }
+            _ => {}
+        }
+    }
     adapter(e).metrics.get(&index).copied()
 }
 
@@ -707,10 +723,17 @@ fn enum_adapter_modes(
     hr
 }
 
-/// `GetAdapterDisplayMode(adapter, out)`: the captured desktop mode.
+/// `GetAdapterDisplayMode(adapter, out)`: the captured desktop mode, or a full-screen device's
+/// mode while it lives (`d3d9device::full_screen_request`).
 fn get_adapter_display_mode(e: &mut Engine, _this: Ptr, index: u32, out: Ptr) -> u32 {
     if index != 0 || out.is_null() {
         return D3DERR_INVALIDCALL;
+    }
+    if let Some(mode) = super::d3d9device::full_screen_mode(e) {
+        for (i, word) in mode.iter().enumerate() {
+            e.mem.set_u32(out.addr() + 4 * i as u32, *word);
+        }
+        return D3D_OK;
     }
     let (hr, data) = adapter(e).display_mode.clone();
     e.mem.write(out.addr(), &data);
