@@ -1863,6 +1863,9 @@ const ARRAY_RESERVE: u32 = 0x00c9_08c0;
 const FOOT_ELEMENT_INIT: u32 = 0x00cd_8820;
 const DEFAULT_NAME: u32 = 0x011f_49e0;
 const WEIGHT_OFFSET: u32 = 0x010c_4dc8;
+/// The double `010c4dd0` (4.0 and a little) `InitFootIK` adds to the weight for the height the foot's
+/// rays start above the ankle.
+const RAY_UP_OFFSET: u32 = 0x010c_4dd0;
 const FOOT_RECORD_SIZE: u32 = 0x78;
 
 /// The name pointer of a collision object: `[[object + 8] + 8]`, or the pointer stored at
@@ -1889,16 +1892,18 @@ fn collision_name(e: &mut Engine, object: u32) -> u32 {
 /// pointer, `0.0` at `+4` and `0xffff` at `+0xc0`, and the size becomes the count. For every name
 /// of `[setup + 4]`: the node named so under `[this + 0x58]`, its first child and that one's first
 /// child (`first_child`) give three collision objects (`00c802d0`); the weight from
-/// `GetCapsuleBoneShapeInfo(third node)` (`+4`, 0 without info) plus the double `010c4dc8` becomes
-/// the float at `+0x244`. When the three collision objects differ and the second and third have
+/// `GetCapsuleBoneShapeInfo(third node)` (`+4`, 0 without info) plus the double `010c4dd0` goes to
+/// the record's `+0x6c` (how far above the ankle the foot's rays start, the solver's `+0x7c`), and
+/// plus the double `010c4dc8` to the record's `+0x70` (how far below it they end, the solver's
+/// `+0x80`) and the float at `+0x244`, which `DoFootIK` copies over the solver's `+0x80` on every
+/// step. When the three collision objects differ and the second and third have
 /// names, the three names are looked up in the skeleton (`00cdd390`) into the record's words
 /// `+4`, `+6`, `+8`; when none is `0xffff` a 0xf0-byte block (allocator slot 4, word `+4`
 /// set to 0xf0) is built from the record (`00cd8820`) and becomes the element's object. Every
 /// mapping record of the first mapper (`[[this + 0x2a4] + 0x10]`, 0x40 bytes) whose first word equals the
 /// record's word `+8` sets the element's word `+0xc0` to its second word. In the end the byte
 /// `+0x21f` says whether every element has an object; if not all objects are destroyed
-/// (`00c905b0`) and the size is cleared. (The shorter `r1 = constant + weight` sum the code
-/// stores in a local it never reads is not reproduced.)
+/// (`00c905b0`) and the size is cleared.
 pub fn bhk_ragdoll_controller_init_foot_ik(e: &mut Engine, this: Ptr, setup: u32) {
     let base = this.addr();
     let count = e.mem.u32(setup + 8);
@@ -1982,6 +1987,10 @@ pub fn bhk_ragdoll_controller_init_foot_ik(e: &mut Engine, this: Ptr, setup: u32
             };
             let weight_offset = e.mem.f64(WEIGHT_OFFSET);
             let adjusted = (f64::from(weight) + weight_offset) as f32;
+            let ray_up = e.mem.f64(RAY_UP_OFFSET);
+            e.mem
+                .set_f32(record + 0x6c, (f64::from(weight) + ray_up) as f32);
+            e.mem.set_f32(record + 0x70, adjusted);
             e.mem.set_f32(base + 0x244, adjusted);
             let first_name = collision_name(e, first_collision);
             let second_name = collision_name(e, second_collision);
@@ -7800,6 +7809,68 @@ mod tests {
             assert_eq!(words[20], weight);
         }
         assert!(calls_to(&log, ELEMENT_DESTRUCT).is_empty());
+    }
+
+    /// 00c7c621..00c7c636: the foot record's ray lengths reach the solver. The weight, both
+    /// constants and the two answers are the real game's: `nv-trace` read the solver's `+0x7c` and
+    /// `+0x80` as `0x40943d01` and `0x40f43d01` on every solve of a recording of the walker on
+    /// the Gun Runners ramp. The record and the element are built by the real `00cd8920` and
+    /// `00cd8820`, and the real `00cd8a50` casts with what it reads from the element.
+    #[test]
+    fn init_foot_ik_gives_the_solver_the_ray_lengths_of_the_exe() {
+        use crate::units::havok_sdk::hkafootplacementiksolver::{fn_00cd8820, fn_00cd8920};
+        use crate::units::havok_sdk::run_00cd8a50::fn_00cd8a50;
+        let mut e = engine();
+        let log = CallLog::default();
+        let rig = foot_rig(&mut e, &log, 1);
+        install_foot_ik(&mut e, &log, &rig, 99);
+        e.mem.set_u32(rig.infos[2] + 4, 0x3f21_e807);
+        e.mem
+            .set_f64(RAY_UP_OFFSET, f64::from_bits(0x4010_0000_0400_0000));
+        e.mem
+            .set_f64(WEIGHT_OFFSET, f64::from_bits(0x401b_ffff_f800_0000));
+        e.register_double(FOOT_RECORD_INIT, |e, a| {
+            fn_00cd8920(e, Ptr::new(a[0]));
+            Ret::default()
+        });
+        e.register_double(FOOT_ELEMENT_INIT, |e, a| {
+            fn_00cd8820(e, Ptr::new(a[0]), Ptr::new(a[1]));
+            Ret {
+                eax: a[0],
+                ..Ret::default()
+            }
+        });
+        e.call(0x00c7_c3a0, &args![rig.this, rig.setup]);
+        assert_eq!(e.mem.u32(rig.this + 0x244), 0x40f4_3d01);
+        let object = e.mem.u32(e.mem.u32(rig.this + 0x22c));
+        let rays = Rc::new(RefCell::new(Vec::new()));
+        let kept = Rc::clone(&rays);
+        e.register_double(0x0900_0718, move |e, a| {
+            kept.borrow_mut()
+                .push((e.mem.f32(a[2] + 8), e.mem.f32(a[3] + 8)));
+            e.mem.set_u8(a[1], 0);
+            Ret {
+                eax: a[1],
+                ..Ret::default()
+            }
+        });
+        let query = e.mem.alloc(0x90);
+        let collidable = object_with_vtable(&mut e, &[(8, 0x0900_0718)]);
+        e.mem.set_u32(query + 0x64, collidable);
+        let point = e.mem.alloc(0x10);
+        let found = e.mem.alloc(0x20);
+        assert!(!fn_00cd8a50(
+            &mut e,
+            Ptr::new(object),
+            Ptr::new(query),
+            Ptr::new(point),
+            Ptr::new(point),
+            Ptr::new(found),
+            Ptr::new(found + 0x10),
+        ));
+        let up = f32::from_bits(0x4094_3d01);
+        let down = f32::from_bits(0x40f4_3d01);
+        assert_eq!(rays.borrow().as_slice(), [(up, -down)]);
     }
 
     #[test]
