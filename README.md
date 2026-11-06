@@ -8,7 +8,7 @@
 [![Engine](https://img.shields.io/badge/Engine-the_original,_translated-blue.svg)](docs/ENGINE_PORT_PLAN.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-purple.svg)](docs/PLAYTESTING.md)
-[![Status](https://img.shields.io/badge/Status-experimental-lightgrey.svg)](docs/MILESTONES.md)
+[![Status](https://img.shields.io/badge/Status-playable-brightgreen.svg)](docs/MILESTONES.md)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/pn5kjZJJxx)
 
 **Fallout: New Vegas, rebuilt in Rust, aiming to play exactly like the
@@ -37,7 +37,7 @@ fast loading, far fewer crashes, built-in modding and more platforms.
   textures, sounds and menus from your installation and never changes them.
 - **Modern underneath.** The original's look and play are the reference every
   change is tested against; the internals (memory, threads, data structures,
-  maths, rendering) are rebuilt natively in 64-bit Rust. Rust's memory and
+  maths, rendering) are being rebuilt natively in 64-bit Rust, whose memory and
   thread safety rule out whole classes of the original's crashes.
 - **Better where it doesn't change the game.** Fixes and upgrades (shadows,
   HDR, longer draw distance and more) are switchable; the original stays
@@ -47,21 +47,23 @@ fast loading, far fewer crashes, built-in modding and more platforms.
 
 ## Where it stands
 
-Experimental, but the whole game runs on its own translated code: the opening,
+Playable. The whole game runs on its own translated code: the opening,
 Goodsprings and the open world, quests, dialogue, combat, V.A.T.S., the Pip-Boy,
-saves, mods, and the DLCs, with the original graphics and sound. It is far from
-stable: translation errors still cause bugs and crashes all over the game. When
-the game's code stops, the log names the exact place and the game closes instead
-of freezing.
+saves, mods, and the DLCs, with the original graphics and sound. Crashes have been
+rare in the maintainer's recent play sessions, but bugs remain. When the game's code stops,
+the log names the exact place and the game closes instead of freezing.
 
-An audit of all 47,771 translated functions against [fnv_decomp](https://github.com/momusdigital/fnv_decomp),
-the community's matching decompilation, and the exe has been done, and what it found is fixed;
-comparing the running game with recordings of the original now finds what reading the code missed.
+Every hand-translated function, about 47,700, has been compared with the original exe and
+[fnv_decomp](https://github.com/momusdigital/fnv_decomp), the community's matching
+decompilation. The logic differences found are fixed, apart from a few left on purpose; small
+rounding differences go with the move to 64-bit code, which rewrites that maths. That audit
+doesn't catch everything, so the running game is now also compared frame by frame with
+recordings of the original.
 
 Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
-the move of the game's systems to typed, native 64-bit Rust, which is also the speed work
-(the target is 200+ fps; busy scenes run at roughly 35-50 on the maintainer's PC today); then the modern
-systems built on it. Not yet: script-extender (NVSE) plugins, platforms other than
+the move of the game's systems to typed, native 64-bit Rust, which is also the main speed work
+(the target is 200+ fps; on the maintainer's PC it runs at about 35 in a busy town and about 80 indoors today); then the modern
+systems built on it. Not yet: script-extender (NVSE) plugins, co-op, platforms other than
 Windows, and VR.
 
 ## Progress
@@ -70,23 +72,27 @@ Windows, and VR.
   <img src="docs/media/progress.svg" alt="Engine port progress: 100% of the game's code translated" width="100%">
 </p>
 
-Every function of the game's own code is translated. Not counted: 29 pieces of
-Microsoft and Windows code, 13 that our own layer replaces and 16 C runtime
-fragments that can never run. Some translated functions still have small marked gaps,
-mostly error handling; the systems below are where the real work is now.
+The bar counts one thing: how much of the game's own code is translated. That part is
+done, by hand for the game's functions and by generated tables for its start-up and shut-down
+code. It doesn't mean the project is finished: the table below shows what's left. Not counted:
+29 pieces of Microsoft and Windows code (13 that our own layer replaces and 16 C runtime
+fragments that can never run). About 5,900 translated functions still have small marked gaps,
+nearly all compiler-made error handling.
 
 | | System | Status |
 | :---: | --- | --- |
 | ✅ | **Foundations:** the original program mapped, the engine running in play | Done |
-| 🔨 | **Movement and physics** | Translated; running in the play build, being checked against the original |
-| 🔨 | **Animation and faces** | Translated; running in the play build, being compared with the original |
-| 🔨 | **Audio:** sounds, music and the radio | Translated; the game's own sound plays and matches the original on stereo and 7.1 output as measured (5.1 and other speaker setups follow DirectSound's code, not measured), its timing measured against Windows |
-| 🔨 | **Graphics:** lighting, weather and effects | Translated; the game's own renderer draws on Windows (textures, mods' included, through your own DirectX), other platforms later |
-| 🔨 | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated and playable through the whole game, quests included; translation errors cause bugs and crashes, being audited against fnv_decomp |
-| 🔨 | **Saves, the open world and the DLCs** | Translated and playable: the open world, many locations and the DLCs load and play, saves load and are written; translation errors cause crashes, being audited |
+| ✅ | **Movement and physics** | Translated, audited and running; being compared frame by frame with the original |
+| ✅ | **Animation and faces** | Translated, audited and running; compared with the original in a few scenes |
+| ✅ | **Audio:** sounds, music and the radio | Translated, audited and running; the game's own sound matches the original on stereo and 7.1 output as measured (5.1 and other speaker setups follow DirectSound's code, not measured), its timing measured against Windows |
+| ✅ | **Graphics:** lighting, weather and effects | Translated, audited and running; the game's own renderer draws on Windows (textures, mods' included, through your own DirectX) |
+| ✅ | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated, audited and playable through the whole game, quests included |
+| ✅ | **Saves, the open world and the DLCs** | Translated, audited and playable: the open world, many locations and the DLCs load and play, saves load and are written |
+| 🔨 | **Typed, native 64-bit code:** the main speed work | Starting: designed, with its first layer written. No game system has moved yet |
+| ⬜ | **Modern systems:** no memory limit, every core in use, wgpu graphics with optional upgrades | Planned, built on the typed code |
+| ⬜ | **Built-in script extender, co-op, more platforms, VR** | Planned |
 
-After that come the modern systems (no memory limit, every core in use, wgpu
-graphics with optional upgrades), a built-in script extender and more platforms. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
+✅ means translated and running, not free of bugs. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
 [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ---

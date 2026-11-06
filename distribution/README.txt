@@ -1,4 +1,4 @@
-nv-rs experimental Windows x64 playtest
+nv-rs Windows x64 playtest
 =====================================
 
 Requires your own installed Fallout: New Vegas, version 1.4.0.525 (FalloutNV.exe is read

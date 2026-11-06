@@ -22,7 +22,7 @@ privileged pull_request_target workflow. Inspect workflow changes carefully.
 1. Merge a checked source commit and compare a play-build run against the
    original game. Record outstanding limitations, not just screenshots.
 2. From a clean Windows checkout with stable Rust, run:
-   `./scripts/package-playtest.ps1 -Version experimental-YYYY-MM-DD.N`.
+   `./scripts/package-playtest.ps1 -Version YYYY-MM-DD.N`.
    It builds nv-viewer with the lockfile and packages only approved files.
 3. Test the extracted ZIP with Play.ps1 -ValidateOnly and a live launch. Test
    paths containing spaces and an invalid Data folder. Verify SHA256 and BUILD.txt.

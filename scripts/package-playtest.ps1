@@ -28,7 +28,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'distribution/licenses') -Destination $stage -Recurse
     foreach($file in @('LICENSE','LEGAL.md')) { Copy-Item -LiteralPath (Join-Path $root $file) -Destination $stage }
     $sha=(Get-FileHash -LiteralPath (Join-Path $stage 'app/nv-viewer.exe') -Algorithm SHA256).Hash
-    @("nv-rs experimental playtest $Version","Source commit: $commit","Executable SHA256: $sha","Platform: Windows x64","Source: https://github.com/slaterain/nv-rs/tree/$commit") | Set-Content -LiteralPath (Join-Path $stage 'BUILD.txt') -Encoding utf8
+    @("nv-rs playtest $Version","Source commit: $commit","Executable SHA256: $sha","Platform: Windows x64","Source: https://github.com/slaterain/nv-rs/tree/$commit") | Set-Content -LiteralPath (Join-Path $stage 'BUILD.txt') -Encoding utf8
     # Explicit input list above: no game data, saves, reports, PDBs or research files.
     Compress-Archive -LiteralPath $stage -DestinationPath $zip -CompressionLevel Optimal
     $zipHash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()

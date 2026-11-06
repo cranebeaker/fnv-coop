@@ -1,6 +1,6 @@
 # nv-rs milestones
 
-Updated 2026-11-04. The active plan and how each step is judged done. Keep
+Updated 2026-11-06. The active plan and how each step is judged done. Keep
 this file short: per-session detail goes in docs/HANDOFF.md, per-function
 status in [LEDGER.md](LEDGER.md), and the full list of systems in
 [SYSTEMS.md](SYSTEMS.md). The log up to 2026-10-14 is in
@@ -24,6 +24,11 @@ work, with the quick wins that outlive it (a render thread, PGO, the light-view
 wait) -> the modern systems. Deep optimisation of the address-level translation
 (guard pages, generated direct calls) is skipped where typed code replaces it.
 
+Where it stands (2026-11-06): the platform split and the audit are done; every
+hand-translated function has been compared with the exe and fnv_decomp, and the differences
+found are fixed, apart from a few left on purpose (docs/HANDOFF.md). The typed migration is
+starting. Rounding differences found by the audit are left to it, since it rewrites that maths.
+
 | Area | Goal |
 | --- | --- |
 | Memory and loading | No 4 GB limit (big mod lists, 4K/8K textures); more of the world loaded; memory-mapped archives, background loading, cached cells; per-thread allocators |
@@ -33,6 +38,7 @@ wait) -> the modern systems. Deep optimisation of the address-level translation
 | Stability | Memory- and thread-safe code; crash reports with the exact place; optional safety autosaves; safe background saves |
 | Modding | A built-in script extender (xNVSE, JIP commands); more than 255 plugins with existing mods unchanged; a better console, hot reload, clear errors |
 | Platforms | One 64-bit codebase: Windows, Linux, macOS, ARM, consoles |
+| Co-op | Intended (maintainer, 2026-11-06); no design yet |
 
 ## The plan
 
