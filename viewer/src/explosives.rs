@@ -371,10 +371,16 @@ pub fn fly_thrown(
                     Some(t) => t,
                     None => {
                         println!(
-                            "{:.1} s: {} holds the {}: no clear arc.",
+                            "{:.1} s: {} holds the {}: no clear arc from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0}).",
                             time.elapsed_secs(),
                             l.thrower,
-                            l.weapon.name
+                            l.weapon.name,
+                            l.origin[0],
+                            l.origin[1],
+                            l.origin[2],
+                            target[0],
+                            target[1],
+                            target[2]
                         );
                         continue;
                     }

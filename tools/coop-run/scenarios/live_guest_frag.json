@@ -1,6 +1,6 @@
 {
   "name": "live_guest_frag",
-  "description": "The guest throws a frag grenade at the gecko. The viewer flies it and sets it off, and the guest's world names the explosion's blow (the grenade, the explosion, its centre). The host counts the damage from its own copy of the guest and its own gecko's place (#74), not the guest's number. The host gives the guest two grenades, so the copy holds one in hand when it goes off. Doc Mitchell also fights the gecko. The guest's kill XP shows that the explosion killed it.",
+  "description": "The gecko comes to the host player, and the guest throws a frag grenade at it from its own spawn point. The viewer flies the grenade and sets it off, and the guest's world names the explosion's blow (the grenade, the explosion, its centre). The host counts the damage from its own copy of the guest and its own gecko's place (#74), not the guest's number. The host gives the guest two grenades, so the copy still carries one when it goes off. The guest's kill XP shows that the explosion killed the gecko.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 61,
@@ -18,23 +18,30 @@
       },
       {
         "at": 2.5,
-        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+        "run": "VCG02Gecko1REF.MoveTo player"
       }
     ]
   },
   "guest": {
     "script": [
       {
-        "at": 4,
+        "at": 3,
         "run": "coop equip WeapGrenadeFrag"
       },
       {
-        "at": 8,
+        "at": 3.5,
         "run": "coop throw VCG02Gecko1REF"
       }
     ]
   },
   "expect": [
+    {
+      "id": "blast-sent",
+      "path": "combat.blasts_sent",
+      "op": "ge",
+      "value": 1,
+      "on": "guest"
+    },
     {
       "id": "dead-host",
       "path": "dead.VCG02Gecko1REF",

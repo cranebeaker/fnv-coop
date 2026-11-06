@@ -113,6 +113,7 @@ pub fn run(
     mut live: ResMut<super::LiveNow>,
     mut answers: ResMut<crate::game_menus::AnswerBoxes>,
     mut say: ResMut<crate::dialogue::AutoSay>,
+    talkers: Res<crate::dialogue::Talkers>,
 ) {
     let t = time.elapsed_secs();
     if bot.queue.iter().all(|(at, _)| *at > t) {
@@ -222,12 +223,18 @@ pub fn run(
                     .push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
             }
             Some("throw") => {
-                // the weapon in hand leaves it for the person's place, as the AI
-                // throws (`fighting`: `Aim::At`); the flight and the explosion are
-                // the viewer's own (`explosives`)
+                // the weapon in hand leaves it for where the person stands in this
+                // viewer, as the AI throws (`fighting`: `Aim::At`); the flight and
+                // the explosion are the viewer's own (`explosives`)
                 let weapon = world::combat::weapon_in_hand(order, gs, PLAYER_REF)
                     .filter(world::explosions::is_thrown);
-                let goal = f(2).and_then(|r| gs.place(order, r)).map(|p| p.2);
+                let goal = f(2).and_then(|r| {
+                    talkers
+                        .0
+                        .iter()
+                        .find(|t| t.reference == r)
+                        .map(|t| t.position)
+                });
                 if let (Some(w), Some(goal), Some(p)) = (weapon, goal, gs.player_position) {
                     crate::explosives::throw(crate::explosives::Launch {
                         thrower: PLAYER_REF,
