@@ -201,8 +201,8 @@ pub fn bhk_transform_shape_destructor(e: &mut Engine, this: Ptr) {
 
 // Translated from 00c8bf40 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkTransformShape::IsEqual` (Xbox PDB): a 5-byte jump to `00c84dc0` (engine map: `bhkShape::IsEqual`), passing on `this` and its one argument; returns the target result. Return type (bool): Xbox PDB public name `?IsEqual@bhkTransformShape@@UAA_NPAVNiObject@@@Z`.
-pub fn bhk_transform_shape_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(JUMP_TARGET_00C8BF40, &args![this, other]).bool()
+pub fn bhk_transform_shape_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(JUMP_TARGET_00C8BF40, &args![this, other]).u8()
 }
 
 // Translated from 00c8bf50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -347,27 +347,27 @@ pub fn bhk_transform_shape_link_object(e: &mut Engine, this: Ptr, stream: u32) {
 /// child's Havok object through its virtual slot `0x54` with the stream, when there is one;
 /// then `NiObject::RegisterStreamables` (through `00aa0ad0`), whose answer it answers (the
 /// exe ends on that call and leaves its `EAX`).
-pub fn bhk_transform_shape_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> bool {
+pub fn bhk_transform_shape_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> u8 {
     let child = child_object(e, this);
     if child != 0 {
         e.vcall(child, 0x54, &args![stream]);
     }
-    e.call(REGISTER_STREAMABLES, &args![this, stream]).bool()
+    e.call(REGISTER_STREAMABLES, &args![this, stream]).u8()
 }
 
 // Translated from 00c8c3d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkTransformShape::CanShare` (Xbox PDB): `bhkShape::CanShare`, and while that answers
 /// true and the child's Havok object exists, that object's virtual slot `0xD0` with `other`
 /// decides.
-pub fn bhk_transform_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> bool {
+pub fn bhk_transform_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> u8 {
     if e.call(SHAPE_CAN_SHARE, &args![this, other]).u8() == 0 {
-        return false;
+        return 0;
     }
     let child = child_object(e, this);
     if child == 0 {
-        return true;
+        return 1;
     }
-    e.vcall(child, 0xd0, &args![other]).bool()
+    e.vcall(child, 0xd0, &args![other]).u8()
 }
 
 // Translated from 00c8c410 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -606,7 +606,7 @@ pub fn bhk_transform_shape_get_viewer_strings(e: &mut Engine, this: Ptr, list: u
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00c8_bed0, bhk_transform_shape_destructor(Ptr)),
-        entry!(0x00c8_bf40, bhk_transform_shape_is_equal(Ptr, Ptr) -> bool),
+        entry!(0x00c8_bf40, bhk_transform_shape_is_equal(Ptr, Ptr) -> u8),
         entry!(0x00c8_bf50, bhk_matrix3_renormalize(Ptr)),
         entry!(0x00c8_c020, bhk_stream_endian(u32)),
         entry!(0x00c8_c090, fn_00c8c090() -> Ptr),
@@ -616,9 +616,9 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c8_c330, bhk_transform_shape_link_object(Ptr, u32)),
         entry!(
             0x00c8_c390,
-            bhk_transform_shape_register_streamables(Ptr, u32) -> bool
+            bhk_transform_shape_register_streamables(Ptr, u32) -> u8
         ),
-        entry!(0x00c8_c3d0, bhk_transform_shape_can_share(Ptr, u32) -> bool),
+        entry!(0x00c8_c3d0, bhk_transform_shape_can_share(Ptr, u32) -> u8),
         entry!(0x00c8_c410, bhk_transform_shape_copy_cinfo(Ptr, u32)),
         entry!(0x00c8_c4d0, bhk_transform_shape_create_clone(Ptr, u32) -> Ptr),
         entry!(0x00c8_c5b0, bhk_transform_shape_init(Ptr, u32)),

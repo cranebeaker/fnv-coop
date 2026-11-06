@@ -1964,12 +1964,13 @@ pub fn model_loader_queue_tri_file(
 
 // Translated from 00448330 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Virtual function `0x10` of the map at `this + 0x24`, called with
-/// `(first, address of a local holding second, 0)`; returns its result.
-pub fn fn_00448330(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
+/// `(first, address of a local holding second, 0)`; passes its byte on as it
+/// came (00448356: `AL` to a local and back).
+pub fn fn_00448330(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u8 {
     let map = e.mem.u32(this.addr() + 0x24);
     e.with_stack(4, |e, holder| {
         e.mem.set_u32(holder.addr(), second);
-        e.vcall(map, 0x10, &args![first, holder, 0u32]).bool()
+        e.vcall(map, 0x10, &args![first, holder, 0u32]).u8()
     })
 }
 
@@ -2386,11 +2387,11 @@ pub fn fn_00448e70(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 00448ed0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Virtual function `0x10` of the object at `this + 0x20`, called with
 /// `(first, a smart pointer holding second, 0)`; returns its result.
-pub fn fn_00448ed0(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
+pub fn fn_00448ed0(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u8 {
     let target = e.mem.u32(this.addr() + 0x20);
     e.with_stack(4, |e, pointer| {
         e.call(TASK_POINTER_CONSTRUCT, &args![pointer, second]);
-        let result = e.vcall(target, 0x10, &args![first, pointer, 0u32]).bool();
+        let result = e.vcall(target, 0x10, &args![first, pointer, 0u32]).u8();
         e.call(TASK_POINTER_DESTRUCT, &args![pointer]);
         result
     })
@@ -3063,7 +3064,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00448080,
             model_loader_queue_tri_file(Ptr, Ptr, u32, u32, u32)
         ),
-        entry!(0x00448330, fn_00448330(Ptr, u32, u32) -> bool),
+        entry!(0x00448330, fn_00448330(Ptr, u32, u32) -> u8),
         entry!(0x00448370, fn_00448370(Ptr, u32)),
         entry!(0x004483a0, fn_004483a0(Ptr, u32) -> u32),
         entry!(0x004483e0, fn_004483e0(Ptr, u32) -> u32),
@@ -3083,7 +3084,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00448e00, fn_00448e00(Ptr) -> Ptr),
         entry!(0x00448e30, bs_precision_timer_reset(Ptr, f32)),
         entry!(0x00448e70, fn_00448e70(Ptr) -> bool),
-        entry!(0x00448ed0, fn_00448ed0(Ptr, u32, u32) -> bool),
+        entry!(0x00448ed0, fn_00448ed0(Ptr, u32, u32) -> u8),
         entry!(0x00448f50, fn_00448f50(Ptr, u32)),
         entry!(0x00448f80, fn_00448f80(Ptr, u32) -> u32),
         entry!(0x00449030, fn_00449030(Ptr)),
@@ -5078,6 +5079,17 @@ mod tests {
     }
 
     // --- 00448330 .. 004483e0 ---------------------------------------------
+
+    /// 00448356: the map's byte goes on as it came, not as 0 or 1.
+    #[test]
+    fn the_add_passes_the_maps_byte_on() {
+        let mut e = engine();
+        e.register_double(0x7400_0010, |_, _| 0x4142u32.into_ret());
+        let map = object(&mut e, 0x0300_7000, &[(0x10, 0x7400_0010)], 0x20);
+        let this = e.mem.alloc(0x40);
+        e.mem.set_u32(this + 0x24, map);
+        assert_eq!(e.call(0x0044_8330, &args![this, 7u32, 9u32]).u32(), 0x42);
+    }
 
     #[test]
     fn the_map_forwarders_call_the_maps_virtual_functions() {

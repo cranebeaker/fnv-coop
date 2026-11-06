@@ -193,8 +193,8 @@ fn callback(e: &Engine, object: u32, owner: u32) -> u32 {
 /// and each side's point at +0x20 and +0x2c) to the callbacks of both sides' collision data (the
 /// object's collision object at +0x1c, else its owner's; the callback at +0x38, cdecl on the
 /// record). The second side's callback sees the record with the objects and the two side points
-/// swapped (the owners are not). Answers 2 when a callback answered 2, else 1 when one answered
-/// non-zero, else 0.
+/// swapped (the owners are not), the first object read again after the first callback
+/// (00eb9aa1). Answers 2 when a callback answered 2, else 1 when one answered non-zero, else 0.
 pub fn fn_00eb9a50(e: &mut Engine, _this: Ptr, record: Ptr) -> u32 {
     let r = record.addr();
     let mut first = 0u32;
@@ -210,6 +210,7 @@ pub fn fn_00eb9a50(e: &mut Engine, _this: Ptr, record: Ptr) -> u32 {
     if other != 0 {
         let report = callback(e, other, e.mem.u32(r + 0xc));
         if report != 0 {
+            let object = e.mem.u32(r);
             e.mem.set_u32(r, other);
             e.mem.set_u32(r + 4, object);
             for offset in [0u32, 4, 8] {
@@ -847,6 +848,25 @@ mod tests {
         let o = e.mem.alloc(0x20);
         e.mem.set_u32(o + 0x1c, data);
         o
+    }
+
+    /// 00eb9aa1: what the first callback leaves at record +0 goes to +4.
+    #[test]
+    fn report_reads_the_first_object_again_after_the_first_callback() {
+        let mut e = Engine::new();
+        e.register(0x00ab_5012, |e, a| {
+            e.mem.set_u32(a[0], 0x1234);
+            Ret::default()
+        });
+        e.register(0x00ab_5013, |_, _| Ret::default());
+        let first = object(&mut e, 0x00ab_5012);
+        let second = object(&mut e, 0x00ab_5013);
+        let record = e.mem.alloc(0x40);
+        e.mem.set_u32(record, first);
+        e.mem.set_u32(record + 4, second);
+        e.call(0x00eb_9a50, &args![0u32, record]);
+        assert_eq!(e.mem.u32(record), second);
+        assert_eq!(e.mem.u32(record + 4), 0x1234);
     }
 
     #[test]

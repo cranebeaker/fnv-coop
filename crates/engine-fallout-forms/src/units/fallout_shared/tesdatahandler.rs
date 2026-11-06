@@ -1625,7 +1625,7 @@ pub fn tes_data_handler_clear_data(e: &mut Engine, this: Ptr<TESDataHandler>) ->
 
     let active_file = e.get(this, TESDataHandler::pActiveFile);
     if !e.get(this, TESDataHandler::bSaveLoadGame) && !active_file.is_null() {
-        if !fn_004600f0(e, this) {
+        if fn_004600f0(e, this) == 0 {
             e.call(FILE_CLOSE_ACTIVE, &args![active_file, 0u32]);
         }
         let active_file = e.get(this, TESDataHandler::pActiveFile);
@@ -1723,8 +1723,8 @@ pub fn fn_004600d0(_e: &mut Engine, this: Ptr<TESDataHandler>) -> Ptr<BSSimpleLi
 
 // Translated from 004600f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bMasterSave` (Xbox PDB, `this + 0x618`).
-pub fn fn_004600f0(e: &mut Engine, this: Ptr<TESDataHandler>) -> bool {
-    e.get(this, TESDataHandler::bMasterSave)
+pub fn fn_004600f0(e: &mut Engine, this: Ptr<TESDataHandler>) -> u8 {
+    e.mem.u8(this.addr() + TESDataHandler::bMasterSave.off)
 }
 
 // Translated from 00460110 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1781,9 +1781,9 @@ pub fn fn_004601a0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// whether the file is a master (`TESFile::GetMaster`) if it did not, and
 /// marks the form altered (virtual `0xc8`, argument 1) when the file is the
 /// active one. Returns the load's result.
-pub fn tes_data_handler_load_form(e: &mut Engine, form: Ptr, file: Ptr) -> bool {
+pub fn tes_data_handler_load_form(e: &mut Engine, form: Ptr, file: Ptr) -> u8 {
     let had_master_flag = fn_00460250(e, form);
-    let loaded = e.vcall(form.addr(), FORM_VTABLE_LOAD, &args![file]).bool();
+    let loaded = e.vcall(form.addr(), FORM_VTABLE_LOAD, &args![file]).u8();
     if had_master_flag {
         e.call(FORM_SET_FLAG_BIT_0, &args![form, 1u32]);
     } else {
@@ -1816,27 +1816,27 @@ pub fn tes_data_handler_save_form(
     this: Ptr<TESDataHandler>,
     form: Ptr,
     _is_master: u8,
-) -> bool {
+) -> u8 {
     let active_file = e.get(this, TESDataHandler::pActiveFile);
     if active_file.is_null() {
-        return false;
+        return 0;
     }
     let file = e.call(FORM_GET_FILE, &args![form, -1i32]).ptr::<()>();
     let in_active_file =
         file == active_file && !e.call(FILE_GET_MASTER, &args![active_file]).bool();
     if !in_active_file && !fn_00460340(e, form) {
-        return false;
+        return 0;
     }
     if fn_00460250(e, form) {
         return e
             .vcall(form.addr(), FORM_VTABLE_SAVE_EDIT, &args![active_file])
-            .bool();
+            .u8();
     }
     if e.call(FORM_HAS_FLAG_BIT_5, &args![form]).bool() {
-        return false;
+        return 0;
     }
     e.vcall(form.addr(), FORM_VTABLE_SAVE, &args![active_file])
-        .bool()
+        .u8()
 }
 
 // Translated from 00460340 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4739,7 +4739,7 @@ fn load_record(
                 fn_004617b0(e, this, topic_info);
             }
             scope_leave(e, scope);
-            loaded
+            loaded != 0
         }
         FORM_TYPE_IDLE | FORM_TYPE_CAMERA_PATH => {
             if form == 0 {
@@ -5033,7 +5033,7 @@ fn load_reference(
             e.call(CELL_REMOVE_REFERENCE, &args![parent, reference]);
         }
     }
-    if !tes_data_handler_load_form(e, Ptr::new(reference), file) {
+    if tes_data_handler_load_form(e, Ptr::new(reference), file) == 0 {
         if e.call(OBJECT_NEXT, &args![reference]).u32() == 0 {
             e.call(REFERENCE_SET_BASE_TYPE, &args![reference, record_type]);
         }
@@ -5210,7 +5210,7 @@ fn load_other_record(
         return false;
     }
     e.call(DISABLE_WARNING_COUNT, &args![0u32]);
-    if tes_data_handler_load_form(e, Ptr::new(created), file) {
+    if tes_data_handler_load_form(e, Ptr::new(created), file) != 0 {
         if is_new {
             let object_list = e.get(this, TESDataHandler::pObjectList).addr();
             e.call(OBJECT_LIST_ADD, &args![object_list, created]);
@@ -8509,7 +8509,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x004600d0,
             fn_004600d0(Ptr<TESDataHandler>) -> Ptr<BSSimpleList>
         ),
-        entry!(0x004600f0, fn_004600f0(Ptr<TESDataHandler>) -> bool),
+        entry!(0x004600f0, fn_004600f0(Ptr<TESDataHandler>) -> u8),
         entry!(0x00460110, fn_00460110(Ptr)),
         entry!(
             0x00460140,
@@ -8519,11 +8519,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00460170, fn_00460170(Ptr)),
         entry!(0x00460190, fn_00460190()),
         entry!(0x004601a0, fn_004601a0(Ptr, u32) -> Ptr),
-        entry!(0x004601d0, tes_data_handler_load_form(Ptr, Ptr) -> bool),
+        entry!(0x004601d0, tes_data_handler_load_form(Ptr, Ptr) -> u8),
         entry!(0x00460250, fn_00460250(Ptr) -> bool),
         entry!(
             0x00460270,
-            tes_data_handler_save_form(Ptr<TESDataHandler>, Ptr, u8) -> bool
+            tes_data_handler_save_form(Ptr<TESDataHandler>, Ptr, u8) -> u8
         ),
         entry!(0x00460340, fn_00460340(Ptr) -> bool),
         entry!(0x00460360, fn_00460360(Ptr<TESDataHandler>)),

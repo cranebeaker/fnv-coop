@@ -5561,7 +5561,7 @@ pub fn fn_0085fc90(e: &mut Engine, a: Ptr<SaveGameFile>, b: Ptr<SaveGameFile>) -
 pub(crate) fn save_file_time(e: &mut Engine, file: Ptr<SaveGameFile>) -> (u32, u32) {
     let time = e.mem.alloc(8);
     e.call(MEMSET, &args![time, 0u32, 8u32]);
-    if fn_0085feb0(e, file) {
+    if fn_0085feb0(e, file) != 0 {
         let scratch = e.mem.alloc(8);
         let remembered = fn_0085fe50(e, file, Ptr::new(scratch));
         e.mem.set_u32(time, e.mem.u32(remembered.addr()));
@@ -5612,8 +5612,8 @@ pub fn fn_0085fe80(e: &mut Engine, this: Ptr<SaveGameFile>, low: u32, high: u32)
 
 // Translated from 0085feb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Whether `SaveGameFile` knows its file time (`bHasFileTime`).
-pub fn fn_0085feb0(e: &mut Engine, this: Ptr<SaveGameFile>) -> bool {
-    e.get(this, SaveGameFile::bHasFileTime)
+pub fn fn_0085feb0(e: &mut Engine, this: Ptr<SaveGameFile>) -> u8 {
+    e.mem.u8(this.addr() + SaveGameFile::bHasFileTime.off)
 }
 
 // Translated from 0085fed0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6818,7 +6818,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x0085fe50, fn_0085fe50(Ptr<SaveGameFile>, Ptr) -> Ptr),
         entry!(0x0085fe80, fn_0085fe80(Ptr<SaveGameFile>, u32, u32)),
-        entry!(0x0085feb0, fn_0085feb0(Ptr<SaveGameFile>) -> bool),
+        entry!(0x0085feb0, fn_0085feb0(Ptr<SaveGameFile>) -> u8),
         entry!(
             0x0085fed0,
             fn_0085fed0(Ptr<TESSaveLoadGame>, Ptr, Ptr, Ptr, Ptr, Ptr)
@@ -12481,16 +12481,16 @@ mod tests {
             vec![vec![file.addr(), 0x5000, 1, 0x20000, 0]]
         );
         assert_eq!(e.mem.u32(file.addr()), SAVE_GAME_FILE_VTABLE);
-        assert!(!fn_0085feb0(&mut e, file));
+        assert!(fn_0085feb0(&mut e, file) == 0);
     }
 
     #[test]
     fn a_save_game_file_remembers_its_file_time() {
         let mut e = game();
         let file: Ptr<SaveGameFile> = e.new_object();
-        assert!(!fn_0085feb0(&mut e, file));
+        assert!(fn_0085feb0(&mut e, file) == 0);
         fn_0085fe80(&mut e, file, 0x1111, 0x2222);
-        assert!(fn_0085feb0(&mut e, file));
+        assert!(fn_0085feb0(&mut e, file) != 0);
         let out = e.mem.alloc(8);
         let result = fn_0085fe50(&mut e, file, Ptr::new(out));
         assert_eq!(result.addr(), out);
@@ -12699,7 +12699,7 @@ mod tests {
         assert_eq!(compare(&mut e, 4, 4), 0);
         assert_eq!(compare(&mut e, 4, 0), 1);
         // The time of each file is remembered after the first look.
-        assert!(fn_0085feb0(&mut e, files[0]));
+        assert!(fn_0085feb0(&mut e, files[0]) != 0);
         let lookups = calls_to(&e, FIND_FIRST_FILE_IMPORT).len();
         compare(&mut e, 0, 1);
         assert_eq!(calls_to(&e, FIND_FIRST_FILE_IMPORT).len(), lookups);

@@ -825,7 +825,7 @@ pub fn bgs_decal_manager_update_simple_decals(e: &mut Engine, this: Ptr<BGSDecal
                 e.call(FINALIZE_GEOMETRY, &args![decal]);
             }
             if e.mem.u8(decal + DECAL_FINISHED) != 0 {
-                if fn_004a0350(e, decal_ptr) {
+                if fn_004a0350(e, decal_ptr) != 0 {
                     let count = e.global::<u32>(DECAL_COUNT).wrapping_add(1);
                     e.set_global(DECAL_COUNT, count);
                     if setting_flag(e, SETTING_DEBUG_LOG) {
@@ -876,8 +876,8 @@ pub fn fn_004a0330(e: &mut Engine, this: Ptr) -> u32 {
 
 // Translated from 004a0350 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The decal's `bValidDecal` flag (Xbox PDB, `+0x2d`).
-pub fn fn_004a0350(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + DECAL_VALID) != 0
+pub fn fn_004a0350(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + DECAL_VALID)
 }
 
 // Translated from 004a0370 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2865,7 +2865,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             bgs_decal_manager_update_simple_decals(Ptr<BGSDecalManager>)
         ),
         entry!(0x004a0330, fn_004a0330(Ptr) -> u32),
-        entry!(0x004a0350, fn_004a0350(Ptr) -> bool),
+        entry!(0x004a0350, fn_004a0350(Ptr) -> u8),
         entry!(0x004a0370, fn_004a0370(Ptr)),
         entry!(0x004a03a0, fn_004a03a0(Ptr) -> u32),
         entry!(0x004a03c0, fn_004a03c0(Ptr)),

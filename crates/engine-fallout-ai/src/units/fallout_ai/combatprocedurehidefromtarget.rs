@@ -172,8 +172,8 @@ pub fn construct(
     this: Ptr<CombatProcedureHideFromTarget>,
     cover_location: u32,
     seconds: f32,
-    ignore_los: bool,
-    clear_cover_when_finished: bool,
+    ignore_los: u8,
+    clear_cover_when_finished: u8,
 ) -> Ptr<CombatProcedureHideFromTarget> {
     let t = this.addr();
     e.call(BASE_CONSTRUCT, &args![t]);
@@ -184,10 +184,13 @@ pub fn construct(
     e.call(POINT_CONSTRUCT, &args![t + HIDE_POSITION]);
     e.call(POINT_CONSTRUCT, &args![t + LOOK_AT_POSITION]);
     e.mem.set_u32(t + 0x38, cover_location);
-    e.set(this, CombatProcedureHideFromTarget::bIgnoreLOS, ignore_los);
-    e.set(
-        this,
-        CombatProcedureHideFromTarget::bClearCoverWhenFinished,
+    // 009d60ae, 009d60b7: the argument bytes as they are.
+    e.mem.set_u8(
+        t + CombatProcedureHideFromTarget::bIgnoreLOS.off,
+        ignore_los,
+    );
+    e.mem.set_u8(
+        t + CombatProcedureHideFromTarget::bClearCoverWhenFinished.off,
         clear_cover_when_finished,
     );
     this
@@ -549,8 +552,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
                 Ptr<CombatProcedureHideFromTarget>,
                 u32,
                 f32,
-                bool,
-                bool,
+                u8,
+                u8,
             ) -> Ptr<CombatProcedureHideFromTarget>
         ),
         entry!(
@@ -935,11 +938,22 @@ mod tests {
         let mut w = world();
         let block = w.rig.e.mem.alloc(0x40);
         w.rig.e.mem.write(block, &[0xcc; 0x40]);
-        let (result, log) = w.rig.run(
+        let (result, _) = w.rig.run(
             0x009d_6030,
             &args![block, 0x7700u32, bits(4.5), true, false],
         );
         assert_eq!(result.u32(), block);
+        // 009d60ae, 009d60b7: the bytes are copied as they are.
+        w.rig.run(
+            0x009d_6030,
+            &args![block, 0x7700u32, bits(4.5), 0x2au32, 0x81u32],
+        );
+        assert_eq!(w.rig.e.mem.u8(block + 0x3c), 0x2a);
+        assert_eq!(w.rig.e.mem.u8(block + 0x3d), 0x81);
+        let (_, log) = w.rig.run(
+            0x009d_6030,
+            &args![block, 0x7700u32, bits(4.5), true, false],
+        );
         assert_eq!(calls_to(&log, BASE_CONSTRUCT), vec![vec![block]]);
         assert_eq!(w.rig.e.mem.u32(block), VTABLE);
         assert_eq!(w.rig.e.mem.u32(block + 0x10), 0);

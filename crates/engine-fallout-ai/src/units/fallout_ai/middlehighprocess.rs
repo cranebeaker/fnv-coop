@@ -3334,11 +3334,11 @@ pub fn middle_high_process_setup_path_finding(
     z: f32,
     cell: u32,
     world: u32,
-) -> bool {
+) -> u8 {
     let state = e.vcall(actor, 0x214, &[]).u32();
     if state == 4 || e.vcall(actor, 0x214, &[]).u32() == 9 {
         e.vcall(actor, 0x418, &[]);
-        return false;
+        return 0;
     }
     let minus_one = x87_quiet_bits(e.global::<u32>(MINUS_ONE));
     e.with_stack(12, |e, point| {
@@ -3349,7 +3349,7 @@ pub fn middle_high_process_setup_path_finding(
             ACTOR_SET_PATHFINDING_GOAL,
             &args![actor, point, cell, world, minus_one, 0u32],
         )
-        .bool()
+        .u8()
     })
 }
 
@@ -11378,7 +11378,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00917df0, middle_high_process_checkfor_new_package(Process, u32, u8) -> bool),
         entry!(
             0x009180b0,
-            middle_high_process_setup_path_finding(Process, u32, f32, f32, f32, u32, u32) -> bool
+            middle_high_process_setup_path_finding(Process, u32, f32, f32, f32, u32, u32) -> u8
         ),
         entry!(
             0x00918120,
@@ -12985,20 +12985,27 @@ mod tests {
         let p = process(&mut e);
         let a = actor(&mut e);
         e.register(ACTOR_SET_PATHFINDING_GOAL, |e, a| {
-            ret(u32::from(e.mem.f32(a[1] + 4) == 2.0 && a[4] == 0xbf80_0000))
+            ret(if e.mem.f32(a[1] + 4) == 2.0 && a[4] == 0xbf80_0000 {
+                0x2a
+            } else {
+                0
+            })
         });
         e.mem.set_u32(MINUS_ONE, 0xbf80_0000);
-        assert!(middle_high_process_setup_path_finding(
-            &mut e, p, a, 1.0, 2.0, 3.0, 5, 6
-        ));
+        // 918110: the goal's AL comes back untouched.
+        assert_eq!(
+            middle_high_process_setup_path_finding(&mut e, p, a, 1.0, 2.0, 3.0, 5, 6),
+            0x2a
+        );
         assert_eq!(
             calls(&e, ACTOR_SET_PATHFINDING_GOAL)[0][2..4].to_vec(),
             vec![5, 6]
         );
         e.register(ACTOR_SLOTS + 0x214, |_, _| ret(4));
-        assert!(!middle_high_process_setup_path_finding(
-            &mut e, p, a, 1.0, 2.0, 3.0, 5, 6
-        ));
+        assert_eq!(
+            middle_high_process_setup_path_finding(&mut e, p, a, 1.0, 2.0, 3.0, 5, 6),
+            0
+        );
         assert_eq!(count(&e, ACTOR_SLOTS + 0x418), 1);
     }
 

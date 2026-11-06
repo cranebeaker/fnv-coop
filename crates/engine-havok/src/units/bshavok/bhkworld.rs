@@ -195,11 +195,14 @@ pub fn hk_quaternion_set_mul(
         e.get(right, HkQuaternion::z),
         e.get(right, HkQuaternion::w),
     ];
+    // The sums go in the exe's order: the cross term and `lw * r` first (00c66373), then
+    // `rw * l` (00c66387); for w, `y + x`, then `z + (y + x)` (00c66391, 00c6639c). A lane
+    // in another order can land one unit in the last place away.
     let result = [
-        rw * lx + lw * rx + (rz * ly - ry * lz),
-        rw * ly + lw * ry + (rx * lz - rz * lx),
-        rw * lz + lw * rz + (ry * lx - rx * ly),
-        rw * lw - (rz * lz + ry * ly + rx * lx),
+        rw * lx + (lw * rx + (rz * ly - ry * lz)),
+        rw * ly + (lw * ry + (rx * lz - rz * lx)),
+        rw * lz + (lw * rz + (ry * lx - rx * ly)),
+        rw * lw - (rz * lz + (ry * ly + rx * lx)),
     ];
     e.set(this, HkQuaternion::x, result[0]);
     e.set(this, HkQuaternion::y, result[1]);
@@ -371,10 +374,14 @@ pub fn bhk_on_startup_callback_delete_adjustor_20(e: &mut Engine, this: Ptr, fla
 }
 
 // Translated from 00c66670 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Tears down the Havok globals in the order used by the executable.
+/// Tears down the Havok globals in the order used by the executable, the thread's scope word
+/// (TLS `+0x2b4`) at `0x10` for all of it (00c666af) and put back after (00c66746).
 /// Structured exception unwinding is not modeled.
 // Translation incomplete: 00c66670 - C++ exception unwinding (the frame registered at FS:[0]) is not translated.
 pub fn bhk_world_shutdown(e: &mut Engine) {
+    let tls = e.tls();
+    let saved_tls = e.mem.u32(tls + 0x2b4);
+    e.mem.set_u32(tls + 0x2b4, 0x10);
     bhk_on_startup_callback_invoke(e);
     e.call(0x00c6_d340, &[]);
     e.call(0x00c6_d3c0, &[]);
@@ -394,6 +401,7 @@ pub fn bhk_world_shutdown(e: &mut Engine) {
     e.vcall(callback.addr(), 0, &args![0u32]);
     e.set_global(0x0126_77d4, 0u32);
     e.call(0x00cb_bfb0, &args![0u32]);
+    e.mem.set_u32(tls + 0x2b4, saved_tls);
 }
 
 /// The step accumulator's globals: the frame delta as given (`011afe68`), the delta this step
@@ -702,7 +710,8 @@ pub fn bhk_world_scale_origin(e: &mut Engine, this: Ptr<BhkWorld>, input: Ptr) {
 
 // Translated from 00c66c00 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Shifts the Havok broad phase to the requested origin and stores the
-/// resulting origin on the `bhkWorld`.
+/// resulting origin on the `bhkWorld`. Slot `0x94` is called three times (00c66c32, 00c66c40,
+/// 00c66c5f) and the origin is read again after the shift (00c66c61).
 // Translation incomplete: 00c66c00 - the /GS security-cookie check (00ec408c) is not translated.
 pub fn bhk_world_shift_broad_phase(e: &mut Engine, this: Ptr<BhkWorld>, requested: Ptr) {
     let target = e.mem.bytes(requested.addr(), 16);
@@ -718,9 +727,11 @@ pub fn bhk_world_shift_broad_phase(e: &mut Engine, this: Ptr<BhkWorld>, requeste
         e.mem.write(vectors.addr(), &delta_bytes);
         let output = vectors.addr() + 16;
         let world = e.vcall(this.addr(), 0x94, &[]).u32();
+        e.vcall(this.addr(), 0x94, &[]);
         e.call(0x00c9_6a20, &args![world, vectors.addr(), output, 0u32]);
         let shifted = e.mem.bytes(output, 16);
         e.vcall(this.addr(), 0x94, &[]);
+        let origin = e.mem.bytes(this.addr() + 0x60, 16);
         let mut new_origin = [0u8; 16];
         for i in 0..4 {
             let prior = f32::from_le_bytes(origin[i * 4..i * 4 + 4].try_into().unwrap());
@@ -785,18 +796,21 @@ pub fn bhk_world_link(e: &mut Engine, this: Ptr<BhkWorld>, linked: u32) {
 
 // Translated from 00c66e20 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Calls slot `+0x18` on every non-null entry in `pEntityListenerA` when the
-/// world's Havok object exists and `value` is nonzero.
+/// world's Havok object exists and `value` is nonzero. The array and its count are read
+/// again on every pass (00c66e35, 00c66e5a), so a listener may change the list. The value
+/// goes through the x87 stack (00c66e31, 00c66e50).
 pub fn bhk_world_set_solver_value(e: &mut Engine, this: Ptr<BhkWorld>, value: f32) {
     if e.mem.u32(this.addr() + 8) == 0 || value == 0.0 {
         return;
     }
-    let items = e.get(this, BhkWorld::entityListeners).addr();
-    let count = e.get(this, BhkWorld::entityListenerCount);
-    for i in 0..count.max(0) as u32 {
-        let listener = e.mem.u32(items + i * 4);
+    let mut i = 0;
+    while i < e.get(this, BhkWorld::entityListenerCount) {
+        let items = e.get(this, BhkWorld::entityListeners).addr();
+        let listener = e.mem.u32(items + i as u32 * 4);
         if listener != 0 {
-            e.vcall(listener, 0x18, &args![value]);
+            e.vcall(listener, 0x18, &args![x87_quiet(value)]);
         }
+        i += 1;
     }
 }
 
@@ -4516,6 +4530,41 @@ mod tests {
         assert_eq!(e.get(out, HkQuaternion::w), -6.0);
     }
 
+    /// 00c66373 and 00c66387: `rw * l + (lw * r + cross)`; 00c66391 and 00c6639c: the w sum
+    /// `z + (y + x)`. A large term cancels only in the exe's order.
+    #[test]
+    fn quaternion_product_adds_in_the_exes_order() {
+        let mut e = engine();
+        let out: Ptr<HkQuaternion> = e.new_object();
+        let left: Ptr<HkQuaternion> = e.new_object();
+        let right: Ptr<HkQuaternion> = e.new_object();
+        // x: rw*lx = 1, lw*rx = 1e8, cross = rz*ly = -1e8. The exe cancels the last two first
+        // and keeps the 1; adding the first two loses it.
+        for (quaternion, [x, y, z, w]) in [
+            (left, [1.0f32, 1.0, 0.0, 1.0]),
+            (right, [1.0e8f32, 0.0, -1.0e8, 1.0]),
+        ] {
+            e.set(quaternion, HkQuaternion::x, x);
+            e.set(quaternion, HkQuaternion::y, y);
+            e.set(quaternion, HkQuaternion::z, z);
+            e.set(quaternion, HkQuaternion::w, w);
+        }
+        e.call(0x00c6_6320, &args![out, left, right]);
+        assert_eq!(e.get(out, HkQuaternion::x), 1.0);
+        // w: rz*lz = 1, ry*ly = -1e8, rx*lx = 1e8; the exe cancels the last two first.
+        for (quaternion, [x, y, z, w]) in [
+            (left, [1.0e8f32, 1.0e8, 1.0, 1.0]),
+            (right, [1.0f32, -1.0, 1.0, 0.0]),
+        ] {
+            e.set(quaternion, HkQuaternion::x, x);
+            e.set(quaternion, HkQuaternion::y, y);
+            e.set(quaternion, HkQuaternion::z, z);
+            e.set(quaternion, HkQuaternion::w, w);
+        }
+        e.call(0x00c6_6320, &args![out, left, right]);
+        assert_eq!(e.get(out, HkQuaternion::w), -1.0);
+    }
+
     #[test]
     fn shared_pointer_assignment_releases_old_and_retains_new() {
         let mut e = engine();
@@ -4791,6 +4840,42 @@ mod tests {
         ];
         assert_eq!(addresses, expected);
         assert_eq!(e.global::<u32>(0x0126_77d4), 0);
+    }
+
+    /// 00c666af writes the scope word before anything runs and 00c66746 puts it back after.
+    #[test]
+    fn teardown_runs_under_the_scope_word_and_restores_it() {
+        let mut e = engine();
+        let startup = e.mem.alloc(4);
+        let callback = e.mem.alloc(4);
+        e.put_vtable(0x0400_0000, &[0x0400_0100, 0, 0x0400_0108]);
+        e.mem.set_u32(startup, 0x0400_0000);
+        e.mem.set_u32(callback, 0x0400_0000);
+        e.set_global(0x0126_8450, startup);
+        e.set_global(0x0126_77d4, callback);
+        e.set_global(0x0126_77a8, 0u32);
+        e.set_global(0x0126_77d0, 0u32);
+        let tls = e.tls();
+        e.mem.set_u32(tls + 0x2b4, 0x77);
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        for address in [
+            0x00c6_d340,
+            0x00c6_d3c0,
+            0x00cb_bcb0,
+            0x00cb_bfb0,
+            0x0400_0100,
+            0x0400_0108,
+        ] {
+            let seen = seen.clone();
+            e.register_double(address, move |e, _| {
+                let tls = e.tls();
+                seen.borrow_mut().push(e.mem.u32(tls + 0x2b4));
+                Ret::default()
+            });
+        }
+        e.call(0x00c6_6670, &[]);
+        assert_eq!(*seen.borrow(), vec![0x10; 7]);
+        assert_eq!(e.mem.u32(tls + 0x2b4), 0x77);
     }
 
     /// An engine at the point the game steps Havok: the main thread at 24-bit precision (the
@@ -5160,9 +5245,40 @@ mod tests {
             assert_eq!(a[3], 0);
             Ret::default()
         });
+        e.call_log = Some(vec![]);
         e.call(0x00c6_6c00, &args![this, requested]);
         for i in 0..4 {
             assert_eq!(e.mem.f32(this.addr() + 0x60 + i * 4), i as f32 + 2.0);
+        }
+        // 00c66c32, 00c66c40, 00c66c5f: three calls, two before the shift and one after.
+        let order: Vec<u32> = e
+            .call_log
+            .take()
+            .unwrap()
+            .into_iter()
+            .map(|(a, _)| a)
+            .collect();
+        assert_eq!(
+            order,
+            [
+                0x00c6_6c00,
+                0x0400_0094,
+                0x0400_0094,
+                0x00c9_6a20,
+                0x0400_0094
+            ]
+        );
+        // 00c66c61: the shift's call rewrites the origin, and the sum starts from the new one.
+        e.register_double(0x00c9_6a20, move |e, a| {
+            for i in 0..4 {
+                e.mem.set_f32(a[2] + i * 4, 2.0);
+                e.mem.set_f32(this.addr() + 0x60 + i * 4, 100.0);
+            }
+            Ret::default()
+        });
+        e.call(0x00c6_6c00, &args![this, requested]);
+        for i in 0..4 {
+            assert_eq!(e.mem.f32(this.addr() + 0x60 + i * 4), 102.0);
         }
     }
 
@@ -5278,6 +5394,46 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    /// 00c66e35 and 00c66e5a read the array and the count again on every pass.
+    #[test]
+    fn solver_value_reads_the_listener_list_again_each_pass() {
+        let mut e = engine();
+        let this: Ptr<BhkWorld> = e.new_object();
+        e.mem.set_u32(this.addr() + 8, 1);
+        let first = e.mem.alloc(4);
+        let second = e.mem.alloc(4);
+        let longer = e.mem.alloc(8);
+        let array = e.mem.alloc(4);
+        let mut slots = vec![0; 7];
+        slots[0x18 / 4] = 0x0400_0100;
+        e.put_vtable(0x0400_0000, &slots);
+        e.mem.set_u32(first, 0x0400_0000);
+        e.mem.set_u32(second, 0x0400_0000);
+        e.mem.set_u32(array, first);
+        e.mem.set_u32(longer + 4, second);
+        e.set(this, BhkWorld::entityListeners, Ptr::new(array));
+        e.set(this, BhkWorld::entityListenerCount, 1);
+        e.register_double(0x0400_0100, move |e, a| {
+            // The first listener grows the list, whose second entry is then called.
+            if a[0] == first {
+                e.set(this, BhkWorld::entityListeners, Ptr::new(longer));
+                e.set(this, BhkWorld::entityListenerCount, 2);
+            }
+            Ret::default()
+        });
+        e.call_log = Some(vec![]);
+        e.call(0x00c6_6e20, &args![this, 2.5f32]);
+        let called: Vec<u32> = e
+            .call_log
+            .take()
+            .unwrap()
+            .into_iter()
+            .filter(|(a, _)| *a == 0x0400_0100)
+            .map(|(_, words)| words[0])
+            .collect();
+        assert_eq!(called, [first, second]);
     }
 
     #[test]

@@ -145,7 +145,7 @@ pub fn fn_00e9c8c0(
     first_velocity: Ptr,
     second: Ptr,
     second_velocity: Ptr,
-) -> bool {
+) -> u8 {
     let time = x87_quiet_bits(time.to_bits());
     let first_type = volume_type(e, first);
     let second_type = volume_type(e, second);
@@ -156,7 +156,7 @@ pub fn fn_00e9c8c0(
                 test,
                 &args![time, first, first_velocity, second, second_velocity],
             )
-            .bool();
+            .u8();
     }
     let second_type = volume_type(e, second);
     let first_type = volume_type(e, first);
@@ -165,7 +165,7 @@ pub fn fn_00e9c8c0(
         test,
         &args![time, second, second_velocity, first, first_velocity],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 00e9c950 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -189,7 +189,7 @@ pub fn fn_00e9c950(
     calculate_normals: u32,
     first_normal: Ptr,
     second_normal: Ptr,
-) -> bool {
+) -> u8 {
     let time = x87_quiet_bits(time.to_bits());
     let first_type = volume_type(e, first);
     let second_type = volume_type(e, second);
@@ -211,7 +211,7 @@ pub fn fn_00e9c950(
                     second_normal
                 ],
             )
-            .bool();
+            .u8();
     }
     let second_type = volume_type(e, second);
     let first_type = volume_type(e, first);
@@ -231,7 +231,7 @@ pub fn fn_00e9c950(
             first_normal
         ],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 00e9ca10 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -247,7 +247,7 @@ pub fn fn_00e9ca10(
     vertex1: Ptr,
     vertex2: Ptr,
     triangle_velocity: Ptr,
-) -> bool {
+) -> u8 {
     let time = x87_quiet_bits(time.to_bits());
     let kind = volume_type(e, volume);
     let table = e.mem.u32(TRI_TEST_TABLE);
@@ -264,7 +264,7 @@ pub fn fn_00e9ca10(
             triangle_velocity
         ],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 00e9ca50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -287,7 +287,7 @@ pub fn fn_00e9ca50(
     calculate_normals: u32,
     first_normal: Ptr,
     second_normal: Ptr,
-) -> bool {
+) -> u8 {
     let time = x87_quiet_bits(time.to_bits());
     let kind = volume_type(e, volume);
     let table = e.mem.u32(TRI_FIND_TABLE);
@@ -309,7 +309,7 @@ pub fn fn_00e9ca50(
             second_normal
         ],
     )
-    .bool()
+    .u8()
 }
 
 /// This unit's translated functions, by exe address.
@@ -318,18 +318,18 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00e9_c7d0, fn_00e9c7d0(f32, Ptr) -> Ptr),
         entry!(0x00e9_c800, fn_00e9c800(f32, Ptr) -> Ptr),
         entry!(0x00e9_c850, fn_00e9c850(u32, Ptr) -> Ptr),
-        entry!(0x00e9_c8c0, fn_00e9c8c0(f32, Ptr, Ptr, Ptr, Ptr) -> bool),
+        entry!(0x00e9_c8c0, fn_00e9c8c0(f32, Ptr, Ptr, Ptr, Ptr) -> u8),
         entry!(
             0x00e9_c950,
-            fn_00e9c950(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr) -> bool
+            fn_00e9c950(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr) -> u8
         ),
         entry!(
             0x00e9_ca10,
-            fn_00e9ca10(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr) -> bool
+            fn_00e9ca10(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr) -> u8
         ),
         entry!(
             0x00e9_ca50,
-            fn_00e9ca50(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr) -> bool
+            fn_00e9ca50(f32, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr) -> u8
         ),
     ]
 }

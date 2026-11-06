@@ -265,9 +265,9 @@ pub fn bhk_binary_action_save_binary(e: &mut Engine, this: Ptr, stream: Ptr) {
 /// (`Remove`) and answers false. With one, entity B's owner (`+0xC`), when there is one,
 /// is asked through its virtual slot 0x9C with the world and a false answer ends it;
 /// otherwise the answer is that of `bhkAction::Add` (`00c87a70`, `(this, world)`).
-pub fn bhk_binary_action_add(e: &mut Engine, this: Ptr, world: Ptr) -> bool {
+pub fn bhk_binary_action_add(e: &mut Engine, this: Ptr, world: Ptr) -> u8 {
     let (word, saved) = enter_scope(e);
-    let mut added = false;
+    let mut added = 0;
     if havok_action(e, this.addr()) != 0 {
         if world.addr() == 0 {
             e.vcall(this.addr(), 0xa0, &args![]);
@@ -276,7 +276,7 @@ pub fn bhk_binary_action_add(e: &mut Engine, this: Ptr, world: Ptr) -> bool {
             let owner = entity_owner(e, entity);
             let accepted = owner == 0 || e.vcall(owner, 0x9c, &args![world]).bool();
             if accepted {
-                added = e.call(ACTION_ADD, &args![this, world]).bool();
+                added = e.call(ACTION_ADD, &args![this, world]).u8();
             }
         }
     }
@@ -359,7 +359,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c8aa60, bhk_binary_action_set_rigid_body_b(Ptr, Ptr)),
         entry!(0x00c8aa80, bhk_binary_action_register_streamables(Ptr, Ptr) -> u32),
         entry!(0x00c8aac0, bhk_binary_action_save_binary(Ptr, Ptr)),
-        entry!(0x00c8ab30, bhk_binary_action_add(Ptr, Ptr) -> bool),
+        entry!(0x00c8ab30, bhk_binary_action_add(Ptr, Ptr) -> u8),
         entry!(0x00c8ac00, bhk_binary_action_remove(Ptr) -> u8),
         entry!(0x00c8ad40, bhk_binary_action_get_viewer_strings(Ptr, Ptr)),
     ]

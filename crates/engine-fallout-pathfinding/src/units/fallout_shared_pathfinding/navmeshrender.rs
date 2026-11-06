@@ -731,10 +731,10 @@ fn update_root(e: &mut Engine, update_data: u32) {
 /// `NiUpdateData`; without it the root node's children are first cleared
 /// (`004def90`), it is updated the same way, and the cell map is emptied
 /// (`RemoveAll`). Stores the flag in `bDraw`.
-pub fn nav_mesh_render_set_draw(e: &mut Engine, this: Ptr<NavMeshRender>, draw: bool) {
+pub fn nav_mesh_render_set_draw(e: &mut Engine, this: Ptr<NavMeshRender>, draw: u8) {
     e.with_stack(0x20, |e, update_data| {
         let update_data = update_data.addr();
-        if draw {
+        if draw != 0 {
             let root = deref(e, ROOT_DRAW_NODE);
             e.call(NI_AV_OBJECT_UPDATE_PROPERTIES, &args![root]);
             update_root(e, update_data);
@@ -747,7 +747,7 @@ pub fn nav_mesh_render_set_draw(e: &mut Engine, this: Ptr<NavMeshRender>, draw: 
             e.call(NI_T_MAP_REMOVE_ALL, &args![this.addr() + NAV_MESH_CELL_MAP]);
         }
     });
-    e.set(this, NavMeshRender::bDraw, draw);
+    e.mem.set_u8(this.addr() + NavMeshRender::bDraw.off, draw);
 }
 
 // Translated from 006a5ee0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -845,7 +845,7 @@ pub fn fn_006a61b0(e: &mut Engine, this: Ptr<NavMeshRender>) {
 /// `(grid - 1) / 2` cells around it, through the world space), and switches
 /// the drawing on again.
 pub fn fn_006a5ca0(e: &mut Engine, this: Ptr<NavMeshRender>) {
-    nav_mesh_render_set_draw(e, this, false);
+    nav_mesh_render_set_draw(e, this, 0);
     let tes: u32 = e.global(TES_SINGLETON);
     let cell = e.call(TES_GET_CURRENT_CELL, &args![tes]).u32();
     if cell != 0 {
@@ -873,7 +873,7 @@ pub fn fn_006a5ca0(e: &mut Engine, this: Ptr<NavMeshRender>) {
             nav_mesh_render_add_draw_only_nav_meshes(e, Ptr::new(render), Ptr::new(cell), false);
         }
     }
-    nav_mesh_render_set_draw(e, this, true);
+    nav_mesh_render_set_draw(e, this, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -2141,10 +2141,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             nav_mesh_render_nav_mesh_render(Ptr<NavMeshRender>) -> Ptr<NavMeshRender>
         ),
         entry!(0x006a3580, fn_006a3580(Ptr<NavMeshRender>)),
-        entry!(
-            0x006a36e0,
-            nav_mesh_render_set_draw(Ptr<NavMeshRender>, bool)
-        ),
+        entry!(0x006a36e0, nav_mesh_render_set_draw(Ptr<NavMeshRender>, u8)),
         entry!(
             0x006a37a0,
             nav_mesh_render_add_draw_only_nav_meshes(Ptr<NavMeshRender>, Ptr, bool)
@@ -2492,9 +2489,9 @@ mod tests {
         e.register(NI_UPDATE_DATA_CONSTRUCT, |_, _| Ret::default());
         e.register(NI_AV_OBJECT_UPDATE, |_, _| Ret::default());
         e.register(NI_T_MAP_REMOVE_ALL, |_, _| Ret::default());
-        nav_mesh_render_set_draw(&mut e, object, false);
+        nav_mesh_render_set_draw(&mut e, object, 0);
         assert!(!e.get(object, NavMeshRender::bDraw));
-        nav_mesh_render_set_draw(&mut e, object, true);
+        nav_mesh_render_set_draw(&mut e, object, 1);
         assert!(e.get(object, NavMeshRender::bDraw));
     }
 

@@ -291,20 +291,14 @@ const FTOL2: u32 = 0x00ec_62c0;
 const SCALE_01016408: u32 = 0x0101_6408;
 const HUNDRED_01017A40: u32 = 0x0101_7a40;
 
-/// The x87 compare `FCOMP` of `a` with `b` as `FNSTSW AX; TEST AH,5; JP`
-/// takes the jump: neither less nor unordered.
-fn not_below(a: f64, b: f64) -> bool {
-    a >= b
-}
-
 // Translated from 00647960 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map (`cdecl`, two floats; the answer in `ST0`):
 /// `t = 1 - second` (a `float`); 0.0 when `t` is below the `double` at
-/// `01012060` (or unordered), else `004579e0(t) * first` stored as a
-/// `float`.
+/// `01012060` (ordered: `TEST AH,5; JP`, 0064797b, sends NaN on), else `004579e0(t) * first`
+/// stored as a `float`.
 pub fn fn_00647960(e: &mut Engine, first: f32, second: f32) -> f32 {
     let t = x87_store32(x87_sub(1.0, x87_load32(second.to_bits())));
-    if !not_below(x87_load32(t), double_at(e, DOUBLE_ZERO)) {
+    if x87_load32(t) < double_at(e, DOUBLE_ZERO) {
         return 0.0;
     }
     let curve = e.call(CURVE_004579E0, &args![x87_quiet_bits(t)]).f64();
@@ -448,7 +442,8 @@ pub fn fn_00647f90(
 /// `s1 + (s2 - s1) * (value * k)` with the owner's virtual slot 0xC for
 /// 0x15 as `value`, the `double` `k` at `01031148` and the settings `s1`
 /// `011d0cc0` and `s2` `011d0e1c` (each part stored as a `float`); 0.0
-/// when that is below the `double` at `01012060` (or unordered).
+/// when that is below the `double` at `01012060` (ordered: `TEST AH,5; JP`, 00648031, keeps a
+/// NaN).
 pub fn fn_00647fd0(e: &mut Engine, owner: u32) -> f32 {
     let value = e.vcall(owner, 0xc, &args![0x15u32]).f64();
     let scaled = x87_store32(x87_mul(value, double_at(e, DOUBLE_HUNDREDTH)));
@@ -457,7 +452,7 @@ pub fn fn_00647fd0(e: &mut Engine, owner: u32) -> f32 {
     let start_again = setting_bits(e, 0x011d_0cc0);
     let span = x87_sub(x87_load32(end), x87_m32(start_again));
     let total = x87_store32(x87_add(x87_mul(span, x87_m32(scaled)), x87_m32(start)));
-    if !not_below(x87_load32(total), double_at(e, DOUBLE_ZERO)) {
+    if x87_load32(total) < double_at(e, DOUBLE_ZERO) {
         return 0.0;
     }
     f32::from_bits(x87_quiet_bits(total))
@@ -745,8 +740,11 @@ mod tests_n042 {
         assert_eq!(e.call(0x0064_7960, &args![3.0f32, 2.0f32]).f32(), 0.0);
         let log = e.call_log.take().unwrap();
         assert!(log.iter().all(|c| c.0 != CURVE_004579E0));
-        // A NaN second makes t unordered: 0.0.
-        assert_eq!(e.call(0x0064_7960, &args![3.0f32, f32::NAN]).f32(), 0.0);
+        // A NaN second makes t unordered: the curve runs (0064797e jumps on it).
+        e.call_log = Some(vec![]);
+        e.call(0x0064_7960, &args![3.0f32, f32::NAN]);
+        let log = e.call_log.take().unwrap();
+        assert!(log.iter().any(|c| c.0 == CURVE_004579E0));
     }
 
     #[test]
@@ -897,6 +895,9 @@ mod tests_n042 {
         assert_eq!(e.call(0x0064_7fd0, &args![owner]).f32(), 2.0);
         e.mem.set_u32(owner + 4, (-200.0f32).to_bits());
         assert_eq!(e.call(0x0064_7fd0, &args![owner]).f32(), 0.0);
+        // 00648034 jumps on an unordered total: the NaN comes back, not 0.0.
+        e.mem.set_u32(owner + 4, f32::NAN.to_bits());
+        assert!(e.call(0x0064_7fd0, &args![owner]).f32().is_nan());
     }
 
     #[test]

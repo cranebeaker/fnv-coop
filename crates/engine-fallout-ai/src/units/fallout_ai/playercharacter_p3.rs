@@ -409,11 +409,11 @@ pub fn fn_0095d3f0(
     mode: u32,
     flag: u8,
     stack_all: u8,
-) -> bool {
+) -> u8 {
     if item.addr() != 0 && e.call(GET_BYTE_AT_384, &args![item]).bool() {
-        return fn_0095d450(e, this, item, mode, flag, stack_all);
+        return u8::from(fn_0095d450(e, this, item, mode, flag, stack_all));
     }
-    e.vcall(this.addr(), 0x3e8, &args![item, mode, flag]).bool()
+    e.vcall(this.addr(), 0x3e8, &args![item, mode, flag]).u8()
 }
 
 /// The part of the equip functions that looks the item's hot key up: if
@@ -7566,7 +7566,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0095d160, fn_0095d160(Ptr<PlayerCharacter>) -> i32),
         entry!(
             0x0095d3f0,
-            fn_0095d3f0(Ptr<PlayerCharacter>, Ptr, u32, u8, u8) -> bool
+            fn_0095d3f0(Ptr<PlayerCharacter>, Ptr, u32, u8, u8) -> u8
         ),
         entry!(
             0x0095d450,

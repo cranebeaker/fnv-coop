@@ -5775,7 +5775,7 @@ pub fn high_process_find_special_idleto_play(
     actor: u32,
     idle: u32,
     reference: u32,
-) -> bool {
+) -> u8 {
     e.call(IDLE_MANAGER_SET_USED_ITEM, &args![idle]);
     e.call(IDLE_MANAGER_SET_USED_ITEM_ACTIVATE, &args![1u32]);
     let mut level = 0u32;
@@ -5798,7 +5798,7 @@ pub fn high_process_find_special_idleto_play(
             PROCESS_SLOT_SETUP_SPECIAL_IDLE,
             &args![actor, 0u32, 2u32, 1u32, 0u32, 1u32],
         )
-        .bool();
+        .u8();
     e.call(IDLE_MANAGER_SET_USED_ITEM, &args![0u32]);
     e.call(IDLE_MANAGER_SET_USED_ITEM_ACTIVATE, &args![0u32]);
     e.call(IDLE_MANAGER_SET_USED_ITEM_LEVEL, &args![0xffff_ffffu32]);
@@ -8119,7 +8119,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008fec10, high_process_fade_update(Ptr, u32) -> bool),
         entry!(0x008ff030, high_process_skip_fade_in(Ptr, u32)),
         entry!(0x008ff080, fn_008ff080(Ptr) -> bool),
-        entry!(0x008ff0b0, high_process_find_special_idleto_play(Ptr, u32, u32, u32) -> bool),
+        entry!(0x008ff0b0, high_process_find_special_idleto_play(Ptr, u32, u32, u32) -> u8),
         entry!(0x008ff1b0, high_process_stop_sound_handle(Ptr, u32)),
         entry!(0x008ff290, high_process_start_torch_sound(Ptr, u32)),
         entry!(
@@ -11126,6 +11126,16 @@ mod tests {
                 (0x0060_0920, vec![0xffff_ffff]),
             ]
         );
+    }
+
+    /// 8ff180, 8ff1a1: slot 0x44's byte comes back as it is.
+    #[test]
+    fn test_high_process_find_special_idleto_play_keeps_the_byte() {
+        let mut e = Engine::new();
+        let (process, actor, reference) = idle_scene(&mut e, 1.5, 10.0, 0.5, 12.0, 0);
+        e.register_double(0x00aa_c070, |_, _| ret(0x2a));
+        let answer = e.call(0x008f_f0b0, &args![process, actor, 1u32, reference]);
+        assert_eq!(answer.u8(), 0x2a);
     }
 
     #[test]

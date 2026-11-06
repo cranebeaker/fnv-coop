@@ -146,7 +146,7 @@ pub fn bgs_acoustic_space_listener_contact_point_added_callback(
         return false;
     }
     let cancelled = e.get(this, BGSAcousticSpaceListener::bBufferRemovalOperations)
-        && fn_0061f890(e, this, Ptr::new(partner), false);
+        && fn_0061f890(e, this, Ptr::new(partner), false) != 0;
     if !cancelled {
         let key = e.call(REFERENCE_AUDIO_KEY, &args![partner]).u32();
         e.call(ADD_PATH_CALLEE, &args![key]);
@@ -193,14 +193,14 @@ pub fn fn_0061f890(
     this: Ptr<BGSAcousticSpaceListener>,
     reference: Ptr,
     clear: bool,
-) -> bool {
+) -> u8 {
     let removed = e
         .call(
             MAP_REMOVE_AT,
             &args![this.addr() + REMOVAL_QUEUE_MAP, reference],
         )
-        .bool();
-    if removed && clear {
+        .u8();
+    if removed != 0 && clear {
         let key = e.call(REFERENCE_AUDIO_KEY, &args![reference]).u32();
         e.call(CLEAR_ACOUSTIC_SPACE, &args![key]);
     }
@@ -374,7 +374,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0061f870, fn_0061f870(Ptr<BGSAcousticSpaceListener>, Ptr)),
         entry!(
             0x0061f890,
-            fn_0061f890(Ptr<BGSAcousticSpaceListener>, Ptr, bool) -> bool
+            fn_0061f890(Ptr<BGSAcousticSpaceListener>, Ptr, bool) -> u8
         ),
         entry!(0x0061f8e0, fn_0061f8e0(Ptr<BGSAcousticSpaceListener>, u32)),
         entry!(

@@ -135,8 +135,8 @@ pub fn bhk_blend_collision_object_add_rotation_is_equal(
     e: &mut Engine,
     this: Ptr,
     other: Ptr,
-) -> bool {
-    e.call(BLEND_IS_EQUAL, &args![this, other]).bool()
+) -> u8 {
+    e.call(BLEND_IS_EQUAL, &args![this, other]).u8()
 }
 
 // Translated from 00c8ffd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -305,7 +305,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00c8ffb0,
             bhk_blend_collision_object_add_rotation_save_binary(Ptr, Ptr)
         ),
-        entry!(0x00c8ffc0, bhk_blend_collision_object_add_rotation_is_equal(Ptr, Ptr) -> bool),
+        entry!(0x00c8ffc0, bhk_blend_collision_object_add_rotation_is_equal(Ptr, Ptr) -> u8),
         entry!(0x00c8ffd0, fn_00c8ffd0(Ptr) -> Ptr),
         entry!(0x00c90000, bhk_blend_collision_object_add_rotation_scalar_deleting_destructor(Ptr, u32) -> Ptr),
         entry!(

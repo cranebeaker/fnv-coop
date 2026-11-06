@@ -277,7 +277,8 @@ pub fn hkp_save_contact_points_endian_util_swap_endian_type_in_1n_track(
             let end = e.mem.u32(item).wrapping_add(item).wrapping_add(0x10);
             let mut entry = item.wrapping_add(0x10);
             if entry < end {
-                let mut next = item_index.wrapping_add(1);
+                // 00e0620f: from the block cursor, not the item index.
+                let mut next = cursor.wrapping_add(1);
                 loop {
                     e.mem.set_u32(size_at, 0);
                     if block != 0 {
@@ -823,6 +824,24 @@ mod tests {
                 (first + 0x20, blocks[0]),
                 (first + 0x30, blocks[1]),
                 (second + 0x10, blocks[2]),
+                (second + 0x20, blocks[2]),
+            ]
+        );
+    }
+
+    /// 00e0620f counts from the cursor: at the second item the cursor is 0, so the third block
+    /// is still there for the item's second entry; counted from the item index it was gone.
+    #[test]
+    fn the_next_block_check_counts_from_the_cursor_00e061c0() {
+        let (seen, blocks, items) = track_run(&[(0, 0x2f), (1, 0), (1, 0x1f)], &[0x10]);
+        let [first, second] = items;
+        assert_eq!(
+            seen,
+            vec![
+                (first + 0x10, blocks[0]),
+                (first + 0x20, blocks[0]),
+                (first + 0x30, blocks[0]),
+                (second + 0x10, blocks[1]),
                 (second + 0x20, blocks[2]),
             ]
         );

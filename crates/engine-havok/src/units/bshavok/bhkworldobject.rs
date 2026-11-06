@@ -154,8 +154,8 @@ pub fn bhk_world_object_destruct(e: &mut Engine, this: Ptr) {
 // Translated from 00c85800 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed: a jump to `00ba87d0` (itself a jump to `NiObject::IsEqual`, `00a5d470`) with
 /// `this` and the one argument unchanged. Answers its `bool`.
-pub fn fn_00c85800(e: &mut Engine, this: Ptr, other: u32) -> bool {
-    e.call(NI_OBJECT_IS_EQUAL, &args![this, other]).bool()
+pub fn fn_00c85800(e: &mut Engine, this: Ptr, other: u32) -> u8 {
+    e.call(NI_OBJECT_IS_EQUAL, &args![this, other]).u8()
 }
 
 // Translated from 00c85810 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -625,7 +625,7 @@ pub fn bhk_world_object_gethk_world_rw(e: &mut Engine, this: Ptr) -> u32 {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00c85790, bhk_world_object_destruct(Ptr)),
-        entry!(0x00c85800, fn_00c85800(Ptr, u32) -> bool),
+        entry!(0x00c85800, fn_00c85800(Ptr, u32) -> u8),
         entry!(0x00c85810, bhk_world_object_add(Ptr, u32) -> bool),
         entry!(0x00c85880, bhk_world_object_copy_cinfo(Ptr, u32)),
         entry!(0x00c85900, bhk_world_object_copy_members(Ptr, u32, u32)),

@@ -681,14 +681,19 @@ pub fn ni_d3d_shader_factory_get_first_program_directory(
 }
 
 // Translated from 00e91f40 (decompiled, FalloutNV.exe 1.4.0.525)
-/// `NiD3DShaderFactory::GetNextProgramDirectory` (engine map): as
-/// [`ni_d3d_shader_factory_get_first_program_directory`] with `GetNextProgramDirectory`.
+/// `NiD3DShaderFactory::GetNextProgramDirectory` (engine map): with a program factory, a jump to
+/// its `GetNextProgramDirectory` (00e91f4e), which reads only the caller's stack word, the
+/// position; the factory in ECX goes unread (00e93000). 0 without a factory.
 pub fn ni_d3d_shader_factory_get_next_program_directory(
     e: &mut Engine,
     _this: Ptr,
     word: u32,
 ) -> u32 {
-    on_program_factory(e, NEXT_PROGRAM_DIRECTORY_00E93000, Some(word))
+    let factory = e.call(PROGRAM_FACTORY_INSTANCE_00E92EB0, &args![]).u32();
+    if factory == 0 {
+        return 0;
+    }
+    e.call(NEXT_PROGRAM_DIRECTORY_00E93000, &args![word]).u32()
 }
 
 // Translated from 00e91f60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2134,7 +2139,6 @@ mod n008_tests {
     fn program_directory_calls_go_to_the_program_factory() {
         for (addr, target) in [
             (0x00e9_1f20u32, FIRST_PROGRAM_DIRECTORY_00E92FE0),
-            (0x00e9_1f40, NEXT_PROGRAM_DIRECTORY_00E93000),
             (0x00e9_1f60, ADD_PROGRAM_DIRECTORY_00E93960),
             (0x00e9_1f80, REMOVE_PROGRAM_DIRECTORY_00E93BB0),
         ] {
@@ -2149,6 +2153,24 @@ mod n008_tests {
             assert_eq!(e.call(addr, &args![0u32, 0x99u32]).u32(), 0x55);
             assert_eq!(calls(&e, target), vec![vec![0x0e80_0000, 0x99]]);
         }
+    }
+
+    /// 00e93000 reads its only word as the position, and its real entry takes one word.
+    #[test]
+    fn next_program_directory_hands_the_real_entry_the_position_alone() {
+        let mut e = engine();
+        e.register(PROGRAM_FACTORY_INSTANCE_00E92EB0, |_, _| 0u32.into_ret());
+        assert_eq!(e.call(0x00e9_1f40, &args![0u32, 0x99u32]).u32(), 0);
+        e.register(PROGRAM_FACTORY_INSTANCE_00E92EB0, |_, _| {
+            0x0e80_0000u32.into_ret()
+        });
+        let node = e.mem.alloc(0x10);
+        e.mem.set_u32(node, 0x1234);
+        e.mem.set_u32(node + 8, 0x5678);
+        let position = e.mem.alloc(4);
+        e.mem.set_u32(position, node);
+        assert_eq!(e.call(0x00e9_1f40, &args![0u32, position]).u32(), 0x5678);
+        assert_eq!(e.mem.u32(position), 0x1234);
     }
 
     #[test]

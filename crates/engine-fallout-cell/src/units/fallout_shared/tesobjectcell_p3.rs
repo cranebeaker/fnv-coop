@@ -627,7 +627,7 @@ pub fn tes_object_cell_attach_to_world(e: &mut Engine, this: Ptr<TESObjectCELL>,
         e.call(CELL_SET_ADDON_NODES_ATTACHED, &args![this, 1u32]);
         e.call(CELL_SET_ATTACHED_FLAG, &args![this, 1u32]);
         let render = fn_00552ba0(e);
-        if fn_00552bb0(e, Ptr::new(render)) {
+        if fn_00552bb0(e, Ptr::new(render)) != 0 {
             let render = fn_00552ba0(e);
             e.call(NAV_MESH_RENDER_ADD, &args![render, this, 1u32]);
         }
@@ -671,8 +671,8 @@ pub fn fn_00552ba0(e: &mut Engine) -> u32 {
 // Translated from 00552bb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the byte at `+0x210` of the render singleton: whether the
 /// draw-only nav meshes are wanted.
-pub fn fn_00552bb0(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x210) != 0
+pub fn fn_00552bb0(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x210)
 }
 
 // Translated from 00552bd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4155,7 +4155,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             tes_object_cell_attach_to_world(Ptr<TESObjectCELL>, Ptr)
         ),
         entry!(0x00552ba0, fn_00552ba0() -> u32),
-        entry!(0x00552bb0, fn_00552bb0(Ptr) -> bool),
+        entry!(0x00552bb0, fn_00552bb0(Ptr) -> u8),
         entry!(0x00552bd0, tes_object_cell_detach(Ptr<TESObjectCELL>, bool)),
         entry!(0x00552da0, fn_00552da0(Ptr) -> u8),
         entry!(0x00552dc0, fn_00552dc0(Ptr<TESObjectCELL>)),

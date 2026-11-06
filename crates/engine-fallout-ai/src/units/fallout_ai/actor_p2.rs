@@ -2054,8 +2054,8 @@ fn package_step(e: &mut Engine, this: Ptr<Actor>, player: u32, delta: f32) {
 
 // Translated from 00886b10 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `Actor::bResetAI` (Xbox PDB, +0x146 on PC).
-pub fn fn_00886b10(e: &mut Engine, this: Ptr<Actor>) -> bool {
-    e.get(this, Actor::bResetAI)
+pub fn fn_00886b10(e: &mut Engine, this: Ptr<Actor>) -> u8 {
+    e.mem.u8(this.addr() + Actor::bResetAI.off)
 }
 
 // Translated from 00886b30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2103,7 +2103,7 @@ pub fn fn_00886b30(e: &mut Engine, this: Ptr<Actor>, vector: Ptr) -> bool {
     e.call(SET_BIP_TRANSFORM, &args![blend, vector, not_flag]);
     let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
     if controller != 0 {
-        fn_00886c80(e, Ptr::new(controller), true);
+        fn_00886c80(e, Ptr::new(controller), 1);
     }
     let rotation = e.call(ACTOR_ROTATION_VECTOR, &args![this]).u32();
     let heading = e.mem.f32(rotation + 8);
@@ -2127,7 +2127,7 @@ pub fn fn_00886b30(e: &mut Engine, this: Ptr<Actor>, vector: Ptr) -> bool {
 /// Sets or clears the bit `0x1000` of the flag word at `+0x410` of the
 /// character controller (`00629670`: `flag` set ORs the mask into the word
 /// at +4 of that sub-object, otherwise `006296b0` clears it).
-pub fn fn_00886c80(e: &mut Engine, this: Ptr, flag: bool) {
+pub fn fn_00886c80(e: &mut Engine, this: Ptr, flag: u8) {
     e.call(
         FLAG_SET_OR_CLEAR,
         &args![this.addr() + 0x410, 0x1000u32, flag],
@@ -2136,7 +2136,7 @@ pub fn fn_00886c80(e: &mut Engine, this: Ptr, flag: bool) {
 
 // Translated from 008879d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The same as `00886c80` with the bit `0x40000`.
-pub fn fn_008879d0(e: &mut Engine, this: Ptr, flag: bool) {
+pub fn fn_008879d0(e: &mut Engine, this: Ptr, flag: u8) {
     e.call(
         FLAG_SET_OR_CLEAR,
         &args![this.addr() + 0x410, 0x40000u32, flag],
@@ -2170,7 +2170,7 @@ pub fn fn_00887a10(e: &mut Engine, this: Ptr) -> u32 {
 /// Hands the object `00887a10` finds a 4-byte value built from `flag`
 /// (`00622570` stores the byte) and the `004ae750` pointer of `this`
 /// (`hkpLimitedHingeConstraintData::setMotorActive` in the engine map).
-pub fn fn_00887a80(e: &mut Engine, this: Ptr, flag: bool) {
+pub fn fn_00887a80(e: &mut Engine, this: Ptr, flag: u8) {
     let target = fn_00887a10(e, this);
     if target == 0 {
         return;
@@ -2591,7 +2591,7 @@ fn level_of_detail(e: &mut Engine, this: Ptr<Actor>, player: u32, skeleton: u32,
             e.call(ACCUMULATOR_UPDATE, &args![accumulator, id, bound, value]);
         }
         if turret != 0 {
-            fn_008879d0(e, Ptr::new(turret), far);
+            fn_008879d0(e, Ptr::new(turret), u8::from(far));
         }
     });
 }
@@ -2778,7 +2778,7 @@ fn resync_collision(
                 // 0088791d / 00887932 MOV ECX,[EBP-0x1a4]: both callees get
                 // the handle (they run `00887a10` on it themselves), not the
                 // `00887a10` result kept at [EBP-0x1a8].
-                fn_00887a80(e, Ptr::new(handle), true);
+                fn_00887a80(e, Ptr::new(handle), 1);
                 fn_00887ac0(e, Ptr::new(handle), clamped);
                 break;
             }
@@ -3112,7 +3112,7 @@ pub fn fn_00888970(e: &mut Engine, this: Ptr<Actor>, _unused_1: u32) {
     e.call(DO_RAGDOLL_ANIM, &args![controller, 1u32]);
     let face = e.call(GET_FACE_ANIMATION_DATA, &args![this]).u32();
     if face != 0 {
-        if fn_00888a50(e, controller) {
+        if fn_00888a50(e, controller) != 0 {
             let (first, second) = e.with_stack(8, |e, slot| {
                 let first = slot.addr();
                 let second = slot.addr() + 4;
@@ -3138,8 +3138,8 @@ pub fn fn_00888a20(e: &mut Engine, this: Ptr, first: f32, second: f32) {
 
 // Translated from 00888a50 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the byte at `+0xb3` of the ragdoll controller.
-pub fn fn_00888a50(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0xb3) != 0
+pub fn fn_00888a50(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0xb3)
 }
 
 // Translated from 00888a70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -9238,14 +9238,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x008860d0, fn_008860d0(Ptr<Actor>) -> bool),
         entry!(0x00886360, fn_00886360(Ptr<Actor>, f32)),
-        entry!(0x00886b10, fn_00886b10(Ptr<Actor>) -> bool),
+        entry!(0x00886b10, fn_00886b10(Ptr<Actor>) -> u8),
         entry!(0x00886b30, fn_00886b30(Ptr<Actor>, Ptr) -> bool),
-        entry!(0x00886c80, fn_00886c80(Ptr, bool)),
+        entry!(0x00886c80, fn_00886c80(Ptr, u8)),
         entry!(0x00886cb0, fn_00886cb0(Ptr<Actor>, f32, u32)),
-        entry!(0x008879d0, fn_008879d0(Ptr, bool)),
+        entry!(0x008879d0, fn_008879d0(Ptr, u8)),
         entry!(0x00887a00, fn_00887a00() -> u32),
         entry!(0x00887a10, fn_00887a10(Ptr) -> u32),
-        entry!(0x00887a80, fn_00887a80(Ptr, bool)),
+        entry!(0x00887a80, fn_00887a80(Ptr, u8)),
         entry!(0x00887ac0, fn_00887ac0(Ptr, f32)),
         entry!(0x00887af0, fn_00887af0(Ptr, u32)),
         entry!(0x00887b20, fn_00887b20(Ptr, u32)),
@@ -9262,7 +9262,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00888960, fn_00888960() -> u8),
         entry!(0x00888970, fn_00888970(Ptr<Actor>, u32)),
         entry!(0x00888a20, fn_00888a20(Ptr, f32, f32)),
-        entry!(0x00888a50, fn_00888a50(Ptr) -> bool),
+        entry!(0x00888a50, fn_00888a50(Ptr) -> u8),
         entry!(0x00888a70, fn_00888a70(Ptr, Ptr, Ptr)),
         entry!(0x00888aa0, fn_00888aa0(Ptr)),
         entry!(0x00888ac0, fn_00888ac0(Ptr<Actor>, f32)),
@@ -10730,9 +10730,9 @@ mod tests {
     fn reset_ai_flag_is_returned() {
         let mut e = engine2();
         let actor = actor2(&mut e);
-        assert!(!fn_00886b10(&mut e, actor));
+        assert!(fn_00886b10(&mut e, actor) == 0);
         e.set(actor, Actor::bResetAI, true);
-        assert!(fn_00886b10(&mut e, actor));
+        assert!(fn_00886b10(&mut e, actor) != 0);
     }
 
     #[test]
@@ -10780,10 +10780,10 @@ mod tests {
     fn controller_flag_setters_pass_their_masks() {
         let mut e = engine2();
         e.call_log = Some(vec![]);
-        fn_00886c80(&mut e, Ptr::new(0x5000), true);
+        fn_00886c80(&mut e, Ptr::new(0x5000), 1);
         assert_eq!(args_of(&e, FLAG_SET_OR_CLEAR), vec![0x5410, 0x1000, 1]);
         e.call_log = Some(vec![]);
-        fn_008879d0(&mut e, Ptr::new(0x5000), false);
+        fn_008879d0(&mut e, Ptr::new(0x5000), 0);
         assert_eq!(args_of(&e, FLAG_SET_OR_CLEAR), vec![0x5410, 0x40000, 0]);
     }
 
@@ -10828,7 +10828,7 @@ mod tests {
         e.mem.set_u32(target, 0x5566);
         double(&mut e, WORD_AT_0XC, eax(0x4321));
         e.call_log = Some(vec![]);
-        fn_00887a80(&mut e, Ptr::new(object), true);
+        fn_00887a80(&mut e, Ptr::new(object), 1);
         let call = args_of(&e, SET_MOTOR_ACTIVE);
         assert_eq!(call[0], 0x4321);
         assert_eq!(call[1], 0x9000);
@@ -11127,7 +11127,7 @@ mod tests {
         e.mem.set_u8(GLOBAL_FLAG_012677A3, 7);
         assert_eq!(fn_00888960(&mut e), 7);
         e.mem.set_u8(controller.addr() + 0xb3, 1);
-        assert!(fn_00888a50(&mut e, controller));
+        assert!(fn_00888a50(&mut e, controller) != 0);
         e.mem.set_f32(controller.addr() + 0x19c, 1.5);
         e.mem.set_f32(controller.addr() + 0x1a0, 2.5);
         let out = e.mem.alloc(8);

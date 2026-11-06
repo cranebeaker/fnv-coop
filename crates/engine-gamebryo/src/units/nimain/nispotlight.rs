@@ -27,8 +27,8 @@ pub fn ni_spot_light_link_object(e: &mut Engine, this: Ptr, stream: Ptr) {
 
 // Translated from 00a94c70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiSpotLight::RegisterStreamables` (Xbox PDB): a 5-byte jump to `00a75c10` (engine map: `NiAmbientLight::RegisterStreamables`), passing on `this` and its one argument; returns the target result. Return type (bool): Xbox PDB public name `?RegisterStreamables@NiSpotLight@@UAA_NAAVNiStream@@@Z`.
-pub fn ni_spot_light_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
-    e.call(JUMP_TARGET_00A94C70, &args![this, stream]).bool()
+pub fn ni_spot_light_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
+    e.call(JUMP_TARGET_00A94C70, &args![this, stream]).u8()
 }
 
 /// `NiPointLight`'s functions (`nipointlight.cpp`, `__thiscall`): the constructor body
@@ -279,7 +279,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00a94d50, ni_spot_light_get_rtti() -> Ptr),
         entry!(0x00a9_4c60, ni_spot_light_link_object(Ptr, Ptr)),
-        entry!(0x00a9_4c70, ni_spot_light_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00a9_4c70, ni_spot_light_register_streamables(Ptr, Ptr) -> u8),
         entry!(0x00a9_4c00, fn_00a94c00(Ptr, Ptr, Ptr)),
         entry!(0x00a9_4c80, ni_spot_light_is_equal(Ptr, Ptr) -> bool),
         entry!(0x00a9_4ce0, fn_00a94ce0(Ptr) -> Ptr),

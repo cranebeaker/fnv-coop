@@ -451,7 +451,8 @@ pub fn ni_p_sys_drag_field_modifier_update(
 // Translated from 00c2ce10 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiPSysDragFieldModifier::LoadBinary` (Xbox PDB): `NiPSysFieldModifier`'s,
 /// then one byte (the direction flag, stored as 1 or 0) and the direction
-/// (`NiColor::LoadBinary`).
+/// (`NiColor::LoadBinary`). The byte is read into the stream argument's own stack word
+/// (00c2ce32), so a short read tests that word's low byte.
 pub fn ni_p_sys_drag_field_modifier_load_binary(
     e: &mut Engine,
     this: Ptr<NiPSysDragFieldModifier>,
@@ -461,6 +462,7 @@ pub fn ni_p_sys_drag_field_modifier_load_binary(
     e.call(FIELD_MODIFIER_LOAD_BINARY, &args![this, stream]);
     e.with_stack(8, |e, locals| {
         let flag = locals.addr();
+        e.mem.set_u32(flag, stream.addr());
         stream_read(e, stream.addr(), flag, 1, 1, flag + 4);
         let use_direction = u8::from(e.mem.u8(flag) != 0);
         e.set(this, M::m_bUseDirection, use_direction);
@@ -835,6 +837,22 @@ mod n064_tests {
         assert!(check(&mut e));
         e.register(FIELD_MODIFIER_IS_EQUAL, |_, _| answer(0));
         assert!(!check(&mut e));
+    }
+
+    #[test]
+    fn load_binary_short_read_tests_the_stream_address() {
+        let mut e = Engine::new();
+        quiet(&mut e, &[FIELD_MODIFIER_LOAD_BINARY, POINT_LOAD_BINARY]);
+        let this = e.new_object::<M>();
+        let stream = loop {
+            let stream = test_stream::new(&mut e, 0x1402_0007, &[]);
+            if stream & 0xff != 0 {
+                break stream;
+            }
+        };
+        e.register(test_stream::READ_FN, |_, _| Ret::default());
+        e.call(0x00c2_ce10, &args![this, stream]);
+        assert_eq!(e.get(this, M::m_bUseDirection), 1);
     }
 
     #[test]

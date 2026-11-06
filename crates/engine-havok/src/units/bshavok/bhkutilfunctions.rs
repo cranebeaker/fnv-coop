@@ -469,7 +469,7 @@ pub fn fn_00c7fc60(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 // Translated from 00c7fcc0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00c7fcc0 - the /GS cookie check is not modeled, and when the scaled-holder test passes while 008cffa0 answers true and the scale is not 1.0 the 64-byte transform at stack +0x20 is never written in the exe (stack garbage, taken as zeros).
+// Translation incomplete: 00c7fcc0 - the /GS cookie check is not modeled.
 /// No map name, cdecl stack `(node, ray, best, flag)`; answers in `AL`. Ray test of a node and
 /// its subtree against the shapes of the nodes' wrappers. For a node with a wrapper whose
 /// Havok body's collision filter word (`[body + 0x10 + 0x1c]`) has kind (low 7 bits) 8 or
@@ -776,7 +776,8 @@ pub fn do_thread_setup(e: &mut Engine, slot: Ptr) {
 /// section `01267e48`: frees the 0x5000 bytes at `[slot + 4]` through the allocator at the
 /// router's `+0x10` (virtual slot `+8`, `(block, 0x5000)`), clears `[slot + 4]`, quits the
 /// thread (`00cbb990`) when `GetCurrentThreadId` equals `[slot + 8]`, tells the memory system
-/// (virtual slot `+0x10` `(router, 1)`), clears the router's `+4`, `+0` and `+8` and `[slot]`.
+/// (virtual slot `+0x10` `(router, 1)`), clears the router's `+4`, `+0` and `+8` and `[slot]`,
+/// the last still inside the section (00c802b3, before the leave at 00c802b9).
 pub fn do_thread_shutdown(e: &mut Engine, slot: Ptr) {
     let me = slot.addr();
     let router = e.mem.u32(me);
@@ -796,8 +797,8 @@ pub fn do_thread_shutdown(e: &mut Engine, slot: Ptr) {
     e.mem.set_u32(router + 4, 0);
     e.mem.set_u32(router, 0);
     e.mem.set_u32(router + 8, 0);
-    e.call(IMPORT_LEAVE_CRITICAL_SECTION, &args![THREAD_SECTION]);
     e.mem.set_u32(me, 0);
+    e.call(IMPORT_LEAVE_CRITICAL_SECTION, &args![THREAD_SECTION]);
 }
 
 // Translated from 00c802d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2631,6 +2632,13 @@ mod movement_tests {
         e.mem.set_u32(slot + 8, 0x9999);
         e.call(0x00c8_0240, &args![slot]);
         assert_eq!(calls_to(&e, QUIT_THREAD).len(), 1);
+        // 00c802b3: another thread never sees the slot's word set once the section is free.
+        e.mem.set_u32(slot, router);
+        e.register_double(IMPORT_LEAVE_CRITICAL_SECTION, move |e, _| {
+            assert_eq!(e.mem.u32(slot), 0);
+            Ret::default()
+        });
+        e.call(0x00c8_0240, &args![slot]);
     }
 
     #[test]

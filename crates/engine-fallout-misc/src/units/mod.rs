@@ -542,3 +542,6 @@ engine_core::assemble!(
     engine_fallout_unplaced_a::units::funcs,
     engine_fallout_unplaced_b::units::funcs,
 );
+
+#[cfg(test)]
+mod raw_bytes;

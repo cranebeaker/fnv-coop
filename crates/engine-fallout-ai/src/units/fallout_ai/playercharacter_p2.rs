@@ -688,9 +688,9 @@ pub fn fn_0094c660(e: &mut Engine, this: Ptr, first: u32, second: f32) {
 /// `PlayerCharacter::AddSpell` (Xbox PDB): adds the spell through
 /// `Actor::AddSpell` and, when that succeeded, runs `SpellLearned`. Returns
 /// whether the spell was added.
-pub fn player_character_add_spell(e: &mut Engine, this: Ptr<PlayerCharacter>, spell: Ptr) -> bool {
-    let added = e.call(ACTOR_ADD_SPELL, &args![this, spell]).bool();
-    if added {
+pub fn player_character_add_spell(e: &mut Engine, this: Ptr<PlayerCharacter>, spell: Ptr) -> u8 {
+    let added = e.call(ACTOR_ADD_SPELL, &args![this, spell]).u8();
+    if added != 0 {
         player_character_spell_learned(e, this, spell);
     }
     added
@@ -741,9 +741,9 @@ pub fn player_character_spell_learned(e: &mut Engine, _this: Ptr<PlayerCharacter
 /// succeeded and the spell's interface (`spell + 0x18`, or 0 for no spell) is
 /// the selected spell, clears the selection. Returns whether the spell was
 /// removed.
-pub fn fn_0094c7a0(e: &mut Engine, this: Ptr<PlayerCharacter>, spell: Ptr) -> bool {
-    let removed = e.call(ACTOR_REMOVE_SPELL, &args![this, spell]).bool();
-    if removed {
+pub fn fn_0094c7a0(e: &mut Engine, this: Ptr<PlayerCharacter>, spell: Ptr) -> u8 {
+    let removed = e.call(ACTOR_REMOVE_SPELL, &args![this, spell]).u8();
+    if removed != 0 {
         let interface = if spell.is_null() {
             0
         } else {
@@ -761,24 +761,24 @@ pub fn fn_0094c7a0(e: &mut Engine, this: Ptr<PlayerCharacter>, spell: Ptr) -> bo
 /// reports at `out` when `out` is not null. The result is false when that call
 /// failed with code 5; otherwise it is true when
 /// `PlayerCharacter::IsGodMode` is, and else the call's own result.
-pub fn fn_0094c800(e: &mut Engine, this: Ptr, first: u32, second: u32, out: Ptr, flag: u8) -> bool {
+pub fn fn_0094c800(e: &mut Engine, this: Ptr, first: u32, second: u32, out: Ptr, flag: u8) -> u8 {
     // The exe's frame (`SUB ESP,0x10` under `EBP`): the code at +8 (`EBP-0x8`).
     let (ok, reported) = e.with_stack(0x10, |e, frame| {
         let code = frame.addr() + 8;
         e.mem.set_u32(code, 0);
         let ok = e
             .call(SPELL_CHECK, &args![this, first, second, code, flag])
-            .bool();
+            .u8();
         (ok, e.mem.u32(code))
     });
     if !out.is_null() {
         e.mem.set_u32(out.addr(), reported);
     }
-    if !ok && reported == 5 {
-        return false;
+    if ok == 0 && reported == 5 {
+        return 0;
     }
     if e.call(IS_GOD_MODE, &args![]).bool() {
-        true
+        1
     } else {
         ok
     }
@@ -862,19 +862,12 @@ pub fn fn_0094c950(e: &mut Engine, this: Ptr<PlayerCharacter>, scroll: Ptr) {
 /// Forwards to `MagicTarget::AddTarget` (Xbox PDB name of `008230f0`) and answers its `AL`:
 /// the exe ends on that call. The function is slot 0 of `PlayerCharacter`'s `MagicTarget`
 /// vtable, `MagicTarget::AddTarget` (`bool` in the Xbox PDB).
-pub fn fn_0094ca20(
-    e: &mut Engine,
-    this: Ptr,
-    first: u32,
-    second: u32,
-    third: u32,
-    flag: u8,
-) -> bool {
+pub fn fn_0094ca20(e: &mut Engine, this: Ptr, first: u32, second: u32, third: u32, flag: u8) -> u8 {
     e.call(
         MAGIC_TARGET_ADD_TARGET,
         &args![this, first, second, third, flag],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 0094ca50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -8059,14 +8052,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0094c660, fn_0094c660(Ptr, u32, f32)),
         entry!(
             0x0094c680,
-            player_character_add_spell(Ptr<PlayerCharacter>, Ptr) -> bool
+            player_character_add_spell(Ptr<PlayerCharacter>, Ptr) -> u8
         ),
         entry!(
             0x0094c6c0,
             player_character_spell_learned(Ptr<PlayerCharacter>, Ptr)
         ),
-        entry!(0x0094c7a0, fn_0094c7a0(Ptr<PlayerCharacter>, Ptr) -> bool),
-        entry!(0x0094c800, fn_0094c800(Ptr, u32, u32, Ptr, u8) -> bool),
+        entry!(0x0094c7a0, fn_0094c7a0(Ptr<PlayerCharacter>, Ptr) -> u8),
+        entry!(0x0094c800, fn_0094c800(Ptr, u32, u32, Ptr, u8) -> u8),
         entry!(0x0094c870, fn_0094c870(Ptr, u32, u8)),
         entry!(0x0094c890, fn_0094c890(Ptr, u32, u32, u8)),
         entry!(0x0094c8c0, fn_0094c8c0(Ptr<PlayerCharacter>) -> u32),
@@ -8075,7 +8068,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             player_character_set_selected_spell(Ptr<PlayerCharacter>, u32)
         ),
         entry!(0x0094c950, fn_0094c950(Ptr<PlayerCharacter>, Ptr)),
-        entry!(0x0094ca20, fn_0094ca20(Ptr, u32, u32, u32, u8) -> bool),
+        entry!(0x0094ca20, fn_0094ca20(Ptr, u32, u32, u32, u8) -> u8),
         entry!(0x0094ca50, fn_0094ca50(Ptr) -> u32),
         entry!(0x0094cae0, fn_0094cae0(Ptr<PlayerCharacter>, Ptr)),
         entry!(0x0094db80, fn_0094db80(Ptr, u8)),
@@ -8596,9 +8589,9 @@ mod tests {
         let spell = spell_with_kind(&mut e, 1);
         double(&mut e, ACTOR_ADD_SPELL, eax(0));
         start_log(&mut e);
-        assert!(!player_character_add_spell(&mut e, player, Ptr::new(spell)));
+        assert!(player_character_add_spell(&mut e, player, Ptr::new(spell)) == 0);
         double(&mut e, ACTOR_ADD_SPELL, eax(1));
-        assert!(player_character_add_spell(&mut e, player, Ptr::new(spell)));
+        assert!(player_character_add_spell(&mut e, player, Ptr::new(spell)) != 0);
         let table = e.mem.u32(spell + 0x18);
         assert!(table != 0);
         assert_eq!(
@@ -8645,17 +8638,17 @@ mod tests {
             Ptr::new(spell + 0x18),
         );
         double(&mut e, ACTOR_REMOVE_SPELL, eax(0));
-        assert!(!fn_0094c7a0(&mut e, player, Ptr::new(spell)));
+        assert!(fn_0094c7a0(&mut e, player, Ptr::new(spell)) == 0);
         assert_eq!(fn_0094c8c0(&mut e, player), spell + 0x18);
         // Removed, but another spell is selected.
         double(&mut e, ACTOR_REMOVE_SPELL, eax(1));
-        assert!(fn_0094c7a0(&mut e, player, Ptr::new(0x8000)));
+        assert!(fn_0094c7a0(&mut e, player, Ptr::new(0x8000)) != 0);
         assert_eq!(fn_0094c8c0(&mut e, player), spell + 0x18);
         // Removed and selected.
-        assert!(fn_0094c7a0(&mut e, player, Ptr::new(spell)));
+        assert!(fn_0094c7a0(&mut e, player, Ptr::new(spell)) != 0);
         assert_eq!(fn_0094c8c0(&mut e, player), 0);
         // No spell and nothing selected: the null interface matches.
-        assert!(fn_0094c7a0(&mut e, player, Ptr::NULL));
+        assert!(fn_0094c7a0(&mut e, player, Ptr::NULL) != 0);
     }
 
     #[test]
@@ -8707,19 +8700,19 @@ mod tests {
         });
         // Code 5 and failure: false even in god mode.
         double(&mut e, IS_GOD_MODE, eax(1));
-        assert!(!fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::new(out), 3));
+        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::new(out), 3) == 0);
         assert_eq!(e.mem.u32(out), 5);
         // Another failure code: god mode wins.
         e.register_double(SPELL_CHECK, |e, a| {
             e.mem.set_u32(a[3], 2);
             eax(0)
         });
-        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3));
+        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3) != 0);
         // Without god mode the call's own answer is returned.
         double(&mut e, IS_GOD_MODE, eax(0));
-        assert!(!fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3));
+        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3) == 0);
         e.register_double(SPELL_CHECK, |_, _| eax(1));
-        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3));
+        assert!(fn_0094c800(&mut e, player.cast(), 1, 2, Ptr::NULL, 3) != 0);
     }
 
     #[test]
@@ -8750,9 +8743,9 @@ mod tests {
         let mut e = engine();
         let player = new_player(&mut e);
         double(&mut e, MAGIC_TARGET_ADD_TARGET, eax(0x0000_0301));
-        assert!(fn_0094ca20(&mut e, player.cast(), 14, 15, 16, 1));
+        assert!(fn_0094ca20(&mut e, player.cast(), 14, 15, 16, 1) != 0);
         double(&mut e, MAGIC_TARGET_ADD_TARGET, eax(0x0000_0300));
-        assert!(!fn_0094ca20(&mut e, player.cast(), 14, 15, 16, 1));
+        assert!(fn_0094ca20(&mut e, player.cast(), 14, 15, 16, 1) == 0);
     }
 
     #[test]

@@ -156,8 +156,8 @@ pub fn fn_00589f50(e: &mut Engine, this: Ptr<BGSAcousticSpace>, value: u32) {
 
 // Translated from 0058a200 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bIsInterior` (`+0x30`).
-pub fn fn_0058a200(e: &mut Engine, this: Ptr<BGSAcousticSpace>) -> bool {
-    e.get(this, BGSAcousticSpace::bIsInterior)
+pub fn fn_0058a200(e: &mut Engine, this: Ptr<BGSAcousticSpace>) -> u8 {
+    e.mem.u8(this.addr() + BGSAcousticSpace::bIsInterior.off)
 }
 
 /// The getters of the five sounds, paired with `SOUND_SETTERS` (each
@@ -303,7 +303,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0058_9d30, fn_00589d30(Ptr<BGSAcousticSpace>, Ptr) -> bool),
         entry!(0x0058_9f50, fn_00589f50(Ptr<BGSAcousticSpace>, u32)),
-        entry!(0x0058_a200, fn_0058a200(Ptr<BGSAcousticSpace>) -> bool),
+        entry!(0x0058_a200, fn_0058a200(Ptr<BGSAcousticSpace>) -> u8),
         entry!(0x0058_9f70, fn_00589f70(Ptr<BGSAcousticSpace>)),
         entry!(0x0058_a120, fn_0058a120(Ptr<BGSAcousticSpace>, u32)),
         entry!(0x0058_a220, fn_0058a220(Ptr<BGSAcousticSpace>, u32) -> bool),

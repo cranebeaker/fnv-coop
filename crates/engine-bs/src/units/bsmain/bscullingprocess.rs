@@ -260,14 +260,15 @@ pub fn fn_00c4f2d0(e: &mut Engine, this: Ptr<BSCullingProcess>) {
 // Translated from 00c4f320 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `BSCullingProcess::AddShared` (Xbox PDB; `bool` there): hands `object` to
 /// the accumulator's virtual slot +0x9C and answers its value (the exe ends on
-/// that call and leaves its `EAX`; the callers test `AL`).
+/// that call and leaves its `EAX`; the callers test `AL`, which goes on as it
+/// came).
 pub fn bs_culling_process_add_shared(
     e: &mut Engine,
     this: Ptr<BSCullingProcess>,
     object: u32,
-) -> bool {
+) -> u8 {
     let accumulator = e.get(this, BSCullingProcess::spAccumulator);
-    e.vcall(accumulator, 0x9c, &args![object]).bool()
+    e.vcall(accumulator, 0x9c, &args![object]).u8()
 }
 
 /// This unit's translated functions, by exe address.
@@ -289,7 +290,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c4f2d0, fn_00c4f2d0(Ptr<BSCullingProcess>)),
         entry!(
             0x00c4f320,
-            bs_culling_process_add_shared(Ptr<BSCullingProcess>, u32) -> bool
+            bs_culling_process_add_shared(Ptr<BSCullingProcess>, u32) -> u8
         ),
     ]
 }
@@ -593,5 +594,7 @@ mod tests {
         e.mem.set_u32(accumulator, 0x0090_0000);
         e.set(this, BSCullingProcess::spAccumulator, accumulator);
         assert!(e.call(0x00c4_f320, &args![this, 0x55u32]).bool());
+        e.register(0x0050_009c, |_, _| 0x4142u32.into_ret());
+        assert_eq!(e.call(0x00c4_f320, &args![this, 0x55u32]).u32(), 0x42);
     }
 }

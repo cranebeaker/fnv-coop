@@ -87,8 +87,11 @@ pub fn message_handler_v_send(
 }
 
 // Translated from 00c3be50 (decompiled, FalloutNV.exe 1.4.0.525)
-/// No map name, no callers found: sets up an exception frame and the stack cookie, then
-/// answers 1 in AL (the rest of EAX holds the cookie the function computed) and leaves.
+/// No map name; the only direct call is 00c3bf09, inside its own dead code: sets up an exception
+/// frame and the stack cookie, then answers 1 in AL (the rest of EAX holds the address of the
+/// frame's exception record) and jumps to its end (00c3be7b, 00c3be7d). The code behind that jump
+/// (00c3be82..00c3c04d) reads three stack words and logs, but nothing jumps into it, so no word is
+/// read.
 // Translation incomplete: 00c3be50 - its exception frame and /GS cookie check are not modelled
 pub fn fn_00c3be50(_e: &mut Engine) -> bool {
     true

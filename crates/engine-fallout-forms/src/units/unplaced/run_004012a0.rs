@@ -26,8 +26,8 @@ pub fn fn_00401660(e: &mut Engine, file: Ptr<TESFile>) -> u32 {
 // Translated from 00401680 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Answers `bMustEndianConvert` (Xbox PDB, the byte at `+0x299`) of a
 /// `TESFile` in `AL`. The engine map gives it no name.
-pub fn fn_00401680(e: &mut Engine, file: Ptr<TESFile>) -> bool {
-    e.get(file, TESFile::bMustEndianConvert)
+pub fn fn_00401680(e: &mut Engine, file: Ptr<TESFile>) -> u8 {
+    e.mem.u8(file.addr() + TESFile::bMustEndianConvert.off)
 }
 
 // Translated from 004012a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -371,7 +371,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0040_1970, fn_00401970(Ptr)),
         entry!(0x00401500, fn_00401500() -> u8),
         entry!(0x00401660, fn_00401660(Ptr<TESFile>) -> u32),
-        entry!(0x00401680, fn_00401680(Ptr<TESFile>) -> bool),
+        entry!(0x00401680, fn_00401680(Ptr<TESFile>) -> u8),
         entry!(0x0040_12a0, fn_004012a0(Ptr, u32) -> Ptr),
         entry!(0x0040_1930, fn_00401930(u32) -> Ptr),
         entry!(0x0040_18b0, fn_004018b0(f32) -> Ptr),

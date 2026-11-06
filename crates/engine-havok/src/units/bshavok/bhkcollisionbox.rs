@@ -119,12 +119,12 @@ pub fn bhk_collision_box_destructor(e: &mut Engine, this: Ptr<BhkCollisionBox>) 
 /// (`+0x1c`). Otherwise `bhkWorldObject::Add` (`00c85810`) adds it, and when that succeeded
 /// the world gets the debug color (`rgbFromChars(30, 130, 0, 20)`, `00cabb00`) for the box
 /// (`00c68e30`). Answers the result of the add.
-pub fn bhk_collision_box_add(e: &mut Engine, this: Ptr<BhkCollisionBox>, world: Ptr) -> bool {
+pub fn bhk_collision_box_add(e: &mut Engine, this: Ptr<BhkCollisionBox>, world: Ptr) -> u8 {
     if e.get(this, BhkCollisionBox::bDisabled) {
-        return false;
+        return 0;
     }
-    let added = e.call(WORLD_OBJECT_ADD, &args![this, world]).bool();
-    if added {
+    let added = e.call(WORLD_OBJECT_ADD, &args![this, world]).u8();
+    if added != 0 {
         let color = e
             .call(
                 COLOR_FROM_CHARS,
@@ -272,7 +272,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00cbe890,
-            bhk_collision_box_add(Ptr<BhkCollisionBox>, Ptr) -> bool
+            bhk_collision_box_add(Ptr<BhkCollisionBox>, Ptr) -> u8
         ),
         entry!(0x00cbe8d0, bhk_collision_box_update(Ptr<BhkCollisionBox>)),
         entry!(

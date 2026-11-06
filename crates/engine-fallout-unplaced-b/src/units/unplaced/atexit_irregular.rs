@@ -1176,15 +1176,14 @@ pub fn fn_00fdcdf0(e: &mut Engine) {
 }
 
 // Translated from 00fdce40 (decompiled, FalloutNV.exe 1.4.0.525)
-/// The `atexit` destructor of the array object at `011ada00`: loads its block pointer (`011ada04`), stores the vtable `010b7f00`, and when the block is not null calls the function in the vtable's slot `010b7f08` (`00cb9cb0`: it reads one stack argument, the block, and ignores `ECX`), then clears the words at `011ada04`, `011ada08` and `011ada0c`.
+/// The `atexit` destructor of the array object at `011ada00`: loads its block pointer (`011ada04`), stores the vtable `010b7f00`, and when the block is not null calls the function in the vtable's slot `010b7f08` (`00cb9cb0`, `this` and the block) with `ECX` the object (00fdce54), then clears the words at `011ada04`, `011ada08` and `011ada0c`.
 pub fn fn_00fdce40(e: &mut Engine) {
     let block = e.global::<u32>(0x011a_da04);
     e.set_global::<u32>(0x011a_da00, 0x010b_7f00);
     if block != 0 {
-        // `CALL dword ptr [slot]`: the slot is in the vtable just stored; its function reads one
-        // stack argument and does not use ECX, so the block is its only word.
+        // `CALL dword ptr [slot]`: the slot is in the vtable just stored.
         let target = e.global::<u32>(0x010b_7f08);
-        e.call(target, &args![block]);
+        e.call(target, &args![0x011a_da00u32, block]);
         e.set_global::<u32>(0x011a_da04, 0);
         e.set_global::<u32>(0x011a_da0c, 0);
         e.set_global::<u32>(0x011a_da08, 0);
@@ -1192,15 +1191,14 @@ pub fn fn_00fdce40(e: &mut Engine) {
 }
 
 // Translated from 00fdce80 (decompiled, FalloutNV.exe 1.4.0.525)
-/// The `atexit` destructor of the array object at `011ada10`: loads its block pointer (`011ada14`), stores the vtable `010b7f00`, and when the block is not null calls the function in the vtable's slot `010b7f08` (`00cb9cb0`: it reads one stack argument, the block, and ignores `ECX`), then clears the words at `011ada14`, `011ada18` and `011ada1c`.
+/// The `atexit` destructor of the array object at `011ada10`: loads its block pointer (`011ada14`), stores the vtable `010b7f00`, and when the block is not null calls the function in the vtable's slot `010b7f08` (`00cb9cb0`, `this` and the block) with `ECX` the object (00fdce94), then clears the words at `011ada14`, `011ada18` and `011ada1c`.
 pub fn fn_00fdce80(e: &mut Engine) {
     let block = e.global::<u32>(0x011a_da14);
     e.set_global::<u32>(0x011a_da10, 0x010b_7f00);
     if block != 0 {
-        // `CALL dword ptr [slot]`: the slot is in the vtable just stored; its function reads one
-        // stack argument and does not use ECX, so the block is its only word.
+        // `CALL dword ptr [slot]`: the slot is in the vtable just stored.
         let target = e.global::<u32>(0x010b_7f08);
-        e.call(target, &args![block]);
+        e.call(target, &args![0x011a_da10u32, block]);
         e.set_global::<u32>(0x011a_da14, 0);
         e.set_global::<u32>(0x011a_da1c, 0);
         e.set_global::<u32>(0x011a_da18, 0);
@@ -3098,7 +3096,7 @@ mod tests {
             e.set_global::<u32>(block, 0x0900_4000);
             assert_eq!(
                 run(&mut e, f),
-                vec![(VIRTUAL_TARGET, vec![0x0900_4000])],
+                vec![(VIRTUAL_TARGET, vec![global, 0x0900_4000])],
                 "{f:08x} block"
             );
             assert_eq!(
@@ -3109,6 +3107,28 @@ mod tests {
         }
         assert_eq!(SLOT_CLEARS[0].3 + 8, SLOT_CLEARS[0].4);
         assert_eq!(SLOT_CLEARS[1].3 + 8, SLOT_CLEARS[1].4);
+    }
+
+    /// 00fdce54, 00fdce94: the slot's real entry (`00cb9cb0`) takes `this` and the block, and
+    /// frees the block through the heap (00aa4060).
+    #[test]
+    fn slot_clear_reaches_the_real_entry_with_both_words() {
+        let mut e = Engine::new();
+        for &(f, block, global, _, slot, _, _) in SLOT_CLEARS {
+            e.map(global, 0x10);
+            e.map(slot, 4);
+            e.set_global::<u32>(slot, 0x00cb_9cb0);
+            e.set_global::<u32>(block, 0x0900_4000);
+            let freed = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let seen = freed.clone();
+            e.register_double(0x00aa_4060, move |_, a| {
+                seen.borrow_mut().push(a.to_vec());
+                Ret::default()
+            });
+            e.call(f, &[]);
+            assert_eq!(freed.borrow()[0][1], 0x0900_4000, "{f:08x}");
+            assert_eq!(e.global::<u32>(block), 0, "{f:08x}");
+        }
     }
 
     #[test]

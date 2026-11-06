@@ -147,7 +147,10 @@ pub fn operator_delete(e: &mut Engine, block: Ptr) {
 }
 
 // Platform: replaces 00aa3e40 (MemoryManager::Allocate (Xbox PDB), FalloutNV.exe 1.4.0.525)
-/// Allocates from [`crate::Mem`]'s heap instead of the game's pools.
+/// Allocates from [`crate::Mem`]'s heap instead of the game's pools. The exe's allocator is the
+/// one function that acts on the thread's allocation context (the TLS word at +0x2b4): 00aa3ec2
+/// reads it and 00aa3f5c uses it to pick the heap from the manager's +0xc table. With one heap
+/// here the word picks nothing, so this does not read it; every function that sets it still does.
 /// Blocks are 8-byte aligned and zero-filled. With no pools, every block is one the game's
 /// manager would hand out from the CRT heap (its `00aa4290` is `_malloc`), so it is a CRT
 /// block for `_msize` and `realloc` (`MemoryManager`'s reallocation `00aa4150` sends a block

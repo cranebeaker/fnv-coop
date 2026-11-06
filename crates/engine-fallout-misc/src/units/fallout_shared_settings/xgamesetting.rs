@@ -90,30 +90,30 @@ const CHUNK_DATA: u32 = 0x4154_4144;
 /// at `+4` (`GetChunkData`), 6 reads it into a stack buffer of the chunk's size
 /// (`00401660`, `GetChunkData_ov3` with 0) and stores that text in the setting
 /// (`00c33170`). Answers the read's result, false for any other type or chunk.
-pub fn game_setting_collection_read_setting(e: &mut Engine, this: Ptr, setting: Ptr) -> bool {
+pub fn game_setting_collection_read_setting(e: &mut Engine, this: Ptr, setting: Ptr) -> u8 {
     if fn_004f8960(e, this) == 0 {
-        return false;
+        return 0;
     }
     let file = fn_004f8960(e, this);
     e.call(FILE_004726F0, &args![file]);
     if e.call(FILE_GET_TES_CHUNK, &args![file]).u32() != CHUNK_DATA {
-        return false;
+        return 0;
     }
     match fn_004f8940(e, setting) {
         3 | 5 => e
             .call(FILE_GET_CHUNK_DATA, &args![file, setting.addr() + 4])
-            .bool(),
+            .u8(),
         6 => {
             let size = e.call(FILE_CHUNK_SIZE, &args![file]).u32();
             e.with_stack(size, |e, buffer| {
                 let read = e
                     .call(FILE_GET_CHUNK_DATA_OV3, &args![file, buffer, 0u32])
-                    .bool();
+                    .u8();
                 e.call(SETTING_SET_STRING, &args![setting, buffer]);
                 read
             })
         }
-        _ => false,
+        _ => 0,
     }
 }
 
@@ -134,13 +134,13 @@ pub fn game_setting_collection_read_setting_ov2(
     this: Ptr,
     file: u32,
     name: u32,
-) -> bool {
-    let mut read = false;
+) -> u8 {
+    let mut read = 0;
     fn_004f8a60(e, this, file);
     let key = e.call(LOOKUP_00464F30, &args![name, 0u32]).u32();
     let setting = e.call(COLLECTION_FIND_004F8A30, &args![this, key]).u32();
     if setting != 0 {
-        read = e.vcall(this.addr(), 0x14, &args![setting]).bool();
+        read = e.vcall(this.addr(), 0x14, &args![setting]).u8();
     }
     e.vcall(this.addr(), 0x1c, &args![]);
     read
@@ -154,8 +154,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x004f_8a60, fn_004f8a60(Ptr, u32)),
         entry!(0x004f_89a0, game_setting_collection_close(Ptr) -> bool),
         entry!(0x004f_8940, fn_004f8940(Ptr) -> u32),
-        entry!(0x004f_8860, game_setting_collection_read_setting(Ptr, Ptr) -> bool),
-        entry!(0x004f_89c0, game_setting_collection_read_setting_ov2(Ptr, u32, u32) -> bool),
+        entry!(0x004f_8860, game_setting_collection_read_setting(Ptr, Ptr) -> u8),
+        entry!(0x004f_89c0, game_setting_collection_read_setting_ov2(Ptr, u32, u32) -> u8),
     ]
     .into_iter()
     .chain(funcs_n086())

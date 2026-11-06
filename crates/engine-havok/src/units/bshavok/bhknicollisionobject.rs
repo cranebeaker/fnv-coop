@@ -250,13 +250,12 @@ pub fn bhk_ni_collision_object_register_streamables(
     e: &mut Engine,
     this: Ptr<BhkNiCollisionObject>,
     stream: Ptr,
-) -> bool {
+) -> u8 {
     let body = e.get(this, BhkNiCollisionObject::spWorldObject);
     if !body.is_null() {
         e.vcall(body.addr(), 0x54, &args![stream]);
     }
-    e.call(BASE_REGISTER_STREAMABLES, &args![this, stream])
-        .bool()
+    e.call(BASE_REGISTER_STREAMABLES, &args![this, stream]).u8()
 }
 
 // Translated from 00c6b760 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -268,22 +267,22 @@ pub fn bhk_ni_collision_object_is_equal(
     e: &mut Engine,
     this: Ptr<BhkNiCollisionObject>,
     other: Ptr<BhkNiCollisionObject>,
-) -> bool {
+) -> u8 {
     if !e.call(BASE_IS_EQUAL, &args![this, other]).bool() {
-        return false;
+        return 0;
     }
     let body = e.get(this, BhkNiCollisionObject::spWorldObject);
     if body.is_null() {
         let both_missing = e.get(other, BhkNiCollisionObject::spWorldObject).is_null();
         let same_flags = e.get(other, BhkNiCollisionObject::m_uFlags)
             == e.get(this, BhkNiCollisionObject::m_uFlags);
-        both_missing && same_flags
+        u8::from(both_missing && same_flags)
     } else {
         let other_body = e.get(other, BhkNiCollisionObject::spWorldObject);
         let bodies_equal = e.vcall(body.addr(), 0x5c, &args![other_body]).u8();
         let same_flags = e.get(other, BhkNiCollisionObject::m_uFlags)
             == e.get(this, BhkNiCollisionObject::m_uFlags);
-        bodies_equal & u8::from(same_flags) != 0
+        bodies_equal & u8::from(same_flags)
     }
 }
 
@@ -1086,14 +1085,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c6b5f0, fn_00c6b5f0(Ptr, Ptr, f32) -> bool),
         entry!(
             0x00c6b730,
-            bhk_ni_collision_object_register_streamables(Ptr<BhkNiCollisionObject>, Ptr) -> bool
+            bhk_ni_collision_object_register_streamables(Ptr<BhkNiCollisionObject>, Ptr) -> u8
         ),
         entry!(
             0x00c6b760,
             bhk_ni_collision_object_is_equal(
                 Ptr<BhkNiCollisionObject>,
                 Ptr<BhkNiCollisionObject>,
-            ) -> bool
+            ) -> u8
         ),
         entry!(0x00c6b7b0, bhk_ni_collision_object_get_face_up(Ptr, u32) -> bool),
         entry!(0x00c6b860, fn_00c6b860(Ptr, u32) -> bool),

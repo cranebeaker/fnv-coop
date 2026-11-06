@@ -778,22 +778,15 @@ pub fn fn_00bb85e0(e: &mut Engine, this: Ptr, _unused_0: u32) -> bool {
 const EFFECT_CALL_00BA3E30: u32 = 0x00ba_3e30;
 
 // Translated from 00bb8890 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Unnamed in the engine map (vtable `010b9f04` entry at `010b9f08`), `thiscall` with four words
-/// (the third unread). Calls the effect's vtable +0x10 with the fourth word; takes parameter
+/// Unnamed in the engine map (vtable `010b9f04` entry at `010b9f08`), `thiscall` with four words.
+/// Calls the effect's vtable +0x10 with the third word (00bb8893); takes parameter
 /// `012007fc` of the array at +0x18 (elements at +0x1c), runs `00ba3e30(012007fc)` and the
 /// vtable +0x1c with the parameter; calls slot +4 of the second (`012007fc` 1) or first object of
 /// the array at +0xc with (first word, second word, parameter, fourth word); then the vtable
 /// +0x14.
-pub fn fn_00bb8890(
-    e: &mut Engine,
-    this: Ptr,
-    first: u32,
-    second: u32,
-    _unused_2: u32,
-    fourth: u32,
-) {
+pub fn fn_00bb8890(e: &mut Engine, this: Ptr, first: u32, second: u32, third: u32, fourth: u32) {
     let base = this.addr();
-    e.vcall(base, 0x10, &args![fourth]);
+    e.vcall(base, 0x10, &args![third]);
     let index = e.global::<u32>(PASS_012007FC);
     let parameters = e.mem.u32(base + 0x1c);
     let parameter = e.mem.u32(parameters.wrapping_add(index.wrapping_mul(4)));
@@ -1597,7 +1590,7 @@ mod n071_tests {
         e.mem.set_u32(objects + 4, second);
         e.mem.set_u32(this + 0xc, objects);
         e.call(0x00bb_8890, &args![this, 1u32, 2u32, 3u32, 4u32]);
-        assert_eq!(calls(&e, slot_target(&e, this, 0x10)), vec![vec![this, 4]]);
+        assert_eq!(calls(&e, slot_target(&e, this, 0x10)), vec![vec![this, 3]]);
         assert_eq!(calls(&e, EFFECT_CALL_00BA3E30), vec![vec![this, 0]]);
         assert_eq!(
             calls(&e, slot_target(&e, this, 0x1c)),

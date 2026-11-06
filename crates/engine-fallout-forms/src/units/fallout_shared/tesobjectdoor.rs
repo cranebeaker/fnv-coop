@@ -318,9 +318,9 @@ pub fn tes_object_door_can_actor_ignore_lock(
     reference: Ptr,
     first_flag: u8,
     second_flag: u8,
-) -> bool {
+) -> u8 {
     if actor.is_null() || lock.is_null() {
-        return false;
+        return 0;
     }
     if e.call(0x0088_42c0, &args![actor]).bool() {
         let acquire = e.call(0x008d_8520, &args![actor]).u32();
@@ -328,17 +328,17 @@ pub fn tes_object_door_can_actor_ignore_lock(
         if target == e.global::<u32>(PLAYER_REFERENCE)
             && e.call(0x0056_8e50, &args![reference]).u32() != 0
         {
-            return true;
+            return 1;
         }
     }
     if e.vcall(actor.addr(), 0x448, &args![]).bool() {
-        return true;
+        return 1;
     }
     e.call(
         0x0050_1fd0,
         &args![lock, actor, u32::from(first_flag), u32::from(second_flag)],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 00518f00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -354,7 +354,7 @@ pub fn tes_object_door_can_actor_ignore_lock_ov2(
     actor: Ptr,
     first_flag: u8,
     second_flag: u8,
-) -> bool {
+) -> u8 {
     e.with_stack(0x18, |e, lock| {
         e.call(0x0050_1d20, &args![lock, reference]);
         let answer = tes_object_door_can_actor_ignore_lock(
@@ -857,7 +857,7 @@ pub fn fn_005180b0(
         }
         let ignores =
             tes_object_door_can_actor_ignore_lock_ov2(e, reference, Ptr::new(actor), 1, 1);
-        if lock != 0 && e.call(0x0050_21a0, &args![lock]).bool() && !ignores {
+        if lock != 0 && e.call(0x0050_21a0, &args![lock]).bool() && ignores == 0 {
             if let LockOutcome::Answer(answer) = activate_locked(e, reference, actor, acquire, lock)
             {
                 return answer;
@@ -1465,8 +1465,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0051_8000, tes_object_door_is_minimal_use(Ptr) -> bool),
         entry!(0x0051_8080, tes_object_door_is_sliding_door(Ptr) -> bool),
         entry!(0x0051_76b0, tes_object_door_init_item(Ptr)),
-        entry!(0x0051_8e60, tes_object_door_can_actor_ignore_lock(Ptr, Ptr, Ptr, u8, u8) -> bool),
-        entry!(0x0051_8f00, tes_object_door_can_actor_ignore_lock_ov2(Ptr, Ptr, u8, u8) -> bool),
+        entry!(0x0051_8e60, tes_object_door_can_actor_ignore_lock(Ptr, Ptr, Ptr, u8, u8) -> u8),
+        entry!(0x0051_8f00, tes_object_door_can_actor_ignore_lock_ov2(Ptr, Ptr, u8, u8) -> u8),
         entry!(0x0051_9290, fn_00519290()),
         entry!(0x0051_8cf0, fn_00518cf0(Ptr)),
         entry!(0x0051_8b70, fn_00518b70(Ptr, Ptr)),

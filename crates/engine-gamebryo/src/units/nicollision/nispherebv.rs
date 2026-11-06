@@ -740,8 +740,9 @@ pub fn ni_sphere_bv_clone(e: &mut Engine, this: Ptr<NiSphereBV>) -> Ptr<NiSphere
 /// points (`00a59be0`, three floats each, into three local blocks) and three 4-byte floats (the
 /// stream's read function at +8, as in [`ni_collision_data_load_binary`](super::nicollisiondata)),
 /// allocates 0x14 bytes from the memory manager and, when that gives a block, makes a sphere volume
-/// of the FIRST point as center and the first float as radius (stored as `FLD`/`FSTP` leave it).
-/// The two other points and floats are read and dropped. The reads happen even when the
+/// of the FIRST point as center and the THIRD float read as radius (the reads fill +4, +8, then
+/// +0 of the frame, 00eacb39, 00eacb5e, 00eacb83, and 00eacbab loads +0; stored as `FLD`/`FSTP`
+/// leave it). The other points and floats are read and dropped. The reads happen even when the
 /// allocation fails. Answers the volume, or null.
 pub fn fn_00eacb00(e: &mut Engine, stream: Ptr) -> Ptr<NiSphereBV> {
     e.with_stack(12 * 3 + 12, |e, blocks| {
@@ -762,7 +763,7 @@ pub fn fn_00eacb00(e: &mut Engine, stream: Ptr) -> Ptr<NiSphereBV> {
         }
         let created: Ptr<NiSphereBV> = Ptr::new(block);
         e.mem.set_u32(block, NI_SPHERE_BV_VTABLE);
-        let radius = x87_quiet_bits(e.mem.u32(floats));
+        let radius = x87_quiet_bits(e.mem.u32(floats + 8));
         let x = e.mem.u32(center);
         e.set(created, NiSphereBV::m_kSphere_center_x, x);
         let y = e.mem.u32(center + 4);
@@ -1576,7 +1577,7 @@ mod tests {
     }
 
     #[test]
-    fn fn_00eacb00_builds_a_sphere_from_the_first_point_and_the_first_float() {
+    fn fn_00eacb00_builds_a_sphere_from_the_first_point_and_the_third_float() {
         let mut e = engine();
         three_floats(&mut e);
         let (stream, io) = stream_with_reads(
@@ -1589,7 +1590,7 @@ mod tests {
             .iter()
             .all(|call| call[1] == stream));
         assert_eq!(e.mem.u32(made), 0x010f_1854);
-        assert_eq!(floats(&e, made + 4, 4), vec![1.5, 2.5, 3.5, 4.0]);
+        assert_eq!(floats(&e, made + 4, 4), vec![1.5, 2.5, 3.5, 6.0]);
         // Three 4-byte reads moved the counter by 12.
         assert_eq!(e.mem.u32(io + 4), 12);
         assert_eq!(logged(&e, 0x0300_0010).len(), 3);
@@ -1603,7 +1604,7 @@ mod tests {
     fn fn_00eacb00_quiets_a_signalling_radius_and_reads_on_after_a_failed_allocation() {
         let mut e = engine();
         three_floats(&mut e);
-        let (stream, _) = stream_with_reads(&mut e, vec![0x7f80_0001, 0, 0]);
+        let (stream, _) = stream_with_reads(&mut e, vec![0, 0, 0x7f80_0001]);
         let made = e.call(0x00ea_cb00, &args![stream]).u32();
         assert_eq!(e.mem.u32(made + 0x10), 0x7fc0_0001);
         let mut e = engine();

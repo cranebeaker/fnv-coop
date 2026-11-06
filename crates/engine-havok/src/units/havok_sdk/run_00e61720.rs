@@ -579,7 +579,7 @@ pub fn fn_00e61a10(e: &mut Engine, point: Ptr, a: Ptr, base: Ptr, c: Ptr, out: P
     let e3 = dot3(d3, d3).to_bits();
     let flags = x.fcom(1);
     if flags & 0x01 == 0 {
-        // b >= cc (or unordered).
+        // b >= cc: an unordered compare sets C0 and takes the other branch.
         x.fstp_st(1);
         x.fld_m32(e3);
         let flags = x.fcom(1);

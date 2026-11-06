@@ -1504,30 +1504,30 @@ const BYTE_3C_ADDRESS: u32 = 0x005a_8080;
 /// (`0084e3a0`) is below the other's; for an info (type 0x46), whether its owner topic
 /// (`TESTopic::GetOwnerTopic`) is this one or vtable slot 0x3C says so for it; for anything
 /// else, `00484020`. False when the casts or the owner fail.
-pub fn fn_00619430(e: &mut Engine, this: Ptr, form: u32) -> bool {
+pub fn fn_00619430(e: &mut Engine, this: Ptr, form: u32) -> u8 {
     let kind = e.call(FORM_TYPE_OF, &args![form]).u32();
     if kind == 0x45 {
         let topic = form_as_from(e, form, TYPE_TES_TOPIC);
         if topic != 0 {
             let mine = e.call(WORD_AT_0XC, &args![this]).u32();
-            return mine < e.call(WORD_AT_0XC, &args![topic]).u32();
+            return u8::from(mine < e.call(WORD_AT_0XC, &args![topic]).u32());
         }
-        false
+        0
     } else if kind == 0x46 {
         let info = form_as_from(e, form, TYPE_TES_TOPIC_INFO);
         if info == 0 {
-            return false;
+            return 0;
         }
         let owner = tes_topic_get_owner_topic(e, Ptr::new(info)).addr();
         if owner == 0 {
-            return false;
+            return 0;
         }
         if owner == this.addr() {
-            return true;
+            return 1;
         }
-        e.vcall(this.addr(), 0x3c, &args![owner]).bool()
+        e.vcall(this.addr(), 0x3c, &args![owner]).u8()
     } else {
-        e.call(FORM_ANSWER_484020, &args![this, form]).bool()
+        e.call(FORM_ANSWER_484020, &args![this, form]).u8()
     }
 }
 
@@ -1545,23 +1545,23 @@ fn form_as_from(e: &mut Engine, form: u32, target: u32) -> u32 {
 /// `01187020`; then by its word at +0xC (the exe's jump table at `006195b0`): 0 asks
 /// `00484150`, 1 to 6 answer false, 7 asks vtable slot 0x3C for the topic of the form id at +8
 /// (`004839c0`, cast to `TESTopic`; false without one); above 7 false.
-pub fn fn_00619510(e: &mut Engine, this: Ptr, object: u32) -> bool {
+pub fn fn_00619510(e: &mut Engine, this: Ptr, object: u32) -> u8 {
     if object == 0 || e.mem.u32(object) != e.global::<u32>(OBJECT_VTABLE_WORD) {
-        return false;
+        return 0;
     }
     match e.mem.u32(object.wrapping_add(0xc)) {
-        0 => e.call(FORM_ANSWER_484150, &args![this, object]).bool(),
-        1..=6 => false,
+        0 => e.call(FORM_ANSWER_484150, &args![this, object]).u8(),
+        1..=6 => 0,
         7 => {
             let id = e.mem.u32(object.wrapping_add(8));
             let topic = form_as(e, id, TYPE_TES_TOPIC);
             if topic != 0 {
-                e.vcall(this.addr(), 0x3c, &args![topic]).bool()
+                e.vcall(this.addr(), 0x3c, &args![topic]).u8()
             } else {
-                false
+                0
             }
         }
-        _ => false,
+        _ => 0,
     }
 }
 
@@ -1635,8 +1635,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0061_a760, tes_topic_get_matching_info_ov2(Ptr, Ptr, u32, u32) -> u32),
         entry!(0x0061_b320, tes_topic_create_dialogue_item(Ptr, u32, u32, u32, u32, u8) -> u32),
         entry!(0x0061_b440, tes_topic_create_conversation(u32, u32, u32, u32) -> u32),
-        entry!(0x0061_9430, fn_00619430(Ptr, u32) -> bool),
-        entry!(0x0061_9510, fn_00619510(Ptr, u32) -> bool),
+        entry!(0x0061_9430, fn_00619430(Ptr, u32) -> u8),
+        entry!(0x0061_9510, fn_00619510(Ptr, u32) -> u8),
         entry!(0x0061_97f0, fn_006197f0(Ptr, u32) -> Ptr),
         entry!(0x0061_a720, tes_topic_get_matching_info(Ptr, u32, u32) -> u32),
         entry!(0x0061_af10, fn_0061af10(Ptr) -> bool),

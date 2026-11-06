@@ -2067,7 +2067,7 @@ pub fn fn_00473490(e: &mut Engine, this: Ptr<TESFile>) {
 /// ([`fn_00473660`]); a record with the tag of the form's type (slot
 /// `+0x8C` indexes the tag table) and the form's id ends the scan with true.
 pub fn tes_file_find_form(e: &mut Engine, this: Ptr<TESFile>, form: Ptr) -> bool {
-    if form.is_null() || !fn_00473640(e, this) {
+    if form.is_null() || fn_00473640(e, this) == 0 {
         return false;
     }
     let file = e.get(this, TESFile::m_pFile);
@@ -2108,8 +2108,8 @@ pub fn tes_file_find_form(e: &mut Engine, this: Ptr<TESFile>, form: Ptr) -> bool
 
 // Translated from 00473640 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Answers `bHasGroups`.
-pub fn fn_00473640(e: &mut Engine, this: Ptr<TESFile>) -> bool {
-    e.get(this, TESFile::bHasGroups)
+pub fn fn_00473640(e: &mut Engine, this: Ptr<TESFile>) -> u8 {
+    e.mem.u8(this.addr() + TESFile::bHasGroups.off)
 }
 
 // Translated from 00473660 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3024,7 +3024,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00473440, fn_00473440(Ptr<TESFile>, Ptr)),
         entry!(0x00473490, fn_00473490(Ptr<TESFile>)),
         entry!(0x004734d0, tes_file_find_form(Ptr<TESFile>, Ptr) -> bool),
-        entry!(0x00473640, fn_00473640(Ptr<TESFile>) -> bool),
+        entry!(0x00473640, fn_00473640(Ptr<TESFile>) -> u8),
         entry!(0x00473660, fn_00473660(Ptr<TESFile>) -> bool),
         entry!(
             0x004736c0,

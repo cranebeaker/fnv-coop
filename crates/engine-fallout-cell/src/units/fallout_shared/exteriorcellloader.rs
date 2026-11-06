@@ -256,8 +256,8 @@ pub fn fn_00528620(e: &mut Engine, _loader: Ptr, data: Ptr) {
 
 // Translated from 00528790 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the water-present flag at byte offset `0x60`.
-pub fn fn_00528790(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x60) != 0
+pub fn fn_00528790(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x60)
 }
 
 // Translated from 005287b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -299,13 +299,13 @@ pub fn fn_00527fc0(e: &mut Engine, this: Ptr) {
 // Translated from 00528080 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Looks up a coordinate key in the loader's task map using its iterator
 /// lookup slot and destroys the temporary iterator.
-pub fn fn_00528080(e: &mut Engine, this: Ptr, x: u16, y: u16) -> bool {
+pub fn fn_00528080(e: &mut Engine, this: Ptr, x: u16, y: u16) -> u8 {
     let key = e.call(0x0058_7410, &args![x, y]).u32();
     e.with_stack(16, |e, iter| {
         e.call(0x0052_8cb0, &args![iter, 0u32]);
         // 005280d6..005280e1: the loader itself is the map (`MOV ECX,[EBP-0x1c]`, its `this`;
         // `MOV EDX,[ECX]` its vtable), not a pointer stored at its +0.
-        let found = e.vcall(this.addr(), 8, &args![key, iter]).bool();
+        let found = e.vcall(this.addr(), 8, &args![key, iter]).u8();
         e.call(0x0044_cbf0, &args![iter]);
         found
     })
@@ -424,7 +424,7 @@ pub fn exterior_cell_loader_queue_cell_load(
         e.call(0x0045_4b90, &args![tes, cell]);
         return;
     }
-    if fn_00528080(e, this, x as u16, y as u16) {
+    if fn_00528080(e, this, x as u16, y as u16) != 0 {
         return;
     }
     let data = fn_005285c0(e, this, worldspace, x, y);
@@ -525,10 +525,10 @@ pub fn fn_005289b0(e: &mut Engine, _manager: Ptr, task: Ptr) {
 // Translated from 00528b60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Locks the object, gets its map (00449f80), looks the key up in it with
 /// 0044c000, then releases the lock and returns the lookup's byte result.
-pub fn fn_00528b60(e: &mut Engine, this: Ptr, first: u32, second: u32, mode: u8) -> bool {
+pub fn fn_00528b60(e: &mut Engine, this: Ptr, first: u32, second: u32, mode: u8) -> u8 {
     e.call(0x0040_fbf0, &args![this.addr() + 0x20, 0u32]);
     let map = e.call(0x0044_9f80, &args![this]).u32();
-    let result = e.call(0x0044_c000, &args![map, first, second, mode]).bool();
+    let result = e.call(0x0044_c000, &args![map, first, second, mode]).u8();
     e.call(0x0040_fba0, &args![this.addr() + 0x20]);
     result
 }
@@ -700,7 +700,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x005285a0, fn_005285a0(Ptr) -> u32),
         entry!(0x005285c0, fn_005285c0(Ptr, u32, u32, u32) -> Ptr),
         entry!(0x00528620, fn_00528620(Ptr, Ptr)),
-        entry!(0x00528790, fn_00528790(Ptr) -> bool),
+        entry!(0x00528790, fn_00528790(Ptr) -> u8),
         entry!(
             0x005287b0,
             exterior_cell_loader_attach_loaded_cell(Ptr, u32)
@@ -711,14 +711,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00528840, fn_00528840(Ptr, u32) -> Ptr),
         entry!(0x00528870, fn_00528870(Ptr, Ptr, u32) -> bool),
         entry!(0x005289b0, fn_005289b0(Ptr, Ptr)),
-        entry!(0x00528b60, fn_00528b60(Ptr, u32, u32, u8) -> bool),
+        entry!(0x00528b60, fn_00528b60(Ptr, u32, u32, u8) -> u8),
         entry!(0x00528bb0, fn_00528bb0(Ptr, u32) -> bool),
         entry!(0x00528be0, fn_00528be0(Ptr)),
         entry!(0x00528c70, fn_00528c70(Ptr) -> Ptr),
         entry!(0x005289e0, fn_005289e0(Ptr, u32, u32, u32) -> Ptr),
         entry!(0x00528ce0, fn_00528ce0(Ptr, u32, u32) -> bool),
         entry!(0x00527fc0, fn_00527fc0(Ptr)),
-        entry!(0x00528080, fn_00528080(Ptr, u16, u16) -> bool),
+        entry!(0x00528080, fn_00528080(Ptr, u16, u16) -> u8),
         entry!(0x00528110, fn_00528110(Ptr)),
         entry!(0x005281f0, exterior_cell_loader_try_cancel_tasks(Ptr) -> i32),
         entry!(0x005282d0, fn_005282d0(Ptr)),
@@ -913,7 +913,7 @@ mod tests {
         let mut e = engine();
         let object = Ptr::new(e.mem.alloc(0x64));
         e.mem.set_u8(object.addr() + 0x60, 1);
-        assert!(fn_00528790(&mut e, object));
+        assert!(fn_00528790(&mut e, object) != 0);
     }
 
     #[test]
@@ -1276,7 +1276,7 @@ mod tests {
         stub(&mut e, 0x0040_fba0);
         let map = Ptr::new(e.mem.alloc(0x30));
         e.call_log = Some(vec![]);
-        assert!(fn_00528b60(&mut e, map, 1, 2, 3));
+        assert!(fn_00528b60(&mut e, map, 1, 2, 3) != 0);
         let log = e.call_log.take().unwrap();
         // 00449f80 takes only `this` (plain RET); the three pushed words are
         // 0044c000's (RET 0xc), called on 00449f80's result.
@@ -1510,7 +1510,7 @@ mod tests {
         stub(&mut e, 0x0052_8cb0);
         stub(&mut e, 0x0044_cbf0);
         e.call_log = Some(vec![]);
-        assert!(fn_00528080(&mut e, loader, 17, 19));
+        assert!(fn_00528080(&mut e, loader, 17, 19) != 0);
         let log = e.call_log.take().unwrap();
         assert_eq!(log[0].0, 0x0058_7410);
         assert_eq!(log[0].1, vec![17, 19]);

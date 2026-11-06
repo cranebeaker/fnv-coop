@@ -294,30 +294,30 @@ pub fn fn_005978b0(e: &mut Engine, this: Ptr) {
 /// three words), any other false. Without one: kind 3 answers true while
 /// `011ca9fc` is past `time` and otherwise runs `00598890(time)` and
 /// answers false; kind 0 `00598550(flag, time, 4)`; others false.
-pub fn fn_00597990(e: &mut Engine, this: Ptr, time: u32, flag: u8, location: u32) -> bool {
+pub fn fn_00597990(e: &mut Engine, this: Ptr, time: u32, flag: u8, location: u32) -> u8 {
     let kind = e.mem.u32(this.addr() + 0x44);
     if location != 0 {
         match kind {
             0 => e
                 .call(0x0059_8550, &args![this, u32::from(flag), time, 4u32])
-                .bool(),
-            1 => fn_00597a60(e, this, time, flag, location),
+                .u8(),
+            1 => u8::from(fn_00597a60(e, this, time, flag, location)),
             2 => e
                 .call(0x0059_8060, &args![this, time, u32::from(flag), location])
-                .bool(),
-            _ => false,
+                .u8(),
+            _ => 0,
         }
     } else if kind == 3 {
         if e.global::<u32>(MEDIA_SET_TIME) > time {
-            return true;
+            return 1;
         }
         e.call(0x0059_8890, &args![this, time]);
-        false
+        0
     } else if kind == 0 {
         e.call(0x0059_8550, &args![this, u32::from(flag), time, 4u32])
-            .bool()
+            .u8()
     } else {
-        false
+        0
     }
 }
 
@@ -1018,7 +1018,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0059_77d0, fn_005977d0(Ptr) -> Ptr),
         entry!(0x0059_7850, fn_00597850(Ptr)),
         entry!(0x0059_78b0, fn_005978b0(Ptr)),
-        entry!(0x0059_7990, fn_00597990(Ptr, u32, u8, u32) -> bool),
+        entry!(0x0059_7990, fn_00597990(Ptr, u32, u8, u32) -> u8),
         entry!(0x0059_7a60, fn_00597a60(Ptr, u32, u8, u32) -> bool),
         entry!(0x0059_8000, fn_00598000(Ptr) -> u32),
         entry!(0x0059_8020, fn_00598020(Ptr) -> u8),

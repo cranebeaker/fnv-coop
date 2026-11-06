@@ -28,9 +28,9 @@ const REGISTER_STREAMABLES_TARGET_00C2F4F0: u32 = 0x00c2_f4f0;
 /// a jump to `NiPSysModifier::RegisterStreamables` (`00c31670`). Returns the `bool` in `AL`:
 /// Xbox PDB `?RegisterStreamables@NiObject@@UAA_NAAVNiStream@@@Z` returns `_N`; `stream` is
 /// the `NiStream` reference as an address. Parameter count from the `RET 4` of both bodies.
-pub fn bs_psys_array_emitter_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn bs_psys_array_emitter_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     e.call(REGISTER_STREAMABLES_TARGET_00C2F4F0, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 /// `00c31b60` (named `NiPSysVolumeEmitter::SaveBinary` in the engine map): the base body
@@ -56,8 +56,8 @@ const IS_EQUAL_TARGET_00C31B80: u32 = 0x00c3_1b80;
 /// `bool` in `AL`: Xbox PDB `?IsEqual@NiObject@@UAA_NPAV1@@Z` returns `_N` and the callee's
 /// equal path ends `MOV AL,1`; `other` is the other `NiObject`. Parameter count from the `RET
 /// 4` of both bodies.
-pub fn bs_psys_array_emitter_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(IS_EQUAL_TARGET_00C31B80, &args![this, other]).bool()
+pub fn bs_psys_array_emitter_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(IS_EQUAL_TARGET_00C31B80, &args![this, other]).u8()
 }
 
 // Translated from 00c632e0 (PC disassembly, FalloutNV.exe 1.4.0.525).
@@ -1053,9 +1053,9 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c6_32e0, fn_00c632e0(Ptr) -> u32),
         entry!(0x00c6_3320, fn_00c63320(Ptr) -> u32),
         entry!(0x00c6_1f10, bs_psys_array_emitter_link_object(Ptr, Ptr)),
-        entry!(0x00c6_1f60, bs_psys_array_emitter_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00c6_1f60, bs_psys_array_emitter_register_streamables(Ptr, Ptr) -> u8),
         entry!(0x00c6_1f80, bs_psys_array_emitter_save_binary(Ptr, Ptr)),
-        entry!(0x00c6_1fa0, bs_psys_array_emitter_is_equal(Ptr, Ptr) -> bool),
+        entry!(0x00c6_1fa0, bs_psys_array_emitter_is_equal(Ptr, Ptr) -> u8),
     ]
 }
 

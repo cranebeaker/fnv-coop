@@ -236,13 +236,12 @@ pub fn bhk_bv_tree_shape_register_streamables(
     e: &mut Engine,
     this: Ptr<BhkBvTreeShape>,
     stream: Ptr,
-) -> bool {
+) -> u8 {
     let wrapped = wrapped_shape(e, this.addr());
     if wrapped != 0 {
         e.vcall(wrapped, 0x54, &args![stream]);
     }
-    e.call(BASE_REGISTER_STREAMABLES, &args![this, stream])
-        .bool()
+    e.call(BASE_REGISTER_STREAMABLES, &args![this, stream]).u8()
 }
 
 // Translated from 00ca4f80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -283,12 +282,12 @@ pub fn bhk_bv_tree_shape_destroy_display_geometry(e: &mut Engine, this: Ptr<BhkB
 /// `bhkBvTreeShape::CanShare` (engine map name), `(other)`: the wrapped shape's virtual
 /// `+0xd0` with `other` when there is one (a tail jump, its answer returned), else the base
 /// `bhkShape::CanShare` (`00c84ec0`).
-pub fn bhk_bv_tree_shape_can_share(e: &mut Engine, this: Ptr<BhkBvTreeShape>, other: Ptr) -> bool {
+pub fn bhk_bv_tree_shape_can_share(e: &mut Engine, this: Ptr<BhkBvTreeShape>, other: Ptr) -> u8 {
     let wrapped = wrapped_shape(e, this.addr());
     if wrapped != 0 {
-        return e.vcall(wrapped, 0xd0, &args![other]).bool();
+        return e.vcall(wrapped, 0xd0, &args![other]).u8();
     }
-    e.call(SHAPE_CAN_SHARE, &args![this, other]).bool()
+    e.call(SHAPE_CAN_SHARE, &args![this, other]).u8()
 }
 
 // Translated from 00ca5080 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -370,7 +369,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00ca4f40,
-            bhk_bv_tree_shape_register_streamables(Ptr<BhkBvTreeShape>, Ptr) -> bool
+            bhk_bv_tree_shape_register_streamables(Ptr<BhkBvTreeShape>, Ptr) -> u8
         ),
         entry!(
             0x00ca4f80,
@@ -386,7 +385,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00ca5040,
-            bhk_bv_tree_shape_can_share(Ptr<BhkBvTreeShape>, Ptr) -> bool
+            bhk_bv_tree_shape_can_share(Ptr<BhkBvTreeShape>, Ptr) -> u8
         ),
         entry!(0x00ca5080, fn_00ca5080(Ptr<BhkBvTreeShape>)),
         entry!(0x00ca5130, bhk_bv_tree_shape_link(Ptr<BhkBvTreeShape>, u32)),

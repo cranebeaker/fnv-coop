@@ -209,7 +209,8 @@ pub fn hkgsk_agent_util_process_collision_no_tim(
             let body_a = e.mem.u32(me);
             let body_b = e.mem.u32(me + 4);
             e.mem.set_u32(f + 0x3c, body_a);
-            // The bounding radius sum and its square (locals the exe never reads again).
+            // The block above the vertices that 00dae3a0 reads: the normal at +0x100, the radii,
+            // the tolerance and the square of their sum.
             let input = e.mem.u32(me + 0xc);
             let extra = x87_quiet_bits(e.mem.u32(input + 8));
             let shape_a = e.mem.u32(body_a);

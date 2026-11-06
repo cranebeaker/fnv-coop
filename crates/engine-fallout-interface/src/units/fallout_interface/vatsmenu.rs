@@ -5538,7 +5538,7 @@ pub fn fn_007f3e00(e: &mut Engine, this: Ptr<VatsMenu>) -> bool {
         return true;
     }
     let object = e.call(OBJECT_00705910, &[]).u32();
-    if !fn_007f4810(e, object) && e.global::<u8>(FLAG_011DB0CE) == 0 {
+    if fn_007f4810(e, object) == 0 && e.global::<u8>(FLAG_011DB0CE) == 0 {
         let object = e.call(OBJECT_00705910, &[]).u32();
         e.call(SET_00800700, &args![object]);
         let target_reference = e.mem.u32(item);
@@ -5717,8 +5717,8 @@ pub fn fn_007f3e00(e: &mut Engine, this: Ptr<VatsMenu>) -> bool {
 
 // Translated from 007f4810 (decompiled, FalloutNV.exe 1.4.0.525)
 /// thiscall on `00705910`'s object: its byte at `+0x2B4`.
-pub fn fn_007f4810(e: &mut Engine, this: u32) -> bool {
-    e.mem.u8(this + 0x2b4) != 0
+pub fn fn_007f4810(e: &mut Engine, this: u32) -> u8 {
+    e.mem.u8(this + 0x2b4)
 }
 
 /// The failure path of the template lookups: prints `MENUS: VATS Menu
@@ -8149,7 +8149,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             vats_menu_find_target_part(Ptr<VatsMenu>, u32) -> u32
         ),
         entry!(0x007f3e00, fn_007f3e00(Ptr<VatsMenu>) -> bool),
-        entry!(0x007f4810, fn_007f4810(u32) -> bool),
+        entry!(0x007f4810, fn_007f4810(u32) -> u8),
         entry!(0x007f4830, vats_menu_vats_menu_render_template(u32, u32) -> u32),
         entry!(0x007f4890, fn_007f4890(u32, u32) -> u32),
         entry!(0x007f48e0, fn_007f48e0(Ptr<VatsMenu>) -> f32),
@@ -9253,7 +9253,7 @@ mod tests {
         let mut e = engine();
         let object = e.mem.alloc(0x2c0);
         e.mem.set_u8(object + 0x2b4, 1);
-        assert!(fn_007f4810(&mut e, object));
+        assert!(fn_007f4810(&mut e, object) != 0);
         assert_eq!(vats_menu_vats_menu_render_template(&mut e, 1, 2), 0);
         let menu = open_menu(&mut e);
         e.register(MENU_RENDER_TEMPLATE, |_, _| word(0x4321));

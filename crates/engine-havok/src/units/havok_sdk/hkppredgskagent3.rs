@@ -4,7 +4,9 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use super::hkpsphereshape::{load_vec, profile_record, store_vec, Vec4, PROFILE_END};
+use super::hkpsphereshape::{
+    load_bits, load_vec, profile_record, store_bits, store_vec, Vec4, PROFILE_END,
+};
 
 /// The profiling label of `process`: the string `TtPredGskf3` (`010cf220`).
 const PROFILE_BEGIN: u32 = 0x010c_f220;
@@ -200,8 +202,7 @@ fn root_body(e: &Engine, body: u32) -> u32 {
 /// `first - 0x30 * entries` is appended to the list at `collector + 0x3080`. In every
 /// other case `processCollisionNoTim(pair, entry, data, data, data + 0xc, input, collector)`
 /// runs. The entry's byte at `+2` gets the counter and the function returns the address behind
-/// the cache. The squared radius sum and the copy of `input` that the exe keeps in locals are
-/// never read and are left out.
+/// the cache.
 pub fn hkp_pred_gsk_agent3_process(
     e: &mut Engine,
     pair: Ptr,
@@ -260,7 +261,7 @@ pub fn hkp_pred_gsk_agent3_process(
             e.mem.set_u32(input + 0xc, toi.to_bits());
             let entries = u32::from(e.mem.u8(data + CACHE + 2));
             if entries != 0 {
-                collide_vertices(e, pair, data, entries, collector);
+                collide_vertices(e, pair, data, entries, input, collector);
             }
         }
     }
@@ -277,16 +278,40 @@ pub fn hkp_pred_gsk_agent3_process(
     next
 }
 
-/// The vertex path of `process` for a non-zero entry counter `entries`.
-fn collide_vertices(e: &mut Engine, pair: u32, data: u32, entries: u32, collector: u32) {
+/// The vertex path of `process` for a non-zero entry counter `entries`. Before the vertices
+/// come, the block above the local array is filled (d41bc5..d41c3d): at `+0x100` a copy of
+/// `input` (its fourth word is the time of impact just stored), at `+0x110` and `+0x114` the
+/// two shapes' radii, at `+0x118` the tolerance (the float at `+8` of the owner) and at `+0x11c`
+/// the square of their sum. `00dae3a0` reads all of it: which points stay, the distance and
+/// the normal of each.
+fn collide_vertices(
+    e: &mut Engine,
+    pair: u32,
+    data: u32,
+    entries: u32,
+    input: u32,
+    collector: u32,
+) {
     // The local array starts at 0x70 above the stack pointer after the prologue; the frame
     // block starts 0xc bytes above it.
     e.with_stack(0x184, |e, frame| {
         let f = frame.addr().wrapping_sub(0xc);
+        let owner = e.mem.u32(pair + 0xc);
+        let tolerance = x87_quiet(e.mem.f32(owner + 8));
+        e.mem.set_f32(f + 0x188, tolerance);
         let body_a = e.mem.u32(pair);
         let body_b = e.mem.u32(pair + 4);
         let shape_a = e.mem.u32(body_a);
         let shape_b = e.mem.u32(body_b);
+        let radius_a = x87_quiet(e.mem.f32(shape_a + 0x10));
+        e.mem.set_f32(f + 0x180, radius_a);
+        let radius_b = x87_quiet(e.mem.f32(shape_b + 0x10));
+        e.mem.set_f32(f + 0x184, radius_b);
+        let copy = load_bits(e, input);
+        store_bits(e, f + 0x170, copy);
+        let sum = ((f64::from(radius_a) + f64::from(tolerance)) + f64::from(radius_b)) as f32;
+        e.mem
+            .set_f32(f + 0x18c, (f64::from(sum) * f64::from(sum)) as f32);
         let count_a = u32::from(e.mem.u8(data + CACHE));
         let count_b = u32::from(e.mem.u8(data + CACHE + 1));
         let source = data + 0x10 + entries * 8;
@@ -445,6 +470,11 @@ mod tests {
     /// counts 2 and 1, 3 entries, time of impact 0.75, threshold 0.5 and the settings flag
     /// at `+0x10` clear.
     fn rig() -> Rig {
+        rig_with(true)
+    }
+
+    /// `rig`, with a stand-in for `00dae3a0` when `stand_in` and otherwise the real entry.
+    fn rig_with(stand_in: bool) -> Rig {
         let mut e = Engine::new();
         let stream = profile_stream(&mut e);
         let body_a = body(
@@ -494,12 +524,14 @@ mod tests {
         e.mem.set_u32(collector + 0x3080, list);
         let added: Seen<Vec<Vec4>> = Rc::default();
         let sink = added.clone();
-        e.register_double(ADD_POINTS, move |e, a| {
-            let total = u32::from(e.mem.u8(a[0])) + u32::from(e.mem.u8(a[0] + 1));
-            let points = (0..total).map(|i| load_vec(e, a[1] + 0x10 * i)).collect();
-            sink.borrow_mut().push(points);
-            Ret::default()
-        });
+        if stand_in {
+            e.register_double(ADD_POINTS, move |e, a| {
+                let total = u32::from(e.mem.u8(a[0])) + u32::from(e.mem.u8(a[0] + 1));
+                let points = (0..total).map(|i| load_vec(e, a[1] + 0x10 * i)).collect();
+                sink.borrow_mut().push(points);
+                Ret::default()
+            });
+        }
         e.register_double(COLLIDE_CALC_TOI, |_, _| Ret::default());
         e.register_double(PROCESS_COLLISION_NO_TIM, |_, _| Ret::default());
         Rig {
@@ -581,6 +613,96 @@ mod tests {
         assert_eq!(r.e.mem.u32(r.stream + 0x20), PROFILE_BEGIN);
         assert_eq!(r.e.mem.u32(r.stream + 0x2c), PROFILE_END);
         assert_eq!(r.e.mem.u32(r.stream + 4), r.stream + 0x38);
+    }
+
+    /// A tolerance of 1 and radii 0.125 and 0.25 on the rest of `rig`.
+    fn block_values(r: &mut Rig) {
+        let owner = r.e.mem.u32(r.pair + 0xc);
+        r.e.mem.set_f32(owner + 8, 1.0);
+        let shape_a = r.e.mem.u32(r.body_a);
+        let shape_b = r.e.mem.u32(r.body_b);
+        r.e.mem.set_f32(shape_a + 0x10, 0.125);
+        r.e.mem.set_f32(shape_b + 0x10, 0.25);
+    }
+
+    /// d41bc5..d41c3d: what the block above the vertices holds when 00dae3a0 is called, word for
+    /// word; the fourth word of the copy of `input` is the time of impact stored just before.
+    #[test]
+    fn the_vertex_path_fills_the_block_the_finish_reads() {
+        let mut r = rig();
+        block_values(&mut r);
+        store_vec(&mut r.e, r.input, [0.5, -0.25, 2.0, 1.0]);
+        let seen: Seen<u32> = Rc::default();
+        let sink = seen.clone();
+        r.e.register_double(ADD_POINTS, move |e, a| {
+            sink.borrow_mut()
+                .extend((0..8).map(|i| e.mem.u32(a[1] + 0x100 + 4 * i)));
+            Ret::default()
+        });
+        r.run();
+        let square = (0.125f64 + 1.0 + 0.25) * (0.125 + 1.0 + 0.25);
+        assert_eq!(
+            *seen.borrow(),
+            [
+                0.5f32.to_bits(),
+                (-0.25f32).to_bits(),
+                2.0f32.to_bits(),
+                0.75f32.to_bits(),
+                0.125f32.to_bits(),
+                0.25f32.to_bits(),
+                1.0f32.to_bits(),
+                (square as f32).to_bits()
+            ]
+        );
+    }
+
+    /// The real 00dae3a0 keeps a contact point of one vertex on each shape only with the block:
+    /// its squared limit (0 without) must reach the squared distance and its tolerance (0
+    /// without) must be above the distance. Then it writes one output record from the block's
+    /// normal and radii.
+    #[test]
+    fn the_real_finish_keeps_the_point_with_the_block_the_exe_fills() {
+        let mut r = rig_with(false);
+        block_values(&mut r);
+        for body in [r.body_a, r.body_b] {
+            let motion = r.e.mem.u32(body + 8);
+            for (row, values) in [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                store_vec(&mut r.e, motion + 0x10 * row as u32, values);
+            }
+        }
+        vertex_source(&mut r.e, FAKE_VERTICES_A, 1.0);
+        vertex_source(&mut r.e, FAKE_VERTICES_B, 1.5);
+        // The manifold: one vertex on each shape, one entry of kind (1, 1) with the id 0xffff,
+        // whose two vertices are at offsets 0 and 0x10 of the array.
+        r.e.mem.set_u8(r.data + 0xc, 1);
+        r.e.mem.set_u8(r.data + 0xd, 1);
+        r.e.mem.set_u8(r.data + 0xe, 1);
+        r.e.mem.set_u8(r.data + 0x10, 1);
+        r.e.mem.set_u8(r.data + 0x11, 1);
+        r.e.mem.set_u16(r.data + 0x12, 0xffff);
+        r.e.mem.set_u8(r.data + 0x14, 0);
+        r.e.mem.set_u8(r.data + 0x15, 0x10);
+        store_vec(&mut r.e, r.input, [-1.0, 0.0, 0.0, 1.0]);
+        let record = r.e.mem.alloc(0x40);
+        r.e.mem.set_u32(r.collector, record);
+        r.run();
+        assert_eq!(r.e.mem.u8(r.data + 0xe), 1, "the point stays");
+        assert_eq!(r.e.mem.u8(r.entry + 2), 1);
+        assert_eq!(r.e.mem.u32(r.collector), record + 0x30);
+        // Distance along the normal 0.5, less the radii 0.375.
+        assert_eq!(
+            load_vec(&r.e, record + 0x10),
+            [-1.0, 0.0, 0.0, 0.125],
+            "normal and distance"
+        );
     }
 
     /// d41e1f..d41e45: the count after 00dae3a0 picks the record, and 0 appends nothing.

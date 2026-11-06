@@ -144,7 +144,7 @@ pub fn bhk_constraint_chain_save_binary(e: &mut Engine, this: Ptr, stream: Ptr) 
 /// the Havok constraint (`+8`) the wrapper object at the entity's `+0xc` is asked to register
 /// (its virtual `+0x54` with the stream); then the base registration (`00c898e0`), whose result
 /// is the answer.
-pub fn bhk_constraint_chain_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn bhk_constraint_chain_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     let object = if this.addr() != 0 {
         e.mem.u32(this.addr() + 8)
     } else {
@@ -163,7 +163,7 @@ pub fn bhk_constraint_chain_register_streamables(e: &mut Engine, this: Ptr, stre
         index += 1;
     }
     e.call(CONSTRAINT_REGISTER_STREAMABLES, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 // Translated from 00d532f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -308,7 +308,7 @@ pub fn bhk_constraint_chain_add(e: &mut Engine, this: Ptr, world: Ptr) -> bool {
 /// object the chain's virtual `+0x94` answers and its `bhkWorld` (`+0x350`); false when there is
 /// none. Otherwise removes the Havok constraint (`+8`) from it (`00c68d50`), runs the chain's
 /// virtual `+0xd8` with the world and 0, and answers the removal's result.
-pub fn bhk_constraint_chain_remove(e: &mut Engine, this: Ptr) -> bool {
+pub fn bhk_constraint_chain_remove(e: &mut Engine, this: Ptr) -> u8 {
     let scope = enter_scope(e);
     let owner = e.vcall(this.addr(), 0x94, &args![]).u32();
     let world = if owner != 0 {
@@ -316,10 +316,10 @@ pub fn bhk_constraint_chain_remove(e: &mut Engine, this: Ptr) -> bool {
     } else {
         0
     };
-    let mut removed = false;
+    let mut removed = 0;
     if world != 0 {
         let object = e.mem.u32(this.addr() + 8);
-        removed = e.call(WORLD_REMOVE, &args![world, object]).bool();
+        removed = e.call(WORLD_REMOVE, &args![world, object]).u8();
         e.vcall(this.addr(), 0xd8, &args![world, 0u32]);
     }
     leave_scope(e, scope);
@@ -588,12 +588,12 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00d5_3200, hk_constraint_chain_cinfo_load_binary(Ptr, Ptr)),
         entry!(0x00d5_3220, bhk_constraint_chain_destructor(Ptr)),
         entry!(0x00d5_3290, bhk_constraint_chain_save_binary(Ptr, Ptr)),
-        entry!(0x00d5_32a0, bhk_constraint_chain_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00d5_32a0, bhk_constraint_chain_register_streamables(Ptr, Ptr) -> u8),
         entry!(0x00d5_32f0, bhk_constraint_chain_is_equal(Ptr, Ptr) -> bool),
         entry!(0x00d5_3360, hk_constraint_chain_cinfo_save_binary(Ptr, Ptr)),
         entry!(0x00d5_33e0, bhk_constraint_chain_init(Ptr, Ptr)),
         entry!(0x00d5_34e0, bhk_constraint_chain_add(Ptr, Ptr) -> bool),
-        entry!(0x00d5_35d0, bhk_constraint_chain_remove(Ptr) -> bool),
+        entry!(0x00d5_35d0, bhk_constraint_chain_remove(Ptr) -> u8),
         entry!(0x00d5_36a0, bhk_constraint_chain_process_entities(Ptr, Ptr, bool) -> bool),
         entry!(0x00d5_3900, bhk_constraint_chain_copy_cinfo(Ptr, Ptr)),
         entry!(0x00d5_3970, bhk_constraint_chain_link_object(Ptr, Ptr)),

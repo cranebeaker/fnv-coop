@@ -1262,11 +1262,12 @@ pub fn fn_00e23710(e: &mut Engine, this: Ptr) -> u32 {
 
 // Translated from 00e237b0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkgpMeshInternals::SimpleCollector::addLeaf` (Xbox PDB; `this` is ECX; stack: `node`):
-/// pushes the word at `node + 0x20` on the `hkArray` of words at `this + 4`. (The exe leaves
-/// an `FLD1` on the x87 stack; nothing reads it.)
-pub fn hkgp_mesh_internals_simple_collector_add_leaf(e: &mut Engine, this: Ptr, node: Ptr) {
+/// pushes the word at `node + 0x20` on the `hkArray` of words at `this + 4`. Answers 1.0
+/// (`FLD1`, 00e237e1): the tree query (00d1d2e5) stops when the answer equals 0.
+pub fn hkgp_mesh_internals_simple_collector_add_leaf(e: &mut Engine, this: Ptr, node: Ptr) -> f32 {
     let leaf = e.mem.u32(node.addr() + 0x20);
     array_push_word(e, this.addr() + 4, leaf);
+    1.0
 }
 
 // Translated from 00e23800 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1748,7 +1749,8 @@ pub fn hkgp_mesh_line_shape_get_supporting_vertex(
 /// distance between `this + 0x10` and the node's box centre `(node[0..] + node[0x10..]) *
 /// s` (`s` the float at `01016248`, splatted); when the float at `this + 0x20` is not below it
 /// (`FCOMPP`, `TEST AH,1`, `JNZ` skips), stores the word at `node + 0x20` at `this + 0x24`.
-pub fn hkgp_mesh_welding_policy_add_leaf(e: &mut Engine, this: Ptr, node: Ptr) {
+/// Answers 1.0 either way (`FLD1`, 00e21eb6): the tree query (00d1d2e5) stops on 0.
+pub fn hkgp_mesh_welding_policy_add_leaf(e: &mut Engine, this: Ptr, node: Ptr) -> f32 {
     let low = load_vec(e, node.addr());
     let scale = e.mem.f32(0x0101_6248);
     let high = load_vec(e, node.addr() + 0x10);
@@ -1762,6 +1764,7 @@ pub fn hkgp_mesh_welding_policy_add_leaf(e: &mut Engine, this: Ptr, node: Ptr) {
         let leaf = e.mem.u32(node.addr() + 0x20);
         e.mem.set_u32(this.addr() + 0x24, leaf);
     }
+    1.0
 }
 
 // Translated from 00e21ed0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -7904,7 +7907,8 @@ const SMALLEST_FLOAT: u32 = 0x0104_e148;
 /// the float at `0104da48` as a vector at `+0x60`), puts `flag == 0` in the word at `+0x18` of the
 /// GSK object at `+0x90` and asks it for the closest point (`00e4c730`, out vector at `+0x70`). The
 /// result is lane 3 of that vector, or the float at `0104e148` when the query found no
-/// closest point (a non-zero return).
+/// closest point (a non-zero return). The frame is the exe's 0x1f0 bytes (00e22de6): the GSK
+/// object fills up to its own +0x140.
 /// Virtual method: the first word is `this` (`ECX` in the exe), which the body never reads.
 pub fn convex_overlap_impl_distance(
     e: &mut Engine,
@@ -7915,7 +7919,7 @@ pub fn convex_overlap_impl_distance(
 ) -> f32 {
     let count = e.mem.u32(OVERLAP_QUERY_COUNTER).wrapping_add(1);
     e.mem.set_u32(OVERLAP_QUERY_COUNTER, count);
-    e.with_stack(0xb0, |e, frame| {
+    e.with_stack(0x1f0, |e, frame| {
         let s = frame.addr();
         e.mem.set_u32(s + 0xc, second);
         e.mem.set_u32(s, 0x010e_ae0c);
@@ -13639,7 +13643,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00e2_3710, fn_00e23710(Ptr) -> u32),
         entry!(
             0x00e2_37b0,
-            hkgp_mesh_internals_simple_collector_add_leaf(Ptr, Ptr)
+            hkgp_mesh_internals_simple_collector_add_leaf(Ptr, Ptr) -> f32
         ),
         entry!(0x00e2_3800, hkgp_mesh_internals_simple_collector_scalar_deleting_destructor(Ptr, u8) -> Ptr),
         entry!(0x00e2_3860, fn_00e23860(Ptr)),
@@ -13672,7 +13676,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00e2_1d40,
             hkgp_mesh_line_shape_get_supporting_vertex(Ptr, Ptr, Ptr)
         ),
-        entry!(0x00e2_1e60, hkgp_mesh_welding_policy_add_leaf(Ptr, Ptr)),
+        entry!(0x00e2_1e60, hkgp_mesh_welding_policy_add_leaf(Ptr, Ptr) -> f32),
         entry!(
             0x00e2_1ed0,
             hkgp_mesh_triangle_shape_get_supporting_vertex(Ptr, Ptr, Ptr)
@@ -15044,7 +15048,8 @@ mod tests {
         let node = e.mem.alloc(0x40);
         for (index, leaf) in [0x11u32, 0x22, 0x33, 0x44, 0x55].into_iter().enumerate() {
             e.mem.set_u32(node + 0x20, leaf);
-            e.call(0x00e2_37b0, &args![collector, node]);
+            // 00e237e1: 1.0 in ST0, which keeps the tree query going.
+            assert_eq!(e.call(0x00e2_37b0, &args![collector, node]).f32(), 1.0);
             assert_eq!(e.mem.u32(collector + 8), index as u32 + 1);
         }
         let data = e.mem.u32(collector + 4);
@@ -15631,7 +15636,8 @@ mod tests {
         e.mem.set_u32(node + 0x20, 0x1234);
         // The squared distance from (1, 1, 1) to (1, 1, 2) is 1.
         e.mem.set_f32(policy + 0x20, 4.0);
-        e.call(0x00e2_1e60, &args![policy, node]);
+        // 00e21eb6: 1.0 in ST0 on both paths, which keeps the tree query going.
+        assert_eq!(e.call(0x00e2_1e60, &args![policy, node]).f32(), 1.0);
         assert_eq!(e.mem.u32(policy + 0x24), 0x1234);
         // Equal is not "below": the leaf is remembered again.
         e.mem.set_u32(policy + 0x24, 0);
@@ -15641,7 +15647,7 @@ mod tests {
         // A smaller value at +0x20 leaves it alone.
         e.mem.set_u32(policy + 0x24, 0);
         e.mem.set_f32(policy + 0x20, 0.5);
-        e.call(0x00e2_1e60, &args![policy, node]);
+        assert_eq!(e.call(0x00e2_1e60, &args![policy, node]).f32(), 1.0);
         assert_eq!(e.mem.u32(policy + 0x24), 0);
     }
 
@@ -19582,6 +19588,19 @@ mod tests {
             vertex = e.mem.u32(vertex);
         }
         assert_eq!(on_plane, 2);
+    }
+
+    #[test]
+    fn convex_overlap_impl_distance_00e22de0_has_the_exes_frame() {
+        let mut e = engine();
+        e.mem.set_f32(LARGEST_FLOAT, 1.0e30);
+        e.mem.set_f32(SMALLEST_FLOAT, -1.0e30);
+        let frame = e.next_stack_local(0x1f0);
+        e.register_double(GSK_CLOSEST_POINT, move |_, a| {
+            assert_eq!(a[0], frame + 0x90);
+            Ret::default()
+        });
+        e.call(0x00e2_2de0, &args![VCALL_THIS, 0x1111u32, 0x2222u32, 0u8]);
     }
 
     #[test]

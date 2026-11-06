@@ -562,6 +562,40 @@ mod tests {
         assert_eq!(e.mem.u32(holder + 4), block + 0x10);
     }
 
+    /// 00cbdcf1, 00cbdda1, 00cbde80: the data, clone and cinfo bodies every constraint class
+    /// shares run with the word at 0x10, and it goes back after.
+    #[test]
+    fn shared_bodies_run_with_the_allocation_context_at_0x10() {
+        let mut e = logging_engine();
+        constraint_doubles(&mut e, &[HINGE_COUNT]);
+        allocator_doubles(&mut e);
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        for address in [
+            HINGE_DATA_CONSTRUCT,
+            CONSTRAINT_COPY_MEMBERS,
+            MEMORY_MANAGER_ALLOCATE,
+        ] {
+            let seen = seen.clone();
+            e.register_double(address, move |e, _| {
+                let tls = e.tls();
+                seen.borrow_mut().push(e.mem.u32(tls + SCOPE_WORD));
+                Ret {
+                    eax: e.mem.alloc(0x20),
+                    ..Ret::default()
+                }
+            });
+        }
+        let this = e.mem.alloc(0x20);
+        let created = e.mem.alloc(4);
+        let tls = e.tls();
+        e.mem.set_u32(tls + SCOPE_WORD, 6);
+        e.call(0x00cb_dcb0, &args![this]);
+        e.call(0x00cb_dd60, &args![this, 0x1234u32]);
+        e.call(0x00cb_de40, &args![this, created]);
+        assert_eq!(*seen.borrow(), vec![0x10; 3]);
+        assert_eq!(e.mem.u32(tls + SCOPE_WORD), 6);
+    }
+
     #[test]
     fn create_clone_builds_a_hinge_under_the_clone_lock() {
         let mut e = logging_engine();

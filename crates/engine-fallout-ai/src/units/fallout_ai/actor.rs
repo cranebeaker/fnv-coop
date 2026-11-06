@@ -576,7 +576,7 @@ pub fn actor_destructor(e: &mut Engine, this: Ptr<Actor>) {
 /// result), clears the node's `0x800000` bits unless the setting at `011c7664`
 /// is on, and tells `008b7360` about it when `008b7b70` is true. Returns the
 /// node.
-pub fn fn_0087e060(e: &mut Engine, this: Ptr<Actor>, flag: bool) -> Ptr {
+pub fn fn_0087e060(e: &mut Engine, this: Ptr<Actor>, flag: u8) -> Ptr {
     let node: Ptr = e.call(MOBILE_OBJECT_LOAD3D, &args![this, flag]).ptr();
     if !node.is_null() {
         let process = e.get(this, Actor::pCurrentProcess);
@@ -641,7 +641,7 @@ pub fn actor_create_ragdoll_instance(
     if found != 0 {
         let base_again = base_form(e, this);
         if e.call(0x005f_0c80, &args![base_again]).bool() && world_space.is_null() {
-            fn_0087e960(e, this, true);
+            fn_0087e960(e, this, 1);
             return;
         }
     }
@@ -840,8 +840,8 @@ pub fn fn_0087e940(e: &mut Engine, node: Ptr) -> bool {
 
 // Translated from 0087e960 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets `bTurretBehavior` (Xbox PDB `+0x1c0`).
-pub fn fn_0087e960(e: &mut Engine, this: Ptr<Actor>, value: bool) {
-    e.set(this, Actor::bTurretBehavior, value as u8);
+pub fn fn_0087e960(e: &mut Engine, this: Ptr<Actor>, value: u8) {
+    e.set(this, Actor::bTurretBehavior, value);
 }
 
 // Translated from 0087e980 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1564,10 +1564,11 @@ pub fn fn_0087f920(
 }
 
 // Translated from 0087f990 (decompiled, FalloutNV.exe 1.4.0.525)
-/// `005bb4d0` on the base form's component at `+0x90`.
-pub fn fn_0087f990(e: &mut Engine, this: Ptr<Actor>) -> bool {
+/// The byte `005bb4d0` reads from the base form's component at `+0x90`, widened to an int
+/// (`0087f9ab`): a number, which the sandbox duration and the process delay FILD.
+pub fn fn_0087f990(e: &mut Engine, this: Ptr<Actor>) -> u32 {
     let base = base_form(e, this);
-    e.call(0x005b_b4d0, &args![base.byte_add(0x90)]).bool()
+    u32::from(e.call(0x005b_b4d0, &args![base.byte_add(0x90)]).u8())
 }
 
 // Translated from 0087f9c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1589,7 +1590,7 @@ pub fn fn_0087f9f0(e: &mut Engine, this: Ptr<Actor>) -> u32 {
 
 // Translated from 0087fa10 (decompiled, FalloutNV.exe 1.4.0.525)
 /// With a process: its virtual `+0x118` with `flag`, then its virtual `+0x4a0`.
-pub fn fn_0087fa10(e: &mut Engine, this: Ptr<Actor>, flag: bool) {
+pub fn fn_0087fa10(e: &mut Engine, this: Ptr<Actor>, flag: u8) {
     let process = e.get(this, Actor::pCurrentProcess);
     if !process.is_null() {
         e.vcall(process.addr(), 0x118, &args![flag]);
@@ -1599,7 +1600,7 @@ pub fn fn_0087fa10(e: &mut Engine, this: Ptr<Actor>, flag: bool) {
 
 // Translated from 0087fa60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// With a process: its virtual `+0x120` with `flag`.
-pub fn fn_0087fa60(e: &mut Engine, this: Ptr<Actor>, flag: bool) {
+pub fn fn_0087fa60(e: &mut Engine, this: Ptr<Actor>, flag: u8) {
     let process = e.get(this, Actor::pCurrentProcess);
     if !process.is_null() {
         e.vcall(process.addr(), 0x120, &args![flag]);
@@ -2032,16 +2033,17 @@ pub fn fn_00880580(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 
 // Translated from 008805f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `float` counterpart of `00880580`: with a process, its virtual `+0x39c`
-/// result; without, the owner's virtual `+0` (an integer) as a `float`.
-pub fn fn_008805f0(e: &mut Engine, this: Ptr, index: u32) -> f32 {
+/// result; without, the owner's virtual `+0` (an integer, `FILD`). The value stays in `ST0`
+/// unrounded for the caller.
+pub fn fn_008805f0(e: &mut Engine, this: Ptr, index: u32) -> f64 {
     let actor: Ptr<Actor> = Ptr::new(this.addr().wrapping_sub(ACTOR_VALUE_OWNER));
     if !e.get(actor, Actor::pCurrentProcess).is_null() {
         let process = actor_process(e, actor);
         let base = base_form(e, actor);
         e.vcall(process.addr(), 0x39c, &args![base, index, actor])
-            .f32()
+            .f64()
     } else {
-        e.vcall(this.addr(), 0, &args![index]).i32() as f32
+        f64::from(e.vcall(this.addr(), 0, &args![index]).i32())
     }
 }
 
@@ -2149,12 +2151,12 @@ pub fn fn_008808f0(e: &mut Engine, _this: Ptr, index: u32, _unused_1: u32) -> u3
 // Translated from 00880910 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `004bfc80` on the container changes (`00418520`) of the reference's extra
 /// data list; false when it has none.
-pub fn fn_00880910(e: &mut Engine, this: Ptr<Actor>) -> bool {
-    let mut result = false;
+pub fn fn_00880910(e: &mut Engine, this: Ptr<Actor>) -> u8 {
+    let mut result = 0;
     let list = extra_data_list(e, this);
     let changes = e.call(0x0041_8520, &args![list]).u32();
     if changes != 0 {
-        result = e.call(0x004b_fc80, &args![changes]).bool();
+        result = e.call(0x004b_fc80, &args![changes]).u8();
     }
     result
 }
@@ -2805,9 +2807,9 @@ pub fn actor_get_package_set_as_pcurrent(e: &mut Engine, this: Ptr<Actor>) -> Pt
 // Translated from 00881570 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Actor::IsRunningRunOnce` (Xbox PDB): the process's virtual `+0x35c`
 /// (the process is not checked).
-pub fn actor_is_running_run_once(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn actor_is_running_run_once(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     let process = process_of(e, this);
-    e.vcall(process, 0x35c, &args![]).bool()
+    e.vcall(process, 0x35c, &args![]).u8()
 }
 
 // Translated from 008815a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2821,8 +2823,8 @@ pub fn fn_008815a0(e: &mut Engine, this: Ptr<Actor>) -> Ptr {
         return Ptr::new(0);
     }
     if e.call(ANIMATION_FLAG_TEST, &args![this]).bool() {
-        let use_actor_slot =
-            !actor_is_running_run_once(e, this) || e.call(IS_FLEEING, &args![this, 0u32]).bool();
+        let use_actor_slot = actor_is_running_run_once(e, this) == 0
+            || e.call(IS_FLEEING, &args![this, 0u32]).bool();
         if use_actor_slot {
             let value = e.vcall(this.addr(), 0x42c, &args![]).u32();
             if value != 0 {
@@ -4351,7 +4353,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0087d860, fn_0087d860(Ptr) -> Ptr),
         entry!(0x0087d890, fn_0087d890(Ptr<Actor>, bool)),
         entry!(0x0087dcb0, actor_destructor(Ptr<Actor>)),
-        entry!(0x0087e060, fn_0087e060(Ptr<Actor>, bool) -> Ptr),
+        entry!(0x0087e060, fn_0087e060(Ptr<Actor>, u8) -> Ptr),
         entry!(0x0087e100, fn_0087e100(Ptr, bool)),
         entry!(
             0x0087e130,
@@ -4359,7 +4361,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x0087e920, fn_0087e920(Ptr) -> bool),
         entry!(0x0087e940, fn_0087e940(Ptr) -> bool),
-        entry!(0x0087e960, fn_0087e960(Ptr<Actor>, bool)),
+        entry!(0x0087e960, fn_0087e960(Ptr<Actor>, u8)),
         entry!(0x0087e980, fn_0087e980(Ptr) -> u32),
         entry!(0x0087e9a0, fn_0087e9a0() -> u32),
         entry!(0x0087e9b0, fn_0087e9b0(Ptr)),
@@ -4399,11 +4401,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x0087f920,
             fn_0087f920(Ptr<Actor>, Ptr, Ptr, Ptr, u32) -> bool
         ),
-        entry!(0x0087f990, fn_0087f990(Ptr<Actor>) -> bool),
+        entry!(0x0087f990, fn_0087f990(Ptr<Actor>) -> u32),
         entry!(0x0087f9c0, fn_0087f9c0(Ptr<Actor>) -> f32),
         entry!(0x0087f9f0, fn_0087f9f0(Ptr<Actor>) -> u32),
-        entry!(0x0087fa10, fn_0087fa10(Ptr<Actor>, bool)),
-        entry!(0x0087fa60, fn_0087fa60(Ptr<Actor>, bool)),
+        entry!(0x0087fa10, fn_0087fa10(Ptr<Actor>, u8)),
+        entry!(0x0087fa60, fn_0087fa60(Ptr<Actor>, u8)),
         entry!(0x0087faa0, actor_end_movement(Ptr<Actor>)),
         entry!(0x0087fad0, fn_0087fad0(Ptr<Actor>, u32)),
         entry!(0x0087fb40, fn_0087fb40(Ptr<Actor>, Ptr, f32)),
@@ -4413,7 +4415,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00880370, fn_00880370(Ptr, u32) -> i32),
         entry!(0x008803a0, fn_008803a0(Ptr, u32) -> f32),
         entry!(0x00880580, fn_00880580(Ptr, u32) -> u32),
-        entry!(0x008805f0, fn_008805f0(Ptr, u32) -> f32),
+        entry!(0x008805f0, fn_008805f0(Ptr, u32) -> f64),
         entry!(0x00880660, fn_00880660(Ptr<Actor>, u8, u32) -> f32),
         entry!(0x00880690, fn_00880690(Ptr<Actor>, u8, f32)),
         entry!(0x008806d0, fn_008806d0(Ptr<Actor>, u32, i32)),
@@ -4425,7 +4427,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             actor_difficulty_level_adjust_health_modifier(Ptr<Actor>, f32, u32) -> f32
         ),
         entry!(0x008808f0, fn_008808f0(Ptr, u32, u32) -> u32),
-        entry!(0x00880910, fn_00880910(Ptr<Actor>) -> bool),
+        entry!(0x00880910, fn_00880910(Ptr<Actor>) -> u8),
         entry!(0x00880950, fn_00880950(Ptr<Actor>, u32, i32, Ptr<Actor>)),
         entry!(0x00880ad0, fn_00880ad0(Ptr<Actor>, u32, f32, Ptr<Actor>)),
         entry!(0x00880c70, fn_00880c70(Ptr<Actor>, u32, i32, Ptr<Actor>)),
@@ -4444,7 +4446,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00881510,
             actor_get_package_set_as_pcurrent(Ptr<Actor>) -> Ptr
         ),
-        entry!(0x00881570, actor_is_running_run_once(Ptr<Actor>) -> bool),
+        entry!(0x00881570, actor_is_running_run_once(Ptr<Actor>) -> u8),
         entry!(0x008815a0, fn_008815a0(Ptr<Actor>) -> Ptr),
         entry!(0x00881620, actor_set_current_target(Ptr<Actor>, u32)),
         entry!(
@@ -6354,12 +6356,33 @@ mod tests_block2 {
         let mut e = new_engine();
         let actor = actor(&mut e, &[]);
         give_base(&mut e, 0x3000);
-        let first = record(&mut e, 0x005b_b4d0, ret(1));
+        // Only AL is the byte: 005bb4d0 leaves the rest of EAX as the component address.
+        let first = record(&mut e, 0x005b_b4d0, ret(0x3000_002a));
         let second = record(&mut e, 0x0047_ded0, ret(0x1234));
-        assert!(e.call(0x0087_f990, &args![actor]).bool());
+        assert_eq!(e.call(0x0087_f990, &args![actor]).u32(), 0x2a);
         assert_eq!(first.borrow()[0], vec![0x3090]);
         assert_eq!(e.call(0x0087_f9f0, &args![actor]).u32(), 0x1234);
         assert_eq!(second.borrow()[0], vec![0x3030]);
+    }
+
+    /// 87e069, 87fa20, 87fa70, 87e96a: the argument byte goes on as it is.
+    #[test]
+    fn flag_forwarders_keep_the_byte() {
+        let mut e = new_engine();
+        let actor = actor(&mut e, &[]);
+        let process = give_process(&mut e, actor, &[0x118, 0x120, 0x4a0]);
+        let first = record(&mut e, slot(PROCESS_VTABLE, 0x118), Ret::default());
+        let second = record(&mut e, slot(PROCESS_VTABLE, 0x120), Ret::default());
+        record(&mut e, slot(PROCESS_VTABLE, 0x4a0), Ret::default());
+        e.call(0x0087_fa10, &args![actor, 0x2au32]);
+        e.call(0x0087_fa60, &args![actor, 0x2au32]);
+        assert_eq!(first.borrow()[0], vec![process.addr(), 0x2a]);
+        assert_eq!(second.borrow()[0], vec![process.addr(), 0x2a]);
+        let load = record(&mut e, MOBILE_OBJECT_LOAD3D, ret(0));
+        e.call(0x0087_e060, &args![actor, 0x2au32]);
+        assert_eq!(load.borrow()[0], vec![actor.addr(), 0x2a]);
+        e.call(0x0087_e960, &args![actor, 0x2au32]);
+        assert_eq!(e.mem.u8(actor.addr() + 0x1b0), 0x2a);
     }
 
     // ---- 0087f9c0 ----
@@ -6727,6 +6750,9 @@ mod tests_block2 {
         give_base(&mut e, 0x3000);
         assert_eq!(e.call(0x0088_0580, &args![owner, 4u32]).u32(), 9);
         assert_eq!(e.call(0x0088_05f0, &args![owner, 4u32]).f32(), 9.0);
+        // FILD keeps the whole integer in ST0: not rounded to a float here.
+        e.register(slot(OWNER_VTABLE, 0), |_, _| ret(0x0100_0001));
+        assert_eq!(e.call(0x0088_05f0, &args![owner, 4u32]).f64(), 16777217.0);
         let process = give_process(&mut e, actor, &[0x398, 0x39c]);
         let first = record(&mut e, slot(PROCESS_VTABLE, 0x398), ret(77));
         let second = record(&mut e, slot(PROCESS_VTABLE, 0x39c), 1.5f32.into_ret());
@@ -7408,9 +7434,9 @@ mod tests_block3 {
     fn is_running_run_once_asks_the_process() {
         let mut r = Rig::new();
         let a = r.actor;
-        assert!(!actor_is_running_run_once(&mut r.e, a));
+        assert!(actor_is_running_run_once(&mut r.e, a) == 0);
         r.vslot(PROCESS_VTABLE, 0x35c, ret(1));
-        assert!(actor_is_running_run_once(&mut r.e, a));
+        assert!(actor_is_running_run_once(&mut r.e, a) != 0);
     }
 
     #[test]

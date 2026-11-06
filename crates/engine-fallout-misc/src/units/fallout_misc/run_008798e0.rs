@@ -33,18 +33,18 @@ const PACKAGE_TEST_005E0830: u32 = 0x005e_0830;
 /// Unnamed in the engine map (`ECX` only): false without the word from
 /// `00717e50`; otherwise `005e0830` with it and 1, and when that answers
 /// true the answer of vtable `+0x20`, after which vtable `+0x1c` runs.
-pub fn fn_008798e0(e: &mut Engine, this: Ptr) -> bool {
+pub fn fn_008798e0(e: &mut Engine, this: Ptr) -> u8 {
     let package = e.call(RUNNING_PACKAGE, &args![this]).u32();
     if package == 0 {
-        return false;
+        return 0;
     }
     if !e
         .call(PACKAGE_TEST_005E0830, &args![this, package, 1u32])
         .bool()
     {
-        return false;
+        return 0;
     }
-    let result = e.vcall(this.addr(), 0x20, &args![]).bool();
+    let result = e.vcall(this.addr(), 0x20, &args![]).u8();
     e.vcall(this.addr(), 0x1c, &args![]);
     result
 }
@@ -53,7 +53,7 @@ pub fn fn_008798e0(e: &mut Engine, this: Ptr) -> bool {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0087_9940, fn_00879940(Ptr) -> Ptr),
-        entry!(0x0087_98e0, fn_008798e0(Ptr) -> bool),
+        entry!(0x0087_98e0, fn_008798e0(Ptr) -> u8),
     ]
 }
 

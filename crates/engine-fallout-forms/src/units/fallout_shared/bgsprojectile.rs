@@ -1081,8 +1081,9 @@ pub fn tes_object_weap_get_form_clip_rounds(e: &mut Engine, this: Ptr, with_mod:
         let effect = e
             .call(WEAPON_GET_MOD_EFFECT_VALUE, &args![this, 2u32, 0u32])
             .f64();
-        // `FISTP` with the rounding mode forced to truncation.
-        let bonus = effect as i32 as u8 as i32;
+        // `FISTP` with the rounding mode forced to truncation (004fe190); the low byte
+        // (004fe196) of the integer indefinite for a value out of range is 0.
+        let bonus = crate::x87::fistp_chop(effect) as u8 as i32;
         let rounds = e.call(CLIP_ROUNDS_GET, &args![clip_rounds_form]).u32() as i32;
         rounds.wrapping_add(bonus)
     } else {
@@ -2095,6 +2096,12 @@ mod tests {
         assert_eq!(getter.borrow()[0], vec![weapon + 0xac]);
         // The bonus is the low byte of the integer.
         returning_float(&mut e, WEAPON_GET_MOD_EFFECT_VALUE, 256.0);
+        assert_eq!(e.call(0x004f_e160, &args![weapon, 1u32]).i32(), 30);
+        // 004fe190, 004fe196: 2^31 stores the integer indefinite, whose low byte is 0.
+        e.register_double(WEAPON_GET_MOD_EFFECT_VALUE, |_, _| Ret {
+            st0: 2147483648.0,
+            ..Ret::default()
+        });
         assert_eq!(e.call(0x004f_e160, &args![weapon, 1u32]).i32(), 30);
     }
 }

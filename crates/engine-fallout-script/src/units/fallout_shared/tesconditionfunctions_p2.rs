@@ -2283,8 +2283,9 @@ pub fn script_get_concussed_condition_function(
         {
             set_result(e, result, 1.0);
         }
-        // "%s is not concussed " / "%s is concussed"
-        if let Some(format) = trace_choice(e, result, 0x0103_61d8, 0x0103_61c0) {
+        // 005a50a1: above zero prints "%s is concussed" (010361d8), else "%s is not concussed "
+        // (010361c0).
+        if let Some(format) = trace_choice(e, result, 0x0103_61c0, 0x0103_61d8) {
             let name = e.call(REF_GET_NAME, &args![actor]).u32();
             e.call(DEBUG_PRINT, &args![format, name]);
         }
@@ -2645,8 +2646,9 @@ pub fn script_get_ignore_crime_condition_function(
     if !actor.is_null() && e.vcall(actor.addr(), VSLOT_ACTOR_TEST_320, &args![]).bool() {
         set_result(e, result, 1.0);
     }
-    // "%s is not ignoring crime" / "%s is ignoring crime"
-    if let Some(format) = trace_choice(e, result, 0x0103_63bc, 0x0103_63a0) {
+    // 005a5a0b: above zero prints "%s is ignoring crime" (010363bc), else "%s is not ignoring
+    // crime" (010363a0).
+    if let Some(format) = trace_choice(e, result, 0x0103_63a0, 0x0103_63bc) {
         let name = e.call(REF_GET_NAME, &args![reference]).u32();
         e.call(DEBUG_PRINT, &args![format, name]);
     }
@@ -4712,11 +4714,11 @@ mod tests {
         stub_args(&mut e, ACTOR_PART_TEST_822CF0, vec![a + 0x94, 0x21, 0], 1);
         assert_eq!(run(&mut e, 0x005a_5020, a, 0, 0), (true, 1.0));
         let lines = printed(&mut e, 0.0, 0x005a_5020, a, 0, 0);
-        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_61c0, a + 0x100])]);
+        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_61d8, a + 0x100])]);
         stub_args(&mut e, ACTOR_PART_TEST_822CF0, vec![a + 0x94, 0x21, 0], 0);
         assert_eq!(run(&mut e, 0x005a_5020, a, 0, 0), (true, 0.0));
         let lines = printed(&mut e, 0.0, 0x005a_5020, a, 0, 0);
-        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_61d8, a + 0x100])]);
+        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_61c0, a + 0x100])]);
         // The flag clear: 0.0, and no debug line.
         e.set_global(BYTE_GLOBAL_5A50E0, 0u8);
         assert_eq!(run(&mut e, 0x005a_5020, a, 0, 0), (true, 0.0));
@@ -4976,7 +4978,7 @@ mod tests {
         );
         assert_eq!(run(&mut e, 0x005a_59a0, a, 0, 0), (true, 1.0));
         let lines = printed(&mut e, 0.0, 0x005a_59a0, a, 0, 0);
-        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_63a0, a + 0x100])]);
+        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_63bc, a + 0x100])]);
         let b = object(
             &mut e,
             &[
@@ -4986,7 +4988,7 @@ mod tests {
         );
         assert_eq!(run(&mut e, 0x005a_59a0, b, 0, 0), (true, 0.0));
         let lines = printed(&mut e, 0.0, 0x005a_59a0, b, 0, 0);
-        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_63bc, b + 0x100])]);
+        assert_eq!(lines, vec![(DEBUG_PRINT, vec![0x0103_63a0, b + 0x100])]);
         assert_eq!(run(&mut e, 0x005a_59a0, 0, 0, 0), (true, 0.0));
     }
 

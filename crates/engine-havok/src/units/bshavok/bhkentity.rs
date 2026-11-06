@@ -357,7 +357,7 @@ pub fn bhk_entity_save_binary(e: &mut Engine, this: Ptr<BhkEntity>, stream: u32)
 /// `bhkEntity::Remove` (Xbox PDB): asks virtual slot `0x94` for an object and, when it
 /// exists and its word at `+0x350` is set, calls `00c68bf0` on that word with the Havok
 /// entity (`+8`) and answers its result; otherwise answers `false`.
-pub fn bhk_entity_remove(e: &mut Engine, this: Ptr<BhkEntity>) -> bool {
+pub fn bhk_entity_remove(e: &mut Engine, this: Ptr<BhkEntity>) -> u8 {
     let world_object = e.vcall(this.addr(), 0x94, &args![]).u32();
     let world = if world_object != 0 {
         e.mem.u32(world_object + 0x350)
@@ -366,9 +366,9 @@ pub fn bhk_entity_remove(e: &mut Engine, this: Ptr<BhkEntity>) -> bool {
     };
     if world != 0 {
         let entity = e.get(this, BhkEntity::phkObject);
-        e.call(WORLD_REMOVE, &args![world, entity]).bool()
+        e.call(WORLD_REMOVE, &args![world, entity]).u8()
     } else {
-        false
+        0
     }
 }
 
@@ -477,7 +477,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c9_d4c0, bhk_entity_kill(Ptr<BhkEntity>) -> u32),
         entry!(0x00c9_d4f0, bhk_entity_load_binary(Ptr<BhkEntity>, u32)),
         entry!(0x00c9_d530, bhk_entity_save_binary(Ptr<BhkEntity>, u32)),
-        entry!(0x00c9_d590, bhk_entity_remove(Ptr<BhkEntity>) -> bool),
+        entry!(0x00c9_d590, bhk_entity_remove(Ptr<BhkEntity>) -> u8),
         entry!(0x00c9_d5d0, bhk_entity_update_c_filter(Ptr<BhkEntity>)),
         entry!(0x00c9_d600, fn_00c9d600(Ptr<BhkEntity>)),
         entry!(0x00c9_d620, bhk_entity_destruct(Ptr<BhkEntity>)),

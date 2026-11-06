@@ -4425,7 +4425,9 @@ pub fn fn_00ae83e0(e: &mut Engine, this: Ptr<BSSimpleList>) {
 /// at +4; unnamed in the engine map) by `compare` (cdecl, previous element
 /// then current): as many passes as there are nodes with a non-null item,
 /// swapping the (non-null) items of neighbours that compare greater, and
-/// stopping at a pass without a swap.
+/// stopping at a pass without a swap. The current and previous nodes are set once
+/// (00ae847c, 00ae847f), not per pass: the first pass leaves the current node null, so only
+/// that pass walks the chain and the list comes out one pass sorted.
 pub fn fn_00ae8470(e: &mut Engine, this: Ptr<BSSimpleList>, compare: u32) {
     let head = this.addr();
     let mut passes = 0i32;
@@ -4437,10 +4439,10 @@ pub fn fn_00ae8470(e: &mut Engine, this: Ptr<BSSimpleList>, compare: u32) {
         node = e.mem.u32(node + 4);
     }
     let mut swapped = true;
+    let mut current = head;
+    let mut previous = 0;
     while passes != 0 && swapped {
         swapped = false;
-        let mut current = head;
-        let mut previous = 0;
         while current != 0 {
             if previous != 0 {
                 let current_item = e.mem.u32(current);
@@ -11632,7 +11634,7 @@ mod tests {
     }
 
     #[test]
-    fn the_bubble_and_shell_sorts_order_with_the_comparison() {
+    fn the_bubble_sort_walks_once_and_the_shell_sort_orders_with_the_comparison() {
         let mut e = engine2();
         let compare = install_word_compare(&mut e);
         let mut next = 0;
@@ -11640,7 +11642,8 @@ mod tests {
             next = chain_node(&mut e, item, next);
         }
         e.call(0x00ae8470, &[next, compare]);
-        assert_eq!(chain_items(&e, next), vec![1, 2, 3, 4, 5]);
+        // One pass only: 00ae84d7 does not start the walk again.
+        assert_eq!(chain_items(&e, next), vec![1, 3, 2, 4, 5]);
         // The shell sort on an array of words (13 of them: two gaps).
         let words = [9u32, 3, 7, 1, 8, 2, 6, 0, 5, 4, 12, 11, 10];
         let array = e.mem.alloc(4 * words.len() as u32);

@@ -31,22 +31,22 @@ fn manager_ready(e: &mut Engine) -> bool {
 // Translated from 007043d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed (no words): with the interface manager ready (`009373f0`), `00704400`;
 /// otherwise false.
-pub fn fn_007043d0(e: &mut Engine) -> bool {
+pub fn fn_007043d0(e: &mut Engine) -> u8 {
     if manager_ready(e) {
         fn_00704400(e)
     } else {
-        false
+        0
     }
 }
 
 // Translated from 00704400 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed (no words): the map menu's byte at +0x12c, or true without a map menu.
-pub fn fn_00704400(e: &mut Engine) -> bool {
+pub fn fn_00704400(e: &mut Engine) -> u8 {
     let menu = e.global::<u32>(MAP_MENU);
     if menu != 0 {
-        e.mem.u8(menu + 0x12c) != 0
+        e.mem.u8(menu + 0x12c)
     } else {
-        true
+        1
     }
 }
 
@@ -80,8 +80,8 @@ pub fn fn_00704470(e: &mut Engine, object: u32) {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0070_43c0, fn_007043c0() -> bool),
-        entry!(0x0070_43d0, fn_007043d0() -> bool),
-        entry!(0x0070_4400, fn_00704400() -> bool),
+        entry!(0x0070_43d0, fn_007043d0() -> u8),
+        entry!(0x0070_4400, fn_00704400() -> u8),
         entry!(0x0070_4420, fn_00704420(u8)),
         entry!(0x0070_4450, fn_00704450(u8)),
         entry!(0x0070_4470, fn_00704470(u32)),

@@ -594,6 +594,8 @@ pub fn ni_p_sys_gravity_modifier_load_binary(
             4,
             argument_slot,
         );
+        // 00c236b0, 00c23725: the word pushed at entry, `this`, until a read fills it.
+        e.mem.set_u32(local, this.addr());
         stream_read(e, s, local, 4, 4, argument_slot);
         let kind = e.mem.u32(local);
         e.set(this, NiPSysGravityModifier::m_eType, kind);
@@ -1157,6 +1159,20 @@ mod tests {
         let turn = log_of(&s.e, MATRIX_TIMES_VECTOR);
         assert_eq!(turn[0][0], object + 0x34);
         assert_eq!(turn[0][2], s.this.addr() + 0x1c);
+    }
+
+    /// 00c236b0, 00c23725: a short read leaves the word pushed at entry, `this`.
+    #[test]
+    fn load_binary_short_read_stores_this_in_the_type() {
+        let mut e = Engine::new();
+        e.register(MODIFIER_LOAD_BINARY, |_, _| Ret::default());
+        e.register(READ_LINK_ID, |_, _| Ret::default());
+        e.register(COLOR_LOAD_BINARY, |_, _| Ret::default());
+        let stream = test_stream::new(&mut e, 0x1402_0007, &[]);
+        e.register(test_stream::READ_FN, |_, _| Ret::default());
+        let this = e.new_object::<NiPSysGravityModifier>();
+        e.call(0x00c2_36b0, &args![this, stream]);
+        assert_eq!(e.get(this, NiPSysGravityModifier::m_eType), this.addr());
     }
 
     #[test]

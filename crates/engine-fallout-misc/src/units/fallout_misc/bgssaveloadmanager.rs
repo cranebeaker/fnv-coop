@@ -696,7 +696,7 @@ pub fn fn_00850720(e: &mut Engine) {
         let manager: Ptr<BGSSaveLoadManager> = Ptr::new(e.global::<u32>(MANAGER_INSTANCE));
         let device_id: u32 = e.global(RETRY_DEVICE_ID);
         let flag: u8 = e.global(RETRY_FLAG);
-        fn_00850760(e, manager, Ptr::new(RETRY_NAME), device_id, flag != 0, 1);
+        fn_00850760(e, manager, Ptr::new(RETRY_NAME), device_id, flag, 1);
     }
 }
 
@@ -714,7 +714,7 @@ pub fn fn_00850760(
     this: Ptr<BGSSaveLoadManager>,
     name: Ptr,
     device_id: u32,
-    do_stats: bool,
+    do_stats: u8,
     quiet_load: u8,
 ) -> bool {
     e.with_stack(2 * PATH_SIZE + 0x10, |e, base| {
@@ -750,7 +750,7 @@ pub fn fn_00850760(
                 } else {
                     copy_string(e, RETRY_NAME, PATH_SIZE, name.addr());
                     e.set_global(RETRY_DEVICE_ID, device_id);
-                    e.set_global(RETRY_FLAG, do_stats as u8);
+                    e.set_global(RETRY_FLAG, do_stats);
                     let text = e
                         .call(SETTING_VALUE, &args![MESSAGE_SETTING_LOAD_FAILED])
                         .u32();
@@ -782,7 +782,7 @@ pub fn fn_00850760(
             if file != open_file {
                 bgssaveloadmanager_close_save_file(e, this, file, false);
             }
-            if loaded && do_stats {
+            if loaded && do_stats != 0 {
                 e.call(CONTENT_CLOSE, &args![this, name, statistics, 0u32]);
                 e.call(OUTPUT_STATISTICS, &args![statistics]);
             }
@@ -827,7 +827,7 @@ pub fn fn_008509f0(e: &mut Engine, this: Ptr<BGSSaveLoadManager>) -> bool {
         ICON_NEUTRAL,
         0,
     );
-    fn_00850760(e, this, Ptr::new(QUICKSAVE_NAME), u32::MAX, false, 1)
+    fn_00850760(e, this, Ptr::new(QUICKSAVE_NAME), u32::MAX, 0, 1)
 }
 
 /// Hands the frame time (`00453850`, in ST0) to `Sky::Update`, running on the
@@ -1242,7 +1242,7 @@ pub fn bgssaveloadmanager_load_most_recent_save_game(
     }
     let name = e.get(this, BGSSaveLoadManager::pMostRecentSaveGame);
     let device_id = e.get(this, BGSSaveLoadManager::iMostRecentSaveGameDeviceID);
-    fn_00850760(e, this, name, device_id as u32, false, 1)
+    fn_00850760(e, this, name, device_id as u32, 0, 1)
 }
 
 // Translated from 00851330 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2031,7 +2031,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00850720, fn_00850720()),
         entry!(
             0x00850760,
-            fn_00850760(Ptr<BGSSaveLoadManager>, Ptr, u32, bool, u8) -> bool
+            fn_00850760(Ptr<BGSSaveLoadManager>, Ptr, u32, u8, u8) -> bool
         ),
         entry!(0x008509a0, fn_008509a0(Ptr<BGSSaveLoadManager>)),
         entry!(0x008509f0, fn_008509f0(Ptr<BGSSaveLoadManager>) -> bool),

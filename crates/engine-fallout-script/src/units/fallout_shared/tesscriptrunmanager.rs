@@ -239,9 +239,9 @@ pub fn fn_005e1140(e: &mut Engine, this: Ptr, seconds: f32) {
 // Translated from 005e23f0 (PC disassembly, FalloutNV.exe 1.4.0.525).
 /// The thread's console-echo byte (TLS +0x268): set while a console command
 /// runs, so script messages go to the console instead of the log.
-pub fn fn_005e23f0(e: &mut Engine) -> bool {
+pub fn fn_005e23f0(e: &mut Engine) -> u8 {
     let tls = e.tls();
-    e.mem.u8(tls + 0x268) != 0
+    e.mem.u8(tls + 0x268)
 }
 
 // Translated from 005e2410 (PC disassembly, FalloutNV.exe 1.4.0.525).
@@ -264,7 +264,7 @@ pub fn runner_report_error(
     }
     e.with_stack(0x108, |e, buffer| {
         e.call(0x0040_7000, &args![buffer, format, list]);
-        if fn_005e23f0(e) {
+        if fn_005e23f0(e) != 0 {
             let text = e.call(0x0046_4f30, &args![buffer, 0u32]).u32();
             e.call(0x0070_3c00, &args![text]);
         } else {
@@ -868,7 +868,7 @@ fn evaluate_set(e: &mut Engine, at: &Line) -> bool {
                 let single = value as f32;
                 let global = e.mem.u32(object + 8);
                 e.call(0x0046_dce0, &args![global, single]);
-                if fn_005e23f0(e) {
+                if fn_005e23f0(e) != 0 {
                     e.call(0x0070_3c00, &args![0x0103_d758u32, single as f64]);
                 }
                 return true;
@@ -882,7 +882,7 @@ fn evaluate_set(e: &mut Engine, at: &Line) -> bool {
                 b'f' => {
                     let stored = x87_reload_f64(value);
                     e.call(0x005a_9290, &args![target_locals, index, stored]);
-                    if fn_005e23f0(e) {
+                    if fn_005e23f0(e) != 0 {
                         let master = e.mem.u32(target_locals);
                         let name = e.call(0x005a_bed0, &args![master, index]).u32();
                         e.call(0x0070_3c00, &args![0x0103_d6f4u32, name, stored]);
@@ -891,7 +891,7 @@ fn evaluate_set(e: &mut Engine, at: &Line) -> bool {
                 b'l' | b's' => {
                     let truncated = e.call(0x00ec_62c0, &args![value]).u32() as i32;
                     e.call(0x005a_9290, &args![target_locals, index, truncated as f64]);
-                    if fn_005e23f0(e) {
+                    if fn_005e23f0(e) != 0 {
                         let truncated = e.call(0x00ec_62c0, &args![value]).u32();
                         let master = e.mem.u32(target_locals);
                         let name = e.call(0x005a_bed0, &args![master, index]).u32();
@@ -1012,7 +1012,7 @@ fn report_through_string(e: &mut Engine, words: &[u32]) {
         let mut all = vec![string.addr()];
         all.extend_from_slice(words);
         e.call(0x0040_6f60, &all);
-        let printer = if fn_005e23f0(e) {
+        let printer = if fn_005e23f0(e) != 0 {
             0x0070_3c00
         } else {
             0x005b_5e40
@@ -1225,7 +1225,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             runner_run(Ptr<ScriptRunner>, Ptr, Ptr, Ptr, Ptr, bool, u8, u8, f32) -> bool
         ),
         entry!(0x005e1140, fn_005e1140(Ptr, f32)),
-        entry!(0x005e23f0, fn_005e23f0() -> bool),
+        entry!(0x005e23f0, fn_005e23f0() -> u8),
         (0x005e2410, runner_report_error_entry as AbiFn),
         entry!(
             0x005e24b0,

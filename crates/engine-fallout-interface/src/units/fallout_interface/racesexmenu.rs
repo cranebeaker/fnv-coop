@@ -2745,9 +2745,9 @@ pub fn race_sex_menu_make_preset_head_list(e: &mut Engine, this: Ptr<RaceSexMenu
     let list = e.mem.u32(base + 0x30);
     let option = e.call(OPTION_LIST_FIND, &args![list, 0x18u32]).u32();
     if e.call(SIMPLE_ARRAY_IS_EMPTY, &args![base + 0xdc]).u8() != 0 {
-        menu_option_set_enabled(e, Ptr::new(option), false);
+        menu_option_set_enabled(e, Ptr::new(option), 0);
     } else {
-        menu_option_set_enabled(e, Ptr::new(option), true);
+        menu_option_set_enabled(e, Ptr::new(option), 1);
         let count = e.call(WORD_AT_EIGHT, &args![base + 0xdc]).u32();
         menu_option_set_range(e, Ptr::new(option), 1, count as i32);
     }
@@ -4497,7 +4497,7 @@ pub fn fn_007b3900(e: &mut Engine, this: Ptr<MenuOption>) -> i32 {
 // Translated from 007b3970 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `RaceSexMenu::MenuOption::SetEnabled` (Xbox PDB): with a tile, sets its
 /// user trait `_enabled` to the flag.
-pub fn menu_option_set_enabled(e: &mut Engine, this: Ptr<MenuOption>, enabled: bool) {
+pub fn menu_option_set_enabled(e: &mut Engine, this: Ptr<MenuOption>, enabled: u8) {
     let tile = e.mem.u32(this.addr());
     if tile == 0 {
         return;
@@ -4506,7 +4506,10 @@ pub fn menu_option_set_enabled(e: &mut Engine, this: Ptr<MenuOption>, enabled: b
         .call(ADD_USER_TRAIT, &args![ENABLED_TRAIT_NAME, u32::MAX])
         .u32();
     let tile = e.mem.u32(this.addr());
-    e.call(SET_TRAIT_FROM_INT, &args![tile, trait_id, enabled as u32]);
+    e.call(
+        SET_TRAIT_FROM_INT,
+        &args![tile, trait_id, u32::from(enabled)],
+    );
 }
 
 // Translated from 007b39b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5672,7 +5675,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x007b3840, fn_007b3840(Ptr<MenuOption>, u32, u32)),
         entry!(0x007b3890, menu_option_set_range(Ptr<MenuOption>, i32, i32)),
         entry!(0x007b3900, fn_007b3900(Ptr<MenuOption>) -> i32),
-        entry!(0x007b3970, menu_option_set_enabled(Ptr<MenuOption>, bool)),
+        entry!(0x007b3970, menu_option_set_enabled(Ptr<MenuOption>, u8)),
         entry!(0x007b39b0, fn_007b39b0(Ptr<MenuOption>) -> i32),
         entry!(
             0x007b39e0,

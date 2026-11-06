@@ -208,14 +208,14 @@ pub fn bhk_collision_object_save_binary(e: &mut Engine, this: Ptr, stream: Ptr) 
 
 // Translated from 00c87fa0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkCollisionObject::RegisterStreamables` (Xbox PDB): a 5-byte jump to `00c6b730` (engine map: `bhkNiCollisionObject::RegisterStreamables`), passing on `this` and its one argument; returns the target result. Return type (bool): Xbox PDB public name `?RegisterStreamables@bhkCollisionObject@@UAA_NAAVNiStream@@@Z`.
-pub fn bhk_collision_object_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
-    e.call(JUMP_TARGET_00C87FA0, &args![this, stream]).bool()
+pub fn bhk_collision_object_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
+    e.call(JUMP_TARGET_00C87FA0, &args![this, stream]).u8()
 }
 
 // Translated from 00c87fb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkCollisionObject::IsEqual` (Xbox PDB): a 5-byte jump to `00c6b760` (engine map: `bhkNiCollisionObject::IsEqual`), passing on `this` and its one argument; returns the target result. Return type (bool): Xbox PDB public name `?IsEqual@bhkCollisionObject@@UAA_NPAVNiObject@@@Z`.
-pub fn bhk_collision_object_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(JUMP_TARGET_00C87FB0, &args![this, other]).bool()
+pub fn bhk_collision_object_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(JUMP_TARGET_00C87FB0, &args![this, other]).u8()
 }
 
 // Translated from 00c65830 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -629,8 +629,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c6_5800, bhk_collision_object_load_binary(Ptr, Ptr)),
         entry!(0x00c6_5810, bhk_collision_object_link_object(Ptr, Ptr)),
         entry!(0x00c6_5820, bhk_collision_object_save_binary(Ptr, Ptr)),
-        entry!(0x00c8_7fa0, bhk_collision_object_register_streamables(Ptr, Ptr) -> bool),
-        entry!(0x00c8_7fb0, bhk_collision_object_is_equal(Ptr, Ptr) -> bool),
+        entry!(0x00c8_7fa0, bhk_collision_object_register_streamables(Ptr, Ptr) -> u8),
+        entry!(0x00c8_7fb0, bhk_collision_object_is_equal(Ptr, Ptr) -> u8),
     ]
 }
 

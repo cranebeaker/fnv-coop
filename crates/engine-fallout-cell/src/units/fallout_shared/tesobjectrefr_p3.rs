@@ -501,16 +501,16 @@ pub fn fn_0056af40(e: &mut Engine, this: Ptr<TESObjectREFR>) -> bool {
 // Translated from 0056afc0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// True when the reference has a base object whose virtual `+0xf8` holds and
 /// the extra data list's flag `004216d0` is set.
-pub fn fn_0056afc0(e: &mut Engine, this: Ptr<TESObjectREFR>) -> bool {
+pub fn fn_0056afc0(e: &mut Engine, this: Ptr<TESObjectREFR>) -> u8 {
     if base_form(e, this.addr()) == 0 {
-        return false;
+        return 0;
     }
     let base = base_form(e, this.addr());
     if !e.vcall(base, SLOT_BASE_FORM_TEST, &args![]).bool() {
-        return false;
+        return 0;
     }
     let list = extra_list(e, this.addr());
-    e.call(0x0042_16d0, &args![list]).bool()
+    e.call(0x0042_16d0, &args![list]).u8()
 }
 
 // Translated from 0056b020 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2703,7 +2703,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0056af00, fn_0056af00(Ptr) -> bool),
         entry!(0x0056af20, fn_0056af20(Ptr) -> bool),
         entry!(0x0056af40, fn_0056af40(Ptr<TESObjectREFR>) -> bool),
-        entry!(0x0056afc0, fn_0056afc0(Ptr<TESObjectREFR>) -> bool),
+        entry!(0x0056afc0, fn_0056afc0(Ptr<TESObjectREFR>) -> u8),
         entry!(0x0056b020, fn_0056b020(Ptr<TESObjectREFR>, u32, u32)),
         entry!(
             0x0056b0b0,

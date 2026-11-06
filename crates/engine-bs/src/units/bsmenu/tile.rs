@@ -1789,18 +1789,18 @@ pub fn tile_is_true(e: &mut Engine, this: Ptr<Tile>, trait_id: i32) -> bool {
 /// back to 0.0, so that reactions to the change fire (both with the flag
 /// set).
 pub fn tile_poke(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, value: f32) {
-    fn_00a012d0(e, this, trait_id, value, true);
-    fn_00a012d0(e, this, trait_id, 0.0, true);
+    fn_00a012d0(e, this, trait_id, value, 1);
+    fn_00a012d0(e, this, trait_id, 0.0, 1);
 }
 
 // Translated from 00a012d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets the float of trait `trait_id` (creating the trait when needed)
 /// through `Tile::Value::SetFloat(value, flag)`, under `Tile::Lock`.
-pub fn fn_00a012d0(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, value: f32, flag: bool) {
+pub fn fn_00a012d0(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, value: f32, flag: u8) {
     let trait_value = tile_get_or_create_value(e, this, trait_id);
     if !trait_value.is_null() {
         lock(e);
-        e.call(VALUE_SET_FLOAT, &args![trait_value, value, flag as u32]);
+        e.call(VALUE_SET_FLOAT, &args![trait_value, value, u32::from(flag)]);
         unlock(e);
     }
 }
@@ -1808,11 +1808,14 @@ pub fn fn_00a012d0(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, value: f32, f
 // Translated from 00a01350 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets the string of trait `trait_id` (creating the trait when needed)
 /// through `Tile::Value::SetString(string, flag)`, under `Tile::Lock`.
-pub fn fn_00a01350(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, string: Ptr, flag: bool) {
+pub fn fn_00a01350(e: &mut Engine, this: Ptr<Tile>, trait_id: i32, string: Ptr, flag: u8) {
     let trait_value = tile_get_or_create_value(e, this, trait_id);
     if !trait_value.is_null() {
         lock(e);
-        e.call(VALUE_SET_STRING, &args![trait_value, string, flag as u32]);
+        e.call(
+            VALUE_SET_STRING,
+            &args![trait_value, string, u32::from(flag)],
+        );
         unlock(e);
     }
 }
@@ -2549,16 +2552,16 @@ pub fn tile_build_and_name_tree(
                 if is_hot_rect {
                     let minus_one: f32 = e.global(MINUS_ONE);
                     let full: f32 = e.global(TWO_FIFTY_FIVE);
-                    fn_00a012d0(e, tile, TRAIT_ID, minus_one, true);
-                    fn_00a012d0(e, tile, TRAIT_TARGET, 1.0, true);
-                    fn_00a012d0(e, tile, TRAIT_BRIGHTNESS, minus_one, true);
-                    fn_00a012d0(e, tile, TRAIT_RED, full, true);
-                    fn_00a012d0(e, tile, TRAIT_GREEN, full, true);
-                    fn_00a012d0(e, tile, TRAIT_BLUE, full, true);
-                    fn_00a012d0(e, tile, TRAIT_ALPHA, 0.0, true);
-                    fn_00a01350(e, tile, TRAIT_FILENAME, Ptr::new(SOLID_TEXTURE_NAME), true);
+                    fn_00a012d0(e, tile, TRAIT_ID, minus_one, 1);
+                    fn_00a012d0(e, tile, TRAIT_TARGET, 1.0, 1);
+                    fn_00a012d0(e, tile, TRAIT_BRIGHTNESS, minus_one, 1);
+                    fn_00a012d0(e, tile, TRAIT_RED, full, 1);
+                    fn_00a012d0(e, tile, TRAIT_GREEN, full, 1);
+                    fn_00a012d0(e, tile, TRAIT_BLUE, full, 1);
+                    fn_00a012d0(e, tile, TRAIT_ALPHA, 0.0, 1);
+                    fn_00a01350(e, tile, TRAIT_FILENAME, Ptr::new(SOLID_TEXTURE_NAME), 1);
                     let atlas: u32 = e.global(DEFAULT_ATLAS_NAME);
-                    fn_00a01350(e, tile, TRAIT_TEX_ATLAS, Ptr::new(atlas), true);
+                    fn_00a01350(e, tile, TRAIT_TEX_ATLAS, Ptr::new(atlas), 1);
                     e.call(TILE_ADD_NEEDS_UPDATE, &args![tile, UPDATE_TEXTURE]);
                 }
                 if first.is_null() {
@@ -2656,17 +2659,17 @@ pub fn tile_connect_traits_to_tree(
                     is_string = true;
                 }
                 if !is_string {
-                    fn_00a012d0(e, current, item_trait, value, true);
+                    fn_00a012d0(e, current, item_trait, value, 1);
                 } else if item_trait == TAG_NAME {
                     e.call(
                         STRING_ASSIGN,
                         &args![current.at(Tile::xName), item.at(TileTemplateItem::xStr)],
                     );
                 } else if item_trait == TRAIT_FILENAME && tile_type(e, current) == TYPE_IMAGE {
-                    fn_00a01350(e, current, item_trait, Ptr::new(text), true);
+                    fn_00a01350(e, current, item_trait, Ptr::new(text), 1);
                     e.call(TILE_ADD_NEEDS_UPDATE, &args![current, UPDATE_TEXTURE]);
                 } else {
-                    fn_00a01350(e, current, item_trait, Ptr::new(text), true);
+                    fn_00a01350(e, current, item_trait, Ptr::new(text), 1);
                 }
             }
             TI_TRAIT_START => {
@@ -2825,7 +2828,7 @@ pub fn tile_final_post_parse(
             let child: Ptr<Tile> = Ptr::new(e.mem.u32(node + 8));
             node = e.mem.u32(node);
             let clips = fn_00a011b0(e, this, TRAIT_CLIPS);
-            fn_00a012d0(e, child, TRAIT_CLIPS, clips, true);
+            fn_00a012d0(e, child, TRAIT_CLIPS, clips, 1);
         }
         return this;
     }
@@ -2879,9 +2882,9 @@ pub fn tile_final_post_parse(
 
 // Translated from 00a03c60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Tile::GetRenderedMenu` (Xbox PDB): `bRenderedMenu` of the tile's menu.
-pub fn tile_get_rendered_menu(e: &mut Engine, this: Ptr<Tile>) -> bool {
+pub fn tile_get_rendered_menu(e: &mut Engine, this: Ptr<Tile>) -> u8 {
     let menu = tile_get_menu(e, this);
-    e.mem.u8(menu.addr() + 0x1c) != 0
+    e.mem.u8(menu.addr() + 0x1c)
 }
 
 // Translated from 00a03c90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3093,12 +3096,12 @@ pub fn tile_update_all(e: &mut Engine, flag: bool) {
             let stacking = fn_00a011b0(e, tile, TRAIT_STACKING_TYPE);
             if stacking as f64 == e.global::<f64>(STACKING_TYPE_102) {
                 let value = e.global::<f32>(STACKING_VALUE_6000);
-                fn_00a012d0(e, tile, TRAIT_STACKING_TYPE, value, true);
+                fn_00a012d0(e, tile, TRAIT_STACKING_TYPE, value, 1);
             } else {
                 let stacking = fn_00a011b0(e, tile, TRAIT_STACKING_TYPE);
                 if stacking as f64 == e.global::<f64>(STACKING_TYPE_103) {
                     let value = e.global::<f32>(STACKING_VALUE_6001);
-                    fn_00a012d0(e, tile, TRAIT_STACKING_TYPE, value, true);
+                    fn_00a012d0(e, tile, TRAIT_STACKING_TYPE, value, 1);
                 }
             }
         }
@@ -3404,7 +3407,7 @@ fn update_tile_texture(
         text = e.get(value, TileValue::strValue).addr();
     }
     if (text == 0 || e.mem.i8(text) == 0) && actions == 0 {
-        fn_00a01350(e, this, TRAIT_FILENAME, Ptr::new(EMPTY_TEXTURE_NAME), true);
+        fn_00a01350(e, this, TRAIT_FILENAME, Ptr::new(EMPTY_TEXTURE_NAME), 1);
         text = tile_get_string(e, this, TRAIT_FILENAME).addr();
         used_placeholder = true;
     }
@@ -3462,13 +3465,13 @@ fn update_tile_texture(
         let divisor = e.mem.f32(this.addr() + 0x38) as f64;
         if fn_00a011b0(e, this, TRAIT_TILE) as f64 == e.global::<f64>(MINUS_ONE_DOUBLE) {
             if is_blank_name(e, name) {
-                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, width, true);
-                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, height, true);
+                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, width, 1);
+                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, height, 1);
             } else {
                 let file_width = (width as f64 / divisor) as f32;
-                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, file_width, true);
+                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, file_width, 1);
                 let file_height = (height as f64 / divisor) as f32;
-                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, file_height, true);
+                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, file_height, 1);
             }
             tile_add_needs_update(e, this, UPDATE_GEOMETRY);
             zoom = e.global::<f32>(MINUS_ONE);
@@ -3479,25 +3482,19 @@ fn update_tile_texture(
             }
             let scale = zoom as f64 / e.global::<f64>(HUNDRED_DOUBLE);
             if is_blank_name(e, name) {
-                fn_00a012d0(
-                    e,
-                    this,
-                    TRAIT_FILE_WIDTH,
-                    (width as f64 * scale) as f32,
-                    true,
-                );
+                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, (width as f64 * scale) as f32, 1);
                 fn_00a012d0(
                     e,
                     this,
                     TRAIT_FILE_HEIGHT,
                     (height as f64 * scale) as f32,
-                    true,
+                    1,
                 );
             } else {
                 let file_width = (width as f64 * scale / divisor) as f32;
-                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, file_width, true);
+                fn_00a012d0(e, this, TRAIT_FILE_WIDTH, file_width, 1);
                 let file_height = (height as f64 * scale / divisor) as f32;
-                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, file_height, true);
+                fn_00a012d0(e, this, TRAIT_FILE_HEIGHT, file_height, 1);
             }
             tile_add_needs_update(e, this, UPDATE_GEOMETRY);
         }
@@ -3886,7 +3883,7 @@ fn rotate_about_axis(
 fn scissor_scale(e: &mut Engine, this: Ptr<Tile>) -> (f32, f32, f32, f32) {
     let mut width = e.call(SCREEN_REAL_WIDTH, &args![]).f32();
     let mut height = e.call(SCREEN_REAL_HEIGHT, &args![]).f32();
-    if tile_get_rendered_menu(e, this) {
+    if tile_get_rendered_menu(e, this) != 0 {
         width = e.call(RENDERED_MENU_WIDTH, &args![]).f32();
         height = e.call(RENDERED_MENU_HEIGHT, &args![]).f32();
     }
@@ -4463,7 +4460,7 @@ pub fn tile_re_clip_children(
                 if property != 0 {
                     let mut width = e.call(SCREEN_REAL_WIDTH, &args![]).f32();
                     let mut height = e.call(SCREEN_REAL_HEIGHT, &args![]).f32();
-                    if tile_get_rendered_menu(e, this) {
+                    if tile_get_rendered_menu(e, this) != 0 {
                         width = e.call(RENDERED_MENU_WIDTH, &args![]).f32();
                         height = e.call(RENDERED_MENU_HEIGHT, &args![]).f32();
                     }
@@ -4524,16 +4521,16 @@ pub fn tile_add_fade_control(
     if fade_type == FADE_BLINK_FAST_FADE {
         let flashes = (seconds as f64 / e.global::<f64>(HALF)) as f32;
         let flash_count = tile_add_user_trait(e, Ptr::new(FLASH_COUNT_NAME), -1);
-        fn_00a012d0(e, this, flash_count, 0.0, true);
+        fn_00a012d0(e, this, flash_count, 0.0, 1);
         let total = (flashes as f64 - e.global::<f64>(TWO)) as f32;
         let total_count = tile_add_user_trait(e, Ptr::new(TOTAL_FLASH_COUNT_NAME), -1);
-        fn_00a012d0(e, this, total_count, total, true);
+        fn_00a012d0(e, this, total_count, total, 1);
         let millis = (seconds as f64 / flashes as f64 * e.global::<f64>(THOUSAND)) as f32;
         e.set(control, FadeControl::fDurationMillis, millis);
     }
     if fade_type == FADE_BLINK_THRICE {
         let flash_count = tile_add_user_trait(e, Ptr::new(FLASH_COUNT_NAME), -1);
-        fn_00a012d0(e, this, flash_count, 0.0, true);
+        fn_00a012d0(e, this, flash_count, 0.0, 1);
     }
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), control.addr());
@@ -4725,7 +4722,7 @@ fn update_fade_control(e: &mut Engine, node: u32, control: Ptr<FadeControl>, fin
                 let alpha = (mix(progress) / e.global::<f64>(TWO_FIFTY_FIVE_DOUBLE)) as f32;
                 tile_fade_in_3d(e, tile, model, alpha);
             }
-            fn_00a012d0(e, tile, trait_id, mix(progress) as f32, true);
+            fn_00a012d0(e, tile, trait_id, mix(progress) as f32, 1);
             if progress >= 1.0 {
                 e.call(FADE_LIST_ADD_HEAD, &args![finished, node]);
             }
@@ -4749,11 +4746,11 @@ fn update_fade_control(e: &mut Engine, node: u32, control: Ptr<FadeControl>, fin
                 if fade_type == FADE_BLINK_THRICE || fade_type == FADE_BLINK_FAST_FADE {
                     let next = (flash as f64 + e.global::<f64>(ONE_DOUBLE)) as f32;
                     let flash_id = tile_text_to_trait(e, Ptr::new(FLASH_COUNT_NAME));
-                    fn_00a012d0(e, tile, flash_id, next, true);
+                    fn_00a012d0(e, tile, flash_id, next, 1);
                     if fade_type == FADE_BLINK_THRICE && flash as f64 > three {
-                        fn_00a012d0(e, tile, trait_id, end, true);
+                        fn_00a012d0(e, tile, trait_id, end, 1);
                     } else if fade_type == FADE_BLINK_FAST_FADE && total < flash {
-                        fn_00a012d0(e, tile, trait_id, start, true);
+                        fn_00a012d0(e, tile, trait_id, start, 1);
                         e.call(FADE_LIST_ADD_HEAD, &args![finished, node]);
                     }
                 }
@@ -4761,7 +4758,7 @@ fn update_fade_control(e: &mut Engine, node: u32, control: Ptr<FadeControl>, fin
             if fade_type == FADE_BLINK_THRICE && flash as f64 >= three {
                 let value = mix(progress) as f32;
                 let limited = if end < value { end } else { value };
-                fn_00a012d0(e, tile, trait_id, limited, true);
+                fn_00a012d0(e, tile, trait_id, limited, 1);
                 if end <= value {
                     e.call(FADE_LIST_ADD_HEAD, &args![finished, node]);
                 }
@@ -4770,7 +4767,7 @@ fn update_fade_control(e: &mut Engine, node: u32, control: Ptr<FadeControl>, fin
                     (progress as f64 * e.global::<f64>(TWO) - e.global::<f64>(ONE_DOUBLE)) as f32;
                 let magnitude = e.call(FABS, &args![swing as f64]).f64() as f32;
                 let weight = (e.global::<f64>(ONE_DOUBLE) - magnitude as f64) as f32;
-                fn_00a012d0(e, tile, trait_id, mix(weight) as f32, true);
+                fn_00a012d0(e, tile, trait_id, mix(weight) as f32, 1);
             }
         }
         FADE_IN_HOLD_FADE_OUT => {
@@ -4779,17 +4776,17 @@ fn update_fade_control(e: &mut Engine, node: u32, control: Ptr<FadeControl>, fin
                 let rise = e.global::<f32>(FADE_RISE_END_FLOAT);
                 let ratio = (progress as f64 - 0.0) / (rise as f64 - 0.0);
                 let value = (start as f64 + (end as f64 - start as f64) * ratio) as f32;
-                fn_00a012d0(e, tile, trait_id, value, true);
+                fn_00a012d0(e, tile, trait_id, value, 1);
             } else if (progress as f64) < e.global::<f64>(FADE_FALL_START_DOUBLE) {
-                fn_00a012d0(e, tile, trait_id, end, true);
+                fn_00a012d0(e, tile, trait_id, end, 1);
             } else if progress >= 1.0 {
-                fn_00a012d0(e, tile, trait_id, start, true);
+                fn_00a012d0(e, tile, trait_id, start, 1);
                 e.call(FADE_LIST_ADD_HEAD, &args![finished, node]);
             } else {
                 let fall = e.global::<f32>(FADE_FALL_START_FLOAT) as f64;
                 let ratio = (progress as f64 - fall) / (e.global::<f64>(ONE_DOUBLE) - fall);
                 let value = (end as f64 + (start as f64 - end as f64) * ratio) as f32;
-                fn_00a012d0(e, tile, trait_id, value, true);
+                fn_00a012d0(e, tile, trait_id, value, 1);
             }
         }
         _ => {}
@@ -4834,7 +4831,7 @@ pub fn tile_set_parent(e: &mut Engine, this: Ptr<Tile>, parent: Ptr<Tile>, after
     if !old_parent.is_null() && e.get(old_parent, Tile::uiFlags) & FLAG_RELEASED == 0 {
         let count = fn_00a011b0(e, old_parent, TRAIT_CHILD_COUNT);
         let count = (count as f64 - e.global::<f64>(ONE_DOUBLE)) as f32;
-        fn_00a012d0(e, old_parent, TRAIT_CHILD_COUNT, count, true);
+        fn_00a012d0(e, old_parent, TRAIT_CHILD_COUNT, count, 1);
         remove_from_list(e, old_parent.addr() + 4, this);
     }
     e.set(this, Tile::pParent, parent);
@@ -4843,7 +4840,7 @@ pub fn tile_set_parent(e: &mut Engine, this: Ptr<Tile>, parent: Ptr<Tile>, after
     }
     let count = fn_00a011b0(e, parent, TRAIT_CHILD_COUNT);
     let count = (count as f64 + e.global::<f64>(ONE_DOUBLE)) as f32;
-    fn_00a012d0(e, parent, TRAIT_CHILD_COUNT, count, true);
+    fn_00a012d0(e, parent, TRAIT_CHILD_COUNT, count, 1);
     let children = parent.addr() + 4;
     let mut placed = false;
     if !after.is_null() {
@@ -6209,11 +6206,11 @@ pub fn tile_recursive_rotation_update(e: &mut Engine, this: Ptr<Tile>) {
             child_y = (child_y as f64 + y as f64) as f32;
         }
         let new_axis_x = ((x as f64 + axis_x as f64) - child_x as f64) as f32;
-        fn_00a012d0(e, child, TRAIT_ROTATE_AXIS_X, new_axis_x, true);
+        fn_00a012d0(e, child, TRAIT_ROTATE_AXIS_X, new_axis_x, 1);
         let new_axis_y = ((y as f64 + axis_y as f64) - child_y as f64) as f32;
-        fn_00a012d0(e, child, TRAIT_ROTATE_AXIS_Y, new_axis_y, true);
+        fn_00a012d0(e, child, TRAIT_ROTATE_AXIS_Y, new_axis_y, 1);
         let angle = fn_00a011b0(e, this, TRAIT_ROTATE_ANGLE);
-        fn_00a012d0(e, child, TRAIT_ROTATE_ANGLE, angle, true);
+        fn_00a012d0(e, child, TRAIT_ROTATE_ANGLE, angle, 1);
         if tile_is_true(e, child, TRAIT_LOCUS) && tile_type(e, child) == TYPE_IMAGE {
             turn_model_shapes(e, child);
         }
@@ -7550,8 +7547,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00a011f0, tile_get_string(Ptr<Tile>, i32) -> Ptr),
         entry!(0x00a01230, tile_is_true(Ptr<Tile>, i32) -> bool),
         entry!(0x00a01290, tile_poke(Ptr<Tile>, i32, f32)),
-        entry!(0x00a012d0, fn_00a012d0(Ptr<Tile>, i32, f32, bool)),
-        entry!(0x00a01350, fn_00a01350(Ptr<Tile>, i32, Ptr, bool)),
+        entry!(0x00a012d0, fn_00a012d0(Ptr<Tile>, i32, f32, u8)),
+        entry!(0x00a01350, fn_00a01350(Ptr<Tile>, i32, Ptr, u8)),
         entry!(0x00a013d0, fn_00a013d0(Ptr<Tile>) -> f32),
         entry!(0x00a01440, fn_00a01440(Ptr<Tile>) -> f32),
         entry!(0x00a014b0, fn_00a014b0(Ptr<Tile>) -> f32),
@@ -7581,7 +7578,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00a037e0,
             tile_final_post_parse(Ptr<Tile>, i32, f32, u32) -> Ptr<Tile>
         ),
-        entry!(0x00a03c60, tile_get_rendered_menu(Ptr<Tile>) -> bool),
+        entry!(0x00a03c60, tile_get_rendered_menu(Ptr<Tile>) -> u8),
         entry!(0x00a03c90, tile_get_menu(Ptr<Tile>) -> Ptr),
         entry!(0x00a03d40, tile_get_menu_tile(Ptr<Tile>) -> Ptr<Tile>),
         entry!(

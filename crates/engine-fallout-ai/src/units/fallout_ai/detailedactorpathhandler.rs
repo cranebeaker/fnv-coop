@@ -1308,7 +1308,9 @@ pub fn detailed_actor_path_handler_update(e: &mut Engine, this: Ptr<H>, seconds:
 
     if !e.get(this, H::bRotateMode) && !e.get(this, H::bWaitingForUpdate) {
         let goal = e.call(CHECK_GOAL_REACHED, &args![this]).u32();
-        if goal != 0 && (goal != 5 || !detailed_actor_path_handler_check_for_end_rotate(e, this)) {
+        if goal != 0
+            && (goal != 5 || detailed_actor_path_handler_check_for_end_rotate(e, this) == 0)
+        {
             reset_move_delta(e, this);
             e.set(this, H::eState, STATE_DONE);
             return goal;
@@ -1855,7 +1857,7 @@ pub fn detailed_actor_path_handler_update_while_player_waits(
     let request = request_of(e, this);
     if request != 0 {
         let request = request_of(e, this);
-        if fn_009e20a0(e, Ptr::new(request)) {
+        if fn_009e20a0(e, Ptr::new(request)) != 0 {
             let player: u32 = e.global(PLAYER);
             let actor = e.get(this, H::pActor).addr();
             e.vcall(actor, ACTOR_SLOT_2C0, &args![player]);
@@ -1951,8 +1953,8 @@ pub fn detailed_actor_path_handler_update_while_player_waits(
 
 // Translated from 009e20a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The byte at +0x9F of a `PathingRequest`.
-pub fn fn_009e20a0(e: &mut Engine, request: Ptr) -> bool {
-    e.mem.u8(request.addr() + 0x9f) != 0
+pub fn fn_009e20a0(e: &mut Engine, request: Ptr) -> u8 {
+    e.mem.u8(request.addr() + 0x9f)
 }
 
 // Translated from 009e20c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2956,8 +2958,8 @@ pub fn detailed_actor_path_handler_get_node_location(
 // Translated from 009e3be0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `DetailedActorPathHandler::IsMovementBlocked` (Xbox PDB):
 /// `bMovementBlocked`.
-pub fn detailed_actor_path_handler_is_movement_blocked(e: &mut Engine, this: Ptr<H>) -> bool {
-    e.get(this, H::bMovementBlocked)
+pub fn detailed_actor_path_handler_is_movement_blocked(e: &mut Engine, this: Ptr<H>) -> u8 {
+    e.mem.u8(this.addr() + H::bMovementBlocked.off)
 }
 
 // Translated from 009e3c00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4714,27 +4716,27 @@ pub fn fn_009e71b0(e: &mut Engine, actor: Ptr, request: Ptr, handler: Ptr<H>) {
 /// the path's last and the actor's slot 0x214 is neither 4 nor 9, starts
 /// turning to the request's heading (+0x8C) and returns `bRotateMode`;
 /// `false` otherwise.
-pub fn detailed_actor_path_handler_check_for_end_rotate(e: &mut Engine, this: Ptr<H>) -> bool {
+pub fn detailed_actor_path_handler_check_for_end_rotate(e: &mut Engine, this: Ptr<H>) -> u8 {
     let request = request_of(e, this);
     if !e.call(REQUEST_BYTE_99, &args![request]).bool() {
-        return false;
+        return 0;
     }
     let mover = Ptr::<ActorMover>::new(mover_of(e, this));
     let next = e.get(mover, ActorMover::iNextNode) as u32 + 1;
     let path = path_of(e, this);
     if next != e.call(PATH_NODE_COUNT_2, &args![path]).u32() {
-        return false;
+        return 0;
     }
     let actor = e.get(this, H::pActor).addr();
     if e.vcall(actor, ACTOR_SLOT_214, &[]).u32() == 4
         || e.vcall(actor, ACTOR_SLOT_214, &[]).u32() == 9
     {
-        return false;
+        return 0;
     }
     let request = request_of(e, this);
     let heading = e.call(REQUEST_FLOAT_8C, &args![request]).f64() as f32;
     detailed_actor_path_handler_init_rotation_mode(e, this, heading, false, false);
-    e.get(this, H::bRotateMode)
+    e.mem.u8(this.addr() + H::bRotateMode.off)
 }
 
 // Translated from 009e7610 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5796,7 +5798,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x009e1d50,
             detailed_actor_path_handler_update_while_player_waits(Ptr<H>, u32) -> u32
         ),
-        entry!(0x009e20a0, fn_009e20a0(Ptr) -> bool),
+        entry!(0x009e20a0, fn_009e20a0(Ptr) -> u8),
         entry!(
             0x009e20c0,
             detailed_actor_path_handler_handle_door_opening(Ptr<H>) -> u32
@@ -5868,7 +5870,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x009e3be0,
-            detailed_actor_path_handler_is_movement_blocked(Ptr<H>) -> bool
+            detailed_actor_path_handler_is_movement_blocked(Ptr<H>) -> u8
         ),
         entry!(
             0x009e3c00,
@@ -5904,7 +5906,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x009e71b0, fn_009e71b0(Ptr, Ptr, Ptr<H>)),
         entry!(
             0x009e7550,
-            detailed_actor_path_handler_check_for_end_rotate(Ptr<H>) -> bool
+            detailed_actor_path_handler_check_for_end_rotate(Ptr<H>) -> u8
         ),
         entry!(
             0x009e7610,

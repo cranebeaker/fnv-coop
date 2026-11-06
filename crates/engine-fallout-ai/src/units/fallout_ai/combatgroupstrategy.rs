@@ -702,7 +702,8 @@ pub fn combat_group_strategy_flank_update(
         }
         let actor = e.call(GROUP_MEMBER_ACTOR, &args![group, index]).u32();
         let distance = pushed_float(e, FLANK_UPDATE_DISTANCE);
-        let passed = e.with_stack(0xc, |e, point| {
+        // 00990b1e: 0x10 bytes, the four words 00575650 writes.
+        let passed = e.with_stack(0x10, |e, point| {
             let position = e.call(ACTOR_POSITION_INTO, &args![actor, point]).u32();
             e.call(
                 GROUP_POSITION_CHECK,
@@ -1847,6 +1848,7 @@ mod tests {
         e.register_double(GROUP_POSITION_CHECK, move |_, _| {
             eax(results.next().unwrap())
         });
+        let frame = e.next_stack_local(0x10);
         assert!(combat_group_strategy_flank_update(&mut e, Ptr::NULL, group));
         let g = group.addr();
         assert_eq!(calls(&e, GROUP_SET_ASSIGNMENT), vec![vec![g, 0, 0]]);
@@ -1857,6 +1859,8 @@ mod tests {
         let into = calls(&e, ACTOR_POSITION_INTO);
         assert_eq!((into[0][0], into[1][0]), (actors[0], actors[2]));
         assert_eq!(checks[0][1], into[0][1]);
+        // 00990b1e: a local of the four words 00575650 writes.
+        assert_eq!(into[0][1], frame);
 
         returns(&mut e, GROUP_POSITION_CHECK, 1);
         assert!(!combat_group_strategy_flank_update(

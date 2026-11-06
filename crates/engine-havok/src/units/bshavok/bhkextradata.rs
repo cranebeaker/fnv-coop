@@ -106,10 +106,8 @@ pub fn bhk_extra_data_load_binary(e: &mut Engine, this: Ptr, stream: u32) {
 /// `bhkExtraData::RegisterStreamables` (Xbox PDB): runs the `NiExtraData` registration, then
 /// registers every non-null entry among the first `+0x1C` slots of the array data (`+0x10`)
 /// through its virtual slot `0x54`. Answers the base registration's `AL`.
-pub fn bhk_extra_data_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> bool {
-    let registered = e
-        .call(BASE_REGISTER_STREAMABLES, &args![this, stream])
-        .bool();
+pub fn bhk_extra_data_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> u8 {
+    let registered = e.call(BASE_REGISTER_STREAMABLES, &args![this, stream]).u8();
     let count = e.mem.u32(this.addr() + 0x1c);
     let mut index = 0;
     while index < count {
@@ -466,7 +464,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00cc_1970, bhk_extra_data_load_binary(Ptr, u32)),
         entry!(
             0x00cc_1990,
-            bhk_extra_data_register_streamables(Ptr, u32) -> bool
+            bhk_extra_data_register_streamables(Ptr, u32) -> u8
         ),
         entry!(0x00cc_1ad0, bhk_extra_data_save_binary(Ptr, u32)),
         entry!(0x00cc_1b40, fn_00cc1b40(Ptr, u32)),

@@ -1574,7 +1574,8 @@ pub fn ni_p_sys_emitter_ctlr_interpolator_is_correct_type(
 /// The `NiPSysEmitterCtlr` constructor with a modifier name (no PDB name):
 /// the name's `NiFixedString` (the null handle for a null name, else
 /// `00a5b690`) in a local, `NiPSysModifierCtlr`'s constructor with it
-/// (`00c31440`), the local released, then the members. Returns `this`.
+/// (`00c31440`), the local released, then the members and, in this constructor only
+/// (00c1c2d6), no last birth-rate interpolator. Returns `this`.
 pub fn fn_00c1c280(
     e: &mut Engine,
     this: Ptr<NiPSysEmitterCtlr>,
@@ -1591,6 +1592,7 @@ pub fn fn_00c1c280(
         fixed_string_release(e, local.addr());
     });
     construct_members(e, this);
+    e.set(this, NiPSysEmitterCtlr::m_pkLastBirthRateInterpolator, 0);
     this
 }
 
@@ -3204,9 +3206,14 @@ mod n064_tests {
         });
         let this = controller(&mut e);
         e.set(this, NiPSysEmitterCtlr::m_kParticleAgesSize, 9);
+        e.set(this, NiPSysEmitterCtlr::m_pkLastBirthRateInterpolator, 9);
         e.call_log = Some(vec![]);
         let made = e.call(0x00c1_c280, &args![this, 0x0100_0000u32]).u32();
         assert_eq!(made, this.addr());
+        assert_eq!(
+            e.get(this, NiPSysEmitterCtlr::m_pkLastBirthRateInterpolator),
+            0
+        );
         assert_eq!(
             calls_to(&e, FIXED_STRING_FROM_TEXT),
             vec![vec![0x0100_0000]]

@@ -3114,12 +3114,12 @@ pub fn tes_package_is_target_at_second_location(
 
 // Translated from 00677760 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Slot 0x11c of the actor's process, or false for an actor without one.
-pub fn fn_00677760(e: &mut Engine, _this: Ptr<TESPackage>, actor: Object) -> bool {
+pub fn fn_00677760(e: &mut Engine, _this: Ptr<TESPackage>, actor: Object) -> u8 {
     if actor.is_null() || process_of(e, actor).is_null() {
-        return false;
+        return 0;
     }
     let process = process_of(e, actor);
-    e.vcall(process.addr(), SLOT_PROCESS_11C, &args![]).bool()
+    e.vcall(process.addr(), SLOT_PROCESS_11C, &args![]).u8()
 }
 
 /// What the two form-type tables of `CalculateProcedureType` make of a
@@ -4665,7 +4665,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00677570,
             tes_package_is_target_at_second_location(Ptr<TESPackage>, Ptr, f32) -> bool
         ),
-        entry!(0x00677760, fn_00677760(Ptr<TESPackage>, Ptr) -> bool),
+        entry!(0x00677760, fn_00677760(Ptr<TESPackage>, Ptr) -> u8),
         entry!(
             0x006777b0,
             tes_package_calculate_procedure_type(Ptr<TESPackage>, Ptr)

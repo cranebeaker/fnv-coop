@@ -323,7 +323,7 @@ pub fn bs_anim_group_sequence_deactivate(
     this: Ptr,
     ease_out: f32,
     transition: u32,
-) -> bool {
+) -> u8 {
     let base = this.addr();
     if e.mem.u32(base + SEQUENCE_ACCUM_ROOT) != 0 {
         let group = e
@@ -349,7 +349,7 @@ pub fn bs_anim_group_sequence_deactivate(
         0x00a3_5030,
         &args![this, ease_out, u32::from(transition as u8)],
     )
-    .bool()
+    .u8()
 }
 /// The x87 condition bits `FCOM`/`FUCOM` leave in `AH` after `FNSTSW AX` for `st0` compared
 /// with `st1`: C0 (0x01) for less, C3 (0x40) for equal, C3|C2|C0 (0x45) for unordered, none for
@@ -894,7 +894,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x004e_fc90, bs_anim_group_sequence_save_game(Ptr, Ptr, f32)),
         entry!(
             0x004e_fdc0,
-            bs_anim_group_sequence_deactivate(Ptr, f32, u32) -> bool
+            bs_anim_group_sequence_deactivate(Ptr, f32, u32) -> u8
         ),
         entry!(0x004e_fa50, fn_004efa50(Ptr)),
         entry!(0x004e_faa0, fn_004efaa0() -> u16),

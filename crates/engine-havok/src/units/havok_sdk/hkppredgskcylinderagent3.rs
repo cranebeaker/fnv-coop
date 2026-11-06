@@ -325,7 +325,8 @@ fn contact_points(
     store_bits(e, f + PROCESS_NORMAL_COPY, normal);
     let sum = ((f64::from(tolerance) + f64::from(radius_a)) + f64::from(radius_b)) as f32;
     e.mem.set_f32(f + PROCESS_THRESHOLD, sum);
-    // The square of the sum is stored too, and nothing reads it back.
+    // The square of the sum: the last word of the block above the work points (normal, radii,
+    // tolerance, square) that the manifold finish reads.
     e.mem
         .set_f32(f + PROCESS_SQUARE, (f64::from(sum) * f64::from(sum)) as f32);
     let work = f + PROCESS_WORK;

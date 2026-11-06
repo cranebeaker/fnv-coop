@@ -4663,27 +4663,28 @@ const NOT_EMPTY: u32 = 0x0049_3830;
 /// Without the object at +0x1C0, or when `00493830` of it is true, or for
 /// a group outside the cached range, the answer is yes. Otherwise a
 /// two-bit cache at +0x22C per group (1 loaded, 2 not loaded) answers,
-/// and a miss asks `Animation::GroupLoaded` of that object and records it.
+/// and a miss asks `Animation::GroupLoaded` of that object, records it and answers its byte
+/// as it is (92c3c3, 92c3ee).
 pub fn middle_high_process_has_movement_anim(
     e: &mut Engine,
     this: Ptr<MiddleHighProcess>,
     group: u32,
-) -> bool {
+) -> u8 {
     let p = this.addr();
     let animation = e.mem.u32(p + 0x1c0);
     if animation == 0 || e.call(NOT_EMPTY, &args![animation]).eax as u8 != 0 {
-        return true;
+        return 1;
     }
     let shift = group.wrapping_mul(2).wrapping_sub(6);
     if shift > 0x20 {
-        return true;
+        return 1;
     }
     let cached = e.mem.u32(p + 0x22c) >> (shift & 31);
     if cached & 1 != 0 {
-        return true;
+        return 1;
     }
     if cached & 2 != 0 {
-        return false;
+        return 0;
     }
     let loaded = e
         .call(ANIMATION_GROUP_LOADED, &args![animation, group & 0xffff])
@@ -4691,7 +4692,7 @@ pub fn middle_high_process_has_movement_anim(
     let state: u32 = if loaded != 0 { 1 } else { 2 };
     let flags = (state << (shift & 31)) | e.mem.u32(p + 0x22c);
     e.mem.set_u32(p + 0x22c, flags);
-    loaded != 0
+    loaded
 }
 
 /// `HitData::HitData` (Xbox PDB), `(hit data)`.
@@ -5054,7 +5055,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x0092c2e0,
             middle_high_process_set_creature_lip_synch_anim(Process, u32)
         ),
-        entry!(0x0092c340, middle_high_process_has_movement_anim(Process, u32) -> bool),
+        entry!(0x0092c340, middle_high_process_has_movement_anim(Process, u32) -> u8),
         entry!(
             0x0092c400,
             middle_high_process_set_last_hit_data(Process, u32)
@@ -8290,29 +8291,30 @@ mod tests {
         let p = process(&mut e);
         let a = p.addr();
         // No animation object: yes.
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 5));
+        assert_ne!(middle_high_process_has_movement_anim(&mut e, p, 5), 0);
         e.mem.set_u32(a + 0x1c0, 0x7000);
         // `00493830` true: yes.
         e.register(NOT_EMPTY, |_, _| ret(1));
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 5));
+        assert_ne!(middle_high_process_has_movement_anim(&mut e, p, 5), 0);
         e.register(NOT_EMPTY, |_, _| ret(0));
         // Outside the cached range (group 2 gives -2, group 0x20 gives 0x3A).
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 2));
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 0x20));
+        assert_ne!(middle_high_process_has_movement_anim(&mut e, p, 2), 0);
+        assert_ne!(middle_high_process_has_movement_anim(&mut e, p, 0x20), 0);
         assert!(calls(&e, ANIMATION_GROUP_LOADED).is_empty());
         // A miss asks the animation and records the answer (shift 4).
         e.register(ANIMATION_GROUP_LOADED, |_, _| ret(0));
-        assert!(!middle_high_process_has_movement_anim(&mut e, p, 5));
+        assert_eq!(middle_high_process_has_movement_anim(&mut e, p, 5), 0);
         assert_eq!(calls(&e, ANIMATION_GROUP_LOADED), vec![vec![0x7000, 5]]);
         assert_eq!(e.mem.u32(a + 0x22c), 2 << 4);
         // The cached "not loaded" answers without asking.
-        assert!(!middle_high_process_has_movement_anim(&mut e, p, 5));
+        assert_eq!(middle_high_process_has_movement_anim(&mut e, p, 5), 0);
         assert_eq!(calls(&e, ANIMATION_GROUP_LOADED).len(), 1);
-        // Another group answers loaded and sets bit 0 of its pair (shift 6).
-        e.register(ANIMATION_GROUP_LOADED, |_, _| ret(1));
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 6));
+        // Another group answers loaded and sets bit 0 of its pair (shift 6). The byte the
+        // animation gave comes back as it is (92c3ee).
+        e.register(ANIMATION_GROUP_LOADED, |_, _| ret(0x2a));
+        assert_eq!(middle_high_process_has_movement_anim(&mut e, p, 6), 0x2a);
         assert_eq!(e.mem.u32(a + 0x22c), (2 << 4) | (1 << 6));
-        assert!(middle_high_process_has_movement_anim(&mut e, p, 6));
+        assert_ne!(middle_high_process_has_movement_anim(&mut e, p, 6), 0);
         assert_eq!(calls(&e, ANIMATION_GROUP_LOADED).len(), 2);
     }
 

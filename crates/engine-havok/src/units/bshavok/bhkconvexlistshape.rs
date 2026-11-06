@@ -306,7 +306,7 @@ pub fn bhk_convex_list_shape_copy_members(e: &mut Engine, this: Ptr, source: u32
 /// object through its virtual slot `0x54` with the stream (children counted unsigned), then
 /// `NiObject::RegisterStreamables` (through `00aa0ad0`), whose `AL` it answers: the exe ends on
 /// that call, and `RegisterStreamables` is `bool` in the Xbox PDB.
-pub fn bhk_convex_list_shape_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> bool {
+pub fn bhk_convex_list_shape_register_streamables(e: &mut Engine, this: Ptr, stream: u32) -> u8 {
     let count = child_count(e, this);
     let mut index = 0;
     while index < count {
@@ -316,7 +316,7 @@ pub fn bhk_convex_list_shape_register_streamables(e: &mut Engine, this: Ptr, str
         }
         index += 1;
     }
-    e.call(REGISTER_STREAMABLES, &args![this, stream]).bool()
+    e.call(REGISTER_STREAMABLES, &args![this, stream]).u8()
 }
 
 // Translated from 00ccfa00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -340,10 +340,10 @@ pub fn fn_00ccfa00(e: &mut Engine, this: Ptr) {
 /// `bhkConvexListShape::CanShare` (Xbox PDB): `bhkShape::CanShare`, and while that holds,
 /// every child's Havok object's virtual slot `0xD0` with `other`, the answers ANDed in a
 /// byte (children counted signed).
-pub fn bhk_convex_list_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> bool {
+pub fn bhk_convex_list_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> u8 {
     let mut result = e.call(SHAPE_CAN_SHARE, &args![this, other]).u8();
     if result == 0 {
-        return false;
+        return 0;
     }
     let count = child_count(e, this) as i32;
     let mut index = 0;
@@ -357,7 +357,7 @@ pub fn bhk_convex_list_shape_can_share(e: &mut Engine, this: Ptr, other: u32) ->
             break;
         }
     }
-    result != 0
+    result
 }
 
 // Translated from 00ccfad0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -803,10 +803,10 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00ccf990,
-            bhk_convex_list_shape_register_streamables(Ptr, u32) -> bool
+            bhk_convex_list_shape_register_streamables(Ptr, u32) -> u8
         ),
         entry!(0x00ccfa00, fn_00ccfa00(Ptr)),
-        entry!(0x00ccfa50, bhk_convex_list_shape_can_share(Ptr, u32) -> bool),
+        entry!(0x00ccfa50, bhk_convex_list_shape_can_share(Ptr, u32) -> u8),
         entry!(
             0x00ccfad0,
             bhk_convex_list_shape_build_display_geometry(Ptr, u32, u32)

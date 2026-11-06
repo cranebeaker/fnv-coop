@@ -580,12 +580,10 @@ pub fn ni_stream_set_last_error(e: &mut Engine, this: Ptr<NiStream>, error: u32)
 /// `NiStream::Load` (Xbox PDB) from a memory buffer: wraps the buffer in an
 /// `NiMemStream` (a 0x24-byte local) and loads from it through virtual
 /// function `+4`. Returns that function's result.
-pub fn ni_stream_load(e: &mut Engine, this: Ptr<NiStream>, buffer: u32, size: u32) -> bool {
+pub fn ni_stream_load(e: &mut Engine, this: Ptr<NiStream>, buffer: u32, size: u32) -> u8 {
     e.with_stack(0x24, |e, memory_stream| {
         e.call(NI_MEM_STREAM_CONSTRUCT, &args![memory_stream, buffer, size]);
-        let loaded = e
-            .vcall(this.addr(), SLOT_LOAD, &args![memory_stream])
-            .bool();
+        let loaded = e.vcall(this.addr(), SLOT_LOAD, &args![memory_stream]).u8();
         e.call(NI_MEM_STREAM_DESTRUCT, &args![memory_stream]);
         loaded
     })
@@ -596,16 +594,16 @@ pub fn ni_stream_load(e: &mut Engine, this: Ptr<NiStream>, buffer: u32, size: u3
 /// says it is usable (slot `+4`) it becomes `m_pkIstr` for the length of the
 /// call to `LoadStream` (slot `+0x3c`), whose result is returned. An unusable
 /// stream clears `m_pkIstr` and fails.
-pub fn ni_stream_load_ov2(e: &mut Engine, this: Ptr<NiStream>, stream: Ptr) -> bool {
+pub fn ni_stream_load_ov2(e: &mut Engine, this: Ptr<NiStream>, stream: Ptr) -> u8 {
     let usable = e
         .vcall(stream.addr(), STREAM_SLOT_IS_VALID, &args![])
         .bool();
     if !usable {
         e.set(this, NiStream::m_pkIstr, 0);
-        return false;
+        return 0;
     }
     e.set(this, NiStream::m_pkIstr, stream.addr());
-    let loaded = e.vcall(this.addr(), SLOT_LOAD_STREAM, &args![]).bool();
+    let loaded = e.vcall(this.addr(), SLOT_LOAD_STREAM, &args![]).u8();
     e.set(this, NiStream::m_pkIstr, 0);
     loaded
 }
@@ -614,9 +612,9 @@ pub fn ni_stream_load_ov2(e: &mut Engine, this: Ptr<NiStream>, stream: Ptr) -> b
 /// `NiStream::Save` (Xbox PDB), to a binary stream: it becomes `m_pkOstr`
 /// for the length of the call to `SaveStream` (slot `+0x40`), whose result
 /// (in `AL`; the decompiler shows no value) is returned.
-pub fn ni_stream_save(e: &mut Engine, this: Ptr<NiStream>, stream: Ptr) -> bool {
+pub fn ni_stream_save(e: &mut Engine, this: Ptr<NiStream>, stream: Ptr) -> u8 {
     e.set(this, NiStream::m_pkOstr, stream.addr());
-    let saved = e.vcall(this.addr(), SLOT_SAVE_STREAM, &args![]).bool();
+    let saved = e.vcall(this.addr(), SLOT_SAVE_STREAM, &args![]).u8();
     e.set(this, NiStream::m_pkOstr, 0);
     saved
 }
@@ -631,8 +629,8 @@ pub fn ni_stream_set_texture(e: &mut Engine, _this: Ptr<NiStream>, texture: u32)
 // Translated from 00a633d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiStream::GetTexture` (Xbox PDB): `BSTexturePalette::GetTexture(key,
 /// out)`, whose `AL` is returned; the stream itself (`ECX`) is not used.
-pub fn ni_stream_get_texture(e: &mut Engine, _this: Ptr<NiStream>, key: u32, out: Ptr) -> bool {
-    e.call(TEXTURE_PALETTE_GET_TEXTURE, &args![key, out]).bool()
+pub fn ni_stream_get_texture(e: &mut Engine, _this: Ptr<NiStream>, key: u32, out: Ptr) -> u8 {
+    e.call(TEXTURE_PALETTE_GET_TEXTURE, &args![key, out]).u8()
 }
 
 // Translated from 00a633f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -793,12 +791,10 @@ pub fn ni_stream_register_objects(e: &mut Engine, this: Ptr<NiStream>) {
 /// `NiMemStream` (a 0x24-byte local) through virtual function `+0x10`, writes
 /// the end of the written data (`+0x18`) to `*size` and takes the stream's
 /// buffer (`00aa2d60`) into `*buffer`. Returns the result of the save.
-pub fn ni_stream_save_ov2(e: &mut Engine, this: Ptr<NiStream>, buffer: Ptr, size: Ptr) -> bool {
+pub fn ni_stream_save_ov2(e: &mut Engine, this: Ptr<NiStream>, buffer: Ptr, size: Ptr) -> u8 {
     e.with_stack(0x24, |e, memory_stream| {
         e.call(NI_MEM_STREAM_CONSTRUCT_EMPTY, &args![memory_stream]);
-        let saved = e
-            .vcall(this.addr(), SLOT_SAVE, &args![memory_stream])
-            .bool();
+        let saved = e.vcall(this.addr(), SLOT_SAVE, &args![memory_stream]).u8();
         let end = e.mem.u32(memory_stream.addr().wrapping_add(0x18));
         e.mem.set_u32(size.addr(), end);
         let data = e
@@ -1189,7 +1185,7 @@ pub fn fn_00a63ba0(e: &mut Engine, this: Ptr<NiTPointerMap>, flags: u32) -> Ptr<
 /// when it opens and says it is usable, loads from it through virtual
 /// function `+4` and deletes it. Otherwise the error is 1, "Cannot open
 /// file.", and the result false.
-pub fn ni_stream_load_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> bool {
+pub fn ni_stream_load_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> u8 {
     let name = this.byte_add(NiStream::m_acFileName.off);
     e.call(STRCPY_S, &args![name, 0x104u32, path]);
     e.call(NI_PATH_STANDARDIZE, &args![name]);
@@ -1206,7 +1202,7 @@ pub fn ni_stream_load_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> boo
     if file != 0 {
         let usable = e.vcall(file, STREAM_SLOT_IS_VALID, &args![]).bool();
         if usable {
-            let loaded = e.vcall(this.addr(), SLOT_LOAD, &args![file]).bool();
+            let loaded = e.vcall(this.addr(), SLOT_LOAD, &args![file]).u8();
             e.vcall(file, 0, &args![1u32]);
             return loaded;
         }
@@ -1218,7 +1214,7 @@ pub fn ni_stream_load_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> boo
         STRCPY_S,
         &args![message, ERROR_MESSAGE_SIZE, TEXT_CANNOT_OPEN_FILE],
     );
-    false
+    0
 }
 
 // Translated from 00a63cb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1414,7 +1410,7 @@ pub fn fn_00a64010(e: &mut Engine, this: Ptr<NiStream>) {
 /// [`ni_stream_load_ov3`] (the file is opened with `NiFile::GetFile(name, 1,
 /// 0x8000)` and saved to through virtual function `+0x10`), but a file that
 /// cannot be opened only makes it return false, with no error recorded.
-pub fn ni_stream_save_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> bool {
+pub fn ni_stream_save_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> u8 {
     let name = this.byte_add(NiStream::m_acFileName.off);
     e.call(STRCPY_S, &args![name, 0x104u32, path]);
     e.call(NI_PATH_STANDARDIZE, &args![name]);
@@ -1429,21 +1425,21 @@ pub fn ni_stream_save_ov3(e: &mut Engine, this: Ptr<NiStream>, path: Ptr) -> boo
         .call(NI_FILE_GET_FILE, &args![name, 1u32, 0x8000u32])
         .u32();
     if file == 0 {
-        return false;
+        return 0;
     }
     let usable = e.vcall(file, STREAM_SLOT_IS_VALID, &args![]).bool();
     if !usable {
         e.vcall(file, 0, &args![1u32]);
-        return false;
+        return 0;
     }
-    let saved = e.vcall(this.addr(), SLOT_SAVE, &args![file]).bool();
+    let saved = e.vcall(this.addr(), SLOT_SAVE, &args![file]).u8();
     e.vcall(file, 0, &args![1u32]);
     saved
 }
 
 // Translated from 00a64160 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Writes a C string: its length (0 for a null pointer), then, when it is
-/// not 0, the characters without the terminator.
+/// not 0 (an unsigned test, 00a641b8), the characters without the terminator.
 pub fn fn_00a64160(e: &mut Engine, this: Ptr<NiStream>, string: u32) {
     let mut length = 0u32;
     if string != 0 {
@@ -1452,7 +1448,7 @@ pub fn fn_00a64160(e: &mut Engine, this: Ptr<NiStream>, string: u32) {
         }
     }
     write_u32(e, this, length);
-    if length as i32 > 0 {
+    if length != 0 {
         write_from(e, this, string, length, 1);
     }
 }
@@ -3029,13 +3025,13 @@ pub fn ni_stream_save_stream(e: &mut Engine, this: Ptr<NiStream>) -> bool {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00a632e0, ni_stream_set_last_error(Ptr<NiStream>, u32)),
-        entry!(0x00a632f0, ni_stream_load(Ptr<NiStream>, u32, u32) -> bool),
-        entry!(0x00a63330, ni_stream_load_ov2(Ptr<NiStream>, Ptr) -> bool),
-        entry!(0x00a63380, ni_stream_save(Ptr<NiStream>, Ptr) -> bool),
+        entry!(0x00a632f0, ni_stream_load(Ptr<NiStream>, u32, u32) -> u8),
+        entry!(0x00a63330, ni_stream_load_ov2(Ptr<NiStream>, Ptr) -> u8),
+        entry!(0x00a63380, ni_stream_save(Ptr<NiStream>, Ptr) -> u8),
         entry!(0x00a633b0, ni_stream_set_texture(Ptr<NiStream>, u32)),
         entry!(
             0x00a633d0,
-            ni_stream_get_texture(Ptr<NiStream>, u32, Ptr) -> bool
+            ni_stream_get_texture(Ptr<NiStream>, u32, Ptr) -> u8
         ),
         entry!(0x00a633f0, fn_00a633f0(Ptr<NiStream>, Ptr) -> u32),
         entry!(
@@ -3061,7 +3057,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00a635b0, ni_stream_register_objects(Ptr<NiStream>)),
         entry!(
             0x00a635e0,
-            ni_stream_save_ov2(Ptr<NiStream>, Ptr, Ptr) -> bool
+            ni_stream_save_ov2(Ptr<NiStream>, Ptr, Ptr) -> u8
         ),
         entry!(0x00a63630, ni_stream_get_version_from_string(Ptr) -> u32),
         entry!(0x00a636b0, fn_00a636b0(Ptr<NiStream>, Ptr, u32) -> bool),
@@ -3108,7 +3104,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00a63ba0,
             fn_00a63ba0(Ptr<NiTPointerMap>, u32) -> Ptr<NiTPointerMap>
         ),
-        entry!(0x00a63be0, ni_stream_load_ov3(Ptr<NiStream>, Ptr) -> bool),
+        entry!(0x00a63be0, ni_stream_load_ov3(Ptr<NiStream>, Ptr) -> u8),
         entry!(0x00a63cb0, fn_00a63cb0(Ptr<NiStream>, Ptr)),
         entry!(0x00a63d10, fn_00a63d10(Ptr<NiStream>)),
         entry!(0x00a63d80, ni_stream_save_top_level_objects(Ptr<NiStream>)),
@@ -3122,7 +3118,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x00a63ee0, fn_00a63ee0(Ptr<NiStream>)),
         entry!(0x00a64010, fn_00a64010(Ptr<NiStream>)),
-        entry!(0x00a640b0, ni_stream_save_ov3(Ptr<NiStream>, Ptr) -> bool),
+        entry!(0x00a640b0, ni_stream_save_ov3(Ptr<NiStream>, Ptr) -> u8),
         entry!(0x00a64160, fn_00a64160(Ptr<NiStream>, u32)),
         entry!(0x00a641f0, ni_stream_save_fixed_string(Ptr<NiStream>, Ptr)),
         entry!(0x00a64250, fn_00a64250(Ptr<NiTLargeArray>)),
@@ -3686,7 +3682,7 @@ mod tests {
             fx.rec(NI_MEM_STREAM_CONSTRUCT, 0);
             fx.rec(NI_MEM_STREAM_DESTRUCT, 0);
             let load = fx.ns_method(SLOT_LOAD, result);
-            assert_eq!(ni_stream_load(&mut fx.e, fx.ns, 0x1000, 0x20), result == 1);
+            assert_eq!(ni_stream_load(&mut fx.e, fx.ns, 0x1000, 0x20), result as u8);
             let made = fx.calls(NI_MEM_STREAM_CONSTRUCT);
             assert_eq!(made.len(), 1);
             assert_eq!(made[0][1..], [0x1000, 0x20]);
@@ -3709,7 +3705,7 @@ mod tests {
         });
         let stream = fx.object();
         fx.method(stream, STREAM_SLOT_IS_VALID, 1);
-        assert!(ni_stream_load_ov2(&mut fx.e, fx.ns, Ptr::new(stream)));
+        assert!(ni_stream_load_ov2(&mut fx.e, fx.ns, Ptr::new(stream)) != 0);
         assert_eq!(seen.get(), stream);
         assert_eq!(fx.get(0x24c), 0);
         // A stream that is not usable is never loaded from.
@@ -3717,7 +3713,7 @@ mod tests {
         let load_stream = fx.ns_method(SLOT_LOAD_STREAM, 1);
         let stream = fx.object();
         fx.method(stream, STREAM_SLOT_IS_VALID, 0);
-        assert!(!ni_stream_load_ov2(&mut fx.e, fx.ns, Ptr::new(stream)));
+        assert!(ni_stream_load_ov2(&mut fx.e, fx.ns, Ptr::new(stream)) == 0);
         assert!(fx.calls(load_stream).is_empty());
         assert_eq!(fx.get(0x24c), 0);
     }
@@ -3733,7 +3729,7 @@ mod tests {
             watcher.set(e.mem.u32(ns + 0x250));
             1u32.into_ret()
         });
-        assert!(ni_stream_save(&mut fx.e, fx.ns, Ptr::new(0x1234)));
+        assert!(ni_stream_save(&mut fx.e, fx.ns, Ptr::new(0x1234)) != 0);
         assert_eq!(seen.get(), 0x1234);
         assert_eq!(fx.get(0x250), 0);
     }
@@ -3752,7 +3748,7 @@ mod tests {
             let mut fx = Fx::new();
             fx.rec(TEXTURE_PALETTE_GET_TEXTURE, answer);
             let got = ni_stream_get_texture(&mut fx.e, fx.ns, 0x55, Ptr::new(0x66));
-            assert_eq!(got, answer == 1);
+            assert_eq!(got as u32, answer);
             assert_eq!(
                 fx.calls(TEXTURE_PALETTE_GET_TEXTURE),
                 vec![vec![0x55, 0x66]]
@@ -3896,12 +3892,7 @@ mod tests {
             1u32.into_ret()
         });
         let (buffer, size) = (fx.cell(0), fx.cell(0));
-        assert!(ni_stream_save_ov2(
-            &mut fx.e,
-            fx.ns,
-            Ptr::new(buffer),
-            Ptr::new(size)
-        ));
+        assert!(ni_stream_save_ov2(&mut fx.e, fx.ns, Ptr::new(buffer), Ptr::new(size)) != 0);
         assert_eq!(fx.e.mem.u32(buffer), 0x1234);
         assert_eq!(fx.e.mem.u32(size), 0x40);
         let stream = fx.calls(NI_MEM_STREAM_CONSTRUCT_EMPTY)[0][0];
@@ -4308,7 +4299,7 @@ mod tests {
         fx.rec(NI_FILE_GET_FILE, file);
         let load = fx.ns_method(SLOT_LOAD, 1);
         let path = fx.cs("m\\a.nif");
-        assert!(ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)) != 0);
         let name = fx.at(0xe0);
         assert_eq!(fx.e.mem.cstr(name), b"m\\a.nif");
         assert_eq!(fx.e.mem.cstr(fx.at(0x4c0)), b"m\\a.nif");
@@ -4327,7 +4318,7 @@ mod tests {
         fx.rec(NI_FILE_GET_FILE, 0);
         let load = fx.ns_method(SLOT_LOAD, 1);
         let path = fx.cs("");
-        assert!(!ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)) == 0);
         assert_eq!(fx.get(0x3b8), 1);
         assert_eq!(fx.e.mem.cstr(fx.at(0x3bc)), b"Cannot open file.");
         assert!(fx.calls(load).is_empty());
@@ -4347,7 +4338,7 @@ mod tests {
         fx.rec(NI_FILE_GET_FILE, file);
         let load = fx.ns_method(SLOT_LOAD, 1);
         let path = fx.cs("a.nif");
-        assert!(!ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_load_ov3(&mut fx.e, fx.ns, Ptr::new(path)) == 0);
         assert_eq!(fx.calls(delete), vec![vec![file, 1]]);
         assert_eq!(fx.get(0x3b8), 1);
         assert!(fx.calls(load).is_empty());
@@ -4361,7 +4352,7 @@ mod tests {
         fx.rec(NI_FILE_GET_FILE, file);
         let save = fx.ns_method(SLOT_SAVE, 1);
         let path = fx.cs("m\\a.nif");
-        assert!(ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)) != 0);
         let name = fx.at(0xe0);
         assert_eq!(fx.calls(NI_FILE_GET_FILE), vec![vec![name, 1, 0x8000]]);
         assert_eq!(fx.calls(save), vec![vec![fx.ns.addr(), file]]);
@@ -4376,7 +4367,7 @@ mod tests {
         fx.rec(NI_PATH_STANDARDIZE, 0);
         fx.rec(NI_FILE_GET_FILE, 0);
         let path = fx.cs("a.nif");
-        assert!(!ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)) == 0);
         assert_eq!(fx.get(0x3b8), 0);
         // A file that is not usable is deleted.
         let mut fx = Fx::new();
@@ -4385,7 +4376,7 @@ mod tests {
         fx.rec(NI_FILE_GET_FILE, file);
         let save = fx.ns_method(SLOT_SAVE, 1);
         let path = fx.cs("a.nif");
-        assert!(!ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)));
+        assert!(ni_stream_save_ov3(&mut fx.e, fx.ns, Ptr::new(path)) == 0);
         assert_eq!(fx.calls(delete), vec![vec![file, 1]]);
         assert!(fx.calls(save).is_empty());
         assert_eq!(fx.get(0x3b8), 0);

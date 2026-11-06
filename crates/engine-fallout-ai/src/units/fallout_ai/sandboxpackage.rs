@@ -389,13 +389,13 @@ pub fn sand_box_actor_package_data_scalar_deleting_destructor(
 /// Whether the activity's need is met, by `eActivity` (+0x58): none (-1)
 /// false, sleep (0) `bBed`, breakfast, lunch and dinner (1 to 3) `bFood`,
 /// any other value true (the compiler's `switch` on `activity + 1`).
-pub fn fn_009f3e20(e: &mut Engine, this: Ptr) -> bool {
+pub fn fn_009f3e20(e: &mut Engine, this: Ptr) -> u8 {
     let base = this.addr();
     match e.mem.u32(base + ACTIVITY).wrapping_add(1) {
-        0 => false,
-        1 => e.mem.u8(base + BED) != 0,
-        2..=4 => e.mem.u8(base + FOOD) != 0,
-        _ => true,
+        0 => 0,
+        1 => e.mem.u8(base + BED),
+        2..=4 => e.mem.u8(base + FOOD),
+        _ => 1,
     }
 }
 
@@ -799,7 +799,7 @@ pub fn sand_box_actor_package_data_should_pick_new_procedure(
     if fn_009f3c90(e, this, Ptr::NULL) {
         return true;
     }
-    if fn_009f3d50(e, this) && fn_009f3e20(e, this) {
+    if fn_009f3d50(e, this) && fn_009f3e20(e, this) != 0 {
         let activity = e.mem.u32(base + ACTIVITY);
         let wanted = e
             .mem
@@ -1603,7 +1603,7 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
         e.mem
             .set_u32(base + NEXT_TIME_TO_SCAN_WORLD, time.wrapping_add(delay));
     }
-    let in_activity = fn_009f3d50(e, this) && fn_009f3e20(e, this);
+    let in_activity = fn_009f3d50(e, this) && fn_009f3e20(e, this) != 0;
     let mut weights = [0i32; 6];
     if in_activity {
         let activity = e.mem.u32(base + ACTIVITY);
@@ -2193,7 +2193,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x009f3a40,
             sand_box_actor_package_data_scalar_deleting_destructor(Ptr, u32) -> Ptr
         ),
-        entry!(0x009f3e20, fn_009f3e20(Ptr) -> bool),
+        entry!(0x009f3e20, fn_009f3e20(Ptr) -> u8),
         entry!(0x009f3af0, fn_009f3af0(Ptr, Ptr, Ptr)),
         entry!(
             0x009f3c10,

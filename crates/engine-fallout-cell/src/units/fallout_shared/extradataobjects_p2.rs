@@ -2380,7 +2380,7 @@ pub fn extra_patrol_ref_in_use_data_get_can_be_used_by(
     let releases = fn_00437bf0(e, reference)
         || fn_00437bd0(e, reference)
         || (e.call(GET_CURRENT_PROCESS_TYPE, &args![reference]).u32() != 0
-            && !fn_00437bb0(e, reference));
+            && fn_00437bb0(e, reference) == 0);
     if releases {
         e.set(this, ExtraPatrolRefInUseData::User, 0);
         return true;
@@ -2398,8 +2398,8 @@ pub fn fn_00437b90(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 00437bb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// An accessor that the engine map has no name for: the byte at +0x87 of a
 /// reference.
-pub fn fn_00437bb0(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x87) != 0
+pub fn fn_00437bb0(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x87)
 }
 
 // Translated from 00437bd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3079,7 +3079,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             ) -> bool
         ),
         entry!(0x00437b90, fn_00437b90(Ptr) -> bool),
-        entry!(0x00437bb0, fn_00437bb0(Ptr) -> bool),
+        entry!(0x00437bb0, fn_00437bb0(Ptr) -> u8),
         entry!(0x00437bd0, fn_00437bd0(Ptr) -> bool),
         entry!(0x00437bf0, fn_00437bf0(Ptr) -> bool),
         entry!(0x00437c10, fn_00437c10(Ptr) -> Ptr),

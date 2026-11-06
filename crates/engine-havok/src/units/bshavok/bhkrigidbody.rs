@@ -484,11 +484,11 @@ pub fn bhk_rigid_body_register_streamables(
     e: &mut Engine,
     this: Ptr<BhkRigidBody>,
     stream: u32,
-) -> bool {
+) -> u8 {
     let registered = e
         .call(WORLD_OBJECT_REGISTER_STREAMABLES, &args![this, stream])
-        .bool();
-    if registered {
+        .u8();
+    if registered != 0 {
         let mut node = this.at(BhkRigidBody::ActionConstraint);
         loop {
             let item = e.get(node, BSSimpleList::m_item);
@@ -2598,7 +2598,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00c8_d090,
-            bhk_rigid_body_register_streamables(Ptr<BhkRigidBody>, u32) -> bool
+            bhk_rigid_body_register_streamables(Ptr<BhkRigidBody>, u32) -> u8
         ),
         entry!(0x00c8_d0d0, fn_00c8d0d0(Ptr<BhkRigidBody>) -> u32),
         entry!(

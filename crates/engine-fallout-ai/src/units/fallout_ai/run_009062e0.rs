@@ -49,10 +49,10 @@ const INNER_NEXT: u32 = 0x0090_6c10;
 /// Unnamed in the engine map (`thiscall`, one word, `RET 4`; a `LockFreeMap` method): with
 /// the lock at +0x20 held, answers `00528bb0(key)` of the inner object (`00449f80`; the
 /// pushed key belongs to `00528bb0`, `00449f80` takes none).
-pub fn fn_009062e0(e: &mut Engine, this: u32, key: u32) -> bool {
+pub fn fn_009062e0(e: &mut Engine, this: u32, key: u32) -> u8 {
     e.call(LOCK, &args![this + LOCK_OFFSET, 0u32]);
     let inner = e.call(INNER, &args![this]).u32();
-    let result = e.call(INNER_TEST, &args![inner, key]).bool();
+    let result = e.call(INNER_TEST, &args![inner, key]).u8();
     e.call(UNLOCK, &args![this + LOCK_OFFSET]);
     result
 }
@@ -220,7 +220,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0090_6320, fn_00906320(u32, u32, u32) -> u8),
         entry!(0x0090_63b0, fn_009063b0(u32, u32, u32, u32, u32) -> u8),
-        entry!(0x0090_62e0, fn_009062e0(u32, u32) -> bool),
+        entry!(0x0090_62e0, fn_009062e0(u32, u32) -> u8),
         entry!(0x0090_6400, fn_00906400(u32, u32) -> u32),
         entry!(0x0090_64e0, fn_009064e0(u32)),
         entry!(0x0090_6570, fn_00906570(u32, u32, u32, u32, u32) -> bool),

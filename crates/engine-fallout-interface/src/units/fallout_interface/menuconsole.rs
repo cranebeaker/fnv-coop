@@ -284,8 +284,9 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         return;
     }
     // The exe's frame (`SUB ESP,0x840` under the exception record, then `ESI` and the record
-    // link): the text at `EBP-0x1c` (+0x838), the width at `EBP-0x828` (+0x2c), the unused word
-    // at `EBP-0x10` (+0x844), the line buffer at `EBP-0x824` (+0x30, 0x808 bytes up to the
+    // link): the text at `EBP-0x1c` (+0x838), the width at `EBP-0x828` (+0x2c), the word at
+    // `EBP-0x10` (+0x844; the exe stores 0 at 0071d12c and with_stack zeroes it, and 00a160c0
+    // reads it at 00a1616a), the line buffer at `EBP-0x824` (+0x30, 0x808 bytes up to the
     // text; the copy is not bounded), the line at `EBP-0x83c` (+0x18), the removed line at
     // `EBP-0x848` (+0xc).
     e.with_stack(0x854, |e, frame| {
@@ -296,7 +297,7 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         e.call(0x0071_dd90, &args![this, c_text]);
         let size = frame.addr() + 0x2c;
         e.mem.set_u32(size, 0x4b0);
-        let unused = frame.addr() + 0x844;
+        let in_out_word = frame.addr() + 0x844;
         let font = setting_int(e, CONSOLE_FONT);
         let fonts = e.call(FONT_ARRAY_GETTER, &args![]).u32();
         let font_object = e.call(FONT_ARRAY_ELEMENT, &args![fonts, font - 1]).u32();
@@ -305,7 +306,7 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         let lines = e
             .call(
                 0x00a1_60c0,
-                &args![font_object, text, size, unused, 0u32, 0u32],
+                &args![font_object, text, size, in_out_word, 0u32, 0u32],
             )
             .i32();
         if lines == 0 {
@@ -2743,8 +2744,8 @@ mod tests {
             ret(2)
         });
         let console = new_console(&mut e);
-        // 0071d0a0 (0x854 bytes): the text at +0x838, the width at +0x2c, the unused word at
-        // +0x844, the lines at +0x18.
+        // 0071d0a0 (0x854 bytes): the text at +0x838, the width at +0x2c, the word 00a160c0
+        // reads at +0x844, the lines at +0x18.
         let frame = next_frame(&mut e, 0x854);
         e.call(0x0071_d0a0, &args![console, 0x0106_fcb4u32, 0u32]);
         let log = e.call_log.take().unwrap();

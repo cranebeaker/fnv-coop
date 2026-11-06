@@ -679,12 +679,12 @@ pub fn actor_set_alert(e: &mut Engine, this: Ptr<Actor>, alert: u8) {
 // Translated from 008a5e80 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Actor::GetAlert` (Xbox PDB): the process's virtual method `+0x31c`,
 /// false without a process.
-pub fn actor_get_alert(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn actor_get_alert(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     let proc = process(e, this);
     if proc.is_null() {
-        return false;
+        return 0;
     }
-    e.vcall(proc.addr(), 0x31c, &args![]).bool()
+    e.vcall(proc.addr(), 0x31c, &args![]).u8()
 }
 
 // Translated from 008a5eb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1062,7 +1062,7 @@ pub fn fn_008a6840(e: &mut Engine, this: Ptr<Actor>, drawn: u8) {
     if proc.is_null() {
         return;
     }
-    let current = fn_008a6970(e, this) as u8;
+    let current = fn_008a6970(e, this);
     if drawn == current {
         return;
     }
@@ -1094,30 +1094,31 @@ pub fn fn_008a6840(e: &mut Engine, this: Ptr<Actor>, drawn: u8) {
 
 // Translated from 008a6970 (decompiled, FalloutNV.exe 1.4.0.525)
 /// With `008846e0` flag `0x800`: for the player, quits the VATS playback when
-/// the VATS mode is 4, and returns false; otherwise the process's virtual
-/// method `+0x44c` (this assumes a process).
-pub fn fn_008a6970(e: &mut Engine, this: Ptr<Actor>) -> bool {
+/// the VATS mode is 4, and answers 0; otherwise the byte of the process's
+/// virtual method `+0x44c`, passed on as it came (the exe ends on that call;
+/// this assumes a process).
+pub fn fn_008a6970(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     if e.call(0x0088_46e0, &args![this]).u32() & 0x800 != 0 {
         let player: u32 = e.global(PLAYER_CHARACTER);
         if this.addr() == player && e.call(0x0044_ddc0, &args![0x011f_2250u32]).u32() == 4 {
             e.call(0x009c_8950, &args![0x011f_2250u32, 0u32, 0u32]);
         }
-        return false;
+        return 0;
     }
     let proc = process(e, this);
-    e.vcall(proc.addr(), 0x44c, &args![]).bool()
+    e.vcall(proc.addr(), 0x44c, &args![]).u8()
 }
 
 // Translated from 008a69d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Actor::IsContinuingPackageforPC` (Xbox PDB): the process's virtual
 /// method `+0x4e0`, false without a process.
-pub fn actor_is_continuing_package_for_pc(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn actor_is_continuing_package_for_pc(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     let proc = process(e, this);
     if proc.is_null() {
-        return false;
+        return 0;
     }
     let proc = process(e, this);
-    e.vcall(proc.addr(), 0x4e0, &args![]).bool()
+    e.vcall(proc.addr(), 0x4e0, &args![]).u8()
 }
 
 // Translated from 008a6a00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6003,7 +6004,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008a5cf0, fn_008a5cf0(Ptr<Actor>, u8)),
         entry!(0x008a5d10, fn_008a5d10(Ptr<Actor>, f32)),
         entry!(0x008a5e40, actor_set_alert(Ptr<Actor>, u8)),
-        entry!(0x008a5e80, actor_get_alert(Ptr<Actor>) -> bool),
+        entry!(0x008a5e80, actor_get_alert(Ptr<Actor>) -> u8),
         entry!(0x008a5eb0, actor_set_havok_weapon(Ptr<Actor>) -> u32),
         entry!(
             0x008a5f20,
@@ -6020,10 +6021,10 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008a67d0, fn_008a67d0(Ptr) -> bool),
         entry!(0x008a67f0, actor_is_talking(Ptr<Actor>) -> bool),
         entry!(0x008a6840, fn_008a6840(Ptr<Actor>, u8)),
-        entry!(0x008a6970, fn_008a6970(Ptr<Actor>) -> bool),
+        entry!(0x008a6970, fn_008a6970(Ptr<Actor>) -> u8),
         entry!(
             0x008a69d0,
-            actor_is_continuing_package_for_pc(Ptr<Actor>) -> bool
+            actor_is_continuing_package_for_pc(Ptr<Actor>) -> u8
         ),
         entry!(0x008a6a00, fn_008a6a00(Ptr<Actor>, f32)),
         entry!(0x008a6a40, actor_unlock_lock_doors_procedure(Ptr<Actor>)),
@@ -7391,6 +7392,8 @@ mod tests {
     #[test]
     fn drawn_state_is_the_process_answer_unless_the_flag_blocks_it() {
         let (mut e, actor, _) = draw_engine();
+        answer(&mut e, PROCESS_VT, 0x44c, 0x4142);
+        assert_eq!(e.call(0x008a_6970, &args![actor]).u32(), 0x42);
         answer(&mut e, PROCESS_VT, 0x44c, 1);
         assert!(e.call(0x008a_6970, &args![actor]).bool());
         answer(&mut e, PROCESS_VT, 0x44c, 0);

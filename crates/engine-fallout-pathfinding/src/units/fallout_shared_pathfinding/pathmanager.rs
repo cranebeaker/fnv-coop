@@ -214,7 +214,7 @@ pub fn pathing_task_data_process(e: &mut Engine, this: Ptr) {
         } else {
             let category = e.call(0x0047_d0b0, &args![]).u32();
             let category = e.call(0x0055_9450, &args![category]).u32();
-            if fn_006eb7d0(e, Ptr::new(category)) {
+            if fn_006eb7d0(e, Ptr::new(category)) != 0 {
                 let queue = e.call(0x0055_9450, &args![this.addr() + 0x60]).u32();
                 e.with_stack(8, |e, message| {
                     fn_006e9c00(e, message, 1, this.addr() + 0x1c);
@@ -970,8 +970,8 @@ pub fn fn_006eb7b0(e: &mut Engine, this: Ptr) {
 
 // Translated from 006eb7d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the path cancellation flag.
-pub fn fn_006eb7d0(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + PATH_MANAGER_IMPL_CANCEL_PATHS) != 0
+pub fn fn_006eb7d0(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + PATH_MANAGER_IMPL_CANCEL_PATHS)
 }
 
 // Translated from 006eb7f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1502,7 +1502,7 @@ pub fn fn_006ec7e0(
     request: u32,
     context: u32,
     mode: u8,
-) -> bool {
+) -> u8 {
     e.call(0x0040_fbf0, &args![this.addr() + 0x20, 0u32]);
     // 006ec80a: `00449f80` takes no stack word (plain RET); the four pushed words are
     // those of `0044d240` (RET 0x10).
@@ -1512,7 +1512,7 @@ pub fn fn_006ec7e0(
             0x0044_d240,
             &args![candidate, manager, request, context, mode],
         )
-        .bool();
+        .u8();
     e.call(0x0040_fba0, &args![this.addr() + 0x20]);
     result
 }
@@ -1521,7 +1521,7 @@ pub fn fn_006ec7e0(
 /// Invokes the queue's virtual item operation, then reports its result and
 /// answers that report's value (the exe ends on the `006ec9b0` call and
 /// leaves its `EAX`; the callers keep `AL`).
-pub fn fn_006ec830(e: &mut Engine, this: Ptr, item: u32, context: Ptr) -> bool {
+pub fn fn_006ec830(e: &mut Engine, this: Ptr, item: u32, context: Ptr) -> u8 {
     let receiver = e.mem.u32(this.addr());
     let value = e.vcall(receiver, 0x24, &args![item]).u32();
     fn_006ec9b0(e, this, value, item, context)
@@ -1543,14 +1543,12 @@ pub fn fn_006ec870(e: &mut Engine, this: Ptr) {
 
 // Translated from 006ec900 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Tests each registered request against the supplied item under the manager lock.
-pub fn fn_006ec900(e: &mut Engine, this: Ptr, item: u32) -> bool {
+pub fn fn_006ec900(e: &mut Engine, this: Ptr, item: u32) -> u8 {
     e.call(0x0040_fbf0, &args![this.addr() + 0x20, 0u32]);
-    let mut matched = false;
+    let mut matched = 0;
     let mut index = 0u32;
-    while index < e.mem.u32(this.addr() + 8) && !matched {
-        if e.vcall(this.addr(), 0x18, &args![index, item]).bool() {
-            matched = true;
-        }
+    while index < e.mem.u32(this.addr() + 8) && matched == 0 {
+        matched = e.vcall(this.addr(), 0x18, &args![index, item]).u8();
         index = index.wrapping_add(1);
     }
     e.call(0x0040_fba0, &args![this.addr() + 0x20]);
@@ -1559,14 +1557,16 @@ pub fn fn_006ec900(e: &mut Engine, this: Ptr, item: u32) -> bool {
 
 // Translated from 006ec9b0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Applies a returned item and suppresses success when its resulting state rejects it.
-pub fn fn_006ec9b0(e: &mut Engine, this: Ptr, first: u32, second: u32, output: Ptr) -> bool {
-    let mut success = e.call(0x0066_62a0, &args![this, first, second]).bool();
-    if success {
+pub fn fn_006ec9b0(e: &mut Engine, this: Ptr, first: u32, second: u32, output: Ptr) -> u8 {
+    let mut success = e.call(0x0066_62a0, &args![this, first, second]).u8();
+    if success != 0 {
         let exception = e.call(0x0044_df00, &args![this.addr() + 0x14]).u32();
         e.mem.set_u32(output.addr(), e.mem.u32(exception + 4));
         e.call(0x0040_fbe0, &args![]);
         let exception = e.call(0x0044_df00, &args![this.addr() + 0x14]).u32();
-        success &= !e.call(0x0044_df20, &args![exception]).bool();
+        if e.call(0x0044_df20, &args![exception]).bool() {
+            success = 0;
+        }
     }
     e.call(0x0052_9000, &args![this]);
     success
@@ -1781,11 +1781,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x006e_c4b0, fn_006ec4b0(Ptr, u32) -> bool),
         entry!(0x006e_c5b0, fn_006ec5b0(Ptr, Ptr) -> bool),
         entry!(0x006e_c660, fn_006ec660(Ptr, u32, u32, u32) -> Ptr),
-        entry!(0x006e_c7e0, fn_006ec7e0(Ptr, u32, u32, u32, u8) -> bool),
-        entry!(0x006e_c830, fn_006ec830(Ptr, u32, Ptr) -> bool),
+        entry!(0x006e_c7e0, fn_006ec7e0(Ptr, u32, u32, u32, u8) -> u8),
+        entry!(0x006e_c830, fn_006ec830(Ptr, u32, Ptr) -> u8),
         entry!(0x006e_c870, fn_006ec870(Ptr)),
-        entry!(0x006e_c900, fn_006ec900(Ptr, u32) -> bool),
-        entry!(0x006e_c9b0, fn_006ec9b0(Ptr, u32, u32, Ptr) -> bool),
+        entry!(0x006e_c900, fn_006ec900(Ptr, u32) -> u8),
+        entry!(0x006e_c9b0, fn_006ec9b0(Ptr, u32, u32, Ptr) -> u8),
         entry!(0x006e_c970, task_stack_construct(Ptr) -> Ptr),
         entry!(0x006e_ca20, path_request_array_deleting_destructor(Ptr, u32) -> Ptr),
         entry!(0x006e_ca50, path_result_array_deleting_destructor(Ptr, u32) -> Ptr),
@@ -1840,7 +1840,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x006e_b6b0, fn_006eb6b0(Ptr, u32)),
         entry!(0x006e_b790, fn_006eb790(Ptr) -> bool),
         entry!(0x006e_b7b0, fn_006eb7b0(Ptr)),
-        entry!(0x006e_b7d0, fn_006eb7d0(Ptr) -> bool),
+        entry!(0x006e_b7d0, fn_006eb7d0(Ptr) -> u8),
         entry!(0x006e_b7f0, fn_006eb7f0(Ptr, u32)),
         entry!(0x006e_b820, fn_006eb820(Ptr) -> Ptr),
         entry!(0x006e_b850, fn_006eb850(Ptr)),
@@ -1950,7 +1950,7 @@ mod tests {
         e.mem.map(manager, 0x1500);
         e.mem.set_u8(manager + PATH_MANAGER_IMPL_CANCEL_PATHS, 1);
         e.mem.set_u32(manager + 0x0c2c, 0x1234);
-        assert!(fn_006eb7d0(&mut e, Ptr::new(manager)));
+        assert!(fn_006eb7d0(&mut e, Ptr::new(manager)) != 0);
         e.register(0x00aa_6120, |_, _| result(1));
         assert!(fn_006eb790(&mut e, Ptr::new(manager)));
     }
@@ -4262,7 +4262,10 @@ mod continuation_tests {
                 assert_eq!(a, &[scanner + 0x20]);
                 Ret::default()
             });
-            assert_eq!(fn_006ec900(&mut e, Ptr::new(scanner), 0x99), !shrink);
+            assert_eq!(
+                fn_006ec900(&mut e, Ptr::new(scanner), 0x99),
+                u8::from(!shrink)
+            );
             assert_eq!(calls(&e, 0x0077_0400).len(), if shrink { 1 } else { 2 });
             assert_eq!(calls(&e, 0x0040_fba0).len(), 1);
         }
@@ -4327,7 +4330,7 @@ mod continuation_tests {
             assert_eq!(a, &[this.addr() + 0x20]);
             Ret::default()
         });
-        assert!(fn_006ec7e0(&mut e, this, manager, request, context, mode));
+        assert!(fn_006ec7e0(&mut e, this, manager, request, context, mode) != 0);
         assert_eq!(calls(&e, 0x0040_fba0).len(), 1);
     }
 
@@ -4354,7 +4357,7 @@ mod continuation_tests {
             noops(&mut e, &[0x0040_fbe0, 0x0052_9000]);
             assert_eq!(
                 fn_006ec9b0(&mut e, this, 0x11, 0x22, Ptr::new(output)),
-                initial_success && !rejects_state
+                u8::from(initial_success && !rejects_state)
             );
             assert_eq!(
                 e.mem.u32(output),
@@ -4421,18 +4424,8 @@ mod continuation_tests {
         e.register_double(0x0044_df20, |_, _| result(0));
         noops(&mut e, &[0x0040_fbe0, 0x0052_9000]);
         e.register_double(0x0066_62a0, |_, _| result(1));
-        assert!(fn_006ec830(
-            &mut e,
-            Ptr::new(wrapper),
-            manager,
-            Ptr::new(request)
-        ));
+        assert!(fn_006ec830(&mut e, Ptr::new(wrapper), manager, Ptr::new(request)) != 0);
         e.register_double(0x0066_62a0, |_, _| result(0));
-        assert!(!fn_006ec830(
-            &mut e,
-            Ptr::new(wrapper),
-            manager,
-            Ptr::new(request)
-        ));
+        assert!(fn_006ec830(&mut e, Ptr::new(wrapper), manager, Ptr::new(request)) == 0);
     }
 }

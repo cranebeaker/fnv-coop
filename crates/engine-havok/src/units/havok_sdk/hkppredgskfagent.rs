@@ -153,8 +153,12 @@ fn contact_points(e: &mut Engine, p: Process) {
     let count = e.mem.u8(contacts + 2);
     let separation = load_bits(e, p.this + 0x20);
     store_bits(e, f + esp(0x1e0), separation);
+    // d423f7..d42452: the block above the work points that the manifold finish reads: the
+    // separating vector at +0x100 (above), the radii, the tolerance and the square of their sum.
+    e.mem.set_f32(f + esp(0x1f0), radius_a);
+    e.mem.set_f32(f + esp(0x1f4), radius_b);
+    e.mem.set_f32(f + esp(0x1f8), tolerance);
     let sum = ((f64::from(radius_a) + f64::from(tolerance)) + f64::from(radius_b)) as f32;
-    // The square of the sum is stored too, and nothing reads it back.
     e.mem
         .set_f32(f + esp(0x1fc), (f64::from(sum) * f64::from(sum)) as f32);
     let work = f + WORK;
@@ -708,6 +712,79 @@ mod a05_gskf_agent_tests {
             vec![vec![r.this + 0x30, a[0][3], 0, r.output, 0x5555]]
         );
         assert!(r.calls(PROCESS_NO_TIM).is_empty());
+    }
+
+    /// d423f7..d42452: the manifold finish reads the block above the work points, the same block
+    /// `00d41a30` and `00db4180` fill; here it goes on to the real `00dae3a0`.
+    #[test]
+    fn the_manifold_finish_gets_the_whole_block() {
+        let mut r = Rig::new();
+        low_clamp(&mut r);
+        // This separating vector makes the clamp -2 (it lands in the vector's fourth word).
+        r.e.mem.set_f32(r.params + 0xc, -5.0);
+        r.e.mem.set_f32(r.input + 8, 1.0);
+        r.e.mem.set_f32(r.shape[0] + 0x10, 0.125);
+        r.e.mem.set_f32(r.shape[1] + 0x10, 0.25);
+        store_vec(&mut r.e, r.this + 0x20, [-1.0, 0.0, 0.0, 0.5]);
+        // One vertex on each shape 0.5 apart, one entry of kind (1, 1) with the id 0xffff.
+        for (slot, x) in [(POINTS_A, 1.0f32), (POINTS_B, 1.5f32)] {
+            r.e.register_double(slot, move |e, a| {
+                store_vec(e, a[3], [x, 0.0, 0.0, 0.0]);
+                Ret::default()
+            });
+        }
+        for index in 0..2 {
+            let motion = r.e.mem.u32(r.body[index] + 8);
+            for (row, values) in [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                store_vec(&mut r.e, motion + 16 * row as u32, values);
+            }
+        }
+        let contacts = r.this + 0x30;
+        r.e.mem.set_u8(contacts, 1);
+        r.e.mem.set_u8(contacts + 1, 1);
+        r.e.mem.set_u8(contacts + 2, 1);
+        r.e.mem.set_u8(contacts + 4, 1);
+        r.e.mem.set_u8(contacts + 5, 1);
+        r.e.mem.set_u16(contacts + 6, 0xffff);
+        r.e.mem.set_u8(contacts + 8, 0);
+        r.e.mem.set_u8(contacts + 9, 0x10);
+        let record = r.e.mem.alloc(0x40);
+        r.e.mem.set_u32(r.output, record);
+        let seen = r.seen;
+        r.e.register_double(MANIFOLD_FINISH, move |e, a| {
+            for word in 0..8 {
+                e.mem
+                    .set_u32(seen + 4 * word, e.mem.u32(a[1] + 0x100 + 4 * word));
+            }
+            super::super::run_00dae3a0::fn_00dae3a0(e, a[0], a[1], a[2], a[3], a[4]);
+            Ret::default()
+        });
+        r.run();
+        let square = (0.125f64 + 1.0 + 0.25) * (0.125 + 1.0 + 0.25);
+        assert_eq!(
+            r.words(r.seen, 8),
+            vec![
+                (-1.0f32).to_bits(),
+                0,
+                0,
+                (-2.0f32).to_bits(),
+                0.125f32.to_bits(),
+                0.25f32.to_bits(),
+                1.0f32.to_bits(),
+                (square as f32).to_bits()
+            ]
+        );
+        assert_eq!(r.e.mem.u8(contacts + 2), 1, "the point stays");
+        assert_eq!(r.e.mem.u32(r.output), record + 0x30);
+        assert_eq!(load_vec(&r.e, record + 0x10), [-1.0, 0.0, 0.0, 0.125]);
     }
 
     #[test]

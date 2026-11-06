@@ -361,17 +361,17 @@ fn write_through_pointer(e: &mut Engine, this: Ptr<BSFile>, buffer: u32, size: u
 /// Unnamed in the engine map (thiscall on a `BSFile`, one word): true at once when a `FILE`
 /// is open (`m_pFile`); otherwise clears `m_uiPos`, `m_uiBufferReadSize` and `m_pBuffer`,
 /// takes `file` as its `FILE`, checks it ([`bs_file_check_is_good`]) and answers `m_bGood`.
-pub fn fn_00aff2a0(e: &mut Engine, this: Ptr<BSFile>, file: u32) -> bool {
+pub fn fn_00aff2a0(e: &mut Engine, this: Ptr<BSFile>, file: u32) -> u8 {
     let stream = ni_file(this);
     if e.get(stream, NiFile::m_pFile) != 0 {
-        return true;
+        return 1;
     }
     e.set(stream, NiFile::m_uiPos, 0);
     e.set(stream, NiFile::m_uiBufferReadSize, 0);
     e.set(stream, NiFile::m_pBuffer, 0);
     e.set(stream, NiFile::m_pFile, file);
     bs_file_check_is_good(e, this);
-    e.get(stream, NiFile::m_bGood) != 0
+    e.get(stream, NiFile::m_bGood)
 }
 
 // Translated from 00aff640 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -758,7 +758,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00b0_0260,
             bs_file_bs_file(Ptr<BSFile>, Ptr, u32, u32, u8) -> Ptr<BSFile>
         ),
-        entry!(0x00af_f2a0, fn_00aff2a0(Ptr<BSFile>, u32) -> bool),
+        entry!(0x00af_f2a0, fn_00aff2a0(Ptr<BSFile>, u32) -> u8),
         entry!(0x00af_f640, fn_00aff640(Ptr<BSFile>, u32, u32) -> u32),
         entry!(0x00af_f7c0, bs_file_read(Ptr<BSFile>, u32, u32) -> u32),
         entry!(0x00af_fa10, fn_00affa10(Ptr, u32, u32, u32, u32) -> u32),

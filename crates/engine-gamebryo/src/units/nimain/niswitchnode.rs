@@ -495,7 +495,8 @@ pub fn ni_switch_node_update_rigid_downward_pass(
 /// `NiSwitchNode::UpdateControllers` (Xbox PDB): without
 /// `m_bUpdateOnlyActive` it is `NiNode::UpdateControllers`. With it, and a
 /// non-negative index, it updates the node's own controllers and, if the
-/// selected slot is filled, the selected child's (slot `0x8c`).
+/// selected slot is filled, the selected child's (slot `0x8c`). The index is read again after
+/// the node's controllers ran (00a94322) and not tested again.
 pub fn ni_switch_node_update_controllers(
     e: &mut Engine,
     this: Ptr<NiSwitchNode>,
@@ -505,9 +506,9 @@ pub fn ni_switch_node_update_controllers(
         e.call(NI_NODE_UPDATE_CONTROLLERS, &args![this, update_data]);
         return;
     }
-    let index = e.get(this, NiSwitchNode::m_iIndex);
-    if index >= 0 {
+    if e.get(this, NiSwitchNode::m_iIndex) >= 0 {
         e.call(UPDATE_OBJECT_CONTROLLERS, &args![this, update_data, 1u32]);
+        let index = e.get(this, NiSwitchNode::m_iIndex);
         let child = child_at(e, this, index);
         if child != 0 {
             e.vcall(child, SLOT_UPDATE_CONTROLLERS, &args![update_data]);
@@ -1430,6 +1431,25 @@ mod tests {
         f.log();
         ni_switch_node_update_rigid_downward_pass(&mut f.e, node, data, 4);
         assert!(calls(&f.take_log(), vslot(SLOT_UPDATE_RIGID_DOWNWARD_PASS)).is_empty());
+    }
+
+    #[test]
+    fn update_controllers_reads_the_index_again_after_the_nodes_controllers() {
+        let mut f = Fixture::new();
+        let (node, kids) = f.switch_node(2);
+        f.e.set(node, NiSwitchNode::m_uFlags, 1);
+        f.e.set(node, NiSwitchNode::m_iIndex, 0);
+        f.e.register_double(UPDATE_OBJECT_CONTROLLERS, move |e, _| {
+            e.set(node, NiSwitchNode::m_iIndex, 1);
+            Ret::default()
+        });
+        f.log();
+        ni_switch_node_update_controllers(&mut f.e, node, 0x600);
+        let log = f.take_log();
+        assert!(log
+            .iter()
+            .any(|(_, words)| words.first() == Some(&kids[1]) && words.get(1) == Some(&0x600)));
+        assert!(!log.iter().any(|(_, words)| words.first() == Some(&kids[0])));
     }
 
     #[test]

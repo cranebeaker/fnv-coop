@@ -14,9 +14,9 @@ const REGISTER_STREAMABLES_TARGET_00A5D2F0: u32 = 0x00a5_d2f0;
 /// tail-jumps through slot 0x24 of the argument's vtable). Returns the `bool` in `AL`: Xbox
 /// PDB `?RegisterStreamables@NiObject@@UAA_NAAVNiStream@@@Z` returns `_N`; `stream` is the
 /// `NiStream` reference as an address. Parameter count from the `RET 4` of both bodies.
-pub fn bs_node_references_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn bs_node_references_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     e.call(REGISTER_STREAMABLES_TARGET_00A5D2F0, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 /// The global memory manager (`011f6238`), its `Allocate` (`00aa3e40`, `thiscall`,
@@ -260,7 +260,7 @@ pub fn bs_node_references_save_binary(e: &mut Engine, this: Ptr, stream: u32) {
 /// This unit's translated functions, by exe address.
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
-        entry!(0x00c6_4b70, bs_node_references_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00c6_4b70, bs_node_references_register_streamables(Ptr, Ptr) -> u8),
         entry!(0x00c6_4780, bs_reference_set_name(Ptr, u32)),
         entry!(0x00c6_4810, fn_00c64810() -> u32),
         entry!(0x00c6_48a0, bs_reference_load_binary(Ptr, u32)),

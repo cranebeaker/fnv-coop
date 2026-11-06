@@ -1400,7 +1400,7 @@ pub fn fn_00525750(
     this: Ptr,
     first: u32,
     object: u32,
-    flag: bool,
+    flag: u8,
     third: u32,
     fourth: u32,
 ) -> u32 {
@@ -3797,7 +3797,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00525700,
             tes_object_weap_get_fire_node(Ptr<TesObjectWeap>, Ptr) -> Ptr
         ),
-        entry!(0x00525750, fn_00525750(Ptr, u32, u32, bool, u32, u32) -> u32),
+        entry!(0x00525750, fn_00525750(Ptr, u32, u32, u8, u32, u32) -> u32),
         entry!(0x005257a0, fn_005257a0(Ptr<TesObjectWeap>, Ptr, Ptr) -> Ptr),
         entry!(
             0x00525980,

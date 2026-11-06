@@ -961,12 +961,12 @@ pub fn fn_009b46c0(e: &mut Engine, this: Ptr) {
 // Translated from 009b4700 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map (`thiscall`, `RET 8`): `009c43e0` with `first` and the byte
 /// `flag`, then slot `+0x30c`; returns `009c43e0`'s byte.
-pub fn fn_009b4700(e: &mut Engine, this: Ptr, first: u32, flag: u8) -> bool {
+pub fn fn_009b4700(e: &mut Engine, this: Ptr, first: u32, flag: u8) -> u8 {
     let result = e
         .call(PROJECTILE_009C43E0, &args![this, first, u32::from(flag)])
         .u8();
     e.vcall(this.addr(), 0x30c, &[]);
-    result != 0
+    result
 }
 
 // Translated from 009b4740 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1244,7 +1244,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x009b_4670, fn_009b4670(Ptr, u32)),
         entry!(0x009b_46c0, fn_009b46c0(Ptr)),
-        entry!(0x009b_4700, fn_009b4700(Ptr, u32, u8) -> bool),
+        entry!(0x009b_4700, fn_009b4700(Ptr, u32, u8) -> u8),
         entry!(0x009b_4740, fn_009b4740(Ptr) -> bool),
         entry!(0x009b_4950, fn_009b4950(Ptr, u32)),
         entry!(

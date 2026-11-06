@@ -1746,15 +1746,15 @@ pub fn fn_0061d710(e: &mut Engine, this: Ptr, form: u32) -> bool {
 /// byte set the topic's vtable slot 0x110 answers (the condition and both bytes); when that
 /// is false and the condition's word at +0xC is 7, `00485be0` with its word at +8 can make it
 /// true.
-pub fn fn_0061d820(e: &mut Engine, this: Ptr, condition: u32, check: u8, extra: u8) -> bool {
+pub fn fn_0061d820(e: &mut Engine, this: Ptr, condition: u32, check: u8, extra: u8) -> u8 {
     if condition == 0 || e.mem.u32(condition) != e.global::<u32>(CONDITION_VTABLE_WORD) {
-        return false;
+        return 0;
     }
     let topic = owner_topic(e, this.addr());
     if topic == 0 {
-        return false;
+        return 0;
     }
-    let mut result = false;
+    let mut result = 0;
     if check != 0 {
         result = e
             .vcall(
@@ -1762,12 +1762,12 @@ pub fn fn_0061d820(e: &mut Engine, this: Ptr, condition: u32, check: u8, extra: 
                 0x110,
                 &args![condition, u32::from(check), u32::from(extra)],
             )
-            .bool();
+            .u8();
     }
-    if !result && e.mem.u32(condition.wrapping_add(0xc)) == 7 {
+    if result == 0 && e.mem.u32(condition.wrapping_add(0xc)) == 7 {
         let id = e.mem.u32(condition.wrapping_add(8));
         if e.call(FORM_TEST_485BE0, &args![topic, id]).bool() {
-            result = true;
+            result = 1;
         }
     }
     result
@@ -2065,7 +2065,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0061_cdc0, fn_0061cdc0(Ptr, u8)),
         entry!(0x0061_d6a0, fn_0061d6a0(Ptr, u8)),
         entry!(0x0061_d710, fn_0061d710(Ptr, u32) -> bool),
-        entry!(0x0061_d820, fn_0061d820(Ptr, u32, u8, u8) -> bool),
+        entry!(0x0061_d820, fn_0061d820(Ptr, u32, u8, u8) -> u8),
         entry!(0x0061_d8c0, fn_0061d8c0(Ptr, u32, u32)),
         entry!(
             0x0061_d950,

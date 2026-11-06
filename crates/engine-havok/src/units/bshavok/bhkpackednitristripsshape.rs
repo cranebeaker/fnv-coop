@@ -316,12 +316,12 @@ pub fn bhk_packed_ni_tri_strips_shape_register_streamables(
     e: &mut Engine,
     this: Ptr<BhkPackedNiTriStripsShape>,
     stream: Ptr,
-) -> bool {
+) -> u8 {
     let havok = havok_of(e, this.addr());
     let data = e.mem.u32(havok + 0x84);
     e.vcall(data, 0x54, &args![stream]);
     e.call(OBJECT_REGISTER_STREAMABLES, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 // Translated from 00ca54f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -906,7 +906,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             bhk_packed_ni_tri_strips_shape_register_streamables(
                 Ptr<BhkPackedNiTriStripsShape>,
                 Ptr,
-            ) -> bool
+            ) -> u8
         ),
         entry!(
             0x00ca54f0,

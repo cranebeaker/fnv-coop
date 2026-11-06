@@ -141,8 +141,8 @@ pub fn fn_00c61490(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
 // Translated from 00c614e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `BSWArray` `IsEqual` (unnamed in the engine map; `thiscall`, `RET 4`): the byte
 /// `NiIntegersExtraData::IsEqual` (`00a998e0`) answers.
-pub fn fn_00c614e0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(INTEGERS_IS_EQUAL, &args![this, other]).u8() != 0
+pub fn fn_00c614e0(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(INTEGERS_IS_EQUAL, &args![this, other]).u8()
 }
 
 // Translated from 00c61510 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -170,7 +170,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c6_1420, fn_00c61420(Ptr, u32) -> Ptr),
         entry!(0x00c6_1430, fn_00c61430(Ptr, Ptr, Ptr)),
         entry!(0x00c6_1490, fn_00c61490(Ptr, Ptr) -> bool),
-        entry!(0x00c6_14e0, fn_00c614e0(Ptr, Ptr) -> bool),
+        entry!(0x00c6_14e0, fn_00c614e0(Ptr, Ptr) -> u8),
         entry!(0x00c6_1510, fn_00c61510() -> u32),
         entry!(0x00c6_1450, fn_00c61450(Ptr, Ptr)),
         entry!(0x00c6_1470, fn_00c61470(Ptr, Ptr)),

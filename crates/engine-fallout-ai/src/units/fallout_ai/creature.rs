@@ -232,10 +232,12 @@ pub fn fn_008d4840(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 // Translated from 008d4870 (decompiled, FalloutNV.exe 1.4.0.525)
 /// On the creature's actor value owner (`this`, at +0xA4; `thiscall`, one
 /// word; no Xbox PDB name): `008805f0` with the actor value mapped by
-/// [`fn_008d4a80`].
-pub fn fn_008d4870(e: &mut Engine, this: Ptr, index: u32) -> u32 {
+/// [`fn_008d4a80`]. The answer is `008805f0`'s float: the exe has nothing
+/// between that call and its `RET 4`, so `ST0` goes back to the caller as it
+/// came. This is slot `+0xC` of the owner, the current actor value.
+pub fn fn_008d4870(e: &mut Engine, this: Ptr, index: u32) -> f64 {
     let mapped = fn_008d4a80(e, Ptr::new(this.addr().wrapping_sub(0xa4)), index);
-    e.call(OWNER_CALL_008805F0, &args![this, mapped]).u32()
+    e.call(OWNER_CALL_008805F0, &args![this, mapped]).f64()
 }
 
 // Translated from 008d4930 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -530,7 +532,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008d_47d0, fn_008d47d0(Ptr, u32, u8)),
         entry!(0x008d_47f0, fn_008d47f0(Ptr) -> f32),
         entry!(0x008d_4840, fn_008d4840(Ptr, u32) -> u32),
-        entry!(0x008d_4870, fn_008d4870(Ptr, u32) -> u32),
+        entry!(0x008d_4870, fn_008d4870(Ptr, u32) -> f64),
         entry!(0x008d_4930, fn_008d4930(Ptr, u32, f32, u32) -> u32),
         entry!(0x008d_4a80, fn_008d4a80(Ptr, u32) -> u32),
         entry!(0x008d_4ab0, fn_008d4ab0(Ptr, u32) -> bool),
@@ -762,13 +764,37 @@ mod creature_tests {
         let mut e = Engine::new();
         mapping_double(&mut e);
         e.register(OWNER_CALL_00880580, |_, a| word(a[1] + 1));
-        e.register(OWNER_CALL_008805F0, |_, a| word(a[1] + 2));
+        e.register(OWNER_CALL_008805F0, |_, a| st0(f64::from(a[1] + 2)));
         e.call_log = Some(vec![]);
         assert_eq!(e.call(0x008d_4840, &args![0x1a4u32, 0x10u32]).u32(), 0x2e);
         let log = calls(&mut e);
         assert_eq!(log[0], (ACTOR_VALUE_HAS_FLAGS, vec![0x10, 0x400]));
         assert_eq!(log[1], (OWNER_CALL_00880580, vec![0x1a4, 0x2d]));
-        assert_eq!(e.call(0x008d_4870, &args![0x1a4u32, 0x11u32]).u32(), 0x13);
+        assert_eq!(e.call(0x008d_4870, &args![0x1a4u32, 0x11u32]).f64(), 19.0);
+    }
+
+    /// 008d4870 (slot +0xC of the creature's actor value owner) has no store between its call
+    /// and its RET, so the current actor value comes back in ST0. Read through the real entries
+    /// 00893530 -> 008d4870 -> 008805f0, as 00972bb0 does for a creature after a cell load: a
+    /// creature at full fatigue has a share of 1, not 0.
+    #[test]
+    fn a_creature_s_fatigue_share_comes_through_the_real_owner_slot() {
+        const VALUE: u32 = 0x0001_0100;
+        let mut e = Engine::new();
+        e.register(ACTOR_VALUE_HAS_FLAGS, |_, _| word(0));
+        // No process, so 008805f0 asks the owner's slot +0, which answers an integer: 80.
+        e.register(VALUE, |_, _| word(80));
+        let actor = e.mem.alloc(0x400);
+        let owner = actor + 0xa4;
+        let table = e.mem.alloc(0x40);
+        e.mem.set_u32(table, VALUE);
+        e.mem.set_u32(table + 0xc, 0x008d_4870);
+        e.mem.set_u32(owner, table);
+        assert_eq!(e.call(0x008d_4870, &args![owner, 0x16u32]).f64(), 80.0);
+        assert_eq!(
+            e.call(ACTOR_GET_FATIGUE_PERCENTAGE, &args![actor]).f64(),
+            1.0
+        );
     }
 
     #[test]

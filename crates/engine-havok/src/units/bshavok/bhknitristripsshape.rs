@@ -286,8 +286,8 @@ pub fn bhk_ni_tri_strips_shape_destructor(e: &mut Engine, this: Ptr<BhkNiTriStri
 /// `bhkNiTriStripsShape::CanShare` (the slot `+0xD0` of the vtable `010c771c` holds this
 /// function): a 5-byte jump to `00c84ec0` (engine map: `bhkShape::CanShare`), which takes its
 /// object on the stack; the stack words and `this` are passed on and its result returned.
-pub fn bhk_ni_tri_strips_shape_can_share(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(SHAPE_CAN_SHARE, &args![this, other]).bool()
+pub fn bhk_ni_tri_strips_shape_can_share(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(SHAPE_CAN_SHARE, &args![this, other]).u8()
 }
 
 // Translated from 00ca6620 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1028,7 +1028,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             bhk_ni_tri_strips_shape_destructor(Ptr<BhkNiTriStripsShape>)
         ),
         entry!(0x00ca6600, bhk_ni_tri_strips_shape_get_r_t_t_i() -> u32),
-        entry!(0x00ca6610, bhk_ni_tri_strips_shape_can_share(Ptr, Ptr) -> bool),
+        entry!(0x00ca6610, bhk_ni_tri_strips_shape_can_share(Ptr, Ptr) -> u8),
         entry!(0x00ca6620, fn_00ca6620(Ptr) -> f32),
         entry!(0x00ca6650, bhk_ni_tri_strips_shape_scalar_deleting_destructor(Ptr, u32) -> Ptr),
         entry!(0x00ca6670, fn_00ca6670() -> Ptr<BhkNiTriStripsShape>),

@@ -29,9 +29,9 @@ const REGISTER_STREAMABLES_TARGET_00C31670: u32 = 0x00c3_1670;
 /// Returns the `bool` in `AL`: Xbox PDB `?RegisterStreamables@NiObject@@UAA_NAAVNiStream@@@Z`
 /// returns `_N`; `stream` is the `NiStream` reference as an address. Parameter count from the
 /// `RET 4` of both bodies.
-pub fn fn_00c63950(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn fn_00c63950(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     e.call(REGISTER_STREAMABLES_TARGET_00C31670, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 // Translated from 00c63aa0 (PC disassembly, FalloutNV.exe 1.4.0.525).
@@ -382,7 +382,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x00c6_3aa0, fn_00c63aa0(Ptr) -> u32),
         entry!(0x00c6_3930, fn_00c63930(Ptr, Ptr)),
-        entry!(0x00c6_3950, fn_00c63950(Ptr, Ptr) -> bool),
+        entry!(0x00c6_3950, fn_00c63950(Ptr, Ptr) -> u8),
         entry!(0x00c63330, fn_00c63330(Ptr) -> Ptr),
         entry!(0x00c63880, fn_00c63880() -> Ptr),
         entry!(0x00c63840, fn_00c63840(Ptr, Ptr, Ptr)),

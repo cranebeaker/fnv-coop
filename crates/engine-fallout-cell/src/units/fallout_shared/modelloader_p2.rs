@@ -3661,7 +3661,8 @@ pub fn fn_00444dc0(
         .u32();
     let mut lod_mult = e.call(GET_LOD_MULT, &args![form]).u32();
     if !reference.is_null()
-        && (e.call(REFERENCE_TEST_00564E60, &args![reference]).bool() || fn_00444ed0(e, reference))
+        && (e.call(REFERENCE_TEST_00564E60, &args![reference]).bool()
+            || fn_00444ed0(e, reference) != 0)
     {
         lod_mult = 6;
     }
@@ -3692,13 +3693,13 @@ pub fn fn_00444dc0(
 /// `TESObjectREFR` helper (no name in the engine map): the object that
 /// `00891170` finds in the reference (`this + 0x20`) holds a pointer; its
 /// virtual function `0x154` is the answer, false when the pointer is 0.
-pub fn fn_00444ed0(e: &mut Engine, this: Ptr) -> bool {
+pub fn fn_00444ed0(e: &mut Engine, this: Ptr) -> u8 {
     let slot = e.call(REFERENCE_PROCESS_SLOT, &args![this]).u32();
     let object = e.mem.u32(slot);
     if object == 0 {
-        false
+        0
     } else {
-        e.vcall(object, 0x154, &args![]).bool()
+        e.vcall(object, 0x154, &args![]).u8()
     }
 }
 
@@ -3984,10 +3985,12 @@ pub fn model_loader_cancel_references_for_cell(e: &mut Engine, this: Ptr<ModelLo
 // Translated from 00445750 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `ModelLoader` method (no name in the engine map): whether the map of queued
 /// references (`+8`) has a task for `reference`.
-pub fn fn_00445750(e: &mut Engine, this: Ptr<ModelLoader>, reference: Ptr) -> bool {
+pub fn fn_00445750(e: &mut Engine, this: Ptr<ModelLoader>, reference: Ptr) -> u8 {
     with_task_pointer(e, 0, |e, holder| {
         let queued_map = e.get(this, ModelLoader::pQueuedReferencesMap);
-        map_find(e, queued_map, reference.addr(), holder)
+        // The map's `Find` (virtual function `0x8`), its byte kept (004457a4) and returned.
+        e.vcall(queued_map.addr(), 0x8, &args![reference.addr(), holder])
+            .u8()
     })
 }
 
@@ -4267,7 +4270,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00444dc0,
             fn_00444dc0(Ptr<ModelLoader>, Ptr, Ptr, u32, Ptr, Ptr)
         ),
-        entry!(0x00444ed0, fn_00444ed0(Ptr) -> bool),
+        entry!(0x00444ed0, fn_00444ed0(Ptr) -> u8),
         entry!(0x00444f10, fn_00444f10(Ptr<ModelLoader>, u32, u32, u32)),
         entry!(
             0x00444fe0,
@@ -4299,7 +4302,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00445670,
             model_loader_cancel_references_for_cell(Ptr<ModelLoader>, Ptr)
         ),
-        entry!(0x00445750, fn_00445750(Ptr<ModelLoader>, Ptr) -> bool),
+        entry!(0x00445750, fn_00445750(Ptr<ModelLoader>, Ptr) -> u8),
     ]
 }
 

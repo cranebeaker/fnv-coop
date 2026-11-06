@@ -192,8 +192,8 @@ fn filter_info_of(e: &Engine, collidable: u32) -> u32 {
 /// Compares two filter infos (`00c84740`), stores the answer as a byte at `out` and answers
 /// `out`.
 fn answer(e: &mut Engine, out: Ptr, first: u32, second: u32) -> Ptr {
-    let enabled = e.call(IS_COLLISION_ENABLED, &args![first, second]).bool();
-    e.mem.set_u8(out.addr(), enabled as u8);
+    let enabled = e.call(IS_COLLISION_ENABLED, &args![first, second]).u8();
+    e.mem.set_u8(out.addr(), enabled);
     out
 }
 

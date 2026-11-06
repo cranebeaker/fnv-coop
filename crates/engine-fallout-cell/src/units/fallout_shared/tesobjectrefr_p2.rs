@@ -880,28 +880,28 @@ pub fn fn_00565670(e: &mut Engine, key: u32) -> bool {
 // Translated from 00565690 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The base form's virtual at `+0x94` (no stack words), false without a base
 /// form. Not named in the Xbox PDB.
-pub fn fn_00565690(e: &mut Engine, this: Ptr<TESObjectREFR>) -> bool {
+pub fn fn_00565690(e: &mut Engine, this: Ptr<TESObjectREFR>) -> u8 {
     if e.call(GET_BASE_FORM, &args![this]).u32() != 0 {
         let base = e.call(GET_BASE_FORM, &args![this]).u32();
-        return e.vcall(base, 0x94, &args![]).bool();
+        return e.vcall(base, 0x94, &args![]).u8();
     }
-    false
+    0
 }
 
 // Translated from 005656d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// True when `004826d0` accepts the base form, or when the reference has a
 /// container (`0055d310`) whose inventory changes (`004bf220`, cdecl) report
 /// `004d0490`. Not named in the Xbox PDB.
-pub fn fn_005656d0(e: &mut Engine, this: Ptr<TESObjectREFR>) -> bool {
+pub fn fn_005656d0(e: &mut Engine, this: Ptr<TESObjectREFR>) -> u8 {
     let base = e.call(GET_BASE_FORM, &args![this]).u32();
     if e.call(0x0048_26d0, &args![base]).u32() != 0 {
-        return true;
+        return 1;
     }
     if e.call(0x0055_d310, &args![this]).u32() != 0 {
         let changes = e.call(0x004b_f220, &args![this]).u32();
-        return e.call(0x004d_0490, &args![changes]).bool();
+        return e.call(0x004d_0490, &args![changes]).u8();
     }
-    false
+    0
 }
 
 // Translated from 00565730 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4431,8 +4431,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             tes_object_refr_has_time_controllers(Ptr) -> bool
         ),
         entry!(0x00565670, fn_00565670(u32) -> bool),
-        entry!(0x00565690, fn_00565690(Ptr<TESObjectREFR>) -> bool),
-        entry!(0x005656d0, fn_005656d0(Ptr<TESObjectREFR>) -> bool),
+        entry!(0x00565690, fn_00565690(Ptr<TESObjectREFR>) -> u8),
+        entry!(0x005656d0, fn_005656d0(Ptr<TESObjectREFR>) -> u8),
         entry!(0x00565730, tes_object_refr_init_script(Ptr<TESObjectREFR>)),
         entry!(
             0x00565870,

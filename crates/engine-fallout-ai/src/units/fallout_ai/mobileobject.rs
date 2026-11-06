@@ -62,7 +62,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0092f140, fn_0092f140(Ptr) -> Ptr),
         entry!(
             0x0092f160,
-            mobile_object_is_talking(Ptr<MobileObject>) -> bool
+            mobile_object_is_talking(Ptr<MobileObject>) -> u8
         ),
         entry!(0x0092f190, fn_0092f190(Ptr<MobileObject>)),
         entry!(0x0092f1c0, fn_0092f1c0(Ptr<MobileObject>, u32)),
@@ -482,9 +482,9 @@ pub fn fn_0092f140(e: &mut Engine, this: Ptr) -> Ptr {
 // Translated from 0092f160 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MobileObject::IsTalking` (Xbox PDB): forwards the object as one argument
 /// to the current process' virtual method at slot 0x4B8.
-pub fn mobile_object_is_talking(e: &mut Engine, this: Ptr<MobileObject>) -> bool {
+pub fn mobile_object_is_talking(e: &mut Engine, this: Ptr<MobileObject>) -> u8 {
     let process = e.get(this, MobileObject::pCurrentProcess);
-    e.vcall(process.addr(), 0x4b8, &args![this]).bool()
+    e.vcall(process.addr(), 0x4b8, &args![this]).u8()
 }
 
 // Translated from 0092f190 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5483,7 +5483,7 @@ mod tests {
         virtual_slot(&mut e, 0x2000, 0x3000, 0x4b8, 0x6000);
         stub(&mut e, 0x6000, 1);
         e.call_log = Some(vec![]);
-        assert!(mobile_object_is_talking(&mut e, this));
+        assert!(mobile_object_is_talking(&mut e, this) != 0);
         assert_eq!(e.call_log.unwrap().last().unwrap().1, vec![0x2000, 0x1000]);
     }
 

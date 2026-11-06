@@ -544,7 +544,7 @@ pub fn fn_00d07720(e: &mut Engine, this: Ptr) {
 /// rounded down to a multiple of `0x80`; `00d27f70` constructs the array object (8 bytes:
 /// the state pointer and the count; it writes `0xffffffff` through the state's word);
 /// the allocator's top is restored afterwards. Returns the answer of `00d074c0` (`AL`).
-pub fn fn_00d077d0(e: &mut Engine, this: Ptr<HkpSimulationIsland>) -> bool {
+pub fn fn_00d077d0(e: &mut Engine, this: Ptr<HkpSimulationIsland>) -> u8 {
     let island = this.addr();
     let count = e.mem.u32(island + 0x4c);
     let router = e.call(MEMORY_ROUTER, &args![]).u32();
@@ -561,7 +561,7 @@ pub fn fn_00d077d0(e: &mut Engine, this: Ptr<HkpSimulationIsland>) -> bool {
     });
     let router = e.call(MEMORY_ROUTER, &args![]).u32();
     e.mem.set_u32(router, top);
-    answer != 0
+    answer
 }
 
 // Translated from 00d074c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -789,7 +789,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             hkp_simulation_island_calc_content_statistics(Ptr<HkpSimulationIsland>, Ptr, u32)
         ),
         entry!(0x00d0_7720, fn_00d07720(Ptr)),
-        entry!(0x00d0_77d0, fn_00d077d0(Ptr<HkpSimulationIsland>) -> bool),
+        entry!(0x00d0_77d0, fn_00d077d0(Ptr<HkpSimulationIsland>) -> u8),
         entry!(0x00d0_78e0, deleting_destructor_00d078e0(Ptr, u8) -> Ptr),
         entry!(0x00d0_74c0, fn_00d074c0(u32, u32) -> bool),
     ]

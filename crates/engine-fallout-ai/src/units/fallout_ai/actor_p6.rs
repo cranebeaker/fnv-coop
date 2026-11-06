@@ -978,39 +978,39 @@ pub fn fn_008ba2f0(e: &mut Engine, owner: Ptr, _unused_1: u32, threshold: f32) {
 // Translated from 008ba3e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The process's virtual `+0x6f4` (a flag test), or false without a
 /// process.
-pub fn fn_008ba3e0(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn fn_008ba3e0(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     process_flag_test(e, this, 0x6f4)
 }
 
 // Translated from 008ba410 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The process's virtual `+0x6ec` (a flag test), or false without a
 /// process.
-pub fn fn_008ba410(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn fn_008ba410(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     process_flag_test(e, this, 0x6ec)
 }
 
 // Translated from 008ba440 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Actor::IsHeavyBodyArmorWorn` (Xbox PDB): the process's virtual `+0x6e8`,
 /// or false without a process.
-pub fn actor_is_heavy_body_armor_worn(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn actor_is_heavy_body_armor_worn(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     process_flag_test(e, this, 0x6e8)
 }
 
 // Translated from 008ba470 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The process's virtual `+0x6f0` (a flag test), or false without a
 /// process.
-pub fn fn_008ba470(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn fn_008ba470(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     process_flag_test(e, this, 0x6f0)
 }
 
 /// The four getters above: false without a process, else the process's
 /// virtual `slot` (a `bool` in `AL`).
-fn process_flag_test(e: &mut Engine, this: Ptr<Actor>, slot: u32) -> bool {
+fn process_flag_test(e: &mut Engine, this: Ptr<Actor>, slot: u32) -> u8 {
     let process = process_of(e, this.addr());
     if process == 0 {
-        return false;
+        return 0;
     }
-    e.vcall(process, slot, &args![]).bool()
+    e.vcall(process, slot, &args![]).u8()
 }
 
 /// The pending-animation bits `IsAnimIdleQuequed` tests: `0x4`, `0x8`,
@@ -1468,7 +1468,7 @@ fn equip_or_reload(e: &mut Engine, this: Ptr<Actor>, animation: u32, equipped_fo
         return;
     }
     let first = fn_008ba3e0(e, this);
-    let flag = first || fn_008ba410(e, this);
+    let flag = first != 0 || fn_008ba410(e, this) != 0;
     let packed = e
         .call(
             PACK_ANIM_GROUP,
@@ -1605,7 +1605,7 @@ fn equip_weapon(e: &mut Engine, this: Ptr<Actor>, animation: u32, equipped: u32,
 /// (`ActorMover::RequestRotateActor`), unless the actor cannot move
 /// (`Actor::CanMove`; answers true) or its process has an entry with
 /// `008bb5a0` set (answers true).
-pub fn fn_008bb520(e: &mut Engine, this: Ptr<Actor>, x: f32, y: f32, z: f32, flag: bool) -> bool {
+pub fn fn_008bb520(e: &mut Engine, this: Ptr<Actor>, x: f32, y: f32, z: f32, flag: u8) -> bool {
     if !e.call(ACTOR_CAN_MOVE, &args![this]).bool() {
         return true;
     }
@@ -1641,7 +1641,7 @@ pub fn fn_008bb5a0(e: &mut Engine, this: Ptr) -> u32 {
 // Translated from 008bb5c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Like `008bb520` with an angle instead of a vector:
 /// `ActorMover::RequestRotateActor_ov2`.
-pub fn fn_008bb5c0(e: &mut Engine, this: Ptr<Actor>, angle: f32, flag: bool) -> bool {
+pub fn fn_008bb5c0(e: &mut Engine, this: Ptr<Actor>, angle: f32, flag: u8) -> bool {
     if !e.call(ACTOR_CAN_MOVE, &args![this]).bool() {
         return true;
     }
@@ -1930,9 +1930,9 @@ fn player_pointer(e: &Engine) -> u32 {
 /// `Actor::SetPathfindingFlee` (Xbox PDB; `bool` there): forwards its word to
 /// the actor mover (`Actor + 0x190`) and answers the mover's value (the exe
 /// ends on that call and leaves its `EAX`; the callers test `AL`).
-pub fn actor_set_pathfinding_flee(e: &mut Engine, this: Ptr<Actor>, value: u32) -> bool {
+pub fn actor_set_pathfinding_flee(e: &mut Engine, this: Ptr<Actor>, value: u32) -> u8 {
     let mover = e.get(this, Actor::pActorMover);
-    e.call(ACTOR_MOVER_SET_FLEE, &args![mover, value]).bool()
+    e.call(ACTOR_MOVER_SET_FLEE, &args![mover, value]).u8()
 }
 
 // Translated from 008bbbd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2622,10 +2622,9 @@ pub fn actor_add_follower(e: &mut Engine, this: Ptr<Actor>, follower: u32) {
 /// Calls `00422550` with the word on the reference's extra data list and
 /// answers its value (the exe ends on that call and leaves its `EAX`; the
 /// callers test `AL`).
-pub fn fn_008bc7d0(e: &mut Engine, this: Ptr, value: u32) -> bool {
+pub fn fn_008bc7d0(e: &mut Engine, this: Ptr, value: u32) -> u8 {
     let list = e.call(EXTRA_LIST_OF_REFERENCE, &args![this]).u32();
-    e.call(EXTRA_LIST_REMOVE_00422550, &args![list, value])
-        .bool()
+    e.call(EXTRA_LIST_REMOVE_00422550, &args![list, value]).u8()
 }
 
 /// True when the package's type number (`0041ca90`) is `1` or `7` (the
@@ -4122,13 +4121,10 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008ba270, fn_008ba270(Ptr)),
         entry!(0x008ba2b0, fn_008ba2b0(Ptr)),
         entry!(0x008ba2f0, fn_008ba2f0(Ptr, u32, f32)),
-        entry!(0x008ba3e0, fn_008ba3e0(Ptr<Actor>) -> bool),
-        entry!(0x008ba410, fn_008ba410(Ptr<Actor>) -> bool),
-        entry!(
-            0x008ba440,
-            actor_is_heavy_body_armor_worn(Ptr<Actor>) -> bool
-        ),
-        entry!(0x008ba470, fn_008ba470(Ptr<Actor>) -> bool),
+        entry!(0x008ba3e0, fn_008ba3e0(Ptr<Actor>) -> u8),
+        entry!(0x008ba410, fn_008ba410(Ptr<Actor>) -> u8),
+        entry!(0x008ba440, actor_is_heavy_body_armor_worn(Ptr<Actor>) -> u8),
+        entry!(0x008ba470, fn_008ba470(Ptr<Actor>) -> u8),
         entry!(0x008ba4a0, actor_is_anim_idle_quequed(Ptr<Actor>) -> bool),
         entry!(
             0x008ba530,
@@ -4137,13 +4133,13 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008ba600, fn_008ba600(Ptr<Actor>)),
         entry!(
             0x008bb520,
-            fn_008bb520(Ptr<Actor>, f32, f32, f32, bool) -> bool
+            fn_008bb520(Ptr<Actor>, f32, f32, f32, u8) -> bool
         ),
         entry!(0x008bb5a0, fn_008bb5a0(Ptr) -> u32),
-        entry!(0x008bb5c0, fn_008bb5c0(Ptr<Actor>, f32, bool) -> bool),
+        entry!(0x008bb5c0, fn_008bb5c0(Ptr<Actor>, f32, u8) -> bool),
         entry!(
             0x008bb630,
-            actor_set_pathfinding_flee(Ptr<Actor>, u32) -> bool
+            actor_set_pathfinding_flee(Ptr<Actor>, u32) -> u8
         ),
         entry!(0x008bb650, actor_set_iron_sights(Ptr<Actor>, u8, u8, u8)),
         entry!(0x008bbbd0, fn_008bbbd0(Ptr) -> u8),
@@ -4178,7 +4174,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x008bc750, fn_008bc750(Ptr, u32, u8)),
         entry!(0x008bc790, actor_add_follower(Ptr<Actor>, u32)),
-        entry!(0x008bc7d0, fn_008bc7d0(Ptr, u32) -> bool),
+        entry!(0x008bc7d0, fn_008bc7d0(Ptr, u32) -> u8),
         entry!(0x008bc7f0, actor_is_following_ov2(Ptr<Actor>, u32) -> bool),
         entry!(
             0x008bc860,
@@ -5275,7 +5271,7 @@ mod tests {
 
     #[test]
     fn process_flag_getters() {
-        type Getter = fn(&mut Engine, Ptr<Actor>) -> bool;
+        type Getter = fn(&mut Engine, Ptr<Actor>) -> u8;
         let cases: [(Getter, u32); 4] = [
             (fn_008ba3e0, 0x6f4),
             (fn_008ba410, 0x6ec),
@@ -5285,12 +5281,13 @@ mod tests {
         for (getter, offset) in cases {
             let mut e = engine();
             let actor = new_actor(&mut e);
-            assert!(!getter(&mut e, actor));
+            assert_eq!(getter(&mut e, actor), 0);
             with_process(&mut e, actor);
             slot(&mut e, PROCESS_TABLE, offset, eax(0));
-            assert!(!getter(&mut e, actor));
-            slot(&mut e, PROCESS_TABLE, offset, eax(1));
-            assert!(getter(&mut e, actor));
+            assert_eq!(getter(&mut e, actor), 0);
+            // `AL` of the slot as it is.
+            slot(&mut e, PROCESS_TABLE, offset, eax(0x142));
+            assert_eq!(getter(&mut e, actor), 0x42);
         }
     }
 
@@ -6018,7 +6015,10 @@ mod tests {
     fn rotate_request_goes_to_the_actor_mover() {
         let (mut e, actor) = rotate_setup(true, 0, 0);
         e.call_log = Some(vec![]);
-        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, true));
+        // 8bb56f, 8bb60f: the argument byte goes on as it is.
+        assert!(e
+            .call(0x008b_b520, &args![actor, 1.0f32, 2.0f32, 3.0f32, 0x2au32])
+            .bool());
         assert_eq!(
             calls_to(&e, REQUEST_ROTATE_ACTOR),
             [vec![
@@ -6026,13 +6026,13 @@ mod tests {
                 1.0f32.to_bits(),
                 2.0f32.to_bits(),
                 3.0f32.to_bits(),
-                1
+                0x2a
             ]]
         );
-        assert!(!fn_008bb5c0(&mut e, actor, 0.5, false));
+        assert!(!e.call(0x008b_b5c0, &args![actor, 0.5f32, 0x2au32]).bool());
         assert_eq!(
             calls_to(&e, REQUEST_ROTATE_ACTOR_OV2),
-            [vec![0x7700, 0.5f32.to_bits(), 0]]
+            [vec![0x7700, 0.5f32.to_bits(), 0x2a]]
         );
     }
 
@@ -6041,20 +6041,20 @@ mod tests {
         // Cannot move.
         let (mut e, actor) = rotate_setup(false, 0, 0);
         e.call_log = Some(vec![]);
-        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, true));
-        assert!(fn_008bb5c0(&mut e, actor, 0.5, false));
+        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, 1));
+        assert!(fn_008bb5c0(&mut e, actor, 0.5, 0));
         assert!(calls_to(&e, REQUEST_ROTATE_ACTOR).is_empty());
         assert!(calls_to(&e, REQUEST_ROTATE_ACTOR_OV2).is_empty());
         // The process blocks (flag +0x28 clear and word +0x2ac set).
         let (mut e, actor) = rotate_setup(true, 0, 9);
         e.call_log = Some(vec![]);
-        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, true));
-        assert!(fn_008bb5c0(&mut e, actor, 0.5, false));
+        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, 1));
+        assert!(fn_008bb5c0(&mut e, actor, 0.5, 0));
         assert!(calls_to(&e, REQUEST_ROTATE_ACTOR).is_empty());
         // Flag +0x28 set: the request goes through.
         let (mut e, actor) = rotate_setup(true, 1, 9);
         e.call_log = Some(vec![]);
-        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, true));
+        assert!(fn_008bb520(&mut e, actor, 1.0, 2.0, 3.0, 1));
         assert_eq!(calls_to(&e, REQUEST_ROTATE_ACTOR).len(), 1);
     }
 

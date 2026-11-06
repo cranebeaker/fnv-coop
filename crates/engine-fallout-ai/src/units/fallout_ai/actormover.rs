@@ -915,7 +915,7 @@ fn pathing_shortcut(
     let mut result = true;
     if e.call(REQUEST_FACE_TARGET_AT_GOAL, &args![request]).bool() {
         let angle = e.call(REQUEST_GOAL_ANGLE, &args![request]).f32();
-        result = actor_mover_request_rotate_actor_ov2(e, this, angle, true);
+        result = actor_mover_request_rotate_actor_ov2(e, this, angle, 1);
     }
     Some(result)
 }
@@ -1808,7 +1808,7 @@ pub fn actor_mover_request_rotate_actor(
     x: f32,
     y: f32,
     z: f32,
-    flag: bool,
+    flag: u8,
 ) -> bool {
     let actor = e.get(this, ActorMover::pActor).addr();
     let position = e.vcall(actor, 0x1f4, &[]).u32();
@@ -1821,7 +1821,7 @@ pub fn actor_mover_request_rotate_actor(
         e.mem.set_f32(point, x);
         e.mem.set_f32(point + 4, y);
         e.mem.set_f32(point + 8, z);
-        e.mem.set_u8(point + 0xc, u8::from(flag));
+        e.mem.set_u8(point + 0xc, flag);
         e.call(POINT_SUBTRACT, &args![point, difference, position]);
         e.call(Z_ANGLE_FROM_VECTOR, &args![difference]).f32()
     });
@@ -1840,7 +1840,7 @@ pub fn actor_mover_request_rotate_actor_ov2(
     e: &mut Engine,
     this: Ptr<ActorMover>,
     angle: f32,
-    flag: bool,
+    flag: u8,
 ) -> bool {
     let mut result = false;
     actor_mover_clear_data_for_new_pathing_request(e, this, true);
@@ -3466,11 +3466,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x009dcdb0, actor_mover_is_pathing(Ptr<ActorMover>) -> bool),
         entry!(
             0x009dce20,
-            actor_mover_request_rotate_actor(Ptr<ActorMover>, f32, f32, f32, bool) -> bool
+            actor_mover_request_rotate_actor(Ptr<ActorMover>, f32, f32, f32, u8) -> bool
         ),
         entry!(
             0x009dce80,
-            actor_mover_request_rotate_actor_ov2(Ptr<ActorMover>, f32, bool) -> bool
+            actor_mover_request_rotate_actor_ov2(Ptr<ActorMover>, f32, u8) -> bool
         ),
         entry!(0x009dd0a0, actor_mover_stop_moving(Ptr<ActorMover>)),
         entry!(0x009dd0c0, actor_mover_force_stop_moving(Ptr<ActorMover>)),
@@ -5488,7 +5488,9 @@ mod tests {
             r.e.register(ANIMATION_SHOULD_BE_MOVING, |_, _| ret(1));
             r.e.register(ACTOR_FAKE + 0x1e4, |_, _| ret(0x0600_0900));
             r.e.call_log = Some(vec![]);
-            let result = r.e.call(0x009d_ce80, &args![r.mover, 1.5f32, true]).bool();
+            let result =
+                r.e.call(0x009d_ce80, &args![r.mover, 1.5f32, 0x2au32])
+                    .bool();
             let log = calls(&mut r.e);
             assert_eq!(result, started);
             let handler = r.e.get(r.mover, ActorMover::pCurrentPathHandler).addr();
@@ -5498,9 +5500,10 @@ mod tests {
                 first(&log, DETAILED_HANDLER_CONSTRUCT_SIMPLE).1,
                 vec![handler, r.actor, r.mover.addr()]
             );
+            // 009dd038: the argument byte goes on as it is.
             assert_eq!(
                 first(&log, HANDLER_FAKE + 0x08).1,
-                vec![handler, 1.5f32.to_bits(), 1]
+                vec![handler, 1.5f32.to_bits(), 0x2a]
             );
             assert!(r.e.get(r.mover, ActorMover::bStopCurrentMoveAnim));
             let expected = if started {
@@ -7918,8 +7921,10 @@ mod tests {
         let frame = next_frame(&mut r.e, 0x2c);
         r.e.call(
             0x009d_ce20,
-            &args![r.mover, 11.0f32, 22.0f32, 33.0f32, true],
+            &args![r.mover, 11.0f32, 22.0f32, 33.0f32, 0x2au32],
         );
+        // 009dce5d: the flag's own argument slot holds the byte as it is.
+        assert_eq!(r.e.mem.u8(frame + 0x28), 0x2a);
         let log = calls(&mut r.e);
         // The point in its argument slots (+0x1c), the difference at +8.
         assert_eq!(

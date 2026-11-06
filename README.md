@@ -54,10 +54,12 @@ stable: translation errors still cause bugs and crashes all over the game. When
 the game's code stops, the log names the exact place and the game closes instead
 of freezing.
 
+An audit of all 47,771 translated functions against [fnv_decomp](https://github.com/momusdigital/fnv_decomp),
+the community's matching decompilation, and the exe has been done, and what it found is fixed;
+comparing the running game with recordings of the original now finds what reading the code missed.
+
 Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
-an audit of the translated code against [fnv_decomp](https://github.com/momusdigital/fnv_decomp),
-the community's matching decompilation, to remove the translation errors; then the
-move of the game's systems to typed, native 64-bit Rust, which is also the speed work
+the move of the game's systems to typed, native 64-bit Rust, which is also the speed work
 (the target is 200+ fps; busy scenes run at roughly 35-50 on the maintainer's PC today); then the modern
 systems built on it. Not yet: script-extender (NVSE) plugins, platforms other than
 Windows, and VR.

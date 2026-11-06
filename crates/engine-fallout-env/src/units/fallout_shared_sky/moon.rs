@@ -446,7 +446,7 @@ fn load_texture(e: &mut Engine, this: Ptr<Moon>, mesh_slot: u32, name: TextureNa
             e.call(PROPERTY_SET_TEXTURE, &args![property, loaded]);
         }
         let mesh = pointer(e, this.addr() + mesh_slot);
-        fn_00635fe0(e, Ptr::new(mesh), loaded != 0);
+        fn_00635fe0(e, Ptr::new(mesh), u8::from(loaded != 0));
         e.set(this, Moon::eUpdateMoonTexture, status);
         e.call(NI_POINTER_DESTRUCT, &args![texture]);
     });
@@ -538,7 +538,7 @@ pub fn moon_initialize(e: &mut Engine, this: Ptr<Moon>, root: Ptr, _unused_2: u3
             let property = pointer(e, held.addr());
             e.call(ALPHA_SET_00439390, &args![property, 0u32]);
             let property = pointer(e, held.addr());
-            fn_00636000(e, Ptr::new(property), true);
+            fn_00636000(e, Ptr::new(property), 1);
             let property = pointer(e, held.addr());
             let mesh = pointer(e, t + 0x10);
             e.call(ATTACH_PROPERTY, &args![mesh, property]);
@@ -601,14 +601,14 @@ pub fn moon_initialize(e: &mut Engine, this: Ptr<Moon>, root: Ptr, _unused_2: u3
 // Translated from 00635fe0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets or clears flag `0x20` of the object `this` (its flags word +0x30,
 /// through `0043b370`).
-pub fn fn_00635fe0(e: &mut Engine, this: Ptr, set: bool) {
+pub fn fn_00635fe0(e: &mut Engine, this: Ptr, set: u8) {
     e.call(SET_OBJECT_FLAG, &args![this, set, 0x20u32]);
 }
 
 // Translated from 00636000 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets or clears bit `0x2000` of the 16-bit flags at `this + 0x18`
 /// (through `00633ba0`).
-pub fn fn_00636000(e: &mut Engine, this: Ptr, set: bool) {
+pub fn fn_00636000(e: &mut Engine, this: Ptr, set: u8) {
     e.call(SET_PROPERTY_FLAG, &args![this, set, 0x2000u32]);
 }
 
@@ -868,8 +868,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x0063_4ce0, moon_destructor(Ptr<Moon>)),
         entry!(0x0063_4e20, moon_initialize(Ptr<Moon>, Ptr, u32)),
-        entry!(0x0063_5fe0, fn_00635fe0(Ptr, bool)),
-        entry!(0x0063_6000, fn_00636000(Ptr, bool)),
+        entry!(0x0063_5fe0, fn_00635fe0(Ptr, u8)),
+        entry!(0x0063_6000, fn_00636000(Ptr, u8)),
         entry!(0x0063_6020, moon_update(Ptr<Moon>, Ptr, f32)),
         entry!(0x0063_66d0, fn_006366d0(Ptr<Moon>) -> f32),
         entry!(0x0063_67e0, fn_006367e0(Ptr<Moon>) -> f32),

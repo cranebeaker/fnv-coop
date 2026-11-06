@@ -244,14 +244,14 @@ pub fn middle_low_process_checkfor_new_package(
     this: Ptr,
     actor: u32,
     force: u8,
-) -> bool {
+) -> u8 {
     let t = this.addr();
     let hour = e.call(CALENDAR_GET_HOUR, &args![CALENDAR]).st0;
     let hour = x87_store32(hour);
     if force == 0 && e.vcall(t, 0x22c, &[]).u32() != 0 {
         let whole = e.call(FTOL, &args![x87_load32(hour)]).u32();
         if e.mem.u32(t + LAST_PACKAGE_HOUR) == whole {
-            return false;
+            return 0;
         }
     }
     let result = e
@@ -259,7 +259,7 @@ pub fn middle_low_process_checkfor_new_package(
             LOW_PROCESS_CHECK_FOR_NEW_PACKAGE,
             &args![this, actor, u32::from(force)],
         )
-        .bool();
+        .u8();
     let whole = e.call(FTOL, &args![x87_load32(hour)]).u32();
     e.mem.set_u32(t + LAST_PACKAGE_HOUR, whole);
     result
@@ -1625,7 +1625,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0092_ca70, fn_0092ca70(Ptr, Ptr)),
         entry!(0x0092_ca00, fn_0092ca00(Ptr)),
         entry!(0x0092_c9d0, middle_low_process_scalar_deleting_destructor(Ptr, u32) -> Ptr),
-        entry!(0x0092_cfd0, middle_low_process_checkfor_new_package(Ptr, u32, u8) -> bool),
+        entry!(0x0092_cfd0, middle_low_process_checkfor_new_package(Ptr, u32, u8) -> u8),
         entry!(0x0092_e400, middle_low_process_update_ov2(Ptr, u32, f32)),
         entry!(0x0092_d050, middle_low_process_update(Ptr, u32)),
     ]
@@ -1824,8 +1824,9 @@ mod tests {
                 ..Ret::default()
             }
         });
+        // 92d02a, 92d03e: its byte comes back as it is.
         e.register(LOW_PROCESS_CHECK_FOR_NEW_PACKAGE, |_, _| Ret {
-            eax: 1,
+            eax: 0x2a,
             ..Ret::default()
         });
         // vtable +0x22C answers the word at +0x10.
@@ -1837,8 +1838,9 @@ mod tests {
         });
         let this = e.mem.alloc(0xc0);
         e.mem.set_u32(this, 0x9100_0000);
-        assert!(
-            e.call(0x0092_cfd0, &args![this, 0u32, 0u32]).bool(),
+        assert_eq!(
+            e.call(0x0092_cfd0, &args![this, 0u32, 0u32]).u8(),
+            0x2a,
             "no package"
         );
         assert_eq!(e.mem.u32(this + 0xb4), 7);

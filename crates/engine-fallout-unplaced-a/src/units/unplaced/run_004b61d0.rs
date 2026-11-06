@@ -27,9 +27,9 @@ pub fn fn_004b61d0(
     point_z: u32,
     object: u32,
     value: f32,
-) -> bool {
+) -> u8 {
     if object == 0 {
-        return false;
+        return 0;
     }
     e.with_stack(0x1c, |e, frame| {
         let local = frame.addr();
@@ -43,7 +43,7 @@ pub fn fn_004b61d0(
             LOCAL_SET_FLOAT,
             &args![local, x87_quiet_bits(value.to_bits())],
         );
-        e.call(TEST_WITH_LOCAL, &args![local, object]).bool()
+        e.call(TEST_WITH_LOCAL, &args![local, object]).u8()
     })
 }
 
@@ -133,7 +133,7 @@ pub fn fn_004b6220(e: &mut Engine, form: u32, name: u32, text: u32) -> f32 {
 /// This unit's translated functions, by exe address.
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
-        entry!(0x004b_61d0, fn_004b61d0(u32, u32, u32, u32, f32) -> bool),
+        entry!(0x004b_61d0, fn_004b61d0(u32, u32, u32, u32, f32) -> u8),
         entry!(0x004b_6220, fn_004b6220(u32, u32, u32) -> f32),
     ]
 }

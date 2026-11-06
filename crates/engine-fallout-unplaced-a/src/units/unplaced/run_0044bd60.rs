@@ -45,19 +45,19 @@ const RELEASE_POINTER: u32 = 0x0044_cbf0;
 /// (`0044e370`) to `this`'s own vtable slot +0x18 with each index below the count at +8,
 /// until one answers true in `AL`. Then releases `pointer` (`0044cbf0`) and answers
 /// whether one did.
-pub fn fn_0044bdb0(e: &mut Engine, this: Ptr, pointer: u32) -> bool {
+pub fn fn_0044bdb0(e: &mut Engine, this: Ptr, pointer: u32) -> u8 {
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), pointer);
         let lock = this.addr() + 0x20;
         e.call(LOCK, &args![lock, 0u32]);
-        let mut done = false;
+        let mut done = 0;
         let mut index = 0u32;
-        while index < e.mem.u32(this.addr() + 8) && !done {
+        while index < e.mem.u32(this.addr() + 8) && done == 0 {
             // The copy is the callee's by-value argument; the callee releases it.
             done = e.with_stack(4, |e, copy| {
                 e.call(COPY_POINTER, &args![copy, argument]);
                 let copied = e.mem.u32(copy.addr());
-                e.vcall(this.addr(), 0x18, &args![index, copied]).u8() != 0
+                e.vcall(this.addr(), 0x18, &args![index, copied]).u8()
             });
             index += 1;
         }
@@ -71,7 +71,7 @@ pub fn fn_0044bdb0(e: &mut Engine, this: Ptr, pointer: u32) -> bool {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0044_bd60, fn_0044bd60(Ptr, u32, u32) -> u8),
-        entry!(0x0044_bdb0, fn_0044bdb0(Ptr, u32) -> bool),
+        entry!(0x0044_bdb0, fn_0044bdb0(Ptr, u32) -> u8),
     ]
 }
 

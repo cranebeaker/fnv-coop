@@ -1291,7 +1291,7 @@ pub(crate) fn load_cell_flags(
         e.call(CELL_SET_WATER_HEIGHT, &args![this, height]);
     }
     let loader = e.global::<u32>(LOADER_STATE_POINTER);
-    if !fn_00542d20(e, Ptr::new(loader)) {
+    if fn_00542d20(e, Ptr::new(loader)) == 0 {
         let flags = e.get(this, TESObjectCELL::cCellFlags);
         e.set(this, TESObjectCELL::cCellFlags, flags & 0xbf);
     }
@@ -1321,8 +1321,8 @@ pub(crate) fn load_cell_data(e: &mut Engine, file: Ptr, data: Ptr, size: u32, sw
 
 // Translated from 00542d20 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The byte at `this + 0x619` of the loader singleton (`011c3f2c`).
-pub fn fn_00542d20(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x619) != 0
+pub fn fn_00542d20(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x619)
 }
 
 // Translated from 00542d40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2377,12 +2377,16 @@ pub(crate) fn list_operation(e: &mut Engine, function: u32, list: Ptr, item: Ptr
 // Translated from 005444c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// For an interior cell: whether form flag 0x80000 is set; for an exterior
 /// cell: the same flag of its world space, false without one.
-pub fn fn_005444c0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> bool {
+pub fn fn_005444c0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> u8 {
     if is_interior(e, this.cast()) {
-        e.call(FORM_FLAGS, &args![this]).u32() & 0x80000 != 0
+        u8::from(e.call(FORM_FLAGS, &args![this]).u32() & 0x80000 != 0)
     } else {
         let world = world_space(e, this.cast());
-        !world.is_null() && e.call(WORLD_SPACE_FLAG_80000, &args![world]).bool()
+        if world.is_null() {
+            0
+        } else {
+            e.call(WORLD_SPACE_FLAG_80000, &args![world]).u8()
+        }
     }
 }
 
@@ -2390,16 +2394,20 @@ pub fn fn_005444c0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> bool {
 /// Bit 2 of `cCellFlags`, inverted for an interior cell; when that is false,
 /// the world space's bit 2 of the byte at `+0x4C`, false without a world
 /// space.
-pub fn fn_00544520(e: &mut Engine, this: Ptr<TESObjectCELL>) -> bool {
+pub fn fn_00544520(e: &mut Engine, this: Ptr<TESObjectCELL>) -> u8 {
     let mut flag = e.get(this, TESObjectCELL::cCellFlags) & 0x4 != 0;
     if is_interior(e, this.cast()) {
         flag = !flag;
     }
     if flag {
-        return true;
+        return 1;
     }
     let world = world_space(e, this.cast());
-    !world.is_null() && e.call(WORLD_SPACE_FLAG_4C_2, &args![world]).bool()
+    if world.is_null() {
+        0
+    } else {
+        e.call(WORLD_SPACE_FLAG_4C_2, &args![world]).u8()
+    }
 }
 
 // Translated from 00544590 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3471,7 +3479,7 @@ pub(crate) fn attach_child(e: &mut Engine, parent: Ptr, child: Ptr) {
 /// What `Load3D` does to a new node before it gets its flag: the two flag
 /// setters, in this order.
 pub(crate) fn prepare_node(e: &mut Engine, node: Ptr) {
-    fn_00546780(e, node, true);
+    fn_00546780(e, node, 1);
     fn_005467c0(e, node, true);
 }
 
@@ -3609,7 +3617,7 @@ pub fn tes_object_cell_load_3d(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr 
         e.call(NODE_SET_TRANSLATION, &args![root, ZERO_VECTOR]);
         e.call(NODE_SET_ROTATION, &args![root, IDENTITY_MATRIX]);
         fn_005467c0(e, root, true);
-        fn_00546780(e, root, true);
+        fn_00546780(e, root, 1);
         // Child 0.
         let node = new_ni_node(e);
         prepare_node(e, node);
@@ -3728,10 +3736,10 @@ pub fn tes_object_cell_load_3d(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr 
 /// Sets or clears flag bit 0x800 of the node (`0043b370`), makes sure it
 /// has a bound (`fn_005467e0`) and, when setting, gives the bound the
 /// radius 1.0 (`0063f790` on the pointer at `+0x20`).
-pub fn fn_00546780(e: &mut Engine, this: Ptr, set: bool) {
+pub fn fn_00546780(e: &mut Engine, this: Ptr, set: u8) {
     e.call(NODE_SET_FLAG_BITS, &args![this, set, 0x800u32]);
     fn_005467e0(e, this);
-    if set {
+    if set != 0 {
         let bound = e.mem.u32(this.addr() + 0x20);
         e.call(BOUND_SET_RADIUS, &args![bound, 1.0f32]);
     }
@@ -4388,7 +4396,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x005422b0, fn_005422b0(Ptr)),
         entry!(0x005422d0, fn_005422d0(Ptr<TESObjectCELL>, Ptr) -> bool),
-        entry!(0x00542d20, fn_00542d20(Ptr) -> bool),
+        entry!(0x00542d20, fn_00542d20(Ptr) -> u8),
         entry!(0x00542d40, tes_object_cell_init_item(Ptr<TESObjectCELL>)),
         entry!(0x00543230, fn_00543230(Ptr<TESObjectCELL>, Ptr) -> bool),
         entry!(0x005434d0, fn_005434d0(Ptr<TESObjectCELL>, Ptr) -> bool),
@@ -4431,8 +4439,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00544420, fn_00544420(Ptr<TESObjectCELL>) -> bool),
         entry!(0x00544440, fn_00544440(Ptr<TESObjectCELL>, bool)),
         entry!(0x00544490, fn_00544490(Ptr) -> bool),
-        entry!(0x005444c0, fn_005444c0(Ptr<TESObjectCELL>) -> bool),
-        entry!(0x00544520, fn_00544520(Ptr<TESObjectCELL>) -> bool),
+        entry!(0x005444c0, fn_005444c0(Ptr<TESObjectCELL>) -> u8),
+        entry!(0x00544520, fn_00544520(Ptr<TESObjectCELL>) -> u8),
         entry!(0x00544590, fn_00544590(Ptr<TESObjectCELL>, u32) -> bool),
         entry!(0x005445d0, fn_005445d0(Ptr<TESObjectCELL>) -> Ptr),
         entry!(0x00544600, fn_00544600(Ptr<TESObjectCELL>) -> Ptr),
@@ -4539,7 +4547,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00545cf0,
             tes_object_cell_load_3d(Ptr<TESObjectCELL>) -> Ptr
         ),
-        entry!(0x00546780, fn_00546780(Ptr, bool)),
+        entry!(0x00546780, fn_00546780(Ptr, u8)),
         entry!(0x005467c0, fn_005467c0(Ptr, bool)),
         entry!(0x005467e0, fn_005467e0(Ptr)),
         entry!(0x00546890, fn_00546890(Ptr, u32, u32) -> Ptr),

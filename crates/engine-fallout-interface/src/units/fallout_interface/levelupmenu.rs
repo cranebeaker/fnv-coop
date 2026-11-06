@@ -2036,8 +2036,9 @@ fn gamepad_arrow(e: &mut Engine, base: u32, id: u32) -> bool {
 /// the perks page, or passes `(3, 1.0)` to vtable +0x38 on the skills page;
 /// 10 clicks back (8, tile 8's sound) on the perks page, or passes
 /// `(4, 1.0)` to vtable +0x38 on the skills page. Answers whether it was
-/// handled.
-pub fn level_up_menu_do_gamepad(e: &mut Engine, this: Ptr, button: u32) -> u8 {
+/// handled. Two stack words (`RET 8`): the button first, the second (the slot's
+/// float) is not read.
+pub fn level_up_menu_do_gamepad(e: &mut Engine, this: Ptr, button: u32, _unused: u32) -> u8 {
     let base = this.addr();
     match button {
         3 => u8::from(gamepad_arrow(e, base, 0xe)),
@@ -2736,7 +2737,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0078_5990, level_up_menu_update_point_counter(Ptr)),
         entry!(0x0078_5aa0, level_up_menu_do_click(Ptr, u32, u32)),
         entry!(0x0078_5e20, level_up_menu_do_idle(Ptr)),
-        entry!(0x0078_5ed0, level_up_menu_do_gamepad(Ptr, u32) -> u8),
+        entry!(0x0078_5ed0, level_up_menu_do_gamepad(Ptr, u32, u32) -> u8),
         entry!(0x0078_6110, level_up_menu_do_gamepad_up_event(Ptr, u32, u32) -> u8),
         entry!(0x0078_6170, fn_00786170(u32, u32)),
         entry!(0x0078_6200, level_up_menu_reset_perks_func(u32, u32)),
@@ -4397,7 +4398,11 @@ mod level_up_menu_tests {
         e.register(TILE_GET_CHILD_BY_ID, |_, a| eax(a[0] + a[1]));
         e.register(TILE_IS_TRUE, |_, _| eax(1));
         e.call_log = Some(vec![]);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 3u32]).u32() as u8, 1);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 3u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            1
+        );
         assert_eq!(calls_to(&e, TILE_GET_CHILD_BY_ID), vec![vec![0x7a00, 0xe]]);
         assert_eq!(
             calls_to(&e, TILE_PLAY_TILE_SOUND),
@@ -4405,12 +4410,20 @@ mod level_up_menu_tests {
         );
         assert_eq!(calls_to(&e, 0x0000_900c), vec![vec![this, 0xe, 0x7a0e]]);
         e.call_log = Some(vec![]);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 4u32]).u32() as u8, 1);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 4u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            1
+        );
         assert_eq!(calls_to(&e, 0x0000_900c), vec![vec![this, 0xd, 0x7a0d]]);
         // Button 9 on the skills page goes to vtable +0x38.
         e.register(0x0000_9038, |_, _| eax(1));
         e.call_log = Some(vec![]);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 9u32]).u32() as u8, 1);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 9u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            1
+        );
         assert_eq!(
             calls_to(&e, 0x0000_9038),
             vec![vec![this, 3, 1.0f32.to_bits()]]
@@ -4418,18 +4431,34 @@ mod level_up_menu_tests {
         // On the perks page: 9 clicks the highlighted perk, 10 goes back.
         e.mem.set_u32(this + CURRENT_PAGE, 1);
         e.call_log = Some(vec![]);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 9u32]).u32() as u8, 1);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 9u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            1
+        );
         assert_eq!(calls_to(&e, 0x0000_900c), vec![vec![this, 0xc, 0x7a00]]);
         e.call_log = Some(vec![]);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 10u32]).u32() as u8, 1);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 10u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            1
+        );
         assert_eq!(
             calls_to(&e, TILE_PLAY_TILE_SOUND),
             vec![vec![0x6080, 0xfcb]]
         );
         assert_eq!(calls_to(&e, 0x0000_900c), vec![vec![this, 8, 0]]);
         // Arrows on the perks page and other buttons are not handled.
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 3u32]).u32() as u8, 0);
-        assert_eq!(e.call(0x0078_5ed0, &args![this, 5u32]).u32() as u8, 0);
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 3u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            0
+        );
+        assert_eq!(
+            e.call(0x0078_5ed0, &args![this, 5u32, 1.0f32.to_bits()])
+                .u32() as u8,
+            0
+        );
     }
 
     #[test]

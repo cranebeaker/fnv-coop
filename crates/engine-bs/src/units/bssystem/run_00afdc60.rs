@@ -99,7 +99,7 @@ pub fn fn_00afdda0(e: &mut Engine, this: Ptr, path: u32) {
 /// without a global list) for a non-null result; with it, builds a
 /// 0x30-byte finder on the stack (`00aa14d0` with `name, second, 0`), asks
 /// its vtable +4 and destroys it (`00aa1690`).
-pub fn fn_00afde50(e: &mut Engine, name: u32, second: u32) -> bool {
+pub fn fn_00afde50(e: &mut Engine, name: u32, second: u32) -> u8 {
     if second == 0 {
         let list: u32 = e.global(GLOBAL_LIST);
         let found = if list != 0 {
@@ -108,11 +108,11 @@ pub fn fn_00afde50(e: &mut Engine, name: u32, second: u32) -> bool {
         } else {
             0
         };
-        return found != 0;
+        return u8::from(found != 0);
     }
     e.with_stack(0x30, |e, finder| {
         e.call(0x00aa_14d0, &args![finder, name, second, 0u32]);
-        let result = e.vcall(finder.addr(), 4, &[]).u8() != 0;
+        let result = e.vcall(finder.addr(), 4, &[]).u8();
         e.call(0x00aa_1690, &args![finder]);
         result
     })
@@ -124,7 +124,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00af_dc60, fn_00afdc60(Ptr, u32, u32, u8) -> Ptr),
         entry!(0x00af_dcf0, fn_00afdcf0(Ptr)),
         entry!(0x00af_dda0, fn_00afdda0(Ptr, u32)),
-        entry!(0x00af_de50, fn_00afde50(u32, u32) -> bool),
+        entry!(0x00af_de50, fn_00afde50(u32, u32) -> u8),
     ]
 }
 

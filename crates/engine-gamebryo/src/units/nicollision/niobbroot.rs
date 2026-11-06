@@ -45,9 +45,9 @@ pub fn ni_obb_root_test_collision(
     second: u32,
     third: u32,
     fourth: u32,
-) -> bool {
+) -> u8 {
     if this == other {
-        return false;
+        return 0;
     }
     let tree = e.mem.u32(this.addr() + 8);
     let stamp = e.mem.u32(this.addr() + 0x50);
@@ -58,7 +58,7 @@ pub fn ni_obb_root_test_collision(
         8,
         &args![other_tree, first, second, third, fourth, stamp, other_stamp],
     )
-    .bool()
+    .u8()
 }
 
 // Translated from 00eb6030 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -112,7 +112,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00eb_5ff0,
-            ni_obb_root_test_collision(Ptr, Ptr, u32, u32, u32, u32) -> bool
+            ni_obb_root_test_collision(Ptr, Ptr, u32, u32, u32, u32) -> u8
         ),
         entry!(
             0x00eb_6030,

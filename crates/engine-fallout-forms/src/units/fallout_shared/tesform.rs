@@ -841,16 +841,16 @@ pub fn tes_form_compress_save_buffer(e: &mut Engine) {
 /// starts the form record in the file (`TESFile::StartForm`), calls
 /// `00473090` on the file and returns true; otherwise returns what virtual
 /// slot 0x28 returns for `file`.
-pub fn fn_00483fc0(e: &mut Engine, this: Ptr<TESForm>, file: Ptr) -> bool {
+pub fn fn_00483fc0(e: &mut Engine, this: Ptr<TESForm>, file: Ptr) -> u8 {
     if e.call(IS_TEMPORARY, &args![this]).bool() {
-        return false;
+        return 0;
     }
     if e.call(IS_DELETED, &args![this]).bool() {
         e.call(FILE_START_FORM, &args![file, this]);
         e.call(FILE_AFTER_START, &args![file]);
-        return true;
+        return 1;
     }
-    e.vcall(this.addr(), 0x28, &args![file]).bool()
+    e.vcall(this.addr(), 0x28, &args![file]).u8()
 }
 
 // Translated from 00484020 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1468,9 +1468,9 @@ pub fn tes_form_compare_all_components(
     e: &mut Engine,
     this: Ptr<TESForm>,
     other: Ptr<TESForm>,
-) -> bool {
+) -> u8 {
     if other.is_null() {
-        return true;
+        return 1;
     }
     e.with_stack(COMPONENT_COLLECTION_SIZE, |e, mine| {
         e.call(COMPONENTS_CONSTRUCT, &args![mine]);
@@ -1481,7 +1481,7 @@ pub fn tes_form_compare_all_components(
             let result = e.call(COMPONENTS_COMPARE, &args![mine, theirs]).u8();
             fn_00483710(e, theirs.addr());
             fn_00483710(e, mine.addr());
-            result != 0
+            result
         })
     })
 }
@@ -2416,7 +2416,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x00483d20, tes_form_save(Ptr<TESForm>, Ptr) -> bool),
         entry!(0x00483d70, tes_form_compress_save_buffer()),
-        entry!(0x00483fc0, fn_00483fc0(Ptr<TESForm>, Ptr) -> bool),
+        entry!(0x00483fc0, fn_00483fc0(Ptr<TESForm>, Ptr) -> u8),
         entry!(0x00484020, fn_00484020(Ptr<TESForm>, Ptr<TESForm>) -> bool),
         entry!(0x00484150, fn_00484150(Ptr<TESForm>, Ptr) -> bool),
         entry!(0x00484490, tes_form_set_temporary(Ptr<TESForm>)),
@@ -2473,7 +2473,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00485270,
-            tes_form_compare_all_components(Ptr<TESForm>, Ptr<TESForm>) -> bool
+            tes_form_compare_all_components(Ptr<TESForm>, Ptr<TESForm>) -> u8
         ),
         entry!(0x00485340, fn_00485340(Ptr<TESForm>, Ptr)),
         entry!(0x004853e0, fn_004853e0(Ptr<TESForm>, Ptr) -> bool),

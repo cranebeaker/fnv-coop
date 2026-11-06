@@ -250,14 +250,14 @@ pub fn fn_00ee8a90(_e: &mut Engine, this: Ptr) -> Ptr {
 
 // Translated from 00ee8aa0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiGPUProgramCache::IsLoaded` (Xbox PDB): `m_bLoaded` (+0x39).
-pub fn ni_gpu_program_cache_is_loaded(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + LOADED) != 0
+pub fn ni_gpu_program_cache_is_loaded(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + LOADED)
 }
 
 // Translated from 00ee8ab0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiGPUProgramCache::IsLocked` (Xbox PDB): `m_bLocked` (+0x3a).
-pub fn ni_gpu_program_cache_is_locked(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + LOCKED) != 0
+pub fn ni_gpu_program_cache_is_locked(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + LOCKED)
 }
 
 // Translated from 00ee8ac0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -401,28 +401,28 @@ pub fn fn_00ee8d20(e: &mut Engine, this: Ptr) -> bool {
 /// when null), and when its slot +4 answers exactly 1 the entry is written (`SaveEntry`,
 /// slot +0x88: file, descriptor, name) and its answer returned; the file is deleted (slot
 /// 0 with 1) either way.
-pub fn ni_gpu_program_cache_append_entry(e: &mut Engine, this: Ptr, desc: Ptr, name: Ptr) -> bool {
+pub fn ni_gpu_program_cache_append_entry(e: &mut Engine, this: Ptr, desc: Ptr, name: Ptr) -> u8 {
     let t = this.addr();
     let path = e.mem.u32(t + PATH_AND_FILE_NAME);
     if path == e.mem.u32(EMPTY_FIXED_STRING) {
-        return false;
+        return 0;
     }
     if !e.call(FILE_ACCESS, &args![path, 0u32]).bool() {
         let path = e.mem.u32(t + PATH_AND_FILE_NAME);
         if !e.call(FILE_ACCESS, &args![path, 1u32]).bool() || !e.vcall(t, 0x6c, &args![]).bool() {
-            return false;
+            return 0;
         }
     }
     let path = e.mem.u32(t + PATH_AND_FILE_NAME);
     let file = e.call(FILE_GET_FILE, &args![path, 2u32, 0x8000u32]).u32();
     if file == 0 {
-        return false;
+        return 0;
     }
     if e.vcall(file, 4, &args![]).u8() != 1 {
         e.vcall(file, 0, &args![1u32]);
-        return false;
+        return 0;
     }
-    let saved = e.vcall(t, 0x88, &args![file, desc, name]).bool();
+    let saved = e.vcall(t, 0x88, &args![file, desc, name]).u8();
     e.vcall(file, 0, &args![1u32]);
     saved
 }
@@ -1232,8 +1232,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x00ee_8a80, ni_gpu_program_cache_get_shader_profile(Ptr) -> Ptr),
         entry!(0x00ee_8a90, fn_00ee8a90(Ptr) -> Ptr),
-        entry!(0x00ee_8aa0, ni_gpu_program_cache_is_loaded(Ptr) -> bool),
-        entry!(0x00ee_8ab0, ni_gpu_program_cache_is_locked(Ptr) -> bool),
+        entry!(0x00ee_8aa0, ni_gpu_program_cache_is_loaded(Ptr) -> u8),
+        entry!(0x00ee_8ab0, ni_gpu_program_cache_is_locked(Ptr) -> u8),
         entry!(0x00ee_8ac0, fn_00ee8ac0(Ptr) -> u32),
         entry!(
             0x00ee_8af0,
@@ -1243,7 +1243,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00ee_8d20, fn_00ee8d20(Ptr) -> bool),
         entry!(
             0x00ee_8d60,
-            ni_gpu_program_cache_append_entry(Ptr, Ptr, Ptr) -> bool
+            ni_gpu_program_cache_append_entry(Ptr, Ptr, Ptr) -> u8
         ),
         entry!(0x00ee_8e10, fn_00ee8e10(Ptr)),
         entry!(0x00ee_8e70, ni_gpu_program_cache_clear(Ptr) -> bool),

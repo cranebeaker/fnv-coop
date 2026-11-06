@@ -111,13 +111,13 @@ pub fn fn_0087a730(e: &mut Engine, this: Ptr<TaskQueueInterface>) -> bool {
 /// `InputSources`, `+0x14`) is not above zero; clears `bProcessing`.
 /// Returns the last pop's result (`false`).
 // Translation incomplete: 0087a7d0 - the /GS stack security cookie check (00ec408c) is not modeled.
-pub fn fn_0087a7d0(e: &mut Engine, this: Ptr<BSPackedTaskQueue>) -> bool {
+pub fn fn_0087a7d0(e: &mut Engine, this: Ptr<BSPackedTaskQueue>) -> u8 {
     e.set(this, BSPackedTaskQueue::bProcessing, true);
-    let mut popped = true;
+    let mut popped = 1;
     e.with_stack(PACKED_TASK_SIZE, |e, task| {
-        while popped || e.call(SEMAPHORE_COUNT, &args![input_sources(this)]).i32() > 0 {
-            popped = e.vcall(this.addr(), TRY_POP_SLOT, &args![task]).bool();
-            if popped {
+        while popped != 0 || e.call(SEMAPHORE_COUNT, &args![input_sources(this)]).i32() > 0 {
+            popped = e.vcall(this.addr(), TRY_POP_SLOT, &args![task]).u8();
+            if popped != 0 {
                 let unpack = e.get(this, BSPackedTaskQueue::pUnpackFunc);
                 e.call(unpack, &args![task]);
             }
@@ -169,7 +169,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0087a730, fn_0087a730(Ptr<TaskQueueInterface>) -> bool),
         entry!(0x0087a770, fn_0087a770(Ptr<BSPackedTaskQueue>) -> bool),
         entry!(0x0087a790, fn_0087a790(Ptr<TaskQueueInterface>)),
-        entry!(0x0087a7d0, fn_0087a7d0(Ptr<BSPackedTaskQueue>) -> bool),
+        entry!(0x0087a7d0, fn_0087a7d0(Ptr<BSPackedTaskQueue>) -> u8),
         entry!(0x0087a850, fn_0087a850(Ptr<TaskQueueInterface>)),
     ]
 }

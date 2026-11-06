@@ -408,7 +408,7 @@ pub fn fn_00ab5ce0(e: &mut Engine, this: Ptr, points: u32) {
 /// file is a TRI file. A `FutBinaryFileC` is made on the stack with the id `"FRTRI003"`
 /// (`0044a4c0` into the by-value argument, `00ac3df0`), checks the name (`00ac3fe0`) and is
 /// destroyed (`00aaaa80`); the answer is the check's byte.
-pub fn fn_00ab5e20(e: &mut Engine, name: u32) -> bool {
+pub fn fn_00ab5e20(e: &mut Engine, name: u32) -> u8 {
     e.with_stack(0x40, |e, file| {
         let file: Ptr<BSFaceGenBinaryFile> = Ptr::new(file.addr());
         let id = e.with_stack(0x1c, |e, id| {
@@ -418,7 +418,7 @@ pub fn fn_00ab5e20(e: &mut Engine, name: u32) -> bool {
         e.call(FUT_BINARY_FILE_CONSTRUCT, &args![file, id]);
         let found = e.call(FUT_BINARY_FILE_CHECK, &args![file, name]).u8();
         e.call(FUT_BINARY_FILE_DESTRUCT, &args![file]);
-        found != 0
+        found
     })
 }
 
@@ -428,7 +428,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00ab_46f0, fn_00ab46f0(Ptr, Ptr)),
         entry!(0x00ab_5720, fn_00ab5720(Ptr, u32)),
         entry!(0x00ab_5ce0, fn_00ab5ce0(Ptr, u32)),
-        entry!(0x00ab_5e20, fn_00ab5e20(u32) -> bool),
+        entry!(0x00ab_5e20, fn_00ab5e20(u32) -> u8),
     ]
 }
 

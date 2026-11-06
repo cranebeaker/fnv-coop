@@ -33,7 +33,7 @@ pub fn fn_00850030(
     e: &mut Engine,
     this: Ptr,
     name: u32,
-    write: bool,
+    write: u8,
     kind: u32,
     _unused_4: u32,
 ) -> u32 {
@@ -47,7 +47,7 @@ pub fn fn_00850030(
         } else {
             0x10000
         };
-        if write && e.call(ACCESS, &args![path, 0u32]).i32() != -1 {
+        if write != 0 && e.call(ACCESS, &args![path, 0u32]).i32() != -1 {
             e.call(DELETE_FILE_A, &args![path]);
         }
         let file = e.call(OPEN_FILE, &args![path, flag, size]).u32();
@@ -59,7 +59,7 @@ pub fn fn_00850030(
 
 /// This unit's translated functions, by exe address.
 pub fn funcs() -> Vec<(u32, AbiFn)> {
-    vec![entry!(0x0085_0030, fn_00850030(Ptr, u32, bool, u32, u32) -> u32)]
+    vec![entry!(0x0085_0030, fn_00850030(Ptr, u32, u8, u32, u32) -> u32)]
 }
 
 #[cfg(test)]

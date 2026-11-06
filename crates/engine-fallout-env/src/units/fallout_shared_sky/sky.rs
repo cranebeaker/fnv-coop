@@ -1528,7 +1528,7 @@ pub fn fn_0063bce0(e: &mut Engine, this: Ptr<Sky>) {
             e.set(this, Sky::fFogPower, 1.0);
         }
     }
-    if !fn_0063c460(e) {
+    if fn_0063c460(e) == 0 {
         let camera: Ptr = e.call(CAMERA_HOLDER_GET, &[]).ptr();
         let camera_far = e.vcall(camera.addr(), 0x100, &[]).f32();
         let setting: Ptr = e.call(SETTING_FLOAT_VALUE, &args![FOG_SETTING]).ptr();
@@ -1684,7 +1684,7 @@ pub fn fn_0063c440(e: &mut Engine, this: Ptr, index: i32) -> Ptr {
 
 // Translated from 0063c460 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the byte at `0119f188`.
-pub fn fn_0063c460(e: &mut Engine) -> bool {
+pub fn fn_0063c460(e: &mut Engine) -> u8 {
     e.global(0x0119_f188)
 }
 
@@ -3564,7 +3564,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0063bce0, fn_0063bce0(Ptr<Sky>)),
         entry!(0x0063c420, fn_0063c420(Ptr, i32) -> f32),
         entry!(0x0063c440, fn_0063c440(Ptr, i32) -> Ptr),
-        entry!(0x0063c460, fn_0063c460() -> bool),
+        entry!(0x0063c460, fn_0063c460() -> u8),
         entry!(0x0063c470, fn_0063c470() -> u32),
         entry!(0x0063c480, fn_0063c480() -> f32),
         entry!(0x0063c490, fn_0063c490(Ptr<Sky>)),

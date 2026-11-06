@@ -7307,11 +7307,11 @@ pub fn fn_00552380(e: &mut Engine) -> u32 {
 /// (`FindReferenceFor3D`, virtual slot `0x100`) whose `+0xAC` object has the
 /// byte at `+0x41` set and the byte at `+0x8C` clear, and when the child's
 /// flag `0x100000` is clear and the reference is not in dialogue with the
-/// player, calls `bhkNiCollisionObject::Synchronize(child, 2)`.
+/// player, calls `bhkNiCollisionObject::Synchronize(child, 2)`. The child count is asked again
+/// on every pass (005523a8).
 pub fn fn_00552390(e: &mut Engine, node: Ptr) {
-    let count = e.call(NODE_CHILD_COUNT, &args![node]).u32();
     let mut index = 0u32;
-    while index < count {
+    while index < e.call(NODE_CHILD_COUNT, &args![node]).u32() {
         let child = e.call(NODE_CHILD_AT, &args![node, index]).u32();
         if child != 0 {
             let reference = e.call(FIND_REFERENCE_FOR_3D, &args![child]).u32();
@@ -15494,6 +15494,19 @@ mod tests {
             .set_u32(node + 0x10 + 4 * children.len() as u32, orphan);
         e.call(0x0055_2390, &args![node]);
         assert_eq!(*syncs.borrow(), vec![vec![good, 2]]);
+        // 005523a8: the count is asked on every pass: with an answer of 1 it is asked twice,
+        // before child 0 and before stopping at index 1.
+        let walked = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let count = walked.clone();
+        e.register_double(NODE_CHILD_COUNT, move |_, _| {
+            count.set(count.get() + 1);
+            Ret {
+                eax: 1,
+                ..Ret::default()
+            }
+        });
+        e.call(0x0055_2390, &args![node]);
+        assert_eq!(walked.get(), 2);
     }
 
     // --- Third session: the local map pictures ----------------------------------

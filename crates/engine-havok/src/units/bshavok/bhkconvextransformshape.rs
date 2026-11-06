@@ -342,27 +342,27 @@ pub fn bhk_convex_transform_shape_register_streamables(
     e: &mut Engine,
     this: Ptr,
     stream: u32,
-) -> bool {
+) -> u8 {
     let child = child_object(e, this);
     if child != 0 {
         e.vcall(child, 0x54, &args![stream]);
     }
-    e.call(REGISTER_STREAMABLES, &args![this, stream]).bool()
+    e.call(REGISTER_STREAMABLES, &args![this, stream]).u8()
 }
 
 // Translated from 00cced60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkConvexTransformShape::CanShare` (Ghidra name): `bhkShape::CanShare`, and while that
 /// answers true and the child's Havok object exists, that object's virtual slot `0xD0`
 /// with `other` decides.
-pub fn bhk_convex_transform_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> bool {
+pub fn bhk_convex_transform_shape_can_share(e: &mut Engine, this: Ptr, other: u32) -> u8 {
     if e.call(SHAPE_CAN_SHARE, &args![this, other]).u8() == 0 {
-        return false;
+        return 0;
     }
     let child = child_object(e, this);
     if child == 0 {
-        return true;
+        return 1;
     }
-    e.vcall(child, 0xd0, &args![other]).bool()
+    e.vcall(child, 0xd0, &args![other]).u8()
 }
 
 // Translated from 00cceda0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -619,9 +619,9 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00ccecc0, bhk_convex_transform_shape_link_object(Ptr, u32)),
         entry!(
             0x00cced20,
-            bhk_convex_transform_shape_register_streamables(Ptr, u32) -> bool
+            bhk_convex_transform_shape_register_streamables(Ptr, u32) -> u8
         ),
-        entry!(0x00cced60, bhk_convex_transform_shape_can_share(Ptr, u32) -> bool),
+        entry!(0x00cced60, bhk_convex_transform_shape_can_share(Ptr, u32) -> u8),
         entry!(0x00cceda0, bhk_convex_transform_shape_create_clone(Ptr, u32) -> Ptr),
         entry!(0x00ccee60, bhk_convex_transform_shape_create_cinfo(Ptr, Ptr) -> u32),
         entry!(0x00ccef50, bhk_convex_transform_shape_init(Ptr, u32)),

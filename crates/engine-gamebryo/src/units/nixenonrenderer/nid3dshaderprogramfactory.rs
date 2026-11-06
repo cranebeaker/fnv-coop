@@ -676,25 +676,25 @@ pub fn ni_d3d_shader_program_factory_get_instance(e: &mut Engine) -> u32 {
 /// (`handle_slot`) answers one; otherwise the shader's creator (slot +0x6c) recreates it
 /// (its slot `recreate_slot`, with the shader; the answer is the creator's), 0 without a
 /// creator.
-fn recreate_shader(e: &mut Engine, shader: u32, handle_slot: u32, recreate_slot: u32) -> bool {
+fn recreate_shader(e: &mut Engine, shader: u32, handle_slot: u32, recreate_slot: u32) -> u8 {
     if e.global::<u32>(FACTORY_INSTANCE) == 0 || shader == 0 {
-        return false;
+        return 0;
     }
     if e.vcall(shader, handle_slot, &[]).u32() != 0 {
-        return true;
+        return 1;
     }
     let creator = e.vcall(shader, 0x6c, &[]).u32();
     if creator == 0 {
-        return false;
+        return 0;
     }
-    e.vcall(creator, recreate_slot, &[shader]).bool()
+    e.vcall(creator, recreate_slot, &[shader]).u8()
 }
 
 // Translated from 00e92ee0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `NiD3DShaderProgramFactory::RecreateVertexShader` (Xbox PDB, engine map), `cdecl`, one
 /// word: answers 1 for a vertex shader that has its handle (slot +0x84), else its creator's
 /// `RecreateVertexShader` (creator slot +0x1c); 0 without an instance, a shader or a creator.
-pub fn ni_d3d_shader_program_factory_recreate_vertex_shader(e: &mut Engine, shader: u32) -> bool {
+pub fn ni_d3d_shader_program_factory_recreate_vertex_shader(e: &mut Engine, shader: u32) -> u8 {
     recreate_shader(e, shader, 0x84, 0x1c)
 }
 
@@ -702,7 +702,7 @@ pub fn ni_d3d_shader_program_factory_recreate_vertex_shader(e: &mut Engine, shad
 /// `NiD3DShaderProgramFactory::RecreatePixelShader` (Xbox PDB, engine map), `cdecl`, one word:
 /// as the vertex one with the pixel shader's handle (slot +0x7c) and the creator's
 /// `RecreatePixelShader` (slot +0x20).
-pub fn ni_d3d_shader_program_factory_recreate_pixel_shader(e: &mut Engine, shader: u32) -> bool {
+pub fn ni_d3d_shader_program_factory_recreate_pixel_shader(e: &mut Engine, shader: u32) -> u8 {
     recreate_shader(e, shader, 0x7c, 0x20)
 }
 
@@ -1192,11 +1192,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00e9_2ee0,
-            ni_d3d_shader_program_factory_recreate_vertex_shader(u32) -> bool
+            ni_d3d_shader_program_factory_recreate_vertex_shader(u32) -> u8
         ),
         entry!(
             0x00e9_2f30,
-            ni_d3d_shader_program_factory_recreate_pixel_shader(u32) -> bool
+            ni_d3d_shader_program_factory_recreate_pixel_shader(u32) -> u8
         ),
         entry!(
             0x00e9_2fe0,

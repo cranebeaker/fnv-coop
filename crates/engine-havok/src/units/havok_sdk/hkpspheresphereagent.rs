@@ -93,13 +93,15 @@ fn process_contact(e: &mut Engine, s: &Spheres, distance_squared: f32) -> Contac
 
 // Translated from 00d3f660 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkpSphereSphereAgent::cleanup` (Xbox PDB): gives the contact point id (`+0xC`) back to the
-/// contact manager (`[this + 8]`, slot `0x14`, with the id and `param`) when it is not
-/// `0xFFFF`, then runs the agent's deleting destructor (slot 0, argument 1).
+/// contact manager (`[this + 8]`, slot `0x14`, with the id and `param`) and marks it `0xFFFF`
+/// (00d3f687) when it is not `0xFFFF`, then runs the agent's deleting destructor (slot 0,
+/// argument 1).
 pub fn hkp_sphere_sphere_agent_cleanup(e: &mut Engine, this: Ptr, param: u32) {
     let id = e.mem.u16(this.addr() + 0xc);
     if id != 0xffff {
         let manager = e.mem.u32(this.addr() + 8);
         e.vcall(manager, 0x14, &args![u32::from(id), param]);
+        e.mem.set_u16(this.addr() + 0xc, 0xffff);
     }
     e.vcall(this.addr(), 0, &args![1u32]);
 }
@@ -360,6 +362,8 @@ mod tests {
             e.mem.set_u32(this + 8, manager);
             e.mem.set_u16(this + 0xc, id);
             e.call(0x00d3_f660, &args![this, param]);
+            // 00d3f687: the id is marked given back.
+            assert_eq!(e.mem.u16(this + 0xc), 0xffff);
             let taken = calls(&log, MANAGER + 0x14);
             if id == 0xffff {
                 assert!(taken.is_empty());

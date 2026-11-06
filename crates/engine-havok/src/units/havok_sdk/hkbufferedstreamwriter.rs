@@ -238,19 +238,18 @@ pub fn hk_buffered_stream_writer_seek(e: &mut Engine, this: Ptr, offset: u32, mo
 // Translated from 00d273f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkBufferedStreamWriter::tell` (Xbox PDB; `ECX` = `this`): the position (`+0x10`) plus the
 /// inner stream's own position (slot `0x20`) when there is an inner stream (`+8`); -1 when
-/// that position is negative.
+/// that position is negative. The word at `+0x10` is read after the inner call (00d27409).
 pub fn hk_buffered_stream_writer_tell(e: &mut Engine, this: Ptr) -> i32 {
     let t = this.addr();
-    let position = e.mem.u32(t + 0x10);
     let stream = e.mem.u32(t + 8);
     if stream == 0 {
-        return position as i32;
+        return e.mem.u32(t + 0x10) as i32;
     }
     let inner = e.vcall(stream, 0x20, &args![]).i32();
     if inner < 0 {
         return -1;
     }
-    position.wrapping_add(inner as u32) as i32
+    e.mem.u32(t + 0x10).wrapping_add(inner as u32) as i32
 }
 
 // Translated from 00d27420 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -738,6 +737,22 @@ mod translated_tests {
         assert_eq!(e.call(0x00d2_73f0, &args![this]).i32(), -1);
         let (this, _) = writer(&mut e, 0, 10, 16);
         assert_eq!(e.call(0x00d2_73f0, &args![this]).i32(), 10);
+    }
+
+    /// 00d27409: the writer's own position is read after the inner call returns.
+    #[test]
+    fn tell_reads_the_writers_position_after_the_inner_call() {
+        let mut e = engine();
+        let stream = inner_stream(&mut e);
+        let (this, _) = writer(&mut e, stream, 10, 16);
+        e.register_double(SLOT_TELL, move |e, _| {
+            e.mem.set_u32(this + 0x10, 20);
+            Ret {
+                eax: 100,
+                ..Ret::default()
+            }
+        });
+        assert_eq!(e.call(0x00d2_73f0, &args![this]).i32(), 120);
     }
 
     #[test]

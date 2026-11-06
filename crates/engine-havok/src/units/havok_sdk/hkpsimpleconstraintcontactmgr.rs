@@ -226,16 +226,16 @@ pub fn hkp_simple_constraint_contact_mgr_remove_toi_impl(
 }
 
 // Translated from 00cfcd70 (decompiled, FalloutNV.exe 1.4.0.525)
-/// `hkpSimpleConstraintContactMgr::fireCallbacksForEarliestToi` (Xbox PDB). Register value
-/// first: ECX (`this`) is never read; the object used is the first stack word `toi_event`.
+/// `hkpSimpleConstraintContactMgr::fireCallbacksForEarliestToi` (Xbox PDB). `this` goes in the
+/// event's word at +0xc (00cfcd74, before the second push); the object read is the first
+/// stack word `toi_event`.
 /// Builds the contact-point callback event (type `2`, then `0` and `1` for the two bodies at
 /// `toi_event + 0xc` and `+ 0x10`) from the event's fields and `word_2` and fires it at the
 /// world's callbacks (the word at +8 of the first body) and at each body whose callback
-/// count (`u16` at +0x204) is not zero. The event's byte at +0x1f and word at +0xc are never
-/// written by the exe.
+/// count (`u16` at +0x204) is not zero. The event's byte at +0x1f is never written by the exe.
 pub fn hkp_simple_constraint_contact_mgr_fire_callbacks_for_earliest_toi(
     e: &mut Engine,
-    _this: Ptr,
+    this: Ptr,
     toi_event: Ptr,
     word_2: u32,
 ) {
@@ -244,6 +244,7 @@ pub fn hkp_simple_constraint_contact_mgr_fire_callbacks_for_earliest_toi(
     let body_b = e.mem.u32(toi + 0x10);
     e.with_stack(0x34, |e, event| {
         let at = event.addr();
+        e.mem.set_u32(at + 0xc, this.addr());
         e.mem.set_u32(at + 8, body_b);
         e.mem.set_u32(at + 0x14, toi + 0x50);
         e.mem.set_u32(at + 0x18, toi + 0x18);
@@ -1524,7 +1525,7 @@ mod tests {
         e.mem.set_u32(toi + 0x10, body_b);
         let log = new_log();
         const WORDS: &[u32] = &[
-            0, 4, 8, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30,
+            0, 4, 8, 0xc, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30,
         ];
         for address in [
             FIRE_CONTACT_POINT_CALLBACK,
@@ -1545,6 +1546,7 @@ mod tests {
                 2,
                 body_a,
                 body_b,
+                0x1234,
                 0,
                 toi + 0x50,
                 toi + 0x18,

@@ -132,8 +132,8 @@ pub fn middle_high_process_get_face_node(e: &mut Engine, this: Ptr) -> Ptr {
 
 // Translated from 00566950 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::GetForceNextUpdate` (Xbox PDB) returns `bForceNextUpdate` at +0x18d.
-pub fn middle_high_process_get_force_next_update(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x18d) != 0
+pub fn middle_high_process_get_force_next_update(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x18d)
 }
 
 // Translated from 005a29b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -156,8 +156,8 @@ pub fn middle_high_process_set_bs_bound(e: &mut Engine, this: Ptr, value: Ptr) {
 
 // Translated from 005ce8f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsCurrentWeaponMine` (Xbox PDB) returns `bWeaponMine` at +0x125.
-pub fn middle_high_process_is_current_weapon_mine(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x125) != 0
+pub fn middle_high_process_is_current_weapon_mine(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x125)
 }
 
 // Translated from 005f7590 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -204,8 +204,8 @@ pub fn middle_high_process_get_script_refraction_power(e: &mut Engine, this: Ptr
 
 // Translated from 00649b80 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::GetIsSummonedCreature` (Xbox PDB) returns `bSummonedCreature` at +0x18b.
-pub fn middle_high_process_get_is_summoned_creature(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x18b) != 0
+pub fn middle_high_process_get_is_summoned_creature(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x18b)
 }
 
 // Translated from 006546c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1328,8 +1328,9 @@ pub fn middle_high_process_set_desired_target(
 pub fn middle_high_process_get_should_check_magic_node(
     e: &mut Engine,
     this: Ptr<MiddleHighProcess>,
-) -> bool {
-    e.get(this, MiddleHighProcess::bCheckMagicNode)
+) -> u8 {
+    e.mem
+        .u8(this.addr() + MiddleHighProcess::bCheckMagicNode.off)
 }
 
 // Translated from 008d81c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1346,38 +1347,38 @@ pub fn middle_high_process_get_current_weapon(e: &mut Engine, this: Ptr) -> Ptr 
 
 // Translated from 008d8200 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsCurrentWeaponThrown` (Xbox PDB) returns `bWeaponThrown` at +0x126.
-pub fn middle_high_process_is_current_weapon_thrown(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x126) != 0
+pub fn middle_high_process_is_current_weapon_thrown(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x126)
 }
 
 // Translated from 008d8220 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsCurrentWeaponGrenade` (Xbox PDB) returns `bWeaponGrenade` at +0x124.
-pub fn middle_high_process_is_current_weapon_grenade(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x124) != 0
+pub fn middle_high_process_is_current_weapon_grenade(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x124)
 }
 
 // Translated from 008d8270 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsHeavyBodyArmorWorn` (Xbox PDB) returns `bHeavyArmorWorn` at +0x127.
-pub fn middle_high_process_is_heavy_body_armor_worn(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x127) != 0
+pub fn middle_high_process_is_heavy_body_armor_worn(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x127)
 }
 
 // Translated from 008d8290 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsPowerBodyArmorWorn` (Xbox PDB) returns `bPowerArmorWorn` at +0x128.
-pub fn middle_high_process_is_power_body_armor_worn(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x128) != 0
+pub fn middle_high_process_is_power_body_armor_worn(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x128)
 }
 
 // Translated from 008d82b0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::IsPowerArmorHelmetWorn` (Xbox PDB) returns `bPowerArmorHelmet` at +0x129.
-pub fn middle_high_process_is_power_armor_helmet_worn(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x129) != 0
+pub fn middle_high_process_is_power_armor_helmet_worn(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x129)
 }
 
 // Translated from 008d82d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::HasBackPackWorn` (Xbox PDB) returns `bHasBackPackWorn` at +0x12a.
-pub fn middle_high_process_has_back_pack_worn(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x12a) != 0
+pub fn middle_high_process_has_back_pack_worn(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x12a)
 }
 
 // Translated from 008d82f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1463,8 +1464,8 @@ pub fn middle_high_process_get_last_bound_weapon(e: &mut Engine, this: Ptr) -> P
 pub fn middle_high_process_get_should_refresh_magic_shaders_effects(
     e: &mut Engine,
     this: Ptr,
-) -> bool {
-    e.mem.u8(this.addr() + 0x17c) != 0
+) -> u8 {
+    e.mem.u8(this.addr() + 0x17c)
 }
 
 // Translated from 008d8620 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1481,14 +1482,14 @@ pub fn middle_high_process_set_script_refraction_power(e: &mut Engine, this: Ptr
 
 // Translated from 008d8660 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::GetIdleDoneOnce` (Xbox PDB) returns `bDoneOnce` at +0xe0.
-pub fn middle_high_process_get_idle_done_once(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0xe0) != 0
+pub fn middle_high_process_get_idle_done_once(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0xe0)
 }
 
 // Translated from 008d86c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `MiddleHighProcess::GetPickpocketed` (Xbox PDB) returns `bPickPocketed` at +0x188.
-pub fn middle_high_process_get_pickpocketed(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x188) != 0
+pub fn middle_high_process_get_pickpocketed(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x188)
 }
 
 // Translated from 008d86e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1530,11 +1531,11 @@ const DEGREES_TO_RADIANS: u32 = 0x0102_3128;
 /// `MiddleHighProcess::IsCurrentWeaponGrenadeOrMine` (Xbox PDB): true when
 /// any of `bWeaponGrenade` (+0x124), `bWeaponMine` (+0x125) or
 /// `bWeaponThrown` (+0x126) is set.
-pub fn middle_high_process_is_current_weapon_grenade_or_mine(e: &mut Engine, this: Ptr) -> bool {
-    let grenade = e.mem.u8(this.addr() + 0x124) as u32;
-    let mine = e.mem.u8(this.addr() + 0x125) as u32;
-    let thrown = e.mem.u8(this.addr() + 0x126) as u32;
-    (grenade | mine | thrown) != 0
+pub fn middle_high_process_is_current_weapon_grenade_or_mine(e: &mut Engine, this: Ptr) -> u8 {
+    let grenade = e.mem.u8(this.addr() + 0x124);
+    let mine = e.mem.u8(this.addr() + 0x125);
+    let thrown = e.mem.u8(this.addr() + 0x126);
+    grenade | mine | thrown
 }
 
 // Translated from 008d8310 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1776,7 +1777,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x008d81a0,
-            middle_high_process_get_should_check_magic_node(Ptr<MiddleHighProcess>) -> bool
+            middle_high_process_get_should_check_magic_node(Ptr<MiddleHighProcess>) -> u8
         ),
         entry!(
             0x00407800,
@@ -1805,14 +1806,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x005216f0, fn_005216f0(Ptr, u32)),
         entry!(0x00521710, middle_high_process_set_head_anims(Ptr, Ptr)),
         entry!(0x005224a0, middle_high_process_get_face_node(Ptr) -> Ptr),
-        entry!(0x00566950, middle_high_process_get_force_next_update(Ptr) -> bool),
+        entry!(0x00566950, middle_high_process_get_force_next_update(Ptr) -> u8),
         entry!(0x005a29b0, middle_high_process_get_last_idle_played(Ptr) -> Ptr),
         entry!(
             0x005a8060,
             low_process_set_number_of_items_activated(Ptr, i32)
         ),
         entry!(0x005c8a30, middle_high_process_set_bs_bound(Ptr, Ptr)),
-        entry!(0x005ce8f0, middle_high_process_is_current_weapon_mine(Ptr) -> bool),
+        entry!(0x005ce8f0, middle_high_process_is_current_weapon_mine(Ptr) -> u8),
         entry!(0x005f7590, middle_high_process_get_current_ammo(Ptr) -> Ptr),
         entry!(
             0x005f8bd0,
@@ -1823,7 +1824,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x006214b0, high_process_get_current_process_idle(Ptr) -> Ptr),
         entry!(0x006286d0, low_process_get_number_of_items_activated(Ptr) -> i32),
         entry!(0x00645c40, middle_high_process_get_script_refraction_power(Ptr) -> f32),
-        entry!(0x00649b80, middle_high_process_get_is_summoned_creature(Ptr) -> bool),
+        entry!(0x00649b80, middle_high_process_get_is_summoned_creature(Ptr) -> u8),
         entry!(0x006546c0, middle_high_process_set_idle_done_once(Ptr, u8)),
         entry!(0x006733e0, low_process_get_second_generic_location(Ptr) -> Ptr),
         entry!(
@@ -1847,12 +1848,12 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             middle_high_process_set_should_check_magic_node(Ptr, u8)
         ),
         entry!(0x008d81e0, middle_high_process_get_current_weapon(Ptr) -> Ptr),
-        entry!(0x008d8200, middle_high_process_is_current_weapon_thrown(Ptr) -> bool),
-        entry!(0x008d8220, middle_high_process_is_current_weapon_grenade(Ptr) -> bool),
-        entry!(0x008d8270, middle_high_process_is_heavy_body_armor_worn(Ptr) -> bool),
-        entry!(0x008d8290, middle_high_process_is_power_body_armor_worn(Ptr) -> bool),
-        entry!(0x008d82b0, middle_high_process_is_power_armor_helmet_worn(Ptr) -> bool),
-        entry!(0x008d82d0, middle_high_process_has_back_pack_worn(Ptr) -> bool),
+        entry!(0x008d8200, middle_high_process_is_current_weapon_thrown(Ptr) -> u8),
+        entry!(0x008d8220, middle_high_process_is_current_weapon_grenade(Ptr) -> u8),
+        entry!(0x008d8270, middle_high_process_is_heavy_body_armor_worn(Ptr) -> u8),
+        entry!(0x008d8290, middle_high_process_is_power_body_armor_worn(Ptr) -> u8),
+        entry!(0x008d82b0, middle_high_process_is_power_armor_helmet_worn(Ptr) -> u8),
+        entry!(0x008d82d0, middle_high_process_has_back_pack_worn(Ptr) -> u8),
         entry!(0x008d82f0, middle_high_process_set_fire_node(Ptr, Ptr)),
         entry!(0x008d8330, middle_high_process_get_aim_looking(Ptr) -> f32),
         entry!(0x008d8380, middle_high_process_set_shots_to_fire(Ptr, u8)),
@@ -1872,20 +1873,20 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             middle_high_process_set_last_bound_weapon(Ptr, Ptr)
         ),
         entry!(0x008d85e0, middle_high_process_get_last_bound_weapon(Ptr) -> Ptr),
-        entry!(0x008d8600, middle_high_process_get_should_refresh_magic_shaders_effects(Ptr) -> bool),
+        entry!(0x008d8600, middle_high_process_get_should_refresh_magic_shaders_effects(Ptr) -> u8),
         entry!(0x008d8620, middle_high_process_set_alpha_mult(Ptr, f32)),
         entry!(
             0x008d8640,
             middle_high_process_set_script_refraction_power(Ptr, f32)
         ),
-        entry!(0x008d8660, middle_high_process_get_idle_done_once(Ptr) -> bool),
-        entry!(0x008d86c0, middle_high_process_get_pickpocketed(Ptr) -> bool),
+        entry!(0x008d8660, middle_high_process_get_idle_done_once(Ptr) -> u8),
+        entry!(0x008d86c0, middle_high_process_get_pickpocketed(Ptr) -> u8),
         entry!(0x008d86e0, middle_high_process_set_pickpocketed(Ptr, u8)),
         entry!(
             0x008d8700,
             middle_high_process_set_force_next_update(Ptr, u8)
         ),
-        entry!(0x008d8240, middle_high_process_is_current_weapon_grenade_or_mine(Ptr) -> bool),
+        entry!(0x008d8240, middle_high_process_is_current_weapon_grenade_or_mine(Ptr) -> u8),
         entry!(0x008d8310, middle_high_process_is_running_run_once(Ptr) -> bool),
         entry!(0x008d8350, middle_high_process_add_gun_drift(Ptr, f32)),
         entry!(0x008d83e0, fn_008d83e0(Ptr) -> u32),

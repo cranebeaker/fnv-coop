@@ -2442,8 +2442,8 @@ pub fn script_toggle_map_markers_function(e: &mut Engine, a: ScriptArgs) -> bool
 /// flag and prints the new state.
 pub fn script_toggle_verbose_function(e: &mut Engine) -> bool {
     let verbose = fn_005b6f70(e);
-    fn_005b6f60(e, !verbose);
-    let state = if fn_005b6f70(e) {
+    fn_005b6f60(e, u8::from(verbose == 0));
+    let state = if fn_005b6f70(e) != 0 {
         TEXT_SHOWN
     } else {
         TEXT_HIDDEN
@@ -2454,14 +2454,14 @@ pub fn script_toggle_verbose_function(e: &mut Engine) -> bool {
 
 // Translated from 005b6f60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Sets the verbose messages flag (byte global `011f158c`).
-pub fn fn_005b6f60(e: &mut Engine, value: bool) {
-    e.set_global(VERBOSE_MESSAGES, value as u8);
+pub fn fn_005b6f60(e: &mut Engine, value: u8) {
+    e.set_global(VERBOSE_MESSAGES, value);
 }
 
 // Translated from 005b6f70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The verbose messages flag (byte global `011f158c`).
-pub fn fn_005b6f70(e: &mut Engine) -> bool {
-    e.global::<u8>(VERBOSE_MESSAGES) != 0
+pub fn fn_005b6f70(e: &mut Engine) -> u8 {
+    e.global::<u8>(VERBOSE_MESSAGES)
 }
 
 // Translated from 005b6f80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6156,8 +6156,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             script_toggle_map_markers_function(ScriptArgs) -> bool
         ),
         entry!(0x005b6f10, script_toggle_verbose_function() -> bool),
-        entry!(0x005b6f60, fn_005b6f60(bool)),
-        entry!(0x005b6f70, fn_005b6f70() -> bool),
+        entry!(0x005b6f60, fn_005b6f60(u8)),
+        entry!(0x005b6f70, fn_005b6f70() -> u8),
         entry!(0x005b6f80, script_toggle_god_mode_function() -> bool),
         entry!(0x005b7000, script_toggle_demigod_mode_function() -> bool),
         entry!(0x005b7070, script_toggle_scripts_function() -> bool),

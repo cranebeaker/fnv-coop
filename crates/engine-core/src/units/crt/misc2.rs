@@ -420,9 +420,9 @@ pub fn wcstombs_s(e: &mut Engine, out: u32, target: u32, size: u32, text: u32, c
 
 // Translated from 00ecdf2d (disassembled, FalloutNV.exe 1.4.0.525)
 /// The null-locale form of `00ecde0e` (no labels), cdecl: its two arguments and a null
-/// locale.
-pub fn fn_00ecdf2d(e: &mut Engine, a: u32, b: u32) -> u32 {
-    e.call(FN_00ECDE0E, &args![a, b, 0u32]).u32()
+/// locale. The answer is the double `00ecde0e` leaves in `ST0` (00ecdf43 leaves it there).
+pub fn fn_00ecdf2d(e: &mut Engine, a: u32, b: u32) -> f64 {
+    e.call(FN_00ECDE0E, &args![a, b, 0u32]).f64()
 }
 
 // Translated from 00ec9de6 (disassembled, FalloutNV.exe 1.4.0.525)
@@ -565,7 +565,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0071_cff0, game_mbsnicmp(u32, u32, u32) -> u32),
         entry!(0x00ec_a903, mbsnbcpy(u32, u32, u32) -> u32),
         entry!(0x00ec_ad86, wcstombs_s(u32, u32, u32, u32, u32) -> u32),
-        entry!(0x00ec_df2d, fn_00ecdf2d(u32, u32) -> u32),
+        entry!(0x00ec_df2d, fn_00ecdf2d(u32, u32) -> f64),
         entry!(0x00ec_9de6, printf_finally()),
         entry!(0x00ec_b39e, fread_s_finally(u32)),
         entry!(0x00ec_b5c6, ftell_finally(u32)),
@@ -807,7 +807,12 @@ mod tests {
         assert_eq!(e.call(0x0071_cff0, &args![1u32, 2u32, 3u32]).u32(), 4);
         assert_eq!(mbsnbcpy(&mut e, 1, 2, 3), 4);
         assert_eq!(wcstombs_s(&mut e, 1, 2, 3, 4, 5), 6);
-        assert_eq!(fn_00ecdf2d(&mut e, 1, 2), 3);
+        // 00ecdf43: ST0 is left as 00ecde0e left it.
+        e.register_double(FN_00ECDE0E, |_, _| Ret {
+            st0: 2.5,
+            ..Ret::default()
+        });
+        assert_eq!(e.call(0x00ec_df2d, &args![1u32, 2u32]).f64(), 2.5);
         assert_eq!(calls(&e, MBSNBCMP_L), vec![vec![1, 2, 3, 0]]);
         assert_eq!(calls(&e, MBSNBICMP_L), vec![vec![1, 2, 3, 0]]);
         assert_eq!(calls(&e, WCSTOMBS_S_L), vec![vec![1, 2, 3, 4, 5, 0]]);

@@ -224,8 +224,8 @@ pub fn bhk_ragdoll_template_copy_members(
 /// The engine map calls it `bhkExtraData::IsEqual` (identical code folded with another
 /// class's): a jump to `NiExtraData::IsEqual` (`00a7b3d0`); `(this, other)` and the byte answer
 /// pass through.
-pub fn fn_00cb9920(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(EXTRA_DATA_IS_EQUAL, &args![this, other]).bool()
+pub fn fn_00cb9920(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(EXTRA_DATA_IS_EQUAL, &args![this, other]).u8()
 }
 
 // Translated from 00cb9930 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -384,7 +384,7 @@ fn construct_cinfo_holder(e: &mut Engine, this: Ptr, vtable: u32) -> Ptr {
 /// registration (`00a7b290`); when it answers true, runs virtual slot `0x54` (the same
 /// registration) with the stream on every item of the array (the size is read once, the
 /// buffer each time). Answers the base's answer.
-pub fn bhk_ragdoll_template_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn bhk_ragdoll_template_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     let registered = e
         .call(EXTRA_DATA_REGISTER_STREAMABLES, &args![this, stream])
         .u32();
@@ -397,7 +397,7 @@ pub fn bhk_ragdoll_template_register_streamables(e: &mut Engine, this: Ptr, stre
             index += 1;
         }
     }
-    registered as u8 != 0
+    registered as u8
 }
 
 // Translated from 00cb9d50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1246,7 +1246,7 @@ pub fn bhk_ragdoll_template_get_r_t_t_i(_e: &mut Engine) -> u32 {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00cb9910, bhk_ragdoll_template_copy_members(Ptr, u32, u32)),
-        entry!(0x00cb9920, fn_00cb9920(Ptr, Ptr) -> bool),
+        entry!(0x00cb9920, fn_00cb9920(Ptr, Ptr) -> u8),
         entry!(0x00cb9930, fn_00cb9930(Ptr, u32, u32, u32)),
         entry!(0x00cb99a0, fn_00cb99a0(Ptr, u32) -> Ptr),
         entry!(0x00cb9a10, fn_00cb9a10(Ptr, u32) -> Ptr),
@@ -1255,7 +1255,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00cb9b80, fn_00cb9b80(Ptr, u32) -> Ptr),
         entry!(0x00cb9c30, fn_00cb9c30(Ptr) -> Ptr),
         entry!(0x00cb9c50, fn_00cb9c50(Ptr) -> Ptr),
-        entry!(0x00cb9c70, bhk_ragdoll_template_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00cb9c70, bhk_ragdoll_template_register_streamables(Ptr, Ptr) -> u8),
         entry!(0x00cb9d50, fn_00cb9d50(Ptr, u32, u32)),
         entry!(0x00cb9d80, bhk_ragdoll_template_data_save_binary(Ptr, Ptr)),
         entry!(0x00cb9ee0, bhk_ragdoll_template_link_object(Ptr, Ptr)),

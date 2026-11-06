@@ -356,8 +356,8 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
             }
         }
         let projectile = e.call(WEAPON_PROJECTILE, &args![weapon, attacker]).u32();
-        let automatic = e.call(WEAPON_TEST_524B40, &args![weapon]).bool();
-        let bursts = automatic || e.call(WEAPON_TEST_645C80, &args![weapon]).bool();
+        let automatic = e.call(WEAPON_TEST_524B40, &args![weapon]).u8();
+        let bursts = automatic != 0 || e.call(WEAPON_TEST_645C80, &args![weapon]).bool();
         let mut too_close = false;
         calculate_targeted_point(e, this, Ptr::new(targeted), 0);
         let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
@@ -622,7 +622,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
         }
         let mut fire = false;
         let mut ready = true;
-        if automatic {
+        if automatic != 0 {
             let mut animation_ok = true;
             let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
             ready = e.vcall(object, SLOT_TEST_438, &args![attacker]).bool();
@@ -815,7 +815,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
         };
         let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
         e.vcall(object, SLOT_SET_43C, &args![u32::from(ready)]);
-        if e.call(QUEUE_ATTACK, &args![attacker, attack]).bool() && !automatic {
+        if e.call(QUEUE_ATTACK, &args![attacker, attack]).bool() && automatic == 0 {
             let low_scale = e.call(WEAPON_FLOAT_174, &args![weapon]).f64();
             let controller = controller_of(e, this);
             let style = e.call(CONTROLLER_STYLE, &args![controller]).u32();
@@ -882,7 +882,7 @@ pub fn fn_009d1b90(e: &mut Engine, this: u32) {
 /// Starts firing (unnamed in the map; one word): the actor's acquire object
 /// gets `automatic` (slot `+0x6e0`) and 1 (slot `+0x434`); the firing timer
 /// is cleared.
-pub fn fn_009d1bc0(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>, automatic: bool) {
+pub fn fn_009d1bc0(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>, automatic: u8) {
     let controller = controller_of(e, this);
     let actor = e.call(CONTROLLER_ACTOR, &args![controller]).u32();
     let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
@@ -1242,7 +1242,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x009d_1b90, fn_009d1b90(u32)),
         entry!(
             0x009d_1bc0,
-            fn_009d1bc0(Ptr<CombatProcedureAttackRanged>, bool)
+            fn_009d1bc0(Ptr<CombatProcedureAttackRanged>, u8)
         ),
         entry!(0x009d_1c30, stop_firing(Ptr<CombatProcedureAttackRanged>)),
         entry!(
@@ -1824,6 +1824,9 @@ mod tests {
         let (_, log) = w.rig.run(0x009d_1c30, &args![w.t]);
         assert_eq!(slot_calls(&log, SLOT_SET_6E0), vec![vec![w.object, 0]]);
         assert_eq!(slot_calls(&log, SLOT_TEST_434), vec![vec![w.object, 0]]);
+        // 009d1be2: the argument byte goes on as it is.
+        let (_, log) = w.rig.run(0x009d_1bc0, &args![w.t, 0x2au32]);
+        assert_eq!(slot_calls(&log, SLOT_SET_6E0), vec![vec![w.object, 0x2a]]);
     }
 
     #[test]

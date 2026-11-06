@@ -24,16 +24,16 @@ pub fn fn_008a8150(e: &mut Engine, this: Ptr, value: u8) {
 /// `thiscall`, no Xbox PDB name: false unless the object's vtable +0x22C
 /// answers true for 0; then the answer of `008a81c0` on its extra data of
 /// type 0x5F (from the list `005d43c0` gives), false without one.
-pub fn fn_008a8170(e: &mut Engine, this: Ptr) -> bool {
+pub fn fn_008a8170(e: &mut Engine, this: Ptr) -> u8 {
     if !e.vcall(this.addr(), 0x22c, &args![0u32]).bool() {
-        return false;
+        return 0;
     }
     let list = e.call(EXTRA_LIST_005D43C0, &args![this]).u32();
     let extra = e.call(GET_EXTRA_DATA, &args![list, 0x5fu32]).u32();
     if extra != 0 {
-        e.call(EXTRA_TEST_008A81C0, &args![extra]).bool()
+        e.call(EXTRA_TEST_008A81C0, &args![extra]).u8()
     } else {
-        false
+        0
     }
 }
 
@@ -41,7 +41,7 @@ pub fn fn_008a8170(e: &mut Engine, this: Ptr) -> bool {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x008a_8150, fn_008a8150(Ptr, u8)),
-        entry!(0x008a_8170, fn_008a8170(Ptr) -> bool),
+        entry!(0x008a_8170, fn_008a8170(Ptr) -> u8),
     ]
 }
 

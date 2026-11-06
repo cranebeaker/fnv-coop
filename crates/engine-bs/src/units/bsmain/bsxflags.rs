@@ -322,8 +322,8 @@ pub fn fn_00c43110(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
 // Translated from 00c43160 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `BSXFlags`'s `IsEqual` (unnamed in the engine map; `thiscall`, `RET 4`: the other
 /// object): the byte `00a742a0` answers.
-pub fn fn_00c43160(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    e.call(INTEGER_IS_EQUAL, &args![this, other]).u8() != 0
+pub fn fn_00c43160(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
+    e.call(INTEGER_IS_EQUAL, &args![this, other]).u8()
 }
 
 /// Passes the viewer string `text` (by address, as the exe does) to `function` on
@@ -376,7 +376,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00c4_30b0, fn_00c430b0(Ptr, Ptr, Ptr)),
         entry!(0x00c4_3110, fn_00c43110(Ptr, Ptr) -> bool),
-        entry!(0x00c4_3160, fn_00c43160(Ptr, Ptr) -> bool),
+        entry!(0x00c4_3160, fn_00c43160(Ptr, Ptr) -> u8),
         entry!(0x00c4_3220, bsx_flags_get_viewer_strings(Ptr, Ptr)),
         entry!(0x00c4_3470, fn_00c43470(Ptr)),
         entry!(0x00c4_2f70, bsx_flags_constructor(Ptr) -> Ptr),

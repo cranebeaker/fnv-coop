@@ -222,15 +222,15 @@ pub fn random_load(e: &mut Engine, _this: Ptr) {
 // Translated from 00b43510 (decompiled, FalloutNV.exe 1.4.0.525)
 // Translation incomplete: 00b43510 - exception unwinding frame (FS:[0], /GS cookie) is not translated; the throw is.
 /// `Random::Set` (Xbox PDB, `cdecl`): seeds the generator from a number in
-/// the open interval (0, 1) (anything else, NaN included, throws
+/// the open interval (0, 1) or from NaN (anything else throws
 /// `"Newran: seed out of range"`): the state is the seed times 2^31,
 /// truncated, then the 128-entry table is filled with `Raw` samples.
 pub fn random_set(e: &mut Engine, seed: f64) {
-    // `FLD1; FCOMP seed` jumps to the throw when 1.0 <= seed, then
-    // `FLDZ; FCOMP seed` continues only when 0.0 < seed.
-    if !(1.0 <= seed) && 0.0 < seed {
+    // `FLD1; FCOMP seed; TEST AH,0x41; JNP` throws when 1.0 <= seed, ordered (00b43542); then
+    // `FLDZ; FCOMP seed; TEST AH,1; JNZ` continues when 0.0 < seed or unordered (00b4354e).
+    if !(1.0 <= seed) && !(0.0 >= seed) {
         let scale: f64 = e.global(SEED_SCALE);
-        let state = float_to_int(e, seed * scale);
+        let state = float_to_int(e, x87_mul(seed, scale));
         e.set_global(RANDOM_STATE, state as f64);
         for i in 0..0x80u32 {
             let sample = random_raw(e);
@@ -367,7 +367,8 @@ pub fn pos_gen_build(e: &mut Engine, this: Ptr<PosGen>, symmetric: u8) {
 /// rejection-samples: a uniform sample picks a table segment, a second one a
 /// candidate inside it, a third a height under the segment's left density;
 /// the candidate is accepted when the next density is above that height, or
-/// when the height lies under the virtual `Density` at the candidate.
+/// when the height does not reach the virtual `Density` at the candidate, a NaN included
+/// (00b439c9 `TEST AH,1`, whose bit is set when unordered).
 pub fn pos_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
     if e.get(this, PosGen::NotReady) {
         pos_gen_build(e, this, 0);
@@ -375,18 +376,24 @@ pub fn pos_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
     loop {
         let selector = random_next(e, this.cast());
         let xi = e.get(this, PosGen::xi);
-        let index = float_to_int(e, selector as f64 * xi as f64) as u32;
+        let index = float_to_int(e, x87_mul(selector as f64, xi as f64)) as u32;
         let offset = index.wrapping_mul(4);
         let sx = e.get(this, PosGen::sx).addr();
         let left = x87_quiet(e.mem.f32(sx.wrapping_add(offset)));
         let sx = e.get(this, PosGen::sx).addr();
         let right = e.mem.f32(sx.wrapping_add(offset).wrapping_add(4));
-        let width = right as f64 - left as f64;
+        let width = x87_sub(right as f64, left as f64);
         let across = random_next(e, this.cast());
-        let candidate = (across as f64 * width + left as f64) as f32;
+        let candidate = f32::from_bits(x87_store32(x87_add(
+            x87_mul(across as f64, width),
+            left as f64,
+        )));
         let sfx = e.get(this, PosGen::sfx).addr();
         let up = random_next(e, this.cast());
-        let height = (up as f64 * e.mem.f32(sfx.wrapping_add(offset)) as f64) as f32;
+        let height = f32::from_bits(x87_store32(x87_mul(
+            up as f64,
+            e.mem.f32(sfx.wrapping_add(offset)) as f64,
+        )));
         let sfx = e.get(this, PosGen::sfx).addr();
         let next_density = x87_quiet(e.mem.f32(sfx.wrapping_add(offset).wrapping_add(4)));
         // `FCOMPP` then `TEST AH,0x41; JP`: the density test only runs when
@@ -398,7 +405,7 @@ pub fn pos_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
         let density = e
             .vcall(this.addr(), 0xc, &args![x87_quiet(candidate)])
             .f64();
-        if (height as f64) < density {
+        if !(height as f64 >= density) {
             return x87_quiet(candidate);
         }
     }
@@ -407,7 +414,8 @@ pub fn pos_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
 // Translated from 00b439e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `SymGen::Next` (Xbox PDB): `PosGen::Next` on the symmetric tables. A
 /// first uniform sample above 0.5 is reflected (`1 - u`) and gives the
-/// result a sign of -1.0; the accepted candidate is multiplied by that sign.
+/// result a sign of -1.0; the accepted candidate is multiplied by that sign. A NaN density
+/// accepts as in `PosGen::Next` (00b43ac1).
 pub fn sym_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
     if e.get(this, PosGen::NotReady) {
         pos_gen_build(e, this, 1);
@@ -420,21 +428,27 @@ pub fn sym_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
         let half: f64 = e.global(HALF);
         if selector as f64 > half {
             sign = x87_quiet(e.global::<f32>(MINUS_ONE));
-            selector = (1.0 - selector as f64) as f32;
+            selector = f32::from_bits(x87_store32(x87_sub(1.0, selector as f64)));
         }
         let xi = e.get(this, PosGen::xi);
-        let index = float_to_int(e, selector as f64 * xi as f64) as u32;
+        let index = float_to_int(e, x87_mul(selector as f64, xi as f64)) as u32;
         let offset = index.wrapping_mul(4);
         let sx = e.get(this, PosGen::sx).addr();
         let left = x87_quiet(e.mem.f32(sx.wrapping_add(offset)));
         let sx = e.get(this, PosGen::sx).addr();
         let right = e.mem.f32(sx.wrapping_add(offset).wrapping_add(4));
-        let width = right as f64 - left as f64;
+        let width = x87_sub(right as f64, left as f64);
         let across = random_next(e, this.cast());
-        let candidate = (across as f64 * width + left as f64) as f32;
+        let candidate = f32::from_bits(x87_store32(x87_add(
+            x87_mul(across as f64, width),
+            left as f64,
+        )));
         let sfx = e.get(this, PosGen::sfx).addr();
         let up = random_next(e, this.cast());
-        let height = (up as f64 * e.mem.f32(sfx.wrapping_add(offset)) as f64) as f32;
+        let height = f32::from_bits(x87_store32(x87_mul(
+            up as f64,
+            e.mem.f32(sfx.wrapping_add(offset)) as f64,
+        )));
         let sfx = e.get(this, PosGen::sfx).addr();
         let next_density = x87_quiet(e.mem.f32(sfx.wrapping_add(offset).wrapping_add(4)));
         if !(next_density as f64 <= height as f64) {
@@ -443,7 +457,7 @@ pub fn sym_gen_next(e: &mut Engine, this: Ptr<PosGen>) -> f32 {
         let density = e
             .vcall(this.addr(), 0xc, &args![x87_quiet(candidate)])
             .f64();
-        if (height as f64) < density {
+        if !(height as f64 >= density) {
             return (sign as f64 * candidate as f64) as f32;
         }
     }
@@ -845,7 +859,7 @@ mod tests {
     fn set_throws_unless_the_seed_is_inside_zero_and_one() {
         let mut e = random_engine();
         let log = throw_probe(&mut e);
-        for seed in [0.0, 1.0, 1.5, -0.5, f64::NAN] {
+        for seed in [0.0, 1.0, 1.5, -0.5] {
             log.borrow_mut().clear();
             assert!(throws(&mut e, |e| {
                 e.call(0x00b4_3510, &args![seed]);
@@ -856,6 +870,36 @@ mod tests {
             );
         }
         assert_eq!(e.global::<f64>(RANDOM_STATE), 0.0);
+    }
+
+    /// 00b43542, 00b4354e: both compares let an unordered seed through to the seeding.
+    #[test]
+    fn set_seeds_from_a_nan_without_throwing() {
+        let mut e = random_engine();
+        e.call(0x00b4_3510, &args![f64::NAN]);
+        assert_ne!(table(&e, 0), 0.0);
+    }
+
+    /// 00b43594 is an x87 multiply: on the game's main thread it rounds to 24 bits.
+    #[test]
+    fn set_multiplies_the_seed_at_the_threads_precision() {
+        let mut e = random_engine();
+        let seen = std::rc::Rc::new(std::cell::Cell::new(0.0f64));
+        let keep = seen.clone();
+        e.register_double(FTOL, move |_, a| {
+            let value = f64::take(a, &mut 0);
+            if keep.get() == 0.0 {
+                keep.set(value);
+            }
+            Ret {
+                eax: value as i32 as u32,
+                ..Ret::default()
+            }
+        });
+        engine_core::x87::set_control_word(0x007f);
+        e.call(0x00b4_3510, &args![0.1f64]);
+        engine_core::x87::set_control_word(0x027f);
+        assert_eq!(seen.get(), 214748368.0);
     }
 
     #[test]
@@ -1037,6 +1081,30 @@ mod tests {
         let this = ready_object(&mut e, [1.0, 1.0, 1.0, 0.25, 0.25]);
         assert_eq!(e.call(0x00b4_3910, &args![this]).f32(), 2.25);
         assert_eq!(*asked.borrow(), vec![2.25]);
+    }
+
+    /// 00b439c5 to 00b439cc: an unordered height against the density accepts.
+    #[test]
+    fn pos_gen_next_accepts_on_a_nan_density() {
+        let mut e = random_engine();
+        scripted_samples(&mut e, [0.5, 0.25, 0.5, 0.0, 0.0, 0.0]);
+        density_double(&mut e, vec![f32::NAN]);
+        let this = ready_object(&mut e, [1.0, 1.0, 1.0, 0.25, 0.25]);
+        assert_eq!(e.call(0x00b4_3910, &args![this]).f32(), 2.25);
+    }
+
+    /// 00b43abd to 00b43ac4: the same for the symmetric generator.
+    #[test]
+    fn sym_gen_next_accepts_on_a_nan_density() {
+        let mut e = random_engine();
+        scripted_samples(&mut e, [0.25, 0.25, 0.5, 0.0, 0.0, 0.0]);
+        density_double(&mut e, vec![f32::NAN]);
+        let this = ready_object(&mut e, [1.0, 1.0, 1.0, 0.25, 0.25]);
+        // Segment 1 (0.25 * 4), candidate 1 + 0.25, height 0.5 at the density 1.0; the next
+        // density is lowered so the test runs.
+        let sfx = e.get(this, PosGen::sfx).addr();
+        e.mem.set_f32(sfx + 8, 0.25);
+        assert_eq!(e.call(0x00b4_39e0, &args![this]).f32(), 1.25);
     }
 
     #[test]

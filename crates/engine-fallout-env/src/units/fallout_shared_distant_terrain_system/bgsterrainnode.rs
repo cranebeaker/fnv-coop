@@ -912,7 +912,7 @@ pub fn bgs_terrain_node_update_trees(
     with_scope_guard(e, 0x25, 0x1ed, |e| {
         let level = e.call(WORD_AT_4, &args![this]).u32();
         if level == fn_006fe510(e) {
-            if !fn_006fe540(e) {
+            if fn_006fe540(e) == 0 {
                 let world = manager_world(e, this);
                 e.call(TREES_ALLOCATE_STATIC_DATA, &args![world]);
             }
@@ -930,7 +930,7 @@ pub fn bgs_terrain_node_update_trees(
                             .ptr()
                     };
                     e.set(this, BGSTerrainNode::pTrees, trees);
-                } else if fn_006fe520(e, trees) {
+                } else if fn_006fe520(e, trees) != 0 {
                     e.call(TREES_CALL_006F8C40, &args![trees]);
                     e.call(TREES_UPDATE_SHADER_PROPERTIES, &args![trees]);
                 }
@@ -963,15 +963,15 @@ pub fn fn_006fe510(_e: &mut Engine) -> u32 {
 
 // Translated from 006fe520 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The byte at `this + 0x48` (called on a tree block).
-pub fn fn_006fe520(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x48) != 0
+pub fn fn_006fe520(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x48)
 }
 
 // Translated from 006fe540 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The byte at `011d85a0` (set once the tree blocks' static data is
 /// allocated).
-pub fn fn_006fe540(e: &mut Engine) -> bool {
-    e.global::<u8>(TREE_STATIC_DATA_FLAG) != 0
+pub fn fn_006fe540(e: &mut Engine) -> u8 {
+    e.global::<u8>(TREE_STATIC_DATA_FLAG)
 }
 
 // Translated from 006fe550 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1520,8 +1520,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             bgs_terrain_node_update_trees(Ptr<BGSTerrainNode>, Ptr<NiPoint3>)
         ),
         entry!(0x006fe510, fn_006fe510() -> u32),
-        entry!(0x006fe520, fn_006fe520(Ptr) -> bool),
-        entry!(0x006fe540, fn_006fe540() -> bool),
+        entry!(0x006fe520, fn_006fe520(Ptr) -> u8),
+        entry!(0x006fe540, fn_006fe540() -> u8),
         entry!(
             0x006fe550,
             fn_006fe550(Ptr<BGSTerrainNode>, Ptr<NiPoint3>) -> bool

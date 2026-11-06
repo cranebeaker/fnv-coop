@@ -123,8 +123,8 @@ pub fn bs_multi_bound_shape_is_equal(
     e: &mut Engine,
     this: Ptr<BSMultiBoundShape>,
     other: Ptr<BSMultiBoundShape>,
-) -> bool {
-    e.call(NI_OBJECT_IS_EQUAL, &args![this, other]).bool()
+) -> u8 {
+    e.call(NI_OBJECT_IS_EQUAL, &args![this, other]).u8()
 }
 
 // Translated from 00c4fab0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -186,7 +186,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c4fa60, fn_00c4fa60(Ptr<BSMultiBoundShape>, u32)),
         entry!(
             0x00c4fa80,
-            bs_multi_bound_shape_is_equal(Ptr<BSMultiBoundShape>, Ptr<BSMultiBoundShape>) -> bool
+            bs_multi_bound_shape_is_equal(Ptr<BSMultiBoundShape>, Ptr<BSMultiBoundShape>) -> u8
         ),
         entry!(
             0x00c4fab0,

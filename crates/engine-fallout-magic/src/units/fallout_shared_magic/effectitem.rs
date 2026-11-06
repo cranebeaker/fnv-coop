@@ -624,7 +624,7 @@ pub fn fn_00404b70(e: &mut Engine, this: Ptr) {
 pub fn fn_00404b90(e: &mut Engine, this: Ptr, map_size: u32) -> Ptr {
     fn_00404d00(e, this);
     e.mem.set_u32(this.addr(), 0x0101_215c);
-    fn_00404d50(e, this.byte_add(0x10c), map_size, false);
+    fn_00404d50(e, this.byte_add(0x10c), map_size, 0);
     this
 }
 
@@ -682,7 +682,7 @@ pub fn fn_00404d30(e: &mut Engine, this: Ptr<SettingCollectionMap>) -> bool {
 
 // Translated from 00404d50 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Construct the embedded case-insensitive setting string map.
-pub fn fn_00404d50(e: &mut Engine, this: Ptr, hash_size: u32, copy: bool) -> Ptr {
+pub fn fn_00404d50(e: &mut Engine, this: Ptr, hash_size: u32, copy: u8) -> Ptr {
     e.call(0x0040_5570, &args![this, hash_size, copy]);
     e.mem.set_u32(this.addr(), 0x0101_21b4);
     this
@@ -1060,7 +1060,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00404cd0, setting_collection_scalar_deleting_destructor(Ptr, u32) -> Ptr),
         entry!(0x00404d00, fn_00404d00(Ptr) -> Ptr),
         entry!(0x00404d30, fn_00404d30(Ptr<SettingCollectionMap>) -> bool),
-        entry!(0x00404d50, fn_00404d50(Ptr, u32, bool) -> Ptr),
+        entry!(0x00404d50, fn_00404d50(Ptr, u32, u8) -> Ptr),
         entry!(0x00404d80, fn_00404d80(Ptr, u32, Ptr) -> Ptr),
         entry!(0x00404da0, fn_00404da0(Ptr)),
         entry!(0x00404dc0, fn_00404dc0(Ptr, Ptr) -> i32),
@@ -1959,7 +1959,7 @@ mod tests {
             Ret::default()
         });
         let map = collection.byte_add(0x10c);
-        assert_eq!(fn_00404d50(&mut e, map, 37, true), map);
+        assert_eq!(fn_00404d50(&mut e, map, 37, 1), map);
         assert_eq!(e.mem.u32(map.addr()), 0x0101_21b4);
     }
 

@@ -3889,19 +3889,19 @@ pub fn fn_004e5fe0(e: &mut Engine, this: Ptr<TESWaterSystem>, object: u32) {
 /// decides.
 ///
 /// `this` is not read.
-pub fn fn_004e62e0(e: &mut Engine, _unused_0: u32, reference: u32, viewer: u32) -> bool {
+pub fn fn_004e62e0(e: &mut Engine, _unused_0: u32, reference: u32, viewer: u32) -> u8 {
     let node = reference_node(e, reference);
     if node == 0 {
-        return false;
+        return 0;
     }
     let child = e.call(NODE_FIRST_CHILD, &args![node, 0u32]).u32();
     if e.call(IS_KIND_OF, &args![FACE_GEN_NODE_RTTI, child]).bool() {
         let child = e.call(NODE_FIRST_CHILD, &args![node, 0u32]).u32();
         let animation_data = e.call(FACE_GEN_ANIMATION_DATA, &args![child]).u32();
         let target = e.call(ANIMATION_DATA_TARGET, &args![animation_data]).u32();
-        e.call(LIST_COUNT, &args![target]).u32() == 1
+        u8::from(e.call(LIST_COUNT, &args![target]).u32() == 1)
     } else {
-        e.call(NODE_IN_RANGE_OF_VIEWER, &args![node, viewer]).bool()
+        e.call(NODE_IN_RANGE_OF_VIEWER, &args![node, viewer]).u8()
     }
 }
 
@@ -5836,7 +5836,7 @@ fn draw_wading_reference(e: &mut Engine, this: Ptr<TESWaterSystem>, camera: u32,
     let property = water_shader_property(e, geometry);
     let saved_mask = e.get(property, WaterShaderProperty::iStencilMask);
     e.set(property, WaterShaderProperty::iStencilMask, 1);
-    if fn_004e62e0(e, 0, reference, camera)
+    if fn_004e62e0(e, 0, reference, camera) != 0
         && !property.is_null()
         && e.call(PROPERTY_RENDER_PASS, &args![property, geometry])
             .u32()
@@ -6145,7 +6145,7 @@ fn setup_group_reflections(
                 }
             }
 
-            if !low_detail && fn_004e62e0(e, this.addr(), reference, viewer) {
+            if !low_detail && fn_004e62e0(e, this.addr(), reference, viewer) != 0 {
                 let extra_data = e.call(REFERENCE_EXTRA_DATA_LIST, &args![reference]).u32();
                 let mut reflected = e
                     .call(EXTRA_DATA_LIST_GET_REFLECTED_REFS, &args![extra_data])
@@ -6986,7 +6986,7 @@ fn setup_depth_for_reference(
     } else {
         Ptr::new(0)
     };
-    if property.is_null() || !fn_004e62e0(e, this.addr(), reference, viewer) {
+    if property.is_null() || fn_004e62e0(e, this.addr(), reference, viewer) == 0 {
         return;
     }
     e.call(
@@ -7618,7 +7618,7 @@ fn draw_depth_reference(
         WaterShaderProperty::iStencilMask,
         stencil_mask as u32,
     );
-    if fn_004e62e0(e, this.addr(), reference, viewer)
+    if fn_004e62e0(e, this.addr(), reference, viewer) != 0
         && !property.is_null()
         && e.call(PROPERTY_RENDER_PASS, &args![property, geometry])
             .u32()
@@ -8216,7 +8216,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             tes_water_system_remove_tes_object_from_water_group_ov2(Ptr<TESWaterSystem>, u32, u32)
         ),
         entry!(0x004e5fe0, fn_004e5fe0(Ptr<TESWaterSystem>, u32)),
-        entry!(0x004e62e0, fn_004e62e0(u32, u32, u32) -> bool),
+        entry!(0x004e62e0, fn_004e62e0(u32, u32, u32) -> u8),
         entry!(
             0x004e6370,
             fn_004e6370(Ptr<TESWaterSystem>, bool, bool, bool)

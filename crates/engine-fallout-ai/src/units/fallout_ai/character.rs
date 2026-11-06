@@ -196,8 +196,8 @@ pub fn fn_008d1e50(e: &mut Engine, this: Ptr<Character>) -> u32 {
 
 // Translated from 008d1e70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed: `bTrespassing` (Xbox PDB field `+0x1c0`).
-pub fn fn_008d1e70(e: &mut Engine, this: Ptr<Character>) -> bool {
-    e.get(this, Character::bTrespassing)
+pub fn fn_008d1e70(e: &mut Engine, this: Ptr<Character>) -> u8 {
+    e.mem.u8(this.addr() + Character::bTrespassing.off)
 }
 
 // Translated from 008d1e90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -214,8 +214,8 @@ pub fn fn_008d1eb0(e: &mut Engine, this: Ptr<Character>) -> f32 {
 
 // Translated from 008d1ed0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed: reads `bGuard` (`+0x1c1`).
-pub fn fn_008d1ed0(e: &mut Engine, this: Ptr<Character>) -> bool {
-    e.get(this, Character::bGuard)
+pub fn fn_008d1ed0(e: &mut Engine, this: Ptr<Character>) -> u8 {
+    e.mem.u8(this.addr() + Character::bGuard.off)
 }
 
 // Translated from 008d1ef0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1234,10 +1234,10 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             character_character(Ptr<Character>) -> Ptr<Character>
         ),
         entry!(0x008d1e50, fn_008d1e50(Ptr<Character>) -> u32),
-        entry!(0x008d1e70, fn_008d1e70(Ptr<Character>) -> bool),
+        entry!(0x008d1e70, fn_008d1e70(Ptr<Character>) -> u8),
         entry!(0x008d1e90, fn_008d1e90(Ptr<Character>, f32)),
         entry!(0x008d1eb0, fn_008d1eb0(Ptr<Character>) -> f32),
-        entry!(0x008d1ed0, fn_008d1ed0(Ptr<Character>) -> bool),
+        entry!(0x008d1ed0, fn_008d1ed0(Ptr<Character>) -> u8),
         entry!(0x008d1ef0, fn_008d1ef0(Ptr<Character>, u8)),
         entry!(
             0x008d1f10,

@@ -50,7 +50,7 @@ pub fn bhk_phantom_destruct(e: &mut Engine, this: Ptr<BhkPhantom>) {
 /// `bhkPhantom::Remove` (Xbox PDB): asks virtual slot `0x94` for an object and, when it
 /// exists and its word at `+0x350` is set, calls `00c68cb0` on that word with the Havok
 /// phantom (`+8`) and answers its result; otherwise answers `false`.
-pub fn bhk_phantom_remove(e: &mut Engine, this: Ptr<BhkPhantom>) -> bool {
+pub fn bhk_phantom_remove(e: &mut Engine, this: Ptr<BhkPhantom>) -> u8 {
     let world_object = e.vcall(this.addr(), 0x94, &args![]).u32();
     let world = if world_object != 0 {
         e.mem.u32(world_object + 0x350)
@@ -59,9 +59,9 @@ pub fn bhk_phantom_remove(e: &mut Engine, this: Ptr<BhkPhantom>) -> bool {
     };
     if world != 0 {
         let phantom = e.get(this, BhkPhantom::phkObject);
-        e.call(WORLD_REMOVE_PHANTOM, &args![world, phantom]).bool()
+        e.call(WORLD_REMOVE_PHANTOM, &args![world, phantom]).u8()
     } else {
-        false
+        0
     }
 }
 
@@ -94,7 +94,7 @@ pub fn bhk_phantom_get_viewer_strings(e: &mut Engine, this: Ptr<BhkPhantom>, str
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00c9_f3b0, bhk_phantom_destruct(Ptr<BhkPhantom>)),
-        entry!(0x00c9_f420, bhk_phantom_remove(Ptr<BhkPhantom>) -> bool),
+        entry!(0x00c9_f420, bhk_phantom_remove(Ptr<BhkPhantom>) -> u8),
         entry!(0x00c9_f460, bhk_phantom_update_c_filter(Ptr<BhkPhantom>)),
         entry!(
             0x00c9_f480,

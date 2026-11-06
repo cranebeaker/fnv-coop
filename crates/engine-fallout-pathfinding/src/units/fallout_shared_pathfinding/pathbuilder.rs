@@ -896,7 +896,7 @@ pub fn path_builder_build_teleport_door_path(e: &mut Engine, this: Ptr<PathBuild
                 space,
                 next_door,
             ) {
-                fn_006c9fa0(e, sol, true);
+                fn_006c9fa0(e, sol, 1);
                 return finish_teleport_path(e, search, path, false);
             }
             index += 1;
@@ -915,7 +915,7 @@ pub fn path_builder_build_teleport_door_path(e: &mut Engine, this: Ptr<PathBuild
             space,
             0,
         ) {
-            fn_006c9fa0(e, sol, true);
+            fn_006c9fa0(e, sol, 1);
             return finish_teleport_path(e, search, path, false);
         }
         finish_teleport_path(e, search, path, found)
@@ -925,12 +925,9 @@ pub fn path_builder_build_teleport_door_path(e: &mut Engine, this: Ptr<PathBuild
 // Translated from 006c9fa0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thiscall on a `PathingSolution`: stores `value` in `bIncompletePath`
 /// (+0x40).
-pub fn fn_006c9fa0(e: &mut Engine, this: u32, value: bool) {
-    e.set(
-        Ptr::<PathingSolution>::new(this),
-        PathingSolution::bIncompletePath,
-        value,
-    );
+pub fn fn_006c9fa0(e: &mut Engine, this: u32, value: u8) {
+    e.mem
+        .set_u8(this + PathingSolution::bIncompletePath.off, value);
 }
 
 /// Whether virtual node `index`'s location has a cell for which
@@ -1276,7 +1273,7 @@ pub fn fn_006ca850(e: &mut Engine, this: Ptr<PathBuilder>, _unused_1: u32) -> bo
                 if index > 0 {
                     let previous = call_u32(e, SPACE_ELEMENT, &[segments, index - 1]);
                     if e.mem.u8(previous + 8) != 0 && !lenient {
-                        fn_006c9fa0(e, sol, true);
+                        fn_006c9fa0(e, sol, 1);
                         e.call(SEGMENT_SCRAP_ARRAY_DESTRUCT, &[segments]);
                         return false;
                     }
@@ -1965,7 +1962,7 @@ pub fn fn_006cb950(e: &mut Engine, this: Ptr<PathBuilder>, first: u32, last: u32
                 return false;
             }
             if !fn_006cb6a0(e, this, last, arrays.end_edges, arrays.end_locations) {
-                fn_006c9fa0(e, sol, true);
+                fn_006c9fa0(e, sol, 1);
             }
             let edge = fn_006cedf0(e, arrays.end_edges);
             let triangle = u32::from(e.mem.u16(edge + 4));
@@ -2005,7 +2002,7 @@ pub fn fn_006cb950(e: &mut Engine, this: Ptr<PathBuilder>, first: u32, last: u32
                 complete
             }
             1 => {
-                fn_006c9fa0(e, sol, true);
+                fn_006c9fa0(e, sol, 1);
                 arrays.destroy(e);
                 false
             }
@@ -2036,7 +2033,7 @@ pub fn fn_006cb950(e: &mut Engine, this: Ptr<PathBuilder>, first: u32, last: u32
                             arrays.destroy(e);
                             return false;
                         }
-                        fn_006c9fa0(e, sol, false);
+                        fn_006c9fa0(e, sol, 0);
                         add_location_nodes(e, sol, path);
                         let complete = !call_bool(e, SOLUTION_INCOMPLETE, &[sol]);
                         e.call(LOCATION_ARRAY_DESTRUCT, &[path]);
@@ -2299,7 +2296,7 @@ pub fn fn_006cc5e0(
                         }
                         if !fn_006ca0c0(e, goal_node) {
                             incomplete = true;
-                            fn_006c9fa0(e, sol, true);
+                            fn_006c9fa0(e, sol, 1);
                         }
                     } else if attempt == 0 {
                         e.call(LOCATION_DESTRUCT, &[reached_end]);
@@ -2308,11 +2305,11 @@ pub fn fn_006cc5e0(
                         continue;
                     } else {
                         incomplete = true;
-                        fn_006c9fa0(e, sol, true);
+                        fn_006c9fa0(e, sol, 1);
                     }
                 } else {
                     incomplete = true;
-                    fn_006c9fa0(e, sol, true);
+                    fn_006c9fa0(e, sol, 1);
                 }
                 if !call_bool(e, REQUEST_BYTE_9B, &[req]) {
                     e.call(LOCATION_DESTRUCT, &[reached_end]);
@@ -2339,7 +2336,7 @@ pub fn fn_006cc5e0(
             let tries_now = e.mem.i32(tries);
             if attempt == tries_now.wrapping_sub(1) && fn_006cd1d0(e, req) {
                 incomplete = true;
-                fn_006c9fa0(e, sol, true);
+                fn_006c9fa0(e, sol, 1);
                 let mut index = 0u32;
                 while index < array_size(e, locals.path_triangles) {
                     let handle =
@@ -2390,7 +2387,7 @@ pub fn fn_006cc5e0(
             if current != 0 {
                 // The game also sets its incomplete flag here; both exits
                 // below return a constant, so nothing reads it.
-                fn_006c9fa0(e, sol, true);
+                fn_006c9fa0(e, sol, 1);
                 if call_bool(e, REQUEST_BYTE_9B, &[req]) {
                     locals.destroy(e);
                     e.call(TRIANGLE_ARRAY_A_DESTRUCT, &[search_triangles]);
@@ -3341,7 +3338,7 @@ pub fn path_builder_build_nav_mesh_info_path_in_space(
             if !call_bool(e, REQUEST_BYTE_9B, &[req]) {
                 return finish(e, false);
             }
-            fn_006c9fa0(e, sol, true);
+            fn_006c9fa0(e, sol, 1);
         }
         e.call(SOLUTION_ADD_LOCATION_NODE, &[sol, start]);
         let mut index = 1u32;
@@ -4110,7 +4107,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x006c9b20,
             path_builder_build_teleport_door_path(Ptr<PathBuilder>) -> bool
         ),
-        entry!(0x006c9fa0, fn_006c9fa0(u32, bool)),
+        entry!(0x006c9fa0, fn_006c9fa0(u32, u8)),
         entry!(
             0x006c9fc0,
             fn_006c9fc0(Ptr<PathBuilder>, i32, u32, u32) -> bool
@@ -4993,9 +4990,9 @@ mod tests {
     #[test]
     fn fn_006c9fa0_sets_incomplete_path() {
         let mut w = world();
-        fn_006c9fa0(&mut w.e, w.solution, true);
+        fn_006c9fa0(&mut w.e, w.solution, 1);
         assert_eq!(w.e.mem.u8(w.solution + 0x40), 1);
-        fn_006c9fa0(&mut w.e, w.solution, false);
+        fn_006c9fa0(&mut w.e, w.solution, 0);
         assert_eq!(w.e.mem.u8(w.solution + 0x40), 0);
     }
 

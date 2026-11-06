@@ -1847,12 +1847,20 @@ mod n071_tests {
     #[test]
     fn fn_00bb1080_clones_into_a_new_property() {
         let mut e = rig();
-        e.register(NI_ALLOCATE, |e, a| e.mem.alloc(a[0]).into_ret());
+        // 00bb10c2: the block is allocated with the word at 0x29.
+        e.register(NI_ALLOCATE, |e, a| {
+            let tls = e.tls();
+            assert_eq!(e.mem.u32(tls + 0x2b4), 0x29);
+            e.mem.alloc(a[0]).into_ret()
+        });
         e.register(SHADER_PROPERTY_CONSTRUCT, |_, a| a[0].into_ret());
         e.register(SHADER_PROPERTY_COPY_00BA8B10, |_, _| Ret::default());
         let source = e.mem.alloc(0xa0);
         e.mem.set_u32(source + 0x94, 0x94);
+        let tls = e.tls();
+        e.mem.set_u32(tls + 0x2b4, 6);
         let made = e.call(0x00bb_1080, &args![source, 2u32]).u32();
+        assert_eq!(e.mem.u32(tls + 0x2b4), 6);
         assert_eq!(calls(&e, NI_ALLOCATE), vec![vec![0xa0]]);
         assert_eq!(e.mem.u32(made), PROPERTY_VTABLE_010B9008);
         assert_eq!(e.mem.u32(made + 0x98), 1);

@@ -2975,9 +2975,9 @@ pub fn fn_0069b1d0(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 0069b1f0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Allocates storage for `count` 12-byte fast edge handles.
+/// Allocates storage for `count` bools: `count` bytes (0069b1fc pushes it as it is).
 pub fn fn_0069b1f0(e: &mut Engine, _this: Ptr, count: u32) -> Ptr {
-    Ptr::new(e.call(0x0040_1000, &args![count.wrapping_mul(12)]).u32())
+    Ptr::new(e.call(0x0040_1000, &args![count]).u32())
 }
 
 // Translated from 0069b220 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3055,7 +3055,8 @@ pub fn fn_0069b360(e: &mut Engine, this: Ptr, bucket_count: u32) -> Ptr {
 }
 
 // Translated from 0069b3d0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Inserts or updates the fast-vertex map item for its two-word key.
+/// Inserts or updates the fast-vertex map item for its two-word key. The compare (slot 8) gets
+/// the search key first, then the item's (0069b422 to 0069b446).
 pub fn fn_0069b3d0(e: &mut Engine, this: Ptr, key_low: u32, key_high: u32, value: u32) {
     let bucket = e.vcall(this.addr(), 4, &args![key_low, key_high]).u32();
     let buckets = e.mem.u32(this.addr() + 8);
@@ -3065,7 +3066,7 @@ pub fn fn_0069b3d0(e: &mut Engine, this: Ptr, key_low: u32, key_high: u32, value
         if e.vcall(
             this.addr(),
             8,
-            &args![e.mem.u32(item + 4), e.mem.u32(item + 8), key_low, key_high],
+            &args![key_low, key_high, e.mem.u32(item + 4), e.mem.u32(item + 8)],
         )
         .bool()
         {
@@ -3085,7 +3086,8 @@ pub fn fn_0069b3d0(e: &mut Engine, this: Ptr, key_low: u32, key_high: u32, value
 }
 
 // Translated from 0069b4d0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Finds the fast-vertex map value for `key` and writes it to `out`.
+/// Finds the fast-vertex map value for `key` and writes it to `out`. The compare (slot 8) gets
+/// the search key first, then the item's (0069b512 to 0069b536).
 pub fn fn_0069b4d0(e: &mut Engine, this: Ptr, key_low: u32, key_high: u32, out: Ptr) -> bool {
     let bucket = e.vcall(this.addr(), 4, &args![key_low, key_high]).u32();
     let mut item = e.mem.u32(e.mem.u32(this.addr() + 8) + bucket * 4);
@@ -3093,7 +3095,7 @@ pub fn fn_0069b4d0(e: &mut Engine, this: Ptr, key_low: u32, key_high: u32, out: 
         if e.vcall(
             this.addr(),
             8,
-            &args![e.mem.u32(item + 4), e.mem.u32(item + 8), key_low, key_high],
+            &args![key_low, key_high, e.mem.u32(item + 4), e.mem.u32(item + 8)],
         )
         .bool()
         {
@@ -8320,11 +8322,38 @@ mod tests {
     }
 
     #[test]
-    fn fast_edge_storage_allocation_multiplies_count_by_twelve() {
+    fn bool_storage_allocation_is_the_count_in_bytes() {
         let mut e = Engine::new();
         let calls = recorder(&mut e, 0x0040_1000, 0x7100);
         assert_eq!(fn_0069b1f0(&mut e, Ptr::NULL, 3), Ptr::new(0x7100));
-        assert_eq!(&*calls.borrow(), &[vec![36]]);
+        assert_eq!(&*calls.borrow(), &[vec![3]]);
+    }
+
+    /// 0069b422 to 0069b446, 0069b512 to 0069b536: the search key first, then the item's.
+    #[test]
+    fn fast_vertex_map_compares_the_search_key_first() {
+        let mut e = Engine::new();
+        let map = Ptr::new(e.mem.alloc(16));
+        let vtable = e.mem.alloc(0x20);
+        let buckets = e.mem.alloc(8);
+        let item = e.mem.alloc(16);
+        let hash = 0x00ab_1190;
+        let equal = 0x00ab_11a0;
+        e.map(vtable, 0x20);
+        e.mem.set_u32(vtable + 4, hash);
+        e.mem.set_u32(vtable + 8, equal);
+        e.mem.set_u32(map.addr(), vtable);
+        e.mem.set_u32(map.addr() + 8, buckets);
+        e.mem.set_u32(buckets, item);
+        e.mem.set_u32(item + 4, 0x11);
+        e.mem.set_u32(item + 8, 0x22);
+        e.register(hash, |_, _| ret(0));
+        let seen = recorder(&mut e, equal, 1);
+        let out = Ptr::new(e.mem.alloc(4));
+        fn_0069b3d0(&mut e, map, 0x33, 0x44, 0x55);
+        assert!(fn_0069b4d0(&mut e, map, 0x33, 0x44, out));
+        assert_eq!(seen.borrow()[0][1..], [0x33, 0x44, 0x11, 0x22]);
+        assert_eq!(seen.borrow()[1][1..], [0x33, 0x44, 0x11, 0x22]);
     }
 
     #[test]

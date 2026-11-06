@@ -405,7 +405,8 @@ fn write_direction(e: &mut Engine, direction: u32, d: [u32; 3]) {
 /// `LoadBinary`, a link id (`00a645b0`, the bomb object), the axis
 /// (`NiColor::LoadBinary`), decay and delta-v (4 bytes each), then the
 /// decay and symmetry types (4 bytes each, read into a local and stored).
-/// The component-size word is the stream argument's stack word.
+/// The component-size word is the stream argument's stack word. The local is the word pushed
+/// at entry (00c2eb80), `this`, until a read fills it: a short read stores that.
 pub fn ni_p_sys_bomb_modifier_load_binary(
     e: &mut Engine,
     this: Ptr<NiPSysBombModifier>,
@@ -421,6 +422,7 @@ pub fn ni_p_sys_bomb_modifier_load_binary(
     e.with_stack(8, |e, frame| {
         let local = frame.addr();
         let argument_slot = frame.addr() + 4;
+        e.mem.set_u32(local, this.addr());
         e.mem.set_u32(argument_slot, s);
         for field in [NiPSysBombModifier::m_fDecay, NiPSysBombModifier::m_fDeltaV] {
             stream_read(e, s, this.addr() + field.off, 4, 4, argument_slot);
@@ -952,6 +954,21 @@ mod tests {
         assert_eq!(e.get(this, NiPSysBombModifier::m_fDeltaV), 2.0f32.to_bits());
         assert_eq!(e.get(this, NiPSysBombModifier::m_eDecayType), 1);
         assert_eq!(e.get(this, NiPSysBombModifier::m_eSymmType), 2);
+    }
+
+    /// 00c2eb80, 00c2ebf5: a short read leaves the word pushed at entry, `this`.
+    #[test]
+    fn load_binary_short_read_stores_this_in_the_types() {
+        let mut e = Engine::new();
+        e.register(MODIFIER_LOAD_BINARY, |_, _| Ret::default());
+        e.register(READ_LINK_ID, |_, _| Ret::default());
+        e.register(COLOR_LOAD_BINARY, |_, _| Ret::default());
+        let stream = test_stream::new(&mut e, 0x1402_0007, &[]);
+        e.register(test_stream::READ_FN, |_, _| Ret::default());
+        let this = e.new_object::<NiPSysBombModifier>();
+        e.call(0x00c2_eb80, &args![this, stream]);
+        assert_eq!(e.get(this, NiPSysBombModifier::m_eDecayType), this.addr());
+        assert_eq!(e.get(this, NiPSysBombModifier::m_eSymmType), this.addr());
     }
 }
 

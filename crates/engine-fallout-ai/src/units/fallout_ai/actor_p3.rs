@@ -5029,9 +5029,9 @@ pub fn fn_00898fd0(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 00898ff0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Calls virtual slot `0x18` of the object embedded at `+0x30` of the
 /// actor's base form (`004181e0`) and returns its flag.
-pub fn fn_00898ff0(e: &mut Engine, this: Ptr<Actor>) -> bool {
+pub fn fn_00898ff0(e: &mut Engine, this: Ptr<Actor>) -> u8 {
     let base = e.call(ACTOR_BASE_FORM, &args![this]).u32();
-    e.vcall(base + 0x30, 0x18, &args![]).bool()
+    e.vcall(base + 0x30, 0x18, &args![]).u8()
 }
 
 // Translated from 00899030 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -14145,7 +14145,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008985d0, fn_008985d0(Ptr<Actor>)),
         entry!(0x00898650, fn_00898650(Ptr<Actor>, Ptr<Actor>, f32)),
         entry!(0x00898fd0, fn_00898fd0(Ptr) -> bool),
-        entry!(0x00898ff0, fn_00898ff0(Ptr<Actor>) -> bool),
+        entry!(0x00898ff0, fn_00898ff0(Ptr<Actor>) -> u8),
         entry!(0x00899030, fn_00899030(Ptr<Actor>) -> u32),
         entry!(0x00899060, fn_00899060(Ptr<Actor>, u8)),
         entry!(
@@ -16661,9 +16661,9 @@ mod tests {
         let base = e.mem.alloc(0x40);
         embedded_table(&mut e, base + 0x30, &[(0x18, ret(1))]);
         stub(&mut e, ACTOR_BASE_FORM, base);
-        assert!(fn_00898ff0(&mut e, actor));
+        assert!(fn_00898ff0(&mut e, actor) != 0);
         embedded_table(&mut e, base + 0x30, &[(0x18, ret(0))]);
-        assert!(!fn_00898ff0(&mut e, actor));
+        assert!(fn_00898ff0(&mut e, actor) == 0);
     }
 
     #[test]

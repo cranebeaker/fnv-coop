@@ -61,11 +61,12 @@ fn profile_record_00d5e600(e: &mut Engine, label: u32) {
 /// child builds a 16-byte body record on the stack, `{child, key,
 /// [parent + 8], parent}`, then calls the child's slot `+0x24` with
 /// `(first, &record, third)`. Ends with the end-label record. `RDTSC` is
-/// the host clock.
+/// the host clock. The frame is the exe's `SUB ESP,0x214` and three pushes (00d5e60b, 00d5e611),
+/// so the buffer has its full 0x200 bytes.
 pub fn fn_00d5e600(e: &mut Engine, this: Ptr, first: u32, parent: Ptr, third: u32) {
     profile_record_00d5e600(e, SHAPE_COLLECT_LABEL);
     let iterator = this.addr() + 0x14;
-    e.with_stack(0x214, |e, frame| {
+    e.with_stack(0x220, |e, frame| {
         let record = frame.addr() + 0x10;
         let buffer = frame.addr() + 0x20;
         let mut key = e.vcall(iterator, 8, &args![]).u32();
@@ -298,9 +299,14 @@ mod tests {
             eax: if a[1] == 7 { 9 } else { u32::MAX },
             ..Ret::default()
         });
-        e.register_double(0x0090_5200, move |_, _| Ret {
-            eax: child,
-            ..Ret::default()
+        // 00d5e60b, 00d5e611: 0x214 bytes and three pushes, the buffer 0x20 up.
+        let frame = e.next_stack_local(0x220);
+        e.register_double(0x0090_5200, move |_, a| {
+            assert_eq!(a[2], frame + 0x20);
+            Ret {
+                eax: child,
+                ..Ret::default()
+            }
         });
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let seen_log = std::rc::Rc::clone(&seen);

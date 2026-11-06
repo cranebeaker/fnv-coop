@@ -147,8 +147,9 @@ pub fn ni_mesh_particle_system_load_binary(e: &mut Engine, this: Ptr, stream: Pt
     }
     if warn {
         e.with_stack(0x108, |e, buffer| {
+            // 00c219ae: only the first byte decides.
             let name_at = stream.addr().wrapping_add(8);
-            let name = if e.mem.u32(name_at) != 0 {
+            let name = if e.mem.u8(name_at) != 0 {
                 name_at
             } else {
                 NO_NAME_TEXT
@@ -615,6 +616,18 @@ mod n063_tests {
             calls(&e, 0x0e70_0000),
             vec![vec![printed[0][0], UNSUPPORTED_OBJECT_TEXT, 0]]
         );
+        // 00c219ae: a first byte of 0 is the empty name, whatever follows it.
+        e.mem.set_u32(stream + 8, 0x4100);
+        e.call_log = Some(vec![]);
+        e.call(0x00c2_1960, &args![0x5000u32, stream]);
+        assert_eq!(calls(&e, SPRINTF)[0][3], NO_NAME_TEXT);
+        e.mem.set_u32(stream + 8, 0x41);
+        e.call_log = Some(vec![]);
+        e.call(0x00c2_1960, &args![0x5000u32, stream]);
+        assert_eq!(calls(&e, SPRINTF)[0][3], stream + 8);
+        e.mem.set_u32(stream + 8, 0);
+        e.call_log = Some(vec![]);
+        e.call(0x00c2_1960, &args![0x5000u32, stream]);
         assert_eq!(
             calls(&e, SYSTEM_LOAD_BINARY_00C1B3A0),
             vec![vec![0x5000, stream]]

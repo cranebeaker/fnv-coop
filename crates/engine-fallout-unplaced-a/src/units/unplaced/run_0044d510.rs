@@ -52,7 +52,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `0044df00(this + 0x14) + 4` to `0092c820` on `target`, calls `Error` (empty) and clears
 /// `ok` when `0044df20` on `0044df00(this + 0x14)` is true; in every case ends with
 /// `00529000(this)`. Returns `ok`.
-pub fn fn_0044d510(e: &mut Engine, this: Ptr, first: u32, second: u32, target: u32) -> bool {
+pub fn fn_0044d510(e: &mut Engine, this: Ptr, first: u32, second: u32, target: u32) -> u8 {
     let base = this.addr();
     let mut ok = e.call(BEGIN, &args![base, first, second]).u8();
     if ok != 0 {
@@ -65,7 +65,7 @@ pub fn fn_0044d510(e: &mut Engine, this: Ptr, first: u32, second: u32, target: u
         }
     }
     e.call(END, &args![base]);
-    ok != 0
+    ok
 }
 
 // Translated from 0044d5b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -214,7 +214,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0044_d6c0, fn_0044d6c0(Ptr, u32) -> Ptr),
         entry!(0x0044_d6f0, fn_0044d6f0(Ptr)),
         entry!(0x0044_d710, fn_0044d710(Ptr, u32) -> Ptr),
-        entry!(0x0044_d510, fn_0044d510(Ptr, u32, u32, u32) -> bool),
+        entry!(0x0044_d510, fn_0044d510(Ptr, u32, u32, u32) -> u8),
         entry!(0x0044_d5b0, fn_0044d5b0(u32) -> u32),
         entry!(0x0044_d5c0, fn_0044d5c0(Ptr, u32) -> u32),
         entry!(0x0044_d600, fn_0044d600(u32, u32, u32) -> u32),

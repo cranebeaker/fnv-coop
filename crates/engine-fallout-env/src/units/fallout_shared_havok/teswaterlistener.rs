@@ -708,7 +708,7 @@ fn splash_effect(e: &mut Engine, rotation: u32, volume: f32, x: f32, y: f32, z: 
 /// case, sets the water global when the player's head is below its cell's
 /// water. open: the /GS cookie.
 pub fn tes_water_listener_update(e: &mut Engine, this: Ptr<TESWaterListener>, delta: f32) {
-    if fn_0062f2f0(e, this) {
+    if fn_0062f2f0(e, this) != 0 {
         e.with_stack(0x80, |e, frame| {
             let base = frame.addr() + 0x80;
             let at = move |offset: u32| base - offset;
@@ -853,8 +853,8 @@ fn update_bodies(
 
 // Translated from 0062f2f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bEnabled` of the listener.
-pub fn fn_0062f2f0(e: &mut Engine, this: Ptr<TESWaterListener>) -> bool {
-    e.get(this, TESWaterListener::bEnabled)
+pub fn fn_0062f2f0(e: &mut Engine, this: Ptr<TESWaterListener>) -> u8 {
+    e.mem.u8(this.addr() + TESWaterListener::bEnabled.off)
 }
 
 // Translated from 0062f310 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1984,7 +1984,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x0062ee60,
             tes_water_listener_update(Ptr<TESWaterListener>, f32)
         ),
-        entry!(0x0062f2f0, fn_0062f2f0(Ptr<TESWaterListener>) -> bool),
+        entry!(0x0062f2f0, fn_0062f2f0(Ptr<TESWaterListener>) -> u8),
         entry!(0x0062f310, fn_0062f310(u32)),
         entry!(0x0062f320, fn_0062f320(Ptr<TESWaterListener>, u32) -> u32),
         entry!(0x0062f3d0, fn_0062f3d0() -> u32),

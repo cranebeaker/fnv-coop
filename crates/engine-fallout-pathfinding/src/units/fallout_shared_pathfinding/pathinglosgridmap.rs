@@ -334,7 +334,7 @@ pub fn fn_006dfd70(e: &mut Engine, this: Ptr<PathingLOSGrid>, argument: u32) -> 
 /// location's navmesh (`PathingLocation::GetNavMesh`), the navmesh's cell
 /// index for the location's point (`005c3420`, `00691240`); when it is
 /// inside the grid, the cell's answer `006df5f0(cell, location)`, else false.
-pub fn fn_006dfdc0(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr) -> bool {
+pub fn fn_006dfdc0(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr) -> u8 {
     e.with_stack(4, |e, nav_mesh| {
         e.call(NI_POINTER_CONSTRUCT, &args![nav_mesh]);
         if e.call(LOCATION_GET_NAV_MESH, &args![location, nav_mesh])
@@ -350,11 +350,11 @@ pub fn fn_006dfdc0(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr) -> 
                 let cell = e.mem.u32(slot);
                 let result = e.call(CELL_TEST_LOCATION, &args![cell, location]).u8();
                 e.call(NI_POINTER_DESTRUCT, &args![nav_mesh]);
-                return result != 0;
+                return result;
             }
         }
         e.call(NI_POINTER_DESTRUCT, &args![nav_mesh]);
-        false
+        0
     })
 }
 
@@ -867,10 +867,10 @@ pub fn fn_006e0b00(e: &mut Engine, this: Ptr) -> f32 {
 /// info (`0044edb0`) or no triangle (`0xFFFF`); else the grid of the
 /// info's key (its first word) and that grid's answer ([`fn_006dfdc0`]),
 /// false when the table has none.
-pub fn fn_006e0b50(e: &mut Engine, this: Ptr<PathingLOSGridMap>, location: Ptr) -> bool {
+pub fn fn_006e0b50(e: &mut Engine, this: Ptr<PathingLOSGridMap>, location: Ptr) -> u8 {
     let info = e.call(LOCATION_NAV_MESH_INFO, &args![location]).u32();
     if info == 0 || e.call(LOCATION_TRIANGLE, &args![location]).u16() == 0xffff {
-        return false;
+        return 0;
     }
     let grid = e.with_stack(4, |e, grid_slot| {
         let key = e.call(WORD_AT, &args![info]).u32();
@@ -883,7 +883,7 @@ pub fn fn_006e0b50(e: &mut Engine, this: Ptr<PathingLOSGridMap>, location: Ptr) 
     });
     match grid {
         Some(grid) => fn_006dfdc0(e, grid, location),
-        None => false,
+        None => 0,
     }
 }
 
@@ -1205,7 +1205,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x006d_fb00, fn_006dfb00(Ptr<PathingLOSGrid>, Ptr)),
         entry!(0x006d_fd20, fn_006dfd20(Ptr<PathingLOSGrid>, u32) -> bool),
         entry!(0x006d_fd70, fn_006dfd70(Ptr<PathingLOSGrid>, u32) -> bool),
-        entry!(0x006d_fdc0, fn_006dfdc0(Ptr<PathingLOSGrid>, Ptr) -> bool),
+        entry!(0x006d_fdc0, fn_006dfdc0(Ptr<PathingLOSGrid>, Ptr) -> u8),
         entry!(
             0x006d_fe90,
             fn_006dfe90(Ptr<PathingLOSGrid>, Ptr, u8) -> bool
@@ -1271,10 +1271,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             fn_006e0a90(Ptr<PathingLOSGrid>, Ptr) -> Ptr<PathingLOSGrid>
         ),
         entry!(0x006e_0b00, fn_006e0b00(Ptr) -> f32),
-        entry!(
-            0x006e_0b50,
-            fn_006e0b50(Ptr<PathingLOSGridMap>, Ptr) -> bool
-        ),
+        entry!(0x006e_0b50, fn_006e0b50(Ptr<PathingLOSGridMap>, Ptr) -> u8),
         entry!(
             0x006e_0bc0,
             fn_006e0bc0(Ptr<PathingLOSGridMap>, Ptr, u8) -> bool

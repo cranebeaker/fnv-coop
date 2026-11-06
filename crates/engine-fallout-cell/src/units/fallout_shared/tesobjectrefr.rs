@@ -485,7 +485,7 @@ pub(crate) fn load_record(
             let info = e.call(0x0050_0940, &args![script]).u32();
             if e.mem.u32(info + 8) == 0
                 && fn_0055b980(e, Ptr::new(script)) != 0
-                && !fn_0055b9a0(e, Ptr::new(script))
+                && fn_0055b9a0(e, Ptr::new(script)) == 0
             {
                 e.with_stack(8, |e, text| {
                     e.call(STRING_CONSTRUCT, &args![text]);
@@ -1325,8 +1325,8 @@ pub fn fn_0055b980(e: &mut Engine, this: Ptr) -> u32 {
 
 // Translated from 0055b9a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The byte at +0x2a of the object `this` (whether its script is compiled).
-pub fn fn_0055b9a0(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u8(this.addr() + 0x2a) != 0
+pub fn fn_0055b9a0(e: &mut Engine, this: Ptr) -> u8 {
+    e.mem.u8(this.addr() + 0x2a)
 }
 
 // Translated from 0055b9c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2425,9 +2425,9 @@ pub fn fn_0055e250(e: &mut Engine, this: Ptr<TESObjectREFR>, form: Ptr) -> bool 
 /// when the record's form is this reference's own cell (looked up and cast
 /// to `TESObjectCELL`), this reference persists and the kind is 9. Any other
 /// kind is left to the parent cell's virtual +0x38.
-pub fn fn_0055e3f0(e: &mut Engine, this: Ptr<TESObjectREFR>, group: Ptr) -> bool {
+pub fn fn_0055e3f0(e: &mut Engine, this: Ptr<TESObjectREFR>, group: Ptr) -> u8 {
     if group.is_null() || e.mem.u32(group.addr()) != e.global::<u32>(GROUP_DATA_VTABLE_PTR) {
-        return false;
+        return 0;
     }
     let kind = e.mem.u32(group.addr() + 0xc);
     if (8..=9).contains(&kind) {
@@ -2435,18 +2435,18 @@ pub fn fn_0055e3f0(e: &mut Engine, this: Ptr<TESObjectREFR>, group: Ptr) -> bool
         let form = e.call(0x0048_39c0, &args![form_id]).u32();
         let cell = dynamic_cast(e, form, TYPE_TES_OBJECT_CELL);
         if cell == 0 {
-            return false;
+            return 0;
         }
         if save_parent_cell(e, this) != cell {
-            return false;
+            return 0;
         }
         if e.call(GET_REF_PERSISTS, &args![this]).bool() {
-            return e.mem.u32(group.addr() + 0xc) == 9;
+            return u8::from(e.mem.u32(group.addr() + 0xc) == 9);
         }
-        false
+        0
     } else {
         let cell = save_parent_cell(e, this);
-        e.vcall(cell, 0x38, &args![group]).bool()
+        e.vcall(cell, 0x38, &args![group]).u8()
     }
 }
 
@@ -5194,7 +5194,7 @@ pub fn fn_00561b40(e: &mut Engine, node: Ptr, walk: Ptr<OldHavokLoadWalk>) {
 pub fn tes_object_refr_get_original_open_by_default_state(
     e: &mut Engine,
     this: Ptr<TESObjectREFR>,
-) -> bool {
+) -> u8 {
     let me = this.addr();
     let flags = e.with_stack(4, |e, cell| {
         e.call(CHANGE_FLAGS_CONSTRUCT, &args![cell, 0x0040_0000u32]);
@@ -5205,9 +5205,9 @@ pub fn tes_object_refr_get_original_open_by_default_state(
         .call(SAVE_LOAD_GET_CHANGE, &args![save_load_game, this, flags])
         .bool();
     let list = extra_list(e, me);
-    let open = e.call(EXTRA_FLAG_TEST, &args![list, 8u32]).bool();
+    let open = e.call(EXTRA_FLAG_TEST, &args![list, 8u32]).u8();
     if recorded {
-        !open
+        u8::from(open == 0)
     } else {
         open
     }
@@ -5596,7 +5596,7 @@ pub fn tes_object_refr_finish_load_game(e: &mut Engine, this: Ptr<TESObjectREFR>
         e.call(EXTRA_FINISH_LOAD_GAME, &args![list, buffer]);
     }
     if !is_actor(e, me) && buffer_changed(e, BUFFER_CHANGE_FLAGS, buffer.addr(), 0x0080_0000) {
-        if tes_object_refr_get_original_open_by_default_state(e, this) {
+        if tes_object_refr_get_original_open_by_default_state(e, this) != 0 {
             e.call(REFR_CLEAR_ACTION, &args![this, 4u32]);
             e.call(SNAP_HAVOK_TO_3D, &args![this]);
             let manager = e.call(GET_OBSTACLE_MANAGER, &args![]).u32();
@@ -6337,7 +6337,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             tes_object_refr_load(Ptr<TESObjectREFR>, Ptr) -> bool
         ),
         entry!(0x0055b980, fn_0055b980(Ptr) -> u32),
-        entry!(0x0055b9a0, fn_0055b9a0(Ptr) -> bool),
+        entry!(0x0055b9a0, fn_0055b9a0(Ptr) -> u8),
         entry!(0x0055b9c0, fn_0055b9c0(Ptr<TESObjectREFR>, Ptr)),
         entry!(
             0x0055c050,
@@ -6366,7 +6366,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0055e1d0, fn_0055e1d0(Ptr)),
         entry!(0x0055e200, fn_0055e200(Ptr) -> bool),
         entry!(0x0055e250, fn_0055e250(Ptr<TESObjectREFR>, Ptr) -> bool),
-        entry!(0x0055e3f0, fn_0055e3f0(Ptr<TESObjectREFR>, Ptr) -> bool),
+        entry!(0x0055e3f0, fn_0055e3f0(Ptr<TESObjectREFR>, Ptr) -> u8),
         entry!(
             0x0055e4d0,
             fn_0055e4d0(Ptr<TESObjectREFR>, Ptr, u8, u8) -> bool
@@ -6445,7 +6445,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00561b40, fn_00561b40(Ptr, Ptr<OldHavokLoadWalk>)),
         entry!(
             0x00561d90,
-            tes_object_refr_get_original_open_by_default_state(Ptr<TESObjectREFR>) -> bool
+            tes_object_refr_get_original_open_by_default_state(Ptr<TESObjectREFR>) -> u8
         ),
         entry!(
             0x00561df0,

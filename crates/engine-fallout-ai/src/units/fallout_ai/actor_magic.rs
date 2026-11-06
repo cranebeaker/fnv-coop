@@ -1147,7 +1147,7 @@ pub fn fn_008c3530(e: &mut Engine, this: Ptr) {
             )
             .bool();
         if can_go_on {
-            fn_008c45a0(e, Ptr::new(actor), true);
+            fn_008c45a0(e, Ptr::new(actor), 1);
             return;
         }
         if actor != player(e) {
@@ -1227,7 +1227,7 @@ pub fn fn_008c3790(e: &mut Engine, this: Ptr) {
     let actor = this.addr();
     let item = e.vcall(actor + MAGIC_CASTER, CASTER_SLOT_0X30, &[]).u32();
     if item == 0 {
-        fn_008c45a0(e, this, false);
+        fn_008c45a0(e, this, 0);
         return;
     }
     let target = e.vcall(actor + MAGIC_CASTER, CASTER_SLOT_0X34, &[]).u32();
@@ -1279,7 +1279,7 @@ pub fn fn_008c3790(e: &mut Engine, this: Ptr) {
         }
     }
     if e.call(FN_00453470, &args![item]).u32() == 0 {
-        fn_008c45a0(e, this, false);
+        fn_008c45a0(e, this, 0);
     }
 }
 
@@ -1430,7 +1430,7 @@ pub fn actor_update_magic(e: &mut Engine, this: Ptr, use_game_time: bool, use_fi
                 caster_vcall(e, actor, CASTER_SLOT_0X40, &args![0u32]);
             }
         }
-        if fn_008c4560(e, this) {
+        if fn_008c4560(e, this) != 0 {
             fn_008c3790(e, this);
         }
         if e.mem.u32(actor + 0x8c) != 0 {
@@ -1462,7 +1462,7 @@ pub fn actor_update_magic(e: &mut Engine, this: Ptr, use_game_time: bool, use_fi
 /// Magic caster virtual `+0x00` (`this` is the caster at actor `+0x88`):
 /// forwards to the actor's process (`008d8520`), virtual `+0x3c0`, with
 /// (the caster, `first`, `second`). Does nothing without a process.
-pub fn fn_008c3fb0(e: &mut Engine, this: Ptr, first: u32, second: bool) {
+pub fn fn_008c3fb0(e: &mut Engine, this: Ptr, first: u32, second: u8) {
     let actor: Ptr = Ptr::new(this.addr().wrapping_sub(MAGIC_CASTER));
     if e.call(PROCESS_OF, &args![actor]).u32() == 0 {
         return;
@@ -1475,7 +1475,7 @@ pub fn fn_008c3fb0(e: &mut Engine, this: Ptr, first: u32, second: bool) {
 // Translated from 008c4020 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Magic caster virtual `+0x10`: like `fn_008c3fb0` with a third word, to the
 /// process's virtual `+0x3c4`: (the caster, `first`, `second`, `third`).
-pub fn fn_008c4020(e: &mut Engine, this: Ptr, first: u32, second: u32, third: bool) {
+pub fn fn_008c4020(e: &mut Engine, this: Ptr, first: u32, second: u32, third: u8) {
     let actor: Ptr = Ptr::new(this.addr().wrapping_sub(MAGIC_CASTER));
     if e.call(PROCESS_OF, &args![actor]).u32() == 0 {
         return;
@@ -1590,19 +1590,19 @@ pub fn fn_008c4510(e: &mut Engine, this: Ptr, value: u32) {
 }
 
 // Translated from 008c4560 (decompiled, FalloutNV.exe 1.4.0.525)
-/// The actor's process virtual `+0x3d8` (false without a process).
-pub fn fn_008c4560(e: &mut Engine, this: Ptr) -> bool {
+/// The actor's process virtual `+0x3d8`, its byte as it is (0 without a process).
+pub fn fn_008c4560(e: &mut Engine, this: Ptr) -> u8 {
     if e.call(PROCESS_OF, &args![this]).u32() == 0 {
-        return false;
+        return 0;
     }
     let process = e.call(PROCESS_OF, &args![this]).u32();
-    e.vcall(process, PROCESS_SLOT_0X3D8, &[]).bool()
+    e.vcall(process, PROCESS_SLOT_0X3D8, &[]).u8()
 }
 
 // Translated from 008c45a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The actor's process virtual `+0x3dc` with `value`; nothing without a
 /// process.
-pub fn fn_008c45a0(e: &mut Engine, this: Ptr, value: bool) {
+pub fn fn_008c45a0(e: &mut Engine, this: Ptr, value: u8) {
     if e.call(PROCESS_OF, &args![this]).u32() == 0 {
         return;
     }
@@ -1636,7 +1636,7 @@ pub fn fn_008c45e0(
 /// 008c462e): the slot is `GetMagicEffectivenessModifier`, a `float` in the Xbox PDB
 /// (`?GetMagicEffectivenessModifier@Actor@@MAAM_NM@Z`), and MagicCaster::FindTargets_ov2 stores
 /// it from the caster's own slot +0x3c call (`FSTP` after 008171ca).
-pub fn fn_008c4610(e: &mut Engine, this: Ptr, flag: bool, value: f32) -> f64 {
+pub fn fn_008c4610(e: &mut Engine, this: Ptr, flag: u8, value: f32) -> f64 {
     e.call(FN_008153A0, &args![this, flag, quiet(value)]).f64()
 }
 
@@ -2145,17 +2145,18 @@ pub fn actor_delete_cast_powers(e: &mut Engine, this: Ptr) {
 /// result of the actor's virtual `+0x1d0`, `enabled`, the amount, 0, 0.0 and
 /// 0; and the refraction extra data (`00422750`) of the actor's extra list
 /// gets (`enabled`, the original `value`).
-pub fn fn_008c50f0(e: &mut Engine, this: Ptr, enabled: bool, value: f32) {
+pub fn fn_008c50f0(e: &mut Engine, this: Ptr, enabled: u8, value: f32) {
     let actor = this.addr();
     let zero: f64 = e.global(THRESHOLD_01012060);
     let mut amount = quiet(value);
-    if enabled && (amount as f64) <= zero && e.call(PROCESS_OF, &args![this]).u32() != 0 {
+    if enabled != 0 && (amount as f64) <= zero && e.call(PROCESS_OF, &args![this]).u32() != 0 {
         let process = e.call(PROCESS_OF, &args![this]).u32();
         amount = e.vcall(process, PROCESS_SLOT_0X5B4, &[]).f32();
     }
+    // 8c5141: the argument byte as it is, on to both calls (8c5174, 8c51aa).
     let mut flag = enabled;
-    if flag && (amount as f64) <= zero {
-        flag = false;
+    if flag != 0 && (amount as f64) <= zero {
+        flag = 0;
     }
     let source = e.vcall(actor, ACTOR_SLOT_0X1D0, &[]).u32();
     e.call(
@@ -2197,8 +2198,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008c3790, fn_008c3790(Ptr)),
         entry!(0x008c39b0, fn_008c39b0(Ptr, Ptr)),
         entry!(0x008c3c40, actor_update_magic(Ptr, bool, bool)),
-        entry!(0x008c3fb0, fn_008c3fb0(Ptr, u32, bool)),
-        entry!(0x008c4020, fn_008c4020(Ptr, u32, u32, bool)),
+        entry!(0x008c3fb0, fn_008c3fb0(Ptr, u32, u8)),
+        entry!(0x008c4020, fn_008c4020(Ptr, u32, u32, u8)),
         entry!(0x008c4090, fn_008c4090(Ptr) -> u32),
         entry!(0x008c40e0, fn_008c40e0(Ptr, Ptr, Ptr, Ptr) -> f32),
         entry!(0x008c4330, actor_get_radiation_resistance_mult(Ptr) -> f32),
@@ -2207,10 +2208,10 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008c4470, fn_008c4470(Ptr, u32)),
         entry!(0x008c44c0, fn_008c44c0(Ptr) -> u32),
         entry!(0x008c4510, fn_008c4510(Ptr, u32)),
-        entry!(0x008c4560, fn_008c4560(Ptr) -> bool),
-        entry!(0x008c45a0, fn_008c45a0(Ptr, bool)),
+        entry!(0x008c4560, fn_008c4560(Ptr) -> u8),
+        entry!(0x008c45a0, fn_008c45a0(Ptr, u8)),
         entry!(0x008c45e0, fn_008c45e0(Ptr, u32, Ptr, Ptr, u32) -> bool),
-        entry!(0x008c4610, fn_008c4610(Ptr, bool, f32) -> f64),
+        entry!(0x008c4610, fn_008c4610(Ptr, u8, f32) -> f64),
         entry!(0x008c4640, actor_update_alpha(Ptr)),
         entry!(0x008c4790, fn_008c4790(Ptr, f32)),
         entry!(0x008c47d0, fn_008c47d0(Ptr, f32)),
@@ -2230,7 +2231,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x008c4fe0, fn_008c4fe0(Ptr, Ptr) -> bool),
         entry!(0x008c5000, fn_008c5000(Ptr, Ptr) -> u32),
         entry!(0x008c5090, actor_delete_cast_powers(Ptr)),
-        entry!(0x008c50f0, fn_008c50f0(Ptr, bool, f32)),
+        entry!(0x008c50f0, fn_008c50f0(Ptr, u8, f32)),
         entry!(0x008c51c0, fn_008c51c0(Ptr) -> bool),
     ]
 }
@@ -3545,27 +3546,28 @@ mod tests {
         e.register(process_slot(0x3c8), |_, _| 0x44u32.into_ret());
         e.register(process_slot(0x3d0), |_, _| 0x55u32.into_ret());
         start_log(&mut e);
-        fn_008c3fb0(&mut e, caster, 5, true);
-        fn_008c4020(&mut e, caster, 5, 6, true);
+        e.call(0x008c_3fb0, &args![caster, 5u32, 0x2au32]);
+        e.call(0x008c_4020, &args![caster, 5u32, 6u32, 0x2au32]);
         assert_eq!(fn_008c4420(&mut e, caster), 0x44);
         fn_008c4470(&mut e, caster, 7);
         assert_eq!(fn_008c44c0(&mut e, caster), 0x55);
         fn_008c4510(&mut e, caster, 8);
+        // 8c3ff5, 8c4065: the argument byte goes on as it is.
         assert_eq!(
             calls(&e, process_slot(0x3c0)),
-            vec![vec![w.process, w.caster, 5, 1]]
+            vec![vec![w.process, w.caster, 5, 0x2a]]
         );
         assert_eq!(
             calls(&e, process_slot(0x3c4)),
-            vec![vec![w.process, w.caster, 5, 6, 1]]
+            vec![vec![w.process, w.caster, 5, 6, 0x2a]]
         );
         assert_eq!(calls(&e, process_slot(0x3cc)), vec![vec![w.process, 7]]);
         assert_eq!(calls(&e, process_slot(0x3d4)), vec![vec![w.process, 8]]);
         // Without a process nothing is forwarded and the getters answer 0.
         e.mem.set_u32(w.actor + 0x68, 0);
         start_log(&mut e);
-        fn_008c3fb0(&mut e, caster, 5, true);
-        fn_008c4020(&mut e, caster, 5, 6, true);
+        fn_008c3fb0(&mut e, caster, 5, 1);
+        fn_008c4020(&mut e, caster, 5, 6, 1);
         assert_eq!(fn_008c4420(&mut e, caster), 0);
         fn_008c4470(&mut e, caster, 7);
         assert_eq!(fn_008c44c0(&mut e, caster), 0);
@@ -3579,17 +3581,18 @@ mod tests {
     fn target_and_actor_forwarders_ask_the_process() {
         let (mut e, w) = setup();
         e.register(process_slot(0x3b8), |_, _| 0x33u32.into_ret());
-        e.register(process_slot(0x3d8), |_, _| 1u32.into_ret());
+        e.register(process_slot(0x3d8), |_, _| 0x2au32.into_ret());
         assert_eq!(fn_008c4090(&mut e, Ptr::new(w.target)), 0x33);
-        assert!(fn_008c4560(&mut e, Ptr::new(w.actor)));
+        // 8c4590, 8c4599: the byte as it is.
+        assert_eq!(e.call(0x008c_4560, &args![w.actor]).u8(), 0x2a);
         start_log(&mut e);
-        fn_008c45a0(&mut e, Ptr::new(w.actor), true);
-        assert_eq!(calls(&e, process_slot(0x3dc)), vec![vec![w.process, 1]]);
+        e.call(0x008c_45a0, &args![w.actor, 0x2au32]);
+        assert_eq!(calls(&e, process_slot(0x3dc)), vec![vec![w.process, 0x2a]]);
         e.mem.set_u32(w.actor + 0x68, 0);
         start_log(&mut e);
         assert_eq!(fn_008c4090(&mut e, Ptr::new(w.target)), 0);
-        assert!(!fn_008c4560(&mut e, Ptr::new(w.actor)));
-        fn_008c45a0(&mut e, Ptr::new(w.actor), true);
+        assert_eq!(fn_008c4560(&mut e, Ptr::new(w.actor)), 0);
+        fn_008c45a0(&mut e, Ptr::new(w.actor), 1);
         assert!(calls(&e, process_slot(0x3dc)).is_empty());
     }
 
@@ -3730,7 +3733,7 @@ mod tests {
             2
         ));
         start_log(&mut e);
-        fn_008c4610(&mut e, Ptr::new(w.caster), true, 1.5);
+        fn_008c4610(&mut e, Ptr::new(w.caster), 1, 1.5);
         assert_eq!(
             calls(&e, FN_008153A0),
             vec![vec![w.caster, 1, 1.5f32.to_bits()]]
@@ -4095,32 +4098,33 @@ mod tests {
         e.register(process_slot(0x5b4), |_, _| 2.0f32.into_ret());
         // Enabled with a non-positive amount: the process supplies it.
         start_log(&mut e);
-        fn_008c50f0(&mut e, actor, true, -1.0);
+        e.call(0x008c_50f0, &args![actor, 0x2au32, -1.0f32]);
+        // 8c5141: the argument byte reaches both calls as it is.
         assert_eq!(
             calls(&e, FN_00B68770),
-            vec![vec![0x6666, 1, 2.0f32.to_bits(), 0, 0.0f32.to_bits(), 0]]
+            vec![vec![0x6666, 0x2a, 2.0f32.to_bits(), 0, 0.0f32.to_bits(), 0]]
         );
         assert_eq!(
             calls(&e, FN_00422750),
-            vec![vec![w.actor + 0x44, 1, (-1.0f32).to_bits()]]
+            vec![vec![w.actor + 0x44, 0x2a, (-1.0f32).to_bits()]]
         );
         // The process gives nothing either: the flag is cleared.
         e.register(process_slot(0x5b4), |_, _| 0.0f32.into_ret());
         start_log(&mut e);
-        fn_008c50f0(&mut e, actor, true, -1.0);
+        fn_008c50f0(&mut e, actor, 1, -1.0);
         assert_eq!(
             calls(&e, FN_00B68770),
             vec![vec![0x6666, 0, 0.0f32.to_bits(), 0, 0.0f32.to_bits(), 0]]
         );
         // A positive amount is kept, and a disabled one asks nobody.
         start_log(&mut e);
-        fn_008c50f0(&mut e, actor, true, 3.0);
+        fn_008c50f0(&mut e, actor, 1, 3.0);
         assert_eq!(
             calls(&e, FN_00B68770),
             vec![vec![0x6666, 1, 3.0f32.to_bits(), 0, 0.0f32.to_bits(), 0]]
         );
         start_log(&mut e);
-        fn_008c50f0(&mut e, actor, false, -1.0);
+        fn_008c50f0(&mut e, actor, 0, -1.0);
         assert!(calls(&e, process_slot(0x5b4)).is_empty());
         assert_eq!(
             calls(&e, FN_00B68770),

@@ -24,3 +24,6 @@ pub fn funcs(out: &mut Vec<(u32, crate::AbiFn)>) {
 // this crate's and those of the crates below it.
 #[cfg(test)]
 engine_core::assemble!(funcs, engine_gamebryo::units::funcs);
+
+#[cfg(test)]
+mod raw_bytes;

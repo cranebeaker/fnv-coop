@@ -721,8 +721,8 @@ pub fn fn_009397b0(e: &mut Engine, this: Ptr<PlayerCharacter>, companion: u8) ->
 /// `PlayerCharacter` virtual `+0x4B4`: calls `005a03f0` on the player with 1 and answers its
 /// `AL` (the exe ends on that call). The `Actor` slot is `Actor::IsImmobile` (`bool`; Xbox PDB
 /// slot `+0x4B0`, aligned by the named slots around it).
-pub fn fn_009397e0(e: &mut Engine, this: Ptr) -> bool {
-    e.call(0x005a_03f0, &args![this, 1u32]).bool()
+pub fn fn_009397e0(e: &mut Engine, this: Ptr) -> u8 {
+    e.call(0x005a_03f0, &args![this, 1u32]).u8()
 }
 
 // Translated from 00939800 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -788,24 +788,27 @@ pub fn camera_caster_vector_deleting_destructor(e: &mut Engine, this: Ptr, flags
 
 // Translated from 0093a5d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `bAiControlledToPos`.
-pub fn fn_0093a5d0(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool {
-    e.get(this, PlayerCharacter::bAiControlledToPos)
+pub fn fn_0093a5d0(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u8 {
+    e.mem
+        .u8(this.addr() + PlayerCharacter::bAiControlledToPos.off)
 }
 
 // Translated from 0093a5f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Stores `bAiControlledToPos`, then calls the virtual at `+0x258` with 0 when
 /// any of the four AI-control flags is set ([`fn_0093a740`]) and with 1 when
 /// none is.
-pub fn fn_0093a5f0(e: &mut Engine, this: Ptr<PlayerCharacter>, value: bool) {
-    e.set(this, PlayerCharacter::bAiControlledToPos, value);
+pub fn fn_0093a5f0(e: &mut Engine, this: Ptr<PlayerCharacter>, value: u8) {
+    e.mem
+        .set_u8(this.addr() + PlayerCharacter::bAiControlledToPos.off, value);
     let controlled = fn_0093a740(e, this);
     e.vcall(this.addr(), 0x258, &args![!controlled as u32]);
 }
 
 // Translated from 0093a640 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `bAiControlledFromPos`.
-pub fn fn_0093a640(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool {
-    e.get(this, PlayerCharacter::bAiControlledFromPos)
+pub fn fn_0093a640(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u8 {
+    e.mem
+        .u8(this.addr() + PlayerCharacter::bAiControlledFromPos.off)
 }
 
 // Translated from 0093a660 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -846,8 +849,11 @@ pub fn player_character_add_actor_to_player_combat_list(
 // Translated from 0093a6f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Stores `bAiControlledFromPos`, then calls the virtual at `+0x258` as
 /// [`fn_0093a5f0`] does.
-pub fn fn_0093a6f0(e: &mut Engine, this: Ptr<PlayerCharacter>, value: bool) {
-    e.set(this, PlayerCharacter::bAiControlledFromPos, value);
+pub fn fn_0093a6f0(e: &mut Engine, this: Ptr<PlayerCharacter>, value: u8) {
+    e.mem.set_u8(
+        this.addr() + PlayerCharacter::bAiControlledFromPos.off,
+        value,
+    );
     let controlled = fn_0093a740(e, this);
     e.vcall(this.addr(), 0x258, &args![!controlled as u32]);
 }
@@ -2596,7 +2602,7 @@ pub fn player_character_fast_travel(e: &mut Engine, this: Ptr<PlayerCharacter>, 
         }
     });
     e.call(0x0097_3ee0, &args![PROCESS_LISTS, destination]);
-    if fn_0093d4f0(e) {
+    if fn_0093d4f0(e) != 0 {
         e.call(0x0045_aee0, &args![tes, 0u32]);
     }
     if e.call(0x0065_2110, &args![]).u32() != 0 {
@@ -2628,7 +2634,7 @@ pub fn player_character_fast_travel(e: &mut Engine, this: Ptr<PlayerCharacter>, 
     e.set(this, PlayerCharacter::iSleepTime, 0);
     let sky = e.call(0x0046_dd00, &args![]).u32();
     e.call(0x0063_e8f0, &args![sky, 0u32]);
-    if fn_0093d4f0(e) {
+    if fn_0093d4f0(e) != 0 {
         e.call(0x0045_aee0, &args![tes, 1u32]);
     }
     e.call(0x0048_3710, &args![PROCESS_LISTS]);
@@ -2646,8 +2652,8 @@ pub fn player_character_fast_travel(e: &mut Engine, this: Ptr<PlayerCharacter>, 
 
 // Translated from 0093d4f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Calls `00454af0` on the object at `011c3c10` and returns its byte result.
-pub fn fn_0093d4f0(e: &mut Engine) -> bool {
-    e.call(0x0045_4af0, &args![0x011c_3c10u32]).bool()
+pub fn fn_0093d4f0(e: &mut Engine) -> u8 {
+    e.call(0x0045_4af0, &args![0x011c_3c10u32]).u8()
 }
 
 // Translated from 0093d500 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2991,7 +2997,7 @@ pub fn player_character_is_target_perceived_and_hostile(
     e: &mut Engine,
     this: Ptr<PlayerCharacter>,
     actor: u32,
-) -> bool {
+) -> u8 {
     let mut node = e.get(this, PlayerCharacter::pListofPercievedActors).addr();
     while node != 0 {
         let item = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
@@ -3001,11 +3007,11 @@ pub fn player_character_is_target_perceived_and_hostile(
         let item = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
         let entry = e.mem.u32(item);
         if e.mem.u32(entry) == actor {
-            return e.mem.u8(entry + 4) != 0;
+            return e.mem.u8(entry + 4);
         }
         node = e.call(LIST_NEXT, &args![node]).u32();
     }
-    false
+    0
 }
 
 // Translated from 0093df50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3990,8 +3996,9 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     0
                 };
                 if in_state == 0 || in_state_again == 4 {
-                    if fn_0093a640(e, this) && e.vcall(this.addr(), 0x214, &args![]).u32() == 4 {
-                        fn_0093a6f0(e, this, false);
+                    if fn_0093a640(e, this) != 0 && e.vcall(this.addr(), 0x214, &args![]).u32() == 4
+                    {
+                        fn_0093a6f0(e, this, 0);
                         let process = process_of(e, this);
                         e.vcall(process, 0x214, &args![]);
                     } else if e.vcall(this.addr(), 0x22c, &args![0u32]).bool()
@@ -3999,7 +4006,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     {
                         let process = process_of(e, this);
                         e.vcall(process, 0x214, &args![]);
-                        fn_0093a5f0(e, this, false);
+                        fn_0093a5f0(e, this, 0);
                         e.set_global(CONTROL_COUNTER_011E0798, 0.0f32);
                     }
                     e.call(0x0088_d640, &args![this]);
@@ -4007,7 +4014,7 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     break 'update;
                 }
             }
-            if fn_0093a5d0(e, this) {
+            if fn_0093a5d0(e, this) != 0 {
                 let counter: f32 = e.global(CONTROL_COUNTER_011E0798);
                 e.set_global(
                     CONTROL_COUNTER_011E0798,
@@ -4027,19 +4034,19 @@ fn update_in_frame(e: &mut Engine, this: Ptr<PlayerCharacter>, delta: f32, frame
                     reset = e.vcall(process, 0x27c, &args![]).u32() == 0;
                 }
                 if reset {
-                    fn_0093a5f0(e, this, false);
+                    fn_0093a5f0(e, this, 0);
                     let process = process_of(e, this);
                     e.vcall(process, 0x214, &args![]);
                     e.set_global(CONTROL_COUNTER_011E0798, 0.0f32);
                 }
-            } else if fn_0093a640(e, this) {
+            } else if fn_0093a640(e, this) != 0 {
                 let counter: f32 = e.global(CONTROL_COUNTER_011E0798);
                 e.set_global(
                     CONTROL_COUNTER_011E0798,
                     (counter as f64 + delta as f64) as f32,
                 );
                 if e.vcall(this.addr(), 0x214, &args![]).u32() == 0 {
-                    fn_0093a6f0(e, this, false);
+                    fn_0093a6f0(e, this, 0);
                     let process = process_of(e, this);
                     e.vcall(process, 0x214, &args![]);
                     e.set_global(CONTROL_COUNTER_011E0798, 0.0f32);
@@ -6243,8 +6250,8 @@ pub fn player_character_construct(
         }
         let seed = e.call(0x0061_b9d0, &args![0u32]).u32();
         e.set(this, PlayerCharacter::iCharacterSeed, seed);
-        fn_0093a5f0(e, this, false);
-        fn_0093a6f0(e, this, false);
+        fn_0093a5f0(e, this, 0);
+        fn_0093a6f0(e, this, 0);
         e.set(this, PlayerCharacter::bInBorderContainedCell, false);
         e.set(this, PlayerCharacter::bReturnToLastKnownGoodPosition, false);
         set_zero_vector(e, member(this, PlayerCharacter::LastKnownGoodPosition));
@@ -6869,14 +6876,14 @@ pub fn fn_00944320(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
 
 // Translated from 00944340 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `bBlockActivate` (Xbox PDB).
-pub fn fn_00944340(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool {
-    e.get(this, PlayerCharacter::bBlockActivate)
+pub fn fn_00944340(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u8 {
+    e.mem.u8(this.addr() + PlayerCharacter::bBlockActivate.off)
 }
 
 // Translated from 00944360 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `bCanWait` (Xbox PDB).
-pub fn fn_00944360(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool {
-    e.get(this, PlayerCharacter::bCanWait)
+pub fn fn_00944360(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u8 {
+    e.mem.u8(this.addr() + PlayerCharacter::bCanWait.off)
 }
 
 // Translated from 00944380 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -11198,7 +11205,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00939770, fn_00939770(Ptr<PlayerCharacter>, u32)),
         entry!(0x00939790, fn_00939790(Ptr<PlayerCharacter>) -> u32),
         entry!(0x009397b0, fn_009397b0(Ptr<PlayerCharacter>, u8) -> Ptr),
-        entry!(0x009397e0, fn_009397e0(Ptr) -> bool),
+        entry!(0x009397e0, fn_009397e0(Ptr) -> u8),
         entry!(0x00939800, fn_00939800(Ptr<MagicCasterBase>, u32)),
         entry!(0x00939820, fn_00939820(Ptr<MagicCasterBase>) -> u32),
         entry!(0x00939840, fn_00939840(Ptr<MagicCasterBase>, u32)),
@@ -11213,9 +11220,9 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x009398d0, fn_009398d0(Ptr<PlayerCharacter>)),
         entry!(0x0093a5a0, camera_caster_vector_deleting_destructor(Ptr, u32) -> Ptr),
-        entry!(0x0093a5d0, fn_0093a5d0(Ptr<PlayerCharacter>) -> bool),
-        entry!(0x0093a5f0, fn_0093a5f0(Ptr<PlayerCharacter>, bool)),
-        entry!(0x0093a640, fn_0093a640(Ptr<PlayerCharacter>) -> bool),
+        entry!(0x0093a5d0, fn_0093a5d0(Ptr<PlayerCharacter>) -> u8),
+        entry!(0x0093a5f0, fn_0093a5f0(Ptr<PlayerCharacter>, u8)),
+        entry!(0x0093a640, fn_0093a640(Ptr<PlayerCharacter>) -> u8),
         entry!(
             0x0093a660,
             player_character_remove_actor_from_playercombat_list(Ptr<PlayerCharacter>, Ptr)
@@ -11224,7 +11231,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x0093a690,
             player_character_add_actor_to_player_combat_list(Ptr<PlayerCharacter>, Ptr)
         ),
-        entry!(0x0093a6f0, fn_0093a6f0(Ptr<PlayerCharacter>, bool)),
+        entry!(0x0093a6f0, fn_0093a6f0(Ptr<PlayerCharacter>, u8)),
         entry!(0x0093a740, fn_0093a740(Ptr<PlayerCharacter>) -> bool),
         entry!(0x0093a7a0, fn_0093a7a0(Ptr<PlayerCharacter>, Ptr)),
         entry!(
@@ -11300,7 +11307,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x0093cdf0,
             player_character_fast_travel(Ptr<PlayerCharacter>, Ptr)
         ),
-        entry!(0x0093d4f0, fn_0093d4f0() -> bool),
+        entry!(0x0093d4f0, fn_0093d4f0() -> u8),
         entry!(
             0x0093d500,
             player_character_clear_cells_if_target_not_loaded(Ptr<PlayerCharacter>, Ptr, Ptr)
@@ -11315,7 +11322,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0093dd80, fn_0093dd80(Ptr<PlayerCharacter>)),
         entry!(
             0x0093dee0,
-            player_character_is_target_perceived_and_hostile(Ptr<PlayerCharacter>, u32) -> bool
+            player_character_is_target_perceived_and_hostile(Ptr<PlayerCharacter>, u32) -> u8
         ),
         entry!(0x0093df50, fn_0093df50(Ptr<PlayerCharacter>)),
         entry!(0x0093e4f0, fn_0093e4f0(Ptr) -> u32),
@@ -11337,8 +11344,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x009442e0, fn_009442e0(Ptr<PlayerCharacter>, f32)),
         entry!(0x00944300, fn_00944300(Ptr<PlayerCharacter>) -> f32),
         entry!(0x00944320, fn_00944320(Ptr<PlayerCharacter>) -> u32),
-        entry!(0x00944340, fn_00944340(Ptr<PlayerCharacter>) -> bool),
-        entry!(0x00944360, fn_00944360(Ptr<PlayerCharacter>) -> bool),
+        entry!(0x00944340, fn_00944340(Ptr<PlayerCharacter>) -> u8),
+        entry!(0x00944360, fn_00944360(Ptr<PlayerCharacter>) -> u8),
         entry!(0x00944380, fn_00944380(Ptr<PlayerCharacter>, f32)),
         entry!(0x009443a0, fn_009443a0(Ptr<PlayerCharacter>) -> f32),
         entry!(0x009443c0, fn_009443c0(Ptr) -> bool),

@@ -46,12 +46,12 @@ const PLAIN_WRITE: u32 = 0x00aa_19c0;
 /// The function `NiFile::Access`'s cell starts out holding (unnamed in the engine map;
 /// cdecl, two words): constructs an `NiFile` on its stack over `path` in `mode` with no
 /// buffer (`00aa14d0`), takes its `m_bGood`, destroys it (`00aa1690`) and answers it.
-pub fn fn_00aa1a40(e: &mut Engine, path: Ptr, mode: u32) -> bool {
+pub fn fn_00aa1a40(e: &mut Engine, path: Ptr, mode: u32) -> u8 {
     e.with_stack(NI_FILE_SIZE, |e, file| {
         e.call(NI_FILE_CONSTRUCTOR, &args![file, path, mode, 0u32]);
         let good = e.mem.u8(file.addr() + NI_FILE_GOOD);
         e.call(NI_FILE_DESTRUCTOR, &args![file]);
-        good != 0
+        good
     })
 }
 
@@ -72,7 +72,7 @@ pub fn fn_00aa1b30(e: &mut Engine, this: Ptr, swap: u8) {
 /// This unit's translated functions, by exe address.
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
-        entry!(0x00aa_1a40, fn_00aa1a40(Ptr, u32) -> bool),
+        entry!(0x00aa_1a40, fn_00aa1a40(Ptr, u32) -> u8),
         entry!(0x00aa_1b30, fn_00aa1b30(Ptr, u8)),
         entry!(0x00aa_1a20, ni_file_get_file(Ptr, u32, u32) -> Ptr),
         entry!(0x00aa_1a30, fn_00aa1a30(Ptr, u32) -> bool),

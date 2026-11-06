@@ -86,9 +86,10 @@ pub fn fn_00ce51f0(e: &mut Engine, this: Ptr, out: Ptr) {
 /// unconfirmed.
 /// Answers `out`: the exe leaves it in `EAX` at every `RET` (the hkBool/hkResult result
 /// returned through a pointer, which callers read through `EAX`).
+/// The result block is the exe's 0xf0 bytes (00ce5296, 00ce529d): the callee fills all of it.
 pub fn fn_00ce5290(e: &mut Engine, this: Ptr, out: Ptr, input: Ptr) -> Ptr {
     let base = this.addr();
-    e.with_stack(0x40, |e, result| {
+    e.with_stack(0xf0, |e, result| {
         e.call(DECOMPOSE_TRANSFORM, &args![input, result]);
         for row in 0..3 {
             copy_vector(e, result.addr() + 0x10 * row, base + 0x10 * row);
@@ -290,6 +291,21 @@ mod tests {
         // The thunk copy does the same.
         e.call(0x00ce_5300, &args![this, out]);
         assert_eq!(log.borrow().len(), 6);
+    }
+
+    /// 00ce5296: the result block has the 0xf0 bytes the decomposition fills.
+    #[test]
+    fn decomposition_result_block_is_the_exes_size() {
+        let mut e = engine();
+        let frame = e.next_stack_local(0xf0);
+        e.register_double(DECOMPOSE_TRANSFORM, move |_, a| {
+            assert_eq!(a[1], frame);
+            Ret::default()
+        });
+        let this = e.mem.alloc(0x40);
+        let out = e.mem.alloc(8);
+        let input = e.mem.alloc(0x40);
+        e.call(0x00ce_5290, &args![this, out, input]);
     }
 
     /// The decomposition result's first three vectors are copied to `this`; the flag is true

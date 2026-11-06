@@ -882,8 +882,9 @@ pub fn fn_00e0d000(e: &mut Engine, this: Ptr, parent: Ptr, name: u32, kind: u32)
 // Translated from 00e0d0a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkMonitorStreamAnalyzer::Node::~Node` (Xbox PDB), thiscall: runs the deleting destructor
 /// (`00ddeff0`, `(flags = 1)`) on every child that is not null, sets the children's size to 0
-/// and frees the children array through slot `0x10` of the memory router's allocator at `+0x14`
-/// (`capacity * 4` bytes) unless its capacity word marks it as not owned, then sets the capacity
+/// and frees the children array through slot `0x10` of the memory router's allocator at `+0x10`
+/// (00e0d0cf; the one it grew through) (`capacity * 4` bytes) unless its capacity word marks it
+/// as not owned, then sets the capacity
 /// word to `0x80000000` and the data pointer to 0.
 pub fn hk_monitor_stream_analyzer_node_destructor(e: &mut Engine, this: Ptr) {
     let node = this.addr();
@@ -896,7 +897,7 @@ pub fn hk_monitor_stream_analyzer_node_destructor(e: &mut Engine, this: Ptr) {
         at += 1;
     }
     e.mem.set_u32(node + CHILDREN + 4, 0);
-    let allocator = object_allocator(e);
+    let allocator = heap_allocator(e);
     let capacity = e.mem.u32(node + CHILDREN + 8);
     e.mem.set_u32(node + CHILDREN + 4, 0);
     if capacity & NOT_OWNED == 0 {
@@ -4817,7 +4818,12 @@ mod tests {
         e.mem.set_u32(node + CHILDREN + 4, 3);
         e.mem.set_u32(node + CHILDREN + 8, 4);
         let router = router_of(&mut e);
-        let allocator = e.mem.u32(router + 0x14);
+        let allocator = e.mem.u32(router + 0x10);
+        // A second allocator at +0x14, the wrong one to free through.
+        let other_allocator = e.mem.alloc(4);
+        let table = e.mem.u32(allocator);
+        e.mem.set_u32(other_allocator, table);
+        e.mem.set_u32(router + 0x14, other_allocator);
         e.call_log = Some(vec![]);
         e.call(0x00e0_d0a0, &args![node]);
         assert_eq!(

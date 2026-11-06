@@ -926,21 +926,21 @@ pub fn ni_geometry_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) 
 /// `NiGeometry::IsEqual` (Xbox PDB): `NiAVObject::IsEqual`; then false when only one side
 /// has a skin instance or the skin instances differ (this one's slot +0x5c with the
 /// other's); then what the model data's slot +0x5c answers for the other's data.
-pub fn ni_geometry_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
+pub fn ni_geometry_is_equal(e: &mut Engine, this: Ptr, other: Ptr) -> u8 {
     if !e.call(AV_OBJECT_IS_EQUAL, &args![this, other]).bool() {
-        return false;
+        return 0;
     }
     let mine = e.mem.u32(this.addr() + SKIN_INSTANCE);
     let theirs = e.mem.u32(other.addr().wrapping_add(SKIN_INSTANCE));
     if (theirs == 0) != (mine == 0) {
-        return false;
+        return 0;
     }
     if mine != 0 && !e.vcall(mine, 0x5c, &args![theirs]).bool() {
-        return false;
+        return 0;
     }
     let data = e.mem.u32(this.addr() + MODEL_DATA);
     let other_data = e.mem.u32(other.addr().wrapping_add(MODEL_DATA));
-    e.vcall(data, 0x5c, &args![other_data]).bool()
+    e.vcall(data, 0x5c, &args![other_data]).u8()
 }
 
 // Translated from 00a80650 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1136,7 +1136,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             0x00a8_0430,
             ni_geometry_register_streamables(Ptr, Ptr) -> bool
         ),
-        entry!(0x00a8_0470, ni_geometry_is_equal(Ptr, Ptr) -> bool),
+        entry!(0x00a8_0470, ni_geometry_is_equal(Ptr, Ptr) -> u8),
         entry!(0x00a8_0650, ni_geometry_only_render_immediate(Ptr, Ptr)),
         entry!(0x00a8_0930, ni_geometry_calculate_consistency(Ptr, u32)),
         entry!(0x00a8_09b0, ni_geometry_purge_renderer_data(Ptr, Ptr)),

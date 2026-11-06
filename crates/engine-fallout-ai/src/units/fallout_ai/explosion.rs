@@ -469,7 +469,9 @@ pub fn explosion_attach_distant(e: &mut Engine, this: Ptr) {
     if target == 0 {
         return;
     }
-    let tes = e.call(0x004f_d3e0, &args![0x011d_ea10u32]).u32();
+    // 9acd22: the TES object is the word the global holds.
+    let tes_object = e.global::<u32>(0x011d_ea10);
+    let tes = e.call(0x004f_d3e0, &args![tes_object]).u32();
     let world = e.call(0x0058_6170, &args![tes]).u32();
     let terrain = e.call(0x0055_85e0, &args![world]).u32();
     if terrain != 0 {
@@ -5905,8 +5907,11 @@ mod tests {
             e.mem.set_u32(0x4000, 0x5000);
             e.mem.set_u32(0x50dc, 0x6000_00dc);
             e.register(0x6000_01d0, |_, _| 0x9000u32.into_ret());
+            // 9acd22: the TES object is the word the global holds.
+            e.map(0x011d_e000, 0x1000);
+            e.set_global::<u32>(0x011d_ea10, 0x6100);
             e.register(0x004f_d3e0, |_, a| {
-                assert_eq!(a, &[0x011d_ea10]);
+                assert_eq!(a, &[0x6100]);
                 0x7000u32.into_ret()
             });
             e.register(0x0058_6170, |_, a| {

@@ -63,9 +63,10 @@ pub fn hkp_first_person_gun_get_name(e: &mut Engine, this: Ptr) -> u32 {
 
 // Translated from 00e463c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkpFirstPersonGun::quitGun` (Ghidra name): jumps to the object's own virtual function in
-/// slot `0x20`; the caller gets that function's `EAX`.
-pub fn hkp_first_person_gun_quit_gun(e: &mut Engine, this: Ptr) -> u32 {
-    e.vcall(this.addr(), 0x20, &args![]).u32()
+/// slot `0x20` with the caller's stack word (the world) still in place (00e463c5); the caller
+/// gets that function's `EAX`.
+pub fn hkp_first_person_gun_quit_gun(e: &mut Engine, this: Ptr, world: u32) -> u32 {
+    e.vcall(this.addr(), 0x20, &args![world]).u32()
 }
 
 // Translated from 00e463d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -271,7 +272,7 @@ pub fn hkp_first_person_gun_destructor(e: &mut Engine, this: Ptr) {
 pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x00e463b0, hkp_first_person_gun_get_name(Ptr) -> u32),
-        entry!(0x00e463c0, hkp_first_person_gun_quit_gun(Ptr) -> u32),
+        entry!(0x00e463c0, hkp_first_person_gun_quit_gun(Ptr, u32) -> u32),
         entry!(
             0x00e463d0,
             hkp_first_person_gun_calc_velocity_to_target(Ptr, Ptr, Ptr, f32, Ptr)
@@ -313,7 +314,20 @@ mod tests {
             eax: 7,
             ..Ret::default()
         });
-        assert_eq!(e.call(0x00e4_63c0, &args![this]).u32(), 7);
+        assert_eq!(e.call(0x00e4_63c0, &args![this, 0x5000u32]).u32(), 7);
+    }
+
+    /// 00e463c5 leaves the caller's word on the stack: slot 0x20 is the ball gun's reset here,
+    /// its real entry, which panics on a missing word and takes bodies out of that world.
+    #[test]
+    fn quit_gun_hands_the_world_to_the_real_reset() {
+        let mut e = engine();
+        e.put_vtable(0x0900_0000, &[0x00e4_6ea0; 9]);
+        let queue = e.mem.alloc(0x20);
+        let this = e.mem.alloc(0x60);
+        e.mem.set_u32(this, 0x0900_0000);
+        e.mem.set_u32(this + 0x50, queue);
+        e.call(0x00e4_63c0, &args![this, 0x5000u32]);
     }
 
     fn velocity(e: &mut Engine, target: Vec4, gravity: Vec4, speed: f32) -> Vec4 {

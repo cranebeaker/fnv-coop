@@ -1472,7 +1472,7 @@ pub fn fn_004515a0(e: &mut Engine, this: Ptr<TES>, pos: Ptr, flag: u8) {
     let data_handler: u32 = e.global(DATA_HANDLER);
     let normal = data_handler != 0
         && e.call(GET_INTERIOR_CELL, &args![this]).u32() == 0
-        && !fn_004516b0(e, Ptr::new(data_handler));
+        && fn_004516b0(e, Ptr::new(data_handler)) == 0;
     if !normal && forced == 0 {
         return;
     }
@@ -1506,8 +1506,8 @@ pub fn fn_004515a0(e: &mut Engine, this: Ptr<TES>, pos: Ptr, flag: u8) {
 
 // Translated from 004516b0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `TESDataHandler`'s `bSaveLoad` (+0x61a, Xbox PDB).
-pub fn fn_004516b0(e: &mut Engine, data_handler: Ptr) -> bool {
-    e.mem.u8(data_handler.addr() + 0x61a) != 0 // TESDataHandler::bSaveLoad (Xbox PDB)
+pub fn fn_004516b0(e: &mut Engine, data_handler: Ptr) -> u8 {
+    e.mem.u8(data_handler.addr() + 0x61a) // TESDataHandler::bSaveLoad (Xbox PDB)
 }
 
 // Translated from 004516d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2786,7 +2786,7 @@ pub fn tes_grid_array_load(e: &mut Engine, this: Ptr<TES>) {
                     )
                     .u32();
                 let tes_singleton: u32 = e.global(TES_SINGLETON);
-                if fn_00453490(e, Ptr::new(tes_singleton), Ptr::new(cell)) {
+                if fn_00453490(e, Ptr::new(tes_singleton), Ptr::new(cell)) != 0 {
                     e.call(TES_ADD_TO_BUFFER, &args![this, cell]);
                 }
                 let save_load: u32 = e.global(SAVE_LOAD_GAME);
@@ -2905,14 +2905,14 @@ pub fn fn_00453470(e: &mut Engine, this: Ptr) -> u32 {
 /// `this`). Whether `cell` (null: false) is in the buffer: `00454bd0` when
 /// `00425fd0` says the cell is an interior (its bit 0 at +0x24), `00454e20`
 /// otherwise.
-pub fn fn_00453490(e: &mut Engine, this: Ptr<TES>, cell: Ptr) -> bool {
+pub fn fn_00453490(e: &mut Engine, this: Ptr<TES>, cell: Ptr) -> u8 {
     if cell.is_null() {
-        return false;
+        return 0;
     }
     if e.call(0x0042_5fd0, &args![cell]).bool() {
-        e.call(0x0045_4bd0, &args![this, cell]).bool()
+        e.call(0x0045_4bd0, &args![this, cell]).u8()
     } else {
-        e.call(0x0045_4e20, &args![this, cell]).bool()
+        e.call(0x0045_4e20, &args![this, cell]).u8()
     }
 }
 
@@ -5098,17 +5098,17 @@ pub fn fn_004570d0(
     second: u32,
     third: u32,
     fourth: f32,
-) -> bool {
-    let mut result = false;
+) -> u8 {
+    let mut result = 0;
     if target.is_null() {
-        return false;
+        return 0;
     }
     let tes_singleton: u32 = e.global(TES_SINGLETON);
     if e.call(GET_INTERIOR_CELL, &args![tes_singleton]).u32() != 0 {
         let interior = e.call(GET_INTERIOR_CELL, &args![tes_singleton]).u32();
         return e
             .call(CELL_TEST_A, &args![interior, target, second, third, fourth])
-            .bool();
+            .u8();
     }
     let mut x = 0u32;
     while x < setting_uint(e, SETTING_GRIDS_TO_LOAD) {
@@ -5121,7 +5121,7 @@ pub fn fn_004570d0(
                 && e.call(CELL_TEST_A, &args![cell, target, second, third, fourth])
                     .bool()
             {
-                result = true;
+                result = 1;
             }
             y += 1;
         }
@@ -5280,13 +5280,13 @@ pub fn fn_004573f0(e: &mut Engine, this: Ptr<TES>, pos: Ptr, out: Ptr, third: u3
 /// Like `004572e0` for a `TESObjectLAND` query with one output
 /// (`0053f570(land, pos, out)`); false when the cell under `pos` is not
 /// loaded.
-pub fn fn_00457520(e: &mut Engine, this: Ptr<TES>, pos: Ptr, third: u32) -> bool {
+pub fn fn_00457520(e: &mut Engine, this: Ptr<TES>, pos: Ptr, third: u32) -> u8 {
     let cell = loaded_cell_at(e, this, pos);
     if cell != 0 {
         let land = e.call(CELL_GET_LAND, &args![cell]).u32();
-        e.call(0x0053_f570, &args![land, pos, third]).bool()
+        e.call(0x0053_f570, &args![land, pos, third]).u8()
     } else {
-        false
+        0
     }
 }
 
@@ -5473,7 +5473,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00451570, fn_00451570(u32)),
         entry!(0x00451590, fn_00451590(u8)),
         entry!(0x004515a0, fn_004515a0(Ptr<TES>, Ptr, u8)),
-        entry!(0x004516b0, fn_004516b0(Ptr) -> bool),
+        entry!(0x004516b0, fn_004516b0(Ptr) -> u8),
         entry!(
             0x004516d0,
             tes_find_first_grid_cell_with_water(Ptr<TES>) -> Ptr
@@ -5516,7 +5516,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00452ed0, tes_all_cells_in_grid_loaded(Ptr<TES>) -> bool),
         entry!(0x00452ff0, tes_grid_array_load(Ptr<TES>)),
         entry!(0x00453470, fn_00453470(Ptr) -> u32),
-        entry!(0x00453490, fn_00453490(Ptr<TES>, Ptr) -> bool),
+        entry!(0x00453490, fn_00453490(Ptr<TES>, Ptr) -> u8),
         entry!(0x004534f0, fn_004534f0(u32, u32)),
         entry!(0x00453500, fn_00453500(Ptr, u8)),
         entry!(0x00453550, fn_00453550(Ptr<TES>, f32)),
@@ -5572,17 +5572,14 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
             tes_create_texture_image(Ptr<TES>, Ptr, Ptr, u8, u8)
         ),
         entry!(0x00457070, tes_get_current_cell(Ptr<TES>) -> u32),
-        entry!(
-            0x004570d0,
-            fn_004570d0(Ptr<TES>, Ptr, u32, u32, f32) -> bool
-        ),
+        entry!(0x004570d0, fn_004570d0(Ptr<TES>, Ptr, u32, u32, f32) -> u8),
         entry!(
             0x004571c0,
             fn_004571c0(Ptr<TES>, Ptr, u32, u32, f32, u8) -> bool
         ),
         entry!(0x004572e0, fn_004572e0(Ptr<TES>, Ptr, Ptr) -> bool),
         entry!(0x004573f0, fn_004573f0(Ptr<TES>, Ptr, Ptr, u32) -> bool),
-        entry!(0x00457520, fn_00457520(Ptr<TES>, Ptr, u32) -> bool),
+        entry!(0x00457520, fn_00457520(Ptr<TES>, Ptr, u32) -> u8),
         entry!(0x00457620, fn_00457620(Ptr<TES>, Ptr) -> u32),
         entry!(0x00457720, fn_00457720(Ptr<TES>, Ptr) -> u32),
         entry!(0x00457880, fn_00457880(Ptr<TES>, Ptr) -> u32),

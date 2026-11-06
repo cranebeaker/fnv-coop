@@ -818,12 +818,12 @@ pub fn ni_source_texture_register_streamables(
     e: &mut Engine,
     this: Ptr<NiSourceTexture>,
     stream: Ptr,
-) -> bool {
+) -> u8 {
     if !e
         .call(BASE_REGISTER_STREAMABLES, &args![this, stream])
         .bool()
     {
-        return false;
+        return 0;
     }
     e.vcall(
         stream.addr(),
@@ -834,11 +834,11 @@ pub fn ni_source_texture_register_streamables(
     if data == 0 {
         data = e.get(this, NiSourceTexture::m_spSrcPixelData);
         if data == 0 {
-            return true;
+            return 1;
         }
     }
     e.vcall(data, OBJECT_REGISTER_STREAMABLES_SLOT, &args![stream])
-        .bool()
+        .u8()
 }
 
 /// One pointer of `IsEqual`: both null, or both set and the first's virtual `IsEqual`
@@ -1068,7 +1068,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(
             0x00a5fa90,
-            ni_source_texture_register_streamables(Ptr<NiSourceTexture>, Ptr) -> bool
+            ni_source_texture_register_streamables(Ptr<NiSourceTexture>, Ptr) -> u8
         ),
         entry!(
             0x00a5fae0,

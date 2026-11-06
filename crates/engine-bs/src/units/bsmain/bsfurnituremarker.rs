@@ -33,9 +33,9 @@ const REGISTER_STREAMABLES_TARGET_00A7B290: u32 = 0x00a7_b290;
 /// the `bool` in `AL`: Xbox PDB `?RegisterStreamables@NiObject@@UAA_NAAVNiStream@@@Z` returns
 /// `_N`; `stream` is the `NiStream` reference as an address. Parameter count from the `RET 4`
 /// of both bodies.
-pub fn bs_furniture_marker_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> bool {
+pub fn bs_furniture_marker_register_streamables(e: &mut Engine, this: Ptr, stream: Ptr) -> u8 {
     e.call(REGISTER_STREAMABLES_TARGET_00A7B290, &args![this, stream])
-        .bool()
+        .u8()
 }
 
 /// The full circle in radians (`float`, `012031cc`): the range the heading
@@ -751,7 +751,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x00c5_4d60, fn_00c54d60(Ptr) -> u32),
         entry!(0x00c5_4130, fn_00c54130(Ptr, Ptr)),
-        entry!(0x00c5_4150, bs_furniture_marker_register_streamables(Ptr, Ptr) -> bool),
+        entry!(0x00c5_4150, bs_furniture_marker_register_streamables(Ptr, Ptr) -> u8),
         entry!(
             0x00c54550,
             furniture_mark_set_heading(Ptr<FurnitureMark>, f32)

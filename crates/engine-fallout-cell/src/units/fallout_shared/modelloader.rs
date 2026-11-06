@@ -1344,8 +1344,9 @@ pub fn fn_0043baf0(e: &mut Engine, this: Ptr<LoadedFile>, name: u32, file: Ptr) 
     let owner = e.global::<u32>(FILE_MAP_OWNER);
     let added = e
         .call(FILE_MAP_ADD_LOADED_FILE, &args![owner, copy, this])
-        .bool();
-    e.set(this, LoadedFile::bInLoadedFileMap, added);
+        .u8();
+    e.mem
+        .set_u8(this.addr() + LoadedFile::bInLoadedFileMap.off, added);
     e.set(this, LoadedFile::bFileUsed, false);
     e.set(this, LoadedFile::iRefCount, 0);
     this

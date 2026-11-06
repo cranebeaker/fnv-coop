@@ -173,7 +173,8 @@ const FPE_COUNT: u32 = 0x011c_2894;
 /// `_abort` (Ghidra's function ID), cdecl. With bit 1 of `__abort_behavior` the abort
 /// message (10) is written; a `SIGABRT` handler (`___get_sigabrt`) gets `raise(SIGABRT)`.
 /// With bit 2 an `EXCEPTION_RECORD` (code `0x40000015`, the rest cleared) and a `CONTEXT`
-/// (`ContextFlags` `0x10001`, `Eax` the handler, `Esp` the frame's `EBP + 4`) are built in a
+/// (`ContextFlags` `0x10001`, `Eax` what `EAX` holds by then, `raise`'s answer with a handler
+/// and the null handler without, `Esp` the frame's `EBP + 4`) are built in a
 /// 0x328-byte frame and passed to `UnhandledExceptionFilter` after
 /// `SetUnhandledExceptionFilter(NULL)`. Then `_exit(3)`, which does not come back: the
 /// engine stops there with a panic.
@@ -181,9 +182,9 @@ pub fn abort(e: &mut Engine) {
     if e.mem.u8(ABORT_BEHAVIOR) & 1 != 0 {
         e.call(NMSG_WRITE, &args![10u32]);
     }
-    let handler = e.call(GET_SIGABRT, &args![]).u32();
-    if handler != 0 {
-        e.call(RAISE, &args![0x16u32]);
+    let mut eax = e.call(GET_SIGABRT, &args![]).u32();
+    if eax != 0 {
+        eax = e.call(RAISE, &args![0x16u32]).u32();
     }
     if e.mem.u8(ABORT_BEHAVIOR) & 2 != 0 {
         // The frame below EBP: the record (EBP-0x328), the pointers (EBP-0x2d8) and the
@@ -191,7 +192,7 @@ pub fn abort(e: &mut Engine) {
         let frame = e.mem.alloc(0x328 + 8);
         let ebp = frame + 0x328;
         let (record, pointers, context) = (frame, frame + 0x50, frame + 0x58);
-        e.mem.set_u32(context + 0xb0, handler); // Eax
+        e.mem.set_u32(context + 0xb0, eax); // Eax
         e.mem.set_u32(context + 0xc4, ebp + 4); // Esp
         e.mem.set_u32(context, 0x0001_0001); // ContextFlags
         e.call(MEMSET, &args![record, 0u32, 0x50u32]);
@@ -996,7 +997,7 @@ mod tests {
         let mut e = signal_engine();
         e.mem.set_u32(ABORT_BEHAVIOR, 3);
         e.register_double(GET_SIGABRT, |_, _| 0x0040_4000u32.into_ret());
-        e.register_double(RAISE, |_, _| 0u32.into_ret());
+        e.register_double(RAISE, |_, _| 7u32.into_ret());
         e.register_double(SET_UNHANDLED_EXCEPTION_FILTER, |_, _| Ret::default());
         let record = std::rc::Rc::new(std::cell::Cell::new((0u32, 0u32, 0u32)));
         let r = record.clone();
@@ -1012,7 +1013,8 @@ mod tests {
         assert_eq!(calls(&e, NMSG_WRITE), vec![vec![10]]);
         assert_eq!(calls(&e, RAISE), vec![vec![0x16]]);
         assert_eq!(calls(&e, SET_UNHANDLED_EXCEPTION_FILTER), vec![vec![0]]);
-        assert_eq!(record.get(), (0x4000_0015, 0x0001_0001, 0x0040_4000));
+        // 00ecf37a stores EAX as raise left it.
+        assert_eq!(record.get(), (0x4000_0015, 0x0001_0001, 7));
         assert_eq!(calls(&e, EXIT_3), vec![vec![3]]);
     }
 

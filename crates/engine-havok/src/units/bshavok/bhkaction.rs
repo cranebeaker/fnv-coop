@@ -148,7 +148,7 @@ pub fn bhk_action_add(e: &mut Engine, this: Ptr, world: Ptr) -> bool {
 /// world from virtual slot 0x94 (`GethkWorld`); when it exists and the `bhkWorld` at its
 /// `+0x350` is not 0, removes the Havok action (`this + 8`) from it (`00c69580`) and answers
 /// that call's byte; otherwise answers false.
-pub fn bhk_action_remove(e: &mut Engine, this: Ptr) -> bool {
+pub fn bhk_action_remove(e: &mut Engine, this: Ptr) -> u8 {
     let (word, saved) = enter_scope(e);
     let hk_world = e.vcall(this.addr(), 0x94, &args![]).u32();
     let world = if hk_world == 0 {
@@ -157,10 +157,10 @@ pub fn bhk_action_remove(e: &mut Engine, this: Ptr) -> bool {
         e.mem.u32(hk_world + WORLD_BHK_WORLD)
     };
     let removed = if world == 0 {
-        false
+        0
     } else {
         let action = e.mem.u32(this.addr() + 8);
-        e.call(WORLD_REMOVE_ACTION, &args![world, action]).bool()
+        e.call(WORLD_REMOVE_ACTION, &args![world, action]).u8()
     };
     e.mem.set_u32(word, saved);
     removed
@@ -174,7 +174,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c87a10, bhk_action_link(Ptr, u32)),
         entry!(0x00c87a40, bhk_world_object_get_hk_world(Ptr) -> u32),
         entry!(0x00c87a70, bhk_action_add(Ptr, Ptr) -> bool),
-        entry!(0x00c87b40, bhk_action_remove(Ptr) -> bool),
+        entry!(0x00c87b40, bhk_action_remove(Ptr) -> u8),
         entry!(0x00c87be0, bhk_action_get_viewer_strings(Ptr, Ptr)),
     ]
 }

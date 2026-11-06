@@ -599,7 +599,7 @@ pub fn bhk_constraint_init(e: &mut Engine, this: Ptr, cinfo_inner: u32) {
 /// (slot `0x94`) and its Havok world (`+0x350`); when that exists, removes the Havok
 /// constraint from it (`bhkWorld::Remove`), calls virtual slot `0xD4` with `(world, 0)`
 /// and answers the removal's result; otherwise false.
-pub fn bhk_constraint_remove(e: &mut Engine, this: Ptr) -> bool {
+pub fn bhk_constraint_remove(e: &mut Engine, this: Ptr) -> u8 {
     let old = enter_scope(e);
     let world = e.vcall(this.addr(), 0x94, &args![]).u32();
     let hk_world = if world == 0 {
@@ -609,11 +609,11 @@ pub fn bhk_constraint_remove(e: &mut Engine, this: Ptr) -> bool {
     };
     let removed = if hk_world != 0 {
         let instance = e.mem.u32(this.addr() + 8);
-        let removed = e.call(WORLD_REMOVE, &args![hk_world, instance]).bool();
+        let removed = e.call(WORLD_REMOVE, &args![hk_world, instance]).u8();
         e.vcall(this.addr(), 0xd4, &args![hk_world, 0u32]);
         removed
     } else {
-        false
+        0
     };
     leave_scope(e, old);
     removed
@@ -928,7 +928,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00c89cf0, bhk_constraint_set_entity_b(Ptr, Ptr)),
         entry!(0x00c89d10, bhk_constraint_sethk_object(Ptr, Ptr)),
         entry!(0x00c89dd0, bhk_constraint_init(Ptr, u32)),
-        entry!(0x00c89ec0, bhk_constraint_remove(Ptr) -> bool),
+        entry!(0x00c89ec0, bhk_constraint_remove(Ptr) -> u8),
         entry!(0x00c89f90, bhk_constraint_process_entity_b(Ptr, Ptr, bool) -> bool),
         entry!(
             0x00c8a1b0,
