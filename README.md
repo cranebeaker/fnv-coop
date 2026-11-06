@@ -157,6 +157,13 @@ Contributions are welcome, from people and their AI agents alike:
 The most useful help right now: testing builds and reporting differences from
 the original, platform support and research into how the original behaves.
 
+**Support the project** on [Ko-fi](https://ko-fi.com/slater41n). Money helps most by covering
+AI costs: nv-rs is built almost entirely by AI coding agents, and every step (translating the
+original program's code, checking it against the original, fixing what's found) uses paid AI
+time. That time is what limits how fast the project moves, so support lets it go faster. It's
+a voluntary gift: it buys nothing, promises no release date and isn't payment for Fallout: New
+Vegas. You still need your own copy of the game (see [LEGAL.md](LEGAL.md)).
+
 **Chat with us** on the project's [Discord](https://discord.gg/pn5kjZJJxx).
 
 **Curious how it works?** Start with
