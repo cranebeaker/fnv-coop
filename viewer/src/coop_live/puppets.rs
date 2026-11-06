@@ -30,6 +30,8 @@ const RUN_SPEED: f32 = 220.0;
 /// Seconds a drawn player's picker may take to draw before it is forced.
 const RAISE_GRACE: f32 = 0.5;
 /// Units per metre (for the name tags).
+// not read yet: the name tags do not show the distance (the f71db09 feature merge)
+#[allow(dead_code)]
 const UNITS_PER_METRE: f32 = 70.0;
 
 /// What the glue tracks about the puppets.
@@ -49,16 +51,18 @@ pub struct Puppets {
 #[derive(Component)]
 pub struct NameTag;
 
-/// Whether the local player can see a remote avatar's place: the same cell,
-/// or outdoors near enough (the loaded squares).
+/// Whether the local player can see a remote avatar's place: the same
+/// interior, or outdoors the same worldspace and near enough (the loaded
+/// squares). A sample's cell is the worldspace outdoors
+/// (`space_of_player`). Before, outdoors only the distance counted, so a
+/// player in an interior with near coordinates stood outdoors.
 fn in_view(gs: &GameState, a: &RemoteAvatarView) -> bool {
-    let cell = gs.player_cell.map_or(0, |c| c.0);
-    if a.cell != 0 && a.cell == cell {
-        return true;
+    let here = world::coop::live::space_of_player(gs);
+    if a.cell == 0 || a.cell != here {
+        return false;
     }
-    a.cell != 0
-        && gs.player_world.is_some()
-        && gs
+    gs.player_world.is_none()
+        || gs
             .player_position
             .is_some_and(|me| (a.pos[0] - me[0]).hypot(a.pos[1] - me[1]) <= REACH)
 }
@@ -100,7 +104,7 @@ pub fn sync(
             continue;
         };
         if mark.is_none() {
-            commands.entity(e).insert(CoopPuppet(Some(p)));
+            commands.entity(e).try_insert(CoopPuppet(Some(p)));
         }
         puppets.entities.insert(p, e);
         puppets.asked.remove(&p);
@@ -151,7 +155,7 @@ pub fn sync(
         // and hide it (beyond the attached cells while the squares load), and
         // nothing would ever bring it back.
         for e in spawner.spawn_with(&scene, lighting) {
-            commands.entity(e).insert(CoopPuppet(Some(*p)));
+            commands.entity(e).try_insert(CoopPuppet(Some(*p)));
         }
         puppets.asked.insert(*p, t);
     }
@@ -354,7 +358,6 @@ pub fn name_tags(
     let Ok((camera, camera_at)) = cameras.single() else {
         return;
     };
-    let me = state.0.player_position.unwrap_or([0.0; 3]);
     let wanted: HashSet<PlayerId> = view
         .avatars
         .iter()
@@ -438,5 +441,46 @@ pub fn name_tags(
                 set_bar(None, 0.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(cell: u32, x: f32) -> RemoteAvatarView {
+        RemoteAvatarView {
+            cell,
+            pos: [x, 0.0, 0.0],
+            ..Default::default()
+        }
+    }
+
+    /// A remote player shows only in the local player's own place: the same
+    /// interior, or outdoors the same worldspace and near enough.
+    #[test]
+    fn a_remote_player_shows_only_in_the_same_place() {
+        // outdoors in worldspace 0x3C, at the origin
+        let mut gs = GameState {
+            player_world: Some(FormId(0x3C)),
+            player_cell: Some(FormId(0x1234)),
+            player_position: Some([0.0; 3]),
+            ..Default::default()
+        };
+        assert!(in_view(&gs, &at(0x3C, 100.0)), "near, same worldspace");
+        assert!(!in_view(&gs, &at(0x3C, REACH * 2.0)), "far away");
+        assert!(
+            !in_view(&gs, &at(0x5000, 100.0)),
+            "an interior with near coordinates"
+        );
+        assert!(!in_view(&gs, &at(0, 100.0)), "no place yet");
+        // indoors in interior 0x5000
+        gs.player_world = None;
+        gs.player_cell = Some(FormId(0x5000));
+        assert!(in_view(&gs, &at(0x5000, 100.0)), "the same interior");
+        assert!(
+            !in_view(&gs, &at(0x3C, 100.0)),
+            "outdoors with near coordinates"
+        );
     }
 }

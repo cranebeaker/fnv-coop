@@ -287,9 +287,63 @@ fn a_late_joiner_is_placed_where_the_party_is() {
         let p = placed
             .unwrap_or_else(|| panic!("{name}: the late joiner was never told where to start"));
         assert_eq!(p.cell, CellId(77), "{name}");
-        assert!((p.pos[0] - 1234.0).abs() < 1.0, "{name}");
+        let d = (p.pos[0] - 1234.0).hypot(p.pos[1]);
+        assert!(
+            (d - crate::roam::model::WARP_SPREAD).abs() < 1.0,
+            "{name}: beside the host, not on it ({d})"
+        );
         let _ = (G1, G2, ActorMsg::Despawn { id: A });
     }
+}
+
+/// The host drops a guest after a long cut, and the guest rejoins: it starts
+/// on its own spot beside the host. Before, it stood on the host's feet.
+#[test]
+fn a_guest_that_rejoins_after_a_long_cut_stands_beside_the_host() {
+    let mut sim = Sim::new(1, ChaosProfile::GOOD_WIFI, 2410);
+    sim.start_guest(0);
+    assert!(sim.run_until(120_000, |s| s.guests[0].sync.phase() == GuestPhase::Active));
+    let host = AvatarState {
+        cell: CellId(77),
+        pos: [quant_pos(1234.0), quant_pos(-50.0), 0],
+        ..Default::default()
+    };
+    let mut seq = 0u32;
+    let mut feed = move |sim: &mut Sim| {
+        if sim.steps % STEPS_PER_TICK == 0 {
+            seq += 1;
+            sim.host_local(Msg::Avatar(AvatarMsg::State {
+                player: H,
+                seq: Seq(seq),
+                state: host,
+            }));
+        }
+        sim.step();
+    };
+    for _ in 0..400 {
+        feed(&mut sim);
+    }
+    sim.kick_guest(0);
+    sim.guests[0].sync.live.roam.place = None;
+    for _ in 0..200 {
+        feed(&mut sim);
+    }
+    sim.reconnect_guest(0);
+    let mut placed = None;
+    for _ in 0..8000 {
+        feed(&mut sim);
+        if let Some(p) = sim.guests[0].sync.live.roam.place {
+            placed = Some(p);
+            break;
+        }
+    }
+    let p = placed.expect("the rejoined guest was told where to start");
+    assert_eq!(p.cell, CellId(77));
+    let d = (p.pos[0] - 1234.0).hypot(p.pos[1] + 50.0);
+    assert!(
+        (d - crate::roam::model::WARP_SPREAD).abs() < 1.0,
+        "beside the host, not on it ({d})"
+    );
 }
 
 #[test]

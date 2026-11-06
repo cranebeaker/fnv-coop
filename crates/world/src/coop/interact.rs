@@ -21,7 +21,7 @@ use coop_core::sync::{GuestLive, HostLive};
 use esm::FormId;
 
 use super::apply::Ctx;
-use super::interact_acts::{apply_shared, cf, execute, snapshot_obj};
+use super::interact_acts::{apply_shared, cf, door_lets_through, execute, snapshot_obj};
 use super::live::Outs;
 use super::Authority;
 use crate::scripting::GameState;
@@ -537,8 +537,17 @@ impl HostInteract {
         }
         // guests' requests, each exactly once
         for (p, txn, act) in live.interact.take_queue() {
-            let outcome = if let Act::Transition { .. } = act {
-                self.decide(live, &mut outs, p, Some(txn), &act, now_ms)
+            let outcome = if let Act::Transition { door, .. } = act {
+                // the guest's world checked the lock and named the cells, but
+                // the host decides from its own copy: a transition moves the
+                // party along
+                match own_transition(cx.order, live, p, &act) {
+                    None => Some(Outcome::refused(Why::Invalid)),
+                    Some(own) if door_lets_through(cx.order, gs, p, FormId(door.0)) => {
+                        self.decide(live, &mut outs, p, Some(txn), &own, now_ms)
+                    }
+                    Some(_) => Some(Outcome::refused(Why::Locked)),
+                }
             } else {
                 let mut mint = || live.interact.mint_drop();
                 Some(execute(cx, gs, p, &act, &mut mint))
@@ -974,6 +983,35 @@ pub fn arrival_of(order: &esm::LoadOrder, gs: &GameState, target: FormId) -> Opt
             pos,
             heading,
         })
+    })
+}
+
+/// A guest's transition as the host sees it (#74). The door must lead
+/// somewhere on the host (its `XTEL`, [`door_arrival`]). The cell left is
+/// where the host files the guest now. The cell entered is where the host
+/// will file it there: the worldspace outdoors, else the cell
+/// (`live::space_of_player`). `None`: the door leads nowhere on the host.
+fn own_transition(
+    order: &esm::LoadOrder,
+    live: &HostLive,
+    who: PlayerId,
+    act: &Act,
+) -> Option<Act> {
+    let Act::Transition {
+        door,
+        from,
+        one_way,
+        ..
+    } = act
+    else {
+        return None;
+    };
+    let there = door_arrival(order, FormId(door.0))?;
+    Some(Act::Transition {
+        door: *door,
+        from: live.interest.peer_cell(who).unwrap_or(*from),
+        to: CellId(there.space.0),
+        one_way: *one_way,
     })
 }
 

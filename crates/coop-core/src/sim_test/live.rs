@@ -395,7 +395,7 @@ fn dialogue_session_runs_every_step_once_under_every_profile() {
             r.guest_send(0, Msg::Dialogue(m));
             let playing = |c: &DialogueClient| {
                 c.view()
-                    .map_or(false, |v| v.step == step && v.playing.is_some())
+                    .is_some_and(|v| v.step == step && v.playing.is_some())
             };
             assert!(
                 r.run_until(60_000, |r| playing(&r.g(0).live.dialogue)
@@ -504,5 +504,5 @@ pub(super) fn loot_pending(r: &mut Rig, i: usize, c: FormId) -> usize {
 }
 
 pub(super) fn leased(r: &mut Rig, i: usize, c: FormId) -> bool {
-    r.g(i).live.loot.view(c).map_or(false, |v| v.leased)
+    r.g(i).live.loot.view(c).is_some_and(|v| v.leased)
 }

@@ -38,6 +38,8 @@ impl Transport for DynLink {
 }
 
 /// Plain or chaos wrapped.
+// one per session: a box for the chaos variant saves nothing
+#[allow(clippy::large_enum_variant)]
 pub enum Net {
     /// Straight through.
     Plain(DynLink),

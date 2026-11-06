@@ -42,6 +42,7 @@
 //! Settings: the value `FalloutNV.esm` sets, else the exe's own default
 //! ([`Settings`]).
 
+use std::collections::BTreeMap;
 use std::f32::consts::PI;
 
 use esm::{FormId, FourCC, LoadOrder};
@@ -684,6 +685,26 @@ pub fn attack_cost(
     )
 }
 
+/// What each V.A.T.S. attack the player can make costs, by its kind: the
+/// attack of the weapon in hand ([`attack_cost`], its kind from
+/// [`attack_kind`]) and each special on offer ([`specials`], on a target
+/// that stands and on one that is down). The host prices a guest's attacks
+/// with this from its copy of the guest (#74).
+pub fn prices(order: &LoadOrder, state: &GameState, s: &Settings) -> BTreeMap<u8, f32> {
+    let weapon = crate::combat::weapon_in_hand(order, state, PLAYER_REF);
+    let mut out = BTreeMap::new();
+    out.insert(
+        attack_kind(weapon.as_ref().map(|w| w.animation)),
+        attack_cost(order, state, s, weapon.as_ref()),
+    );
+    for down in [false, true] {
+        for sp in specials(order, state, s, weapon.as_ref(), down) {
+            out.insert(sp.kind, sp.cost);
+        }
+    }
+    out
+}
+
 /// A special attack on offer (`007eb920`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Special {
@@ -887,7 +908,17 @@ pub fn spend(state: &mut GameState, amount: f32) {
 /// most: `0088b740`). 6% of the most a second: all of them in about 16.7
 /// seconds.
 pub fn regenerate(order: &LoadOrder, state: &mut GameState, seconds: f32) {
-    if state.vats.mode != mode::OFF || seconds <= 0.0 {
+    if state.vats.mode != mode::OFF {
+        return;
+    }
+    restore(order, state, seconds);
+}
+
+/// [`regenerate`] without the look at V.A.T.S.'s mode. The host's copy of a
+/// guest (#74) knows that guest's V.A.T.S. from the guest's marks, not from
+/// the host's own mode.
+pub fn restore(order: &LoadOrder, state: &mut GameState, seconds: f32) {
+    if seconds <= 0.0 {
         return;
     }
     let key = (PLAYER_REF, ACTION_POINTS);

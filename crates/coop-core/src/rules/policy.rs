@@ -105,7 +105,7 @@ impl RewardLedger {
 
     /// True when `p` already holds `reward`.
     pub fn has(&self, reward: u32, p: PlayerId) -> bool {
-        self.granted.get(&reward).map_or(false, |s| s.contains(&p))
+        self.granted.get(&reward).is_some_and(|s| s.contains(&p))
     }
 
     /// Marks `reward` as granted to `p` (when the game gave it directly).

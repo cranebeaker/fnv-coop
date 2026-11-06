@@ -42,7 +42,7 @@ pub fn collect(
             }
         }
     }
-    logs.sort_by(|a, b| b.0.cmp(&a.0));
+    logs.sort_by_key(|l| std::cmp::Reverse(l.0));
     for (_, p) in logs.into_iter().take(MAX_LOGS) {
         let Ok(bytes) = fs::read(&p) else { continue };
         let tail = if bytes.len() > MAX_BYTES {
@@ -94,7 +94,7 @@ pub fn selftest(scratch: &Path, exe_dir: &Path) -> Vec<Item> {
         "user folder replaced".into(),
     );
 
-    let c = crate::portcheck::loopback_test(0u16.max(40000 + (std::process::id() % 2000) as u16));
+    let c = crate::portcheck::loopback_test(40000 + (std::process::id() % 2000) as u16);
     add("local UDP round trip", c.ok, c.detail);
 
     let saves = dir.join("saves");

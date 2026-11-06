@@ -228,12 +228,147 @@ fn an_npc_hurts_remote_players_and_only_the_victim_feels_it() {
         }
         assert_eq!(r.host.coop.live.combat.stats.hurts_applied, 1, "{profile}");
         // nothing was applied to the puppets locally
-        assert!(r.guests[0].damage.get(&puppet_of(G2)).is_none());
+        assert!(!r.guests[0].damage.contains_key(&puppet_of(G2)));
         assert!(
             r.sim.host.live.combat.vitals.stats.applied >= 3,
             "{profile}"
         );
     }
+}
+
+/// An NPC's blow (the guard on the gecko) moves the gecko's health on every machine but
+/// credits no player: no XP tally, and no threat on any machine. Before, the host sent its
+/// world's NPC blows as the host player's hits, and a guest sent the blows on an actor that
+/// it owns as its own hits (`live_npc_targets_players`: Doc Mitchell's blows on gecko 1 made
+/// the guest's threat director keep the gecko on the host).
+#[test]
+fn an_npc_blow_moves_the_health_but_credits_no_player() {
+    let (_d, order) = order("cc-npcblow");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let hp = |g: &GameState| world::combat::health(&order, g, gecko).unwrap();
+    let full = hp(&r.host);
+    let all_at = |r: &Rig, want: f64| {
+        std::iter::once(&r.host)
+            .chain(r.guests.iter())
+            .all(|g| (hp(g) - want).abs() < 1.0)
+    };
+    // the guard bites the gecko on the host's world
+    world::combat::hurt(&order, &mut r.host, gecko, 10.0, FormId(GUARD_REF));
+    r.run_ms(2_000);
+    assert!(all_at(&r, full - 10.0), "host bite: {}", hp(&r.guests[0]));
+    // guest 1 stands nearest, so its machine runs the gecko: the guard bites it there
+    r.stand([4000.0, 900.0, 5000.0]);
+    assert!(
+        r.until(30_000, |r| r.sim.guests[0]
+            .sync
+            .live
+            .actors
+            .owns(coop_core::ids::FormId(GECKO_REF))),
+        "guest 1 never took the gecko"
+    );
+    world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, FormId(GUARD_REF));
+    r.run_ms(2_000);
+    assert!(all_at(&r, full - 20.0), "guest bite: {}", hp(&r.host));
+    assert_eq!(
+        r.host.coop.campaign.tally.get(&gecko),
+        None,
+        "no player struck the gecko"
+    );
+    for p in [PlayerId::HOST, G1, G2] {
+        assert_eq!(
+            r.ha.combat.threat_damage(gecko, p),
+            0.0,
+            "host director, {p:?}"
+        );
+        for (i, ga) in r.gas.iter().enumerate() {
+            assert_eq!(
+                ga.combat.threat_damage(gecko, p),
+                0.0,
+                "guest {i} director, {p:?}"
+            );
+        }
+    }
+}
+
+/// A frame on guest 1's machine with an NPC's blow and the player's killing blow on the
+/// same gecko: the player gets the kill. The guest sends the NPC blows first, as the host
+/// does. Before, the player's blow went first and left the gecko alive, and the NPC's blow
+/// then killed it for nobody.
+#[test]
+fn a_players_killing_blow_after_an_npcs_blow_in_one_frame_gets_the_kill() {
+    let (_d, order) = order("cc-killorder");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    r.stand([4000.0, 900.0, 5000.0]);
+    assert!(
+        r.until(30_000, |r| r.sim.guests[0]
+            .sync
+            .live
+            .actors
+            .owns(coop_core::ids::FormId(GECKO_REF))),
+        "guest 1 never took the gecko"
+    );
+    let full = world::combat::health(&order, &r.guests[0], gecko).unwrap();
+    // the guard leaves the gecko 3 points, then guest 1's player hits it for 10 (5 after
+    // the party scaling)
+    world::combat::hurt(
+        &order,
+        &mut r.guests[0],
+        gecko,
+        full - 3.0,
+        FormId(GUARD_REF),
+    );
+    world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, PLAYER_REF);
+    assert!(
+        r.until(5_000, |r| r.host.dead.contains(&gecko)),
+        "the gecko never died on the host"
+    );
+    r.run_ms(500);
+    assert_eq!(
+        r.host.coop.campaign.killers.get(&gecko),
+        Some(&G1.0),
+        "guest 1's player killed the gecko"
+    );
+}
+
+/// A script changes who is essential (`SetEssential`, `SetActorRefEssential`):
+/// the ledger's protection follows. Before, the host set it only when it
+/// started to track the actor. A quest that made an NPC killable left it
+/// protected in the ledger, and players could not kill it.
+#[test]
+fn the_ledgers_protection_follows_a_script_that_changes_essential() {
+    let (_d, order) = order("cc-essential");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let protected = |r: &Rig| {
+        r.sim
+            .host
+            .live
+            .actors
+            .is_protected(coop_core::ids::FormId(GECKO_REF))
+    };
+    assert!(!protected(&r), "a plain gecko");
+    // SetEssential on the gecko's base
+    r.host.more.essential_bases.insert(FormId(GECKO), true);
+    r.run_ms(200);
+    assert!(protected(&r), "SetEssential 1");
+    r.host.more.essential_bases.insert(FormId(GECKO), false);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetEssential 0");
+    // SetActorRefEssential on the gecko itself
+    r.host.more.essential_refs.insert(gecko);
+    r.run_ms(200);
+    assert!(protected(&r), "SetActorRefEssential 1");
+    r.host.more.essential_refs.remove(&gecko);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetActorRefEssential 0");
 }
 
 #[test]
@@ -481,6 +616,56 @@ fn enemy_attention_moves_to_the_player_who_hurts_it_and_skips_the_downed() {
 }
 
 #[test]
+fn the_director_starts_from_a_target_the_game_set() {
+    let (_d, order) = order("cc-adopt");
+    let mut gs = GameState::new(&order);
+    gs.set_authority(Authority::Host);
+    gs.player_cell = Some(FormId(CELL));
+    gs.player_position = Some([1500.0, 0.0, 0.0]);
+    let gecko = FormId(GECKO_REF);
+    gs.positions.insert(gecko, ([0.0, 0.0, 0.0], 0.0));
+    gs.combat.insert(gecko, PLAYER_REF);
+    let mut b = CombatBridge::new();
+    let g1 = |flags: u16| Remote {
+        player: G1,
+        cell: CELL,
+        pos: [400.0, 0.0, 0.0],
+        heading: 0.0,
+        vel: [0.0; 3],
+        flags,
+    };
+    let down = coop_core::avatar::FLAG_DOWNED;
+    // guest 1 is down: the director picks the host player
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(down)]);
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 0);
+    assert_eq!(gs.combat.get(&gecko), Some(&PLAYER_REF));
+    // guest 1 stands up and a script turns the gecko on guest 1 (inside the
+    // hold time, so the director does not choose again here)
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(0)]);
+    gs.combat.insert(gecko, puppet_of(G1));
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 1_000);
+    assert_eq!(gs.combat.get(&gecko), Some(&puppet_of(G1)));
+    // guest 1 goes down again: the gecko must turn to the host player. Before
+    // the fix, the director still held its old pick (the host), saw no change
+    // and never wrote, so the gecko stayed on the downed guest.
+    b.sync_remotes(&mut gs, PlayerId::HOST, &[g1(down)]);
+    b.retarget(&order, &mut gs, &[gecko], PlayerId::HOST, 20_000);
+    assert_eq!(
+        gs.combat.get(&gecko),
+        Some(&PLAYER_REF),
+        "{:?}",
+        gs.coop.live.combat.threat_log
+    );
+    assert!(gs
+        .coop
+        .live
+        .combat
+        .threat_log
+        .iter()
+        .any(|l| l.contains("game set")));
+}
+
+#[test]
 fn area_blasts_hit_players_and_npcs_and_show_on_the_other_machines() {
     let (_d, order) = order("cc-blast");
     let scripts = ScriptCache::default();
@@ -547,6 +732,44 @@ fn area_blasts_hit_players_and_npcs_and_show_on_the_other_machines() {
     );
 }
 
+/// A blast that puts its thrower down still hurts the player beside the
+/// thrower: the thrower was up when the blast went off.
+#[test]
+fn a_blast_that_downs_its_thrower_still_hurts_the_player_beside_it() {
+    let (_d, order) = order("cc-blast-down");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 9);
+    r.stand([900.0, 960.0, 9000.0]);
+    r.host
+        .actor_values
+        .insert((PLAYER_REF, world::combat::av::HEALTH), 200.0);
+    r.settled();
+    r.sim.host.live.combat.vitals.friendly = FriendlyFire::On;
+    r.host
+        .coop
+        .live
+        .combat
+        .set_next(coop_core::combat::DamageKind::Explosion, 1);
+    let f = |w: &str| form(&order, w);
+    // radius 400, damage 4000
+    let words = ["coop", "explode", "B03", "400", "4000"];
+    assert!(bot_line(&order, &mut r.host, &words, &f));
+    assert!(
+        r.until(10_000, |r| r.host.coop.live.downed),
+        "the blast puts the thrower down: lost {} health {:?} dead {}",
+        lost(&r.host),
+        world::combat::health(&order, &r.host, PLAYER_REF),
+        r.host.dead.contains(&PLAYER_REF)
+    );
+    assert!(
+        r.until(30_000, |r| lost(&r.guests[0]) > 0.0),
+        "guest 1 is in the blast (refused blows: {})",
+        r.sim.host.live.combat.vitals.stats.refused
+    );
+    r.run_ms(3_000);
+    assert_eq!(lost(&r.guests[1]), 0.0, "guest 2 is far away");
+}
+
 #[test]
 fn vats_is_real_time_for_everyone_else_and_resolves_on_the_host() {
     let (_d, order) = order("cc-vats");
@@ -588,7 +811,14 @@ fn vats_is_real_time_for_everyone_else_and_resolves_on_the_host() {
     );
     let (_, results, spent) = r.guests[0].coop.live.combat.vats_results[0].clone();
     assert_eq!(results.len(), 2);
-    assert_eq!(spent, 40);
+    // two attacks at the cost the guest's world gives its attack (#74: the
+    // harness claims `vats::attack_cost`, and the host holds it to its own
+    // price of the same attack)
+    let settings = world::vats::Settings::load(&order);
+    let hand = world::combat::weapon_in_hand(&order, &r.guests[0], PLAYER_REF);
+    let cost = world::vats::attack_cost(&order, &r.guests[0], &settings, hand.as_ref());
+    assert!(cost >= 1.0, "{cost}");
+    assert_eq!(spent, 2 * cost.round() as u16);
     assert!(
         r.until(30_000, |r| world::combat::health(&order, &r.host, gecko)
             .unwrap()
@@ -694,8 +924,19 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         .map(|s| s.id)
         .collect();
     assert!(spawned.len() as u32 >= made);
-    // replicated: a guest hears about every extra
+    // the host's own world has every extra (it fights them too)
     let extras = r.host.coop.live.combat.extras.clone();
+    for e in &extras {
+        assert!(
+            r.host.more.placed.refs.contains_key(e),
+            "the host made extra {e}"
+        );
+        assert!(
+            r.host.place(&order, *e).is_some(),
+            "extra {e} has a place on the host"
+        );
+    }
+    // replicated: a guest hears about every extra
     assert!(r.until(30_000, |r| extras.iter().all(|e| r.sim.guests[1]
         .sync
         .live
@@ -714,6 +955,18 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         r.until(60_000, |r| r.host.coop.live.combat.stats.extras_cleared
             >= 1)
     );
+    let cleared: Vec<FormId> = extras
+        .iter()
+        .copied()
+        .filter(|e| !r.host.coop.live.combat.extras.contains(e))
+        .collect();
+    assert!(!cleared.is_empty());
+    for e in &cleared {
+        assert!(
+            !r.host.more.placed.refs.contains_key(e),
+            "the host removed cleared extra {e}"
+        );
+    }
     // solo: no extras at all
     let mut solo = coop_core::rules::Scaling::for_party(1, Mode::CoopBalanced);
     solo.extras = 0.0;

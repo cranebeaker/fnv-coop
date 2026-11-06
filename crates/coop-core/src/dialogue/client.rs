@@ -59,17 +59,17 @@ impl DialogueClient {
 
     /// True when this machine picks.
     pub fn is_initiator(&self) -> bool {
-        self.view.map_or(false, |v| v.initiator == self.me)
+        self.view.is_some_and(|v| v.initiator == self.me)
     }
 
     /// True when this machine only watches (banner, read-only list).
     pub fn is_spectator(&self) -> bool {
-        self.view.map_or(false, |v| v.initiator != self.me)
+        self.view.is_some_and(|v| v.initiator != self.me)
     }
 
     /// True while the initiator's UI must wait for the host's end script.
     pub fn ui_blocked(&self) -> bool {
-        self.view.map_or(false, |v| v.playing.is_some())
+        self.view.is_some_and(|v| v.playing.is_some())
     }
 
     /// Asks to talk to `npc`.
@@ -174,7 +174,7 @@ impl DialogueClient {
                 }
             }
             DialogueMsg::Closed { session, reason } => {
-                if self.view.map_or(false, |v| v.session == session) {
+                if self.view.is_some_and(|v| v.session == session) {
                     self.view = None;
                 }
                 self.last_closed = Some((session, reason));

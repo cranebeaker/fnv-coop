@@ -152,7 +152,7 @@ fn shared_hash(gs: &GameState) -> u64 {
     let mut h = 0u64;
     for (k, f) in export(gs) {
         if domain_of(&k) != Domain::Shadow {
-            h ^= coop_core::hash::record_hash(k.form, &f).rotate_left((k.form.0 % 61) as u32);
+            h ^= coop_core::hash::record_hash(k.form, &f).rotate_left(k.form.0 % 61);
         }
     }
     h

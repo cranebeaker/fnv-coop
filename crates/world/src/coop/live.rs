@@ -9,9 +9,9 @@
 //!
 //! Single player never constructs an adapter and pays nothing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use coop_core::actors::{ActorClient, ActorMsg, ActorState, MAX_HIT};
+use coop_core::actors::{ActorClient, ActorMsg, ActorState, Blow, MAX_BLOWS, MAX_HIT};
 use coop_core::authority::AuthorityTable;
 use coop_core::avatar::{dequant_heading, dequant_pos, quant_heading, quant_pos, AvatarState};
 use coop_core::avatar::{FLAG_DEAD, FLAG_DOWNED};
@@ -120,11 +120,6 @@ fn target_in(t: u32, me: PlayerId) -> FormId {
     }
 }
 
-/// Damage to the ledger's unit: whole points, at least one.
-fn hit_points(amount: f64) -> u16 {
-    amount.ceil().clamp(1.0, f64::from(MAX_HIT)) as u16
-}
-
 /// The part of a point a guest's blows have dealt that no request has
 /// carried yet, per victim. Rounding every frame's blow up to a whole point
 /// (the ledger counts whole points) made a fast weapon or a fist do twice
@@ -155,6 +150,46 @@ impl HitCarry {
         }
         Some(pts as u16)
     }
+
+    /// Forgets the part point kept for `who` (the host dropped a blow on it).
+    fn forget(&mut self, who: FormId) {
+        self.0.remove(&who);
+    }
+}
+
+/// Sums the NPC blows of one frame per victim and striker (one request
+/// each: the host checks the NPC that struck).
+fn coalesce_npc(hits: Vec<PendingHit>) -> Vec<((FormId, FormId), f64)> {
+    let mut by: BTreeMap<(FormId, FormId), f64> = BTreeMap::new();
+    for h in hits {
+        *by.entry((h.who, h.by)).or_insert(0.0) += h.amount;
+    }
+    by.into_iter().collect()
+}
+
+/// The named blows of one frame per victim, at most [`MAX_BLOWS`] in one
+/// request, with the guest's own sum of their damage.
+fn coalesce_blows(hits: Vec<PendingHit>) -> Vec<(FormId, f64, Vec<Blow>)> {
+    let mut by: BTreeMap<FormId, Vec<(f64, Blow)>> = BTreeMap::new();
+    for h in hits {
+        if let Some(b) = h.blow {
+            by.entry(h.who).or_default().push((h.amount, b));
+        }
+    }
+    by.into_iter()
+        .flat_map(|(who, blows)| {
+            blows
+                .chunks(MAX_BLOWS)
+                .map(|c| {
+                    (
+                        who,
+                        c.iter().map(|x| x.0).sum(),
+                        c.iter().map(|x| x.1).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// Sums the hits of one frame per victim (one request each).
@@ -171,11 +206,16 @@ fn coalesce(hits: Vec<PendingHit>) -> Vec<(FormId, f64)> {
 /// an actor that it owns. The host's world runs all other NPC fights. A
 /// guest copy of such a fight (Doc Mitchell and a gecko) is not sent: the
 /// host would book it as this player's hit, with an assault crime on Doc.
+///
+/// The damage of an effect or a script (`PendingHit::effect`) by the
+/// player or a follower on an actor that the guest does not own is not
+/// sent (#74). The host's world deals it: the host casts the effects of
+/// each blow it counts (`blow_check`), and runs its own scripts.
 fn guest_sends(gs: &GameState, actors: &ActorClient, h: &PendingHit) -> bool {
-    h.by == PLAYER_REF
-        || gs.teammates.contains(&h.by)
-        || actors.owns(cf(h.by))
-        || actors.owns(cf(h.who))
+    if actors.owns(cf(h.by)) || actors.owns(cf(h.who)) {
+        return true;
+    }
+    !h.effect && (h.by == PLAYER_REF || gs.teammates.contains(&h.by))
 }
 
 /// Applies a host verdict to this machine's world without hooks.
@@ -398,6 +438,14 @@ impl ActorPump {
 pub struct LiveStats {
     /// Hit requests sent.
     pub hits_sent: u32,
+    /// A guest's blows the host refused (`super::blow_check::Refusal`).
+    pub blows_refused: u32,
+    /// A guest's blows the host counted without a part the guest named
+    /// (sneak, power, critical, a V.A.T.S. attack).
+    pub blow_parts_dropped: u32,
+    /// Damage the host's world dealt for a guest: an effect that a counted
+    /// blow of that guest started (whole points sent to the ledger).
+    pub effect_points: u32,
     /// Frames run.
     pub frames: u64,
 }
@@ -427,12 +475,61 @@ pub struct LiveHostAdapter {
     announced: BTreeSet<FormId>,
     next_loot_ms: u64,
     /// Guest hit requests that wait for the friendly-fire guard.
-    held_hits: Vec<(PlayerId, Msg)>,
+    /// A guest's hit requests, and whether a queue paid for them already
+    /// (a V.A.T.S. queue's hits).
+    held_hits: Vec<(PlayerId, Msg, bool)>,
+    /// The part of a point each guest's named blows have dealt that no
+    /// verdict has carried yet (the host counts them, `recount`).
+    blow_carry: BTreeMap<PlayerId, HitCarry>,
     /// Each actor's world health after the last frame's verdicts.
     last_health: BTreeMap<FormId, f64>,
     /// Raised health the ledger has not taken yet (less than a point).
     heal_carry: BTreeMap<FormId, f64>,
+    /// What decided the ledger's protection last (see `follow_essential`).
+    essential_seen: Option<EssentialInputs>,
+    /// When `paces` next gives the guests' speeds to the avatar check.
+    next_pace_ms: u64,
+    /// The weapons each guest's copy held in hand this session, for the
+    /// count of an explosion that goes off after the hand changed
+    /// (`super::blow_check`).
+    held: BTreeMap<PlayerId, BTreeSet<FormId>>,
+    /// When `note_held` next looks at the guests' hands.
+    next_held_ms: u64,
+    /// When `action_points` next looks at the guests' copies.
+    next_ap_ms: u64,
+    /// When `action_points` last looked at each guest's copy.
+    ap_seen_ms: BTreeMap<PlayerId, u64>,
+    /// The game's V.A.T.S. settings, read once.
+    vats_settings: Option<crate::vats::Settings>,
+    /// The part of a point of each guest's effect damage that the ledger
+    /// has not taken yet, per victim.
+    effect_carry: BTreeMap<PlayerId, HitCarry>,
+    /// The part of a point of the host player's damage, and of each NPC's
+    /// damage, that the ledger has not taken yet, per victim. An effect
+    /// deals a part of a point each frame (`magic::tick`): rounded up, the
+    /// ledger took a point each frame, and the world followed the ledger.
+    own_carry: HitCarry,
+    npc_carry: BTreeMap<FormId, HitCarry>,
 }
+
+/// Milliseconds between the guests' speed updates for the avatar check.
+const PACE_EVERY_MS: u64 = 1_000;
+/// Milliseconds between looks at the guests' hands (`note_held`): shorter
+/// than a throw.
+const HELD_EVERY_MS: u64 = 250;
+/// Milliseconds between looks at the guests' action points
+/// (`action_points`).
+const AP_EVERY_MS: u64 = 250;
+
+/// The script state that says who is essential (`more_functions::is_essential`):
+/// `SetEssential` per base, `SetActorRefEssential` per reference, the
+/// teammates and the hardcore mode.
+type EssentialInputs = (
+    HashMap<FormId, bool>,
+    HashSet<FormId>,
+    HashSet<FormId>,
+    bool,
+);
 
 impl Default for LiveHostAdapter {
     fn default() -> Self {
@@ -458,8 +555,19 @@ impl LiveHostAdapter {
             announced: BTreeSet::new(),
             next_loot_ms: 0,
             held_hits: Vec::new(),
+            blow_carry: BTreeMap::new(),
             last_health: BTreeMap::new(),
             heal_carry: BTreeMap::new(),
+            essential_seen: None,
+            next_pace_ms: 0,
+            held: BTreeMap::new(),
+            next_held_ms: 0,
+            next_ap_ms: 0,
+            ap_seen_ms: BTreeMap::new(),
+            vats_settings: None,
+            effect_carry: BTreeMap::new(),
+            own_carry: HitCarry::default(),
+            npc_carry: BTreeMap::new(),
         }
     }
 
@@ -473,6 +581,10 @@ impl LiveHostAdapter {
             }
             if self.tracked.insert(a) {
                 live.actors.register(cf(a), export_actor(gs, cx, a));
+                // the baseline for `raises`: a raise before the next frame still counts
+                if let Some(h) = crate::combat::health(cx.order, gs, a) {
+                    self.last_health.insert(a, h);
+                }
                 let essential = crate::more_functions::is_essential(cx.order, gs, a);
                 live.actors.set_protected(cf(a), essential);
             }
@@ -498,6 +610,32 @@ impl LiveHostAdapter {
             self.tracked.insert(wf(id));
             let essential = crate::more_functions::is_essential(cx.order, gs, wf(id));
             live.actors.set_protected(id, essential);
+        }
+    }
+
+    /// A script changed who is essential (`SetEssential 0` on a quest NPC,
+    /// a new teammate): the ledger's protection of every tracked actor
+    /// follows. `track` sets it only once, when it starts to track an actor.
+    fn follow_essential(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive) {
+        let m = &gs.more;
+        let same = self.essential_seen.as_ref().is_some_and(|(b, r, t, h)| {
+            *b == m.essential_bases
+                && *r == m.essential_refs
+                && *t == gs.teammates
+                && *h == gs.living.hardcore
+        });
+        if same {
+            return;
+        }
+        self.essential_seen = Some((
+            m.essential_bases.clone(),
+            m.essential_refs.clone(),
+            gs.teammates.clone(),
+            gs.living.hardcore,
+        ));
+        for &a in &self.tracked {
+            let essential = crate::more_functions::is_essential(cx.order, gs, a);
+            live.actors.set_protected(cf(a), essential);
         }
     }
 
@@ -551,7 +689,7 @@ impl LiveHostAdapter {
     pub fn hold_guest_hit(&mut self, from: PlayerId, msg: Msg) -> Option<Msg> {
         match msg {
             Msg::Actor(ActorMsg::Hit { .. }) if !from.is_host() => {
-                self.held_hits.push((from, msg));
+                self.held_hits.push((from, msg, false));
                 None
             }
             // a guest's dialogue pick waits for the line's conditions check
@@ -574,9 +712,15 @@ impl LiveHostAdapter {
         dealt: &BTreeMap<FormId, f64>,
     ) -> Outs {
         let mut outs = Vec::new();
-        for (id, rec) in self.own.actors.iter() {
-            let a = wf(*id);
-            if !rec.alive || gs.dead.contains(&a) || super::facts::player_of(a).is_some() {
+        // every tracked actor in the ledger: the host's copy gets a new actor
+        // only with its first `Assign`, and a raise before that was lost
+        for &a in &self.tracked {
+            let id = cf(a);
+            if live.actors.own.get(id).is_none()
+                || live.actors.is_dead(id)
+                || gs.dead.contains(&a)
+                || super::facts::player_of(a).is_some()
+            {
                 continue;
             }
             let (Some(now), Some(&last)) = (
@@ -596,24 +740,293 @@ impl LiveHostAdapter {
                 continue;
             }
             *carry -= points;
-            for o in live.actors.heal(*id, points as u16) {
+            for o in live.actors.heal(id, points as u16) {
                 outs.extend(live.route_extern(o.aud, Msg::Actor(o.msg)));
             }
         }
         outs
     }
 
-    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> Vec<(PlayerId, Msg)> {
-        let mut pass = Vec::new();
-        for (from, m) in std::mem::take(&mut self.held_hits) {
-            let Msg::Actor(ActorMsg::Hit { actor, .. }) = &m else {
+    /// A guest's named blows as the host counts them (#74): the damage of
+    /// each blow from the host's copy of that guest replaces the guest's own
+    /// count (`super::blow_check`). A refused blow deals nothing. The part of
+    /// a point left waits for the next blows on the same victim.
+    ///
+    /// `paid`: a V.A.T.S. queue paid for the blows already. Returns the
+    /// message and the action points the host's copy of the guest paid.
+    fn recount(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        from: PlayerId,
+        m: Msg,
+        paid: bool,
+    ) -> (Msg, f32) {
+        let Msg::Actor(ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: None,
+            blows,
+        }) = m
+        else {
+            return (m, 0.0);
+        };
+        if blows.is_empty() {
+            let m = Msg::Actor(ActorMsg::Hit {
+                actor,
+                hit,
+                amount,
+                npc: None,
+                blows,
+            });
+            return (m, 0.0);
+        }
+        let victim = wf(actor);
+        let mut total = 0.0;
+        let mut ap = 0.0;
+        let none = BTreeSet::new();
+        let held = self.held.get(&from).unwrap_or(&none);
+        let settings = self
+            .vats_settings
+            .get_or_insert_with(|| crate::vats::Settings::load(cx.order));
+        let pay = if paid {
+            super::blow_check::Pay::Paid
+        } else {
+            super::blow_check::Pay::Points(settings)
+        };
+        let counted = super::blow_check::count_blows(cx.order, gs, from, victim, &blows, held, pay);
+        for r in counted {
+            match r {
+                Ok(c) => {
+                    total += c.damage;
+                    ap += c.ap;
+                    if c.dropped != 0 || c.vats_dropped {
+                        self.stats.blow_parts_dropped += 1;
+                    }
+                }
+                Err(_) => self.stats.blows_refused += 1,
+            }
+        }
+        let left = crate::combat::health(cx.order, gs, victim);
+        let points = self
+            .blow_carry
+            .entry(from)
+            .or_default()
+            .take(victim, total, left)
+            .unwrap_or(0);
+        let m = Msg::Actor(ActorMsg::Hit {
+            actor,
+            hit,
+            amount: points,
+            npc: None,
+            blows,
+        });
+        (m, ap)
+    }
+
+    /// Gives the avatar check each guest's run speed (#74), from the host's
+    /// copy of that guest: its gear, weight, effects and perks
+    /// (`locomotion::speed`). With shadows off, the host has no copy of
+    /// the guest, and the guest's movement is not bound.
+    fn paces(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) {
+        if now_ms < self.next_pace_ms || !gs.coop.bank.enabled() {
+            return;
+        }
+        self.next_pace_ms = now_ms + PACE_EVERY_MS;
+        let settings = crate::locomotion::SpeedSettings::read(cx.order);
+        for p in live.members().to_vec() {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let speed = gs.with_player(p.0, |g| {
+                crate::locomotion::speed(cx.order, g, &settings, PLAYER_REF, true, false)
+            });
+            live.avatars.set_speed(p, speed, now_ms);
+        }
+    }
+
+    /// Keeps each guest's V.A.T.S. action points in the host's copy of
+    /// that guest (#74). The copy pays what the host's resolve of the
+    /// guest's queues took (`VatsHost::take_spent`), as the guest's own
+    /// world does. The copy gets its points back while the guest is out of
+    /// V.A.T.S. (its marks), at the game's rate (`vats::restore`). The
+    /// host's resolve holds each queue to the copy's points and prices
+    /// (`vats::prices`). With shadows off, the host has no copy, and the
+    /// queue's claim is held only to the host's cap.
+    fn action_points(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) {
+        if !gs.coop.bank.enabled() {
+            return;
+        }
+        for (p, spent) in live.combat.vats.take_spent() {
+            if p != PlayerId::HOST && gs.coop.bank.parked.contains_key(&p.0) {
+                gs.with_player(p.0, |g| crate::vats::spend(g, f32::from(spent)));
+            }
+        }
+        if now_ms < self.next_ap_ms {
+            return;
+        }
+        self.next_ap_ms = now_ms + AP_EVERY_MS;
+        let s = self
+            .vats_settings
+            .get_or_insert_with(|| crate::vats::Settings::load(cx.order));
+        let in_vats: BTreeSet<PlayerId> = live.combat.vats.active().copied().collect();
+        let members: BTreeSet<PlayerId> = live.members().iter().copied().collect();
+        self.ap_seen_ms.retain(|p, _| members.contains(p));
+        live.combat.vats.keep_only(&members);
+        for p in members {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let seconds = self
+                .ap_seen_ms
+                .insert(p, now_ms)
+                .map_or(0.0, |t| now_ms.saturating_sub(t) as f32 / 1000.0);
+            let back = !in_vats.contains(&p);
+            let (most, points, prices) = gs.with_player(p.0, |g| {
+                if back {
+                    crate::vats::restore(cx.order, g, seconds);
+                }
+                (
+                    crate::vats::max_action_points(cx.order, g),
+                    crate::vats::action_points(cx.order, g),
+                    crate::vats::prices(cx.order, g, s),
+                )
+            });
+            let vats = &mut live.combat.vats;
+            // no action points in the copy: the host does not know them
+            if most <= 0.0 {
+                vats.known_ap.remove(&p);
+                vats.prices.remove(&p);
+                continue;
+            }
+            vats.known_ap.insert(p, points.clamp(0.0, 255.0) as u16);
+            let prices = prices
+                .into_iter()
+                .map(|(k, c)| (k, c.round().clamp(0.0, f32::from(u16::MAX)) as u16))
+                .collect();
+            vats.prices.insert(p, prices);
+        }
+    }
+
+    /// Keeps the weapon in each guest's hand in the host's copy (`held`).
+    fn note_held(&mut self, cx: Ctx, gs: &mut GameState, live: &HostLive, now_ms: u64) {
+        if now_ms < self.next_held_ms || !gs.coop.bank.enabled() {
+            return;
+        }
+        self.next_held_ms = now_ms + HELD_EVERY_MS;
+        for p in live.members().to_vec() {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let hand = gs.with_player(p.0, |g| {
+                crate::combat::weapon_in_hand(cx.order, g, PLAYER_REF).map(|w| w.form_id)
+            });
+            if let Some(w) = hand {
+                self.held.entry(p).or_default().insert(w);
+            }
+        }
+    }
+
+    /// Books the damage that the host's world dealt since the last call
+    /// (`gs.coop.live.hurts`) in the ledger, and adds it to `dealt` for
+    /// [`Self::raises`]. The damage of the host player or its follower is
+    /// the host's hit. The damage that a guest's counted blow started here
+    /// (an effect, #74) is that guest's ([`Self::effect_hits`]). Other
+    /// damage is an NPC's hit.
+    fn book_hurts(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        auth: &mut AuthorityTable,
+        now_ms: u64,
+        dealt: &mut BTreeMap<FormId, f64>,
+    ) -> Outs {
+        let mut outs = Vec::new();
+        let hurts = std::mem::take(&mut gs.coop.live.hurts);
+        for h in &hurts {
+            *dealt.entry(h.who).or_insert(0.0) += h.amount;
+        }
+        let me = gs.active_slot();
+        let slot = |h: &PendingHit| {
+            super::campaign::attribution::slot_of(h.by, me)
+                .or_else(|| super::campaign::owners::owner_of(gs, h.by))
+        };
+        let (mine, rest): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| slot(h) == Some(me));
+        let (theirs, npcs): (Vec<_>, Vec<_>) = rest.into_iter().partition(|h| slot(h).is_some());
+        let theirs: Vec<(u8, PendingHit)> = theirs
+            .into_iter()
+            .filter_map(|h| Some((slot(&h)?, h)))
+            .collect();
+        outs.extend(self.effect_hits(cx, gs, live, theirs));
+        // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
+        // credits no player: no XP and no threat for the host
+        for ((who, by), amount) in coalesce_npc(npcs) {
+            let left = crate::combat::health(cx.order, gs, who);
+            let carry = self.npc_carry.entry(by).or_default();
+            let Some(points) = carry.take(who, amount, left) else {
+                continue;
+            };
+            let m = self.own.actors.npc_hit(cf(who), cf(by), points);
+            self.stats.hits_sent += 1;
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
+        }
+        for (who, amount) in coalesce(mine) {
+            let left = crate::combat::health(cx.order, gs, who);
+            let Some(points) = self.own_carry.take(who, amount, left) else {
+                continue;
+            };
+            let m = self.own.actors.hit(cf(who), points);
+            self.stats.hits_sent += 1;
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
+        }
+        outs
+    }
+
+    /// The damage the host's world dealt for each guest (#74: an effect
+    /// that a counted blow of that guest started) goes to the ledger as that
+    /// guest's ([`HostLive::host_hit_for`]). The part of a point waits for
+    /// the next damage on the same victim.
+    fn effect_hits(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &mut HostLive,
+        hurts: Vec<(u8, PendingHit)>,
+    ) -> Outs {
+        let mut by: BTreeMap<(u8, FormId), f64> = BTreeMap::new();
+        for (slot, h) in hurts {
+            *by.entry((slot, h.who)).or_insert(0.0) += h.amount;
+        }
+        let mut outs = Vec::new();
+        for ((slot, who), amount) in by {
+            let left = crate::combat::health(cx.order, gs, who);
+            let carry = self.effect_carry.entry(PlayerId(slot)).or_default();
+            if let Some(points) = carry.take(who, amount, left) {
+                self.stats.effect_points += u32::from(points);
+                outs.extend(live.host_hit_for(PlayerId(slot), cf(who), points));
+            }
+        }
+        outs
+    }
+
+    /// Also returns a notice to the striker of each dropped blow
+    /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
+    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Vec<(PlayerId, Msg, bool)>, Outs) {
+        let (mut pass, mut blocked) = (Vec::new(), Vec::new());
+        for (from, m, paid) in std::mem::take(&mut self.held_hits) {
+            let Msg::Actor(ActorMsg::Hit { actor, npc, .. }) = &m else {
                 continue;
             };
             if super::campaign::ffguard::allow_hit(cx.order, gs, from.0, wf(*actor)) {
-                pass.push((from, m));
+                pass.push((from, m, paid));
+            } else {
+                let (actor, npc) = (*actor, npc.is_some());
+                blocked.push((from, Msg::Actor(ActorMsg::HitBlocked { actor, npc })));
             }
         }
-        pass
+        (pass, blocked)
     }
 
     /// The per-frame driver. Send the returned messages.
@@ -632,6 +1045,9 @@ impl LiveHostAdapter {
         self.stats.frames += 1;
         super::campaign::host_frame(cx, gs, now_ms);
         self.registry.update(live);
+        self.paces(cx, gs, live, now_ms);
+        self.note_held(cx, gs, live, now_ms);
+        self.action_points(cx, gs, live, now_ms);
         super::campaign::party::refresh_positions(gs, &self.registry);
         // a guest's followers come along when the guest changes place
         let places = &mut self.pump.places;
@@ -653,38 +1069,32 @@ impl LiveHostAdapter {
         }
         gs.coop.live.scaling = Some(live.rules.scaling(now_ms));
         // damage the host dealt itself goes through the one ledger
-        let hurts = std::mem::take(&mut gs.coop.live.hurts);
         let mut dealt: BTreeMap<FormId, f64> = BTreeMap::new();
-        for h in &hurts {
-            *dealt.entry(h.who).or_insert(0.0) += h.amount;
-        }
-        let me = gs.active_slot();
-        let (mine, npcs): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| {
-            super::campaign::attribution::slot_of(h.by, me) == Some(me)
-                || super::campaign::owners::owner_of(gs, h.by) == Some(me)
-        });
-        // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
-        // pays no player; sent first, so a same-size player hit still counts
-        for (who, amount) in coalesce(npcs) {
-            let pts = hit_points(amount);
-            let m = self.own.actors.hit(cf(who), pts);
-            self.stats.hits_sent += 1;
-            gs.coop.campaign.unattributed.push((who, pts));
-            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
-        }
-        for (who, amount) in coalesce(mine) {
-            let m = self.own.actors.hit(cf(who), hit_points(amount));
-            self.stats.hits_sent += 1;
-            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
-        }
+        outs.extend(self.book_hurts(cx, gs, live, auth, now_ms, &mut dealt));
         // a guest's hit requests: the friendly-fire guard, then the same ledger
-        for (from, m) in self.guarded_hits(cx, gs) {
+        // a guest's V.A.T.S. hits are that guest's hits: the same guard and count
+        live.hold_vats_hits = true;
+        let queued = live.held_vats_hits.drain(..).map(|(f, m)| (f, m, true));
+        self.held_hits.extend(queued);
+        let (pass, blocked) = self.guarded_hits(cx, gs);
+        for (from, m, paid) in pass {
+            let (m, ap) = self.recount(cx, gs, from, m, paid);
+            // the next queue sees what the copy paid for these blows
+            if let Some(k) = live.combat.vats.known_ap.get_mut(&from) {
+                *k = k.saturating_sub(ap.ceil() as u16);
+            }
             outs.extend(live.on_msg(from, m, now_ms, auth));
         }
+        // only a guest's blows are held, so each notice goes to a guest
+        outs.extend(blocked);
+        // the effects that the counted blows cast in this world dealt damage
+        // in this frame (#74): `raises` must see that damage in this frame
+        outs.extend(self.book_hurts(cx, gs, live, auth, now_ms, &mut dealt));
         outs.extend(self.raises(cx, gs, live, &dealt));
         // a guest's dialogue picks: the line's conditions as the picker, then the sessions
         outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));
         self.adopt_reported(cx, gs, live);
+        self.follow_essential(cx, gs, live);
         outs.extend(self.announce_made(cx, gs, live));
         for m in self
             .pump
@@ -719,14 +1129,12 @@ impl LiveHostAdapter {
             super::campaign::attribution::observe(cx, gs, &m);
             self.own.on_msg(m, now_ms);
         }
-        // NPC blows the ledger did not apply (a dead or unknown victim) expire
-        gs.coop.campaign.unattributed.clear();
         self.pump.apply(cx, gs, &self.own.actors, PlayerId::HOST);
         self.last_health = self
-            .own
-            .actors
+            .tracked
             .iter()
-            .filter_map(|(id, _)| Some((wf(*id), crate::combat::health(cx.order, gs, wf(*id))?)))
+            .filter(|a| live.actors.own.get(cf(**a)).is_some())
+            .filter_map(|a| Some((*a, crate::combat::health(cx.order, gs, *a)?)))
             .collect();
         self.dialogue.poll_lines(gs, &self.own.dialogue);
         self.dialogue
@@ -758,7 +1166,37 @@ impl LiveHostAdapter {
             &self.rules.events,
             now_ms,
         ));
+        land_warps(cx, gs, live);
         outs
+    }
+}
+
+/// Where each warp sent to a guest lands, from the host's own world (#74):
+/// a door's arrival (`interact::door_arrival`), the tether anchor's place,
+/// a map marker's travel place (`map::travel`). The guest's jump must land
+/// there ([`coop_core::avatar::AvatarHub::land_at`]). A warp whose place the
+/// host does not find keeps an open landing.
+fn land_warps(cx: Ctx, gs: &GameState, live: &mut HostLive) {
+    use coop_core::sync::WarpSent;
+    for (p, w) in live.take_warps() {
+        let place = match w {
+            WarpSent::Door(door) => {
+                super::interact::door_arrival(cx.order, wf(door)).map(|a| (a.space, a.pos))
+            }
+            WarpSent::Anchor(anchor) => gs.place(cx.order, wf(anchor)).map(|p| (p.0, p.2)),
+            WarpSent::Marker(marker) => crate::map::marker(cx.order, wf(marker))
+                .and_then(|m| gs.place(cx.order, m.arrival.unwrap_or(m.reference)))
+                .map(|p| (p.0, p.2)),
+        };
+        if let Some((space, at)) = place {
+            live.avatars.land_at(
+                p,
+                coop_core::avatar::Landing {
+                    space: CellId(space.0),
+                    at,
+                },
+            );
+        }
     }
 }
 
@@ -784,6 +1222,7 @@ pub struct LiveGuestAdapter {
     report: Vec<(CForm, ActorState)>,
     realized: BTreeSet<FormId>,
     carry: HitCarry,
+    npc_carry: HitCarry,
 }
 
 impl LiveGuestAdapter {
@@ -803,6 +1242,7 @@ impl LiveGuestAdapter {
             report: Vec::new(),
             realized: BTreeSet::new(),
             carry: HitCarry::default(),
+            npc_carry: HitCarry::default(),
         }
     }
 
@@ -895,21 +1335,77 @@ impl LiveGuestAdapter {
             out.extend(live.actors.report(batch).map(Msg::Actor));
         }
         self.realize_spawned(gs, live);
+        // a blow the host's friendly-fire guard dropped leaves no part point
+        for (actor, npc) in std::mem::take(&mut live.actors.blocked) {
+            let carry = if npc {
+                &mut self.npc_carry
+            } else {
+                &mut self.carry
+            };
+            carry.forget(wf(actor));
+        }
         // damage dealt here is a request; the host resolves it
         let pending: Vec<PendingHit> = std::mem::take(&mut gs.coop.live.pending_hits)
             .into_iter()
             .filter(|h| guest_sends(gs, &live.actors, h))
             .collect();
-        for (who, amount) in coalesce(pending) {
+        // the blows of its player and followers are this player's; the others
+        // (by or on an actor this guest owns) are NPC blows that credit nobody.
+        // NPC blows go first, as on the host: a player's blow in the same frame
+        // then gets the kill
+        let (mine, npcs): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .partition(|h| h.by == PLAYER_REF || gs.teammates.contains(&h.by));
+        // a named blow goes as it is: the host counts its damage and keeps the
+        // part points (`LiveHostAdapter::recount`)
+        let (named, mine): (Vec<_>, Vec<_>) = mine.into_iter().partition(|h| h.blow.is_some());
+        for (npc, hits) in [(true, npcs), (false, mine)] {
+            // the part points of a player's blows and of NPC blows are kept apart
+            let carry = if npc {
+                &mut self.npc_carry
+            } else {
+                &mut self.carry
+            };
+            // an NPC's blow names the NPC that struck
+            let groups = if npc {
+                coalesce_npc(hits)
+            } else {
+                let none = FormId(0);
+                coalesce(hits)
+                    .into_iter()
+                    .map(|(w, a)| ((w, none), a))
+                    .collect()
+            };
+            for ((who, by), amount) in groups {
+                if who == PLAYER_REF || puppet_of(self.me) == who {
+                    continue;
+                }
+                let left = crate::combat::health(cx.order, gs, who);
+                let Some(pts) = carry.take(who, amount, left) else {
+                    // a player's blow under a point still goes, with 0 points:
+                    // the host's friendly-fire guard counts blows, not points
+                    if !npc {
+                        self.stats.hits_sent += 1;
+                        out.push(Msg::Actor(live.actors.hit(cf(who), 0)));
+                    }
+                    continue;
+                };
+                self.stats.hits_sent += 1;
+                let m = if npc {
+                    live.actors.npc_hit(cf(who), cf(by), pts)
+                } else {
+                    live.actors.hit(cf(who), pts)
+                };
+                out.push(Msg::Actor(m));
+            }
+        }
+        for (who, amount, blows) in coalesce_blows(named) {
             if who == PLAYER_REF || puppet_of(self.me) == who {
                 continue;
             }
-            let left = crate::combat::health(cx.order, gs, who);
-            let Some(pts) = self.carry.take(who, amount, left) else {
-                continue;
-            };
             self.stats.hits_sent += 1;
-            out.push(Msg::Actor(live.actors.hit(cf(who), pts)));
+            let own = amount.round().clamp(0.0, f64::from(MAX_HIT)) as u16;
+            out.push(Msg::Actor(live.actors.blow_hit(cf(who), own, blows)));
         }
         self.pump.take_over(cx, gs, &live.actors, self.me);
         out.extend(

@@ -19,7 +19,7 @@
 //! table's). A query the capture did not ask (a word outside the captured domain) is not
 //! provided and stops the run, never a made-up answer.
 
-use super::d3d9device::create_device;
+use super::d3d9device::{create_device, create_device_ex};
 use crate::{Engine, Ptr};
 use std::collections::HashMap;
 
@@ -35,8 +35,7 @@ pub const D3D9_MODULE: u32 = 0x7e11_0000;
 pub const ADAPTER_MONITOR: u32 = 0x7e12_0001;
 
 /// `D3D9.DLL`'s procedures found by name, in the order of their code addresses from
-/// [`PROC_CODE`]. `Direct3DCreate9Ex` exists in the DLL (Windows Vista and later), but is not
-/// provided: its address stops the run when called.
+/// [`PROC_CODE`]. `Direct3DCreate9Ex` (Windows Vista and later) makes an `IDirect3D9Ex`.
 pub const PROCS: [&[u8]; 2] = [b"Direct3DCreate9", b"Direct3DCreate9Ex"];
 
 /// `IDirect3D9`'s slots (d3d9.h order).
@@ -58,6 +57,16 @@ pub const D3D9_SLOTS: [&str; 17] = [
     "GetDeviceCaps",
     "GetAdapterMonitor",
     "CreateDevice",
+];
+
+/// `IDirect3D9Ex`'s slots after `IDirect3D9`'s (d3d9.h order, from slot 17). Only
+/// `CreateDeviceEx` is provided: the others stop the run when called.
+pub const D3D9EX_SLOTS: [&str; 5] = [
+    "GetAdapterModeCountEx",
+    "EnumAdapterModesEx",
+    "GetAdapterDisplayModeEx",
+    "CreateDeviceEx",
+    "GetAdapterLUID",
 ];
 
 /// Result codes (d3d9.h, winerror.h).
@@ -114,6 +123,8 @@ pub struct Adapter {
     display_devices: HashMap<u32, (u32, Vec<u8>)>,
     /// The `NvApi*` lines (`scripts/nvapi-capture`).
     nvapi: super::nvapi::Table,
+    /// The `Ati*` lines (`scripts/nvapi-capture`).
+    ati: super::atimgpud::Table,
     /// The processor: the `ID` flag test's answer and `CPUID` leaves by number (`EAX EBX ECX
     /// EDX`), for the CRT's `__get_sse2_info`.
     cpu_id_flag_test: Option<u32>,
@@ -150,7 +161,7 @@ impl Adapter {
         for line in table.lines().filter(|l| !l.is_empty()) {
             let f: Vec<&str> = line.split('\t').collect();
             let hex = |i: usize| u32::from_str_radix(f[i], 16).expect("a hex result");
-            if a.nvapi.take_line(&f) {
+            if a.nvapi.take_line(&f) || a.ati.take_line(&f) {
                 continue;
             }
             match f[0] {
@@ -266,12 +277,15 @@ struct Direct3D {
 pub struct Graphics {
     adapter: Option<Adapter>,
     d3d9_vtable: u32,
+    d3d9ex_vtable: u32,
     objects: HashMap<u32, Direct3D>,
     procs_registered: bool,
     /// The devices and their resources (`super::d3d9device`).
     pub(crate) device_objects: super::d3d9device::Objects,
     /// The NvAPI answers and the functions handed out (`super::nvapi`).
     pub(crate) nvapi: super::nvapi::State,
+    /// The `ATIMGPUD.dll` answers (`super::atimgpud`).
+    pub(crate) ati: super::atimgpud::Table,
     /// The machine-local D3DX texture cache folder (`super::d3dx`).
     pub(crate) d3dx_texture_cache: Option<std::path::PathBuf>,
     /// The real `d3d9.dll` objects behind the modelled ones (`NV_D3D9=real`, ADR-0008).
@@ -286,6 +300,7 @@ pub struct Graphics {
 pub fn load_adapter_table(e: &mut Engine, table: &str) {
     let adapter = Adapter::parse(table);
     e.kernel.graphics.nvapi.table = adapter.nvapi.clone();
+    e.kernel.graphics.ati = adapter.ati.clone();
     e.kernel.graphics.adapter = Some(adapter);
 }
 
@@ -462,7 +477,23 @@ pub fn window_border(e: &mut Engine, style: u32, menu: u32, ex_style: u32) -> Op
 }
 
 /// A captured screen metric (`GetSystemMetrics`), if the capture has it.
+///
+/// While a full-screen device lives, `SM_CXSCREEN` and `SM_CYSCREEN` are its mode's size
+/// (`d3d9-capture fullscreen`, 2026-11-06). The other metrics of the screen's size were not
+/// measured then and are not provided.
 pub fn system_metric(e: &mut Engine, index: u32) -> Option<u32> {
+    if let Some([width, height, ..]) = super::d3d9device::full_screen_mode(e) {
+        match index {
+            0 => return Some(width),
+            1 => return Some(height),
+            // SM_CXFULLSCREEN, SM_CYFULLSCREEN, SM_CXMAXTRACK to SM_CYMAXIMIZED, the virtual
+            // screen.
+            16 | 17 | 59..=62 | 76..=79 => {
+                panic!("GetSystemMetrics({index}) with a full-screen device is not provided")
+            }
+            _ => {}
+        }
+    }
     adapter(e).metrics.get(&index).copied()
 }
 
@@ -472,7 +503,7 @@ pub fn is_direct3d(e: &Engine, object: u32) -> bool {
 }
 
 fn register_code(e: &mut Engine) {
-    let d3d9: [(u32, crate::AbiFn); 17] = [
+    let d3d9: [(u32, crate::AbiFn); 18] = [
         (0, crate::entry!(0, no_interface(Ptr, Ptr, Ptr) -> u32).1),
         (1, crate::entry!(0, add_ref(Ptr) -> u32).1),
         (2, crate::entry!(0, release(Ptr) -> u32).1),
@@ -517,6 +548,10 @@ fn register_code(e: &mut Engine) {
             16,
             crate::entry!(0, create_device(Ptr, u32, u32, u32, u32, Ptr, Ptr) -> u32).1,
         ),
+        (
+            20,
+            crate::entry!(0, create_device_ex(Ptr, u32, u32, u32, u32, Ptr, Ptr, Ptr) -> u32).1,
+        ),
     ];
     for (slot, f) in d3d9 {
         e.register(D3D9_CODE + 4 * slot, f);
@@ -529,6 +564,10 @@ pub fn proc_address(e: &mut Engine, name: &[u8]) -> Option<u32> {
     let index = PROCS.iter().position(|p| p.eq_ignore_ascii_case(name))?;
     if !e.kernel.graphics.procs_registered {
         e.register(PROC_CODE, crate::entry!(0, direct3d_create9(u32) -> u32).1);
+        e.register(
+            PROC_CODE + 4,
+            crate::entry!(0, direct3d_create9_ex(u32, Ptr) -> u32).1,
+        );
         e.kernel.graphics.procs_registered = true;
     }
     Some(PROC_CODE + 4 * index as u32)
@@ -542,16 +581,53 @@ pub fn direct3d_create9(e: &mut Engine, sdk: u32) -> u32 {
     if sdk != D3D_SDK_VERSION && sdk != D3D_SDK_VERSION_DEBUG {
         return 0;
     }
-    if e.kernel.graphics.d3d9_vtable == 0 {
-        register_code(e);
-        let table = e.mem.alloc(4 * D3D9_SLOTS.len() as u32);
-        for i in 0..D3D9_SLOTS.len() as u32 {
+    new_direct3d(e, false)
+}
+
+// Platform: replaces D3D9.DLL Direct3DCreate9Ex (found by name)
+/// `Direct3DCreate9Ex(sdk version, out)`: a new `IDirect3D9Ex` (reference count 1) in `out`
+/// and `S_OK`, for `D3D_SDK_VERSION` (32, with or without the debug bit). Its slots are
+/// [`D3D9_SLOTS`] (the same functions as an `IDirect3D9`), then [`D3D9EX_SLOTS`]. Another
+/// version answers `D3DERR_NOTAVAILABLE`, as the runtime documents for a mismatched SDK.
+/// Not provided (the run stops): a null `out`. With `NV_D3D9=real` the real side mirrors it
+/// with its plain `IDirect3D9`, as for `Direct3DCreate9`.
+pub fn direct3d_create9_ex(e: &mut Engine, sdk: u32, out: Ptr) -> u32 {
+    if sdk != D3D_SDK_VERSION && sdk != D3D_SDK_VERSION_DEBUG {
+        return D3DERR_NOTAVAILABLE;
+    }
+    assert!(
+        !out.is_null(),
+        "Direct3DCreate9Ex with a null out is not provided"
+    );
+    let object = new_direct3d(e, true);
+    e.mem.set_u32(out.addr(), object);
+    D3D_OK
+}
+
+/// A new `IDirect3D9` (`ex`: an `IDirect3D9Ex`) of this layer, reference count 1.
+fn new_direct3d(e: &mut Engine, ex: bool) -> u32 {
+    let slot_table = |e: &mut Engine, slots: usize| {
+        let table = e.mem.alloc(4 * slots as u32);
+        for i in 0..slots as u32 {
             e.mem.set_u32(table + 4 * i, D3D9_CODE + 4 * i);
         }
-        e.kernel.graphics.d3d9_vtable = table;
+        table
+    };
+    if e.kernel.graphics.d3d9_vtable == 0 {
+        register_code(e);
+        e.kernel.graphics.d3d9_vtable = slot_table(e, D3D9_SLOTS.len());
     }
+    // Made on the first `IDirect3D9Ex` only, so a run without one keeps its heap layout.
+    if ex && e.kernel.graphics.d3d9ex_vtable == 0 {
+        e.kernel.graphics.d3d9ex_vtable = slot_table(e, D3D9_SLOTS.len() + D3D9EX_SLOTS.len());
+    }
+    let table = if ex {
+        e.kernel.graphics.d3d9ex_vtable
+    } else {
+        e.kernel.graphics.d3d9_vtable
+    };
     let object = e.mem.alloc(8);
-    e.mem.set_u32(object, e.kernel.graphics.d3d9_vtable);
+    e.mem.set_u32(object, table);
     e.kernel
         .graphics
         .objects
@@ -652,10 +728,17 @@ fn enum_adapter_modes(
     hr
 }
 
-/// `GetAdapterDisplayMode(adapter, out)`: the captured desktop mode.
+/// `GetAdapterDisplayMode(adapter, out)`: the captured desktop mode, or a full-screen device's
+/// mode while it lives (`d3d9device::full_screen_request`).
 fn get_adapter_display_mode(e: &mut Engine, _this: Ptr, index: u32, out: Ptr) -> u32 {
     if index != 0 || out.is_null() {
         return D3DERR_INVALIDCALL;
+    }
+    if let Some(mode) = super::d3d9device::full_screen_mode(e) {
+        for (i, word) in mode.iter().enumerate() {
+            e.mem.set_u32(out.addr() + 4 * i as u32, *word);
+        }
+        return D3D_OK;
     }
     let (hr, data) = adapter(e).display_mode.clone();
     e.mem.write(out.addr(), &data);
@@ -967,13 +1050,42 @@ GetCPInfo	4e4	1	010000003f000000000000000000000000000000
     }
 
     #[test]
-    fn other_sdk_versions_get_null_and_ex_is_not_provided() {
+    fn other_sdk_versions_get_null_or_not_available() {
         let mut e = Engine::new();
         assert_eq!(direct3d_create9(&mut e, 31), 0);
         let ex = proc_address(&mut e, b"Direct3DCreate9Ex").unwrap();
+        assert_eq!(ex, PROC_CODE + 4);
         assert!(e.is_translated(PROC_CODE));
-        assert!(!e.is_translated(ex));
+        assert!(e.is_translated(ex));
+        let out = e.mem.alloc(4);
+        assert_eq!(e.call(ex, &[31, out]).u32(), D3DERR_NOTAVAILABLE);
+        assert!(e.kernel.graphics.objects.is_empty());
         assert_eq!(proc_address(&mut e, b"D3DPERF_BeginEvent"), None);
+    }
+
+    #[test]
+    fn direct3d_create9_ex_makes_an_ex_object_with_the_plain_slots_first() {
+        let mut e = Engine::new();
+        load_adapter_table(&mut e, &test_table());
+        let create = proc_address(&mut e, b"Direct3DCreate9Ex").unwrap();
+        let out = e.mem.alloc(4);
+        assert_eq!(e.call(create, &[D3D_SDK_VERSION, out]).u32(), D3D_OK);
+        let d3d = e.mem.u32(out);
+        assert!(is_direct3d(&e, d3d));
+        let table = e.mem.u32(d3d);
+        for i in 0..22 {
+            assert_eq!(e.mem.u32(table + 4 * i), D3D9_CODE + 4 * i, "slot {i}");
+        }
+        assert!(e.is_translated(D3D9_CODE + 4 * 20), "CreateDeviceEx");
+        for slot in [17, 18, 19, 21] {
+            assert!(!e.is_translated(D3D9_CODE + 4 * slot), "slot {slot}");
+        }
+        assert_eq!(e.vcall(d3d, 4 * 4, &[]).u32(), 1, "GetAdapterCount");
+        // A plain IDirect3D9 keeps its 17 slots.
+        let plain = e.call(PROC_CODE, &[D3D_SDK_VERSION]).u32();
+        assert_ne!(e.mem.u32(plain), table);
+        assert_eq!(e.vcall(d3d, 8, &[]).u32(), 0, "Release");
+        assert!(!is_direct3d(&e, d3d));
     }
 }
 

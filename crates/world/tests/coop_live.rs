@@ -179,6 +179,52 @@ mod fighting {
         r
     }
 
+    /// #74: a guest's blow names its weapon, part and outcome with its
+    /// damage, from `Runner::blow_at` to the guest's pending hit.
+    #[test]
+    fn a_guests_blow_names_what_it_was() {
+        let (_d, order) = order("live-blow-name");
+        let scripts = ScriptCache::default();
+        let mut r = setup(&order, &scripts, "perfect", 33);
+        let gecko = FormId(GECKO_REF);
+        let g = &mut r.guests[0];
+        g.equipped.insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        let w = world::combat::weapon_in_hand(&order, g, PLAYER_REF).unwrap();
+        let blow = world::melee::Blow {
+            power: true,
+            special: world::melee::Special::None,
+        };
+        world::scripting::Runner::new(&order, &scripts, g).blow_at(
+            PLAYER_REF,
+            gecko,
+            Some(&w),
+            None,
+            blow,
+        );
+        let hit = *g.coop.live.pending_hits.last().expect("a pending hit");
+        let named = hit.blow.expect("the blow is named");
+        assert_eq!(named.by, None);
+        assert_eq!(named.weapon, Some(CForm(MACHETE)));
+        assert!(named.has(coop_core::actors::Blow::POWER));
+        assert!(!named.has(coop_core::actors::Blow::SNEAK));
+        assert_eq!(named.vats, None);
+        assert!(
+            g.coop.live.blow.is_none(),
+            "the blow in progress is cleared"
+        );
+        let inputs = world::blow::BlowInputs {
+            attacker: PLAYER_REF,
+            target: gecko,
+            weapon: Some(&w),
+            part: None,
+            power: true,
+            sneak: false,
+            critical: named.has(coop_core::actors::Blow::CRITICAL),
+        };
+        let dealt = f64::from(world::blow::blow_damage(&order, g, inputs).dealt);
+        assert_eq!(hit.amount, dealt, "the same damage function");
+    }
+
     #[test]
     fn actor_handoff_is_reflected_in_world_actor_data() {
         let (_d, order) = order("live-handoff");
@@ -384,6 +430,48 @@ mod fighting {
         assert_eq!(r.host.coop.live.combat.stats.crimes, 1);
     }
 
+    /// A host script raises an actor's health (`ForceActorValue Health`) just after the host
+    /// starts to track the actor, before the host's own copy of the ledger has it. The ledger
+    /// must still take the raise. Found in `live_npc_targets_players`: gecko 2 kept its base
+    /// health in the ledger and died to one 400-point hit.
+    #[test]
+    fn a_health_raise_right_after_the_host_tracks_an_actor_reaches_the_ledger() {
+        let (_d, order) = order("live-raise-new");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 51);
+        r.stand(CELL, [900.0, 900.0, 5000.0]);
+        r.run_ms(1_000);
+        let gecko = FormId(GECKO_REF);
+        let cx = r.cx();
+        r.ha.track(cx, &r.host, &mut r.sim.host.live, &[gecko]);
+        r.host
+            .actor_values
+            .insert((gecko, world::combat::av::HEALTH), 5000.0);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(5000.0));
+        r.run_ms(2_000);
+        let ledger = r
+            .sim
+            .host
+            .live
+            .actors
+            .own
+            .get(CForm(GECKO_REF))
+            .map(|a| a.state.health);
+        assert_eq!(ledger, Some(5000), "the ledger took the raise");
+        // each guest's copy of the ledger has it too (a guest's world shows at most the
+        // creature's own full health)
+        for g in &r.sim.guests {
+            let copy = g
+                .sync
+                .live
+                .actors
+                .get(CForm(GECKO_REF))
+                .and_then(|a| a.state)
+                .map(|s| s.health);
+            assert_eq!(copy, Some(5000));
+        }
+    }
+
     #[test]
     fn a_host_hit_goes_through_the_same_ledger() {
         let (_d, order) = order("live-host-kill");
@@ -414,7 +502,7 @@ mod fighting {
             .coop
             .live
             .scaling
-            .map_or(false, |s| s.toughness > 1.9)));
+            .is_some_and(|s| s.toughness > 1.9)));
         world::combat::hurt(&order, &mut r.guests[0], gecko, 10.0, PLAYER_REF);
         assert!(
             r.until(10_000, |r| world::combat::health(&order, &r.host, gecko)
@@ -478,13 +566,13 @@ mod fighting {
                 .live
                 .loot
                 .view(CForm(chest.0))
-                .map_or(false, |v| v.visible().len() == 1);
+                .is_some_and(|v| v.visible().len() == 1);
             let b = r.sim.guests[1]
                 .sync
                 .live
                 .loot
                 .view(CForm(chest.0))
-                .map_or(false, |v| v.visible().len() == 1);
+                .is_some_and(|v| v.visible().len() == 1);
             a != b
                 || r.sim.guests[0].sync.live.loot.busy.len()
                     + r.sim.guests[1].sync.live.loot.busy.len()
@@ -512,7 +600,7 @@ mod fighting {
         assert!(
             r.until(10_000, |r| r.guests[winner].items.get(&(PLAYER_REF, item))
                 == Some(&5)
-                && r.host.items.get(&(chest, item)).is_none())
+                && !r.host.items.contains_key(&(chest, item)))
         );
         assert_eq!(
             r.ha.registry
@@ -522,7 +610,7 @@ mod fighting {
             5
         );
         // the other guest has none, and its late attempt is refused or empty
-        assert!(r.guests[loser].items.get(&(PLAYER_REF, item)).is_none());
+        assert!(!r.guests[loser].items.contains_key(&(PLAYER_REF, item)));
         let none = {
             let (g, a) = (&mut r.sim.guests[loser].sync.live.loot, &mut r.gas[loser]);
             a.loot.take(g, chest, item, 1)
@@ -685,6 +773,139 @@ mod dialogue_world {
             );
             assert_eq!(r.guests[0].coop.stats.suppressed_runs, 0);
         }
+    }
+
+    /// A script's second `SayTo` comes while the guests still read the
+    /// first line. The host says the second line when the first one ends.
+    #[test]
+    fn a_forced_line_that_comes_while_another_plays_waits_its_turn() {
+        let (_d, order) = order("live-forced-queue");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 93);
+        r.stand(0xB10, [0.0, 0.0, 0.0]);
+        r.run_ms(1_000);
+        // the doctor stands here (a made reference: the world places no one)
+        let npc = FormId(0x1299);
+        let made = world::more_functions::placed::Made {
+            base: FormId(DOC),
+            space: FormId(0xB10),
+            cell: FormId(0xB10),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            count: 1,
+        };
+        r.host.more.placed.refs.insert(npc, made);
+        let topic = Some(FormId(GOODBYE));
+        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        assert!(
+            r.until(10_000, |r| r
+                .guests
+                .iter()
+                .all(|g| g.coop.live.lines.len() == 1)),
+            "the first line plays for the guests: {:?}",
+            r.host.coop.live.scene.talk
+        );
+        // the guests have not read the first line yet
+        r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        r.step();
+        for g in r.guests.iter() {
+            assert_eq!(
+                g.coop.live.lines.len(),
+                1,
+                "the second line waits for the first"
+            );
+        }
+        let both = r.until(30_000, |r| {
+            for i in 0..2 {
+                let m = {
+                    let (c, a) = (&mut r.sim.guests[i].sync.live.dialogue, &r.gas[i].dialogue);
+                    a.line_done(c)
+                };
+                if let Some(m) = m {
+                    r.sim.guest_emit(i, vec![m]);
+                }
+            }
+            r.guests.iter().all(|g| g.coop.live.lines.len() == 2)
+        });
+        let t = r.host.coop.live.scene.talk;
+        assert!(both, "both lines reach both guests: {t:?}");
+        assert_eq!((t.notes, t.lines, t.dropped), (2, 2, 0));
+    }
+
+    /// Lines that waited too long leave the queue before a new line is counted
+    /// against the queue's limit: a full queue of old lines does not drop a new one.
+    #[test]
+    fn a_new_line_is_not_dropped_for_a_full_queue_of_lines_that_waited_too_long() {
+        use world::coop::dialogue::{FORCED_LINE_MS, FORCED_QUEUE_MAX};
+        let (_d, order) = order("live-forced-expire");
+        let scripts = ScriptCache::default();
+        let mut r = Rig::new(&order, &scripts, "perfect", 94);
+        r.stand(0xB10, [0.0, 0.0, 0.0]);
+        r.run_ms(1_000);
+        let npc = FormId(0x1299);
+        let made = world::more_functions::placed::Made {
+            base: FormId(DOC),
+            space: FormId(0xB10),
+            cell: FormId(0xB10),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            count: 1,
+        };
+        r.host.more.placed.refs.insert(npc, made);
+        let topic = Some(FormId(GOODBYE));
+        // a guest's conversation is open (no pick): the host's lines wait
+        open_a_session(&mut r, npc);
+        assert!(
+            r.until(5_000, |r| r.ha.own.dialogue.view().is_some()),
+            "the host sees the conversation"
+        );
+        for _ in 0..FORCED_QUEUE_MAX {
+            r.host.coop_talk(npc, PLAYER_REF, topic, false);
+        }
+        let came = r.sim.clock.now();
+        r.step();
+        assert_eq!(
+            r.host.coop.live.scene.talk.dropped, 0,
+            "the queue takes 8 lines"
+        );
+        // the last frame before the queued lines wait too long
+        while r.sim.clock.now() < came + FORCED_LINE_MS {
+            r.step();
+        }
+        assert!(
+            r.ha.own.dialogue.view().is_some(),
+            "the conversation is still open"
+        );
+        // a new line comes in the frame where all the queued lines wait too long:
+        // another topic, so its line is not the queued lines' line
+        r.host
+            .coop_talk(npc, PLAYER_REF, Some(FormId(THANKS)), false);
+        r.step();
+        let t = r.host.coop.live.scene.talk;
+        assert_eq!(t.notes, FORCED_QUEUE_MAX as u32 + 1, "{t:?}");
+        assert_eq!(
+            t.dropped, FORCED_QUEUE_MAX as u32,
+            "only the old lines go: {t:?}"
+        );
+        // the conversation closes: the new line plays for both guests
+        let close = {
+            let (c, a) = (&mut r.sim.guests[0].sync.live.dialogue, &r.gas[0].dialogue);
+            a.close(c).expect("close")
+        };
+        r.sim.guest_emit(0, vec![close]);
+        let played = r.until(10_000, |r| {
+            r.guests.iter().all(|g| g.coop.live.lines.len() == 1)
+        });
+        let t = r.host.coop.live.scene.talk;
+        assert!(played, "a line reaches both guests: {t:?}");
+        for g in r.guests.iter() {
+            assert_eq!(
+                g.coop.live.lines[0].1,
+                FormId(THANKS_LINE),
+                "the new line plays, not a queued one"
+            );
+        }
+        assert_eq!((t.lines, t.dropped), (1, FORCED_QUEUE_MAX as u32), "{t:?}");
     }
 
     #[test]

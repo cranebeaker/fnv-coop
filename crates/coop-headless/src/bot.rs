@@ -226,6 +226,7 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
         Some("teleport") => {
             let c = |i: usize| arg(i).and_then(|w| w.parse::<f32>().ok());
             if let (Some(x), Some(y), Some(z)) = (c(2), c(3), c(4)) {
+                s.live_intent(Intent::TestWarp);
                 return Out::Teleport([x, y, z]);
             }
         }
@@ -239,6 +240,8 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
             // `coop cell CELL`: the player's scene becomes that cell (an editor id or a hex form id;
             // the cell need not exist: the live layer only sees the id)
             if let Some(c) = f(2) {
+                // a harness warp: the host's movement check lets it through in a test session (#74)
+                s.live_intent(Intent::TestWarp);
                 gs.player_cell = Some(c);
                 // an exterior cell is in its worldspace, as the viewer has it
                 gs.player_world = d.world_of_cell(c);
@@ -401,7 +404,7 @@ impl TalkBot {
                 continue;
             };
             let dist = ((at[0] - from[0]).powi(2) + (at[1] - from[1]).powi(2)).sqrt();
-            if best.as_ref().is_none_or(|b| dist < b.0) {
+            if best.as_ref().map_or(true, |b| dist < b.0) {
                 best = Some((dist, p, info.form_id));
             }
         }

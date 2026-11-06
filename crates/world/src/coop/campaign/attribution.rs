@@ -41,19 +41,11 @@ pub fn observe(cx: Ctx, gs: &mut GameState, msg: &Msg) {
         } => {
             let victim = FormId(actor.0);
             let camp = &mut gs.coop.campaign;
-            // an NPC's blow on the host world goes to the ledger as the host's
-            // hit; it pays nobody (the host never hit the victim)
-            if by.is_host() {
-                if let Some(i) = camp
-                    .unattributed
-                    .iter()
-                    .position(|(v, p)| *v == victim && p == amount)
-                {
-                    camp.unattributed.remove(i);
-                    camp.npc_blow.insert(victim);
-                    return;
-                }
-            }
+            // an NPC's blow (Doc Mitchell on a gecko) pays nobody
+            let Some(by) = by else {
+                camp.npc_blow.insert(victim);
+                return;
+            };
             camp.npc_blow.remove(&victim);
             let e = camp.tally.entry(victim).or_default();
             *e.entry(by.0).or_insert(0.0) += f64::from(*amount);

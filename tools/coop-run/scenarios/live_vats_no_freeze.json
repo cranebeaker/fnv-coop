@@ -1,6 +1,6 @@
 {
   "name": "live_vats_no_freeze",
-  "description": "The guest uses real-time VATS on the gecko while the host keeps walking: the host resolves the shots, nobody's clock stops.",
+  "description": "The guest uses real-time VATS on the gecko while the host keeps walking: the host resolves the shots, nobody's clock stops. The guest holds a hunting rifle in both worlds (given by the host, equipped by the guest): the host counts each V.A.T.S. shot from its own copy of the guest (#74), so the guest's 4000 points do not count. Doc Mitchell also fights the gecko. The guest's kill XP shows that the shots killed it.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 60,
@@ -8,6 +8,10 @@
   "settle_s": 6,
   "host": {
     "script": [
+      {
+        "at": 1,
+        "run": "coop give 1 WeapHuntingRifle 1"
+      },
       {
         "at": 2,
         "run": "VCG02Gecko1REF.Enable"
@@ -24,6 +28,10 @@
   },
   "guest": {
     "script": [
+      {
+        "at": 4,
+        "run": "coop equip WeapHuntingRifle"
+      },
       {
         "at": 7,
         "run": "coop vatsmark 1"
@@ -77,6 +85,13 @@
       "op": "eq",
       "value": true,
       "on": "guest"
+    },
+    {
+      "id": "guest-killed",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
     },
     {
       "id": "h",

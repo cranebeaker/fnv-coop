@@ -345,7 +345,7 @@ fn suite(a: &Args, d: &Arc<Data>) -> i32 {
                 x.scenario, x.seed, x.result, x.class, x.wall_s, x.rerun
             );
         }
-        if !a.soak && a.seeds.as_ref().is_none_or(|s| s.len() <= 3) {
+        if !a.soak && a.seeds.as_ref().map_or(true, |s| s.len() <= 3) {
             println!("{}", x.line);
         }
         match x.result.as_str() {

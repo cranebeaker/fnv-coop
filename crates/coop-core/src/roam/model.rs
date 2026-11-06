@@ -17,6 +17,8 @@ use crate::interest::InterestMap;
 
 /// Players placed by one warp are spread on a ring of this radius.
 pub const WARP_SPREAD: f32 = 96.0;
+/// The party slots a warp spreads over: the host and up to three guests.
+pub const PARTY_SLOTS: u8 = 4;
 /// A follower must stand this close to the mover to come along through a door.
 pub const FOLLOW_RADIUS: f32 = 600.0;
 
@@ -99,6 +101,8 @@ pub struct SceneModel {
     /// The shared cell table.
     pub graph: CellGraph,
     peers: BTreeMap<PlayerId, PeerScene>,
+    /// The heading of each peer's player (radians), from its avatar samples.
+    headings: BTreeMap<PlayerId, f32>,
     follow: BTreeMap<PlayerId, PlayerId>,
     anchor: Option<ZoneAnchor>,
     /// Counters.
@@ -157,8 +161,15 @@ impl SceneModel {
         d
     }
 
+    /// Records which way a peer's player faces (radians; call on every
+    /// avatar sample). A joiner placed beside the player faces the same way.
+    pub fn set_heading(&mut self, p: PlayerId, heading: f32) {
+        self.headings.insert(p, heading);
+    }
+
     /// Forgets a peer (disconnect).
     pub fn remove_peer(&mut self, p: PlayerId) -> CellDelta {
+        self.headings.remove(&p);
         self.follow.remove(&p);
         self.follow.retain(|_, leader| *leader != p);
         let left = self
@@ -333,27 +344,44 @@ impl SceneModel {
         self.spread(members, to)
     }
 
-    /// Where a late joiner starts: at the tether anchor when a tether holds
-    /// the story, else beside the host, else beside any member in the scene.
+    /// Player `who`'s own spot on the party ring around `to`: [`WARP_SPREAD`]
+    /// from `to`, at the angle of its slot ([`PARTY_SLOTS`]). Players sent to
+    /// one place then do not stand on each other. A slot out of the ring
+    /// gets `to` itself.
+    pub fn ring_spot(to: Placement, who: PlayerId) -> Placement {
+        let party: Vec<PlayerId> = (0..PARTY_SLOTS).map(PlayerId).collect();
+        Self::default()
+            .spread(&party, to)
+            .into_iter()
+            .find(|(p, _)| *p == who)
+            .map_or(to, |(_, s)| s)
+    }
+
+    /// Where a late joiner starts: its own spot on the party ring
+    /// ([`ring_spot`](Self::ring_spot)) around the tether anchor when a tether
+    /// holds the story, else around the host, else around any member in the
+    /// scene. Before, the joiner stood on the exact spot, on the player there.
+    /// The joiner faces the way the anchor or that player faces.
     pub fn join_placement(&self, joiner: PlayerId) -> Option<Placement> {
-        if let Some(a) = self.anchor {
-            return Some(Placement {
+        let to = if let Some(a) = self.anchor {
+            Placement {
                 cell: a.cell,
                 pos: a.pos,
                 heading: a.heading,
-            });
-        }
-        let pick = self
-            .peers
-            .iter()
-            .filter(|(p, _)| **p != joiner)
-            .min_by_key(|(p, _)| p.0)
-            .map(|(_, s)| s)?;
-        Some(Placement {
-            cell: pick.home,
-            pos: pick.pos,
-            heading: 0.0,
-        })
+            }
+        } else {
+            let (who, pick) = self
+                .peers
+                .iter()
+                .filter(|(p, _)| **p != joiner)
+                .min_by_key(|(p, _)| p.0)?;
+            Placement {
+                cell: pick.home,
+                pos: pick.pos,
+                heading: self.headings.get(who).copied().unwrap_or(0.0),
+            }
+        };
+        Some(Self::ring_spot(to, joiner))
     }
 
     /// `p` follows `leader` through doors and fast travel (`None` stops).
@@ -520,16 +548,33 @@ mod tests {
     fn join_goes_to_the_anchor_else_the_host() {
         let mut m = grid();
         m.update_peer(p(0), CellId(7), [10.0, 20.0, 0.0]);
+        m.set_heading(p(0), 4.7);
         m.update_peer(p(1), CellId(8), [0.0; 3]);
         let j = m.join_placement(p(2)).unwrap();
-        assert_eq!((j.cell, j.pos), (CellId(7), [10.0, 20.0, 0.0]));
+        assert_eq!(j.cell, CellId(7));
+        assert_eq!(j.heading, 4.7, "the joiner faces the way the host faces");
+        let d = (j.pos[0] - 10.0).hypot(j.pos[1] - 20.0);
+        assert!(
+            (d - WARP_SPREAD).abs() < 0.01,
+            "beside the host, not on it: {d}"
+        );
+        assert_eq!(j.pos[2], 0.0);
+        let k = m.join_placement(p(3)).unwrap();
+        assert!(
+            (k.pos[0] - j.pos[0]).hypot(k.pos[1] - j.pos[1]) > 1.0,
+            "two joiners do not stand on each other"
+        );
         m.set_anchor(Some(ZoneAnchor {
             cell: CellId(9),
             pos: [1.0, 2.0, 3.0],
             radius: 10.0,
             heading: 1.0,
         }));
-        assert_eq!(m.join_placement(p(2)).unwrap().cell, CellId(9));
+        let j = m.join_placement(p(2)).unwrap();
+        assert_eq!(j.cell, CellId(9));
+        assert_eq!(j.heading, 1.0, "the joiner faces the way the anchor faces");
+        let d = (j.pos[0] - 1.0).hypot(j.pos[1] - 2.0);
+        assert!((d - WARP_SPREAD).abs() < 0.01, "beside the anchor: {d}");
         assert!(SceneModel::new().join_placement(p(1)).is_none());
     }
 

@@ -425,5 +425,5 @@ fn live_messages_round_trip_and_respect_channels() {
         payload: vec![0; crate::social::MAX_VOICE_PAYLOAD + 1],
     }));
     assert!(!big.is_sane());
-    assert!(proto::PROTOCOL_VERSION >= 2);
+    const _: () = assert!(proto::PROTOCOL_VERSION >= 2);
 }

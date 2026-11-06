@@ -331,6 +331,9 @@ pub struct LiveCounters {
     pub status: Option<crate::session::Status>,
     /// Joins refused because the party was full (`Session::full_refusals`).
     pub full_refused: u64,
+    /// Host: guest samples refused by the movement check
+    /// (`Session::live_moves_refused`).
+    pub moves_refused: u64,
     /// Avatar glitches the remote-avatar detectors saw ([`crate::glitch`]):
     /// position pops, heading snaps, animation flip-flops.
     pub glitch: crate::glitch::GlitchCounts,
@@ -603,9 +606,10 @@ pub fn state_json_full(
         sc.movies
     );
     let live = format!(
-        "{},\"full_refused\":{},\"glitch\":{}}}",
+        "{},\"full_refused\":{},\"moves_refused\":{},\"glitch\":{}}}",
         live.strip_suffix('}').unwrap_or(&live),
         counters.full_refused,
+        counters.moves_refused,
         counters.glitch.json()
     );
     // host: the tether's zone membership per player (empty with no tether)
@@ -693,10 +697,20 @@ pub fn state_json_full(
         .into_iter()
         .map(|(e, p)| (name(order, e), format!("\"{}\"", slot_key(p.0))))
         .collect();
+    // debug: the threat director's first choices and switches (`combat.threat_log`)
+    let threat_log: Vec<String> = gs
+        .coop
+        .live
+        .combat
+        .threat_log
+        .iter()
+        .map(|l| format!("\"{}\"", l.replace(['"', '\\'], "")))
+        .collect();
     let combat = format!(
-        "{},\"targets\":{}}}",
+        "{},\"targets\":{},\"threat_log\":[{}]}}",
         combat.strip_suffix('}').unwrap_or(&combat),
-        obj(&targets)
+        obj(&targets),
+        threat_log.join(",")
     );
     let d: BTreeMap<String, String> = disabled
         .into_iter()

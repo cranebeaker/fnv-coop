@@ -37,6 +37,12 @@ pub struct PendingHit {
     pub amount: f64,
     /// Attacker.
     pub by: FormId,
+    /// What the player's or a follower's blow was (`None`: damage with no
+    /// blow, or an NPC's blow).
+    pub blow: Option<coop_core::actors::Blow>,
+    /// The damage of an effect or a script ([`crate::magic::change`]), not
+    /// of a blow.
+    pub effect: bool,
 }
 
 /// Damage the host just applied itself; the adapter feeds it to the ledger.
@@ -85,6 +91,12 @@ pub enum LootOp {
 pub struct LiveFacts {
     /// Guest damage to resolve on the host.
     pub pending_hits: Vec<PendingHit>,
+    /// The blow `Runner::blow_at` is landing now (its `combat::hurt` call
+    /// names it in the guest's [`PendingHit`]).
+    pub blow: Option<coop_core::actors::Blow>,
+    /// True while an effect or a script deals damage
+    /// ([`crate::magic::change`]): its [`PendingHit`] has the mark.
+    pub effect: bool,
     /// Host damage to feed to the host ledger.
     pub hurts: Vec<HurtRecord>,
     /// The scaling in force (copied from the rules each frame).
@@ -200,11 +212,14 @@ pub(crate) fn hurt_hooked(
         return amount > 0.0 && crate::combat::hurt_core(order, state, who, amount, by);
     }
     if state.coop.authority == Authority::Guest {
-        state
-            .coop
-            .live
-            .pending_hits
-            .push(PendingHit { who, amount, by });
+        let blow = state.coop.live.blow.take();
+        state.coop.live.pending_hits.push(PendingHit {
+            who,
+            amount,
+            by,
+            blow,
+            effect: state.coop.live.effect,
+        });
         return false;
     }
     let before = state.damage.get(&who).copied().unwrap_or(0.0);
@@ -212,9 +227,11 @@ pub(crate) fn hurt_hooked(
     let dealt = state.damage.get(&who).copied().unwrap_or(0.0) - before;
     if dealt > 0.0 {
         state.coop.live.hurts.push(HurtRecord {
+            blow: None,
             who,
             amount: dealt,
             by,
+            effect: state.coop.live.effect,
         });
     }
     killed

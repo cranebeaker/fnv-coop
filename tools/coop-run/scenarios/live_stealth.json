@@ -1,6 +1,6 @@
 {
   "name": "live_stealth",
-  "description": "Detection of the party uses the best-seen player (world::coop::combat_live::party_detection, which GetDetected on the player also uses in a co-op session). Both players stand together in Doc Mitchell's house. At 7 s the host probes how well gecko 1 detects the party from 700 units (coop probeparty: the NPC stands 700 units from the host and looks at it). At 10 s the host sneaks, the guest does not. At 14 s the host probes again. The host's own value drops by at least 10, but the party's value does not drop: the guest, a remote player in plain sight, still gives the party away. At 1.5 s the host makes gecko 1 a ghost (SetGhost 1): in the real game the gecko and Doc Mitchell fight on sight, and a detector in combat sees much less, so the probe would not measure plain stealth.",
+  "description": "Detection of the party uses the best-seen player (world::coop::combat_live::party_detection, which GetDetected on the player also uses in a co-op session). Both players stand together in Doc Mitchell's house: at 3 s the guest steps from its join spot beside the host (96 units away on the party ring) onto the host's own spot (the arrival point), so both are seen from the same place. At 7 s the host probes how well gecko 1 detects the party from 700 units (coop probeparty: the NPC stands 700 units from the host and looks at it). At 10 s the host sneaks, the guest does not. At 14 s the host probes again. The host's own value drops by at least 10, but the party's value does not drop: the guest, a remote player in plain sight, still gives the party away. At 1.5 s the host makes gecko 1 a ghost (SetGhost 1): in the real game the gecko and Doc Mitchell fight on sight, and a detector in combat sees much less, so the probe would not measure plain stealth.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 70,
@@ -35,7 +35,12 @@
     ]
   },
   "guest": {
-    "script": []
+    "script": [
+      {
+        "at": 3,
+        "run": "coop teleport 2352 1603.6 7360"
+      }
+    ]
   },
   "expect": [
     {

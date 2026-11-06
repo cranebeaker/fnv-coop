@@ -160,7 +160,7 @@ impl StateStore {
             return None;
         }
         let key = field.key(form);
-        if self.map.get(&key).map_or(false, |e| e.field == field) {
+        if self.map.get(&key).is_some_and(|e| e.field == field) {
             return None;
         }
         let contiguous = self.base == self.rev;

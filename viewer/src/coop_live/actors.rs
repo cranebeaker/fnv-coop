@@ -28,6 +28,7 @@ const RUN_SPEED: f32 = 220.0;
 
 /// Starts replicating the people and creatures on screen, once each (the
 /// host registers them; a guest reports them to the host).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn track(
     time: Res<Time>,
     mut link: NonSendMut<CoopLink>,
@@ -93,15 +94,25 @@ pub fn publish(
     }
 }
 
+/// Seconds a dead copy waits for its owner's own state to say dead (the
+/// owner publishes every 50 ms, `world::coop::live`), then falls where it
+/// stands (an owner that unloaded it publishes no more).
+const OWNER_DEATH_WAIT: f32 = 1.0;
+
 /// Before the animations: the local copy of an actor another peer owns
-/// stands where the owner says, and the AI leaves it alone.
-#[allow(clippy::too_many_arguments)]
+/// stands where the owner says, and the AI leaves it alone. When it dies,
+/// the copy falls where the owner's actor died (the death routine
+/// `0089d900` starts from where the actor stands): the host's death can
+/// come before the owner's state with the actor's last place, so the copy
+/// follows the owner until that state says dead too.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn apply_remote(
     time: Res<Time>,
     now: Res<LiveNow>,
     state: Res<DialogueState>,
     mut commands: Commands,
     mut seen: Local<HashMap<FormId, ([f32; 3], [f32; 3])>>,
+    mut dying: Local<HashMap<FormId, f32>>,
     mut people: Query<(
         Entity,
         &mut Walker,
@@ -114,39 +125,54 @@ pub fn apply_remote(
     let remote: HashMap<FormId, &ActorView> =
         view.remote_actors.iter().map(|a| (a.id, a)).collect();
     let dt = time.delta_secs().max(1e-3);
+    let now_s = time.elapsed_secs();
     for (e, mut walker, mut rig, mut transform, mark) in &mut people {
         if mark.is_some_and(|m| m.0.is_some()) {
             continue;
         }
         let me = walker.reference;
-        match remote.get(&me) {
-            // an owner with no place for it yet publishes the origin: leave it to the AI
-            Some(a) if !a.dead && !state.0.dead.contains(&me) && a.pos != [0.0; 3] => {
-                if mark.is_none() {
-                    commands.entity(e).insert(CoopPuppet(None));
-                }
-                let entry = seen.entry(me).or_insert((a.pos, [0.0; 3]));
-                let raw = [0, 1, 2].map(|i| (a.pos[i] - entry.0[i]) / dt);
-                let v = [0, 1, 2].map(|i| entry.1[i] * 0.6 + raw[i] * 0.4);
-                *entry = (a.pos, v);
-                let speed = v[0].hypot(v[1]);
-                walker.position = a.pos;
-                walker.heading = a.heading;
-                walker.velocity = v;
-                rig.walking = speed > WALK_SPEED || a.anim & ANIM_MOVING != 0;
-                rig.running = speed > RUN_SPEED || a.anim & ANIM_RUNNING != 0;
-                rig.sneaking = a.anim & ANIM_SNEAKING != 0;
-                rig.speed = speed;
-                rig.fighting = a.anim & ANIM_FIGHTING != 0;
-                *transform = placed(&walker);
+        // an owner with no place for it yet publishes the origin: leave it to the AI
+        let Some(a) = remote.get(&me).filter(|a| a.pos != [0.0; 3]) else {
+            if mark.is_some() {
+                commands.entity(e).try_remove::<CoopPuppet>();
+                seen.remove(&me);
             }
-            _ => {
+            dying.remove(&me);
+            continue;
+        };
+        if a.dead || state.0.dead.contains(&me) {
+            let since = *dying.entry(me).or_insert(now_s);
+            let wait = mark.is_some() && !a.owner_dead && now_s - since < OWNER_DEATH_WAIT;
+            if !wait {
                 if mark.is_some() {
-                    commands.entity(e).remove::<CoopPuppet>();
+                    walker.position = a.pos;
+                    walker.heading = a.heading;
+                    *transform = placed(&walker);
+                    commands.entity(e).try_remove::<CoopPuppet>();
                     seen.remove(&me);
                 }
+                continue;
             }
+        } else {
+            dying.remove(&me);
         }
+        if mark.is_none() {
+            commands.entity(e).try_insert(CoopPuppet(None));
+        }
+        let entry = seen.entry(me).or_insert((a.pos, [0.0; 3]));
+        let raw = [0, 1, 2].map(|i| (a.pos[i] - entry.0[i]) / dt);
+        let v = [0, 1, 2].map(|i| entry.1[i] * 0.6 + raw[i] * 0.4);
+        *entry = (a.pos, v);
+        let speed = v[0].hypot(v[1]);
+        walker.position = a.pos;
+        walker.heading = a.heading;
+        walker.velocity = v;
+        rig.walking = speed > WALK_SPEED || a.anim & ANIM_MOVING != 0;
+        rig.running = speed > RUN_SPEED || a.anim & ANIM_RUNNING != 0;
+        rig.sneaking = a.anim & ANIM_SNEAKING != 0;
+        rig.speed = speed;
+        rig.fighting = a.anim & ANIM_FIGHTING != 0;
+        *transform = placed(&walker);
     }
 }
 
@@ -227,6 +253,7 @@ pub fn adopt_remote(
 /// Counts the spawned people and creatures in the scene, and how many are
 /// not hidden, for the state dump (so a run on a real machine can assert
 /// that the people are there).
+#[allow(clippy::type_complexity)]
 pub fn count(
     time: Res<Time>,
     mut now: ResMut<LiveNow>,
@@ -265,5 +292,129 @@ pub fn count(
             c.creature_entities += 1;
             c.creature_entities_visible += shown;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// An actor another peer owns leaves in the frame that its remote state comes
+    /// (its cell unloads first): the mark for the gone entity does not stop the game.
+    #[test]
+    fn a_remote_actor_gone_in_the_same_frame_does_not_stop_the_game() {
+        let me = FormId(0x0012_3456);
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(DialogueState(world::scripting::GameState::default()));
+        app.insert_resource(LiveNow {
+            view: Some(coop_session::LiveView {
+                remote_actors: vec![ActorView {
+                    id: me,
+                    pos: [1.0, 2.0, 3.0],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let skeleton = Arc::new(preview::cell::ActorSkeleton::default());
+        app.world_mut().spawn((
+            Walker::at(me, [0.0; 3], 0.0, 1.0, false),
+            ActorRig::new(skeleton, 1.0, 0.0),
+            Transform::default(),
+        ));
+        fn unload(mut commands: Commands, people: Query<Entity, With<Walker>>) {
+            for e in &people {
+                commands.entity(e).despawn();
+            }
+        }
+        // both systems' commands apply at the end of the frame, the unload's first
+        app.add_systems(Update, (unload, apply_remote).chain_ignore_deferred());
+        app.update();
+        let left = app.world_mut().query::<&Walker>().iter(app.world()).count();
+        assert_eq!(left, 0);
+    }
+
+    /// One remote actor at `pos`: dead per the host (`dead`), and per its
+    /// owner's own state (`owner_dead`).
+    fn remote_at(me: FormId, pos: [f32; 3], dead: bool, owner_dead: bool) -> LiveNow {
+        LiveNow {
+            view: Some(coop_session::LiveView {
+                remote_actors: vec![ActorView {
+                    id: me,
+                    pos,
+                    heading: 1.5,
+                    dead: dead || owner_dead,
+                    owner_dead,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn copy_app(me: FormId, first: LiveNow) -> App {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(DialogueState(world::scripting::GameState::default()));
+        app.insert_resource(first);
+        let skeleton = Arc::new(preview::cell::ActorSkeleton::default());
+        app.world_mut().spawn((
+            Walker::at(me, [0.0; 3], 0.0, 1.0, false),
+            ActorRig::new(skeleton, 1.0, 0.0),
+            Transform::default(),
+        ));
+        app.add_systems(Update, apply_remote);
+        app.update();
+        app
+    }
+
+    fn copy_of(app: &mut App) -> ([f32; 3], f32, bool) {
+        let (walker, mark) = app
+            .world_mut()
+            .query::<(&Walker, Option<&CoopPuppet>)>()
+            .single(app.world())
+            .expect("one copy");
+        (walker.position, walker.heading, mark.is_some())
+    }
+
+    /// The owner's actor dies one step on from where its copy stood (measured
+    /// in the party-fight benchmark: the copy's corpse lay 9 to 34 units off
+    /// for the rest of the run). The host's death came before the owner's
+    /// state with the last place. The copy follows the owner until that
+    /// state says dead, then falls there.
+    #[test]
+    fn a_remote_actor_that_dies_falls_where_the_owner_says() {
+        let me = FormId(0x0012_3456);
+        let mut app = copy_app(me, remote_at(me, [1485.0, 1942.0, 7361.0], false, false));
+        // the host's death; the owner's last state still has the actor alive
+        app.insert_resource(remote_at(me, [1470.0, 1948.0, 7361.0], true, false));
+        app.update();
+        assert_eq!(copy_of(&mut app), ([1470.0, 1948.0, 7361.0], 1.5, true));
+        // the owner's state with its death and its last place
+        app.insert_resource(remote_at(me, [1460.0, 1952.0, 7361.0], true, true));
+        app.update();
+        // released to the AI, which lets it fall, at the owner's place
+        assert_eq!(copy_of(&mut app), ([1460.0, 1952.0, 7361.0], 1.5, false));
+    }
+
+    /// An owner that publishes no state with the death (it unloaded the
+    /// actor): the copy falls where it stands after the wait.
+    #[test]
+    fn a_dead_copy_falls_after_the_wait_without_the_owner() {
+        let me = FormId(0x0012_3456);
+        let mut app = copy_app(me, remote_at(me, [10.0, 20.0, 30.0], false, false));
+        app.insert_resource(remote_at(me, [10.0, 20.0, 30.0], true, false));
+        app.update();
+        assert!(copy_of(&mut app).2);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(OWNER_DEATH_WAIT + 0.1));
+        app.update();
+        assert_eq!(copy_of(&mut app), ([10.0, 20.0, 30.0], 1.5, false));
     }
 }

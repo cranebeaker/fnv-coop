@@ -114,8 +114,9 @@ fn is_processor_feature_present(_e: &mut Engine, feature: u32) -> u32 {
 
 // Platform: replaces KERNEL32.DLL LoadLibraryA (import)
 /// `LoadLibraryA(name)`: `D3D9.DLL` (any case, with or without `.DLL`, no path) is
-/// [`super::d3d9::D3D9_MODULE`], the platform's Direct3D 9 layer; `nvapi.dll` answers from the
-/// machine table (`super::nvapi::load_library`). Other modules are not provided.
+/// [`super::d3d9::D3D9_MODULE`], the platform's Direct3D 9 layer; `nvapi.dll` and
+/// `ATIMGPUD.dll` answer from the machine table (`super::nvapi::load_library`,
+/// `super::atimgpud::load_library`). Other modules are not provided.
 pub fn load_library_a(e: &mut Engine, name: Ptr) -> u32 {
     let text = String::from_utf8_lossy(&e.mem.cstr(name.addr())).to_ascii_uppercase();
     if text == "D3D9.DLL" || text == "D3D9" {
@@ -124,17 +125,24 @@ pub fn load_library_a(e: &mut Engine, name: Ptr) -> u32 {
     if text == "NVAPI.DLL" || text == "NVAPI" {
         return super::nvapi::load_library(e);
     }
+    if text == "ATIMGPUD.DLL" || text == "ATIMGPUD" {
+        return super::atimgpud::load_library(e);
+    }
     panic!("LoadLibraryA({text:?}) is not provided");
 }
 
 // Platform: replaces KERNEL32.DLL FreeLibrary (import)
-/// `FreeLibrary(module)` for a module [`load_library_a`] handed out (`D3D9.DLL`, `nvapi.dll`):
+/// `FreeLibrary(module)` for a module [`load_library_a`] handed out (`D3D9.DLL`, `nvapi.dll`,
+/// `ATIMGPUD.dll`):
 /// nonzero, as Windows answers when the module's load count goes down. Nothing is unloaded: those
 /// modules are the platform's own layers, whose objects the game releases itself. The renderer
 /// frees its `D3D9.DLL` this way when the game exits (`00e6ec6d`). Another module is not
 /// provided.
 pub fn free_library(_e: &mut Engine, module: u32) -> u32 {
-    if module == super::d3d9::D3D9_MODULE || module == super::nvapi::NVAPI_MODULE {
+    if module == super::d3d9::D3D9_MODULE
+        || module == super::nvapi::NVAPI_MODULE
+        || module == super::atimgpud::ATI_MODULE
+    {
         return 1;
     }
     panic!("FreeLibrary({module:#x}) is not provided");
@@ -143,7 +151,8 @@ pub fn free_library(_e: &mut Engine, module: u32) -> u32 {
 // Platform: replaces KERNEL32.DLL GetProcAddress (import)
 /// `GetProcAddress(module, name)`: a KERNEL32 procedure of [`PROCS`] by name, its platform code
 /// address, a `D3D9.DLL` one of [`super::d3d9::PROCS`], or `nvapi.dll`'s `nvapi_QueryInterface`
-/// ([`super::nvapi::proc_address`]). A procedure by ordinal, another module or another name is
+/// ([`super::nvapi::proc_address`]), or `ATIMGPUD.dll`'s `AtiQueryMgpuCount`
+/// ([`super::atimgpud::proc_address`]). A procedure by ordinal, another module or another name is
 /// not provided.
 pub fn get_proc_address(e: &mut Engine, module: u32, name: u32) -> u32 {
     if name < 0x1_0000 {
@@ -161,6 +170,9 @@ pub fn get_proc_address(e: &mut Engine, module: u32, name: u32) -> u32 {
     }
     if module == super::nvapi::NVAPI_MODULE {
         return super::nvapi::proc_address(e, &text);
+    }
+    if module == super::atimgpud::ATI_MODULE {
+        return super::atimgpud::proc_address(e, &text);
     }
     if module != KERNEL32_MODULE {
         panic!("GetProcAddress on module {module:#x} is not provided");

@@ -80,6 +80,8 @@ struct Guest {
     active: bool,
     last_intent: u32,
     last_rejected: u16,
+    /// The guest still loads (see [`HostSync::hold`]).
+    held: bool,
 }
 
 /// The authoritative side.
@@ -233,6 +235,18 @@ impl HostSync {
         self.now_ms = ms;
     }
 
+    /// Holds (`on`) or resumes the state sends to guest `p`. A guest's viewer
+    /// loads its first cell without reading the link. Each send window that
+    /// the guest did not ack made the host queue a new full snapshot (7 in one
+    /// 60 s load), and the guest's receive buffer overflowed. A held guest gets
+    /// its join snapshot, then nothing until it resumes: then the deltas start
+    /// at the snapshot's revision.
+    pub fn hold(&mut self, p: PlayerId, on: bool) {
+        if let Some(g) = self.guests.get_mut(&p) {
+            g.held = on;
+        }
+    }
+
     /// Removes a guest; its actors go back to the host. Messages the live
     /// layer wants to send about it go out with the next [`tick`](Self::tick).
     pub fn disconnect(&mut self, p: PlayerId) {
@@ -347,7 +361,7 @@ impl HostSync {
                 self.ring.on_ack(from, seq);
             }
             Msg::Input { tick, payload } => {
-                if self.guests.get(&from).map_or(false, |g| g.active) {
+                if self.guests.get(&from).is_some_and(|g| g.active) {
                     self.inputs.push((from, tick, payload));
                 }
             }
@@ -364,7 +378,7 @@ impl HostSync {
             | Msg::Interact(_)
             | Msg::Roam(_)
             | Msg::Combat(_)) => {
-                if self.guests.get(&from).map_or(false, |g| g.active) {
+                if self.guests.get(&from).is_some_and(|g| g.active) {
                     out.extend(self.live.on_msg(from, m, self.now_ms, &mut self.auth));
                 }
             }
@@ -450,6 +464,10 @@ impl HostSync {
             .map(|(p, _)| *p)
             .collect();
         for p in active {
+            // a held guest has its snapshot: the rest waits until it plays
+            if self.guests[&p].held && self.ring.acked_rev(p).is_some() {
+                continue;
+            }
             match self.ring.plan(p, self.store.rev()) {
                 SendPlan::Nothing => {}
                 SendPlan::Delta { base } => {

@@ -77,15 +77,29 @@ pub enum ActorMsg {
         actor: FormId,
         /// Per-attacker hit id (deduplicated).
         hit: u32,
-        /// Damage points.
+        /// Damage points. 0: a player's blow under one point (the sender
+        /// keeps the part points). The host's friendly-fire guard counts it,
+        /// and the ledger takes no health for it.
         amount: u16,
+        /// An NPC's blow (Doc Mitchell on a gecko): the NPC that struck. No
+        /// player and no follower struck it. The host applies it but credits
+        /// no player. A guest's NPC blow counts only when the host's ledger
+        /// tracks that NPC alive near the victim, and the guest owns that NPC
+        /// or the victim. `None`: a blow of the sender's player or follower.
+        npc: Option<FormId>,
+        /// What the sender's player or followers did in each blow of this
+        /// hit. The host computes the damage of these blows from its own copy
+        /// of the sender and does not use `amount` for them. Empty: damage
+        /// with no blow (an explosion, an effect), or an NPC's blow.
+        blows: Vec<Blow>,
     },
     /// Host: damage applied.
     Damaged {
         /// Victim.
         actor: FormId,
-        /// Attacker.
-        by: PlayerId,
+        /// The player who struck. `None`: an NPC's blow, which pays no player
+        /// and adds no threat to anyone.
+        by: Option<PlayerId>,
         /// Points applied.
         amount: u16,
         /// Health afterwards.
@@ -174,6 +188,59 @@ pub enum ActorMsg {
         /// Health afterwards.
         health: u16,
     },
+    /// Host to the striker only: the friendly-fire guard dropped its blow
+    /// on `actor`. The striker forgets the part point it kept for `actor`,
+    /// so the dropped blow adds nothing to a later blow.
+    HitBlocked {
+        /// Victim.
+        actor: FormId,
+        /// The dropped blow was an NPC's blow (see [`ActorMsg::Hit`]).
+        npc: bool,
+    },
+}
+
+/// The most blows one hit message names (a frame's pellets on one victim).
+pub const MAX_BLOWS: usize = 64;
+
+/// What a player or a follower did in one blow. The host computes the blow's
+/// damage from this and from its own copy of the striking player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blow {
+    /// The follower that struck. `None`: the player.
+    pub by: Option<FormId>,
+    /// The weapon in hand. `None`: fists, or the creature's own attack.
+    pub weapon: Option<FormId>,
+    /// The body part type hit. `None`: no part found.
+    pub part: Option<u8>,
+    /// [`Blow::POWER`], [`Blow::SNEAK`] and [`Blow::CRITICAL`].
+    pub flags: u8,
+    /// The V.A.T.S. attack kind, when a queued V.A.T.S. hit made the blow.
+    pub vats: Option<u8>,
+    /// The explosion, when the weapon's explosion made the blow.
+    pub blast: Option<BlastBlow>,
+}
+
+/// The explosion of a [`Blow`]: which explosion went off, and where.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlastBlow {
+    /// The explosion (`EXPL`).
+    pub explosion: FormId,
+    /// Its centre, quantized ([`crate::avatar::quant_pos`]).
+    pub at: [i32; 3],
+}
+
+impl Blow {
+    /// A power attack.
+    pub const POWER: u8 = 1;
+    /// A sneak attack (the target did not detect the striker).
+    pub const SNEAK: u8 = 2;
+    /// A critical hit (the striker's roll).
+    pub const CRITICAL: u8 = 4;
+
+    /// Whether the blow has `flag`.
+    pub fn has(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
 }
 
 impl ActorMsg {
@@ -185,7 +252,7 @@ impl ActorMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            ActorMsg::Hit { amount, .. } => *amount <= MAX_HIT,
+            ActorMsg::Hit { amount, blows, .. } => *amount <= MAX_HIT && blows.len() <= MAX_BLOWS,
             ActorMsg::Track { actors } => actors.len() <= MAX_TRACK,
             _ => true,
         }

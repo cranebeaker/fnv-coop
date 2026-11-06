@@ -1,7 +1,7 @@
 //! Party saves through `Session`: a host and two guests over the loopback transport, driven only
 //! through the frame calls the viewer makes. Saves go to temp folders.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use coop_core::ids::PlayerId;
 use coop_core::transport::{ChaosProfile, LoopbackNet};
@@ -63,7 +63,7 @@ impl<'a> Rig<'a> {
         scripts: &'a ScriptCache,
         chaos: Option<&str>,
         guests: &[(&str, u64, u8)],
-        dir: &PathBuf,
+        dir: &Path,
     ) -> Rig<'a> {
         let net = LoopbackNet::new();
         let mut host = Session::host(cfg(
@@ -333,6 +333,169 @@ fn a_host_save_orders_every_guest_to_save_and_the_party_comes_back_by_key() {
     }
 }
 
+/// The replicated shadow leaves a player's health damage out (each machine keeps its own
+/// player's health). A saved character's health must still come back on a rejoin by key and
+/// on a guest's F9, and ordinary host writes must not heal the guest.
+#[test]
+fn a_saved_characters_health_comes_back_on_rejoin_and_on_f9() {
+    let (_d, order) = order("sess-health");
+    let scripts = ScriptCache::default();
+    let dir = tmp("health");
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    rig.settled();
+    // Ann was hurt on her own machine
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 12.5);
+    rig.frames(100);
+    let save_dir = party_dir_for(&dir.join("Save 1.txt"));
+    let text = world::save::save(&rig.host.gs, None);
+    rig.host
+        .s
+        .party_begin_save(&rig.host.gs, save_dir.clone(), text, 1_700_000_000)
+        .unwrap();
+    assert!(rig.until(4000, |r| r
+        .host
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::HostSaved { .. }))));
+    rig.frames(80);
+    // Ann heals before the F9: the file still holds the saved health
+    rig.guests[0].gs.damage.remove(&PLAYER_REF);
+    rig.guests[0].s.party_guest_load_local().unwrap();
+    assert!(rig.until(4000, |r| r.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::OfferAnswered { ok: true, .. }))));
+    rig.frames(100);
+    assert_eq!(
+        rig.guests[0].gs.damage.get(&PLAYER_REF),
+        Some(&12.5),
+        "F9 brings the saved health back"
+    );
+    // an ordinary host write to Ann's character keeps her health
+    make_character(&mut rig.host.gs, 1, 3, 2);
+    rig.frames(200);
+    assert_eq!(caps_of(&rig.guests[0].gs, 1), caps_of(&rig.host.gs, 1));
+    assert_eq!(rig.guests[0].gs.damage.get(&PLAYER_REF), Some(&12.5));
+    drop(rig);
+
+    // a new host loads the party save, Ann rejoins by key with full health
+    let loaded = load_party(&save_dir).unwrap();
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    let (mut state, _) = world::save::load(&loaded.save.world_text).unwrap();
+    carry_coop(&mut rig.host.gs, &mut state, Some(&order));
+    rig.host.gs = state;
+    rig.host.s.party_host_load(&loaded.save);
+    rig.settled();
+    rig.frames(400);
+    assert!(rig.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::Campaign { matched: true, .. })));
+    assert_eq!(
+        rig.guests[0].gs.damage.get(&PLAYER_REF),
+        Some(&12.5),
+        "the rejoin brings the saved health back"
+    );
+}
+
+/// A guest's F9 brings its saved health back. A health report that the guest sent before the
+/// restore reached it must not undo the restore on the host's copy of the character: a save
+/// that the guest does not answer stores that copy.
+#[test]
+fn a_health_report_from_before_a_restore_does_not_undo_it() {
+    let (_d, order) = order("sess-health-race");
+    let scripts = ScriptCache::default();
+    let dir = tmp("health-race");
+    let mut rig = Rig::new(&order, &scripts, None, &[("Ann", KEY_A, 1)], &dir);
+    rig.settled();
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 12.5);
+    rig.frames(100);
+    let save_dir = party_dir_for(&dir.join("Save 1.txt"));
+    let text = world::save::save(&rig.host.gs, None);
+    rig.host
+        .s
+        .party_begin_save(&rig.host.gs, save_dir, text, 1_700_000_000)
+        .unwrap();
+    assert!(rig.until(4000, |r| r
+        .host
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::HostSaved { .. }))));
+    rig.frames(80);
+    let parked = |r: &Rig| r.host.gs.shadow_of(1).and_then(|s| s.damage);
+    assert_eq!(parked(&rig), Some(12.5));
+    // Ann is hurt and presses F9 in the same frame: her report of the hurt goes out right
+    // after her offer, before the restore reaches her
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 30.0);
+    rig.guests[0].s.party_guest_load_local().unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        rig.frame();
+        seen.push(parked(&rig));
+    }
+    assert!(rig.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::OfferAnswered { ok: true, .. })));
+    assert_eq!(rig.guests[0].gs.damage.get(&PLAYER_REF), Some(&12.5));
+    assert!(
+        !seen.contains(&Some(30.0)),
+        "the host's copy took the report from before the restore: {seen:?}"
+    );
+    assert_eq!(parked(&rig), Some(12.5));
+}
+
+/// A player whose key already has a slot (a frozen game) joins again under another slot. Its
+/// character moves to the new slot, and the health that the guest last reported comes too.
+#[test]
+fn a_returning_key_on_another_slot_keeps_its_health() {
+    let (_d, order) = order("sess-moved");
+    let scripts = ScriptCache::default();
+    let dir = tmp("moved");
+    let mut rig = Rig::new(
+        &order,
+        &scripts,
+        None,
+        &[("Ann", KEY_A, 1), ("Ann again", KEY_A, 2)],
+        &dir,
+    );
+    // Ann's second game does not run yet
+    rig.guests[1].alive = false;
+    assert!(
+        rig.until(12000, |r| r.guests[0].s.is_connected()
+            && r.guests[0].s.is_ready()
+            && r.host.s.is_ready()),
+        "never connected"
+    );
+    assert!(rig.until(6000, |r| r.guests[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, PartyEvent::Campaign { .. }))));
+    // Ann is hurt on her machine: the host's copy of her character learns it
+    rig.guests[0].gs.damage.insert(PLAYER_REF, 7.5);
+    assert!(
+        rig.until(400, |r| r.host.gs.shadow_of(1).and_then(|s| s.damage)
+            == Some(7.5)),
+        "the host never heard Ann's health"
+    );
+    // Ann's game freezes; she starts again and joins under slot 2 with full health
+    rig.guests[0].alive = false;
+    rig.guests[1].alive = true;
+    assert!(
+        rig.until(12000, |r| r.guests[1]
+            .events
+            .iter()
+            .any(|e| matches!(e, PartyEvent::Campaign { matched: true, .. }))),
+        "Ann's key was not matched"
+    );
+    rig.frames(100);
+    assert_eq!(
+        rig.guests[1].gs.damage.get(&PLAYER_REF),
+        Some(&7.5),
+        "the moved character keeps its health"
+    );
+}
+
 #[test]
 fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     let (_d, order) = order("sess-silent");
@@ -347,8 +510,11 @@ fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     );
     rig.settled();
     make_character(&mut rig.host.gs, 2, 33, 6);
+    // Bo was hurt on his own machine: the host's copy of his character learns it
+    rig.guests[1].gs.damage.insert(PLAYER_REF, 9.0);
     rig.frames(300);
     let bo = core(rig.host.gs.shadow_of(2).unwrap());
+    assert_eq!(bo.damage, Some(9.0), "the host's copy has Bo's health");
     // Bo's game freezes; the link stays up long enough for the order to be sent
     rig.guests[1].alive = false;
     let save_dir = dir.join("s.txt.partysave");
@@ -387,6 +553,11 @@ fn a_guest_that_does_not_answer_gets_the_hosts_copy_of_its_character() {
     let sc = l.guest(KEY_B).unwrap();
     assert!(!sc.from_guest);
     assert_eq!(core(sc.shadow().unwrap()), bo);
+    assert_eq!(
+        sc.shadow().unwrap().damage,
+        Some(9.0),
+        "the save keeps Bo's health from before he froze"
+    );
     assert!(l.guest(KEY_A).unwrap().from_guest);
 }
 

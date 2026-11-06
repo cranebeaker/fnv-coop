@@ -523,7 +523,7 @@ fn rules_difficulty(_env: &Env, mutate: bool) -> Result<String, String> {
         }
         // the whole party gains no more kill XP than one player would have
         let shared = s.xp(100) * n;
-        if shared > 100 * n / 1 && !mutate {
+        if shared > (100 * n) && !mutate {
             return Err("party XP not bounded".into());
         }
         last = s;

@@ -204,7 +204,7 @@ fn a_host_container_take_moves_the_items_and_the_guest_can_take_the_rest() {
             == Some(&3)),
         "the guest got the rest"
     );
-    assert!(r.until(2000, |r| r.host.gs.items.get(&(chest, item)).is_none()));
+    assert!(r.until(2000, |r| !r.host.gs.items.contains_key(&(chest, item))));
     // the host's authoritative copy of the guest's inventory has it too, so the guest's own
     // rows (re-read from that copy on every sync) keep it
     for _ in 0..200 {

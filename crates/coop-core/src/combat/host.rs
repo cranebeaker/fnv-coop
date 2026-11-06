@@ -42,6 +42,8 @@ pub struct VatsHit {
     pub amount: u16,
     /// Unique hit id for the ledger.
     pub hit: u32,
+    /// The shot's named blow (`VatsShot::blow`).
+    pub blow: Option<crate::actors::Blow>,
 }
 
 /// Host-side combat state.
@@ -147,6 +149,7 @@ impl CombatHost {
                             target: s.target,
                             amount: r.damage,
                             hit: 0x8000_0000 | (id & 0x07FF_FFFF) << 4 | i as u32,
+                            blow: s.blow,
                         });
                     }
                 }

@@ -95,8 +95,9 @@ pub fn check(gs: &mut GameState, quest: FormId, choice: u32) -> Fork {
             Fork::Denied(Reject::Declined)
         };
     }
-    if !gs.coop.campaign.forks.open.contains_key(&quest) {
-        gs.coop.campaign.forks.open.insert(quest, choice);
+    if let std::collections::btree_map::Entry::Vacant(e) = gs.coop.campaign.forks.open.entry(quest)
+    {
+        e.insert(choice);
         if let Some(g) = gs.coop.gate.as_mut() {
             g.begin_vote(quest);
         }

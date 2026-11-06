@@ -44,9 +44,8 @@ type Outs = Vec<(PlayerId, Msg)>;
 pub const LIMB_AV: [u16; 6] = [25, 26, 27, 28, 29, 30];
 /// The radiation counter value.
 const RADS_AV: u16 = 54;
-/// Sneak skill and action points values.
+/// The Sneak skill value.
 const SNEAK_AV: u16 = 42;
-const AP_AV: u16 = 12;
 /// How often the slow facts (shadows, stealth numbers) are re-read.
 const SLOW_MS: u64 = 2_000;
 /// How often enemies re-decide whom they attend to.
@@ -149,6 +148,8 @@ pub struct VatsAsk {
     pub chance: u16,
     /// Damage.
     pub damage: u16,
+    /// What the shot is, for the host to count it (`VatsShot::blow`).
+    pub blow: Option<coop_core::actors::Blow>,
 }
 
 /// Counters for dumps and tests.
@@ -306,7 +307,13 @@ pub struct CombatFacts {
     pub extras: BTreeSet<FormId>,
     /// Counters.
     pub stats: CombatStats,
+    /// Debug: the threat director's first choice for each enemy and each
+    /// switch, with its inputs (newest last, at most [`THREAT_LOG_MAX`]).
+    pub threat_log: Vec<String>,
 }
+
+/// Lines kept in [`CombatFacts::threat_log`].
+pub const THREAT_LOG_MAX: usize = 16;
 
 impl CombatFacts {
     /// The kind and limb for the next blow on a puppet.
@@ -467,7 +474,7 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
         .puppets
         .iter()
         .filter(|(f, _)| {
-            player_of(**f).map_or(false, |p| {
+            player_of(**f).is_some_and(|p| {
                 !state
                     .coop
                     .live
@@ -685,6 +692,7 @@ fn hear_shot(order: &LoadOrder, gs: &mut GameState, f: &FireEvent) {
 /// candidate within the radius takes the falloff share. People are hurt
 /// through `combat::hurt` (a guest's NPC hits become requests, a puppet's
 /// hurt becomes a player blow for the host to judge). Returns the hits.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_blast(
     order: &LoadOrder,
     gs: &mut GameState,
@@ -859,6 +867,7 @@ impl CombatBridge {
                     cost: a.cost,
                     chance: a.chance,
                     damage: a.damage,
+                    blow: a.blow,
                 })
                 .collect();
             f.stats.vats_sent += 1;
@@ -964,11 +973,54 @@ impl CombatBridge {
                     .unwrap_or_default();
                 consider(*p, *form, s.downed, s.dead, gs);
             }
+            // the game may have turned the enemy since the last choice (a script's
+            // StartCombat): the director starts from what the enemy really does
+            let had = self.threat.current(cf(enemy));
+            let actual = forms.iter().find(|(_, f)| **f == cur).map(|(p, _)| *p);
+            if let (Some(a), Some(h)) = (actual, had) {
+                if self.threat.adopt(cf(enemy), a, now_ms) {
+                    let log = &mut gs.coop.live.combat.threat_log;
+                    log.push(format!(
+                        "{now_ms} {:08X} game set {:08X} (director had {})",
+                        enemy.0, cur.0, h.0
+                    ));
+                    if log.len() > THREAT_LOG_MAX {
+                        log.remove(0);
+                    }
+                }
+            }
+            let first = had.is_none();
             let Some(Threat { target, switched }) =
                 self.threat.choose(cf(enemy), now_ms, focus, &inputs)
             else {
                 continue;
             };
+            if first || switched {
+                let seen: Vec<String> = inputs
+                    .iter()
+                    .map(|i| {
+                        format!(
+                            "{}:{:.0}:{}{}{}",
+                            i.player.0,
+                            i.dist,
+                            if i.seen { "seen" } else { "unseen" },
+                            if i.same_cell { "" } else { ":away" },
+                            if i.downed || i.dead { ":down" } else { "" }
+                        )
+                    })
+                    .collect();
+                let log = &mut gs.coop.live.combat.threat_log;
+                log.push(format!(
+                    "{now_ms} {:08X} was {:08X} pick {} switched {switched} [{}]",
+                    enemy.0,
+                    cur.0,
+                    target.0,
+                    seen.join(" ")
+                ));
+                if log.len() > THREAT_LOG_MAX {
+                    log.remove(0);
+                }
+            }
             if switched {
                 if let Some(form) = forms.get(&target) {
                     if *form != cur {
@@ -978,6 +1030,11 @@ impl CombatBridge {
                 }
             }
         }
+    }
+
+    /// The damage that the threat director counts for `p` on `enemy`.
+    pub fn threat_damage(&self, enemy: FormId, p: PlayerId) -> f32 {
+        self.threat.damage_by(cf(enemy), p)
     }
 
     /// Feeds the director the damage the host announced (`Damaged`).
@@ -1043,7 +1100,8 @@ impl CombatBridge {
                 r
             })
             .collect();
-        // slow facts: skills from the shadows, AP the host believes in
+        // slow facts: skills from the shadows (the host's adapter keeps each
+        // guest's action points, `LiveHostAdapter::action_points`)
         if now_ms >= self.next_slow_ms {
             self.next_slow_ms = now_ms + SLOW_MS;
             for p in &members {
@@ -1055,14 +1113,6 @@ impl CombatBridge {
                         .unwrap_or(f64::from(DEFAULT_SNEAK))
                         .clamp(0.0, 100.0) as u8;
                     self.skills.insert(*p, (sneak, sh.level));
-                    let max = sh.actor_values.get(&AP_AV).copied().unwrap_or(0.0);
-                    let used = sh.value_damage.get(&AP_AV).copied().unwrap_or(0.0);
-                    if !p.is_host() && max > 0.0 {
-                        live.combat
-                            .vats
-                            .known_ap
-                            .insert(*p, (max - used).clamp(0.0, 255.0) as u16);
-                    }
                 }
             }
             for (p, v) in self.skills.clone() {
@@ -1090,6 +1140,25 @@ impl CombatBridge {
         live.combat
             .vitals
             .track(PlayerId::HOST, host_hp, max_hp(order, gs));
+        // the host player's blows on other players since the last frame go
+        // first: the host was up when it dealt them (a blast that puts its
+        // thrower down still hurts the players beside the thrower)
+        let mut msgs: Vec<CombatMsg> = Vec::new();
+        {
+            let f = &mut gs.coop.live.combat;
+            for n in std::mem::take(&mut f.pvp_hits) {
+                f.stats.pvp_sent += 1;
+                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
+                msgs.extend(live.combat.vitals.player_vs_player(
+                    now_ms,
+                    PlayerId::HOST,
+                    n.victim,
+                    pts,
+                    n.kind,
+                    n.limb,
+                ));
+            }
+        }
         live.combat.vitals.report(
             PlayerId::HOST,
             now_ms,
@@ -1110,7 +1179,6 @@ impl CombatBridge {
             }
         }
         // the host player's own notes
-        let mut msgs: Vec<CombatMsg> = Vec::new();
         {
             let f = &mut gs.coop.live.combat;
             let mut by: BTreeMap<(FormId, PlayerId, u8, u8), (f64, DamageKind)> = BTreeMap::new();
@@ -1131,18 +1199,6 @@ impl CombatBridge {
                     kind,
                     limb,
                     &scaling,
-                ));
-            }
-            for n in std::mem::take(&mut f.pvp_hits) {
-                f.stats.pvp_sent += 1;
-                let pts = n.amount.ceil().clamp(1.0, 5000.0) as u16;
-                msgs.extend(live.combat.vitals.player_vs_player(
-                    now_ms,
-                    PlayerId::HOST,
-                    n.victim,
-                    pts,
-                    n.kind,
-                    n.limb,
                 ));
             }
         }
@@ -1264,6 +1320,7 @@ impl CombatBridge {
                     live.combat.extras.created_as(&plan, id, cell);
                     gs.coop.live.combat.extras.insert(wf(id));
                     gs.coop.live.combat.stats.extras_made += 1;
+                    make_extra(order, gs, wf(id), base, FormId(cell.0), plan.pos);
                     gs.coop.live.spawns.push(SpawnNote {
                         id: wf(id),
                         base: Some(base),
@@ -1336,6 +1393,8 @@ impl CombatBridge {
             for id in far {
                 gs.coop.live.combat.extras.remove(&wf(id));
                 gs.coop.live.combat.stats.extras_cleared += 1;
+                gs.more.placed.refs.remove(&wf(id));
+                gs.disabled.insert(wf(id), true);
                 gs.coop.live.spawns.push(SpawnNote {
                     id: wf(id),
                     base: None,
@@ -1466,7 +1525,7 @@ fn hostile_base(order: &LoadOrder, base: FormId) -> bool {
 /// coop pvp SLOT DAMAGE                  a blow on another player
 /// coop fire WEAPON X Y Z                the local player fired at a point
 /// coop explode EXPL RADIUS DAMAGE       a blast at the local player's feet
-/// coop vats TARGET LIMB CHANCE DAMAGE   one VATS shot (cost 20 AP)
+/// coop vats TARGET LIMB CHANCE DAMAGE   one VATS shot (its attack's cost)
 /// coop vatsmark 0|1                     entered or left VATS
 /// coop sneak 0|1                        the local player sneaks
 /// coop probeparty NPC DIST              NPC's detection of the party (tests)
@@ -1565,12 +1624,30 @@ pub fn bot_line(
             if let (Some(target), Some(limb), Some(chance), Some(damage)) =
                 (arg(2).and_then(form), num(3), num(4), num(5))
             {
+                // The shot with the weapon in hand, at the body part, as
+                // the V.A.T.S. attack the weapon makes (`vats::attack_kind`,
+                // `0066dba0`): the host counts a hit from its own copy.
+                let weapon = crate::combat::weapon_in_hand(order, gs, PLAYER_REF);
+                let blow = coop_core::actors::Blow {
+                    by: None,
+                    weapon: weapon.as_ref().map(|w| cf(w.form_id)),
+                    part: Some(limb as u8),
+                    flags: 0,
+                    vats: Some(crate::vats::attack_kind(
+                        weapon.as_ref().map(|w| w.animation),
+                    )),
+                    blast: None,
+                };
+                // its cost as this world's V.A.T.S. prices the attack
+                let s = crate::vats::Settings::load(order);
+                let cost = crate::vats::attack_cost(order, gs, &s, weapon.as_ref());
                 gs.coop.live.combat.vats.push(VatsAsk {
                     target,
                     limb: limb as u8,
-                    cost: 20,
+                    cost: cost.round().clamp(0.0, f32::from(u16::MAX)) as u16,
                     chance: chance as u16,
                     damage: damage as u16,
+                    blow: Some(blow),
                 });
             }
         }
@@ -1703,4 +1780,37 @@ pub fn bot_line(
 /// Light check that a game setting exists (kept for the diagnostics).
 pub fn setting(order: &LoadOrder, name: &str, default: f32) -> f32 {
     game_setting(order, name).unwrap_or(default)
+}
+
+/// The host makes a granted extra in its own world, as a made reference (as
+/// `PlaceAtMe` makes one). The guests make it from the `Spawned` message
+/// (`realize_spawned`). Before, the host only queued a `SpawnNote` that no
+/// code read: the extra was on the guests' screens and not on the host's.
+fn make_extra(
+    order: &LoadOrder,
+    gs: &mut GameState,
+    id: FormId,
+    base: FormId,
+    cell: FormId,
+    pos: [f32; 3],
+) {
+    let space = order
+        .get(cell)
+        .and_then(|r| order.world_of(&r))
+        .unwrap_or(cell);
+    gs.more.placed.refs.insert(
+        id,
+        crate::more_functions::placed::Made {
+            base,
+            space,
+            cell,
+            position: pos,
+            rotation: [0.0; 3],
+            count: 1,
+        },
+    );
+    gs.disabled.remove(&id);
+    gs.events.push(crate::scripting::Event::More(
+        crate::more_functions::Shown::Placed { reference: id },
+    ));
 }

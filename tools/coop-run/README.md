@@ -10,6 +10,8 @@ python -I tools/coop-run/runner.py run     tools/coop-run/scenarios/doc_stage_sy
 python -I tools/coop-run/runner.py clean   tools/coop-run/scenarios/doc_stage_bad_wifi.json --n 3
 python -I tools/coop-run/runner.py suite   tools/coop-run/scenarios --n 3
 python -I tools/coop-run/runner.py selftest
+python -I tools/coop-run/bench.py run --set full --profiles perfect,good_wifi,bad_wifi
+python -I tools/coop-run/bench.py report <bench folder>
 cd tools/coop-run && python -I -m unittest        # the harness's own tests, no game needed (about 70 s)
 ```
 
@@ -25,6 +27,7 @@ The last output line is `RESULT: PASS ...` or `RESULT: FAIL <class> ...`. Exit c
 | `verdict.py` | log parsing, failure classes, failure packet, scorer self-test |
 | `chaos_relay.py` | seeded UDP relay with the coop-core profiles |
 | `fake_viewer.py` | stand-in viewer with the same flags and logs, used to test the runner (and the live control port) |
+| `bench.py` | sync benchmark on two real viewers: `run` runs a scenario set under several network profiles and samples both viewers on the control port 5 times a second; `report` writes `bench.md` and `bench.json` (position error and lag of NPCs and avatars, animation agreement, time until a shared value arrives, lost values, shared-hash lag and divergences, bandwidth, RTT, fps). `scenarios/bench_party_fight.json` is its long mixed scene |
 | `live.py` | live loop: client library and CLI for the viewer's `--coop-control` port; `up`, `state`, `run`, `bot`, `keys`, `shot`, `entities`, `watch`, `down` |
 | `remote/sync_and_build.ps1` | on the test PC: apply a git bundle under `C:\fnv`, fast viewer build, compact errors |
 | `scenarios/*.json` | example scenarios (Doc Mitchell's house) |

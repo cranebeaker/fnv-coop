@@ -33,7 +33,7 @@ use crate::ids::{CellId, FormId, PlayerId};
 
 pub use client::{CombatClient, EffectNote, HurtNote};
 pub use extras::{extra_site, ExtraPlan, ExtrasPlanner, CLEAR_DISTANCE};
-pub use fire::{FireHub, MAX_SHOT_RANGE};
+pub use fire::{FireHub, MAX_BLAST_REACH, MAX_SHOT_RANGE};
 pub use host::{Attribution, COut, CombatHost, VatsHit};
 pub use threat::{Threat, ThreatDirector, ThreatInput};
 pub use vats::{vats_scales, TimeScales, VatsHost, VatsLimits};
@@ -156,8 +156,12 @@ pub struct VatsShot {
     /// Chance to hit, per mille (the shooter's own number: skill, perks,
     /// distance). The host clamps it and rolls.
     pub chance: u16,
-    /// Damage if it hits (before enemy toughness).
+    /// Damage if it hits (before enemy toughness). A named shot
+    /// (`blow`) does not use it: the host counts the blow itself.
     pub damage: u16,
+    /// What the shot is (weapon in hand, body part, V.A.T.S. attack kind),
+    /// for the host to count a hit from its own copy of the shooter.
+    pub blow: Option<crate::actors::Blow>,
 }
 
 /// What came of one VATS shot.

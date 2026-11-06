@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{ActorMsg, ActorState, SpawnOutcome};
+use super::{ActorMsg, ActorState, Blow, SpawnOutcome};
 use crate::ids::{Epoch, FormId, PlayerId, Seq};
 
 /// What this machine knows about one actor.
@@ -44,6 +44,10 @@ pub struct ActorClient {
     /// Who hurt which actor, from the host's verdicts (the threat director
     /// reads and clears it; bounded).
     pub damage_log: Vec<(FormId, PlayerId, u16)>,
+    /// The blows of this peer that the host's friendly-fire guard dropped:
+    /// victim and NPC flag, from [`ActorMsg::HitBlocked`] (the live adapter
+    /// reads and clears it; bounded).
+    pub blocked: Vec<(FormId, bool)>,
 }
 
 impl ActorClient {
@@ -62,6 +66,7 @@ impl ActorClient {
             spawn_at: BTreeMap::new(),
             stale_dropped: 0,
             damage_log: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 
@@ -79,7 +84,7 @@ impl ActorClient {
     pub fn owns(&self, actor: FormId) -> bool {
         self.actors
             .get(&actor)
-            .map_or(false, |a| a.owner == Some(self.me))
+            .is_some_and(|a| a.owner == Some(self.me))
     }
 
     /// Actors this machine owns.
@@ -112,7 +117,41 @@ impl ActorClient {
     pub fn hit(&mut self, actor: FormId, amount: u16) -> ActorMsg {
         let hit = self.next_hit;
         self.next_hit += 1;
-        ActorMsg::Hit { actor, hit, amount }
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: None,
+            blows: Vec::new(),
+        }
+    }
+
+    /// A hit request for the player's or followers' `blows` with a fresh id.
+    /// `amount` is the sender's own count (see `ActorMsg::Hit::blows`).
+    pub fn blow_hit(&mut self, actor: FormId, amount: u16, blows: Vec<Blow>) -> ActorMsg {
+        let hit = self.next_hit;
+        self.next_hit += 1;
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: None,
+            blows,
+        }
+    }
+
+    /// A hit request for the blow of NPC `by` with a fresh id (see
+    /// `ActorMsg::Hit::npc`).
+    pub fn npc_hit(&mut self, actor: FormId, by: FormId, amount: u16) -> ActorMsg {
+        let hit = self.next_hit;
+        self.next_hit += 1;
+        ActorMsg::Hit {
+            actor,
+            hit,
+            amount,
+            npc: Some(by),
+            blows: Vec::new(),
+        }
     }
 
     /// A spawn request; returns its id and the message.
@@ -169,7 +208,7 @@ impl ActorClient {
                 epoch,
                 seed,
             } => {
-                if self.actors.get(&actor).map_or(false, |a| a.epoch > epoch) {
+                if self.actors.get(&actor).is_some_and(|a| a.epoch > epoch) {
                     return; // an older assignment arriving late
                 }
                 let alive = self.actors.get(&actor).map_or(true, |a| a.alive);
@@ -224,7 +263,8 @@ impl ActorClient {
                 by,
                 amount,
             } => {
-                if self.damage_log.len() < 256 {
+                // an NPC's blow credits nobody
+                if let Some(by) = by.filter(|_| self.damage_log.len() < 256) {
                     self.damage_log.push((actor, by, amount));
                 }
                 if let Some(a) = self.actors.get_mut(&actor) {
@@ -236,6 +276,11 @@ impl ActorClient {
             ActorMsg::Healed { actor, health } => {
                 if let Some(s) = self.actors.get_mut(&actor).and_then(|a| a.state.as_mut()) {
                     s.health = health;
+                }
+            }
+            ActorMsg::HitBlocked { actor, npc } => {
+                if self.blocked.len() < 256 {
+                    self.blocked.push((actor, npc));
                 }
             }
             ActorMsg::Died { actor, .. } => {
@@ -371,11 +416,21 @@ mod tests {
         c.on_msg(assign(1, 1));
         c.on_msg(ActorMsg::Damaged {
             actor: A,
-            by: PlayerId(1),
+            by: Some(PlayerId(1)),
             amount: 4,
             health: 6,
         });
         assert_eq!(c.get(A).unwrap().state.unwrap().health, 6);
+        assert_eq!(c.damage_log, vec![(A, PlayerId(1), 4)]);
+        // an NPC's blow moves the health but credits no player
+        c.on_msg(ActorMsg::Damaged {
+            actor: A,
+            by: None,
+            amount: 1,
+            health: 5,
+        });
+        assert_eq!(c.get(A).unwrap().state.unwrap().health, 5);
+        assert_eq!(c.damage_log.len(), 1);
         c.on_msg(ActorMsg::Died {
             actor: A,
             killer: None,

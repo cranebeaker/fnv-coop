@@ -3619,30 +3619,6 @@ impl<'a> Runner<'a> {
         // the weapon's damage (a creature's bite, or fists), a critical
         // adding the weapon's critical damage, the armour, then a sneak
         // attack's multiplier.
-        // Fists' power attack: a bonus multiplier after the armour
-        // (`world::combat::fists_power_bonus`); a creature's own attack
-        // has none.
-        let mut fists_bonus = 0.0;
-        // Bare fists' fatigue damage, half their damage (`00646310`,
-        // `world::fatigue`).
-        let mut fatigue = 0.0;
-        let mut damage = match weapon {
-            Some(w) => crate::combat::weapon_damage(order, self.state, attacker, Some(w), power),
-            None => crate::combat::creature_damage(order, attacker).unwrap_or_else(|| {
-                fists_bonus = crate::combat::fists_power_bonus(order, power);
-                let fists = crate::combat::weapon_damage(order, self.state, attacker, None, false);
-                fatigue = crate::fatigue::fists_fatigue(order, self.state, attacker, target, fists);
-                fists
-            }),
-        };
-        // V.A.T.S.'s melee moves and automatic melee weapons (`world::vats`).
-        damage *= crate::vats::attack_damage_mult(order, self.state, attacker, weapon);
-        // A teammate's Nerve once more for a melee, unarmed or creature
-        // attack (`009b5170`; on top of `00644ce0`'s for weapons and
-        // fists); a shot's damage (`009b5650`) has it once.
-        if weapon.map_or(true, |w| w.is_melee()) {
-            damage *= crate::companions::nerve(order, self.state, attacker);
-        }
         let sneak = attacker == PLAYER_REF
             && self.state.player_sneaking
             && self
@@ -3652,66 +3628,33 @@ impl<'a> Runner<'a> {
         let roll = self.state.roll() % 1000;
         let critical =
             crate::combat::critical(order, self.state, attacker, weapon, target, sneak, roll);
-        if critical {
-            damage +=
-                crate::combat::critical_damage(order, self.state, attacker, weapon, target, damage);
-        }
-        let ammo = weapon.and_then(|w| w.ammo_in_use(order, self.state, attacker));
-        let armoured = crate::combat::armour_hit(
+        let struck = crate::blow::blow_damage(
             order,
             self.state,
-            damage,
-            Some((attacker, weapon_id)),
-            target,
-            ammo,
+            crate::blow::BlowInputs {
+                attacker,
+                target,
+                weapon,
+                part,
+                power,
+                sneak,
+                critical,
+            },
         );
         // A blocked hit is flagged (`009b5a30`, `00407e00(1, 1)`), for the
         // blocker's block-hit animation and counter-attack timer.
         if crate::melee::block_bonus(order, self.state, attacker, weapon_id, target).is_some() {
             self.state.blocked_hits.push(target);
         }
-        let vats_mult = crate::vats::player_damage_mult(order, self.state, target);
-        let after_armour = armoured.damage * vats_mult;
-        // The fatigue damage through the armour, the ammunition's added
-        // (`009b5a30`, `world::fatigue::through_armour`).
-        fatigue = crate::fatigue::through_armour(
-            order,
-            fatigue,
-            ammo,
-            weapon.is_some(),
-            damage,
-            armoured.damage,
-        ) * vats_mult;
-        // A hit doing fatigue damage wears no armour (`009b5a30`).
-        let armour_damage = if fatigue > 0.0 {
-            0.0
-        } else {
-            armoured.armour_damage
-        };
         // The player's armour wears (`0089a760`).
-        crate::combat::wear_armour(order, self.state, target, part, armour_damage * vats_mult);
-        // The part it landed on: limb damage from the damage after armour,
-        // and the hit's multiplier (`009b6620`).
-        let at = crate::body_parts::part_hit(order, self.state, target, weapon, part, after_armour);
-        let mut dealt = at.health_damage;
-        // The multiplier last (`009b73d0`): the part's (or a fists' power
-        // attack's bonus, the larger: `009b7840`), a sneak attack's bonus
-        // when it's at least 1, then the damage × it.
-        let mut multiplier = at.multiplier.max(fists_bonus);
-        if multiplier > 0.0 {
-            if multiplier >= 1.0 && sneak {
-                multiplier *=
-                    crate::combat::sneak_multiplier(order, weapon.map_or(true, |w| w.is_melee()));
-            }
-            dealt *= multiplier;
-            // An unarmed blow's fatigue takes it too (`009b73d0`: attacker
-            // not a creature, the hit's skill Unarmed).
-            if weapon.map_or(true, |w| w.skill == crate::combat::av::UNARMED)
-                && !crate::combat::is_creature(order, attacker)
-            {
-                fatigue *= multiplier;
-            }
-        }
+        crate::combat::wear_armour(order, self.state, target, part, struck.armour_damage);
+        let crate::blow::BlowDamage {
+            dealt,
+            multiplier,
+            mut fatigue,
+            at,
+            ..
+        } = struck;
         self.state
             .hit_location
             .insert(target, part.map_or(-1, i32::from));
@@ -3735,7 +3678,27 @@ impl<'a> Runner<'a> {
             fights_back &= crate::crime::assault(order, self.state, target);
         }
         let was_alive = !self.state.dead.contains(&target);
+        // A co-op guest sends what the blow was with its damage, for the host
+        // to count it (`coop::facts::hurt_hooked`, `coop::blow_check`).
+        let vats = self
+            .state
+            .vats
+            .attack
+            .as_ref()
+            .filter(|a| a.hit && self.state.vats.mode == crate::vats::mode::PLAYBACK);
+        let flag = |on: bool, f: u8| if on { f } else { 0 };
+        self.state.coop.live.blow = Some(coop_core::actors::Blow {
+            by: (attacker != PLAYER_REF).then_some(coop_core::ids::FormId(attacker.0)),
+            weapon: weapon_id.map(|w| coop_core::ids::FormId(w.0)),
+            part,
+            flags: flag(power, coop_core::actors::Blow::POWER)
+                | flag(sneak, coop_core::actors::Blow::SNEAK)
+                | flag(critical, coop_core::actors::Blow::CRITICAL),
+            vats: vats.map(|a| a.kind),
+            blast: None,
+        });
         let killed = crate::combat::hurt(order, self.state, target, f64::from(dealt), attacker);
+        self.state.coop.live.blow = None;
         // Then the fatigue, while above `fMinimumFatigue` (`0089d6f0`).
         if !crate::fatigue::take_hit(order, self.state, target, fatigue) {
             fatigue = 0.0;
@@ -3824,13 +3787,15 @@ impl<'a> Runner<'a> {
     /// critical damage after the armour), no body part (so no multiplier,
     /// `009b73d0`), the health, `OnDeath`, and the hurt fighting back. The
     /// limbs the explosion reaches (`009afcc0`, `009b1720`) aren't damaged
-    /// here. What it did, for people and creatures.
+    /// here. `went_off`: the explosion and its centre, which a co-op guest
+    /// names to the host. What it did, for people and creatures.
     pub fn explosion_hit(
         &mut self,
         source: Option<FormId>,
         target: FormId,
         weapon: Option<&crate::combat::Weapon>,
         damage: f32,
+        went_off: Option<(FormId, [f32; 3])>,
     ) -> Option<crate::combat::Hit> {
         let order = self.order;
         if crate::more_functions::is_ghost(self.state, target) {
@@ -3861,21 +3826,13 @@ impl<'a> Runner<'a> {
         if kind.as_bytes() != b"NPC_" && kind != CREA {
             return None;
         }
-        let mut dealt = crate::combat::hit_through_armour(
-            order,
-            self.state,
-            damage,
-            source.map(|s| (s, weapon_id)),
-            target,
-            None,
-        ) * crate::vats::player_damage_mult(order, self.state, target);
         let critical = source.is_some_and(|s| {
             let roll = self.state.roll() % 1000;
             crate::combat::critical(order, self.state, s, weapon, target, false, roll)
         });
-        if let (true, Some(s)) = (critical, source) {
-            dealt += crate::combat::critical_damage(order, self.state, s, weapon, target, dealt);
-        }
+        let dealt = crate::explosions::hit_damage(
+            order, self.state, damage, source, weapon, target, critical,
+        );
         self.state.hit_location.insert(target, -1);
         let was_hostile = source.is_some_and(|s| self.state.combat.get(&target) == Some(&s));
         let person = kind.as_bytes() == b"NPC_";
@@ -3884,7 +3841,28 @@ impl<'a> Runner<'a> {
             fights_back &= crate::crime::assault(order, self.state, target);
         }
         let was_alive = !self.state.dead.contains(&target);
+        // A co-op guest names its explosion's blow with its damage, for the
+        // host to count it (`coop::facts::hurt_hooked`, `coop::blow_check`).
+        self.state.coop.live.blow =
+            source
+                .zip(went_off)
+                .map(|(s, (explosion, at))| coop_core::actors::Blow {
+                    by: (s != PLAYER_REF).then_some(coop_core::ids::FormId(s.0)),
+                    weapon: weapon_id.map(|w| coop_core::ids::FormId(w.0)),
+                    part: None,
+                    flags: if critical {
+                        coop_core::actors::Blow::CRITICAL
+                    } else {
+                        0
+                    },
+                    vats: None,
+                    blast: Some(coop_core::actors::BlastBlow {
+                        explosion: coop_core::ids::FormId(explosion.0),
+                        at: at.map(coop_core::avatar::quant_pos),
+                    }),
+                });
         let killed = crate::combat::hurt(order, self.state, target, f64::from(dealt), attacker);
+        self.state.coop.live.blow = None;
         // The explosion's hit carries its weapon's critical effect too
         // (`009b5770` builds it with the weapon, `009b7060`, `0089a760`).
         if critical {

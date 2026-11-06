@@ -83,6 +83,11 @@ pub struct GuestLive {
 }
 
 impl GuestLive {
+    /// The slot this state belongs to.
+    pub fn me(&self) -> PlayerId {
+        self.me
+    }
+
     /// A live layer for player `me`.
     pub fn new(me: PlayerId) -> Self {
         GuestLive {
@@ -163,10 +168,8 @@ impl GuestLive {
             Msg::Social(SocialMsg::MarkerGone { owner, id }) => {
                 self.markers.remove(&(owner, id));
             }
-            Msg::Social(SocialMsg::Voice(v)) => {
-                if self.voice_rx.push(&v).is_some() {
-                    self.voice_in.push(v);
-                }
+            Msg::Social(SocialMsg::Voice(v)) if self.voice_rx.push(&v).is_some() => {
+                self.voice_in.push(v);
             }
             _ => {}
         }

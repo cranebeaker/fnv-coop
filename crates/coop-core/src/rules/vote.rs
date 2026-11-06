@@ -105,6 +105,7 @@ impl VoteHost {
     /// Proposes `kind`. `members` is the party now; the proposer votes yes.
     /// Fast travel is free unless `tether_votes`; nothing is allowed in
     /// combat for the time skips and fast travel.
+    #[allow(clippy::too_many_arguments)]
     pub fn propose(
         &mut self,
         proposer: PlayerId,

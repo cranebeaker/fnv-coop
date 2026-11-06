@@ -15,6 +15,8 @@
 //! coop attack [KIND] [ARG]    a combat action (swing, shoot, aim, reload,
 //!                              block, hurt, knockdown, death, draw,
 //!                              holster) for the other players' puppets
+//! coop throw REF               throw the grenade in hand at a person (its
+//!                              real flight and explosion, as the AI throws)
 //! coop say TEXT...             chat
 //! coop ping [DISTANCE]         ping that far ahead (default 600 units)
 //! coop waypoint X Y | unwaypoint   set or clear the waypoint
@@ -73,6 +75,42 @@ use crate::GameFiles;
 #[derive(Resource, Default)]
 pub struct Bot {
     queue: Vec<(f32, String)>,
+    /// `coop throw` lines waiting for their target and weapon: the target
+    /// and the time to stop waiting.
+    throws: Vec<(FormId, f32)>,
+}
+
+/// How long `coop throw` waits for its target to come into view and for a
+/// thrown weapon in hand (seconds). The host's actor can reach a guest a
+/// second or more after the host's script moves it.
+const THROW_WAIT: f32 = 10.0;
+
+/// The weapon in hand leaves it for where `target` stands in this viewer,
+/// as the AI throws (`fighting`: `Aim::At`). The flight and the explosion
+/// are the viewer's own (`explosives`). `Err` names what is missing.
+fn try_throw(
+    order: &esm::LoadOrder,
+    gs: &world::scripting::GameState,
+    talkers: &crate::dialogue::Talkers,
+    target: FormId,
+) -> Result<(), &'static str> {
+    let weapon = world::combat::weapon_in_hand(order, gs, PLAYER_REF)
+        .filter(world::explosions::is_thrown)
+        .ok_or("no thrown weapon in hand")?;
+    let goal = talkers
+        .0
+        .iter()
+        .find(|t| t.reference == target)
+        .map(|t| t.position)
+        .ok_or("the target is not in view")?;
+    let p = gs.player_position.ok_or("no player position")?;
+    crate::explosives::throw(crate::explosives::Launch {
+        thrower: PLAYER_REF,
+        weapon,
+        origin: [p[0], p[1], p[2] + crate::explosives::THROW_HEIGHT],
+        aim: crate::explosives::Aim::At(goal),
+    });
+    Ok(())
 }
 
 impl Bot {
@@ -97,6 +135,7 @@ fn form(order: &esm::LoadOrder, word: &str) -> Option<FormId> {
 }
 
 /// Runs the lines that are due.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     time: Res<Time>,
     mut bot: ResMut<Bot>,
@@ -110,8 +149,17 @@ pub fn run(
     mut live: ResMut<super::LiveNow>,
     mut answers: ResMut<crate::game_menus::AnswerBoxes>,
     mut say: ResMut<crate::dialogue::AutoSay>,
+    talkers: Res<crate::dialogue::Talkers>,
 ) {
     let t = time.elapsed_secs();
+    // `coop throw`: each frame until the target is in view, as a player waits
+    for (target, until) in std::mem::take(&mut bot.throws) {
+        match try_throw(&game.0.order, &state.0, &talkers, target) {
+            Ok(()) => {}
+            Err(_) if t < until => bot.throws.push((target, until)),
+            Err(why) => println!("coop throw {target}: stopped after {THROW_WAIT} s: {why}."),
+        }
+    }
     if bot.queue.iter().all(|(at, _)| *at > t) {
         return;
     }
@@ -217,6 +265,14 @@ pub fn run(
                     .live
                     .local_actions
                     .push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
+            }
+            // waits up to THROW_WAIT for the target in view (`try_throw`)
+            Some("throw") => {
+                if let Some(target) = f(2) {
+                    if try_throw(order, gs, &talkers, target).is_err() {
+                        bot.throws.push((target, t + THROW_WAIT));
+                    }
+                }
             }
             Some("say") => link.0.live_intent(Intent::Say(words[2..].join(" "))),
             Some("ping") => {
@@ -351,6 +407,7 @@ pub fn run(
             Some("teleport") => {
                 let c = |i: usize| arg(i).and_then(|w| w.parse::<f32>().ok());
                 if let (Some(x), Some(y), Some(z)) = (c(2), c(3), c(4)) {
+                    link.0.live_intent(Intent::TestWarp);
                     player.arrive([x, y, z]);
                 }
             }

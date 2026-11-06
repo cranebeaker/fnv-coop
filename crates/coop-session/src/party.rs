@@ -14,8 +14,9 @@
 //!
 //! ```text
 //! guest  Hello{key, offering}            until acknowledged (every second)
-//! host   HelloAck{campaign, matched, want_offer}
+//! host   HelloAck{campaign, matched, want_offer, restore}
 //!          matched: the saved character for `key` was put into the guest's slot
+//!          restore: how many times the host restored a character in this slot
 //! guest  Chunk{kind 1, ..}               its own saved character, only when !matched && want_offer
 //! host   OfferResult{ok, conflicts, ..}  baseline conflicts: informational, the host wins
 //!
@@ -25,6 +26,10 @@
 //!
 //! guest  Chunk{kind 2, ..}               F9 on a guest: restore this character
 //! host   Reloaded{campaign}              after the host loaded a party save (F9 on the host)
+//!
+//! host   Health{damage, restore}         a restore: the saved health, the slot's new restore
+//! guest  Health{damage, restore}         its health when it changes, with the last restore
+//!                                        it got (the host drops a report from before a restore)
 //! ```
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -48,6 +53,8 @@ pub const ORDER_WAIT_MS: u64 = 4000;
 pub const GUEST_SAVE_WAIT_MS: u64 = 20_000;
 /// Time between a guest's hello messages.
 const HELLO_EVERY_MS: u64 = 1000;
+/// A guest sends its changed health to the host at most this often.
+const HEALTH_EVERY_MS: u64 = 500;
 /// Largest character accepted from a guest.
 const MAX_CHARACTER: usize = 1 << 20;
 
@@ -125,6 +132,9 @@ enum Msg {
         campaign: u64,
         matched: bool,
         want_offer: bool,
+        /// How many times the host restored a character in the guest's slot (see
+        /// [`Msg::Health`]).
+        restore: u32,
     },
     Order {
         seq: u32,
@@ -147,6 +157,20 @@ enum Msg {
     },
     Reloaded {
         campaign: u64,
+    },
+    /// The health damage of a guest's player. The replicated shadow leaves it out (each
+    /// machine keeps its own player's health), so it goes by this message.
+    /// Host to one guest: the host installed a saved character for that guest's slot, and
+    /// this is the saved health. Guest to the host: the guest's health now (sent when it
+    /// changes). The host keeps it on its copy of the guest's character, for a save that
+    /// the guest does not answer and for a rejoin under another slot.
+    ///
+    /// `restore` counts the restores of the slot's character. The host sends the new count
+    /// with the saved health. The guest sends the last count it got, and the host drops a
+    /// report with another count: the guest sent it before the restore reached it.
+    Health {
+        damage: Option<f64>,
+        restore: u32,
     },
     OfferResult {
         seq: u32,
@@ -218,10 +242,12 @@ impl Msg {
                 campaign,
                 matched,
                 want_offer,
+                restore,
             } => {
                 w.0.push(2);
                 w.0.extend(campaign.to_le_bytes());
                 w.0.push(u8::from(*matched) | (u8::from(*want_offer) << 1));
+                w.0.extend(restore.to_le_bytes());
             }
             Msg::Order { seq, name } => {
                 w.0.push(3);
@@ -257,6 +283,12 @@ impl Msg {
                 w.0.push(7);
                 w.0.extend(campaign.to_le_bytes());
             }
+            Msg::Health { damage, restore } => {
+                w.0.push(9);
+                w.0.push(u8::from(damage.is_some()));
+                w.0.extend(damage.unwrap_or(0.0).to_bits().to_le_bytes());
+                w.0.extend(restore.to_le_bytes());
+            }
             Msg::OfferResult {
                 seq,
                 ok,
@@ -289,6 +321,7 @@ impl Msg {
                     campaign,
                     matched: f & 1 != 0,
                     want_offer: f & 2 != 0,
+                    restore: r.u32()?,
                 }
             }
             3 => Msg::Order {
@@ -318,6 +351,20 @@ impl Msg {
                 ok: r.u8()? != 0,
             },
             7 => Msg::Reloaded { campaign: r.u64()? },
+            9 => {
+                let has = r.u8()? != 0;
+                let d = f64::from_bits(r.u64()?);
+                let restore = r.u32()?;
+                // a damage that is not a number, or is under 0, is a bad message:
+                // health over the full value is not a thing
+                if has && (!d.is_finite() || d < 0.0) {
+                    return None;
+                }
+                Msg::Health {
+                    damage: has.then_some(d),
+                    restore,
+                }
+            }
             8 => Msg::OfferResult {
                 seq: r.u32()?,
                 ok: r.u8()? != 0,
@@ -391,6 +438,8 @@ pub(crate) struct PartyLayer {
     host_name: String,
     keys: BTreeMap<PlayerId, u64>,
     claimed: BTreeMap<u64, PlayerId>,
+    /// Restores of a character per slot (see [`Msg::Health`]).
+    restores: BTreeMap<PlayerId, u32>,
     eligible: BTreeSet<u64>,
     loaded: BTreeMap<u64, GuestSidecar>,
     reapply: bool,
@@ -408,6 +457,11 @@ pub(crate) struct PartyLayer {
     order: Option<GuestOrder>,
     outgoing: Vec<Msg>,
     offer_seq: u32,
+    /// The health damage last sent to the host (`None`: nothing sent since the link came up).
+    sent_damage: Option<Option<f64>>,
+    sent_damage_ms: u64,
+    /// The restore count of this guest's slot that the host last sent.
+    restore: u32,
 }
 
 impl PartyLayer {
@@ -420,6 +474,7 @@ impl PartyLayer {
             host_name: String::new(),
             keys: BTreeMap::new(),
             claimed: BTreeMap::new(),
+            restores: BTreeMap::new(),
             eligible: BTreeSet::new(),
             loaded: BTreeMap::new(),
             reapply: false,
@@ -436,6 +491,9 @@ impl PartyLayer {
             order: None,
             outgoing: Vec::new(),
             offer_seq: 0,
+            sent_damage: None,
+            sent_damage_ms: 0,
+            restore: 0,
         }
     }
 }
@@ -688,6 +746,27 @@ fn send(s: &mut Session, to: PlayerId, m: &Msg) {
     send_ext(&mut s.net, to, &Ext::Party(m.encode()));
 }
 
+/// Host: installs a saved character for `slot` and sends that guest the saved health
+/// and the slot's new restore count (see [`Msg::Health`]). Returns false as
+/// `install_for_slot` does.
+fn restore_slot(
+    s: &mut Session,
+    l: &mut PartyLayer,
+    gs: &mut GameState,
+    slot: PlayerId,
+    sh: world::coop::shadow::PlayerShadow,
+) -> bool {
+    let damage = sh.damage;
+    let ok = party_char::install_for_slot(gs, slot.0, sh);
+    if ok {
+        let n = l.restores.entry(slot).or_insert(0);
+        *n = n.wrapping_add(1);
+        let restore = *n;
+        send(s, slot, &Msg::Health { damage, restore });
+    }
+    ok
+}
+
 // ---- host --------------------------------------------------------------
 
 fn name_of(s: &Session, slot: PlayerId) -> String {
@@ -737,6 +816,7 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                     host_character(s, l, gs, from, kind, seq, &bytes);
                 }
             }
+            Msg::Health { damage, restore } => host_health(l, gs, from, damage, restore),
             Msg::Refused { seq, why } => {
                 if let Some(p) = l.pending.as_mut().filter(|p| p.seq == seq) {
                     p.fallback.insert(from);
@@ -768,7 +848,7 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                             .clone()
                             .unwrap_or_else(world::coop::ShadowPlan::all);
                         let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
-                        party_char::install_for_slot(gs, slot.0, sh);
+                        restore_slot(s, l, gs, slot, sh);
                         l.claimed.insert(key, slot);
                         l.eligible.remove(&key);
                     }
@@ -789,6 +869,33 @@ fn host_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
         }
     }
     host_pending(s, l, gs, &connected);
+}
+
+/// A guest's health report goes on the host's copy of that guest's character.
+fn host_health(
+    l: &PartyLayer,
+    gs: &mut GameState,
+    from: PlayerId,
+    damage: Option<f64>,
+    restore: u32,
+) {
+    // only a slot that a hello bound to the character it holds: the parked
+    // character of a slot that no hello bound may be a player who left
+    let bound = l
+        .keys
+        .get(&from)
+        .is_some_and(|k| l.claimed.get(k) == Some(&from));
+    if !bound {
+        return;
+    }
+    // a report the guest sent before the last restore reached it
+    if restore != l.restores.get(&from).copied().unwrap_or(0) {
+        return;
+    }
+    // a local field of the shadow: it stays out of the shared hash
+    if let Some(sh) = gs.coop.bank.parked.get_mut(&from.0) {
+        sh.damage = damage;
+    }
 }
 
 fn host_hello(
@@ -813,7 +920,7 @@ fn host_hello(
             // the same player again, maybe under another slot: its character follows it
             if old != from {
                 if let Some(sh) = gs.coop.bank.parked.remove(&old.0) {
-                    party_char::install_for_slot(gs, from.0, sh);
+                    restore_slot(s, l, gs, from, sh);
                     gs.coop.bank.dirty.insert(old.0);
                 }
                 l.claimed.insert(key, from);
@@ -830,7 +937,7 @@ fn host_hello(
                         .clone()
                         .unwrap_or_else(world::coop::ShadowPlan::all);
                     let (sh, _) = party_char::sanitize_offer(sh, &plan, true);
-                    matched = party_char::install_for_slot(gs, from.0, sh);
+                    matched = restore_slot(s, l, gs, from, sh);
                 }
             }
             l.claimed.insert(key, from);
@@ -857,6 +964,7 @@ fn host_hello(
             campaign: l.campaign,
             matched,
             want_offer,
+            restore: l.restores.get(&from).copied().unwrap_or(0),
         },
     );
 }
@@ -935,7 +1043,7 @@ fn host_character(
     let (sh, rep) =
         party_char::sanitize_offer(shadow, &plan, kind == 2 && file.campaign == l.campaign);
     let conflicts = party_char::baseline_diff(&file.baseline, gs).len() as u32;
-    let ok = party_char::install_for_slot(gs, from.0, sh);
+    let ok = restore_slot(s, l, gs, from, sh);
     if ok {
         l.eligible.remove(&key);
     }
@@ -1062,8 +1170,10 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 campaign,
                 matched,
                 want_offer,
+                restore,
             } => {
                 l.acked = true;
+                l.restore = restore;
                 l.campaign = campaign;
                 l.events.push(PartyEvent::Campaign {
                     id: campaign,
@@ -1078,7 +1188,7 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                 }
             }
             Msg::Order { seq, .. } => {
-                if l.seen_orders.insert(seq) && l.order.as_ref().is_none_or(|o| o.seq < seq) {
+                if l.seen_orders.insert(seq) && l.order.as_ref().map_or(true, |o| o.seq < seq) {
                     l.order = Some(GuestOrder { seq, since_ms: now });
                 }
             }
@@ -1088,6 +1198,14 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
                     l.campaign = campaign;
                 }
                 l.events.push(PartyEvent::CharacterRestored);
+            }
+            Msg::Health { damage, restore } => {
+                l.restore = restore;
+                let me = world::dialogue::PLAYER_REF;
+                match damage {
+                    Some(d) => gs.damage.insert(me, d),
+                    None => gs.damage.remove(&me),
+                };
             }
             Msg::OfferResult {
                 ok,
@@ -1109,12 +1227,13 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     if !connected {
         // a lost host: say hello again once back
         l.acked = false;
+        l.sent_damage = None;
         return;
     }
     if l.key != 0
         && !l.acked
         && l.last_hello_ms
-            .is_none_or(|t| now.saturating_sub(t) >= HELLO_EVERY_MS)
+            .map_or(true, |t| now.saturating_sub(t) >= HELLO_EVERY_MS)
     {
         l.last_hello_ms = Some(now);
         send(
@@ -1149,6 +1268,17 @@ fn guest_tick(s: &mut Session, l: &mut PartyLayer, gs: &mut GameState) {
     }
     for m in std::mem::take(&mut l.outgoing) {
         send(s, PlayerId::HOST, &m);
+    }
+    // the host keeps this player's health on its copy of the character
+    let damage = gs.damage.get(&world::dialogue::PLAYER_REF).copied();
+    if l.acked
+        && l.sent_damage != Some(damage)
+        && now.saturating_sub(l.sent_damage_ms) >= HEALTH_EVERY_MS
+    {
+        l.sent_damage = Some(damage);
+        l.sent_damage_ms = now;
+        let restore = l.restore;
+        send(s, PlayerId::HOST, &Msg::Health { damage, restore });
     }
 }
 
@@ -1208,6 +1338,7 @@ mod tests {
                 campaign: 5,
                 matched: true,
                 want_offer: false,
+                restore: 3,
             },
             Msg::Order {
                 seq: 3,
@@ -1226,6 +1357,14 @@ mod tests {
             },
             Msg::Stored { seq: 3, ok: true },
             Msg::Reloaded { campaign: 77 },
+            Msg::Health {
+                damage: Some(12.5),
+                restore: 2,
+            },
+            Msg::Health {
+                damage: None,
+                restore: 0,
+            },
             Msg::OfferResult {
                 seq: 1,
                 ok: false,
@@ -1239,6 +1378,14 @@ mod tests {
         }
         assert_eq!(Msg::decode(&[]), None);
         assert_eq!(Msg::decode(&[99]), None);
+        for bad in [f64::NAN, f64::INFINITY, -1.0] {
+            let m = Msg::Health {
+                damage: Some(bad),
+                restore: 0,
+            }
+            .encode();
+            assert_eq!(Msg::decode(&m), None, "a damage of {bad} is refused");
+        }
         assert_eq!(Msg::decode(&[6, 1, 0, 0, 0, 1, 9]), None, "trailing bytes");
         assert_eq!(
             Msg::decode(
@@ -1279,5 +1426,35 @@ mod tests {
         );
         let mut r = Reasm::default();
         assert_eq!(r.add(0, 3000, vec![0; MAX_CHARACTER + 1]), None);
+    }
+
+    /// The host keeps a guest's health on the character that guest's hello bound to
+    /// its slot. A report from a slot that no hello bound does not touch the parked
+    /// character there (it may be a player who left).
+    #[test]
+    fn a_health_report_counts_only_from_a_slot_its_hello_bound() {
+        let mut gs = GameState::default();
+        gs.coop
+            .bank
+            .parked
+            .insert(1, world::coop::shadow::PlayerShadow::fresh());
+        let mut l = PartyLayer::new(Role::Host);
+        let damage = |gs: &GameState| gs.coop.bank.parked[&1].damage;
+        host_health(&l, &mut gs, PlayerId(1), Some(5.0), 0);
+        assert_eq!(damage(&gs), None, "no hello bound slot 1 yet");
+        // the key's character now lives in another slot
+        l.keys.insert(PlayerId(1), 42);
+        l.claimed.insert(42, PlayerId(2));
+        host_health(&l, &mut gs, PlayerId(1), Some(6.0), 0);
+        assert_eq!(damage(&gs), None, "slot 1 does not hold key 42's character");
+        l.claimed.insert(42, PlayerId(1));
+        host_health(&l, &mut gs, PlayerId(1), Some(7.0), 0);
+        assert_eq!(damage(&gs), Some(7.0), "a bound slot's report counts");
+        // the host restored the character: a report from before that is dropped
+        l.restores.insert(PlayerId(1), 1);
+        host_health(&l, &mut gs, PlayerId(1), Some(8.0), 0);
+        assert_eq!(damage(&gs), Some(7.0), "a report from before the restore");
+        host_health(&l, &mut gs, PlayerId(1), Some(9.0), 1);
+        assert_eq!(damage(&gs), Some(9.0), "a report that knows the restore");
     }
 }

@@ -695,7 +695,7 @@ fn recover(dir: &Path) -> Option<PathBuf> {
                 .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::UNIX_EPOCH);
-            if best.as_ref().is_none_or(|(bt, _)| t > *bt) {
+            if best.as_ref().map_or(true, |(bt, _)| t > *bt) {
                 best = Some((t, e.path()));
             }
         }
@@ -968,12 +968,7 @@ mod tests {
         assert_eq!(lines[4], "saved=1700000000");
         assert!(lines[5].starts_with("world="));
         // guest=<key> <slot> <level> <from_guest> <len> <hash> <name>, sorted by key
-        let g: Vec<&str> = lines[6]
-            .splitn(2, '=')
-            .nth(1)
-            .unwrap()
-            .splitn(7, ' ')
-            .collect();
+        let g: Vec<&str> = lines[6].split_once('=').unwrap().1.splitn(7, ' ').collect();
         assert_eq!(
             (g[0], g[1], g[2], g[3], g[6]),
             ("0000000000000001", "1", "3", "0", "Ann")
