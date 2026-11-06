@@ -905,6 +905,28 @@ fn the_host_takes_a_guests_door_to_where_the_door_leads() {
         "{:?}",
         r.results(0)
     );
+    // #74: the guest's jump must land where the door leads, in the host's world
+    let a = world::coop::interact::door_arrival(&order, f(TO_ROOM2)).expect("the door leads");
+    let missed = r.sim.host.live.avatars.off_landing;
+    r.guests[0].player_cell = Some(a.cell);
+    r.guests[0].player_position = Some([a.pos[0] + 5000.0, a.pos[1], a.pos[2]]);
+    r.run_ms(500);
+    assert!(
+        r.sim.host.live.avatars.off_landing > missed,
+        "not where the door leads"
+    );
+    r.guests[0].player_position = Some(a.pos);
+    r.run_ms(500);
+    let s = *r
+        .sim
+        .host
+        .live
+        .avatars
+        .state(PlayerId(1))
+        .expect("the guest");
+    assert_eq!(s.cell, CellId(a.space.0), "the door's space");
+    let x = coop_core::avatar::dequant_pos(s.pos[0]);
+    assert!((x - a.pos[0]).abs() < 0.1, "at the door's arrival: {x}");
 }
 
 #[test]

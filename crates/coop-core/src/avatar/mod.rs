@@ -29,6 +29,9 @@ pub const MOVE_CREDIT_MS: u64 = 2_000;
 pub const WARP_SAMPLES: u32 = 1_200;
 /// Samples after a warp's jump that may still jump (the party ring's spread).
 pub const WARP_AFTER: u32 = 40;
+/// Units around a warp's landing within which its jump may land: the party
+/// ring ([`crate::roam::model::WARP_SPREAD`]) and a step ([`MOVE_GRACE`]).
+pub const LANDING_REACH: f32 = crate::roam::model::WARP_SPREAD + MOVE_GRACE;
 /// How long a guest's samples may move too far before the host sends the
 /// guest back to its last accepted place. The wait lets a harness warp
 /// (`crate::roam::RoamMsg::TestWarp`) that arrives after its first samples
@@ -350,6 +353,16 @@ impl Pace {
     }
 }
 
+/// Where a warp that the host sent lands (#74), as the host finds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Landing {
+    /// The space that a sample there names: an interior cell, or the
+    /// worldspace outdoors.
+    pub space: CellId,
+    /// The place (feet).
+    pub at: [f32; 3],
+}
+
 /// Host-side table of every avatar's newest state and parts.
 #[derive(Clone, Debug, Default)]
 pub struct AvatarHub {
@@ -358,6 +371,8 @@ pub struct AvatarHub {
     actions: BTreeMap<PlayerId, Seq>,
     paces: BTreeMap<PlayerId, Pace>,
     warps: BTreeMap<PlayerId, u32>,
+    /// Per player: where its open warp lands, when the host knows it.
+    landings: BTreeMap<PlayerId, Landing>,
     /// Per player: when its samples started to move too far (none accepted since).
     refused_since: BTreeMap<PlayerId, u64>,
     /// Per player: its last accepted sample with a place. The movement check
@@ -366,6 +381,9 @@ pub struct AvatarHub {
     /// Samples dropped because they moved farther than the sender's speed
     /// allows, with no warp from the host (#74).
     pub too_far: u32,
+    /// Of those, jumps in a warp's window that did not land where the warp
+    /// lands.
+    pub off_landing: u32,
     /// Messages dropped because the claimed player was not the sender.
     pub forged: u32,
     /// Stale or duplicate messages dropped.
@@ -389,10 +407,33 @@ impl AvatarHub {
         pace.speed = speed;
     }
 
-    /// The host sent `p` a warp (a door, the tether, a respawn, a placement,
-    /// a fast travel): its next samples may jump.
+    /// The host sent `p` a warp (a door, the tether, a placement, a fast
+    /// travel): its next samples may jump. Until [`Self::land_at`] says
+    /// where the warp lands, a jump may land anywhere.
     pub fn open_warp(&mut self, p: PlayerId) {
         self.warps.insert(p, WARP_SAMPLES);
+        self.landings.remove(&p);
+    }
+
+    /// The open warp of `p` lands at `landing`: its jumps must land within
+    /// [`LANDING_REACH`] of it, in its space.
+    pub fn land_at(&mut self, p: PlayerId, landing: Landing) {
+        if self.warps.contains_key(&p) {
+            self.landings.insert(p, landing);
+        }
+    }
+
+    /// Whether `state` is where the open warp of `from` lands (true when the
+    /// host does not know where it lands).
+    fn on_landing(&self, from: PlayerId, state: &AvatarState) -> bool {
+        self.landings.get(&from).map_or(true, |l| {
+            let d = (0..2)
+                .map(|i| dequant_pos(state.pos[i]) - l.at[i])
+                .map(|v| v * v)
+                .sum::<f32>()
+                .sqrt();
+            state.cell == l.space && d <= LANDING_REACH
+        })
     }
 
     /// Whether `state` moves within the pace of `from` since its last
@@ -417,6 +458,7 @@ impl AvatarHub {
             self.warps.insert(from, warp - 1);
         } else {
             self.warps.remove(&from);
+            self.landings.remove(&from);
         }
         let (Some(old), Some(pace)) = (self.anchors.get(&from), self.paces.get_mut(&from)) else {
             return true;
@@ -437,7 +479,13 @@ impl AvatarHub {
             return true;
         }
         if warp > 0 {
-            pace.credit = cap;
+            if !self.on_landing(from, state) {
+                self.off_landing += 1;
+                return false;
+            }
+            if let Some(pace) = self.paces.get_mut(&from) {
+                pace.credit = cap;
+            }
             self.warps.insert(from, (warp - 1).min(WARP_AFTER));
             return true;
         }
@@ -541,6 +589,7 @@ impl AvatarHub {
         self.states.remove(&p);
         self.parts.remove(&p);
         self.actions.remove(&p);
+        self.landings.remove(&p);
     }
 
     /// Distance between two avatars; `None` when either is unknown or they
@@ -808,6 +857,58 @@ mod tests {
             "the window closed"
         );
         assert_eq!(h.too_far, 2);
+    }
+
+    /// #74: a warp whose landing the host knows lets the jump land only
+    /// there (within the ring and a step), in the landing's space. A jump to
+    /// another place or space is dropped, and the window stays open for the
+    /// right one. Mutation twin: with no landing, the same wrong jump goes
+    /// through.
+    #[test]
+    fn hub_lets_a_warp_land_only_where_it_lands() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        assert!(h.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        h.open_warp(PlayerId(1));
+        h.land_at(
+            PlayerId(1),
+            Landing {
+                space: CellId(1),
+                at: [5000.0, 0.0, 0.0],
+            },
+        );
+        // another place in the same space
+        assert!(h.on_msg(50, PlayerId(1), at(2, 9000.0)).is_none());
+        // the landing's place in another space
+        let elsewhere = AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(3),
+            state: st(2, 5000.0),
+        };
+        assert!(h.on_msg(100, PlayerId(1), elsewhere).is_none());
+        assert_eq!(h.off_landing, 2);
+        // on the ring around the landing
+        let x = 5000.0 + LANDING_REACH - 1.0;
+        assert!(h.on_msg(150, PlayerId(1), at(4, x)).is_some());
+        // a later jump in the window must land there too
+        assert!(h.on_msg(200, PlayerId(1), at(5, 9000.0)).is_none());
+        assert_eq!(h.off_landing, 3);
+        // mutation twin: the window with no landing takes the wrong jump
+        let mut free = AvatarHub::new();
+        free.set_speed(PlayerId(1), 400.0, 0);
+        assert!(free.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        free.open_warp(PlayerId(1));
+        assert!(free.on_msg(50, PlayerId(1), at(2, 9000.0)).is_some());
+        // a landing for a closed window is not kept
+        let mut closed = AvatarHub::new();
+        closed.land_at(
+            PlayerId(1),
+            Landing {
+                space: CellId(1),
+                at: [0.0; 3],
+            },
+        );
+        assert!(closed.landings.is_empty());
     }
 
     /// The credit keeps two seconds of movement: samples that arrive

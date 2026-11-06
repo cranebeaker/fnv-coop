@@ -1626,6 +1626,99 @@ mod pace {
         assert_eq!(place.pos[0], 1000.0);
     }
 
+    /// #74: a tether warp lands on the ring around the anchor, which the
+    /// host finds in its own world. The host takes the guest's jump there.
+    /// A second jump elsewhere in the warp's window is dropped. Mutation
+    /// twin: a window with no landing (the harness's teleport) takes the
+    /// same second jump.
+    #[test]
+    fn a_tether_warp_lands_only_at_the_anchor() {
+        use coop_core::interest::Audience;
+        use coop_core::rules::RulesMsg;
+        let (_d, order) = order("pace-tether");
+        let scripts = ScriptCache::default();
+        for tether in [true, false] {
+            let mut r = rig(&order, &scripts, !tether);
+            let anchor = FormId(GUARD_REF);
+            let place = r.host.place(&order, anchor).expect("the anchor").2;
+            if tether {
+                let warp = Msg::Rules(RulesMsg::TetherWarp { anchor: anchor.0 });
+                let outs = r
+                    .sim
+                    .host
+                    .live
+                    .route_extern(Audience::To(PlayerId(1)), warp);
+                r.sim.host_emit(outs);
+                assert!(
+                    r.until(2_000, |r| !r.gas[0].rules.warps.is_empty()),
+                    "the guest warps"
+                );
+            } else {
+                r.sim.guest_emit(0, vec![Msg::Roam(RoamMsg::TestWarp)]);
+                let ring = [place[0] + 96.0, place[1], place[2]];
+                r.guests[0].player_position = Some(ring);
+            }
+            r.run_ms(300);
+            let landed = r.guests[0].player_position.unwrap()[0];
+            assert!((landed - place[0]).abs() <= 96.5, "on the ring: {landed}");
+            let near = |x: Option<f32>, want: f32| x.is_some_and(|x| (x - want).abs() < 0.1);
+            assert!(near(host_x(&r), landed), "the host takes the landing");
+            // a second jump within the window
+            r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+            r.run_ms(300);
+            if tether {
+                assert!(near(host_x(&r), landed), "not where the warp lands");
+                assert!(r.sim.host.live.avatars.off_landing > 0);
+            } else {
+                assert!(near(host_x(&r), 21_000.0), "no landing: any jump");
+            }
+        }
+    }
+
+    /// #74: an approved fast travel lands where the marker sends travellers
+    /// (`map::travel`: the outdoors world's "Test Well" sends them to its
+    /// linked rock). The host takes the guest's jump there and drops a jump
+    /// elsewhere in the same worldspace.
+    #[test]
+    fn a_fast_travel_lands_only_where_the_marker_sends() {
+        use coop_core::interest::Audience;
+        use coop_core::rules::{RulesMsg, VoteKind};
+        let data = testdata::outdoors("pace-travel");
+        let order = LoadOrder::from_data_dir(data.path(), &ActivePlugins::OfficialOnly).unwrap();
+        let scripts = ScriptCache::default();
+        let mut r = rig(&order, &scripts, false);
+        let marker = world::map::marker(&order, FormId(testdata::MAP_MARKER)).expect("the well");
+        let to = marker.arrival.expect("a linked rock");
+        let (space, cell, at, _) = r.host.place(&order, to).expect("the rock");
+        let vote = Msg::Rules(RulesMsg::VoteResult {
+            id: 1,
+            kind: VoteKind::FastTravel,
+            param: testdata::MAP_MARKER,
+            approved: true,
+        });
+        let outs = r
+            .sim
+            .host
+            .live
+            .route_extern(Audience::To(PlayerId(1)), vote);
+        r.sim.host_emit(outs);
+        r.run_ms(300);
+        let missed = r.sim.host.live.avatars.off_landing;
+        r.guests[0].player_world = (space != cell).then_some(space);
+        r.guests[0].player_cell = Some(cell);
+        r.guests[0].player_position = Some([at[0] + 3000.0, at[1], at[2]]);
+        r.run_ms(300);
+        assert!(
+            r.sim.host.live.avatars.off_landing > missed,
+            "not the marker's place"
+        );
+        assert_eq!(host_x(&r), Some(900.0), "the host keeps the last place");
+        r.guests[0].player_position = Some(at);
+        r.run_ms(300);
+        let x = host_x(&r).unwrap();
+        assert!((x - at[0]).abs() < 0.1, "at the marker's place: {x}");
+    }
+
     /// The harness's teleport is a warp the host knows in a test session.
     /// Mutation twin: a host not in a test session refuses the jump.
     #[test]

@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::actors::{ActorHost, PlayerLoc};
 use crate::authority::AuthorityTable;
-use crate::avatar::{dequant_heading, dequant_pos, AvatarHub, AvatarMsg};
+use crate::avatar::{dequant_heading, dequant_pos, AvatarHub, AvatarMsg, Landing};
 use crate::combat::{Attribution, CombatHost};
 use crate::dialogue::DialogueHost;
-use crate::ids::{PlayerId, Seq};
+use crate::ids::{FormId, PlayerId, Seq};
 use crate::interact::InteractHost;
 use crate::interest::{Audience, InterestMap};
 use crate::loot::LootHost;
@@ -71,29 +71,61 @@ pub struct HostLive {
     pub hold_vats_hits: bool,
     /// The held V.A.T.S. hits, as `(guest, Msg::Actor(ActorMsg::Hit))`.
     pub held_vats_hits: Vec<(PlayerId, Msg)>,
+    /// The warps sent to guests whose landing the host's world finds
+    /// ([`Self::take_warps`]).
+    warps_sent: Vec<(PlayerId, WarpSent)>,
 }
 
-/// Whether the host sending `m` to `to` moves that player elsewhere (#74):
-/// a door follow, the tether, its respawn, a wipe, a placement, an approved
-/// fast travel.
-fn warps(m: &Msg, to: PlayerId) -> bool {
+/// A warp that the host sent to a guest, whose landing the host's world
+/// finds (`world::coop::live`, [`AvatarHub::land_at`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WarpSent {
+    /// Through a door, to where the door leads (a follow, or the guest's
+    /// own transit).
+    Door(FormId),
+    /// To the tether anchor (a placed reference), on the party ring.
+    Anchor(FormId),
+    /// A fast travel to a map marker.
+    Marker(FormId),
+}
+
+/// The most warps that wait for the host's world (a session without one
+/// does not take them).
+const MAX_WARPS_SENT: usize = 64;
+
+/// A warp and what the host knows of its landing.
+enum Warp {
+    /// The host's world finds the landing.
+    World(WarpSent),
+    /// The message names the landing (a placement).
+    At(Landing),
+}
+
+/// The warp that the host sending `m` gives its receiver (#74): a door
+/// follow, the tether, a placement, an approved fast travel. A respawn and a
+/// wipe do not move a guest (`world::coop::rules`: the guest heals in
+/// place), so they open no warp.
+fn warp_of(m: &Msg) -> Option<Warp> {
     use crate::interact::InteractMsg;
+    use crate::roam::RoamMsg;
     use crate::rules::{RulesMsg, VoteKind};
-    if let Msg::Rules(RulesMsg::Respawn { player }) = m {
-        return *player == to;
-    }
-    matches!(
-        m,
-        Msg::Interact(InteractMsg::Follow(_))
-            | Msg::Rules(RulesMsg::TetherWarp { .. })
-            | Msg::Rules(RulesMsg::Wipe)
-            | Msg::Roam(crate::roam::RoamMsg::Place { .. })
-            | Msg::Rules(RulesMsg::VoteResult {
-                kind: VoteKind::FastTravel,
-                approved: true,
-                ..
-            })
-    )
+    Some(match m {
+        Msg::Interact(InteractMsg::Follow(f)) => Warp::World(WarpSent::Door(f.door)),
+        Msg::Rules(RulesMsg::TetherWarp { anchor }) => {
+            Warp::World(WarpSent::Anchor(FormId(*anchor)))
+        }
+        Msg::Roam(RoamMsg::Place { cell, pos, .. }) => Warp::At(Landing {
+            space: *cell,
+            at: pos.map(dequant_pos),
+        }),
+        Msg::Rules(RulesMsg::VoteResult {
+            kind: VoteKind::FastTravel,
+            approved: true,
+            param,
+            ..
+        }) => Warp::World(WarpSent::Marker(FormId(*param))),
+        _ => return None,
+    })
 }
 
 impl HostLive {
@@ -120,6 +152,7 @@ impl HostLive {
             test_warps: false,
             hold_vats_hits: false,
             held_vats_hits: Vec::new(),
+            warps_sent: Vec::new(),
         };
         l.rules.on_join(PlayerId::HOST, 0);
         l.chat.set_name(PlayerId::HOST, "");
@@ -144,14 +177,41 @@ impl HostLive {
         std::mem::take(&mut self.local_inbox)
     }
 
-    fn route(&mut self, aud: Audience, msg: Msg, out: &mut Outs) {
-        // the warps the host sends let their players' next samples jump (#74)
-        for p in std::mem::take(&mut self.interact.transits) {
-            self.avatars.open_warp(p);
+    /// The warps sent to guests since the last call, for the host's world to
+    /// find where each lands ([`AvatarHub::land_at`]).
+    pub fn take_warps(&mut self) -> Vec<(PlayerId, WarpSent)> {
+        std::mem::take(&mut self.warps_sent)
+    }
+
+    fn warp_sent(&mut self, to: PlayerId, w: WarpSent) {
+        if to.is_host() {
+            return;
         }
+        if self.warps_sent.len() >= MAX_WARPS_SENT {
+            self.warps_sent.remove(0);
+        }
+        self.warps_sent.push((to, w));
+    }
+
+    fn route(&mut self, aud: Audience, msg: Msg, out: &mut Outs) {
+        // the warps the host sends let their players' next samples jump, to
+        // where each warp lands (#74)
+        for (p, door) in std::mem::take(&mut self.interact.transits) {
+            self.avatars.open_warp(p);
+            self.warp_sent(p, WarpSent::Door(door));
+        }
+        let warp = warp_of(&msg);
         for to in self.interest.resolve(aud, &self.members) {
-            if warps(&msg, to) {
-                self.avatars.open_warp(to);
+            match &warp {
+                Some(Warp::World(w)) => {
+                    self.avatars.open_warp(to);
+                    self.warp_sent(to, *w);
+                }
+                Some(Warp::At(l)) => {
+                    self.avatars.open_warp(to);
+                    self.avatars.land_at(to, *l);
+                }
+                None => {}
             }
             if to.is_host() {
                 self.local_inbox.push(msg.clone());
@@ -565,6 +625,54 @@ mod tests {
         l.join(PlayerId(1), 0);
         l.join(PlayerId(2), 0);
         (l, AuthorityTable::new())
+    }
+
+    /// #74: a respawn and a wipe do not move a guest, so they open no warp:
+    /// the guest's jump after one is dropped. A placement lands where it
+    /// names. A tether warp waits for the host's world to find its landing
+    /// ([`HostLive::take_warps`]). Mutation twin: before that landing, the
+    /// tether warp takes any jump.
+    #[test]
+    fn warps_open_only_for_moves_and_land_where_they_lead() {
+        use crate::roam::RoamMsg;
+        let jump = |msg: Option<Msg>, x: f32| {
+            let (mut l, mut auth) = live3();
+            l.avatars.set_speed(PlayerId(1), 400.0, 0);
+            l.on_msg(PlayerId(1), av(1, 1, 1, 0.0), 0, &mut auth);
+            if let Some(m) = msg {
+                l.route_extern(Audience::All, m);
+            }
+            l.on_msg(PlayerId(1), av(1, 2, 1, x), 50, &mut auth);
+            let at = l.avatars.state(PlayerId(1)).map(|s| dequant_pos(s.pos[0]));
+            (at, l.take_warps())
+        };
+        let respawn = Msg::Rules(RulesMsg::Respawn {
+            player: PlayerId(1),
+        });
+        assert_eq!(
+            jump(Some(respawn), 9000.0).0,
+            Some(0.0),
+            "a respawn: no jump"
+        );
+        assert_eq!(jump(Some(Msg::Rules(RulesMsg::Wipe)), 9000.0).0, Some(0.0));
+        let place = |x: f32| {
+            Msg::Roam(RoamMsg::Place {
+                cell: CellId(1),
+                pos: [quant_pos(x), 0, 0],
+                heading: 0,
+            })
+        };
+        assert_eq!(
+            jump(Some(place(5000.0)), 9000.0).0,
+            Some(0.0),
+            "not the place"
+        );
+        assert_eq!(jump(Some(place(5000.0)), 5000.0).0, Some(5000.0));
+        let tether = Msg::Rules(RulesMsg::TetherWarp { anchor: 0x42 });
+        let (at, warps) = jump(Some(tether), 9000.0);
+        assert_eq!(at, Some(9000.0), "no landing yet: any jump");
+        assert!(warps.contains(&(PlayerId(1), WarpSent::Anchor(FormId(0x42)))));
+        assert_eq!(jump(None, 9000.0).0, Some(0.0), "no warp: no jump");
     }
 
     #[test]

@@ -980,7 +980,37 @@ impl LiveHostAdapter {
             &self.rules.events,
             now_ms,
         ));
+        land_warps(cx, gs, live);
         outs
+    }
+}
+
+/// Where each warp sent to a guest lands, from the host's own world (#74):
+/// a door's arrival (`interact::door_arrival`), the tether anchor's place,
+/// a map marker's travel place (`map::travel`). The guest's jump must land
+/// there ([`coop_core::avatar::AvatarHub::land_at`]). A warp whose place the
+/// host does not find keeps an open landing.
+fn land_warps(cx: Ctx, gs: &GameState, live: &mut HostLive) {
+    use coop_core::sync::WarpSent;
+    for (p, w) in live.take_warps() {
+        let place = match w {
+            WarpSent::Door(door) => {
+                super::interact::door_arrival(cx.order, wf(door)).map(|a| (a.space, a.pos))
+            }
+            WarpSent::Anchor(anchor) => gs.place(cx.order, wf(anchor)).map(|p| (p.0, p.2)),
+            WarpSent::Marker(marker) => crate::map::marker(cx.order, wf(marker))
+                .and_then(|m| gs.place(cx.order, m.arrival.unwrap_or(m.reference)))
+                .map(|p| (p.0, p.2)),
+        };
+        if let Some((space, at)) = place {
+            live.avatars.land_at(
+                p,
+                coop_core::avatar::Landing {
+                    space: CellId(space.0),
+                    at,
+                },
+            );
+        }
     }
 }
 
