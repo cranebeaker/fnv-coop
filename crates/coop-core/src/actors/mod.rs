@@ -216,6 +216,17 @@ pub struct Blow {
     pub flags: u8,
     /// The V.A.T.S. attack kind, when a queued V.A.T.S. hit made the blow.
     pub vats: Option<u8>,
+    /// The explosion, when the weapon's explosion made the blow.
+    pub blast: Option<BlastBlow>,
+}
+
+/// The explosion of a [`Blow`]: which explosion went off, and where.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlastBlow {
+    /// The explosion (`EXPL`).
+    pub explosion: FormId,
+    /// Its centre, quantized ([`crate::avatar::quant_pos`]).
+    pub at: [i32; 3],
 }
 
 impl Blow {

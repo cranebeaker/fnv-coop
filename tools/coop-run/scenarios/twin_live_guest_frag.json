@@ -1,0 +1,62 @@
+{
+  "name": "twin_live_guest_frag",
+  "description": "MUTATION TWIN of live_guest_frag: the cause is removed. Marked expect_fail.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 61,
+  "duration_s": 24,
+  "settle_s": 6,
+  "host": {
+    "script": [
+      {
+        "at": 1,
+        "run": "coop give 1 WeapGrenadeFrag 2"
+      },
+      {
+        "at": 2,
+        "run": "VCG02Gecko1REF.Enable"
+      },
+      {
+        "at": 2.5,
+        "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      }
+    ]
+  },
+  "guest": {
+    "script": [
+      {
+        "at": 4,
+        "run": "coop equip WeapGrenadeFrag"
+      }
+    ]
+  },
+  "expect": [
+    {
+      "id": "dead-host",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "host"
+    },
+    {
+      "id": "dead-guest",
+      "path": "dead.VCG02Gecko1REF",
+      "op": "eq",
+      "value": true,
+      "on": "guest"
+    },
+    {
+      "id": "guest-killed",
+      "path": "campaign.xp.guest",
+      "op": "ge",
+      "value": 1,
+      "on": "host"
+    },
+    {
+      "id": "h",
+      "path": "hash.shared",
+      "on": "equal"
+    }
+  ],
+  "expect_fail": true
+}

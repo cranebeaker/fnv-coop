@@ -33,7 +33,7 @@ use crate::ids::{CellId, FormId, PlayerId};
 
 pub use client::{CombatClient, EffectNote, HurtNote};
 pub use extras::{extra_site, ExtraPlan, ExtrasPlanner, CLEAR_DISTANCE};
-pub use fire::{FireHub, MAX_SHOT_RANGE};
+pub use fire::{FireHub, MAX_BLAST_REACH, MAX_SHOT_RANGE};
 pub use host::{Attribution, COut, CombatHost, VatsHit};
 pub use threat::{Threat, ThreatDirector, ThreatInput};
 pub use vats::{vats_scales, TimeScales, VatsHost, VatsLimits};

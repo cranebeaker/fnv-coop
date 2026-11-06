@@ -653,6 +653,7 @@ fn explode(
             t.reference,
             weapon,
             damage * t.share,
+            Some((e.form_id, at)),
         ) else {
             continue;
         };

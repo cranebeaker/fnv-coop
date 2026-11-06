@@ -1642,6 +1642,7 @@ pub fn bot_line(
                     part: Some(limb as u8),
                     flags: 0,
                     vats: Some(crate::vats::attack_kind(weapon.map(|w| w.animation))),
+                    blast: None,
                 };
                 gs.coop.live.combat.vats.push(VatsAsk {
                     target,

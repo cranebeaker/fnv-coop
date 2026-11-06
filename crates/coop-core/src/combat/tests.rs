@@ -582,6 +582,7 @@ fn a_named_vats_shot_carries_its_blow_to_the_ledger() {
         part: Some(0),
         flags: 0,
         vats: Some(1),
+        blast: None,
     };
     let mut s = shot(10, 1000, 30);
     s.blow = Some(blow);

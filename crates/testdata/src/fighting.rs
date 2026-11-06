@@ -76,6 +76,12 @@ pub mod ids {
     pub const RIFLE_WITH_AMMO: u32 = 0xB35;
     pub const GUNMAN: u32 = 0xB36;
     pub const GUNMAN_REF: u32 = 0xB37;
+    /// A frag grenade: its explosion (20 damage, radius 400 units), its
+    /// projectile (the grenade's flight, with the explosion) and the weapon
+    /// (thrown as the dynamite is).
+    pub const FRAG_EXPLOSION: u32 = 0xB38;
+    pub const FRAG_PROJECTILE: u32 = 0xB39;
+    pub const FRAG: u32 = 0xB3A;
     /// The player's faction, as in the game.
     pub const PLAYER_FACTION: u32 = 0x1B2A4;
 }
@@ -154,6 +160,21 @@ pub fn fighting(tag: &str) -> TempData {
     };
     let mut projectiles = projectile(BULLET, "TestBullet", 0x01, 1, 3.0, 23680.0);
     projectiles.extend(projectile(GRENADE, "TestGrenade", 0, 2, 0.5, 1000.0));
+    let mut frag = projectile(FRAG_PROJECTILE, "TestFragProjectile", 0x02, 2, 0.5, 1000.0);
+    // The explosion at DATA offset 36: record header 24, EDID 6 + 19, DATA header 6.
+    let at = 24 + 6 + "TestFragProjectile".len() + 1 + 6 + 36;
+    frag[at..at + 4].copy_from_slice(&FRAG_EXPLOSION.to_le_bytes());
+    projectiles.extend(frag);
+    // Explosions: DATA force, damage, radius, light, sound, flags at 20, …
+    let mut explosion = edid("TestFragExplosion");
+    let mut blast = vec![0u8; 52];
+    blast[0..4].copy_from_slice(&100.0f32.to_le_bytes());
+    blast[4..8].copy_from_slice(&20.0f32.to_le_bytes());
+    blast[8..12].copy_from_slice(&400.0f32.to_le_bytes());
+    // the radius in units
+    blast[20..24].copy_from_slice(&1u32.to_le_bytes());
+    explosion.extend(sub(b"DATA", &blast));
+    let explosions = record(b"EXPL", FRAG_EXPLOSION, &explosion);
 
     // Weapons: DATA value, health, weight, damage, clip; DNAM (204 bytes).
     #[derive(Clone, Copy)]
@@ -284,6 +305,22 @@ pub fn fighting(tag: &str) -> TempData {
         Gun {
             animation: 10,
             projectile: GRENADE,
+            range: (500.0, 1024.0),
+            flags2: 0x10A,
+            shots: 0.405,
+            semi: (0.0, 0.0),
+            skill: 35,
+            clip: 12,
+            ..gun
+        },
+    ));
+    weapons.extend(weapon(
+        FRAG,
+        "TestFrag",
+        1,
+        Gun {
+            animation: 10,
+            projectile: FRAG_PROJECTILE,
             range: (500.0, 1024.0),
             flags2: 0x10A,
             shots: 0.405,
@@ -506,6 +543,7 @@ pub fn fighting(tag: &str) -> TempData {
     plugin.extend(group(*b"AMMO", 0, &ammo));
     plugin.extend(group(*b"FACT", 0, &factions));
     plugin.extend(group(*b"CSTY", 0, &styles));
+    plugin.extend(group(*b"EXPL", 0, &explosions));
     plugin.extend(group(*b"PROJ", 0, &projectiles));
     plugin.extend(group(*b"WEAP", 0, &weapons));
     plugin.extend(group(*b"CREA", 0, &creatures));

@@ -484,10 +484,19 @@ pub struct LiveHostAdapter {
     essential_seen: Option<EssentialInputs>,
     /// When `paces` next gives the guests' speeds to the avatar check.
     next_pace_ms: u64,
+    /// The weapons each guest's copy held in hand this session, for the
+    /// count of an explosion that goes off after the hand changed
+    /// (`super::blow_check`).
+    held: BTreeMap<PlayerId, BTreeSet<FormId>>,
+    /// When `note_held` next looks at the guests' hands.
+    next_held_ms: u64,
 }
 
 /// Milliseconds between the guests' speed updates for the avatar check.
 const PACE_EVERY_MS: u64 = 1_000;
+/// Milliseconds between looks at the guests' hands (`note_held`): shorter
+/// than a throw.
+const HELD_EVERY_MS: u64 = 250;
 
 /// The script state that says who is essential (`more_functions::is_essential`):
 /// `SetEssential` per base, `SetActorRefEssential` per reference, the
@@ -528,6 +537,8 @@ impl LiveHostAdapter {
             heal_carry: BTreeMap::new(),
             essential_seen: None,
             next_pace_ms: 0,
+            held: BTreeMap::new(),
+            next_held_ms: 0,
         }
     }
 
@@ -733,7 +744,10 @@ impl LiveHostAdapter {
         }
         let victim = wf(actor);
         let mut total = 0.0;
-        for r in super::blow_check::count_blows(cx.order, gs, from, victim, &blows) {
+        let none = BTreeSet::new();
+        let held = self.held.get(&from).unwrap_or(&none);
+        let counted = super::blow_check::count_blows(cx.order, gs, from, victim, &blows, held);
+        for r in counted {
             match r {
                 Ok(c) => {
                     total += c.damage;
@@ -781,6 +795,25 @@ impl LiveHostAdapter {
         }
     }
 
+    /// Keeps the weapon in each guest's hand in the host's copy (`held`).
+    fn note_held(&mut self, cx: Ctx, gs: &mut GameState, live: &HostLive, now_ms: u64) {
+        if now_ms < self.next_held_ms || !gs.coop.bank.enabled() {
+            return;
+        }
+        self.next_held_ms = now_ms + HELD_EVERY_MS;
+        for p in live.members().to_vec() {
+            if p == PlayerId::HOST || !gs.coop.bank.parked.contains_key(&p.0) {
+                continue;
+            }
+            let hand = gs.with_player(p.0, |g| {
+                crate::combat::weapon_in_hand(cx.order, g, PLAYER_REF).map(|w| w.form_id)
+            });
+            if let Some(w) = hand {
+                self.held.entry(p).or_default().insert(w);
+            }
+        }
+    }
+
     /// Also returns a notice to the striker of each dropped blow
     /// ([`ActorMsg::HitBlocked`]), so that it forgets the part point it kept.
     fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> (Outs, Outs) {
@@ -816,6 +849,7 @@ impl LiveHostAdapter {
         super::campaign::host_frame(cx, gs, now_ms);
         self.registry.update(live);
         self.paces(cx, gs, live, now_ms);
+        self.note_held(cx, gs, live, now_ms);
         super::campaign::party::refresh_positions(gs, &self.registry);
         // a guest's followers come along when the guest changes place
         let places = &mut self.pump.places;

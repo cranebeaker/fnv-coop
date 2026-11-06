@@ -16,8 +16,25 @@
 //!
 //! A part the host does not grant is dropped from the blow, not the blow.
 //! A wrong weapon or follower refuses the blow.
+//!
+//! An explosion's blow ([`BlastBlow`]) is counted as the guest's explosion
+//! hit is (`Runner::explosion_hit`), from the host's own data:
+//! - the weapon must be in the striker's hand or carried in the host's
+//!   copy, or the copy of that guest held it in hand earlier in the session
+//!   (a grenade thrown or a mine set leaves the hand before it goes off);
+//! - the explosion must be one that weapon makes
+//!   ([`crate::explosions::weapon_explosions`]);
+//! - its centre must be within [`MAX_BLAST_REACH`] of the guest's puppet;
+//! - the damage is the explosion's base damage for the host's copy of the
+//!   striker ([`crate::explosions::base_damage`]), shared by the falloff at
+//!   the victim's place in the host's world, then through the armour
+//!   ([`crate::explosions::hit_damage`]). A victim outside the radius there
+//!   takes nothing.
 
-use coop_core::actors::Blow;
+use std::collections::BTreeSet;
+
+use coop_core::actors::{BlastBlow, Blow};
+use coop_core::combat::MAX_BLAST_REACH;
 use coop_core::ids::{FormId as CForm, PlayerId};
 use esm::{FormId, LoadOrder};
 
@@ -34,6 +51,12 @@ pub enum Refusal {
     NotAFollower,
     /// The weapon is not the one in the striker's hand in the host's copy.
     NotInHand,
+    /// The explosion is not one that the weapon makes.
+    NotItsExplosion,
+    /// The explosion's centre is too far from the guest.
+    OutOfReach,
+    /// The victim is outside the explosion's radius in the host's world.
+    OutsideRadius,
 }
 
 /// A blow as the host counts it.
@@ -46,15 +69,21 @@ pub struct Counted {
 }
 
 /// The host's count of the `blows` of player `from` on `victim`, one result
-/// for each blow.
+/// for each blow. `held`: the weapons that the host's copy of `from` held in
+/// hand earlier in the session.
 pub fn count_blows(
     order: &LoadOrder,
     gs: &mut GameState,
     from: PlayerId,
     victim: FormId,
     blows: &[Blow],
+    held: &BTreeSet<FormId>,
 ) -> Vec<Result<Counted, Refusal>> {
     let puppet = puppet_of(from);
+    let places = Places {
+        victim: gs.place(order, victim).map(|p| p.2),
+        guest: gs.place(order, puppet).map(|p| p.2),
+    };
     let sneaking = super::combat_live::stealth_of(gs, puppet).is_some_and(|s| s.sneaking);
     let unseen = Facts {
         order,
@@ -79,7 +108,10 @@ pub fn count_blows(
                 if !follower {
                     return Err(Refusal::NotAFollower);
                 }
-                count_one(order, g, b, victim, sneaking, unseen)
+                match b.blast {
+                    Some(blast) => count_blast(order, g, b, blast, victim, places, held),
+                    None => count_one(order, g, b, victim, sneaking, unseen),
+                }
             })
             .collect()
     })
@@ -157,5 +189,74 @@ fn count_one(
     Ok(Counted {
         damage: super::facts::scaled_damage(g, victim, attacker, f64::from(d.dealt)),
         dropped: b.flags & !flags,
+    })
+}
+
+/// Where the victim and the guest's puppet are in the host's world.
+#[derive(Clone, Copy)]
+struct Places {
+    victim: Option<[f32; 3]>,
+    guest: Option<[f32; 3]>,
+}
+
+fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+}
+
+/// One explosion's blow, with the guest's rows in `PLAYER_REF` (`with_player`).
+fn count_blast(
+    order: &LoadOrder,
+    g: &mut GameState,
+    b: &Blow,
+    blast: BlastBlow,
+    victim: FormId,
+    places: Places,
+    held: &BTreeSet<FormId>,
+) -> Result<Counted, Refusal> {
+    let attacker = b.by.map_or(PLAYER_REF, |f| FormId(f.0));
+    let id = FormId(b.weapon.ok_or(Refusal::NotInHand)?.0);
+    let in_hand = combat::weapon_in_hand(order, g, attacker).is_some_and(|w| w.form_id == id);
+    let carried = g.item_count(order, attacker, id) > 0;
+    let had = attacker == PLAYER_REF && held.contains(&id);
+    if !(in_hand || carried || had) {
+        return Err(Refusal::NotInHand);
+    }
+    let weapon = combat::Weapon::load(order, id).ok_or(Refusal::NotInHand)?;
+    let explosion = FormId(blast.explosion.0);
+    if !crate::explosions::weapon_explosions(order, &weapon).contains(&explosion) {
+        return Err(Refusal::NotItsExplosion);
+    }
+    let e = crate::explosions::ExplosionRecord::load(order, explosion)
+        .ok_or(Refusal::NotItsExplosion)?;
+    let at = blast.at.map(coop_core::avatar::dequant_pos);
+    let (Some(victim_at), Some(guest_at)) = (places.victim, places.guest) else {
+        return Err(Refusal::OutOfReach);
+    };
+    if distance(at, guest_at) > MAX_BLAST_REACH {
+        return Err(Refusal::OutOfReach);
+    }
+    let radius = crate::explosions::blast_radius(order, g, Some(attacker), Some(id), &e);
+    let share = crate::explosions::falloff(radius, distance(at, victim_at));
+    if share <= 0.0 {
+        return Err(Refusal::OutsideRadius);
+    }
+    let base = crate::explosions::base_damage(order, g, Some(attacker), Some(&weapon), &e);
+    // The best roll (0) still misses: no critical chance at all.
+    let critical = b.has(Blow::CRITICAL)
+        && combat::critical(order, g, attacker, Some(&weapon), victim, false, 0);
+    let dealt = crate::explosions::hit_damage(
+        order,
+        g,
+        base * share,
+        Some(attacker),
+        Some(&weapon),
+        victim,
+        critical,
+    );
+    let granted = if critical { Blow::CRITICAL } else { 0 };
+    Ok(Counted {
+        damage: super::facts::scaled_damage(g, victim, attacker, f64::from(dealt)),
+        dropped: b.flags & !granted,
     })
 }

@@ -273,6 +273,56 @@ pub fn falloff(radius: f32, distance: f32) -> f32 {
     }
 }
 
+/// What an explosion's hit of `damage` (after [`falloff`]) takes from
+/// `target`, as `0089a760` takes it: the armour (`009b5a30`) and the
+/// player's V.A.T.S. multiplier, then on a `critical` the weapon's critical
+/// damage after the armour (`009b7060`). The hit has no body part, so no
+/// part multiplier (`009b73d0`). A co-op host counts a guest's explosion
+/// with it too (`coop::blow_check`).
+pub fn hit_damage(
+    order: &LoadOrder,
+    state: &GameState,
+    damage: f32,
+    source: Option<FormId>,
+    weapon: Option<&Weapon>,
+    target: FormId,
+    critical: bool,
+) -> f32 {
+    let weapon_id = weapon.map(|w| w.form_id);
+    let mut dealt = crate::combat::hit_through_armour(
+        order,
+        state,
+        damage,
+        source.map(|s| (s, weapon_id)),
+        target,
+        None,
+    ) * crate::vats::player_damage_mult(order, state, target);
+    if let (true, Some(s)) = (critical, source) {
+        dealt += crate::combat::critical_damage(order, state, s, weapon, target, dealt);
+    }
+    dealt
+}
+
+/// The explosions `weapon` can make: those of its own projectile and of the
+/// projectiles its ammunition fires instead ([`crate::combat::fired_projectile`]).
+pub fn weapon_explosions(order: &LoadOrder, weapon: &Weapon) -> Vec<FormId> {
+    let mut out = Vec::new();
+    let projectiles = weapon.projectile.into_iter().chain(
+        weapon
+            .ammo
+            .iter()
+            .filter_map(|&a| crate::combat::ammo_projectile(order, a)),
+    );
+    for p in projectiles {
+        if let Some(e) = ProjectileRecord::load(order, p).and_then(|p| p.explosion) {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+    }
+    out
+}
+
 fn setting(order: &LoadOrder, name: &str, default: f32) -> f32 {
     game_setting(order, name).unwrap_or(default)
 }

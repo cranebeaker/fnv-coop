@@ -61,7 +61,7 @@ SETS = {
                  "live_extra_enemies_scaling", "live_door_follow"],
         "combat": ["live_guest_kills_npc", "live_npc_attacks_remote_player", "live_friendly_fire_guard",
                    "live_guest_hits_essential", "live_explosion_area", "live_downed_revive_from_npc",
-                   "live_kill_xp_attribution", "live_vats_no_freeze"],
+                   "live_kill_xp_attribution", "live_vats_no_freeze", "live_guest_frag"],
         "dialogue": ["live_dialogue_session", "live_dialogue_forced_line", "live_scene_forced_dialogue",
                      "live_dialogue_pause_real", "live_chat_roundtrip"],
         "quests": ["doc_stage_sync", "doc_player_quest_sync", "live_fork_consent",

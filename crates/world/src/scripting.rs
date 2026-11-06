@@ -3695,6 +3695,7 @@ impl<'a> Runner<'a> {
                 | flag(sneak, coop_core::actors::Blow::SNEAK)
                 | flag(critical, coop_core::actors::Blow::CRITICAL),
             vats: vats.map(|a| a.kind),
+            blast: None,
         });
         let killed = crate::combat::hurt(order, self.state, target, f64::from(dealt), attacker);
         self.state.coop.live.blow = None;
@@ -3786,13 +3787,15 @@ impl<'a> Runner<'a> {
     /// critical damage after the armour), no body part (so no multiplier,
     /// `009b73d0`), the health, `OnDeath`, and the hurt fighting back. The
     /// limbs the explosion reaches (`009afcc0`, `009b1720`) aren't damaged
-    /// here. What it did, for people and creatures.
+    /// here. `went_off`: the explosion and its centre, which a co-op guest
+    /// names to the host. What it did, for people and creatures.
     pub fn explosion_hit(
         &mut self,
         source: Option<FormId>,
         target: FormId,
         weapon: Option<&crate::combat::Weapon>,
         damage: f32,
+        went_off: Option<(FormId, [f32; 3])>,
     ) -> Option<crate::combat::Hit> {
         let order = self.order;
         if crate::more_functions::is_ghost(self.state, target) {
@@ -3823,21 +3826,13 @@ impl<'a> Runner<'a> {
         if kind.as_bytes() != b"NPC_" && kind != CREA {
             return None;
         }
-        let mut dealt = crate::combat::hit_through_armour(
-            order,
-            self.state,
-            damage,
-            source.map(|s| (s, weapon_id)),
-            target,
-            None,
-        ) * crate::vats::player_damage_mult(order, self.state, target);
         let critical = source.is_some_and(|s| {
             let roll = self.state.roll() % 1000;
             crate::combat::critical(order, self.state, s, weapon, target, false, roll)
         });
-        if let (true, Some(s)) = (critical, source) {
-            dealt += crate::combat::critical_damage(order, self.state, s, weapon, target, dealt);
-        }
+        let dealt = crate::explosions::hit_damage(
+            order, self.state, damage, source, weapon, target, critical,
+        );
         self.state.hit_location.insert(target, -1);
         let was_hostile = source.is_some_and(|s| self.state.combat.get(&target) == Some(&s));
         let person = kind.as_bytes() == b"NPC_";
@@ -3846,7 +3841,28 @@ impl<'a> Runner<'a> {
             fights_back &= crate::crime::assault(order, self.state, target);
         }
         let was_alive = !self.state.dead.contains(&target);
+        // A co-op guest names its explosion's blow with its damage, for the
+        // host to count it (`coop::facts::hurt_hooked`, `coop::blow_check`).
+        self.state.coop.live.blow =
+            source
+                .zip(went_off)
+                .map(|(s, (explosion, at))| coop_core::actors::Blow {
+                    by: (s != PLAYER_REF).then_some(coop_core::ids::FormId(s.0)),
+                    weapon: weapon_id.map(|w| coop_core::ids::FormId(w.0)),
+                    part: None,
+                    flags: if critical {
+                        coop_core::actors::Blow::CRITICAL
+                    } else {
+                        0
+                    },
+                    vats: None,
+                    blast: Some(coop_core::actors::BlastBlow {
+                        explosion: coop_core::ids::FormId(explosion.0),
+                        at: at.map(coop_core::avatar::quant_pos),
+                    }),
+                });
         let killed = crate::combat::hurt(order, self.state, target, f64::from(dealt), attacker);
+        self.state.coop.live.blow = None;
         // The explosion's hit carries its weapon's critical effect too
         // (`009b5770` builds it with the weapon, `009b7060`, `0089a760`).
         if critical {

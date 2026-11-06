@@ -15,6 +15,8 @@
 //! coop attack [KIND] [ARG]    a combat action (swing, shoot, aim, reload,
 //!                              block, hurt, knockdown, death, draw,
 //!                              holster) for the other players' puppets
+//! coop throw REF               throw the grenade in hand at a person (its
+//!                              real flight and explosion, as the AI throws)
 //! coop say TEXT...             chat
 //! coop ping [DISTANCE]         ping that far ahead (default 600 units)
 //! coop waypoint X Y | unwaypoint   set or clear the waypoint
@@ -218,6 +220,22 @@ pub fn run(
                     .live
                     .local_actions
                     .push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
+            }
+            Some("throw") => {
+                // the weapon in hand leaves it for the person's place, as the AI
+                // throws (`fighting`: `Aim::At`); the flight and the explosion are
+                // the viewer's own (`explosives`)
+                let weapon = world::combat::weapon_in_hand(order, gs, PLAYER_REF)
+                    .filter(world::explosions::is_thrown);
+                let goal = f(2).and_then(|r| gs.place(order, r)).map(|p| p.2);
+                if let (Some(w), Some(goal), Some(p)) = (weapon, goal, gs.player_position) {
+                    crate::explosives::throw(crate::explosives::Launch {
+                        thrower: PLAYER_REF,
+                        weapon: w,
+                        origin: [p[0], p[1], p[2] + crate::explosives::THROW_HEIGHT],
+                        aim: crate::explosives::Aim::At(goal),
+                    });
+                }
             }
             Some("say") => link.0.live_intent(Intent::Say(words[2..].join(" "))),
             Some("ping") => {

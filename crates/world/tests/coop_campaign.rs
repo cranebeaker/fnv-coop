@@ -1209,7 +1209,7 @@ fn attribution_slots_for_combat_forms() {
 /// #74: the host counts a guest's named blows from its own copy of that guest.
 mod named_blows {
     use super::*;
-    use coop_core::actors::Blow;
+    use coop_core::actors::{BlastBlow, Blow};
     use coop_core::ids::FormId as CForm;
     use world::coop::facts::PendingHit;
 
@@ -1244,6 +1244,7 @@ mod named_blows {
             part: None,
             flags,
             vats: None,
+            blast: None,
         }
     }
 
@@ -1409,6 +1410,155 @@ mod named_blows {
         assert!(after > 0.0, "not the guest's 4000 points");
         assert_points(&r, before - after, expected, "the host's count of the shot");
         assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// The gecko's place in the host's world, moved by `dx` units on x.
+    fn beside_gecko(r: &Rig, order: &LoadOrder, dx: f32) -> [f32; 3] {
+        let p = r.host.place(order, FormId(GECKO_REF)).expect("the gecko").2;
+        [p[0] + dx, p[1], p[2]]
+    }
+
+    /// The host's own count of guest 1's frag at `at` on the gecko.
+    fn host_blast(r: &mut Rig, order: &LoadOrder, at: [f32; 3]) -> f64 {
+        let gecko = FormId(GECKO_REF);
+        let place = r.host.place(order, gecko).unwrap().2;
+        r.host.with_player(1, |g| {
+            use world::explosions as x;
+            let w = world::combat::Weapon::load(order, FormId(FRAG)).unwrap();
+            let e = x::ExplosionRecord::load(order, FormId(FRAG_EXPLOSION)).unwrap();
+            let radius = x::blast_radius(order, g, Some(PLAYER_REF), Some(w.form_id), &e);
+            let d = [0, 1, 2].map(|k| at[k] - place[k]);
+            let share = x::falloff(radius, (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt());
+            let base = x::base_damage(order, g, Some(PLAYER_REF), Some(&w), &e);
+            f64::from(x::hit_damage(
+                order,
+                g,
+                base * share,
+                Some(PLAYER_REF),
+                Some(&w),
+                gecko,
+                false,
+            ))
+        })
+    }
+
+    /// The guest's world sets off its frag at `at` with `damage` on the gecko
+    /// (`Runner::explosion_hit`, as the viewer's explosion does).
+    fn guest_blast(
+        r: &mut Rig,
+        order: &LoadOrder,
+        scripts: &ScriptCache,
+        at: [f32; 3],
+        damage: f32,
+    ) {
+        let frag = world::combat::Weapon::load(order, FormId(FRAG)).unwrap();
+        world::scripting::Runner::new(order, scripts, &mut r.guests[0]).explosion_hit(
+            Some(PLAYER_REF),
+            FormId(GECKO_REF),
+            Some(&frag),
+            damage,
+            Some((FormId(FRAG_EXPLOSION), at)),
+        );
+    }
+
+    /// #74: a guest's explosion names its blow (the frag, the explosion and
+    /// its centre). The host counts the damage from its own copy of the
+    /// guest and its own gecko's place, not the guest's 4000 points.
+    #[test]
+    fn the_host_counts_a_guests_explosion() {
+        let (_d, order) = order("blow-blast");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 36, FRAG);
+        let gecko = FormId(GECKO_REF);
+        let at = beside_gecko(&r, &order, 200.0);
+        let expected = host_blast(&mut r, &order, at);
+        assert!(
+            expected >= 1.0 && expected < before,
+            "a frag at 200 units ({expected} of {before})"
+        );
+        guest_blast(&mut r, &order, &scripts, at, 4000.0);
+        let hit = r.guests[0].coop.live.pending_hits[0];
+        let blast = hit.blow.and_then(|b| b.blast).expect("a named explosion");
+        assert_eq!(blast.explosion, CForm(FRAG_EXPLOSION));
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(
+            &r,
+            before - after,
+            expected,
+            "the host's count of the explosion",
+        );
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// The gecko outside the radius at the host's place takes nothing.
+    #[test]
+    fn the_host_refuses_an_explosion_outside_its_radius() {
+        let (_d, order) = order("blow-blast-far");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 37, FRAG);
+        let at = beside_gecko(&r, &order, 450.0);
+        guest_blast(&mut r, &order, &scripts, at, 30.0);
+        r.run_ms(3_000);
+        let gecko = FormId(GECKO_REF);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// The explosion must be one that the weapon makes: a machete makes none.
+    #[test]
+    fn the_host_refuses_an_explosion_the_weapon_does_not_make() {
+        let (_d, order) = order("blow-blast-machete");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 38, MACHETE);
+        let at = beside_gecko(&r, &order, 100.0);
+        let gecko = FormId(GECKO_REF);
+        let mut blow = named(MACHETE, 0);
+        blow.blast = Some(BlastBlow {
+            explosion: CForm(FRAG_EXPLOSION),
+            at: at.map(coop_core::avatar::quant_pos),
+        });
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 30.0,
+            by: PLAYER_REF,
+            blow: Some(blow),
+        });
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// A thrown frag leaves the hand before it goes off. The host's copy held
+    /// it in hand earlier, so the host still counts it. Mutation twin: a guest
+    /// whose copy never held a frag has its frag explosion refused.
+    #[test]
+    fn a_frag_that_left_the_hand_counts_only_when_the_copy_held_it() {
+        let (_d, order) = order("blow-blast-thrown");
+        let scripts = ScriptCache::default();
+        for (held, seed) in [(true, 39), (false, 40)] {
+            let weapon = if held { FRAG } else { MACHETE };
+            let (mut r, before) = rig(&order, &scripts, seed, weapon);
+            let at = beside_gecko(&r, &order, 200.0);
+            let expected = host_blast(&mut r, &order, at);
+            // the last frag went: the copy's hand is empty and it carries none
+            r.host.with_player(1, |g| {
+                g.equipped.insert(PLAYER_REF, vec![]);
+                assert_eq!(g.item_count(&order, PLAYER_REF, FormId(FRAG)), 0);
+            });
+            guest_blast(&mut r, &order, &scripts, at, 4000.0);
+            r.run_ms(3_000);
+            let gecko = FormId(GECKO_REF);
+            let after = world::combat::health(&order, &r.host, gecko).unwrap();
+            if held {
+                assert_points(&r, before - after, expected, "the frag held earlier");
+                assert_eq!(r.ha.stats.blows_refused, 0);
+            } else {
+                assert_eq!(after, before, "never held: refused");
+                assert_eq!(r.ha.stats.blows_refused, 1);
+            }
+        }
     }
 
     /// Mutation twin: without the host's count, the guest's number lands.

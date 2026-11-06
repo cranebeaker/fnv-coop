@@ -694,7 +694,7 @@ fn explosions_hurt_through_the_hit_path() {
     // No criticals (Luck 0), no armour: the damage given is taken.
     state.actor_values.insert((PLAYER_REF, 11), 0.0);
     let hit = Runner::new(&order, &scripts, &mut state)
-        .explosion_hit(Some(PLAYER_REF), gecko, Some(&pistol), 20.0)
+        .explosion_hit(Some(PLAYER_REF), gecko, Some(&pistol), 20.0, None)
         .unwrap();
     assert!((hit.dealt - 20.0).abs() < 1e-4 && hit.part.is_none() && !hit.critical);
     assert!((combat::health(&order, &state, gecko).unwrap() - 10.0).abs() < 1e-4);
@@ -704,7 +704,7 @@ fn explosions_hurt_through_the_hit_path() {
     let mut armoured = state.clone();
     armoured.actor_values.insert((gecko, 18), 50.0);
     let dealt = Runner::new(&order, &scripts, &mut armoured)
-        .explosion_hit(Some(PLAYER_REF), gecko, Some(&pistol), 8.0)
+        .explosion_hit(Some(PLAYER_REF), gecko, Some(&pistol), 8.0, None)
         .unwrap()
         .dealt;
     assert!((dealt - 4.0).abs() < 1e-4, "{dealt}");
@@ -715,6 +715,7 @@ fn explosions_hurt_through_the_hit_path() {
         gecko,
         Some(&pistol),
         20.0,
+        None,
     );
     assert!(state.dead.contains(&gecko));
     assert_eq!(state.globals[&FormId(GLOBAL)], 100.0);
@@ -730,6 +731,7 @@ fn explosions_hurt_through_the_hit_path() {
         FormId(BOTTLE_REF),
         Some(&pistol),
         20.0,
+        None,
     );
     assert_eq!(bottle, None);
     assert_eq!(state.globals[&FormId(GLOBAL)], 1.0);
