@@ -1,8 +1,7 @@
 //! The platform's clock and time-zone calls: `GetSystemTimeAsFileTime` (the real system clock,
 //! read when the game asks), `GetTimeZoneInformation` and `FileTimeToLocalFileTime` (the
 //! player's time zone from the machine table, `scripts/d3d9-capture`, with the bias in effect
-//! now worked out by [`zone`]), `FileTimeToSystemTime`, and `WideCharToMultiByte` for the
-//! ASCII text the CRT converts (the time-zone names).
+//! now worked out by [`zone`]) and `FileTimeToSystemTime`.
 //!
 //! Measured on this machine (2026-10-21, `build43-scratch/measure/time-2026-10-21.txt`, a
 //! program calling the real functions; zone US Eastern, daylight time in effect):
@@ -15,12 +14,6 @@
 //! - `FileTimeToSystemTime` converts every value up to 0x7FFF_FFFF_FFFF_FFFF (30828-09-14
 //!   02:48:05.477); above it answers FALSE with `ERROR_INVALID_PARAMETER` (87) and leaves the
 //!   output as it was. Equal to [`zone::system_time`] for every half hour of 2025-2027.
-//! - `WideCharToMultiByte(CP_ACP (1252 here), 0, text, -1, out, size, NULL, &used)` copies
-//!   ASCII as is and counts the zero; `used` becomes FALSE; with `size` 0 it answers the size
-//!   needed and writes nothing; too small a buffer is filled as far as it goes and the call
-//!   answers 0 with `ERROR_INSUFFICIENT_BUFFER` (122). `é` became 0xE9 and a character outside
-//!   code page 1252 `?` with `used` TRUE: non-ASCII text is not provided here (the code page's
-//!   table is not captured).
 
 use super::zone::{self, ZoneInfo};
 use crate::{Engine, Ptr};
@@ -109,63 +102,6 @@ pub fn file_time_to_system_time(e: &mut Engine, time: Ptr, out: Ptr) -> u32 {
             0
         }
     }
-}
-
-// Platform: replaces KERNEL32.DLL WideCharToMultiByte (import)
-/// `WideCharToMultiByte(code page, flags, wide, count, out, size, default, used)` for ASCII
-/// text in `CP_ACP` (0) or 1252 with no flags and no default character: each character as its
-/// byte (`count` -1: through the zero, which is counted); `used` (when given) FALSE; `size` 0
-/// answers the size needed; too small a buffer is filled as far as it goes and answers 0 with
-/// `ERROR_INSUFFICIENT_BUFFER` (122). As measured (module comment). Other code pages, flags,
-/// a default character or non-ASCII text are not provided (they stop the run).
-#[allow(clippy::too_many_arguments)]
-pub fn wide_char_to_multi_byte(
-    e: &mut Engine,
-    code_page: u32,
-    flags: u32,
-    wide: Ptr,
-    count: i32,
-    out: Ptr,
-    size: i32,
-    default: Ptr,
-    used: Ptr,
-) -> u32 {
-    assert!(
-        (code_page == 0 || code_page == 1252) && flags == 0 && default.addr() == 0,
-        "WideCharToMultiByte(code page {code_page}, flags {flags:#x}, default {:#x}) is not provided",
-        default.addr()
-    );
-    let mut text = Vec::new();
-    let mut at = wide.addr();
-    loop {
-        if count >= 0 && text.len() as i32 >= count {
-            break;
-        }
-        let c = e.mem.u16(at);
-        assert!(
-            c < 0x80,
-            "WideCharToMultiByte: the non-ASCII character {c:#x} is not provided"
-        );
-        text.push(c as u8);
-        at += 2;
-        if count < 0 && c == 0 {
-            break;
-        }
-    }
-    if used.addr() != 0 {
-        e.mem.set_u32(used.addr(), 0);
-    }
-    if size == 0 {
-        return text.len() as u32;
-    }
-    let room = size.max(0) as usize;
-    let written = text.len().min(room);
-    e.mem.write(out.addr(), &text[..written]);
-    if written < text.len() {
-        e.kernel.last_error = 122;
-        return 0;
-    }
-    text.len() as u32
 }
 
 /// The days of `month` in `year` (proleptic Gregorian).
@@ -480,38 +416,5 @@ mod tests {
         );
         let words: Vec<u16> = (0..8).map(|i| e.mem.u16(out + 2 * i)).collect();
         assert_eq!(words, [1970, 1, 4, 1, 0, 0, 12, 345]);
-    }
-
-    #[test]
-    fn ascii_names_convert_and_short_buffers_fail() {
-        let mut e = Engine::new();
-        let wide = e.mem.alloc(64);
-        for (i, c) in "Eastern\0".encode_utf16().enumerate() {
-            e.mem.set_u16(wide + 2 * i as u32, c);
-        }
-        let out = e.mem.alloc(16);
-        let used = e.mem.alloc(4);
-        e.mem.set_u32(used, 7);
-        let call = |e: &mut Engine, size: i32| {
-            wide_char_to_multi_byte(
-                e,
-                0,
-                0,
-                Ptr::new(wide),
-                -1,
-                Ptr::new(out),
-                size,
-                Ptr::new(0),
-                Ptr::new(used),
-            )
-        };
-        assert_eq!(call(&mut e, 0x3f), 8);
-        assert_eq!(e.mem.cstr(out), b"Eastern".to_vec());
-        assert_eq!(e.mem.u32(used), 0);
-        assert_eq!(call(&mut e, 0), 8);
-        e.mem.write(out, &[0xaa; 8]);
-        assert_eq!(call(&mut e, 4), 0);
-        assert_eq!(e.kernel.last_error, 122);
-        assert_eq!(e.mem.bytes(out, 5), b"East\xaa".to_vec());
     }
 }

@@ -62,7 +62,7 @@ recordings of the original.
 
 Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
 the move of the game's systems to typed, native 64-bit Rust, which is also the main speed work
-(the target is 200+ fps; on the maintainer's PC it runs at about 35 in a busy town and about 80 indoors today); then the modern
+(the target is 200+ fps; at 1440p on the maintainer's PC it runs at about 45 in a busy town and about 70 indoors today, or about 100 indoors without the original's frame cap); then the modern
 systems built on it. Not yet: script-extender (NVSE) plugins, co-op, platforms other than
 Windows, and VR.
 
