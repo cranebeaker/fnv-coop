@@ -124,7 +124,8 @@ pub fn hkp_iterative_linear_cast_agent_linear_cast(
         }
         let u = load_float(e, inp + 0x60);
         let reach = f64::from(s) + f64::from(u);
-        let below_zero = reach < e.mem.f64(ZERO_DOUBLE);
+        // daf667..daf672: `TEST AH,1; JZ` leaves only when C0 is clear, so a NaN goes on.
+        let below_zero = !(reach >= e.mem.f64(ZERO_DOUBLE));
         if !below_zero {
             return;
         }
@@ -172,7 +173,8 @@ pub fn hkp_iterative_linear_cast_agent_linear_cast(
                 e.vcall(t, 0x10, &args![body_record, a2, copy, second]);
                 step = ld(e, inp + 0x50);
                 let slope = x87_quiet(dot3(step, ld(e, second + 0x20)));
-                let negative = slope < 0.0;
+                // daf7ff..daf808: as above, a NaN goes on.
+                let negative = !(slope >= 0.0);
                 if !negative {
                     return;
                 }
@@ -191,7 +193,8 @@ pub fn hkp_iterative_linear_cast_agent_linear_cast(
                 copy16(e, second + 0x10, hit);
                 let list_now = e.mem.u32(inp + 0x68);
                 let first = load_float(e, list_now);
-                if first < d2 {
+                // daf882..daf889: a NaN takes the next entry.
+                if !(first >= d2) {
                     remaining -= 1;
                     if remaining >= 0 {
                         continue;
@@ -605,6 +608,57 @@ mod movement_tests {
         let mut r = rig(5.0, 1, hit_at(3.0, 0.0));
         run(&mut r, 0);
         assert!(r.collected.borrow().is_empty());
+    }
+
+    /// daf667..daf672: a NaN reach goes on and the hit is reported.
+    #[test]
+    fn a_nan_reach_goes_on_to_the_iteration() {
+        let mut r = rig(0.25, 0, hit_at(0.5, 0.1));
+        r.e.mem.set_f32(r.input + 0x60, f32::NAN);
+        run(&mut r, 0);
+        assert_eq!(r.collected.borrow().len(), 1);
+    }
+
+    /// daf7ff..daf808: a NaN slope goes on and the hit is reported.
+    #[test]
+    fn a_nan_slope_goes_on_and_reports() {
+        let finder = hit_at(0.5, 0.1);
+        let mut r = rig(
+            0.25,
+            1,
+            Box::new(move |e, a, n| {
+                finder(e, a, n);
+                if n == 1 {
+                    e.mem.set_f32(a[4] + 0x28, f32::NAN);
+                }
+            }),
+        );
+        run(&mut r, 0);
+        assert_eq!(r.collected.borrow().len(), 1);
+    }
+
+    /// daf882..daf889: a NaN first float of the list takes the next entry.
+    #[test]
+    fn a_nan_list_float_takes_the_next_entry() {
+        let list_at = Rc::new(Cell::new(0u32));
+        let requests = Rc::new(Cell::new(0u32));
+        let (sink, count) = (Rc::clone(&list_at), Rc::clone(&requests));
+        let finder = hit_at(0.5, 0.1);
+        let mut r = rig(
+            0.25,
+            2,
+            Box::new(move |e, a, n| {
+                count.set(n + 1);
+                finder(e, a, n);
+                if n == 1 {
+                    e.mem.set_f32(sink.get(), f32::NAN);
+                }
+            }),
+        );
+        let list = r.e.mem.u32(r.input + 0x68);
+        list_at.set(list);
+        run(&mut r, 0);
+        assert_eq!(requests.get(), 3);
     }
 
     #[test]

@@ -309,10 +309,10 @@ pub fn bhk_dashpot_action_init(e: &mut Engine, this: Ptr, cinfo: u32) {
 // Translation incomplete: 00cc4070 - the FS:[0] exception-unwinding frame is not modeled.
 /// `bhkDashpotAction::GetViewerStrings` (Ghidra name): in the Havok allocation scope runs
 /// `bhkBinaryAction::GetViewerStrings`, appends the viewer string of the text in the global
-/// at `012685c8`, then builds a local construction info (words at `+4`, `+8`, `+0xC` and
-/// the nine floats from `+0x10` to `+0x30` zero, `+0x34` and `+0x38` the floats at
-/// `0101e2bc` and `01013ea4` through the x87 stack; its word at `+0` is a stack leftover in
-/// the exe and is 0 here) and runs `CopyCinfo` (`00cc3a50`) on it.
+/// at `012685c8`, then builds a local construction info (words at `+0`, `+4`, `+8` and the
+/// eight floats from `+0x10` to `+0x2c` zero, `+0x30` and `+0x34` the floats at `0101e2bc`
+/// and `01013ea4` through the x87 stack; its word at `+0xC` is a stack leftover in the exe and
+/// is 0 here) and runs `CopyCinfo` (`00cc3a50`) on it.
 pub fn bhk_dashpot_action_get_viewer_strings(e: &mut Engine, this: Ptr, list: u32) {
     let old = enter_scope(e);
     e.call(BINARY_ACTION_GET_VIEWER_STRINGS, &args![this, list]);
@@ -323,14 +323,14 @@ pub fn bhk_dashpot_action_get_viewer_strings(e: &mut Engine, this: Ptr, list: u3
         let cinfo = local.addr();
         let first = x87_quiet_bits(e.mem.u32(DEFAULT_FIRST_FLOAT));
         let second = x87_quiet_bits(e.mem.u32(DEFAULT_SECOND_FLOAT));
-        for offset in [4, 8, 0xc] {
+        for offset in [0, 4, 8] {
             e.mem.set_u32(cinfo + offset, 0);
         }
-        for offset in (0x10..=0x30).step_by(4) {
+        for offset in (0x10..=0x2c).step_by(4) {
             e.mem.set_u32(cinfo + offset, 0);
         }
-        e.mem.set_u32(cinfo + 0x34, first);
-        e.mem.set_u32(cinfo + 0x38, second);
+        e.mem.set_u32(cinfo + 0x30, first);
+        e.mem.set_u32(cinfo + 0x34, second);
         bhk_dashpot_action_copy_cinfo(e, this, cinfo);
     });
     leave_scope(e, old);
@@ -850,14 +850,14 @@ mod tests {
         // The base copy checks the local construction info before CopyCinfo changes it.
         e.register(BINARY_ACTION_COPY_CINFO, |e, a| {
             let local = a[1];
-            for offset in [4, 8, 0xc] {
+            for offset in [0, 4, 8] {
                 assert_eq!(e.mem.u32(local + offset), 0);
             }
-            for offset in (0x10..=0x30).step_by(4) {
+            for offset in (0x10..=0x2c).step_by(4) {
                 assert_eq!(e.mem.u32(local + offset), 0, "offset {offset:x}");
             }
-            assert_eq!(e.mem.u32(local + 0x34), 0x3f80_0000);
-            assert_eq!(e.mem.u32(local + 0x38), 0x4000_0000);
+            assert_eq!(e.mem.u32(local + 0x30), 0x3f80_0000);
+            assert_eq!(e.mem.u32(local + 0x34), 0x4000_0000);
             Ret::default()
         });
         quiet(&mut e, &[VECTOR_ASSIGN]);

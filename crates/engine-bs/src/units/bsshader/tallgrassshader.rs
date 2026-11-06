@@ -1769,7 +1769,8 @@ pub fn tall_grass_shader_update_point_lights(
 pub fn fn_00baa850(e: &mut Engine, this: Ptr, word: u32, transform: u32) {
     let base = this.addr();
     let one = x87_store32(1.0);
-    e.with_stack(0x110, |e, frame| {
+    // The product (00baa9a1, 00baa9ba) ends 0x118 bytes above the second matrix (00baa9ae).
+    e.with_stack(0x118, |e, frame| {
         let second = frame.addr();
         let first = second + 0x58;
         let record_matrix = second + 0x98;
@@ -2873,6 +2874,14 @@ mod n072_tests {
     }
 
     fn shadow_setup(word: u32) -> (Engine, u32) {
+        let mut e = shadow_engine();
+        let this = e.mem.alloc(0x1e0);
+        let transform = e.mem.alloc(0x34);
+        e.call(0x00ba_a850, &args![this, word, transform]);
+        (e, this)
+    }
+
+    fn shadow_engine() -> Engine {
         let mut e = rig();
         e.map(0x0120_0000, 0x1000);
         e.map(0x011f_4000, 0x1000);
@@ -2918,10 +2927,7 @@ mod n072_tests {
             }
             a[0].into_ret()
         });
-        let this = e.mem.alloc(0x1e0);
-        let transform = e.mem.alloc(0x34);
-        e.call(0x00ba_a850, &args![this, word, transform]);
-        (e, this)
+        e
     }
 
     #[test]
@@ -2938,6 +2944,16 @@ mod n072_tests {
         let (e, _) = shadow_setup(1);
         assert!(calls(&e, BUILD_MATRIX_00B71A40).is_empty());
         assert_eq!(floats(&e, 0x0120_0510, 4)[3], 100.0);
+    }
+
+    /// 00baa9a1, 00baa9ae: all 16 floats of the product lie inside the stack block.
+    #[test]
+    fn fn_00baa850_keeps_the_product_inside_its_stack_block() {
+        let mut e = shadow_engine();
+        e.mem.enable_block_check(true, true);
+        let this = e.mem.alloc(0x1e0);
+        let transform = e.mem.alloc(0x34);
+        e.call(0x00ba_a850, &args![this, 1u32, transform]);
     }
 
     #[test]

@@ -1363,8 +1363,10 @@ pub fn bhk_ragdoll_controller_update_debug_lines(e: &mut Engine, this: Ptr, stag
         }
         prepare_line_object(e, line);
         if stage == 1 {
+            // c7ce30..c7ce5f: the 1.0 still on the x87 stack fills the last two lanes.
             let weight = x87_quiet_bits(e.mem.u32(LINE_DEFAULT_WEIGHT));
-            let mut color = [0, weight, weight, weight];
+            let one = x87_store32(1.0);
+            let mut color = [0, weight, one, one];
             let list = e.mem.u32(base + 0x48);
             let table = e.mem.u32(list + 0x20);
             let slot = e.mem.i32(table.wrapping_add(bone.wrapping_mul(4)));
@@ -12930,11 +12932,9 @@ mod tests {
             vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
         );
         let weight = 0.5f32.to_bits();
+        let one = 1.0f32.to_bits();
         let default: Vec<u32> = (0..8).map(|word| e.mem.u32(colors + 4 * word)).collect();
-        assert_eq!(
-            default,
-            vec![0, weight, weight, weight, 0, weight, weight, weight]
-        );
+        assert_eq!(default, vec![0, weight, one, one, 0, weight, one, one]);
         assert_eq!(
             calls_to(&log, ALLOCATOR_FREE),
             vec![vec![allocator, block, 0x60]]

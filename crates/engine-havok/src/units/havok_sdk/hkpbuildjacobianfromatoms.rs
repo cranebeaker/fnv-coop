@@ -818,7 +818,7 @@ pub fn fn_00d6d720(
 
 /// Asks `hkCalcMotorData` for the six floats of a motor: the input block is `{inverse, info,
 /// limits[0], limits[1], remaining, passed}` (the limits as raw words) and the output has six
-/// words, of which the code reads `1..=5`.
+/// words, all of which the record reads.
 fn calc_motor_data(e: &mut Engine, motor: u32, block: [u32; 6]) -> [f32; 6] {
     e.with_stack(0x18, |e, input| {
         for (index, word) in block.into_iter().enumerate() {
@@ -832,11 +832,11 @@ fn calc_motor_data(e: &mut Engine, motor: u32, block: [u32; 6]) -> [f32; 6] {
 }
 
 /// Completes the 0x40-byte tag-15 record at the cursor from the motor data: `begin + 0x1c`
-/// becomes `info.float[2] * out[3]`; the record gets `FLT_EPSILON` added to its first float,
+/// becomes `info.float[2] * out[0]`; the record gets `FLT_EPSILON` added to its first float,
 /// the tag 15, `out[2]` and `out[3]` times `info.float[1]` at `+0x20` and `+0x24` and `out[1]`,
 /// `out[4]` and `out[5]` at `+0x28`, `+0x2c` and `+0x30`; the cursor moves on by 0x40.
 fn commit_motor_record(e: &mut Engine, info: u32, cursor: Ptr, begin: u32, out: [f32; 6]) {
-    let weight = f64::from(x87_quiet(e.mem.f32(info + 8))) * f64::from(out[3]);
+    let weight = f64::from(x87_quiet(e.mem.f32(info + 8))) * f64::from(out[0]);
     e.mem.set_f32(begin + 0x1c, weight as f32);
     let record = e.mem.u32(cursor.addr());
     add_epsilon(e, record);
@@ -1743,6 +1743,17 @@ pub fn hk_solver_build_jacobian_from_atoms_not_contact(
     });
 }
 
+/// A point moved by the body block behind `pointer_slot`, in the exe's order of additions
+/// (d6f846..d6f87d, d6f88f..d6f8bb): `(y * row1 + x * row0) + (z * row2 + row3)`.
+fn body_point(e: &Engine, point: Vec4, pointer_slot: u32) -> Vec4 {
+    let [row0, row1, row2] = body_matrix(e, pointer_slot);
+    let row3 = load_vec(e, e.mem.u32(pointer_slot) + 0x30);
+    add(
+        add(mul(splat(point, 1), row1), mul(splat(point, 0), row0)),
+        add(mul(splat(point, 2), row2), row3),
+    )
+}
+
 /// Appends the records of one atom of type `kind` (1..=0x1c) and advances the atom pointer and
 /// the schema counters. The counters are byte pointers in the schema (`+0x64` and `+0x74`;
 /// the opening record also reads `+0x60`, `+0x6c` and `+0x70`).
@@ -1791,13 +1802,11 @@ fn dispatch_atom(
             // The atom's two points turned and translated by the two bodies, into each body
             // block's fourth row.
             let point_b = load_vec(e, *atom + 0x10);
-            let turned_b = rotate_rows(point_b, body_matrix(e, schema + 0x38));
-            let translation_b = load_vec(e, e.mem.u32(schema + 0x38) + 0x30);
-            store_vec(e, rows_b + 0x30, add(turned_b, translation_b));
+            let moved_b = body_point(e, point_b, schema + 0x38);
+            store_vec(e, rows_b + 0x30, moved_b);
             let point_a = load_vec(e, *atom + 0x20);
-            let turned_a = rotate_rows(point_a, body_matrix(e, schema + 0x3c));
-            let translation_a = load_vec(e, e.mem.u32(schema + 0x3c) + 0x30);
-            store_vec(e, rows_a + 0x30, add(turned_a, translation_a));
+            let moved_a = body_point(e, point_a, schema + 0x3c);
+            store_vec(e, rows_a + 0x30, moved_a);
             *atom += 0x30;
         }
         4 => {
@@ -2575,7 +2584,7 @@ fn motor_begin(
 /// `atom.byte[2]` the placeholder record (marker 1). Otherwise the angle about row `axis =
 /// atom.byte[3]`: `atan2(next_B . third_A, (third_A x row_A) . next_B)`, moved by whole turns to
 /// within pi of `-float at counter + atom.short[4] + 4` when that offset is not 0; `value` takes
-/// it when `flag` is 0. The angular pair of row `axis` of block A, `hkCalcMotorData` (`{1 /
+/// it when `flag` is 0. The angular pair of row `axis` of block B, `hkCalcMotorData` (`{1 /
 /// mass, schema, counter[0], counter[1], target - value, value - angle}`) and the two records
 /// follow; `value`/`flag` become the target and 1 unless they are equal and `flag` is set.
 fn atom_angular_motor(e: &mut Engine, atom: u32, fp: u32, cursor: Ptr) {
@@ -2619,7 +2628,7 @@ fn atom_angular_motor(e: &mut Engine, atom: u32, fp: u32, cursor: Ptr) {
     }
     fstp(e, fp + 0x148, 0.0);
     fstp(e, fp + 0x14c, 0.0);
-    let axis_at = fp + ROWS_A + (axis << 4);
+    let axis_at = fp + ROWS_B + (axis << 4);
     e.mem.set_u32(fp + 0x10, axis_at);
     let record = motor_begin(e, fp, cursor, axis_at, fp + 0x23c, fp + 0x10);
     let counter = e.mem.u32(fp + SCHEMA + 0x64);
@@ -4088,7 +4097,7 @@ mod continuation_tests {
         let mut e = engine();
         let log = Log::default();
         atan2_double(&mut e, &log, 0.75);
-        motor_double(&mut e, &log, [0.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
+        motor_double(&mut e, &log, [5.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
         let info = info(&mut e);
         let limits = e.mem.alloc(0x40);
         e.mem.set_u32(limits, 0x1111);
@@ -4128,7 +4137,7 @@ mod continuation_tests {
         assert_eq!(e.mem.u32(cursor), record + 0x40);
         assert_eq!(e.mem.u8(record), 0xf);
         assert_eq!(e.mem.f32(record + 0xc), inverse);
-        assert_eq!(e.mem.f32(record + 0x1c), 6.0);
+        assert_eq!(e.mem.f32(record + 0x1c), 7.5);
         assert_eq!(e.mem.f32(record + 0x20), 1.0);
         assert_eq!(e.mem.f32(record + 0x24), 2.0);
         assert_eq!(e.mem.f32(record + 0x28), 7.0);
@@ -4167,7 +4176,7 @@ mod continuation_tests {
         let mut e = engine();
         let log = Log::default();
         atan2_double(&mut e, &log, 0.5);
-        motor_double(&mut e, &log, [0.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
+        motor_double(&mut e, &log, [5.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
         // The product matrix is the identity.
         e.register_double(SET_MUL_MAT3_MAT3, |e, a| {
             for axis in 0..3u32 {
@@ -4213,7 +4222,7 @@ mod continuation_tests {
         assert_eq!(e.mem.u8(limits + 0x22), 1);
         assert_eq!(e.mem.f32(limits + 0x30), 0.5);
         assert_eq!(e.mem.f32(limits + 0x38), 0.5);
-        assert_eq!(e.mem.f32(record + 0x1c), 6.0);
+        assert_eq!(e.mem.f32(record + 0x1c), 7.5);
         // Without the atom's byte `+2` only the placeholder with the marker 3 is made.
         e.mem.set_u8(atom + 2, 0);
         e.mem.set_u32(cursor, record);
@@ -4622,7 +4631,7 @@ mod continuation_tests {
             e.mem.set_f32(a[4], 0.125);
             Ret::default()
         });
-        motor_double(&mut e, &log, [0.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
+        motor_double(&mut e, &log, [5.0, 7.0, 2.0, 4.0, 8.0, 9.0]);
         spy(&mut e, LINEAR_VELOCITY_COMMIT, &log);
         let info = e.mem.alloc(0x80);
         let limits = e.mem.alloc(0x40);
@@ -5101,6 +5110,31 @@ mod atom_one_d_tests {
         assert_eq!(lanes(block, 8), [inverse * 3.0, inverse * 4.0, 0.0, 0.0]);
     }
 
+    /// d6f846..d6f87d: `(y * row1 + x * row0) + (z * row2 + row3)`. Adding `row3` last would lose
+    /// the two half steps of the last place to rounding.
+    #[test]
+    fn the_point_atom_adds_the_rotated_lanes_in_the_exes_order() {
+        let mut e = engine();
+        let seen = Seen::default();
+        capture(&mut e, &seen, SCALED_LINEAR_RECORD);
+        let s = scene(&mut e, [0.0; 4], [0.0; 4]);
+        let half_step = (2.0f64).powi(-24) as f32;
+        let body_b = e.mem.u32(s.info + 0x38);
+        store_vec(&mut e, body_b + 0x20, [half_step, 0.0, 0.0, 0.0]);
+        store_vec(&mut e, body_b + 0x30, [half_step, 0.0, 0.0, 0.0]);
+        let body_a = e.mem.u32(s.info + 0x3c);
+        store_vec(&mut e, body_a + 0x30, [0.0; 4]);
+        e.mem.set_u16(s.atoms, 3);
+        store_vec(&mut e, s.atoms + 0x10, [1.0, 0.0, 1.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x20, [0.0; 4]);
+        e.mem.set_u16(s.atoms + 0x30, 6);
+        e.mem.set_f32(s.atoms + 0x34, 7.0);
+        run(&mut e, &s, 0x38);
+        let (_, block) = &calls(&seen, SCALED_LINEAR_RECORD)[0];
+        let expected = (1.0f64 + (2.0f64).powi(-23)) as f32;
+        assert_eq!(lanes(block, 0)[0], expected);
+    }
+
     #[test]
     fn coincident_pivots_take_the_first_axis_and_a_zero_distance() {
         let mut e = engine();
@@ -5508,6 +5542,35 @@ mod atom_angle_tests {
         assert_eq!(e.mem.u32(s.cursor), second + 0x40);
         assert_eq!(e.mem.f32(s.counter + 0x24), 1.5);
         assert_eq!(e.mem.u8(s.counter + 0x20), 1);
+    }
+
+    /// d709d6: the motor axis is the row of block B (the frame's +0x2b0), not block A.
+    #[test]
+    fn the_angular_motor_atom_takes_its_axis_from_block_b() {
+        let mut e = engine();
+        let seen = Seen::default();
+        atan2_double(&mut e, &seen, 0.5);
+        motor_double(&mut e, &seen);
+        let s = scene(&mut e);
+        // A type 4 atom gives the blocks different rows.
+        e.mem.set_u16(s.atoms, 4);
+        store_vec(&mut e, s.atoms + 0x10, [0.0, 1.0, 0.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x20, [1.0, 0.0, 0.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x30, [0.0, 0.0, 1.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x40, [0.0, 0.0, 1.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x50, [0.0, 1.0, 0.0, 0.0]);
+        store_vec(&mut e, s.atoms + 0x60, [1.0, 0.0, 0.0, 0.0]);
+        let motor = s.atoms + 0x70;
+        e.mem.set_u16(motor, 0x12);
+        e.mem.set_u8(motor + 2, 1);
+        e.mem.set_u16(motor + 4, 0x20);
+        e.mem.set_u16(motor + 6, 0x24);
+        e.mem.set_f32(motor + 0xc, 1.5);
+        e.mem.set_u32(motor + 0x10, 0x0123_4560);
+        run(&mut e, &s, 0x84);
+        let record = s.records + 0x10;
+        assert_eq!(e.mem.f32(record + 4), 1.0);
+        assert_eq!(e.mem.f32(record + 8), 0.0);
     }
 
     #[test]

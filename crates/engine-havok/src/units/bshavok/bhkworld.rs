@@ -648,26 +648,49 @@ pub fn bhk_world_scale_solver_info(e: &mut Engine, this: Ptr) {
         return;
     }
 
-    let ratio = e.global::<f32>(0x011a_fe68) / e.global::<f32>(MINIMUM);
-    let rounded = e.call(0x00ec_9e10, &args![ratio as f64]).f32();
-    let mut tau = e.global::<f32>(MINIMUM);
-    let mut scale = rounded;
-    if scale < e.global::<f32>(MAXIMUM) {
-        tau = e.global::<f32>(0x011a_fe68) / e.global::<f32>(MAXIMUM);
-        scale = e.global::<f32>(MAXIMUM);
+    // Mode 2 (`iUpdateType:HAVOK` = 2; the setting's default is 0).
+    const FRAME: u32 = 0x011a_fe68;
+    let frame_bits = e.global::<u32>(FRAME);
+    // 00c66ade..00c66b12: `round(frame / minimum)`, stored and reloaded; `t` starts at the minimum.
+    let ratio_bits = x87_store32(x87_div(
+        x87_load32(frame_bits),
+        x87_m32(e.global::<u32>(MINIMUM)),
+    ));
+    let rounded = e.call(0x00ec_9e10, &args![x87_load32(ratio_bits)]).f64();
+    let mut scale_bits = x87_store32(rounded);
+    let mut t_bits = x87_store32(x87_load32(e.global::<u32>(MINIMUM)));
+    // 00c66b16..00c66b3f: a maximum above the rounded count (`FCOM`, `TEST AH,0x41; JNZ`, so a
+    // NaN keeps the count) becomes the scale and `t` the frame over it.
+    let maximum = x87_load32(e.global::<u32>(MAXIMUM));
+    if maximum > x87_load32(scale_bits) {
+        scale_bits = x87_store32(maximum);
+        t_bits = x87_store32(x87_div(x87_m32(frame_bits), maximum));
     }
-    let tau_field = e.mem.f32(world + 0x1e4);
-    e.mem.set_f32(this.addr() + 0x88, tau_field);
-    let damping_field = e.mem.f32(world + 0x1e8);
-    e.mem.set_f32(this.addr() + 0x8c, damping_field);
-    let ratio = e.global::<f32>(0x011a_fe68) / (tau * scale);
-    let tau_new = ratio - 1.0 + tau_field;
-    let damping_new = (damping_field as f64 + ratio as f64 - 1.0) as f32;
-    e.mem.set_f32(world + 0x1e4, tau_new);
-    e.mem.set_f32(world + 0x1e8, damping_new);
-    let step_count = e.call(0x00cb_fef0, &args![tau_new]).i32();
+    // The scale stays on the x87 stack to c66bac: it is the argument of 00cbfef0.
+    let scale = x87_load32(scale_bits);
+    // 00c66b41..00c66b6e, with `tau` the old field: adds `tau + (frame / (t * scale) - 1)`.
+    let tau_bits = x87_store32(x87_load32(e.mem.u32(world + 0x1e4)));
+    e.mem.set_u32(this.addr() + 0x88, tau_bits);
+    let product = x87_mul(x87_load32(t_bits), scale);
+    let ratio = x87_div(x87_load32(frame_bits), product);
+    let tau_new = x87_add(x87_load32(tau_bits), x87_sub(ratio, 1.0));
+    let tau_new_bits = x87_store32(tau_new);
+    // 00c66b72..00c66b94: the same quotient, not stored between: adds
+    // `(frame / (t * scale) - 1) + damping`.
+    let damping_bits = x87_store32(x87_load32(e.mem.u32(world + 0x1e8)));
+    e.mem.set_u32(this.addr() + 0x8c, damping_bits);
+    let ratio = x87_div(x87_load32(frame_bits), product);
+    let damping_new = x87_add(x87_sub(ratio, 1.0), x87_load32(damping_bits));
+    let damping_new_bits = x87_store32(damping_new);
+    e.mem.set_u32(world + 0x1e4, x87_quiet_bits(tau_new_bits));
+    e.mem
+        .set_u32(world + 0x1e8, x87_quiet_bits(damping_new_bits));
+    let step_count = e.call(0x00cb_fef0, &args![x87_store32(scale)]).i32();
     e.mem.set_i32(world + 0x2f4, step_count);
-    e.mem.set_f32(world + 0x300, 1.0 / step_count as f32);
+    e.mem.set_u32(
+        world + 0x300,
+        x87_store32(x87_div(1.0, f64::from(step_count))),
+    );
 }
 
 // Translated from 00c66be0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4348,6 +4371,8 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     fn engine() -> Engine {
         let mut e = Engine::new();
@@ -4962,6 +4987,92 @@ mod tests {
         e.call(0x00c6_6760, &args![0.25f32, 1u32, 0u32]);
         assert_eq!(e.global::<u32>(0x0126_77b4), 1);
         assert_eq!(e.global::<f32>(0x0126_77ac), 0.25);
+    }
+
+    /// 00c66ade..00c66bca: mode 2 hands the scale to 00cbfef0, and tau and damping both add
+    /// `frame / (t * scale) - 1` last.
+    #[test]
+    fn scale_solver_info_mode_two_passes_the_scale_on() {
+        let mut e = engine();
+        let bhk: Ptr = Ptr::new(e.mem.alloc(0x100));
+        let world = e.mem.alloc(0x304);
+        let table = 0x0400_0000;
+        let mut bhk_slots = vec![0; 0x26];
+        bhk_slots[0x94 / 4] = 0x0400_0094;
+        e.put_vtable(table, &bhk_slots);
+        e.mem.set_u32(bhk.addr(), table);
+        e.register_double(0x0400_0094, move |_, _| ret(world));
+        e.set_global(0x0126_77b8, 2u32);
+        // frame 1, minimum 1/3: count 3; the maximum 5 is above it, so t = 1/5.
+        let third = 1.0f32 / 3.0;
+        e.set_global(0x011a_fe68, 1.0f32);
+        e.set_global(0x0126_7b14, third);
+        e.set_global(0x0126_7b20, 5.0f32);
+        e.register_double(0x00ec_9e10, |_, _| Ret {
+            st0: 3.0,
+            ..Ret::default()
+        });
+        let passed: Rc<Cell<u32>> = Rc::default();
+        let sink = Rc::clone(&passed);
+        e.register_double(0x00cb_fef0, move |_, a| {
+            sink.set(a[0]);
+            ret(5)
+        });
+        // Small tau and large damping: only the tau sum can tell where the rounding happens.
+        let tau = 0.3f32;
+        let damping = 1.0e8f32;
+        e.mem.set_f32(world + 0x1e4, tau);
+        e.mem.set_f32(world + 0x1e8, damping);
+        e.call(0x00c6_6a00, &args![bhk]);
+        assert_eq!(passed.get(), 5.0f32.to_bits());
+        assert_eq!(e.mem.i32(world + 0x2f4), 5);
+        assert_eq!(e.mem.f32(world + 0x300), 0.2);
+        assert_eq!(e.mem.f32(bhk.addr() + 0x88), tau);
+        assert_eq!(e.mem.f32(bhk.addr() + 0x8c), damping);
+        let quotient = 1.0f64 / (f64::from(0.2f32) * 5.0);
+        let added = quotient - 1.0;
+        assert_eq!(e.mem.f32(world + 0x1e4), (f64::from(tau) + added) as f32);
+        assert_eq!(
+            e.mem.f32(world + 0x1e8),
+            (added + f64::from(damping)) as f32
+        );
+    }
+
+    /// 00c66b20..00c66b3f: a NaN or smaller maximum keeps the rounded count and the minimum.
+    #[test]
+    fn scale_solver_info_mode_two_keeps_the_count_when_the_maximum_is_not_above_it() {
+        for maximum in [2.0f32, f32::NAN] {
+            let mut e = engine();
+            let bhk: Ptr = Ptr::new(e.mem.alloc(0x100));
+            let world = e.mem.alloc(0x304);
+            let table = 0x0400_0000;
+            let mut bhk_slots = vec![0; 0x26];
+            bhk_slots[0x94 / 4] = 0x0400_0094;
+            e.put_vtable(table, &bhk_slots);
+            e.mem.set_u32(bhk.addr(), table);
+            e.register_double(0x0400_0094, move |_, _| ret(world));
+            e.set_global(0x0126_77b8, 2u32);
+            e.set_global(0x011a_fe68, 1.0f32);
+            e.set_global(0x0126_7b14, 0.25f32);
+            e.set_global(0x0126_7b20, maximum);
+            e.register_double(0x00ec_9e10, |_, _| Ret {
+                st0: 4.0,
+                ..Ret::default()
+            });
+            let passed: Rc<Cell<u32>> = Rc::default();
+            let sink = Rc::clone(&passed);
+            e.register_double(0x00cb_fef0, move |_, a| {
+                sink.set(a[0]);
+                ret(4)
+            });
+            e.mem.set_f32(world + 0x1e4, 0.5);
+            e.mem.set_f32(world + 0x1e8, 0.75);
+            e.call(0x00c6_6a00, &args![bhk]);
+            assert_eq!(passed.get(), 4.0f32.to_bits());
+            // frame / (0.25 * 4) - 1 is 0: both fields keep their values.
+            assert_eq!(e.mem.f32(world + 0x1e4), 0.5);
+            assert_eq!(e.mem.f32(world + 0x1e8), 0.75);
+        }
     }
 
     #[test]

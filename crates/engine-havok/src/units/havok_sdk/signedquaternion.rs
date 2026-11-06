@@ -193,11 +193,11 @@ pub fn fn_00e52320(e: &mut Engine, quat: Ptr, out: Ptr) {
     let inverse = if sum == zero { 0.0 } else { refined };
     let normalized = abs.map(|value| inverse * value);
 
-    // The angle from z: `|z'| < limit` goes through acos.
+    // The angle from z: `|z'| < limit` goes through acos, and so does a NaN (e52488..e52493).
     let z = x87_load32(normalized[2].to_bits());
     let abs_z = x87_load32(x87_store32(z.abs()));
     let limit = f64::from(e.mem.f32(ACOS_LIMIT_FLOAT));
-    let angle = if abs_z < limit {
+    let angle = if !(abs_z >= limit) {
         float_round_trip(e.call(X87_ACOS, &args![z]).f64())
     } else if z > 0.0 {
         0.0
@@ -682,10 +682,12 @@ mod tests {
         e.mem.set_u32(out.addr(), 0x1234_5678);
         e.call(0x00e5_2320, &args![quat, out]);
         assert_eq!(e.mem.u32(out.addr()), 0x8000_0000);
-        // A NaN x is not zero: it goes the long way and writes more.
+        // A NaN x is not zero: it goes the long way, through the arc cosine (e52488..e52493).
         let quat = put_quaternion(&mut e, [f32::NAN, 0.0, 0.0, 1.0]);
+        e.call_log = Some(vec![]);
         e.call(0x00e5_2320, &args![quat, out]);
-        assert_ne!(e.mem.u32(out.addr()), 0);
+        let log = e.call_log.take().unwrap();
+        assert_eq!(log.iter().filter(|c| c.0 == X87_ACOS).count(), 1);
     }
 
     #[test]
@@ -725,12 +727,21 @@ mod tests {
         let word = e.mem.u32(packed.addr());
         assert_eq!(word >> 0x12 & 0x3ff, 1023);
         assert!(word & 0x3_ffff <= 1, "{word:08x}");
-        // A NaN z' (z' <= -1 does the same) gives the float at 0102b3c8 (pi):
-        // the radius field is ftol(2 * pi / pi * 511 + 0.5) = 1022, whose
-        // square spills over bit 18, ORed with sqrt(1 - 0) * 1023 << 18.
+        // A NaN z' goes through the arc cosine as well (e52488..e52493). The packed word itself
+        // depends on the real truncation routine, which this test's double does not model.
         let quat = put_quaternion(&mut e, [0.0, 0.0, f32::NAN, 0.0]);
+        e.call_log = Some(vec![]);
         e.call(0x00e5_2320, &args![quat, packed]);
-        assert_eq!(e.mem.u32(packed.addr()), (1023u32 << 0x12) | (1022 * 1022));
+        let log = e.call_log.take().unwrap();
+        assert_eq!(log.iter().filter(|c| c.0 == X87_ACOS).count(), 1);
+        // A z' of 0 past a limit of 0 gives the float at 0102b3c8 (pi), without the arc cosine.
+        e.mem.set_f32(ACOS_LIMIT_FLOAT, 0.0);
+        let quat = put_quaternion(&mut e, [1.0, 0.0, 0.0, 0.0]);
+        e.call_log = Some(vec![]);
+        e.call(0x00e5_2320, &args![quat, packed]);
+        let log = e.call_log.take().unwrap();
+        assert_eq!(log.iter().filter(|c| c.0 == X87_ACOS).count(), 0);
+        assert_ne!(e.mem.u32(packed.addr()) & 0x3_ffff, 0);
         // With a positive z' past the limit the angle is 0, and acos is not
         // called.
         e.mem.set_f32(ACOS_LIMIT_FLOAT, 0.0);

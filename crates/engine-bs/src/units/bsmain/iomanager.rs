@@ -1490,10 +1490,11 @@ pub fn fn_00c41330(e: &mut Engine, this: Ptr, keep_cleared: bool) {
 /// The game's SEH unwind path is omitted.
 // Translation incomplete: 00c41ac0 - SEH unwinding is not modeled.
 pub fn fn_00c41ac0(e: &mut Engine, this: Ptr, bucket: u32, task: Ptr) -> bool {
+    // c41aee..c41aff: read once; every restart goes on from this slot.
+    let buckets = e.mem.u32(word(e, this, 0).wrapping_add(0x0c));
+    let bucket_slot = buckets.wrapping_add(bucket.wrapping_mul(4));
     'restart: loop {
         loop {
-            let buckets = e.mem.u32(word(e, this, 0).wrapping_add(0x0c));
-            let bucket_slot = buckets.wrapping_add(bucket.wrapping_mul(4));
             set_word(e, this, 0x10, bucket_slot);
             let head = e.mem.u32(bucket_slot);
             set_word(e, this, 0x14, head);
@@ -3183,6 +3184,35 @@ mod tests {
             set_word(&mut e, interface, offset, hazard.addr());
         }
         assert!(!fn_00c41ac0(&mut e, interface, 0, task));
+    }
+
+    /// c41aee..c41b1c: the bucket slot is worked out once; a restart does not read the table
+    /// word again.
+    #[test]
+    fn map_search_keeps_its_bucket_slot_when_it_restarts() {
+        let mut e = Engine::new();
+        let interface = block(&mut e, 0x1c);
+        let map = block(&mut e, 0x10);
+        let buckets = block(&mut e, 4);
+        let moved = block(&mut e, 4);
+        let task = block(&mut e, 4);
+        let node = block(&mut e, 0x10);
+        set_word(&mut e, interface, 0, map.addr());
+        set_word(&mut e, map, 0x0c, buckets.addr());
+        set_word(&mut e, buckets, 0, node.addr());
+        for offset in [4, 8, 0x0c] {
+            let hazard = block(&mut e, 4);
+            set_word(&mut e, interface, offset, hazard.addr());
+        }
+        // The first pass sees the head change and the table move under it.
+        let (map_at, slot, other) = (map.addr(), buckets.addr(), moved.addr());
+        e.register_double(0x0044_e010, move |e, _| {
+            e.mem.set_u32(map_at + 0x0c, other);
+            e.mem.set_u32(slot, 0);
+            Ret::default()
+        });
+        assert!(!fn_00c41ac0(&mut e, interface, 0, task));
+        assert_eq!(word(&e, interface, 0x10), buckets.addr());
     }
 
     #[test]

@@ -3324,7 +3324,8 @@ pub fn hk_monitor_stream_analyzer_write_statistics_details(
                     break;
                 }
             }
-            positive = 0.0 < x87_m32(e.mem.u32(total_slot));
+            // e0ff88..e0ff91: `TEST AH,1; JNZ` keeps the total, also a NaN one.
+            positive = !(0.0 >= x87_m32(e.mem.u32(total_slot)));
         }
         if !positive {
             let total = x87_store32(x87_load32(e.mem.u32(DEFAULT_TOTAL)));
@@ -6781,6 +6782,23 @@ mod tests {
             Ret::default()
         });
         events
+    }
+
+    /// e0ff88..e0ff91: a NaN total is kept, not replaced by the default.
+    #[test]
+    fn a_nan_total_is_kept_for_the_bars() {
+        let mut e = engine();
+        let events = record_texts(&mut e);
+        e.mem.set_f32(DEFAULT_TOTAL, 1.0);
+        let frames: [&[(&str, f32, u16)]; 2] = [
+            &[("Main", f32::NAN, 1), ("Other", 2.0, 1)],
+            &[("Main", 30.0, 1), ("Other", 4.0, 1)],
+        ];
+        let tree = thread_tree(&mut e, &frames);
+        run_details(&mut e, &[tree], 1, 0, 2, 1);
+        let events = events.borrow();
+        // With the default total 1 the second bar would be full; a NaN ratio gives bar 0.
+        assert!(events[8].1.starts_with('#'), "{:?}", events[8].1);
     }
 
     #[test]

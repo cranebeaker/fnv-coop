@@ -33,7 +33,8 @@ pub fn fn_00da07d0(e: &mut Engine) -> u32 {
 // Translated from 00da0010 (decompiled, FalloutNV.exe 1.4.0.525)
 /// A least-significant-digit radix sort of 8-byte elements `(key, value)` by their 32-bit key
 /// (four passes of 8 bits, ping-ponging between the two arrays so that the result is in `data`
-/// again): cdecl `(data, count, buffer)`. The exe's 0x2004-byte stack frame holds the four
+/// again): cdecl `(data, count, buffer)`. The exe's stack frame (0x2010 bytes with its three
+/// pushes) holds the four
 /// 256-entry histograms (at `+0x1010`, `+0x1810`, `+0x1410` and `+0x1c10`, for key bytes 0, 1, 2
 /// and 3) and the four tables of running destination pointers (`+0xc10` into `buffer`, `+0x810`
 /// into `data`, `+0x410` into `buffer`, `+0x10` into `data`); it is allocated with `__chkstk`
@@ -43,7 +44,7 @@ pub fn fn_00da07d0(e: &mut Engine) -> u32 {
 /// three) elements after the end, as the exe does; nothing happens for `count <= 0`. The exe's
 /// name for it is unknown (a `hkRadixSort`-style sort of `(key, value)` pairs).
 pub fn fn_00da0010(e: &mut Engine, data: u32, count: i32, buffer: u32) {
-    e.with_stack(0x2004, |e, frame| {
+    e.with_stack(0x2010, |e, frame| {
         let frame = frame.addr();
         // The histograms are zeroed first (four tables of 256 words).
         for table in [0x1010u32, 0x1810, 0x1410, 0x1c10] {
@@ -357,6 +358,25 @@ mod a09_tests {
         let mut want = items.clone();
         want.sort_by_key(|(key, _)| *key);
         assert_eq!(read(&e, data, items.len()), want);
+    }
+
+    /// da0016..da0022, da00f4: the histogram of a top key byte 0xff lies inside the frame.
+    #[test]
+    fn the_last_histogram_cell_is_inside_the_stack_block() {
+        let mut e = Engine::new();
+        e.mem.enable_block_check(true, true);
+        let items = [
+            (0xff00_0000u32, 1u32),
+            (0xfd00_0000, 2),
+            (0xfe00_0000, 3),
+            (0, 4),
+        ];
+        let data = pairs(&mut e, &items, 0);
+        let buffer = e.mem.alloc(8 * items.len() as u32);
+        e.call(0x00da_0010, &args![data, items.len() as u32, buffer]);
+        let mut want = items.to_vec();
+        want.sort_by_key(|(key, _)| *key);
+        assert_eq!(read(&e, data, 4), want);
     }
 
     #[test]

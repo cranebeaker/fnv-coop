@@ -8150,7 +8150,8 @@ fn split_solid(
         } else {
             magnitude_high
         };
-        let split = fld(tolerance) < fld(width) && !(fld(smallest) <= fld(tolerance));
+        // d83575..d8357e: `TEST AH,1; JZ` leaves only when C0 is clear, so unordered goes on.
+        let split = !(fld(tolerance) >= fld(width)) && !(fld(smallest) <= fld(tolerance));
         e.with_stack(0x10, |e, positive_side| {
             e.with_stack(0x10, |e, negative_side| {
                 let (positive_side, negative_side) = (positive_side.addr(), negative_side.addr());
@@ -12245,6 +12246,22 @@ mod tests {
             [0.0, 0.0, 0.0],
             [0.5, 1.0, 1.0],
         );
+    }
+
+    /// d83575..d8357e: an unordered first test goes on to the second, and so to the split.
+    #[test]
+    fn split_of_a_cube_with_a_nan_tolerance_still_splits() {
+        let (mut e, _) = bench();
+        let (_, imp) = built_hull(&mut e, &CUBE);
+        let plane = plane_at(&mut e, [1.0, 0.0, 0.0, -0.5]);
+        let outs = e.mem.alloc(8);
+        let answer = e
+            .call(
+                0x00d8_3430,
+                &args![imp, plane, outs, outs + 4, f32::NAN.to_bits()],
+            )
+            .u32();
+        assert_eq!(answer, 3);
     }
 
     #[test]

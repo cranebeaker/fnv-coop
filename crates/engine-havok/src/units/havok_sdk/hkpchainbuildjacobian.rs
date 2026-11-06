@@ -9,9 +9,9 @@
 //! made from the previous block's carry, `+0x30` the diagonal block, `+0x60` its product with
 //! the carry of this block) are what the two functions fill.
 //!
-//! Both are partial: lane 3 of the rows they build is read from the stack frame before it is
-//! written (modelled as 0), and the x87 stack is left one entry deeper by every block (the
-//! exe overflows it after about six blocks; not modelled).
+//! Both are partial: lane 3 of the `Q` rows is read from the stack frame before it is written
+//! (modelled as 0). Lane 3 of the output rows at `+0` is 0.0: the `FLDZ` of each block
+//! (00dd06b6, 00dd06e0) left on the x87 stack, which is balanced at the end of the block.
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -122,13 +122,12 @@ fn build_blocks(
             for (row, lanes) in r.iter().enumerate() {
                 store_vec(e, carry_matrix + 0x10 * row as u32, *lanes);
             }
-            let last = x87_quiet(carry[2][2]);
             for row in 0..3 {
                 let lanes = [
                     x87_quiet(carry[0][row]),
                     x87_quiet(carry[1][row]),
                     x87_quiet(carry[2][row]),
-                    last,
+                    0.0,
                 ];
                 store_vec(e, output + 0x10 * row as u32, lanes);
             }
@@ -157,7 +156,7 @@ fn build_blocks(
 }
 
 // Translated from 00dd0660 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00dd0660 - lane 3 of the Q rows is read from the stack frame before any write (modelled as 0) and the x87 stack gains one entry per block (overflow from about the seventh block not modelled).
+// Translation incomplete: 00dd0660 - lane 3 of the Q rows is read from the stack frame before any write (modelled as 0).
 /// `buildConstraintMatrixLuDecompositionForBallAndSocketChain` (name from the engine map,
 /// unconfirmed; cdecl, `rows` in `ECX`, so the register comes first): for `count` blocks (none
 /// when `count <= 0`) of the `matrices` array it fills the output `rows` (`0x90` bytes a
@@ -188,7 +187,7 @@ pub fn build_constraint_matrix_lu_decomposition_for_ball_and_socket_chain(
 }
 
 // Translated from 00dd0ad0 (decompiled, FalloutNV.exe 1.4.0.525)
-// Translation incomplete: 00dd0ad0 - lane 3 of the Q rows is read from the stack frame before any write (modelled as 0) and the x87 stack gains one entry per block (overflow from about the seventh block not modelled).
+// Translation incomplete: 00dd0ad0 - lane 3 of the Q rows is read from the stack frame before any write (modelled as 0).
 /// `hkBallSocketChainBuildJacobian` (name from the engine map, unconfirmed; cdecl): writes the
 /// header of a Jacobian record and its blocks to the buffer `*out` points at, then moves
 /// `*out` on by the record size. With `n16` the low 16 bits of `count`: the header word `+0`
@@ -439,7 +438,7 @@ mod tests {
             assert_eq!(first.args[0], first_product);
             assert_eq!(first.args[2], carried_at);
             let transposed =
-                [0, 1, 2].map(|row| [carry[0][row], carry[1][row], carry[2][row], carry[2][2]]);
+                [0, 1, 2].map(|row| [carry[0][row], carry[1][row], carry[2][row], 0.0]);
             for (seen, expected) in first.first.iter().zip(transposed) {
                 assert_eq!(first_lanes(*seen), [expected[0], expected[1], expected[2]]);
                 assert_eq!(f64::from(seen[3]), expected[3]);
@@ -475,7 +474,10 @@ mod tests {
                 rows_of(load_rows(e, output)),
                 transposed.map(|row| [row[0], row[1], row[2]])
             );
-            assert_eq!(f64::from(e.mem.f32(output + 0xc)), transposed[0][3]);
+            // 00dd0920..00dd0926: lane 3 of the three rows is the 0.0 left on the x87 stack.
+            for row in 0..3 {
+                assert_eq!(e.mem.u32(output + 0xc + 0x10 * row), 0);
+            }
             assert_eq!(rows_of(load_rows(e, output + 0x30)), expected_block);
             carried_product = [10.0, 20.0, 30.0].map(|value| [value; 4]);
             for (row, expected) in carried_product.iter().enumerate() {

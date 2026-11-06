@@ -4,7 +4,7 @@
 //! `bhkCylinderShape` is a 0x14-byte `bhkConvexShape`: `+8` the Havok cylinder shape, `+0xC`
 //! its cinfo. The cinfo (0x50 bytes) holds, as read here, the two end points as four floats
 //! at `+0x10` and `+0x20` and the radius at `+0x30`; a fresh one has a zero first point, a
-//! `1.0` second point and a zero radius.
+//! second point (1, 0, 0, 0) and a zero radius.
 //!
 //! The exception-unwinding frames (`FS:[0]` registrations) and `/GS` cookie checks of the
 //! functions marked `Translation incomplete` are not modeled.
@@ -225,7 +225,9 @@ pub fn bhk_cylinder_shape_create_clone(e: &mut Engine, this: Ptr, context: u32) 
 }
 
 /// Fills a fresh cylinder cinfo: `+0` and `+0x10..=+0x1c` and `+0x30` zero, `+4` the
-/// `0.1f` constant (through the x87 stack), `+0x20..=+0x2c` one.
+/// `0.1f` constant (through the x87 stack), `+0x20..=+0x2c` (1, 0, 0, 0): the exe's `FLD1`
+/// goes on top of the zero it stored the rest with (ccd5cb..ccd5d6, ccd797..ccd7a5,
+/// ccda47..ccda55).
 fn initialise_cinfo(e: &mut Engine, cinfo: u32) {
     e.mem.set_u32(cinfo, 0);
     let constant = x87_quiet_bits(e.global::<u32>(CINFO_WORD_CONSTANT));
@@ -234,8 +236,9 @@ fn initialise_cinfo(e: &mut Engine, cinfo: u32) {
         e.mem.set_u32(cinfo + offset, 0);
     }
     e.mem.set_u32(cinfo + 0x30, 0);
-    for offset in (0x20..=0x2c).step_by(4) {
-        e.mem.set_u32(cinfo + offset, 0x3f80_0000);
+    e.mem.set_u32(cinfo + 0x20, 0x3f80_0000);
+    for offset in (0x24..=0x2c).step_by(4) {
+        e.mem.set_u32(cinfo + offset, 0);
     }
 }
 
@@ -728,7 +731,9 @@ mod tests {
         assert_eq!(e.mem.u32(this + 0xc), cinfo);
         assert_eq!(e.mem.u32(cinfo + 4), 0x3dcc_cccd);
         assert_eq!(e.mem.f32(cinfo + 0x20), 1.0);
-        assert_eq!(e.mem.f32(cinfo + 0x2c), 1.0);
+        assert_eq!(e.mem.f32(cinfo + 0x24), 0.0);
+        assert_eq!(e.mem.f32(cinfo + 0x28), 0.0);
+        assert_eq!(e.mem.f32(cinfo + 0x2c), 0.0);
         assert_eq!(e.mem.f32(cinfo + 0x30), 0.0);
         assert!(calls_to(&e, COPY_CINFO).is_empty());
         // Second call finds it and reports so; with a Havok shape a new cinfo is filled.

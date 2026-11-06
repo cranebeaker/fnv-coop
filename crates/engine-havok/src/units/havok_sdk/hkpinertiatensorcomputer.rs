@@ -2267,11 +2267,14 @@ pub fn compute_recursive_shape_volume_mass_properties(
         28 => 12,
         _ => unreachable!(),
     };
-    e.with_stack(0x1c0, |e, frame| {
+    // The exe's frame is 0x320 bytes and its child-shape buffer the last 0x200 of them; the
+    // locals of the other cases share that room, as no case uses both.
+    e.with_stack(0x320, |e, frame| {
         let base = frame.addr();
         let (leaf, first, second, third) = (base, base + 0x50, base + 0x60, base + 0x70);
         let (array, source, sphere) = (base + 0x90, base + 0xa0, base + 0xb0);
-        let (buffer, local, result, copy) = (base + 0xd0, base + 0x100, base + 0x140, base + 0x180);
+        let (local, result, copy) = (base + 0x100, base + 0x140, base + 0x180);
+        let buffer = base + 0x120;
         let rho = e.mem.f32(shape + 0x10);
         match case {
             0 => {
@@ -4147,6 +4150,35 @@ mod tests {
             [0.4 * (small_volume + 4.0 * large_volume); 3],
         );
         assert_eq!(calls(&log, CONTAINER + 0x14).len(), 2);
+    }
+
+    /// cf0289: the child's buffer is 0x200 bytes, all of it inside this function's frame.
+    #[test]
+    fn a_child_may_fill_the_whole_shape_buffer_00ceff00() {
+        let (mut e, log) = scene();
+        let origin = transform_at(&mut e, [0.0; 4]);
+        let child = shape_of(&mut e, 13, 0.0);
+        let shape = container_shape(&mut e, &log, vec![child]);
+        e.register_double(CONTAINER + 0x14, move |e, a| {
+            for offset in (0..0x200).step_by(4) {
+                e.mem.set_u32(a[2] + offset, 0xbbbb_bbbb);
+            }
+            Ret {
+                eax: child,
+                ..Ret::default()
+            }
+        });
+        let out = e.mem.alloc(0x50);
+        e.with_stack(0x400, |e, outer| {
+            let outer = outer.addr();
+            for offset in (0..0x400).step_by(4) {
+                e.mem.set_u32(outer + offset, 0x1234_5678);
+            }
+            e.call(0x00ce_ff00, &args![shape, origin, 0.0f32, out]);
+            for offset in (0..0x400).step_by(4) {
+                assert_eq!(e.mem.u32(outer + offset), 0x1234_5678, "{offset:#x}");
+            }
+        });
     }
 
     #[test]

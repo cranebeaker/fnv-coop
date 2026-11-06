@@ -6110,7 +6110,7 @@ pub fn fn_00e17b00(e: &mut Engine, this: Ptr, out: Ptr, part: u32) -> u32 {
         e.mem.set_u32(list + 8, 0x8000_0000);
         let mut triangle = e.mem.u32(t + MESH_TRIANGLE_HEAD);
         while triangle != 0 {
-            if part == 0xffff_ffff || e.mem.u32(triangle + TRIANGLE_PART) == part {
+            if part == 0xffff_ffff || e.mem.u32(triangle + TRIANGLE_INDEX) == part {
                 for edge in 0..3u32 {
                     if e.mem.u32(triangle + TRIANGLE_LINK_0 + 4 * edge) & 0xffff_fffc != 0 {
                         continue;
@@ -11507,7 +11507,11 @@ pub fn triangulator_insert_edge(
                             index = next_corner(link & 3);
                         } else {
                             apply_edge_flip(e, walking, index);
-                            let after = e.mem.u32(walking + TRIANGLE_LINK_0 + 4 * index);
+                            // e26fe0: the link of the corner before the flipped edge, which the
+                            // flip has just set to the neighbour (e26ed9).
+                            let after = e
+                                .mem
+                                .u32(walking + TRIANGLE_LINK_0 + 4 * previous_corner(index));
                             let after_edge = after & 3;
                             let after_triangle = after & 0xffff_fffc;
                             if counter == 0 {
@@ -18898,8 +18902,9 @@ mod tests {
         let mesh = new_mesh(&mut e);
         let large = add_right_triangle(&mut e, mesh, 3.0);
         let small = add_right_triangle(&mut e, mesh, 1.0);
-        e.mem.set_u32(large + 0x34, 5);
-        e.mem.set_u32(small + 0x34, 5);
+        // e17b2f: the part is the word at +0x30.
+        e.mem.set_u32(large + 0x30, 5);
+        e.mem.set_u32(small + 0x30, 5);
         let out = new_empty_array(&mut e);
         let count = e.call(0x00e1_7b00, &args![mesh, out, 0xffff_ffffu32]).u32();
         // Each triangle's three open edges join into one loop; the loop of the larger comes first.
@@ -18926,7 +18931,7 @@ mod tests {
         assert_eq!(e.call(0x00e1_7b00, &args![mesh, none, 9u32]).u32(), 0);
         assert_eq!(e.mem.u32(none + 4), 0);
         // Only the triangles of the part are used.
-        e.mem.set_u32(small + 0x34, 9);
+        e.mem.set_u32(small + 0x30, 9);
         let only = new_empty_array(&mut e);
         assert_eq!(e.call(0x00e1_7b00, &args![mesh, only, 9u32]).u32(), 1);
         assert_eq!(owner(&e, e.mem.u32(e.mem.u32(only))), small);
@@ -21053,6 +21058,60 @@ mod tests {
             (e.mem.u32(out), e.mem.u32(out + 4), e.mem.u32(out + 8)),
             (10, 0, 0)
         );
+    }
+
+    /// e26c23..e26c37, e26fe0: a line crossing many triangles is flipped one by one, the walk
+    /// going on from the link the flip has just set; following the flipped edge's own link
+    /// instead leaves the triangles.
+    #[test]
+    fn triangulator_insert_edge_00e26010_flips_through_many_triangles() {
+        let mut e = engine();
+        install_heap(&mut e);
+        install_reporter(&mut e, 0);
+        let triangulator = new_triangulator(&mut e);
+        let (from, to) = ((2000u32, 10000u32), (28000u32, 10000u32));
+        for (x, y) in [
+            from,
+            (6000, 13000),
+            (10000, 7000),
+            (14000, 13000),
+            (18000, 7000),
+            (22000, 13000),
+            (26000, 7000),
+            to,
+        ] {
+            insert_grid_point(&mut e, triangulator, x, y, 1, 0);
+        }
+        let before = triangulator_triangles(&e, triangulator).len();
+        let out = e.mem.alloc(0xc);
+        e.call(
+            0x00e2_6010,
+            &args![triangulator, out, from.0, from.1, to.0, to.1, 1u8, 0u32],
+        );
+        assert_eq!(e.mem.u32(out), 0);
+        let (triangle, corner) = (e.mem.u32(out + 4), e.mem.u32(out + 8));
+        let (start, end) = (
+            corner_vertex(&e, triangle, corner),
+            corner_vertex(&e, triangle, next_corner(corner)),
+        );
+        assert_eq!(
+            (e.mem.i32(start + 8), e.mem.i32(start + 0xc)),
+            (2000, 10000)
+        );
+        assert_eq!((e.mem.i32(end + 8), e.mem.i32(end + 0xc)), (28000, 10000));
+        let triangles = triangulator_triangles(&e, triangulator);
+        assert_eq!(triangles.len(), before);
+        // Every link is answered by its neighbour, and only the new edge joins the two ends.
+        for &t in &triangles {
+            for edge in 0..3 {
+                let link = e.mem.u32(t + TRIANGLE_LINK_0 + 4 * edge);
+                let neighbour = link & 0xffff_fffc;
+                if neighbour != 0 {
+                    let back = e.mem.u32(neighbour + TRIANGLE_LINK_0 + 4 * (link & 3));
+                    assert_eq!(back, t + edge);
+                }
+            }
+        }
     }
 
     #[test]

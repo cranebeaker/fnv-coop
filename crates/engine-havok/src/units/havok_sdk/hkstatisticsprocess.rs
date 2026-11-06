@@ -94,8 +94,8 @@ const TLS_INDEX: u32 = 0x0126_835c;
 const TLS_GET_VALUE: u32 = 0x00fd_f044;
 /// `hkStringPtr::~hkStringPtr` (`thiscall`).
 const STRING_PTR_DESTRUCTOR: u32 = 0x00cb_0c00;
-/// `hkStringMap::~hkStringMap` (`thiscall`).
-const STRING_MAP_DESTRUCTOR: u32 = 0x00d8_77d0;
+/// The destructor of the string map array ([`hk_monitor_stream_string_map_destructor`]).
+const STRING_MAP_DESTRUCTOR: u32 = 0x00dd_c870;
 
 /// The allocator of the memory router (`router + 0x10`).
 fn router_allocator(e: &mut Engine) -> u32 {
@@ -1075,7 +1075,7 @@ mod statistics_process_tests {
         e.mem.set_u32(map, data);
         e.mem.set_u32(map + 4, 3);
         e.mem.set_u32(map + 8, 4);
-        e.call(0x00dd_c870, &args![map]);
+        hk_monitor_stream_string_map_destructor(&mut e, Ptr::new(map));
         // Each element's string pointer (+8), 16 bytes apart, then the storage (capacity 4 times 16).
         assert_eq!(
             calls(&log, STRING_PTR_DESTRUCTOR),
@@ -1089,7 +1089,7 @@ mod statistics_process_tests {
         let empty = e.mem.alloc(12);
         e.mem.set_u32(empty + 8, 0x8000_0004);
         let before = log.borrow().len();
-        e.call(0x00dd_c870, &args![empty]);
+        hk_monitor_stream_string_map_destructor(&mut e, Ptr::new(empty));
         assert_eq!(log.borrow().len(), before);
     }
 
@@ -1319,7 +1319,7 @@ mod statistics_process_tests {
                 frame + 0x4c
             ]]
         );
-        assert_eq!(calls(&log, STRING_MAP_DESTRUCTOR), vec![vec![frame + 0x40]]);
+        assert_eq!(calls(&log, 0x00dd_c870), vec![vec![frame + 0x40]]);
     }
 }
 

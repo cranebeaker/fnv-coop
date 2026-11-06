@@ -339,7 +339,7 @@ pub fn bhk_capsule_shape_create_clone(
 /// `bhkCapsuleShape::CreateCinfo` (Xbox PDB), `(created)`: inside the `TLS + 0x2b4 = 0x10`
 /// scope, writes whether there was no Cinfo yet to the byte at `created`; if so, allocates a
 /// 0x30-byte Cinfo block from the memory manager (`00aa3e40`) holding the default radius
-/// (`010c72bc`), the end points (0, 0, 0, 0) and (1, 1, 1, 1) and zero user data, stores it at
+/// (`010c72bc`), the end points (0, 0, 0, 0) and (1, 0, 0, 0) and zero user data, stores it at
 /// `+0xc`, and, when the shape has its Havok capsule (`+8`), runs `CopyCinfo` (`00caade0`) on
 /// it. Answers the stored Cinfo.
 pub fn bhk_capsule_shape_create_cinfo(
@@ -359,7 +359,8 @@ pub fn bhk_capsule_shape_create_cinfo(
             let radius = load_quiet(e, DEFAULT_RADIUS);
             e.mem.set_f32(block + 4, radius);
             store_vec(e, block + CINFO_VERTEX_A, [0.0; 4]);
-            store_vec(e, block + CINFO_VERTEX_B, [1.0; 4]);
+            // cab09b..cab0a6: the zero stays on the x87 stack under the `FLD1`.
+            store_vec(e, block + CINFO_VERTEX_B, [1.0, 0.0, 0.0, 0.0]);
         }
         e.set(this, BhkCapsuleShape::pInfo, Ptr::new(block));
         if e.get(this, BhkCapsuleShape::phkObject).addr() != 0 {
@@ -406,7 +407,7 @@ pub fn bhk_capsule_shape_init(
 // Translation incomplete: 00cab1b0 - the FS:[0] exception-unwinding frame and the /GS cookie check are not modeled.
 /// `bhkCapsuleShape::BuildDisplayGeometry` (Xbox PDB), `(node, color)`: inside the
 /// `TLS + 0x2b4 = 0x10` scope, fills a local Cinfo (the default radius `010c72bc`, end points
-/// (0, 0, 0, 0) and (1, 1, 1, 1)) with `CopyCinfo` (`00c9fb70`) and the capsule's end points
+/// (0, 0, 0, 0) and (1, 0, 0, 0)) with `CopyCinfo` (`00c9fb70`) and the capsule's end points
 /// (`004b4db0`), allocates 0x90 bytes from the memory router's allocator (size stored at `+4`),
 /// constructs the display capsule with `00d22dc0` on `(vertex A, vertex B, radius, 6, 1)` and
 /// runs its virtual `+0x10` (unconfirmed). When its geometry (`+8`) exists, builds the display
@@ -423,9 +424,10 @@ pub fn bhk_capsule_shape_build_display_geometry(
     let geometry = e.with_stack(0x50, |e, cinfo| {
         let base = cinfo.addr();
         let radius = load_quiet(e, DEFAULT_RADIUS);
+        e.mem.set_u32(base, 0);
         e.mem.set_f32(base + 4, radius);
         store_vec(e, base + CINFO_VERTEX_A, [0.0; 4]);
-        store_vec(e, base + CINFO_VERTEX_B, [1.0; 4]);
+        store_vec(e, base + CINFO_VERTEX_B, [1.0, 0.0, 0.0, 0.0]);
         e.call(CONVEX_COPY_CINFO, &args![this, cinfo]);
         let source = end_point_source(e, this.addr(), HAVOK_VERTEX_A);
         e.call(COPY_VECTOR, &args![base + CINFO_VERTEX_A, source]);
@@ -1012,7 +1014,7 @@ mod tests {
         assert_eq!(e.mem.u32(cinfo), 0);
         assert_eq!(e.mem.f32(cinfo + 4), 0.25);
         assert_eq!(load_vec(&e, cinfo + 0x10), [0.0; 4]);
-        assert_eq!(load_vec(&e, cinfo + 0x20), [1.0; 4]);
+        assert_eq!(load_vec(&e, cinfo + 0x20), [1.0, 0.0, 0.0, 0.0]);
         assert_eq!(calls_to(&e, CONVEX_COPY_CINFO), vec![vec![this, cinfo]]);
         assert_eq!(e.mem.u32(thread + SCOPE_WORD), 0x77);
         // The second call finds the Cinfo.
@@ -1115,7 +1117,7 @@ mod tests {
         );
         // The end points: the capsule's three lanes and the Cinfo's default fourth lanes.
         assert_eq!(load_vec(&e, block + 0x10), [1.0, 2.0, 3.0, 0.0]);
-        assert_eq!(load_vec(&e, block + 0x20), [4.0, 5.0, 6.0, 1.0]);
+        assert_eq!(load_vec(&e, block + 0x20), [4.0, 5.0, 6.0, 0.0]);
         assert_eq!(calls_to(&e, DISPLAY_SLOT), vec![vec![block]]);
         assert_eq!(
             calls_to(&e, BUILD_DISPLAY_SLOT),

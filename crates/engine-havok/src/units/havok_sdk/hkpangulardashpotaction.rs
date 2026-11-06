@@ -6,7 +6,6 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-use std::cmp::Ordering;
 
 /// The `hkpBinaryAction` constructor (`00cf4d80`, `this`, `(body a, body b, user data)`).
 const BINARY_ACTION_CONSTRUCT: u32 = 0x00cf_4d80;
@@ -145,10 +144,8 @@ pub fn hkp_angular_dashpot_action_apply_action(e: &mut Engine, this: Ptr, step_i
         let angle = e.call(QUATERNION_GET_ANGLE, &args![product]).st0 as f32;
         let mut axis_term = [0.0f32; 4];
         let threshold = e.mem.f32(ANGLE_THRESHOLD);
-        if !matches!(
-            threshold.partial_cmp(&angle),
-            Some(Ordering::Greater | Ordering::Equal)
-        ) {
+        // d4dd3d..d4dd46: `TEST AH,5; JP` skips when not below and when unordered.
+        if threshold < angle {
             for (lane, term) in axis_term.iter_mut().enumerate() {
                 *term = angle * e.mem.f32(product + 4 * lane as u32);
             }
@@ -432,12 +429,12 @@ mod tests {
     }
 
     #[test]
-    fn apply_action_leaves_out_the_axis_term_for_a_small_angle_but_not_for_nan() {
+    fn apply_action_leaves_out_the_axis_term_for_a_small_angle_and_for_nan() {
         for (angle, small) in [
             (0.001f64, true),
             (0.0005, true),
             (0.01, false),
-            (f64::NAN, false),
+            (f64::NAN, true),
         ] {
             let mut e = engine();
             let (action, _, _, step, _) = apply_setup(&mut e, angle);
@@ -452,8 +449,6 @@ mod tests {
             if small {
                 // 25 * (0.5, 1.5, 2.5, 3.5) only.
                 assert_eq!(first, [12.5, 37.5, 62.5, 87.5], "angle {angle}");
-            } else if angle.is_nan() {
-                assert!(first.iter().all(|v| v.is_nan()));
             } else {
                 assert_ne!(first[0], 12.5);
             }

@@ -1194,7 +1194,7 @@ pub fn bs_test_objects_create_3d_arrow(
         let turned = get_point(e, side).map(|c| mul32(c, scale));
         set_point(e, side, turned);
         let lift = [0, 0, x87_quiet_bits(height)];
-        let start_point = get_point(e, start);
+        let end_point = get_point(e, end);
         let neck_point = get_point(e, neck);
         let plus = [0, 1, 2].map(|k| x87_quiet_bits(add32(turned[k], neck_point[k])));
         let minus = [0, 1, 2].map(|k| {
@@ -1204,7 +1204,8 @@ pub fn bs_test_objects_create_3d_arrow(
             )))
         });
         let lifted = |base: [u32; 3]| [0, 1, 2].map(|k| x87_quiet_bits(add32(lift[k], base[k])));
-        set_point(e, vertices, lifted(start_point));
+        // c5a346..c5a3b0: the lift is added to the arrow's end point.
+        set_point(e, vertices, lifted(end_point));
         set_point(e, vertices.wrapping_add(0xc), lifted(plus));
         copy_words(e, vertices.wrapping_add(0x18), end, 3);
         set_point(e, vertices.wrapping_add(0x24), plus);
@@ -2262,7 +2263,7 @@ mod n068_tests {
         assert_eq!(
             floats(&e, head[2], 18),
             vec![
-                0.0, 0.0, 0.5, 4.0, -4.0, 0.5, 10.0, 0.0, 0.0, 4.0, -4.0, 0.0, 4.0, 4.0, 0.5, 4.0,
+                10.0, 0.0, 0.5, 4.0, -4.0, 0.5, 10.0, 0.0, 0.0, 4.0, -4.0, 0.0, 4.0, 4.0, 0.5, 4.0,
                 4.0, 0.0
             ]
         );

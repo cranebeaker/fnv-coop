@@ -198,8 +198,9 @@ pub fn fn_00e3c680(e: &mut Engine, this: Ptr, rays: Ptr, count: i32, scale: f32)
 ///
 /// The transform loop is a do-while from the last vector down: with no rays it works on
 /// index -1, one vector before the local array, which overwrites the array's own data pointer,
-/// size and capacity words (the local frame is modelled with the exe's layout: array at +0x50,
-/// data at +0x5C), and the later steps read those words back.
+/// size, capacity and the word after (the local frame is modelled with the exe's layout: array
+/// at +0x50, data at +0x60, e3c80f before the `PUSH EDI`), and the later steps read those words
+/// back.
 pub fn hkp_multi_ray_shape_get_aabb_impl(
     e: &mut Engine,
     this: Ptr,
@@ -209,9 +210,9 @@ pub fn hkp_multi_ray_shape_get_aabb_impl(
 ) {
     let t = this.addr();
     let count = e.mem.u32(t + 0x14) as i32;
-    e.with_stack(0x25c, |e, frame| {
+    e.with_stack(0x260, |e, frame| {
         let array = frame.addr() + 0x50;
-        e.mem.set_u32(array, frame.addr() + 0x5c);
+        e.mem.set_u32(array, frame.addr() + 0x60);
         e.mem.set_u32(array + 4, 0);
         e.mem.set_u32(array + 8, 0x8000_0010);
         let router = e.call(MEMORY_ROUTER, &args![]).u32();
@@ -713,21 +714,22 @@ mod tests {
     fn no_rays_work_on_the_vector_before_the_data_and_the_frame_words_it_overwrites() {
         let mut r = rig();
         // With no rays the do-while loop transforms index -1, 16 bytes before the local
-        // array, over its own data pointer, size and capacity words. The vector read is the
-        // zeros before the shape's data, so the point is the last column (1, 2, 0, 0): the
-        // data pointer becomes the bits of 2.0 and size and capacity zero.
+        // storage (e3c80f: data at +0x60, the array at +0x50), over the array's data pointer,
+        // size, capacity and the word after. The vector read is the zeros before the shape's
+        // data, so the point is the last column (1, 0, 0, 0): the data pointer becomes the
+        // bits of 1.0 and size and capacity zero.
         let matrix = transform(
             &mut r.e,
-            [[0.0; 4], [0.0; 4], [0.0; 4], [1.0, 2.0, 0.0, 0.0]],
+            [[0.0; 4], [0.0; 4], [0.0; 4], [1.0, 0.0, 0.0, 0.0]],
         );
         let block = r.e.mem.alloc(0x40);
         let this = r.e.mem.alloc(0x40);
         r.e.mem.set_u32(this + 0x10, block + 0x10);
         let aabb = r.e.mem.alloc(0x20);
         r.e.call(0x00e3_c800, &args![this, matrix, 0u32, aabb]);
-        // Nothing is taken into the box and the "storage" at 2.0 is freed with zero bytes.
+        // Nothing is taken into the box and the "storage" at 1.0 is freed with zero bytes.
         assert_eq!(r.e.mem.u32(aabb), 0x7f7f_ffee);
         assert_eq!(r.e.mem.u32(aabb + 0x1c), 0xff7f_ffee);
-        assert_eq!(*r.frees.borrow(), [vec![r.allocator, 0x4000_0000, 0]]);
+        assert_eq!(*r.frees.borrow(), [vec![r.allocator, 0x3f80_0000, 0]]);
     }
 }

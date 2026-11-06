@@ -35,8 +35,8 @@ fn move_float(e: &mut Engine, from: u32, to: u32) {
 /// direction, moving by the displacement) against the triangle (`00eb1d20`). The first fills the
 /// outs (the second triangle parameter 0); each later one replaces them only when strictly
 /// nearer: edge 1 gives `(0, s)`, edge 2 `(1 - s, s)`, the start time 0, the end time 1, and the
-/// far end the segment parameter 1 with the time the word the end case left (1.0). Answers the
-/// least distance.
+/// far end the segment parameter 1 with the call's own parameter as the time. Answers the least
+/// distance.
 pub fn fn_00eb3230(
     e: &mut Engine,
     triangle: Ptr,
@@ -166,8 +166,9 @@ pub fn fn_00eb3230(
         );
         e.mem.set_u32(block + 8, x87_store32(z));
         copy_words(e, seg.wrapping_add(0x18), block + 0xc, 3);
+        // eb35d4: the first out is the frame's +0x18 here, not the +0x1c of the cases before.
         let distance = e
-            .call(SQR_DISTANCE_SEGMENT_TRIANGLE, &args![block, tri, d, b, a])
+            .call(SQR_DISTANCE_SEGMENT_TRIANGLE, &args![block, tri, c, b, a])
             .f64();
         let distance = x87_store32(distance);
         if x87_load32(best) > x87_load32(distance) {
@@ -250,11 +251,11 @@ mod tests {
         assert_eq!(d, -1.0);
         assert_eq!(read(&e, s, 4), vec![0.75, 0.25, 0.5, 0.75]);
         // The segment's far end path (origin + direction = -4 + 1) is the nearest after its
-        // start (-4): segment parameter 1, time 1.
+        // start (-4): segment parameter 1, the time from the call's first out (eb35d4, eb361d).
         let [tri, seg, s, t, p, time] = setup(&mut e, 5.0, 1.0, -4.0);
         e.mem.set_f32(seg + 0xc, -1.0);
         let d = e.call(0x00eb_3230, &args![tri, seg, s, t, p, time]).f64();
         assert_eq!(d, -5.0);
-        assert_eq!(read(&e, s, 4), vec![0.5, 0.75, 1.0, 1.0]);
+        assert_eq!(read(&e, s, 4), vec![0.5, 0.75, 1.0, 0.25]);
     }
 }

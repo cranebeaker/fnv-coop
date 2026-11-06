@@ -195,8 +195,9 @@ fn root_body(e: &Engine, body: u32) -> u32 {
 /// byte at `data + 0xb` is clear, the time of impact becomes `input[3]` and, with a non-zero
 /// entry counter at `data + 0xe`, the vertices of both shapes are fetched (shape virtual
 /// function `0x3c`, `(source, count, destination)`) into a local array, moved by the two
-/// bodies' transforms (`transform_vertices`), handed on with `00dae3a0` and the collector's
-/// record `first - 0x30 * entries` is appended to the list at `collector + 0x3080`. In every
+/// bodies' transforms (`transform_vertices`) and handed on with `00dae3a0`, which can drop
+/// points; the counter is read again and, unless it is now 0, the collector's record
+/// `first - 0x30 * entries` is appended to the list at `collector + 0x3080`. In every
 /// other case `processCollisionNoTim(pair, entry, data, data, data + 0xc, input, collector)`
 /// runs. The entry's byte at `+2` gets the counter and the function returns the address behind
 /// the cache. The squared radius sum and the copy of `input` that the exe keeps in locals are
@@ -313,6 +314,11 @@ fn collide_vertices(e: &mut Engine, pair: u32, data: u32, entries: u32, collecto
             &args![data + CACHE, f + 0x70, 0u32, collector, manager],
         );
     });
+    // 00dae3a0 can drop points: the count is read again (d41e1f) and 0 appends nothing.
+    let entries = u32::from(e.mem.u8(data + CACHE + 2));
+    if entries == 0 {
+        return;
+    }
     let list = e.mem.u32(collector + 0x3080);
     if list != 0 {
         let record = e.mem.u32(collector).wrapping_sub(entries * 0x30);
@@ -575,6 +581,32 @@ mod tests {
         assert_eq!(r.e.mem.u32(r.stream + 0x20), PROFILE_BEGIN);
         assert_eq!(r.e.mem.u32(r.stream + 0x2c), PROFILE_END);
         assert_eq!(r.e.mem.u32(r.stream + 4), r.stream + 0x38);
+    }
+
+    /// d41e1f..d41e45: the count after 00dae3a0 picks the record, and 0 appends nothing.
+    #[test]
+    fn points_dropped_by_the_finish_change_the_appended_record() {
+        let mut r = rig();
+        let cache = r.data + 0xc;
+        r.e.register_double(ADD_POINTS, move |e, _| {
+            e.mem.set_u8(cache + 2, 1);
+            Ret::default()
+        });
+        let (_, _) = r.run();
+        assert_eq!(r.e.mem.u32(r.cursor), 0x1000 - 0x30);
+        assert_eq!(r.e.mem.u8(r.entry + 2), 1);
+
+        let mut r = rig();
+        let cache = r.data + 0xc;
+        r.e.register_double(ADD_POINTS, move |e, _| {
+            e.mem.set_u8(cache + 2, 0);
+            Ret::default()
+        });
+        let (_, _) = r.run();
+        let list = r.e.mem.u32(r.collector + 0x3080);
+        assert_eq!(r.e.mem.u32(list + 4), r.cursor);
+        assert_eq!(r.e.mem.u32(r.cursor), 0);
+        assert_eq!(r.e.mem.u8(r.entry + 2), 0);
     }
 
     #[test]

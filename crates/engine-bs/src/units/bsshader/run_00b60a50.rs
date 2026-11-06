@@ -1668,9 +1668,9 @@ pub fn fn_00b62de0(
                 let factor = x87_add(base, varied);
                 let scale = e.mem.u32(scales + 4 * index);
                 let mut scaled = x87_store32(x87_mul(factor, x87_m32(scale)));
-                // `FCOM` with 1.0 (`TEST AH,1`), then with 0.0 (`TEST
-                // AH,0x41`): the scale stays in 0..0.99.
-                if !(x87_load32(scaled) < 1.0) {
+                // `FCOM` with 1.0 (`TEST AH,1; JNZ` keeps, also when unordered), then with
+                // 0.0 (`TEST AH,0x41`): the scale stays in 0..0.99, a NaN stays NaN.
+                if x87_load32(scaled) >= 1.0 {
                     scaled = x87_quiet_bits(e.global::<u32>(SCALE_LIMIT_0106682C));
                 } else if 0.0 > x87_load32(scaled) {
                     scaled = 0;
@@ -2376,9 +2376,18 @@ mod tests {
         assert_eq!(added[0], [0.0, 50.5]);
         assert_eq!(added[1], [1.0, 50.99]);
         assert_eq!(added[2], [2.0, 50.0]);
+        drop(added);
         assert_eq!(calls_to(&e, ELEMENT_FINISH).len(), 2);
         assert_eq!(calls_to(&e, 0x0040_c0bc).len(), 1);
         assert_eq!(e.global::<u32>(COUNTER_011F9EF8), 3);
+        // b62f09..b62f31: a NaN scale is kept by both tests.
+        points_added.borrow_mut().clear();
+        e.mem.set_f32(scales + 8, f32::NAN);
+        e.call(
+            0x00b6_2de0,
+            &args![0x31u32, 1u32, 2u32, owner, descriptor, points, scales, 3u32],
+        );
+        assert!(points_added.borrow()[2][1].is_nan());
         // No element source: stops before the owner's slot.
         e.set_global(INSTANCING_LEVEL, 0u32);
         e.call_log = Some(vec![]);

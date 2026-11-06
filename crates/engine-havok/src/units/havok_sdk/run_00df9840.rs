@@ -35,8 +35,6 @@ const TINY: u32 = 0x010c_9300;
 /// The origin passed to `00cd7530` (barycentric weights of the closest point
 /// of a triangle).
 const ORIGIN_POINT: u32 = 0x0126_7e30;
-/// The CRT square root (`00ec6040`, argument in ST0).
-const X87_SQRT: u32 = 0x00ec_6040;
 
 /// Callees outside this unit.
 const TRIANGLE_WEIGHTS: u32 = 0x00cd_7530;
@@ -692,7 +690,8 @@ pub fn fn_00df9fe0(e: &mut Engine, this: Ptr, out: Ptr, status: Ptr) -> bool {
                     let v0 = load_vec(e, e.mem.u32(t + 0x68));
                     let origin_distance = sum3(zip_with(v0, v0, |x, y| x * y));
                     if epsilon >= origin_distance {
-                        let root = e.call(X87_SQRT, &args![origin_distance as f64]).f64() as f32;
+                        // dfa660: `SQRTSS` in the function itself, then `FLD`/`FSTP`.
+                        let root = origin_distance.sqrt();
                         e.mem.set_f32(out.addr() + 0x20, x87_quiet(root));
                         copy_vec(e, base + 0x80, out.addr());
                         copy_vec(e, base + 0xa0, out.addr() + 0x10);
@@ -1352,6 +1351,8 @@ mod tests {
     #[test]
     fn a_simplex_of_zero_vectors_falls_back_to_the_origin() {
         let mut e = engine();
+        // dfa660: the root is taken in the function itself, with no call out.
+        e.register_double(0x00ec_6040, |_, _| panic!("the CRT square root was called"));
         let this = search(&mut e, 4);
         e.register_double(SUPPORT_OF_DIFFERENCE, |_, _| Ret::default());
         let out = e.mem.alloc(0x30);

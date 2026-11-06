@@ -1039,7 +1039,7 @@ fn build_task_collection(
         let start = used.wrapping_add(1).wrapping_shl(7);
         let base = e.mem.u32(island + 0x30);
         e.mem.set_u32(island + 0x34, start.wrapping_add(base));
-        let groups_total = (used.wrapping_sub(1) >> 7).wrapping_add(1) as u16;
+        let groups_total = ((used >> 7) + 1) as u16;
         e.mem.set_u16(island + 0x38, groups_total);
         e.mem.set_u16(island + 0x3a, groups_total);
     }
@@ -2045,6 +2045,30 @@ mod tests {
         }
         assert_eq!(b.e.mem.u32(at + 36), PROFILE_END);
         assert_eq!(b.e.mem.u32(b.stream + 4), at + 48);
+    }
+
+    /// 00d95b9c..00d95bb5: the block words are `(used >> 7) + 1`, also at a multiple of 0x80.
+    #[test]
+    fn the_island_block_words_count_a_full_block_as_one_more() {
+        for (used, words) in [(0x80u16, 2u16), (0, 1), (0x7f, 1), (0x100, 3)] {
+            let high = Spec {
+                kind: 4,
+                ..spec(0, 1)
+            };
+            let low = Spec {
+                flags: 1,
+                ..spec(0, 1)
+            };
+            let mut b = build_scene(2, &[low, high]);
+            b.e.mem.set_u16(b.island + 0x54, used);
+            b.run(0);
+            assert_eq!(b.e.mem.u16(b.island + 0x38), words);
+            assert_eq!(b.e.mem.u16(b.island + 0x3a), words);
+            assert_eq!(
+                b.e.mem.u32(b.island + 0x34),
+                ISLAND_BASE + ((u32::from(used) + 1) << 7)
+            );
+        }
     }
 
     #[test]

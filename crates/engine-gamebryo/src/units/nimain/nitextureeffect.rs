@@ -518,7 +518,7 @@ pub fn ni_texture_effect_update_projection(e: &mut Engine, this: Ptr) {
                 let product = e
                     .call(
                         MATRIX_TIMES_MATRIX,
-                        &args![base + MODEL_PROJ_MAT, local(0x38), transposed],
+                        &args![base + MODEL_PROJ_MAT, local(0x44), transposed],
                     )
                     .u32();
                 let scaled = e
@@ -1258,6 +1258,9 @@ mod n020_tests {
         set_floats(&mut e, this + MODEL_PROJ_TRANS, &[4.0, 4.0, 4.0]);
         e.call_log = Some(vec![]);
         e.call(0x00a9_2c40, &args![this]);
+        // 00a92d3c: the product's block lies behind the transposed matrix's nine words.
+        let transposed = calls_to(&e, MATRIX_TRANSPOSE)[0][1];
+        assert_eq!(calls_to(&e, MATRIX_TIMES_MATRIX)[0][1], transposed + 0x24);
         let points = calls_to(&e, MATRIX_TIMES_POINT_004B4500);
         assert_eq!(points[0][0], this + WORLD_PROJ_MAT);
         assert_eq!(points[0][2], this + WORLD_TRANSLATE);

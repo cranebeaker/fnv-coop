@@ -277,14 +277,17 @@ pub fn fn_0097e4b0(e: &mut Engine, this: Ptr) {
                 e.call(LOCATION_INIT_0097EDE0, &args![candidate]);
                 let group = e.mem.u32(at + 0x80);
                 let target = e.mem.u32(at + 0xc0);
-                let state_object = e.mem.u32(at + 0x9c);
                 if e.call(GROUP_LOCATION_009890E0, &args![group, target, candidate])
                     .bool()
-                    && e.call(
-                        COMBAT_STATE_CHECK_MOVEMENT,
-                        &args![state_object, candidate, 1u32, 1u32],
-                    )
-                    .bool()
+                    && {
+                        // 0097eb95: read after the group's answer.
+                        let state_object = e.mem.u32(at + 0x9c);
+                        e.call(
+                            COMBAT_STATE_CHECK_MOVEMENT,
+                            &args![state_object, candidate, 1u32, 1u32],
+                        )
+                        .bool()
+                    }
                 {
                     let here = ebp - 0xbc;
                     let actor = e.mem.u32(at + 0xbc);
@@ -687,6 +690,29 @@ mod tests {
         let made = calls_to(&log, PROCEDURE_009D69F0);
         assert_eq!(made[0][1..], [location, bits(64.0), 0]);
         assert_eq!(e.mem.u32(this + 0x144), 2);
+    }
+
+    /// 0097eb95: the state object at +0x9c is read after the group's answer (009890e0).
+    #[test]
+    fn the_group_location_check_reads_the_state_object_after_the_group() {
+        let mut e = engine();
+        answer(&mut e, TIMER_DONE_008D7F80, 1);
+        answer(&mut e, COMBAT_STATE_CHECK_MOVEMENT, 0);
+        let this = controller(&mut e);
+        e.register_double(GROUP_LOCATION_009890E0, move |e, _| {
+            e.mem.set_u32(this + 0x9c, 0x0abc_0123);
+            Ret {
+                eax: 1,
+                ..Ret::default()
+            }
+        });
+        e.call_log = Some(vec![]);
+        e.call(0x0097_e4b0, &args![this]);
+        let log = e.call_log.take().unwrap();
+        assert_eq!(
+            calls_to(&log, COMBAT_STATE_CHECK_MOVEMENT)[0][0],
+            0x0abc_0123
+        );
     }
 
     #[test]

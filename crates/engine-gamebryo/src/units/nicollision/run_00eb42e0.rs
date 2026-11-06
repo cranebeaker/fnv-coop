@@ -260,7 +260,8 @@ impl Face {
         let extent2 = load(e, self.extent(self.i2));
         let d1 = self.d(e, self.i1);
         let limit = x87_mul(x87_add(length, length), operand(e, self.extent(self.i1)));
-        if !(limit < test) {
+        // eb467e..eb4685, eb499b..eb49a2: unordered goes to the second form.
+        if limit >= test {
             let t = round(x87_div(test, length));
             let step = round(x87_sub(plus1, t));
             let delta = round(x87_add(b, x87_add(a, x87_mul(d1, step))));
@@ -295,7 +296,8 @@ impl Face {
         let extent1 = load(e, self.extent(self.i1));
         let d2 = self.d(e, self.i2);
         let limit = x87_mul(x87_add(length, length), operand(e, self.extent(self.i2)));
-        if !(limit < test) {
+        // eb480c..eb4817, eb4b2c..eb4b37: unordered goes to the second form.
+        if limit >= test {
             let t = round(x87_div(test, length));
             let step = round(x87_sub(plus2, t));
             let delta = round(x87_add(b, x87_mul(d2, step)));
@@ -788,6 +790,38 @@ mod tests {
             "{}",
             e.mem.f32(sum)
         );
+    }
+
+    /// eb467e..eb4685, eb480c..eb4817: an unordered limit test takes the edge's second form,
+    /// which ends on the box's extent.
+    #[test]
+    fn a_nan_edge_test_ends_on_the_extent() {
+        let mut e = Engine::new();
+        let b = unit_box(&mut e, [1.0, 1.0, 1.0]);
+        let parameter = e.mem.alloc(4);
+        let sum = floats(&mut e, &[0.0]);
+        let direction = floats(&mut e, &[1.0, 0.1, 0.1]);
+        let offsets = floats(&mut e, &[0.5, 0.5, 0.5]);
+        let mut run = |point: [f32; 3]| {
+            let point = floats(&mut e, &point);
+            fn_00eb4590(
+                &mut e,
+                Ptr::new(point),
+                1,
+                2,
+                Ptr::new(direction),
+                Ptr::new(b),
+                0,
+                Ptr::new(offsets),
+                Ptr::new(parameter),
+                Ptr::new(sum),
+            );
+            read(&e, point, 3)
+        };
+        // The first edge: NaN in the third lane of the point.
+        assert_eq!(run([0.0, 0.25, f32::NAN])[1], 1.0);
+        // The second edge: NaN in the second lane of the point.
+        assert_eq!(run([0.0, f32::NAN, 0.25])[2], 1.0);
     }
 
     #[test]

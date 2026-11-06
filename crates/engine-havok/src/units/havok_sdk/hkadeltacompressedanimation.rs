@@ -42,6 +42,10 @@ const CALC_QUANTIZED_SIZE: u32 = 0x00e5_1da0;
 /// `hkaTrackAnalysis::calcDynamicStats` (`00e4e610`, cdecl): `(track data, end, transform count,
 /// float count, statistics)`.
 const CALC_DYNAMIC_STATS: u32 = 0x00e4_e610;
+/// The statistics of a track description (`00e4ebb0`, cdecl, the same five arguments), which
+/// also counts the static floats; it and its callees write all 14 words before reading them, so
+/// the caller's zeroing is the exe's but cannot be seen.
+const CALC_TRACK_STATS: u32 = 0x00e4_ebb0;
 /// `hkaTrackAnalysis::recompose` (`00e4f640`, cdecl): `(description, transforms out, floats out)`.
 const RECOMPOSE: u32 = 0x00e4_f640;
 /// `hkaAnimation::getFrameAndDelta` (`00e2f7c0`, `RET 0xc`): `this`, `(time, frame out, delta out)`.
@@ -669,12 +673,15 @@ pub fn fn_00e35050(e: &mut Engine, this: Ptr) {
             }
         }
     }
-    // The exe's frame (`SUB ESP,0x48`, four pushes): 0x58 bytes, the dynamic statistics at +0x20
-    // (00e350c9..00e35105).
+    // The exe's frame (`SUB ESP,0x48`, four pushes): 0x58 bytes, the 14 words of statistics at
+    // +0x20, zeroed first (e350c5, e350d5..e35105).
     e.with_stack(0x58, |e, frame| {
         let stats = frame.addr() + 0x20;
+        for word in 0..14 {
+            e.mem.set_u32(stats + 4 * word, 0);
+        }
         e.call(
-            CALC_DYNAMIC_STATS,
+            CALC_TRACK_STATS,
             &args![
                 values,
                 values.wrapping_add(tracks.wrapping_mul(2)),
@@ -1788,8 +1795,12 @@ mod tests {
         }
         // Statistics: 2 + 1 + 1 + 1 = 5 static words, 3 + 2 + 1 + 0 = 6 array words.
         let log = Rc::clone(&calls);
-        e.register_double(CALC_DYNAMIC_STATS, move |e, a| {
-            log.borrow_mut().push((CALC_DYNAMIC_STATS, a.to_vec()));
+        e.register_double(CALC_TRACK_STATS, move |e, a| {
+            log.borrow_mut().push((CALC_TRACK_STATS, a.to_vec()));
+            // e350c5, e350d5..e35105: all 14 words reach the callee zeroed.
+            for word in 0..14 {
+                assert_eq!(e.mem.u32(a[4] + 4 * word), 0, "word {word}");
+            }
             for (index, value) in [2u32, 1, 1, 1, 0, 0, 0, 3, 2, 1, 0].into_iter().enumerate() {
                 e.mem.set_u32(a[4] + 4 * index as u32, value);
             }
@@ -1805,8 +1816,14 @@ mod tests {
         // A signalling NaN is quieted before and after the swap.
         e.mem.set_u32(data + 0x40 + 16, 0x7f80_0001);
         e.mem.set_u32(data + 0x100 + 20, 0x0100_807f);
+        // The words the statistics do not write are not left over from an earlier frame.
+        e.with_stack(0x100, |e, frame| {
+            for offset in (0..0x100).step_by(4) {
+                e.mem.set_u32(frame.addr() + offset, 0x5555_5555);
+            }
+        });
         e.call(0x00e3_5050, &args![this]);
-        let stats = calls_to(&calls, CALC_DYNAMIC_STATS);
+        let stats = calls_to(&calls, CALC_TRACK_STATS);
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0][..4], [data + 4, data + 4 + 4, 2, 1]);
         assert_eq!(e.mem.u16(data + 4), 0x2211);
@@ -1841,7 +1858,7 @@ mod tests {
         e.mem.set_u8(data, 0);
         e.call(0x00e3_5050, &args![this]);
         assert_eq!(e.mem.u32(data + 0x40), before);
-        assert_eq!(calls_to(&calls, CALC_DYNAMIC_STATS).len(), 1);
+        assert_eq!(calls_to(&calls, CALC_TRACK_STATS).len(), 1);
     }
 
     /// The pieces `samplePartialWithDataChunks` reads: chunk records for an animation (chunk 0,
@@ -2122,7 +2139,7 @@ mod tests {
         e.mem.set_u8(data, 1);
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&seen);
-        e.register_double(CALC_DYNAMIC_STATS, move |_, a| {
+        e.register_double(CALC_TRACK_STATS, move |_, a| {
             sink.borrow_mut().push(a[4]);
             Ret::default()
         });

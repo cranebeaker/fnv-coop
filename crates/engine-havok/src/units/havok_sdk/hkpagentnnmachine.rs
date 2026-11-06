@@ -56,6 +56,9 @@ const ARRAY_INSERT_AT: u32 = 0x00cd_1e20;
 const QUATERNION_SET_MUL: u32 = 0x00c6_6320;
 /// The `float` the warp-time function stores when the stored time does not match.
 const WARP_MISMATCH_TIME: u32 = 0x0101_2054;
+/// The `float` (just under `f32::MAX`, bits `0x7f7f_ffee`) the track pass stores as "no best time
+/// yet" in the output record's `+0x3030`.
+const NO_BEST_TIME: u32 = 0x0104_da48;
 /// A `float` (-3.4028232e38) the process functions store as the remaining distance of an entry
 /// they restart.
 const UNSET_DISTANCE: u32 = 0x0104_e148;
@@ -1030,7 +1033,10 @@ pub fn hk_agent_nn_machine_create_agent(
 /// is the end of a list of sweep records the agents append to (a buffer in the frame, reset
 /// for every entry): when an entry's agent added some, the object at the entry's `+8` is asked
 /// (vtable slot `0x18`) with the two bodies' records as they were before the transform shapes
-/// were resolved, the collision input and the record. When the global at `01269200` is 1 after
+/// were resolved, the collision input and the record. The record's best time at `+0x3030` is
+/// set to "none yet" ([`NO_BEST_TIME`]) before the walk and again for every entry, its word at
+/// `+0x3080` to 0 for every entry, and `+0x3050`, `+0x3054` to 0.0 once; the agents read them.
+/// When the global at `01269200` is 1 after
 /// an entry the function stops at once. Finally a `MinumTim` record with the number of entries
 /// passed on is appended to the thread's monitor stream.
 pub fn hk_agent_nn_machine_process_track(e: &mut Engine, passed_on: u32, track: Ptr, ctx: Ptr) {
@@ -1039,7 +1045,10 @@ pub fn hk_agent_nn_machine_process_track(e: &mut Engine, passed_on: u32, track: 
         let g = frame.addr();
         let (third, buffer) = (g + 0x7c0, g + 0x7d0);
         let counter = g + 0x24;
+        copy_float(e, NO_BEST_TIME, third + 0x3030);
         e.mem.set_u32(third + 4, passed_on);
+        e.mem.set_f32(third + 0x3050, 0.0);
+        e.mem.set_f32(third + 0x3054, 0.0);
         e.mem.set_u32(counter, 0);
         let mut index = 0;
         while index < e.mem.i32(track + 8) {
@@ -1054,6 +1063,8 @@ pub fn hk_agent_nn_machine_process_track(e: &mut Engine, passed_on: u32, track: 
             while entry < limit {
                 let first = e.mem.u32(entry + 0x10);
                 let second = e.mem.u32(entry + 0x14);
+                copy_float(e, NO_BEST_TIME, third + 0x3030);
+                e.mem.set_u32(third + 0x3080, 0);
                 e.mem.set_u32(third, buffer);
                 process_entry(e, g + 0x40, entry, ctx, third, Some(counter));
                 if e.mem.u32(SKIP_CREATE) == 1 {
@@ -2276,6 +2287,49 @@ mod tests {
         // input and the record whose list end moved.
         assert_eq!(slot[0][0], asked);
         assert_eq!(slot[0][1..4], [w.bodies[0], w.bodies[1], w.ctx]);
+    }
+
+    /// 00cff3d0..00cff3f3 and 00cff43b..00cff44b: the agents find "no best time yet" and an empty
+    /// record list, for every entry, whatever the entry before left there and whatever was on
+    /// the stack.
+    #[test]
+    fn process_track_starts_each_entry_with_no_best_time() {
+        let mut e = engine();
+        let w = process_world(&mut e);
+        monitor_stream(&mut e);
+        e.mem.set_u32(NO_BEST_TIME, 0x7f7f_ffee);
+        let seen: Rc<RefCell<Vec<[u32; 4]>>> = Rc::default();
+        let sink = Rc::clone(&seen);
+        e.register_double(PROCESS_FUNCTION, move |e, a| {
+            let third = a[4];
+            sink.borrow_mut().push([
+                e.mem.u32(third + 0x3030),
+                e.mem.u32(third + 0x3050),
+                e.mem.u32(third + 0x3054),
+                e.mem.u32(third + 0x3080),
+            ]);
+            // What an agent leaves behind: only +0x3030 and +0x3080 are set again.
+            e.mem.set_f32(third + 0x3030, 0.25);
+            e.mem.set_u32(third + 0x3050, 0x1111);
+            e.mem.set_u32(third + 0x3054, 0x2222);
+            e.mem.set_u32(third + 0x3080, 0x3333);
+            Ret::default()
+        });
+        let sector = e.mem.alloc(0x200);
+        write_entry(&mut e, &w, sector, (2, 1, 0x40));
+        write_entry(&mut e, &w, sector + 0x40, (2, 1, 0x40));
+        let track = make_track(&mut e, &[sector], 0x80, NOT_OWNED);
+        // Stale words where the frame's record will lie.
+        e.with_stack(0x3860, |e, frame| {
+            for offset in (0..0x3860).step_by(4) {
+                e.mem.set_u32(frame.addr() + offset, 0xdddd_dddd);
+            }
+        });
+        e.call(0x00cf_f3c0, &args![0x6666u32, track, w.ctx]);
+        assert_eq!(
+            *seen.borrow(),
+            [[0x7f7f_ffee, 0, 0, 0], [0x7f7f_ffee, 0x1111, 0x2222, 0]]
+        );
     }
 
     #[test]
