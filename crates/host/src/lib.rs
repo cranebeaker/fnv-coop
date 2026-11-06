@@ -16,7 +16,9 @@
 //! thread). What it is connected to: docs/ENGINE_CRATE.md
 //! ("In the running game").
 
+pub mod fixes;
 pub mod form_types;
+pub mod frame_log;
 pub mod game_file;
 pub mod player_move;
 pub mod save_out;
@@ -72,6 +74,12 @@ impl Host {
     /// when they are made ([`start_game_objects`]). The error says which file and why (missing,
     /// not a PE file, another build).
     pub fn start(data: &Path) -> Result<Host, String> {
+        Host::start_with(data, &fixes::Choice::vanilla())
+    }
+
+    /// [`Host::start`] with the [`fixes::Choice`] the player's settings give, bound before the
+    /// game's first frame.
+    pub fn start_with(data: &Path, choice: &fixes::Choice) -> Result<Host, String> {
         let exe = engine::exe::installed_exe(data);
         if !exe.is_file() {
             return Err(format!(
@@ -86,12 +94,9 @@ impl Host {
         for (address, function) in play_patch::funcs() {
             engine.register(address, function);
         }
-        // `NV_UNCAP=1`: an opt-in fix, NOT 1:1 with the exe (off by default): `BSTimer`'s step
-        // without its sleep, so the frame rate isn't held to the game's own limit ([`uncap`]).
-        if uncap::wanted() {
-            uncap::install(&mut engine);
-            eprintln!("NV_UNCAP=1: BSTimer's step (00aa4ee0) runs without its sleep (not 1:1)");
-        }
+        // What differs from the exe in this run, registered over the translations (docs/FIXES.md).
+        fixes::install(&mut engine, choice);
+        eprintln!("{}", choice.describe());
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
         engine.start_real_clock();

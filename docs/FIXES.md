@@ -1,0 +1,115 @@
+# The fixes preset
+
+A player who changes nothing gets the `fixes` set; `vanilla` is what FalloutNV.exe 1.4.0.525 does, and
+every comparison with the original, gate and recording runs on it (the maintainer, 2026-11-02;
+[ADR-0014](adr/0014-typed-migration-in-two-stages.md) point 5, `crates/host/src/fixes.rs`).
+
+## Choosing
+
+| Where | What | Who |
+| --- | --- | --- |
+| `Settings.cmd`'s `settings.ini` | `Preset=fixes` (the default) or `Preset=vanilla`; `FrameLimit=n` (0: none) | The player |
+| `NV_PRESET=fixes` or `vanilla`, `NV_FRAME_LIMIT=n` | Over the file | Tests, scripts |
+| `NV_UNCAP=0` or `1`, and each fix's own variable below | That fix alone; with no `NV_PRESET` the rest of the run is vanilla | Gates, tests |
+| A recording or scripted run: `NV_TRACE_LIST`, `NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, `NV_SOUND_RECORD`, `NV_SHOT`, `NV_TICK_COUNT`, `NV_FRAME_LOG`, the probes and `*_CHECK` switches (the list is `TEST_VARIABLES` in `fixes.rs`), with no `NV_PRESET` | Vanilla | A script that was never told about the preset still measures the original. `NV_SAVE_OUT` (the preview launcher's) does not pin |
+| `NV_SETTINGS=FILE` | The settings file, when it isn't `settings.ini` beside the program or in the folder above it | Launchers |
+
+It is read once at start-up and bound before the first frame (`fixes::install`): the log's `Preset ...`
+line says what the run is. Anything it can't read stops the start with a message. A settings file with a UTF-8 mark or in UTF-16 (PowerShell 5.1's `>`) is decoded; one that exists and can't be read stops the start, unless `NV_PRESET` is set, which beats the file whatever it holds. `Host::start` runs
+vanilla, for tests and tools; the viewer reads the choice and calls `Host::start_with`.
+
+Anything that compares with the original says `NV_PRESET=vanilla`. Speed gates say `NV_PRESET=vanilla
+NV_UNCAP=1` as before.
+
+## How a fix is built
+
+- An override keyed by exe address, a plain function registered over the translation when it is on.
+  Off, nothing is registered, so the translation runs as it is and no call tests a flag.
+- Translations are never edited for a fix.
+- Its addresses are in `crates/engine-core/data/overridable.tsv`, so typed code keeps calling them by
+  address (`docs/ENGINE_CRATE.md`, "Typed code"; a test checks).
+- Tests in both modes: the translation's behaviour stays what its own tests say; the fix's tests
+  install it.
+- Its row says why it is in the set, from measurements.
+
+## Measuring
+
+`NV_FRAME_LOG=FILE` writes a line per main frame (clock, step, Havok accumulator, player position)
+without a per-call cost, so the frame rate stays the player's. The game's own `iFPSClamp` INI line
+(`[General]`, 1 to 199) gives exact frame steps at any wall rate, which is how a recording sees a
+high frame rate's steps: a trace itself holds the game near 30 frames a second.
+
+## The fixes
+
+Not done: the menus and logos run at 170+ frames a second with no `FrameLimit` (undecided; a limit that applies in menus only is the maintainer's choice). The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no wait, which the uncapped step doesn't pace, so a recording with `iFPSClamp` runs as fast as it can.
+
+| Fix | Address | Switch | What it does |
+| --- | --- | --- | --- |
+| Uncapped frame rate | `00aa4ee0` | `NV_UNCAP` | `BSTimer`'s step without its sleep and its 10 ms floor, on the microsecond clock. `FrameLimit` paces it. Where the original sleeps (a step under 10 ms by the tick count) the other threads get a `Sleep(0)` pass instead, about one frame in three, and the first step after a disable answers as the original does (10 ms) |
+| High-frame-rate landing | `00c73170` | `NV_HF_LANDING` | The player's character, landing standing still in a frame under 16 ms, falls on as far as at 16 ms frames: one more integration with `Move`'s own velocity, large-creature mode word and step. Measured on the player only, so other characters run `Move` as it is. The extra time is 32 ms minus the frame, so it jumps at 16 ms (15.9 ms gets about 32 ms in all, 16 ms none); the fall stops at the floor either way, and the difference is under half a unit (0.43 at 16 ms frames), not visible, so it is not smoothed |
+| High-frame-rate slow motion | `00aa4e40` | `NV_HF_SLOWMO` | The time multiplier moves to its target by the time passed, not by the frame |
+
+### What high frame rates do to the original's code
+
+Measured on the port's vanilla translation at exact frame steps (the game's `iFPSClamp`), against the
+real game on the same route (2026-11-06, the recorded route's Doc Mitchell's hall, Vikki and Vance,
+Goodsprings; real frames 10, 15 and 16 ms):
+
+| Frame step | 16.67 ms | 10 ms | 8.33 ms | 5.03 ms | Real game |
+| --- | --- | --- | --- | --- | --- |
+| Height above the floor after a standing jump | 0.4 | 3.2 to 5.1 | 4.0 to 5.5 | 6.6 to 7.0 | 1.1 to 2.8 |
+| Jump height | 61.54 | 62.52 | 62.77 | 63.26 | 61.5 to 61.9 |
+| Rise at rest after a load: player | 0.269 | 0.007 | 0.006 | 0.004 | 0.029 |
+| Rise at rest after a load: an NPC in Vikki and Vance | 0.599 | 0.336 | 0.186 | 0.006 | 0.346 |
+| Player's run, units a second | 334 | 334 | 334 | 334 | 336 |
+| Dropped stimpak, steps until asleep | 93 | 101 | 93 | 85 | 101 |
+| Doc's body, steps until asleep | 220 | 176 | 151 | 173 | 128 (140, 232, 140 in other real runs) |
+| Havok steps | 16 ms | 16 ms | 16 ms | 16 ms | 16 ms |
+
+- **Rigid bodies don't care:** the world steps 16 ms with 4 solver steps at any frame rate
+  (`00c66760`, `00c6af..`); under 8 ms a frame's time is carried and it has no step. Settling
+  has no trend with the frame step. NVTF sets `fMaxTime` to the frame's time; nothing measured here asks for
+  that, and it changes the solver's work a second. It goes with the fixed-rate simulation, later.
+- **The game's clock.** A frame shorter than a `GetTickCount` tick is reported as 10 ms, so the game's
+  time runs ahead of the real time as frames get short: the real game at 94 frames a second in the hall has
+  13.7 ms of game time a frame in 10.66 ms of real time, 1.29 times real time. Above 100 frames a second
+  the original would go faster still (the "sped-up game" of the Viva New Vegas guide's FAQ). The uncapped step follows the real time.
+- **The original's sleep.** `Sleep(9)` in about one frame in three in the hall (732 of 2300), and that frame
+  takes 11.8 ms against 7.6 without: it isn't rounded up to the 15.6 ms tick.
+- **Rest height follows the frame step alone.** A still character's rise from its start stops at the first step
+  whose contacts move under 0.001 Havok units. Nothing here depends on foot placement.
+- **Not settled:** animation (NVTF's `bSpiderHandsFix`) has no measure here. The jump is 2.4% higher at
+  200 frames a second, which is the integration's own step, and stays. An NPC at rest after a load stands 0.34 units
+  lower than in the real game at 200 frames a second and 0.25 higher at 60; left.
+
+### Before and after
+
+Height above the floor (7360.36 in Doc's hall) where the player rests after three standing jumps, one
+after the other. Real frames with `NV_FRAME_LOG`, the `iFPSClamp` rows with a recording:
+
+| Frames | Uncapped alone | With the landing fix |
+| --- | --- | --- |
+| Limit 60 | 0.69 | 0.69 |
+| Limit 120 (the hall reaches 93 a second here) | 4.57, 3.04, 1.36 | 0.69 |
+| No limit (about 86 in the hall) | 2.83, 3.01, 1.78 | 0.69 |
+| Exactly 120 | 3.96, 5.53, 4.65 | 0.69 |
+| Exactly 199 | 6.98, 6.77, 6.55 | 0.69 |
+| The real game at its own rate | 1.10, 1.90, 2.83 | |
+
+It holds up to the 199 a second tested. Frames of 16 ms and longer run `Move` untouched. The game's time against the
+real time is 1.001 to 1.005 at every limit.
+
+Frame rate at the maintainer's settings (2560x1440, 8x anti-aliasing, borderless; about two minutes a run,
+2026-11-06): Doc's room 70.2 frames a second on vanilla, 104.7 with the fixes; Goodsprings about 43 and about 44 (the original never sleeps there; the second from 15 s only).
+
+## Credits
+
+Written with the fix plugins' knowledge, by their authors' permission (2026-11-03); no code is
+translated from them in these fixes.
+
+- **New Vegas Tick Fix (NVTF)**, carxt, lStewieAl and jazzisparis, LGPL-2.1: `BSTimer`'s fixed
+  step from the measured frame and the survey of what goes wrong at high frame rates.
+- **ITR NVSE** (Into the Rough contributors, MIT): `SlowMotionPhysicsFix`, read for what slow motion does
+  to physics.
+- **Viva New Vegas** (ModdingLinked, MIT): the guide's frame-rate rules, which these numbers were checked
+  against.

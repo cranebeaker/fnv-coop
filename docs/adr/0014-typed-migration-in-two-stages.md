@@ -64,7 +64,6 @@ These are open for the maintainer, and nothing in this record settles them:
 - what "no 4 GB limit" means for the release, and when;
 - whether rewriting call sites to typed leaf functions by script counts as the "generated direct
   calls" ADR-0012 skips;
-- whether the frame uncap is on by default once the fixes preset exists;
 - how the extender notes' rule that guest memory is the only copy of game state changes once a
   family has moved.
 

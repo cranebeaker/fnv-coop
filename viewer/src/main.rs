@@ -152,8 +152,16 @@ fn main() {
     };
     // The game's own code runs on the player's FalloutNV.exe, read from the same installation
     // as Data: any build but 1.4.0.525 is refused here, with the reason (2026-10-13). Starting
-    // runs main's first frame.
-    let mut game = match host::Host::start(&data) {
+    // runs main's first frame. What differs from the exe: the fixes preset unless the settings or
+    // the environment say otherwise (docs/FIXES.md).
+    let choice = match host::fixes::Choice::read() {
+        Ok(choice) => choice,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
+    let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {
             eprintln!("error: {e}");
@@ -183,11 +191,15 @@ fn main() {
     // `NV_MOVE_MOUSE`. Every 5 s the status line (the heartbeat the launchers watch) and the
     // lists.
     let mut last: Option<Instant> = None;
+    let mut frame_log = host::frame_log::FrameLog::from_env();
     loop {
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
         if !game.main_frame() {
             break;
+        }
+        if let Some(log) = &mut frame_log {
+            log.record(&mut game.engine);
         }
         if last.map_or(true, |at| at.elapsed() >= Duration::from_secs(5)) {
             last = Some(Instant::now());

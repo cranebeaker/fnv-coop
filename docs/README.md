@@ -29,6 +29,7 @@ function by function into Rust (`crates/engine*`), started on the player's own e
 | [FOS_SAVES.md](FOS_SAVES.md) | The original game's save format (`crates/fos`) |
 | [MODS.md](MODS.md) | Plugins, archives and load order as the game handles them |
 | [PERFORMANCE.md](PERFORMANCE.md) | Frame-time measurements |
+| [FIXES.md](FIXES.md) | The fixes preset: what differs from the original by default, how to pin vanilla |
 | [VR.md](VR.md) | VR plans |
 
 ## Method and research

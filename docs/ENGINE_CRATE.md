@@ -591,9 +591,9 @@ marker elsewhere, in the engine crates, `crates/host` and `viewer`. The rules re
   the marker for that address above it, in any of the folder's files. A marker has one definition, `scripts/ledger/src/typed_marker.rs`,
   which the ledger and this test share: a line this test refuses, the ledger doesn't count.
 - `crates/engine-core/data/overridable.tsv` lists the addresses a fix or a built-in can override: the
-  plugins' hooked function entries (a lower bound: literal addresses only), `NV_UNCAP`'s timer step,
+  plugins' hooked function entries (a lower bound: literal addresses only), the fixes preset's addresses ([FIXES.md](FIXES.md)),
   and the four fixes-preset guards. `typed_call!` may not name one, and typed code may not call one
-  directly. The translations' direct calls to them (131 today, one of them `NV_UNCAP` chaining to the translation) are frozen by count: a new one fails,
+  directly. The translations' direct calls to them (133 today, three of them the fixes preset chaining to the translation) are frozen by count: a new one fails,
   and a removed one asks for the number to be lowered. Moving them to calls by address would change the
   calls the game makes, so it is left for each family's own step.
 - **What stays review-only,** because this reads text: a call through a function pointer or a `let` of

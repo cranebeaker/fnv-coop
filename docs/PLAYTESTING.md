@@ -59,7 +59,10 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 | `NV_MOVE_KEYS`, `NV_MOVE_MOUSE` | Scripted keys and mouse by main's frame (`crates/host/src/player_move.rs`) |
 | `NV_MOVE_TRACE` | The last calls before a stop, to a file (slow) |
 | `NV_SAVE_OUT=DIR` | The saves the game writes, copied out to DIR (`crates/host/src/save_out.rs`) |
-| `NV_UNCAP=1` | An opt-in fix, not 1:1: the frame limiter's sleep removed (`crates/host/src/uncap.rs`) |
+| `NV_PRESET=fixes` or `vanilla` | What differs from the exe: the fixes set (the default) or the original's behaviour; comparisons and gates pin vanilla ([FIXES.md](FIXES.md)) |
+| `NV_FRAME_LIMIT=n` | Frames a second at most under the fixes preset (0: none) |
+| `NV_UNCAP=0` or `1`, `NV_HF_LANDING=0` or `1` | One fix alone; with no `NV_PRESET` the rest of the run is vanilla |
+| `NV_FRAME_LOG=FILE` | One line per main frame (clock, step, player position), with no per-call cost | 
 
 ## Packages
 

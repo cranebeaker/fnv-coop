@@ -24,6 +24,8 @@ work, with the quick wins that outlive it (a render thread, PGO, the light-view
 wait) -> the modern systems. Deep optimisation of the address-level translation
 (guard pages, generated direct calls) is skipped where typed code replaces it.
 
+The fixes preset exists: on by default, vanilla a setting away ([FIXES.md](FIXES.md)).
+
 Where it stands (2026-11-06): the platform split and the audit are done; every
 hand-translated function has been compared with the exe and fnv_decomp, and the differences
 found are fixed, apart from a few left on purpose (docs/HANDOFF.md). The typed migration is

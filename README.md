@@ -62,7 +62,7 @@ recordings of the original.
 
 Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
 the move of the game's systems to typed, native 64-bit Rust, which is also the main speed work
-(the target is 200+ fps; at 1440p on the maintainer's PC it runs at about 45 in a busy town and about 70 indoors today, or about 100 indoors without the original's frame cap); then the modern
+(the target is 200+ fps; at 1440p on the maintainer's PC it runs at about 45 in a busy town and about 105 indoors with the fixes preset, which removes the original's frame cap (70 with it)); then the modern
 systems built on it. Not yet: script-extender (NVSE) plugins, co-op, platforms other than
 Windows, and VR.
 
@@ -88,6 +88,7 @@ nearly all compiler-made error handling.
 | ✅ | **Graphics:** lighting, weather and effects | Translated, audited and running; the game's own renderer draws on Windows (textures, mods' included, through your own DirectX) |
 | ✅ | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated, audited and playable through the whole game, quests included |
 | ✅ | **Saves, the open world and the DLCs** | Translated, audited and playable: the open world, many locations and the DLCs load and play, saves load and are written |
+| ✅ | **Fixes preset:** on by default, the original's behaviour one setting away; first fixes: the frame cap and its landing and slow-motion timing | First version in ([docs/FIXES.md](docs/FIXES.md)) |
 | 🔨 | **Typed, native 64-bit code:** the main speed work | Starting: designed, with its first layer written. No game system has moved yet |
 | ⬜ | **Modern systems:** no memory limit, every core in use, wgpu graphics with optional upgrades | Planned, built on the typed code |
 | ⬜ | **Built-in script extender, co-op, more platforms, VR** | Planned |

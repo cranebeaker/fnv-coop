@@ -3,7 +3,7 @@
 # direct Rust calls the translations already make to it (a ratchet: repo_hygiene.rs fails on a new one,
 # and asks to lower the number when one goes), and what overrides it. Sources: the plugins' literal
 # jumps at translated function entries, a lower bound (named constants and run-time addresses are
-# missed), nv-rs's own NV_UNCAP, and the four fixes-preset guards the audit left.
+# missed), nv-rs's own fixes preset (crates/host/src/fixes.rs), and the four fixes-preset guards the audit left.
 00418b10	0	JIP
 0041af70	0	YUP,xNVSE
 004512a0	0	xNVSE
@@ -104,6 +104,7 @@
 00aa4200	0	HeapReplacer
 00aa42e0	0	HeapReplacer
 00aa44c0	2	HeapReplacer
+00aa4e40	1	nv-rs high-frame-rate slow motion
 00aa4ee0	1	nv-rs uncap
 00aa53f0	0	HeapReplacer
 00aa5410	0	HeapReplacer
@@ -128,6 +129,7 @@
 00bdf3e0	1	VanillaPlusTerrain
 00be0fe0	0	ShaderLoader
 00be1750	0	ShaderLoader
+00c73170	1	nv-rs high-frame-rate landing
 00cad480	5	ITR
 00caf4d0	0	ITR
 00d1f5a0	0	ITR

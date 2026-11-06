@@ -84,18 +84,14 @@ progress three (Main::OnIdle's, `HUDMainMenu::DoIdle`'s, `MessageMenu::DoIdle`'s
 - `NV_GAME_FRAME_SYNC=1`: the game's frame runs inside the viewer's `Update` again instead of
   beside the rest of the viewer's frame (to compare).
 
-### Opt-in fixes (not 1:1)
+### The fixes preset (not 1:1)
 
-Off by default; each changes what the original game does, for the player who asks for it.
-Nothing of them runs on the default path.
+The default run has the fixes preset on; `NV_PRESET=vanilla` is the original's behaviour, and every
+comparison and speed gate pins it. [FIXES.md](FIXES.md) has the fixes and the numbers.
 
-- `NV_UNCAP=1` (`crates/host/src/uncap.rs`): `BSTimer`'s step without its sleep, the step
-  measured on the microsecond clock instead of rounded up to 10 ms, so the frame rate is the
-  work's and the game's time keeps pace with the real time.
-
-A settings file will switch the same fixes when there is one (proposal: `nv-rs.ini` next to the
-viewer, section `[Fixes]`, `bUncappedFrameRate=1` for `NV_UNCAP`); until then the environment
-variables above are the place.
+- `NV_UNCAP` (`crates/host/src/uncap.rs`): `BSTimer`'s step without its sleep, the step measured on
+  the microsecond clock instead of rounded up to 10 ms, so the frame rate is the work's and the game's
+  time keeps pace with the real time. A speed gate runs `NV_PRESET=vanilla NV_UNCAP=1`.
 
 ## PR #12 review points (2026-10-07)
 

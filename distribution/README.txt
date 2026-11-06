@@ -23,6 +23,10 @@ folders in that table are your own, so the game reads its settings and saves whe
 original does (Documents\My Games\FalloutNV): back up your saves first. The controls are
 the game's own.
 
+Bug fixes are on by default and the frame rate is not held to the original's limit. To change
+that, put a file settings.ini beside Play.cmd with the lines you want: Preset=vanilla plays the
+original's behaviour, FrameLimit=120 holds the frame rate to 120 (0: no limit).
+
 If Windows blocks a downloaded launcher, inspect the files and unblock only
 that downloaded package if you trust it; do not disable system security settings.
 
