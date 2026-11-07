@@ -70,8 +70,8 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 
 `scripts/package-playtest.ps1` builds the Windows preview: one ZIP of `Play.exe`
 (`scripts/launcher`), `app\FalloutNV.exe` (nv-viewer `--release` under that name), the table tools
-and `distribution/`. docs/MAINTAINING.md lists what is in it and why; the packages on GitHub Releases
-from before 2026-11-03 are of the removed viewer.
+and `distribution/`. docs/MAINTAINING.md lists what is in it and why. The first one, `preview-2026-11-07.2`, is on
+GitHub Releases; the packages there from before 2026-11-03 are of the removed viewer.
 
 `Play.exe` does what the steps above do by hand, on a PC with nothing but the game:
 

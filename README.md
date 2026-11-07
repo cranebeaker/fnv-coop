@@ -4,11 +4,10 @@
 
 <h1 align="center">nv-rs</h1>
 
+[![Download](https://img.shields.io/badge/Download-Windows_preview-brightgreen.svg)](https://github.com/slaterain/nv-rs/releases)
 [![Rust](https://img.shields.io/badge/Rust-2021_edition-orange.svg)](https://www.rust-lang.org/)
-[![Engine](https://img.shields.io/badge/Engine-the_original,_translated-blue.svg)](docs/ENGINE_PORT_PLAN.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-purple.svg)](docs/PLAYTESTING.md)
-[![Status](https://img.shields.io/badge/Status-playable-brightgreen.svg)](docs/MILESTONES.md)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/pn5kjZJJxx)
 
 **Fallout: New Vegas, rebuilt in Rust, aiming to play exactly like the
@@ -16,9 +15,9 @@ original.**
 
 nv-rs is a new engine for Fallout: New Vegas, written in Rust. It runs the
 game from your own copy's files. The goal: the game looks and plays exactly
-like the original, while everything you don't see or feel is rebuilt as a
-modern 64-bit engine: no 4 GB memory limit, every CPU core in use, 200+ fps,
-fast loading, far fewer crashes, built-in modding and more platforms.
+like the original, while everything underneath becomes a modern 64-bit
+engine: no 4 GB memory limit, every CPU core in use, high frame rates, fast
+loading, far fewer crashes, built-in modding and more platforms.
 
 > [!IMPORTANT]
 > nv-rs is an independent project, not affiliated with or endorsed by
@@ -28,43 +27,31 @@ fast loading, far fewer crashes, built-in modding and more platforms.
 
 ---
 
-## Why it's different
+## Play the preview
 
-- **Translated from the original, not guessed.** The original game's program
-  is translated into Rust piece by piece, and every piece is checked against
-  the original. Nothing is tuned by eye.
-- **Your game, your files.** nv-rs reads the game's own plugins, meshes,
-  textures, sounds and menus from your installation and never changes them.
-- **Modern underneath.** The original's look and play are the reference every
-  change is tested against; the internals (memory, threads, data structures,
-  maths, rendering) are being rebuilt natively in 64-bit Rust, whose memory and
-  thread safety rule out whole classes of the original's crashes.
-- **Better where it doesn't change the game.** Fixes and upgrades (shadows,
-  HDR, longer draw distance and more) are switchable; the original stays
-  available.
-- **Mods keep working.** Regular `.esp` and `.esm` mods load the way they do
-  in the original.
+**[Download the Windows preview](https://github.com/slaterain/nv-rs/releases)**: you need
+Fallout: New Vegas (version 1.4.0.525; only the Steam version has been tested so far) installed on a Windows PC.
+
+1. Extract the ZIP to a folder of its own, for example `C:\Games\nv-rs`.
+2. Double-click `Play.exe`. It finds your game and starts it.
+3. `Import my saves.cmd` brings your saves over; `Settings.cmd` has the display options and the
+   game fixes.
+
+It never changes your game, your saves or your settings: everything it writes stays in its own
+folder. Windows may warn because the program isn't signed. It's a preview: so far it has only been
+run on one PC, so please report how it runs on yours (press F12 in the game to make a report).
+Keyboard and mouse only for now, and mods that need script-extender plugins (xNVSE, JIP) don't work
+yet. The download page lists what works and the known issues.
 
 ## Where it stands
 
-Playable. The whole game runs on its own translated code: the opening,
-Goodsprings and the open world, quests, dialogue, combat, V.A.T.S., the Pip-Boy,
-saves, mods, and the DLCs, with the original graphics and sound. Crashes have been
-rare in the maintainer's recent play sessions, but bugs remain. When the game's code stops,
-the log names the exact place and the game closes instead of freezing.
+**Playable.** The whole game runs on its own translated code: the opening, the open world,
+quests, dialogue, combat, V.A.T.S., the Pip-Boy, saves, mods and the DLCs, with the original
+graphics and sound. Bugs remain, and it's slower than the original in busy places for now.
 
-Every hand-translated function, about 47,700, has been compared with the original exe and
-[fnv_decomp](https://github.com/momusdigital/fnv_decomp), the community's matching
-decompilation. The logic differences found are fixed, apart from a few left on purpose; small
-rounding differences go with the move to 64-bit code, which rewrites that maths. That audit
-doesn't catch everything, so the running game is now also compared frame by frame with
-recordings of the original.
-
-Next ([docs/MILESTONES.md](docs/MILESTONES.md), [ADR-0012](docs/adr/0012-modern-64-bit-engine.md)):
-the move of the game's systems to typed, native 64-bit Rust, which is also the main speed work
-(the target is 200+ fps; at 1440p on the maintainer's PC it runs at about 45 in a busy town and about 105 indoors with the fixes preset, which removes the original's frame cap (70 with it)); then the modern
-systems built on it. Not yet: script-extender (NVSE) plugins, co-op, platforms other than
-Windows, and VR.
+**Next:** moving the game's systems to native 64-bit Rust, one family at a time. That's what
+lifts the 4 GB memory limit, puts every CPU core to work and brings the speed. After it: new
+graphics on wgpu, a built-in script extender, more platforms, co-op and VR.
 
 ## Progress
 
@@ -72,124 +59,62 @@ Windows, and VR.
   <img src="docs/media/progress.svg" alt="Engine port progress: 100% of the game's code translated" width="100%">
 </p>
 
-The bar counts one thing: how much of the game's own code is translated. That part is
-done, by hand for the game's functions and by generated tables for its start-up and shut-down
-code. It doesn't mean the project is finished: the table below shows what's left. Not counted:
-29 pieces of Microsoft and Windows code (13 that our own layer replaces and 16 C runtime
-fragments that can never run). About 5,900 translated functions still have small marked gaps,
-nearly all compiler-made error handling.
+The bar counts how much of the original game's code is translated. That part is done; the table
+shows what's left.
 
 | | System | Status |
 | :---: | --- | --- |
-| ✅ | **Foundations:** the original program mapped, the engine running in play | Done |
-| ✅ | **Movement and physics** | Translated, audited and running; being compared frame by frame with the original |
-| ✅ | **Animation and faces** | Translated, audited and running; compared with the original in a few scenes |
-| ✅ | **Audio:** sounds, music and the radio | Translated, audited and running; the game's own sound matches the original on stereo and 7.1 output as measured (5.1 and other speaker setups follow DirectSound's code, not measured), its timing measured against Windows |
-| ✅ | **Graphics:** lighting, weather and effects | Translated, audited and running; the game's own renderer draws on Windows (textures, mods' included, through your own DirectX) |
-| ✅ | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated, audited and playable through the whole game, quests included |
-| ✅ | **Saves, the open world and the DLCs** | Translated, audited and playable: the open world, many locations and the DLCs load and play, saves load and are written |
-| ✅ | **Fixes preset:** on by default, the original's behaviour one setting away; first fixes: the frame cap and its landing and slow-motion timing | First version in ([docs/FIXES.md](docs/FIXES.md)) |
-| 🔨 | **Typed, native 64-bit code:** the main speed work | Started: the 29 small functions the game calls most are typed, on by default: about 7% more fps in Goodsprings and 3% in Doc's house. No game system has moved yet |
-| ⬜ | **Modern systems:** no memory limit, every core in use, wgpu graphics with optional upgrades | Planned, built on the typed code |
-| ⬜ | **Built-in script extender, co-op, more platforms, VR** | Planned |
+| ✅ | **The whole game:** movement, physics, animation, graphics, sound, combat, AI, quests, dialogue, menus, saves, the open world and the DLCs | Translated, checked against the original and playable |
+| ✅ | **Fixes:** bug fixes on by default, the original's behaviour one setting away | First fixes in |
+| ✅ | **Windows preview** | [Released](https://github.com/slaterain/nv-rs/releases) |
+| 🔨 | **Native 64-bit code:** speed, no memory limit, every core in use | Started |
+| ⬜ | **Modern graphics (wgpu), built-in script extender, more platforms, co-op, VR** | Planned |
 
-✅ means translated and running, not free of bugs. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
+✅ means working, not free of bugs. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
 [docs/MILESTONES.md](docs/MILESTONES.md).
 
----
+## Why it's different
 
-## Try it
-
-nv-rs needs Fallout: New Vegas version 1.4.0.525 installed, on a Windows PC.
-
-### The Windows preview
-
-A package you unzip and play, with nothing to build:
-`nv-rs-preview-<version>-windows-x64.zip`. Extract it to a folder of its own (for example
-`C:\Games\nv-rs`) and double-click `Play.exe`. It finds your game (Steam, GOG, Epic, or it asks),
-checks the version, reads your graphics card and sound device, and starts the game. It never
-writes to your game folder, Documents or AppData: saves and settings stay in its own folder.
-Its `READ ME.txt` says what works and what doesn't.
-
-It is a labelled preview ahead of the wgpu release, which will be the big cross-platform one. It
-is unsigned, so Windows may warn about it, and **so far it has only been run on one PC, the
-maintainer's**; other graphics cards, sound setups, GOG and Epic copies, other languages and
-Windows 10 are unverified ([what to test](docs/PREVIEW_TESTERS.md)). No package is published yet: the
-packages on [Releases](https://github.com/slaterain/nv-rs/releases) from before November 2026 are of
-the earlier hand-written viewer, which has been removed.
-
-### Build from source
-
-Install Rust with rustup (the repository pins its version in `rust-toolchain.toml`;
-rustup fetches it), then:
-
-```sh
-cargo build --profile play -p nv-viewer
-```
-
-Make the machine's tables (`scripts/d3d9-capture`, `scripts/nvapi-capture`, `scripts/dsound-capture`;
-see [docs/PLAYTESTING.md](docs/PLAYTESTING.md)), then in PowerShell:
-
-```powershell
-$env:NV_D3D9 = 'real'; $env:NV_SOUND = 'out'
-.\target\play\nv-viewer.exe "<path to Fallout New Vegas\Data>"
-```
-
-The game starts in its own window with its own menus. If anything behaves differently from
-the original game, that's a bug worth reporting.
+- **Translated from the original, not guessed.** The original game's program is translated into
+  Rust piece by piece, and every piece is checked against the original.
+- **Your game, your files.** nv-rs reads the game's own data from your installation and never
+  changes it.
+- **Modern underneath.** The original's look and play are the reference; the internals are being
+  rebuilt in 64-bit Rust, whose memory and thread safety rule out whole classes of crashes.
+- **Better where it doesn't change the game.** Fixes and upgrades are switchable; the original
+  stays available.
+- **Mods keep working.** Regular `.esp` and `.esm` mods load the way they do in the original.
 
 ---
 
 ## How it's made
 
-To be upfront: nv-rs is built almost entirely with AI coding agents (mainly
-Claude, with some Codex). The maintainer directs the project: the plan, the
-priorities, playtesting and what gets merged. The agents write nearly all of
-the code.
+To be upfront: nv-rs is built almost entirely with AI coding agents (mainly Claude). The
+maintainer directs the project: the plan, the priorities, playtesting and what gets merged.
 
-What keeps it honest is the method. Agents don't get to invent behaviour:
-every piece of logic is translated from the original game's program and
-marked with where it came from, then checked by automated tests, the oracle
-(translated functions run against the original's own code), fnv_decomp and recordings of the original game. Anything that can't be
-traced to the original doesn't go in. Everything is in the open, so judge it by
-how it plays.
-
----
+What keeps it honest is the method: agents don't get to invent behaviour. Every piece of logic is
+translated from the original game's program, marked with where it came from, and checked by
+tests, by running it against the original's own code and by recordings of the original game.
+Everything is in the open, so judge it by how it plays.
 
 ## Get involved
 
-Contributions are welcome, from people and their AI agents alike:
+- **Play and report:** try the preview and [open an issue](https://github.com/slaterain/nv-rs/issues)
+  for anything that differs from the original.
+- **Contribute:** read [CONTRIBUTING.md](CONTRIBUTING.md) (and give [AGENTS.md](AGENTS.md) to your
+  agent), say in an issue what you'd like to work on, then open a small pull request.
+- **Chat** on the project's [Discord](https://discord.gg/pn5kjZJJxx).
+- **Support** the project on [Ko-fi](https://ko-fi.com/slater41n). It goes to the AI time the work
+  runs on, which is what limits how fast the project moves. It's a voluntary gift: it buys
+  nothing and promises no release date, and you still need your own copy of the game.
+- **Build from source:** see [docs/PLAYTESTING.md](docs/PLAYTESTING.md). For how it works, start
+  with [docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md); every document is linked from
+  [docs/README.md](docs/README.md).
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) (and give [AGENTS.md](AGENTS.md)
-   to your agent).
-2. Open an issue saying what you'd like to work on, and wait for a
-   go-ahead from the maintainer.
-3. Open a small pull request against `main`.
-
-The most useful help right now: testing builds and reporting differences from
-the original, platform support and research into how the original behaves.
-
-**Support the project** on [Ko-fi](https://ko-fi.com/slater41n). Money helps most by covering
-AI costs: nv-rs is built almost entirely by AI coding agents, and every step (translating the
-original program's code, checking it against the original, fixing what's found) uses paid AI
-time. That time is what limits how fast the project moves, so support lets it go faster. So far
-it has cost over $1,200 out of pocket through subscription plans; at standard API prices, the
-same use would come to an estimated $30,000 or more. It's a voluntary gift: it buys nothing, promises no release date and isn't payment for Fallout: New
-Vegas. You still need your own copy of the game (see [LEGAL.md](LEGAL.md)).
-
-**Chat with us** on the project's [Discord](https://discord.gg/pn5kjZJJxx).
-
-**Curious how it works?** Start with
-[docs/ENGINE_PORT_PLAN.md](docs/ENGINE_PORT_PLAN.md) and
-[docs/METHODOLOGY.md](docs/METHODOLOGY.md); every other document is linked
-from [docs/README.md](docs/README.md).
-
-Final decisions rest with the maintainer, **slaterain**
-([docs/GOVERNANCE.md](docs/GOVERNANCE.md)).
+Final decisions rest with the maintainer, **slaterain** ([docs/GOVERNANCE.md](docs/GOVERNANCE.md)).
 
 ## Legal and license
 
-Original code is licensed under the [GNU GPL v3 or later](LICENSE). The
-licence covers only original work. Fallout and Fallout: New Vegas are
-trademarks of their respective owners. Read [LEGAL.md](LEGAL.md) for the full
-notice.
+Original code is licensed under the [GNU GPL v3 or later](LICENSE). The licence covers only
+original work. Fallout and Fallout: New Vegas are trademarks of their respective owners. Read
+[LEGAL.md](LEGAL.md) for the full notice.
