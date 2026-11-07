@@ -520,7 +520,8 @@ fn window_thread() -> &'static std::sync::Mutex<std::sync::mpsc::Sender<Request>
 
 /// Whether the game's window is shown without taking the focus (`NV_D3D9_BACKGROUND`, for the
 /// scripted runs, so that one does not take the keyboard and the cursor from whoever works
-/// beside it). Off, it is shown as the game's `WS_VISIBLE` window is: activated.
+/// beside it), and at the bottom of the window stack, behind that person's windows. Off, it is
+/// shown as the game's `WS_VISIBLE` window is: activated.
 fn shown_in_background() -> bool {
     std::env::var_os("NV_D3D9_BACKGROUND").is_some()
 }
@@ -611,6 +612,21 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
                             SW_SHOW
                         };
                         let _ = ShowWindow(w, show);
+                        // In the background a new window still lands on top of the stack, in
+                        // front of whatever the person at the machine is using: put it at the
+                        // bottom instead (it keeps drawing there; the game's own `SetWindowPos`
+                        // calls keep the order, `SWP_NOZORDER` in `window_moved`).
+                        if shown_in_background() {
+                            let _ = SetWindowPos(
+                                w,
+                                HWND_BOTTOM,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                            );
+                        }
                     }
                     w.0 as isize
                 }
