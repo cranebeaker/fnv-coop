@@ -112,7 +112,7 @@ pub fn fn_00666080(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
 /// (`006661e0`), then the free (`00401030`) when bit 0 of `flags` is set.
 /// Returns `this`.
 pub fn fn_006661b0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
-    fn_006661e0(e, this);
+    e.call(0x0066_61e0, &args![this]);
     if flags & 1 != 0 {
         e.call(FREE, &args![this]);
     }

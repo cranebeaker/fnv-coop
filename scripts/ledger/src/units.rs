@@ -162,6 +162,12 @@ pub fn units_dir(root: &Path, krate: &str) -> PathBuf {
     root.join("crates").join(krate).join("src/units")
 }
 
+/// A top-level file of a crate's `src/units` that is a test module, not a
+/// unit: the exe's raw-byte checks of that crate's translations. It is
+/// declared `#[cfg(test)] mod raw_bytes;` at the end of the crate's `mod.rs`,
+/// registers nothing and is re-exported nowhere.
+const TEST_ONLY: &str = "raw_bytes";
+
 /// The modules a crate's `src/units` holds itself: subsystem folders with
 /// their unit files, and top-level unit files such as `platform.rs`.
 type Own = (BTreeMap<String, Vec<String>>, Vec<String>);
@@ -190,7 +196,7 @@ fn own_modules(units: &Path) -> Result<Own, String> {
             files.sort();
             subs.insert(name, files);
         } else if let Some(stem) = name.strip_suffix(".rs") {
-            if stem != "mod" {
+            if stem != "mod" && stem != TEST_ONLY {
                 top.push(stem.to_string());
             }
         }
@@ -441,6 +447,9 @@ pub fn regenerate(root: &Path) -> Result<usize, String> {
             }
             let _ = writeln!(s, "#[cfg(test)]");
             assemble(&mut s, &list);
+        }
+        if units.join(format!("{TEST_ONLY}.rs")).is_file() {
+            let _ = writeln!(s, "\n#[cfg(test)]\nmod {TEST_ONLY};");
         }
         write_if_changed(&units.join("mod.rs"), &s)?;
     }
@@ -947,6 +956,7 @@ mod tests {
                 ("crates/engine-fallout-low/Cargo.toml", &low),
                 ("crates/engine-fallout-low/src/units/shared/low.rs", ""),
                 ("crates/engine-fallout-low/src/units/shared/low_p2.rs", ""),
+                ("crates/engine-fallout-low/src/units/raw_bytes.rs", ""),
                 ("crates/engine-fallout-high/Cargo.toml", &high),
                 ("crates/engine-fallout-high/src/units/shared/form.rs", ""),
                 ("crates/engine-fallout-high/src/units/ai/actor.rs", ""),
@@ -985,6 +995,10 @@ mod tests {
         assert!(
             low_units.contains("engine_core::assemble!(funcs, engine_fallout_high::units::funcs);")
         );
+        // The test-only raw-byte module: declared last under cfg(test), a unit nowhere.
+        assert!(low_units.ends_with("\n#[cfg(test)]\nmod raw_bytes;\n"));
+        assert!(!low_units.contains("raw_bytes::"));
+        assert!(!facade_units.contains("raw_bytes"));
         assert!(facade_units.contains("pub use engine_fallout_high::units::ai;\n"));
         assert!(facade_units.contains(
             "pub mod shared {\n    pub use engine_fallout_high::units::shared::form;\n    \

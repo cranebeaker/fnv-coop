@@ -204,6 +204,7 @@ fn point3_new() {
         .family(&leaf::LEAVES)
         .inputs(&[Input::F32, Input::F32, Input::F32])
         .max_cases(120)
+        .float_sweep(64)
         .setup(|e, case| {
             let p = e.mem.alloc(16);
             // Past the point: not written.
@@ -347,6 +348,7 @@ fn point3_dot() {
         .family(&leaf::LEAVES)
         .inputs(&[Input::F32; 6])
         .max_cases(300)
+        .float_sweep(64)
         .setup(two_points)
         .run()
         .assert_same();
@@ -358,6 +360,7 @@ fn plane_side() {
         .family(&leaf::LEAVES)
         .inputs(&[Input::F32; 7])
         .max_cases(300)
+        .float_sweep(64)
         .setup(|e, case| {
             // The double zero both compares read.
             e.map(0x0101_2000, 0x1000);

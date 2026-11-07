@@ -1775,7 +1775,7 @@ pub fn static_message_queue_deleting_destructor(e: &mut Engine, this: Ptr, flags
 // Translated from 006ecae0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Manager scalar deleting destructor.
 pub fn path_manager_deleting_destructor(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
-    fn_006ec870(e, this);
+    e.call(0x006e_c870, &args![this]);
     if flags & 1 != 0 {
         e.call(0x0040_1030, &args![this]);
     }
@@ -4311,11 +4311,10 @@ mod continuation_tests {
         for address in [0x0044_c480, 0x0040_1030, 0x0044_b4b0] {
             scalar.register(address, |_, _| Ret::default());
         }
+        // The destructor by address (the fixture's double; its body is checked above), then the free.
         path_manager_deleting_destructor(&mut scalar, Ptr::new(manager), 1);
-        assert_eq!(
-            calls(&scalar, 0x0040_1030),
-            vec![vec![0x30200], vec![0x30100], vec![manager]]
-        );
+        assert_eq!(calls(&scalar, 0x006e_c870), vec![vec![manager]]);
+        assert_eq!(calls(&scalar, 0x0040_1030), vec![vec![manager]]);
     }
 
     #[test]

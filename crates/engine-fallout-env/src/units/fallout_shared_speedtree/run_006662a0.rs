@@ -155,7 +155,7 @@ pub fn fn_006662a0(e: &mut Engine, this: Ptr, key: u32, arg: u32) -> u32 {
                         continue 'restart;
                     }
                     let retired = unmarked(e, cursor + 0x14);
-                    fn_00666510(e, this, retired);
+                    e.call(0x0066_6510, &args![this, retired]);
                 }
                 let next = e.mem.u32(cursor + 0x18);
                 e.mem.set_u32(cursor + 0x14, next);

@@ -282,7 +282,7 @@ fn walk_one(e: &mut Engine, base: u32, key: u32, current_copy: u32, next_copy: u
             return Step::Restart;
         }
         let node = e.call(UNTAGGED, &args![base + 0x14]).u32();
-        fn_005292a0(e, Ptr::new(base), Ptr::new(node));
+        e.call(0x0052_92a0, &args![base, node]);
     }
     Step::Advance
 }

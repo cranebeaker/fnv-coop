@@ -9,7 +9,7 @@ use crate::prelude::*;
 /// (pushed 0xc, 0x25, 0xa, so 10 is the first argument), and returns `this`. The Ghidra
 /// signature shows one word; the function ends in a plain `RET`.
 pub fn fn_00905e30(e: &mut Engine, this: Ptr) -> Ptr {
-    fn_00906160(e, this, 10, 0x25, 0xc);
+    e.call(0x0090_6160, &args![this, 10u32, 0x25u32, 0xcu32]);
     this
 }
 

@@ -116,7 +116,7 @@ pub fn exterior_cell_loader_task_get_description(
 /// compiler's SEH registration and unwind bookkeeping are omitted.
 pub fn fn_00527e50(e: &mut Engine, this: Ptr) {
     fn_00527fc0(e, this);
-    fn_00528be0(e, this);
+    e.call(0x0052_8be0, &args![this]);
 }
 
 // Translated from 00527eb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -148,7 +148,8 @@ pub fn fn_00527f40(e: &mut Engine) {
 // Translated from 00527e30 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Constructs the loader's task-map storage with three buckets of each kind.
 pub fn fn_00527e30(e: &mut Engine, this: Ptr) -> Ptr {
-    fn_005289e0(e, this, 2, 0x25, 0x0c)
+    e.call(0x0052_89e0, &args![this, 2u32, 0x25u32, 0x0cu32])
+        .ptr()
 }
 
 // Translated from 00527f90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -542,7 +543,7 @@ pub fn fn_00528b60(e: &mut Engine, this: Ptr, first: u32, second: u32, mode: u8)
 pub fn fn_00528bb0(e: &mut Engine, this: Ptr, key: u32) -> bool {
     let object = e.mem.u32(this.addr());
     let result = e.vcall(object, 0x24, &args![key]).u32();
-    fn_00528ce0(e, this, result, key)
+    e.call(0x0052_8ce0, &args![this, result, key]).bool()
 }
 
 // Translated from 00528be0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1357,6 +1358,7 @@ mod tests {
             log.iter().map(|(address, _)| *address).collect::<Vec<_>>(),
             [
                 0x0600_0400,
+                0x0052_8ce0,
                 0x0052_9030,
                 0x0044_dec0,
                 0x006e_cba0,

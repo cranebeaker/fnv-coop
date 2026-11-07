@@ -440,7 +440,7 @@ pub fn bs_multi_bound_aabb_within_frustum(
     let zero: f64 = e.global(ZERO);
     let flat = e.mem.f32(this.addr() + 0x20) as f64 == zero;
     e.with_stack(96, |e, vertices| {
-        bs_multi_bound_aabb_get_vertices(e, this, vertices);
+        e.call(0x00c3_9270, &args![this, vertices]);
         for plane in 0..6u32 {
             if (1u32 << plane) & e.mem.u32(frustum.addr() + 0x60) == 0 {
                 continue;
@@ -481,7 +481,7 @@ pub fn bs_multi_bound_aabb_completely_within_frustum(
     frustum: Ptr,
 ) -> bool {
     e.with_stack(96, |e, vertices| {
-        bs_multi_bound_aabb_get_vertices(e, this, vertices);
+        e.call(0x00c3_9270, &args![this, vertices]);
         for plane in 0..6u32 {
             if (1u32 << plane) & e.mem.u32(frustum.addr() + 0x60) == 0 {
                 continue;
@@ -554,7 +554,7 @@ pub fn bs_multi_bound_aabb_make_debug_geom(
 ) {
     let center = this.at(BSMultiBoundAABB::Center);
     e.with_stack(96, |e, vertices| {
-        bs_multi_bound_aabb_get_vertices(e, this, vertices);
+        e.call(0x00c3_9270, &args![this, vertices]);
         let line_color = [
             e.mem.u32(LINE_COLOR),
             e.mem.u32(LINE_COLOR + 4),

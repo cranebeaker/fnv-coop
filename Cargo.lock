@@ -35,6 +35,7 @@ dependencies = [
  "engine-havok",
  "engine-platform",
  "engine-speedtree",
+ "engine-typed",
  "esm",
 ]
 
@@ -349,6 +350,13 @@ dependencies = [
 
 [[package]]
 name = "engine-speedtree"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+]
+
+[[package]]
+name = "engine-typed"
 version = "0.1.0"
 dependencies = [
  "engine-core",

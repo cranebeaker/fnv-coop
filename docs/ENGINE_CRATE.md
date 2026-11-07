@@ -406,6 +406,11 @@ its loops call. A plugin that replaces dialogue runs it once per replaced info o
 (YUP: about 4,500 searches of about 68,000 infos each), so it is the bulk of such a plugin's extra
 load. On since its gate (2026-11-07, with YUP: process start to the first main frame 8.0-8.4 s in six
 runs against 9.2-20.9 s off; the menu, which the intro sets, and Continue the same within the spread).
+Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its family): the
+lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory), off by
+default (`NV_TYPED=lockfree` tries it); its differential tests are `crates/engine/tests/typed_lockfree.rs`.
+And `culling` (same crate): the culling walk, stage 1, off by default (`NV_TYPED=culling`);
+its tests are `crates/engine/tests/typed_culling.rs`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with
@@ -551,6 +556,14 @@ Diff::new(entry!(0x00abc123, typed_version(Ptr<Thing>, f32) -> f32))
   integer range and past `f32`'s; `Input::Word`, `Flag` and `Of(&[..])` give the integers, one per
   branch that matters. All combinations up to `max_cases` (512), else every value of each argument
   and then a fixed pseudo-random sample.
+- **The float sweep:** those cases vary one float at a time against plain others, so a rounding that
+  only shows with low bits in several operands at once (a sum of products rounded at each step
+  against once) passes them. `float_sweep(n)` adds `n` cases with every float argument at once a
+  random float with all its mantissa bits in play (about one in eight a listed value instead),
+  seeded by the function's address so a failure repeats. `Input::F32Swept(bits)` is a float that
+  is `bits` in the ordinary cases and swept here, so a test can hand every float field the function
+  reads to the sweep without multiplying its ordinary cases. The culling tests sweep 64 cases each;
+  that found batch 2's missed mutant (Merge's squared distance rounded once instead of per step).
 - **Compared, by bits:** the return value; every outgoing call in order with its words and, at its
   start, a hash of all mapped memory outside the stack for locals and the clock, so a store moved
   across a call shows; the memory after the call and which pages are mapped; how the run stopped, a
@@ -572,16 +585,26 @@ Diff::new(entry!(0x00abc123, typed_version(Ptr<Thing>, f32) -> f32))
   stops, and an input it names that doesn't stop fails too. A stop at an untranslated address always
   fails: that is a double the setup lacks. A function can't be its own translation: the harness refuses
   one pointer on both sides, and hygiene the same name in both `entry!`s.
+- **A run that doesn't end:** past `max_calls` calls (100,000 by default) a run stops with "call budget
+  spent", so a wrong version that loops shows as a stop instead of a log growing without end. A loop
+  that makes no call at all isn't caught this way: run the test binary under a time and memory cap.
 - **Not compared,** so a test of these has to look itself: the rest of the stack for locals; the
   kernel's objects and everything else in `Engine::kernel`; the heap's block map and free bins; the time slice and `call_stack`, which a
   direct call doesn't touch by design; calls another game thread makes; a by-address call that runs a
   row of the `atexit` table. The memory hash doesn't say where it differs; a difference that lasts to the
   end also shows with its address.
 - **Letting something through:** `ignore_calls` is for a callee the translation calls and the typed
-  version doesn't call at all, doing its work in its own body. It drops those calls from the
-  translation's side only, so the typed version calling one still shows, and it refuses an overridable
-  address. `allow_nan_payloads` lets NaN payloads differ where the float rule accepts it, in the return
-  and in aligned words of memory and calls; an infinity or a number against a NaN still differs.
+  version doesn't call at all, doing its work in its own body. It drops those calls, with the calls
+  made under them, from the translation's side at every depth (a typed callee does their work in place
+  too), and from the typed side below the function's own level, so a callee both sides run that calls
+  one compares alike. The typed version's own call to one still shows, and it refuses an overridable
+  address. `translation_calls_plainly` drops the listed call itself (not what it calls) from the typed
+  side only, at every depth: the translation's plain Rust call isn't logged. So every translation a
+  test reaches must call a listed callee plainly; where some call it plainly and others by address, the
+  family's step moves the plain sites to `e.call` and lists nothing (the lock-free and culling families
+  did, at 20 sites for 17 callees), so the callee's words compare too. `allow_nan_payloads` lets NaN payloads
+  differ where the float rule accepts it, in the return and in aligned words of memory and calls; an
+  infinity or a number against a NaN still differs.
 - **A function new in the setup:** a setup may register at a family member's or a plain callee's address
   where nothing was, when every side gets the same function: anything else stops the run.
 - **A double in the setup:** over a family's member, or over a callee the translation calls plainly,

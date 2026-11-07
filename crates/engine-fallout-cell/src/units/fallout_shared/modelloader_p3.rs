@@ -2686,7 +2686,9 @@ pub fn fn_004492f0(e: &mut Engine, _this: Ptr, text: u32) -> u32 {
 /// keeps its `AL` through the cookie check and the epilogue
 /// (`ModelLoader::FindModel` 004472a0 tests it).
 pub fn fn_004493d0(e: &mut Engine, this: Ptr, text: u32, argument: u32) -> u8 {
-    lowercase_into_buffer(e, text, |e, buffer| fn_00449530(e, this, buffer, argument))
+    lowercase_into_buffer(e, text, |e, buffer| {
+        e.call(0x0044_9530, &args![this, buffer, argument]).u8()
+    })
 }
 
 // Translated from 00449460 (decompiled, FalloutNV.exe 1.4.0.525)

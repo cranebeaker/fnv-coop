@@ -187,7 +187,7 @@ fn rebuild(
                 }
                 Drop::Release => {
                     let map = e.mem.u32(this);
-                    fn_0044edd0(e, map, entry);
+                    e.call(0x0044_edd0, &args![map, entry]);
                 }
                 Drop::Other => {
                     let map = e.mem.u32(this);
@@ -251,7 +251,7 @@ pub fn fn_0044f400(e: &mut Engine, this: u32) {
 /// count at +0x20 is not zero.
 pub fn fn_0044f420(e: &mut Engine, this: u32) {
     while e.mem.u32(this + 0x20) != 0 {
-        fn_0044f070(e, this);
+        e.call(0x0044_f070, &args![this]);
     }
 }
 

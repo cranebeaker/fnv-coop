@@ -20,7 +20,7 @@ use engine_core::typed::{Family, FamilyId, Threads};
 use engine_core::typed_call;
 
 /// This family's bit: what each `typed_call!` of it names.
-pub const FAMILY: FamilyId = FamilyId::new(1);
+pub const FAMILY: FamilyId = FamilyId::new(5);
 
 /// `NV_TYPED=topic_search`. Past its gate (2026-11-07: with YUP the plugin load, process start to the
 /// first main frame, 8.0-8.4 s in all six runs against 9.2-20.9 s with the family off; the main menu

@@ -30,6 +30,9 @@ engine-fallout-misc = { path = "../engine-fallout-misc" }
 # The platform layer (the window, Direct3D 9, DirectInput, DirectSound, files, ...): its own
 # crate, so a change there rebuilds no part crate; registered here like the parts.
 engine-platform = { path = "../engine-platform" }
+# Typed families above the core (ADR-0014): handed to the core's seam by `units::funcs`, registered
+# like the parts.
+engine-typed = { path = "../engine-typed" }
 
 [dev-dependencies]
 # The differential tests of the typed leaves (`tests/typed_leaves.rs`).

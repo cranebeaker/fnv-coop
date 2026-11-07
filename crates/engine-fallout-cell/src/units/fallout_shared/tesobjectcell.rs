@@ -3784,7 +3784,8 @@ pub fn fn_005467e0(e: &mut Engine, this: Ptr) {
     let bound = if block.is_null() {
         Ptr::NULL
     } else {
-        fn_00546890(e, block, 0x100, 0)
+        e.call(0x0054_6890, &args![block, 0x100u32, 0u32])
+            .ptr::<()>()
     };
     e.vcall(this.addr(), 0x78, &args![bound]);
     let bound = e.mem.u32(this.addr() + 0x20);

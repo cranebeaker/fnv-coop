@@ -179,7 +179,7 @@ pub fn fn_0044c1c0(_e: &mut Engine, _this: Ptr, a: u32, b: u32) -> bool {
 /// The common body of the two destructors: everything but the vtable.
 fn destroy(e: &mut Engine, this: Ptr, vtable: u32) {
     e.mem.set_u32(this.addr(), vtable);
-    fn_0044c480(e, this, 1);
+    e.call(0x0044_c480, &args![this, 1u32]);
     let buckets = e.mem.u32(this.addr() + 0xc);
     e.call(OPERATOR_DELETE, &args![buckets]);
     let nodes = e.mem.u32(this.addr() + 4);

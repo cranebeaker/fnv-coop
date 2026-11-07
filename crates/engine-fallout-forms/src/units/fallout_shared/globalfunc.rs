@@ -2567,7 +2567,7 @@ pub fn fn_004b5ff0(e: &mut Engine, bound: Ptr, camera: Ptr) -> bool {
 /// (`+0xc`): `2` when the centre is at least the radius behind the plane,
 /// `1` when it is at least the radius in front, else `0` (also for NaN).
 pub fn ni_bound_which_side(e: &mut Engine, this: Ptr, plane: Ptr) -> i32 {
-    let distance = fn_004b6160(e, plane, this);
+    let distance = e.call(0x004b_6160, &args![plane, this]).f32();
     let radius = e.mem.f32(this.addr().wrapping_add(0xc));
     if distance <= -radius {
         2
@@ -2586,8 +2586,9 @@ pub fn fn_004b6160(e: &mut Engine, this: Ptr, point: Ptr) -> f32 {
     let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, this, point))
         .into_ret()
         .f64();
-    let constant = e.mem.f32(this.addr().wrapping_add(0xc));
-    (dot - constant as f64) as f32
+    // `FSUB float ptr`: the x87 choice of NaN (of two, the larger payload), then `FSTP`.
+    let constant = x87_m32(e.mem.u32(this.addr().wrapping_add(0xc)));
+    f32::from_bits(x87_store32(x87_sub(dot, constant)))
 }
 
 // Translated from 004b6360 (decompiled, FalloutNV.exe 1.4.0.525)

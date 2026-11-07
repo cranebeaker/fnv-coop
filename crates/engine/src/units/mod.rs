@@ -1050,6 +1050,7 @@ pub fn funcs(out: &mut Vec<(u32, crate::AbiFn)>) {
     engine_fallout_unplaced_a::units::funcs(out);
     engine_fallout_unplaced_b::units::funcs(out);
     engine_platform::units::funcs(out);
+    engine_typed::units::funcs(out);
 }
 
 /// One engine crate's `units::funcs`.
@@ -1090,6 +1091,7 @@ pub const PARTS: &[(&str, Funcs)] = &[
         engine_fallout_unplaced_b::units::funcs,
     ),
     ("engine-platform", engine_platform::units::funcs),
+    ("engine-typed", engine_typed::units::funcs),
 ];
 
 // The full engine: `Engine::new()` registers the core's functions and every part crate's.
@@ -1111,4 +1113,5 @@ engine_core::assemble!(
     engine_fallout_unplaced_a::units::funcs,
     engine_fallout_unplaced_b::units::funcs,
     engine_platform::units::funcs,
+    engine_typed::units::funcs,
 );

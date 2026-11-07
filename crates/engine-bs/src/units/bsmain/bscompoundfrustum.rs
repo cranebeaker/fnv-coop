@@ -1024,14 +1024,16 @@ pub fn bs_compound_frustum_process(e: &mut Engine, this: Frustum, object: Ptr) -
         e.mem.write(bound.addr(), &bound_bytes);
         let mut result = true;
         if !e.get(this, BSCompoundFrustum::bSkipViewFrustum) {
-            result = fn_00c4a6e0(e, this, bound, view_frustum(this).cast());
+            result = e
+                .call(0x00c4_a6e0, &args![this, bound, view_frustum(this)])
+                .bool();
         }
         if result && e.get(this, BSCompoundFrustum::iFreeOp) > 0 {
             result = walk_ops(e, this, &mut |e, op, planes| {
                 if op == OP_PORTAL {
-                    fn_00c4a6e0(e, this, bound, Ptr::new(planes))
+                    e.call(0x00c4_a6e0, &args![this, bound, planes]).bool()
                 } else {
-                    fn_00c4a790(e, this, bound, Ptr::new(planes))
+                    e.call(0x00c4_a790, &args![this, bound, planes]).bool()
                 }
             });
         }
