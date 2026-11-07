@@ -36,13 +36,17 @@
 //!   handed out always has exactly the size asked for.
 //! - A freed block merges with its free neighbours on both sides; a free block that reaches the
 //!   top lowers the top instead of going into a bin, so the top can come down again.
-//! - In front of the bins, freed blocks of up to [`QUICK_MAX`] bytes wait in stacks of one size
-//!   each, newest first, for the next request of their size, without any merging: the game makes
+//! - In front of the bins, freed blocks of up to [`QUICK_MAX`] bytes wait in stacks of one class
+//!   each, newest first, for the next request of their class, without any merging: the game makes
 //!   and drops tens of thousands of small objects a frame, nearly all of sizes it has just
-//!   freed, and a stack serves them as cheaply as the old exact-size lists did. At most
+//!   freed, and a stack serves them as cheaply as the old exact-size lists did. A class is the
+//!   exe's memory pool ([`pool_size`]): as in the exe, a freed block comes back only for a
+//!   request of its own pool (a 12-byte object's block never for a 16-byte one, though both are
+//!   16 bytes here), so a stale pointer to a freed object finds an object of its own pool or the
+//!   old bytes, as in the original, never a different-sized object. At most
 //!   [`QUICK_BYTES`] wait: a free that would put more there moves a few of the oldest waiting
 //!   blocks on to the bins, where they merge (at most [`SPILL_STEP`] + 1, so no one free stalls
-//!   the frame). A request that the bins and the top cannot serve moves them on too,
+//!   the frame); only those, merged, can serve another pool's request. A request that the bins and the top cannot serve moves them on too,
 //!   [`FLUSH_STEP`] at a time, trying again after each batch: it may then be served, and only
 //!   when it cannot be once all have gone does the heap report itself full.
 //!
@@ -83,9 +87,9 @@ pub(super) const QUICK_MAX: u32 = 4096;
 /// round-2 form, on a machine with other work running). Small sizes alone -11 to +27%, five
 /// sizes +6 to +26%, the game-like mix -1 to +15%.
 pub(super) const QUICK_BYTES: u64 = 8 << 20;
-/// The quick stacks, one per size / 8 (stack 0 unused), and the words of the bitmap of those
-/// that hold a block.
-const STACKS: usize = QUICK_MAX as usize / 8 + 1;
+/// The quick stacks, one per class / 4 (stacks 0 to 1 unused; see [`Heap::take`]), and the words
+/// of the bitmap of those that hold a block.
+const STACKS: usize = QUICK_MAX as usize / 4 + 1;
 const STACK_WORDS: usize = STACKS.div_ceil(64);
 /// How many blocks of its own bin a request looks at for one that fits.
 const OWN_BIN_LOOK: u32 = 8;
@@ -106,6 +110,90 @@ const FLUSH_STEP: usize = 4096;
 const REGION_BITS: u32 = 18;
 /// No node.
 const NONE: u32 = u32::MAX;
+
+/// The block sizes of the exe's memory pools, as `MemoryManager::SpecifyPools` (00866770) makes
+/// them ("Pool 8" to "Pool 596").
+const POOLS: [u32; 37] = [
+    8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 64, 72, 76, 80, 92, 96, 100, 104, 120, 128,
+    160, 192, 200, 208, 240, 256, 272, 288, 400, 448, 480, 508, 576, 596,
+];
+/// The largest request the exe's pool table by size (011f67b8, a pool per 4 bytes) is read for:
+/// `MemoryManager::Allocate` (00aa3e40) and its fallback (00aa4960) look only below 0x3fd.
+const POOL_TABLE_END: u32 = 0x3fc;
+
+/// Whether the exe makes a pool of blocks of `size` bytes.
+const fn is_pool(size: u32) -> bool {
+    let mut i = 0;
+    while i < POOLS.len() {
+        if POOLS[i] == size {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// [`POOL_OF`]'s entries: for every size `s` rounded up to 4 (at least 8) the pool
+/// `MemoryManager::Allocate` (00aa3e40, disassembly) serves it from: the pool of exactly `s`;
+/// else 00aa4960's: below 300 that of `s` rounded up to 16, below 0x200 that one or else that of
+/// `s` rounded up to 32, below 0x240 the 576-byte pool; else none (0: the general heap).
+const fn pool_table() -> [u16; (POOL_TABLE_END / 4 + 1) as usize] {
+    let mut table = [0u16; (POOL_TABLE_END / 4 + 1) as usize];
+    let mut i = 2;
+    while i < table.len() {
+        let s = i as u32 * 4;
+        let (by16, by32) = ((s + 15) & !15, (s + 31) & !31);
+        let pool = if is_pool(s) {
+            s
+        } else if s < 300 {
+            if is_pool(by16) {
+                by16
+            } else {
+                0
+            }
+        } else if s < 0x200 {
+            if is_pool(by16) {
+                by16
+            } else if is_pool(by32) {
+                by32
+            } else {
+                0
+            }
+        } else if s < 0x240 {
+            0x240
+        } else {
+            0
+        };
+        table[i] = pool as u16;
+        i += 1;
+    }
+    table
+}
+
+/// The exe's pool for a request, by its size rounded up to 4 / 4 (see [`pool_table`]).
+static POOL_OF: [u16; (POOL_TABLE_END / 4 + 1) as usize] = pool_table();
+
+/// A request of `asked` bytes in the exe's pools: the block size of the pool the exe's
+/// `MemoryManager::Allocate` (00aa3e40) serves it from (its size rounded up to 4, at least 8,
+/// when the exe has that pool; else 00aa4960's pool of it rounded up to 16 or 32, or the
+/// 576-byte one), or, outside the pools (the exe's general heap), `asked` rounded up to 8.
+/// Always a multiple of 4; the heap holds it rounded up to 8.
+#[inline]
+pub(super) fn pool_size(asked: u32) -> u32 {
+    if asked <= POOL_TABLE_END {
+        let pool = POOL_OF[(asked.max(8) as usize + 3) >> 2];
+        if pool != 0 {
+            return u32::from(pool);
+        }
+    }
+    asked.max(1).div_ceil(8) * 8
+}
+
+/// The bytes a block of class `class` holds ([`Heap::take`]): the class rounded up to 8.
+#[inline]
+pub(super) fn class_bytes(class: u32) -> u32 {
+    (class + 7) & !7
+}
 
 /// The bin of a free block of `size` bytes (a multiple of 8, at least 8).
 #[inline]
@@ -284,7 +372,7 @@ pub(super) struct Heap {
     nonempty: u32,
     /// Bytes in the bins.
     free_bytes: u64,
-    /// The quick stacks by size / 8, the newest block at the back (the one a request takes) and
+    /// The quick stacks by class / 4, the newest block at the back (the one a request takes) and
     /// the oldest at the front (the first to go on to the bins), and the bytes in them.
     quick: Vec<VecDeque<u32>>,
     quick_bytes: u64,
@@ -332,12 +420,17 @@ impl Heap {
         self.peak
     }
 
-    /// A block of `size` bytes (a multiple of 8, at least 8), or `None` when the heap has no
-    /// room for it.
+    /// A block of class `class`, or `None` when the heap has no room for it. The class is the
+    /// block's size (a multiple of 8, at least 8), less 4 for a block of one of the exe's pools
+    /// whose size is 4 above a multiple of 8 ([`pool_size`]): the 12-byte pool's 16-byte blocks
+    /// wait apart from the 16-byte pool's. A freed block of up to [`QUICK_MAX`] bytes comes back
+    /// only for a request of its class (from its quick stack); a bigger one, or one the stacks
+    /// moved on to the bins, for any request it fits.
     #[inline]
-    pub(super) fn take(&mut self, size: u32) -> Option<u32> {
-        if size <= self.quick_max {
-            let i = (size >> 3) as usize;
+    pub(super) fn take(&mut self, class: u32) -> Option<u32> {
+        let size = class_bytes(class);
+        if class <= self.quick_max {
+            let i = (class >> 2) as usize;
             if let Some(a) = self.quick[i].pop_back() {
                 self.quick_bytes -= u64::from(size);
                 if self.quick[i].is_empty() {
@@ -537,33 +630,34 @@ impl Heap {
         left.start
     }
 
-    /// Takes back the block `[addr, addr + size)`: into its quick stack when it is small,
-    /// else into the bins ([`Heap::release`]).
+    /// Takes back the block at `addr` of class `class` ([`Heap::take`]): into its class's quick
+    /// stack when it is small, else into the bins ([`Heap::release`]).
     #[inline]
-    pub(super) fn give(&mut self, addr: u32, size: u32) {
-        if size <= self.quick_max {
-            let i = (size >> 3) as usize;
+    pub(super) fn give(&mut self, addr: u32, class: u32) {
+        let size = class_bytes(class);
+        if class <= self.quick_max {
+            let i = (class >> 2) as usize;
             self.quick[i].push_back(addr);
             self.waiting[i / 64] |= 1 << (i % 64);
             self.quick_bytes += u64::from(size);
             if self.quick_bytes > QUICK_BYTES {
-                self.spill(size);
+                self.spill(class);
             }
             return;
         }
         self.release(addr, size);
     }
 
-    /// Brings the quick stacks back to at most [`QUICK_BYTES`] after a give of `size` bytes put
+    /// Brings the quick stacks back to at most [`QUICK_BYTES`] after a give of class `class` put
     /// them over: the oldest block of the next stack that holds one goes on to the bins, stack
     /// after stack, up to [`SPILL_STEP`] blocks; if the stacks are still over, the oldest block of
-    /// `size` goes too. That one holds at least the `size` bytes the give added (the stacks held
+    /// `class` goes too. That one holds at least the bytes the give added (the stacks held
     /// at most [`QUICK_BYTES`] before it; were the block just given already gone, the stacks
     /// would be under), so a give moves at most [`SPILL_STEP`] + 1 blocks and leaves the stacks
     /// at most full.
     #[cold]
     #[inline(never)]
-    fn spill(&mut self, size: u32) {
+    fn spill(&mut self, class: u32) {
         for _ in 0..SPILL_STEP {
             let Some(i) = self.next_waiting() else {
                 return;
@@ -574,7 +668,7 @@ impl Heap {
                 return;
             }
         }
-        self.spill_oldest((size >> 3) as usize);
+        self.spill_oldest((class >> 2) as usize);
     }
 
     /// The first quick stack after the one [`Heap::spill`] took from last (round the sizes) that
@@ -609,7 +703,7 @@ impl Heap {
         if self.quick[i].is_empty() {
             self.waiting[i / 64] &= !(1 << (i % 64));
         }
-        let size = (i as u32) << 3;
+        let size = class_bytes((i as u32) << 2);
         self.quick_bytes -= u64::from(size);
         self.release(a, size)
     }
@@ -780,7 +874,7 @@ impl Heap {
             .quick
             .iter()
             .enumerate()
-            .flat_map(|(i, s)| std::iter::repeat((i as u32) << 3).take(s.len()));
+            .flat_map(|(i, s)| std::iter::repeat(class_bytes((i as u32) << 2)).take(s.len()));
         binned.chain(waiting)
     }
 
@@ -888,8 +982,9 @@ impl Heap {
                 "bitmap of quick stack {i}"
             );
             for &a in stack {
-                all.push((a, (i as u32) << 3, 2));
-                waiting += u64::from(i as u32) << 3;
+                let size = class_bytes((i as u32) << 2);
+                all.push((a, size, 2));
+                waiting += u64::from(size);
             }
         }
         assert_eq!(waiting, self.quick_bytes);

@@ -5621,7 +5621,11 @@ mod tests {
         assert_eq!(fx.e.mem.u16(fx.at(0xd4)), 0);
         assert_eq!(fx.e.mem.u16(fx.at(0xd6)), 1);
         let buckets = fx.get(0x27c);
-        assert_eq!(fx.e.mem.block_size(buckets), Some(0x98));
+        // 0x94 bytes, held as the exe pool for them (Pool 160).
+        assert_eq!(
+            fx.e.mem.block_size(buckets),
+            Some(engine_core::mem::block_bytes(0x94))
+        );
         assert!(fx.e.mem.bytes(buckets, 0x94).iter().all(|b| *b == 0));
     }
 

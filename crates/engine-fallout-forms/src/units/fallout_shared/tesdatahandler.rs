@@ -12854,8 +12854,12 @@ mod tests {
         let first = e.call(0x0046_5110, &args![0x22u32]).u32();
         let second = e.call(0x0046_5110, &args![0x26u32]).u32();
         // The constructors answer their `this`, which is the block; the
-        // forms are inside the blocks.
-        assert_eq!(e.mem.block_size(first - 0x14), Some(0x78));
+        // forms are inside the blocks. MSTT's 0x74 bytes are held as the exe pool for them
+        // (Pool 128).
+        assert_eq!(
+            e.mem.block_size(first - 0x14),
+            Some(engine_core::mem::block_bytes(0x74))
+        );
         assert_eq!(e.mem.block_size(second - 0x0c), Some(0xa0));
     }
 

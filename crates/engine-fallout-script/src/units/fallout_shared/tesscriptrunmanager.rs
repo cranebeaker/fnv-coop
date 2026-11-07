@@ -1532,8 +1532,12 @@ mod tests {
             e.register_double(0x00407000, move |e, a| {
                 assert_eq!(a[1], 0x0103d538);
                 assert_eq!((e.mem.u32(a[2]), e.mem.u32(a[2] + 4)), (7, 8));
-                // The message buffer is the 0x108-byte stack local.
-                assert_eq!(e.mem.block_size(a[0]), Some(0x108));
+                // The message buffer is the 0x108-byte stack local (a heap block, held as the
+                // exe pool for 0x108 bytes is: Pool 272).
+                assert_eq!(
+                    e.mem.block_size(a[0]),
+                    Some(engine_core::mem::block_bytes(0x108))
+                );
                 seen.set(a[0]);
                 Ret::default()
             });

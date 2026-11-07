@@ -11433,7 +11433,10 @@ mod tests {
         assert_eq!(e.mem.block_size(block), None);
         let kept = e.mem.alloc(0x188);
         e.call(0x00ae77a0, &[kept, 0]);
-        assert_eq!(e.mem.block_size(kept), Some(0x188));
+        assert_eq!(
+            e.mem.block_size(kept),
+            Some(engine_core::mem::block_bytes(0x188))
+        );
     }
 
     #[test]

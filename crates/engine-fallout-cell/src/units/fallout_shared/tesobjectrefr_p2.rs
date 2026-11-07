@@ -5308,7 +5308,10 @@ mod tests {
             let log = logged(&mut e, |e| {
                 let made = e.call(0x0056_4480, &args![u32::from(kind), 1u32]).u32();
                 assert_ne!(made, 0);
-                assert_eq!(e.mem.block_size(made - 1), Some(size.div_ceil(8) * 8));
+                assert_eq!(
+                    e.mem.block_size(made - 1),
+                    Some(engine_core::mem::block_bytes(size))
+                );
             });
             let constructed = calls_to(&log, ctor);
             assert_eq!(constructed.len(), 1, "kind {kind:#x}");

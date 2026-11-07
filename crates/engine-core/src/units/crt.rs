@@ -6599,9 +6599,11 @@ mod exit_tests {
         }
         let expect: Vec<u32> = (0..100).map(|i| 0x0090_0000 + i).collect();
         assert_eq!(table_words(&mut e), expect);
-        // 128 bytes, then 256 (full at 64 words), then 512 (128 words).
+        // 128 bytes, then 256 (full at 64 words), then 512 (128 words), which the heap holds as
+        // the exe pool for 512 bytes does: 576 (`crate::mem::block_bytes`).
         let begin = table_begin(&mut e);
-        assert_eq!(e.mem.block_size(begin), Some(512));
+        assert_eq!(e.mem.block_size(begin), Some(crate::mem::block_bytes(512)));
+        assert_eq!(crate::mem::block_bytes(512), 576);
     }
 
     #[test]

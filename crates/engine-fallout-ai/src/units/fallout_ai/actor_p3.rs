@@ -19969,7 +19969,10 @@ mod tests {
     #[test]
     fn actor_stop_combat_ends_the_combat_with_a_controller() {
         let mut e = engine();
-        let player = actor_with(&mut e, &[], None);
+        // Big enough for the byte at +0x7c4: with `actor_with`'s 0x200 bytes the store landed
+        // past the block, where the next object's table later held the slot 0x5c4 target, whose
+        // low byte the test read instead (it passed only while that byte was not 0).
+        let player = object(&mut e, 0x800, &[]).cast::<Actor>();
         set_player(&mut e, player);
         e.mem.set_u8(player.addr() + 0x7c4, 1);
         let acquire = shared_acquire(

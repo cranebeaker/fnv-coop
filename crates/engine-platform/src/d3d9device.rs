@@ -5278,16 +5278,17 @@ pub(crate) mod tests {
         });
         assert_eq!(answers.len(), 2303);
         // The answers include the objects' addresses (GetTexture, GetStreamSource, ...), which
-        // depend on what the layer allocates in the game's memory: 9_009_626_195_373_671_558
+        // depend on what the layer allocates in the game's memory: 2_331_433_829_624_941_638
         // with the texture levels and static buffers in it (`NV_D3D9_TEXTURES=guest`,
         // `NV_D3D9_BUFFERS=guest`), the same answers but for seven addresses with the levels
-        // outside, five with the buffers outside.
+        // outside, five with the buffers outside. The heap holding each block at its exe pool's
+        // size (`engine_core::mem::block_bytes`) moved the addresses again: all four re-pinned.
         let guest = (Store::Guest, Store::Guest);
         let expected = match (texture_store(&mut s.e), buffer_store(&mut s.e)) {
-            stores if stores == guest => 9_009_626_195_373_671_558,
-            (Store::Guest, _) => 4_119_354_249_046_658_822,
-            (_, Store::Guest) => 4_629_123_214_697_978_086,
-            _ => 4_217_970_115_242_054_758,
+            stores if stores == guest => 2_331_433_829_624_941_638,
+            (Store::Guest, _) => 11_516_436_325_457_714_374,
+            (_, Store::Guest) => 12_478_948_928_185_144_550,
+            _ => 6_478_585_233_084_394_086,
         };
         assert_eq!(digest, expected, "the model's answers' digest");
     }

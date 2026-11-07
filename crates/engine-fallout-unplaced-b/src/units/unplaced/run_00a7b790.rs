@@ -73,7 +73,11 @@ mod tests {
         e.call_log = Some(vec![]);
         let object = e.call(0x00a7_b790, &args![]).u32();
         assert_ne!(object, 0);
-        assert_eq!(e.mem.block_size(object), Some(NI_TRI_SHAPE_DATA_SIZE));
+        // The 0x58 bytes, held as the exe pool for them (Pool 96).
+        assert_eq!(
+            e.mem.block_size(object),
+            Some(engine_core::mem::block_bytes(NI_TRI_SHAPE_DATA_SIZE))
+        );
         assert_eq!(e.mem.u32(object), NI_TRI_SHAPE_DATA_VTABLE);
         // The base's fields are the constructor's.
         assert_eq!(e.mem.u32(object + 0x40), 0x0005_0005);

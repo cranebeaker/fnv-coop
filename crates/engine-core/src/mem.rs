@@ -553,8 +553,9 @@ pub struct Mem {
     /// hand-back (what the tests count).
     #[cfg(test)]
     host_calls: u32,
-    /// The heap's live blocks (start -> size, rounded and with any guard; a table per region of
-    /// the heap, [`heap::Regions`], so that no allocation rehashes every live block) and its free
+    /// The heap's live blocks (start -> size, rounded and with any guard, with [`ODD_POOL`] set
+    /// for a block of a pool whose size is 4 above a multiple of 8; a table per region of the
+    /// heap, [`heap::Regions`], so that no allocation rehashes every live block) and its free
     /// space.
     live: heap::Regions,
     heap: heap::Heap,
@@ -626,6 +627,20 @@ const WATCH_HITS_KEEP: usize = 1 << 16;
 pub const GUARD: u32 = 16;
 /// The byte guards are filled with.
 pub const GUARD_BYTE: u8 = 0xFD;
+
+/// Set in a live block's entry (whose size is a multiple of 8) when the block is of one of the
+/// exe's pools whose size is 4 above a multiple of 8 (12, 20, 28, ..): its 8-rounded size is
+/// the next pool's (16, 24, 32, ..), and the free gives it back to its own quick stack, apart
+/// from that pool's.
+const ODD_POOL: u32 = 4;
+
+/// The bytes the heap holds for a request of `asked` bytes (without the block check's guard):
+/// the block size of the exe's memory pool for it, rounded up to 8 (a 12-byte pool's blocks
+/// take 16), or, outside the pools, `asked` rounded up to 8 (`mem/heap.rs`, `pool_size`). So a
+/// request of 0x41 bytes is held as 80, the exe's pool for it.
+pub fn block_bytes(asked: u32) -> u32 {
+    heap::class_bytes(heap::pool_size(asked))
+}
 
 /// The block check (a diagnostic, not game behaviour): every heap block (and so every
 /// `Engine::with_stack` local) gets [`GUARD`] bytes of [`GUARD_BYTE`] right after the size
@@ -825,7 +840,8 @@ impl Mem {
     /// is its held size and the rest is unknown.
     pub fn for_each_census_block(&self, mut f: impl FnMut(CensusBlock<'_>)) {
         let c = self.check.as_deref();
-        for (&addr, &size) in self.live.iter() {
+        for (&addr, &entry) in self.live.iter() {
+            let size = entry & !ODD_POOL;
             let info = c.and_then(|c| c.blocks.get(&addr)).copied();
             let (asked, running) = info.unwrap_or((size, 0));
             let held = if info.is_some() {
@@ -1913,16 +1929,20 @@ impl Mem {
         self.heap.available()
     }
 
-    /// Allocates `size` bytes (8-byte aligned, zero-filled) on the heap. A freed block of the
-    /// same rounded size is reused first, newest first: from its quick stack (up to 4 KB), or
-    /// among the first blocks of its bin; else part of a bigger free block, else fresh memory. A
-    /// fitting block deeper in its bin is used only when the top has no room (`mem/heap.rs` has
-    /// the policy).
+    /// Allocates `size` bytes (8-byte aligned, zero-filled) on the heap, as a block of the exe's
+    /// memory pool for that size ([`block_bytes`]). A freed block of the same pool is reused
+    /// first, newest first: from its quick stack (up to 4 KB), or among the first blocks of its
+    /// bin; else part of a bigger free block, else fresh memory. A fitting block deeper in its bin
+    /// is used only when the top has no room (`mem/heap.rs` has the policy). As in the exe, a
+    /// freed small block never comes back for another pool's request (a 12-byte object's block
+    /// not for a 16-byte one), unless the quick stacks, over their bound, moved it on.
     pub fn alloc(&mut self, size: u32) -> u32 {
         let asked = size;
         let guard = if self.check.is_some() { GUARD } else { 0 };
-        let size = size.max(1).div_ceil(8) * 8 + guard;
-        let addr = match self.heap.take(size) {
+        let pool = heap::pool_size(size);
+        let size = heap::class_bytes(pool) + guard;
+        let odd = pool & ODD_POOL;
+        let addr = match self.heap.take(size - odd) {
             Some(a) => a,
             None => self.heap_exhausted(size),
         };
@@ -1931,7 +1951,7 @@ impl Mem {
             self.watch_note(addr, size, None, WatchKind::Alloc);
         }
         self.zero_raw(addr, size);
-        self.live.insert(addr, size);
+        self.live.insert(addr, size | odd);
         if guard != 0 {
             self.check_guard_block(addr, asked, size);
         }
@@ -1954,10 +1974,11 @@ impl Mem {
         if addr == 0 {
             return;
         }
-        let size = self
+        let entry = self
             .live
             .remove(&addr)
             .unwrap_or_else(|| panic!("free of {addr:08x}, which is not a live heap block"));
+        let size = entry & !ODD_POOL;
         // Tagged objects in the block lose their tags before the freed check fills it.
         if self.touch.is_some() {
             self.touch_forget(addr, size);
@@ -1986,7 +2007,7 @@ impl Mem {
                     self.heap.release(a, s);
                 }
             }
-            None => self.heap.give(addr, size),
+            None => self.heap.give(addr, size - (entry & ODD_POOL)),
         }
     }
 
@@ -2016,7 +2037,7 @@ impl Mem {
             }
             by_size
         };
-        let live: u64 = self.live.values().map(|&s| u64::from(s)).sum();
+        let live: u64 = self.live.values().map(|&s| u64::from(s & !ODD_POOL)).sum();
         let quarantine = self.check.as_deref().map_or(0, |c| c.quarantine_bytes);
         let h = &self.heap;
         let waited = h.failed_flush();
@@ -2033,7 +2054,7 @@ impl Mem {
             waited.1,
             quarantine >> 20,
             h.top(),
-            most(tally(&mut self.live.values().copied())),
+            most(tally(&mut self.live.values().map(|&s| s & !ODD_POOL))),
             most(tally(&mut h.free_sizes()))
         )
     }
@@ -2041,9 +2062,9 @@ impl Mem {
     /// Size of a live heap block.
     pub fn block_size(&self, addr: u32) -> Option<u32> {
         if let Some(&(asked, _)) = self.check.as_deref().and_then(|c| c.blocks.get(&addr)) {
-            return Some(asked.max(1).div_ceil(8) * 8);
+            return Some(block_bytes(asked));
         }
-        self.live.get(&addr).copied()
+        self.live.get(&addr).map(|&s| s & !ODD_POOL)
     }
 
     /// Checks the heap's bookkeeping against the live blocks and those the freed-block check
@@ -2057,8 +2078,12 @@ impl Mem {
             .into_iter()
             .flatten()
             .copied();
-        self.heap
-            .check(self.live.iter().map(|(&a, &s)| (a, s)).chain(held));
+        self.heap.check(
+            self.live
+                .iter()
+                .map(|(&a, &s)| (a, s & !ODD_POOL))
+                .chain(held),
+        );
     }
 
     /// Takes the rest of the heap's lower range as one live block without mapping its pages:
@@ -2302,6 +2327,9 @@ mod tests {
         assert_eq!(&b[0x1c..], &[0xff; 4]);
     }
 
+    /// A freed block comes back zeroed for the next request of its pool. (It was a 16-byte
+    /// request taking the freed 12-byte block; the exe's pools keep those apart:
+    /// `freed_blocks_come_back_only_to_their_exe_pool`.)
     #[test]
     fn heap_reuses_freed_blocks() {
         let mut m = Mem::new();
@@ -2310,7 +2338,7 @@ mod tests {
         assert_eq!(b, a + 16);
         m.set_u32(a, 7);
         m.free(a);
-        let c = m.alloc(16);
+        let c = m.alloc(10);
         assert_eq!(c, a);
         assert_eq!(m.u32(c), 0, "reused blocks are zeroed");
         m.free(0);
@@ -2349,6 +2377,121 @@ mod tests {
             assert_eq!(m.alloc(size), blocks[4] + size);
             m.check_heap();
         }
+    }
+
+    /// The exe's pools (MemoryManager::SpecifyPools 00866770): a freed block comes back only for
+    /// a request of its own pool (12 is not 16, 28 is not 32), newest first. Before, a request of
+    /// 16 bytes took a freed 12-byte block: the inventory entry a 16-byte interface object took
+    /// in the weapon-mod crash, which the exe's Pool 12 and Pool 16 can't do.
+    #[test]
+    fn freed_blocks_come_back_only_to_their_exe_pool() {
+        let mut m = Mem::new();
+        for (freed, other) in [(0xc, 0x10), (0x20, 0x1c), (0x10, 0xc)] {
+            let a = m.alloc(freed);
+            let _fence = m.alloc(0x40);
+            m.free(a);
+            assert_ne!(m.alloc(other), a, "{freed:#x} reused by {other:#x}");
+            assert_eq!(m.alloc(freed), a);
+        }
+        m.check_heap();
+    }
+
+    /// Every pair of the exe's pools whose blocks the heap holds at the same 8-rounded size (12
+    /// and 16, 20 and 24, .., 100 and 104, 596's 600 and none): a freed block of one never serves
+    /// the other, both ways, with the block check's guard too; a request of the same pool takes
+    /// it back.
+    #[test]
+    fn pools_that_share_a_rounded_size_stay_apart() {
+        let pairs = [
+            (12, 16),
+            (20, 24),
+            (28, 32),
+            (36, 40),
+            (44, 48),
+            (52, 56),
+            (76, 80),
+            (92, 96),
+            (100, 104),
+        ];
+        for check in [false, true] {
+            let mut m = Mem::new();
+            if check {
+                m.enable_block_check(false, true);
+            }
+            for (odd, even) in pairs {
+                assert_eq!(block_bytes(odd), block_bytes(even));
+                for (freed, other) in [(odd, even), (even, odd)] {
+                    let a = m.alloc(freed);
+                    let _fence = m.alloc(8);
+                    m.free(a);
+                    let b = m.alloc(other);
+                    assert_ne!(b, a, "{freed} reused by {other} (check {check})");
+                    assert_eq!(m.alloc(freed), a, "{freed} (check {check})");
+                    m.free(b);
+                    assert_eq!(m.alloc(other), b);
+                }
+            }
+            m.check_heap();
+        }
+    }
+
+    /// The pool each request goes to, at every boundary of `MemoryManager::Allocate` (00aa3e40,
+    /// its size rounded up to 4, at least 8, then the pool of exactly that size) and its fallback
+    /// 00aa4960 (below 300 the pool of the size rounded up to 16; below 0x200 that or the one of
+    /// it rounded up to 32; below 0x240 the 576-byte pool; none from there, but the 596-byte
+    /// pool's exact size); the block the heap holds is that pool's size rounded up to 8.
+    #[test]
+    fn requests_go_to_the_exe_pool_for_their_size() {
+        for (asked, pool) in [
+            (0, 8),
+            (1, 8),
+            (8, 8),
+            (9, 12),
+            (12, 12),
+            (13, 16),
+            (0x3d, 64),
+            // 68 has no pool: 80, its size rounded up to 16.
+            (0x41, 80),
+            (0x44, 80),
+            (0x4c, 76),
+            (0x51, 96),
+            (0x59, 92),
+            // 132: no pool of 132 or 144, so the general heap (rounded to 8).
+            (0x84, 136),
+            (0xed, 240),
+            (0xf4, 256),
+            (0x101, 272),
+            (0x120, 288),
+            // From 300 on 00aa4960 tries the size rounded up to 32 as well.
+            (0x12c, 304),
+            (0x154, 344),
+            (0x190, 400),
+            (0x1a0, 416),
+            (0x1c8, 480),
+            (0x1e4, 488),
+            (0x1fc, 508),
+            (0x1fd, 576),
+            (0x23c, 576),
+            (0x240, 576),
+            (0x241, 0x248),
+            (0x254, 596),
+            (0x3fc, 0x400),
+            (0x1000, 0x1000),
+        ] {
+            assert_eq!(heap::pool_size(asked), pool, "{asked:#x}");
+            assert_eq!(block_bytes(asked), heap::class_bytes(pool), "{asked:#x}");
+        }
+        // Requests of one pool share its blocks: a freed 0x41-byte block (Pool 80) serves an
+        // 80-byte request, and a freed 0x204-byte one (Pool 576) a 0x240-byte one.
+        let mut m = Mem::new();
+        for (freed, same) in [(0x41, 0x50), (0x204, 0x240)] {
+            let a = m.alloc(freed);
+            assert_eq!(m.block_size(a), Some(block_bytes(same)));
+            let _fence = m.alloc(8);
+            m.free(a);
+            assert_eq!(m.alloc(same), a);
+        }
+        m.check_heap();
     }
 
     /// A big freed block serves smaller requests from its start, zero-filled, and the rest of it
@@ -2646,7 +2789,7 @@ mod tests {
                     _ => 0x1_0000 + rng.below(big),
                 };
                 let a = m.alloc(asked);
-                let size = *m.live.get(&a).expect("a live block");
+                let size = *m.live.get(&a).expect("a live block") & !ODD_POOL;
                 assert_eq!(a % 8, 0);
                 assert!(
                     a >= HEAP_BASE && a + size <= m.heap.top(),

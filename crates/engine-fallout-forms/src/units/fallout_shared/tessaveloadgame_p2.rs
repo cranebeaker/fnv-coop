@@ -3920,7 +3920,11 @@ mod tests {
             assert_eq!(e.get(map, NiTPointerMap::m_uiHashSize), 0x25);
             assert_eq!(e.get(map, NiTPointerMap::m_uiCount), 0);
             let table = e.get(map, NiTPointerMap::m_ppkHashTable);
-            assert_eq!(e.mem.block_size(table), Some(0x98));
+            // 0x94 bytes, held as the exe pool for them (Pool 160).
+            assert_eq!(
+                e.mem.block_size(table),
+                Some(engine_core::mem::block_bytes(0x94))
+            );
             assert_eq!(calls_to(&e, NI_ALLOC), vec![vec![0x94]]);
             assert_eq!(calls_to(&e, MEMSET), vec![vec![table, 0, 0x94]]);
         }

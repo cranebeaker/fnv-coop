@@ -4326,7 +4326,11 @@ mod tests {
         assert_eq!(e.mem.block_size(object), None);
         let object = e.mem.alloc(0x44);
         e.call(0x00b2_77b0, &args![object, 0u32]);
-        assert_eq!(e.mem.block_size(object), Some(0x48));
+        // Still live: 0x44 bytes, held as the exe pool for them (Pool 80).
+        assert_eq!(
+            e.mem.block_size(object),
+            Some(engine_core::mem::block_bytes(0x44))
+        );
     }
 
     #[test]

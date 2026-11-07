@@ -4126,8 +4126,12 @@ mod tests {
         for value in [root, moons, atmosphere, stars, sun, clouds, precipitation] {
             assert_ne!(value, 0);
         }
-        // Sizes the game allocates.
-        assert_eq!(e.mem.block_size(root), Some(0xb8));
+        // Sizes the game allocates (the root's 0xb4 bytes held as the exe pool for them, Pool
+        // 192).
+        assert_eq!(
+            e.mem.block_size(root),
+            Some(engine_core::mem::block_bytes(0xb4))
+        );
         assert_eq!(e.mem.block_size(atmosphere), Some(0x20));
         assert_eq!(e.mem.block_size(sun), Some(0x30));
         // The root is flagged and named; the components are initialized
