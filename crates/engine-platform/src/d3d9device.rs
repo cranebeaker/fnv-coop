@@ -406,7 +406,7 @@ struct Surface {
 /// rectangle's offset; only the block's address changes from lock to lock, as Direct3D leaves
 /// it to the runtime. `NV_D3D9_TEXTURES=guest` keeps the levels in the game's memory instead
 /// (for comparisons), `NV_D3D9_TEXTURES=check` also reports a staging block written after its
-/// `UnlockRect` ([`TextureStore`]).
+/// `UnlockRect` ([`Store`]).
 #[derive(Debug, Clone)]
 enum Pixels {
     /// In host memory; empty while every byte is 0.
@@ -418,27 +418,29 @@ enum Pixels {
     Real { written: bool },
 }
 
-/// Where lockable texture levels keep their pixels (`NV_D3D9_TEXTURES`): outside the game's
+/// Where lockable texture levels keep their pixels (`NV_D3D9_TEXTURES`), and static vertex and
+/// index buffers their bytes (`NV_D3D9_BUFFERS`, `super::d3d9resource`): outside the game's
 /// address space ([`Pixels`], the default), in it (`guest`, the layer before ADR-0015's step 3,
-/// for comparisons), or outside with checks (`check`, a diagnostic): at each `UnlockRect` the
-/// level is read back from where it keeps its bytes (host memory or the real level) and
-/// compared with the staging block, and when the block is freed (at the next `Present`, or
-/// earlier past [`KEPT_STAGING_MAX`]) it is compared with what it held at the unlock (a
-/// difference is game code writing through a lock's address after the unlock, which only the
-/// guest store would carry to the texture); a summary is printed every 2,000 unlocks.
+/// for comparisons), or outside with checks (`check`, a diagnostic): at each `UnlockRect` (a
+/// buffer's last `Unlock`) the level is read back from where it keeps its bytes (host memory or
+/// the real level) and compared with the staging block, and when the block is freed (at the
+/// next `Present`, or earlier past [`KEPT_STAGING_MAX`]) it is compared with what it held at
+/// the unlock (a difference is game code writing through a lock's address after the unlock,
+/// which only the guest store would carry to the texture); a summary is printed every 2,000
+/// unlocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TextureStore {
+pub(crate) enum Store {
     Host,
     Guest,
     Check,
 }
 
-impl TextureStore {
-    fn from_env() -> TextureStore {
-        match std::env::var("NV_D3D9_TEXTURES").as_deref() {
-            Ok("guest") => TextureStore::Guest,
-            Ok("check") => TextureStore::Check,
-            _ => TextureStore::Host,
+impl Store {
+    fn from_env(setting: &str) -> Store {
+        match std::env::var(setting).as_deref() {
+            Ok("guest") => Store::Guest,
+            Ok("check") => Store::Check,
+            _ => Store::Host,
         }
     }
 }
@@ -458,13 +460,15 @@ pub struct Objects {
     /// The queries (`super::d3d9query`).
     pub(super) queries: super::d3d9query::Queries,
     /// Where texture levels keep their pixels: read from `NV_D3D9_TEXTURES` at the first texture.
-    texture_store: Option<TextureStore>,
+    texture_store: Option<Store>,
+    /// Where static buffers keep their bytes: read from `NV_D3D9_BUFFERS` at the first buffer.
+    buffer_store: Option<Store>,
     /// The staging blocks unlocked since the last `Present`, still in the game's memory
-    /// ([`unstage`]): block, level, size, and with `NV_D3D9_TEXTURES=check` the bytes each held
-    /// at its unlock; and their bytes together.
-    unlocked_staging: std::collections::VecDeque<(u32, u32, u32, Vec<u8>)>,
+    /// ([`unstage`], [`wait_for_present`]): block, level or buffer, size, with `check` the bytes
+    /// each held at its unlock, and whether it is a buffer's; and their bytes together.
+    unlocked_staging: std::collections::VecDeque<(u32, u32, u32, Vec<u8>, bool)>,
     unlocked_staging_bytes: u64,
-    /// `NV_D3D9_TEXTURES=check`: the levels already reported.
+    /// `check`: the levels and buffers already reported.
     written_after_unlock: engine_core::AddrSet<u32>,
     /// `NV_D3D9_TEXTURES=check`: the unlocks whose level read back the same as its staging
     /// block, and those that did not; the bytes compared.
@@ -472,18 +476,33 @@ pub struct Objects {
     round_trip_bytes: u64,
 }
 
-/// Where texture levels keep their pixels in this run ([`TextureStore`]).
-fn texture_store(e: &mut Engine) -> TextureStore {
+/// Where texture levels keep their pixels in this run ([`Store`]).
+fn texture_store(e: &mut Engine) -> Store {
     *state!(e)
         .graphics
         .device_objects
         .texture_store
-        .get_or_insert_with(TextureStore::from_env)
+        .get_or_insert_with(|| Store::from_env("NV_D3D9_TEXTURES"))
+}
+
+/// Where static vertex and index buffers keep their bytes in this run ([`Store`]).
+pub(super) fn buffer_store(e: &mut Engine) -> Store {
+    *state!(e)
+        .graphics
+        .device_objects
+        .buffer_store
+        .get_or_insert_with(|| Store::from_env("NV_D3D9_BUFFERS"))
+}
+
+/// Sets where static buffers keep their bytes (tests), before the first buffer.
+#[cfg(test)]
+pub(crate) fn set_buffer_store(e: &mut Engine, store: Store) {
+    state!(e).graphics.device_objects.buffer_store = Some(store);
 }
 
 /// Sets where texture levels keep their pixels (tests), before the first texture.
 #[cfg(test)]
-pub(crate) fn set_texture_store(e: &mut Engine, store: TextureStore) {
+pub(crate) fn set_texture_store(e: &mut Engine, store: Store) {
     state!(e).graphics.device_objects.texture_store = Some(store);
 }
 
@@ -1893,7 +1912,7 @@ fn present(e: &mut Engine, this: Ptr, source: u32, dest: u32, window: u32, dirty
         .unlocked_staging
         .is_empty()
     {
-        // The texture levels' staging blocks unlocked in the frame.
+        // The texture levels' and buffers' staging blocks unlocked in the frame.
         free_all_unlocked_staging(e);
     }
     let model = if device(e, this).in_scene || device(e, this).lost {
@@ -2154,7 +2173,7 @@ fn new_level(e: &mut Engine, device: u32, texture: u32, desc: [u32; 8], lockable
         (0, 0)
     };
     let store = texture_store(e);
-    let bits = if lockable && store == TextureStore::Guest {
+    let bits = if lockable && store == Store::Guest {
         e.mem.alloc(size)
     } else {
         0
@@ -2163,7 +2182,7 @@ fn new_level(e: &mut Engine, device: u32, texture: u32, desc: [u32; 8], lockable
     s.container = texture;
     s.bits = bits;
     s.pitch = pitch;
-    if lockable && store != TextureStore::Guest {
+    if lockable && store != Store::Guest {
         s.pixels = Some(Pixels::Host(Vec::new()));
     }
     surface
@@ -3425,7 +3444,7 @@ const KEPT_STAGING_MAX: u64 = 16 << 20;
 /// compared again when it is freed).
 fn unstage(e: &mut Engine, this: Ptr, staging: u32, uploaded: bool) {
     let size = level_size(surface(e, this));
-    let check = texture_store(e) == TextureStore::Check;
+    let check = texture_store(e) == Store::Check;
     let s = state!(e)
         .graphics
         .device_objects
@@ -3447,11 +3466,16 @@ fn unstage(e: &mut Engine, this: Ptr, staging: u32, uploaded: bool) {
     } else {
         Vec::new()
     };
+    wait_for_present(e, (staging, this.addr(), size, held, false));
+}
+
+/// A staging block just unlocked (block, level or buffer, size, with `check` the bytes it held,
+/// whether a buffer's) waits for the next `Present` to be freed; past [`KEPT_STAGING_MAX`]
+/// bytes waiting the oldest are freed now (the newest always waits).
+pub(super) fn wait_for_present(e: &mut Engine, unlocked: (u32, u32, u32, Vec<u8>, bool)) {
     let objects = &mut state!(e).graphics.device_objects;
-    objects
-        .unlocked_staging
-        .push_back((staging, this.addr(), size, held));
-    objects.unlocked_staging_bytes += u64::from(size);
+    objects.unlocked_staging_bytes += u64::from(unlocked.2);
+    objects.unlocked_staging.push_back(unlocked);
     loop {
         let objects = &mut state!(e).graphics.device_objects;
         if objects.unlocked_staging_bytes <= KEPT_STAGING_MAX || objects.unlocked_staging.len() < 2
@@ -3530,9 +3554,12 @@ fn free_all_unlocked_staging(e: &mut Engine) {
     }
 }
 
-/// Frees a staging block waiting since its unlock; with `NV_D3D9_TEXTURES=check` it is first
-/// compared with what it held at the unlock (a difference is printed once per level).
-fn free_unlocked_staging(e: &mut Engine, (block, level, size, held): (u32, u32, u32, Vec<u8>)) {
+/// Frees a staging block waiting since its unlock; with `check` it is first compared with what
+/// it held at the unlock (a difference is printed once per level or buffer).
+fn free_unlocked_staging(
+    e: &mut Engine,
+    (block, level, size, held, buffer): (u32, u32, u32, Vec<u8>, bool),
+) {
     if !held.is_empty()
         && e.mem.bytes(block, size) != held
         && state!(e)
@@ -3541,12 +3568,30 @@ fn free_unlocked_staging(e: &mut Engine, (block, level, size, held): (u32, u32, 
             .written_after_unlock
             .insert(level)
     {
-        eprintln!(
-            "NV_D3D9_TEXTURES=check: the texture level {level:#x} was written through its lock's \
-             address after UnlockRect (staging block {block:#x}, {size} bytes)"
-        );
+        if buffer {
+            eprintln!(
+                "NV_D3D9_BUFFERS=check: the buffer {level:#x} was written through its lock's \
+                 address after its last Unlock (staging block {block:#x}, {size} bytes)"
+            );
+        } else {
+            eprintln!(
+                "NV_D3D9_TEXTURES=check: the texture level {level:#x} was written through its \
+                 lock's address after UnlockRect (staging block {block:#x}, {size} bytes)"
+            );
+        }
     }
     e.mem.free(block);
+}
+
+/// `check`: whether a level or buffer was written through a lock's address after its unlock
+/// (tests).
+#[cfg(test)]
+pub(crate) fn written_after_unlock(e: &mut Engine, object: u32) -> bool {
+    state!(e)
+        .graphics
+        .device_objects
+        .written_after_unlock
+        .contains(&object)
 }
 
 /// The present parameters a device took (for the viewer and tests).
@@ -5234,11 +5279,15 @@ pub(crate) mod tests {
         assert_eq!(answers.len(), 2303);
         // The answers include the objects' addresses (GetTexture, GetStreamSource, ...), which
         // depend on what the layer allocates in the game's memory: 9_009_626_195_373_671_558
-        // with the texture levels in it (`NV_D3D9_TEXTURES=guest`), the same answers but for
-        // seven addresses.
-        let expected = match texture_store(&mut s.e) {
-            TextureStore::Guest => 9_009_626_195_373_671_558,
-            _ => 4_629_123_214_697_978_086,
+        // with the texture levels and static buffers in it (`NV_D3D9_TEXTURES=guest`,
+        // `NV_D3D9_BUFFERS=guest`), the same answers but for seven addresses with the levels
+        // outside, five with the buffers outside.
+        let guest = (Store::Guest, Store::Guest);
+        let expected = match (texture_store(&mut s.e), buffer_store(&mut s.e)) {
+            stores if stores == guest => 9_009_626_195_373_671_558,
+            (Store::Guest, _) => 4_119_354_249_046_658_822,
+            (_, Store::Guest) => 4_629_123_214_697_978_086,
+            _ => 4_217_970_115_242_054_758,
         };
         assert_eq!(digest, expected, "the model's answers' digest");
     }
@@ -5385,7 +5434,7 @@ pub(crate) mod tests {
         eprintln!("  SetVertexShaderConstantF of 90 registers: forwarded {best:.1} ns a call");
     }
 
-    // Texture levels kept outside the game's memory (`TextureStore`, ADR-0015 step 3).
+    // Texture levels kept outside the game's memory (`Store`, ADR-0015 step 3).
 
     /// `D3DFMT_A8R8G8B8`, `DXT1`; `D3DLOCK_READONLY`, `D3DLOCK_DISCARD`,
     /// `D3DLOCK_NO_DIRTY_UPDATE`, `D3DLOCK_NOSYSLOCK`.
@@ -5398,7 +5447,7 @@ pub(crate) mod tests {
 
     /// A device whose levels are kept as `store` says, on the test table with A8R8G8B8 and DXT1
     /// textures (managed, system memory or dynamic) and cube textures accepted (TEST DATA).
-    fn texture_device(store: TextureStore) -> (Engine, u32) {
+    fn texture_device(store: Store) -> (Engine, u32) {
         let (mut e, d3d, present) = d3d();
         set_texture_store(&mut e, store);
         let out = e.mem.alloc(4);
@@ -5487,7 +5536,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_level_kept_outside_is_in_the_games_memory_only_while_locked() {
-        let (mut e, device) = texture_device(TextureStore::Host);
+        let (mut e, device) = texture_device(Store::Host);
         let before = e.mem.heap_available();
         // 256 by 256 A8R8G8B8, the full chain (9 levels, 349,524 bytes), managed.
         let texture = new_texture(&mut e, device, [256, 256, 0, 0, A8R8G8B8, 1]);
@@ -5546,7 +5595,7 @@ pub(crate) mod tests {
 
     #[test]
     fn unlocked_staging_blocks_wait_for_the_present_up_to_16_mb() {
-        let (mut e, device) = texture_device(TextureStore::Host);
+        let (mut e, device) = texture_device(Store::Host);
         // Five 4 MB levels unlocked in one frame: 20 MB, so the oldest goes before the Present.
         let mut blocks = Vec::new();
         for i in 0..5 {
@@ -5580,7 +5629,7 @@ pub(crate) mod tests {
 
     #[test]
     fn lock_flags_change_nothing_the_game_sees() {
-        for store in [TextureStore::Host, TextureStore::Guest] {
+        for store in [Store::Host, Store::Guest] {
             let (mut e, device) = texture_device(store);
             // Dynamic in the default pool, and managed.
             for (usage, pool) in [(0x200, 0), (0, 1)] {
@@ -5614,7 +5663,7 @@ pub(crate) mod tests {
 
     #[test]
     fn mip_levels_cube_faces_and_blocks_are_kept_apart() {
-        let (mut e, device) = texture_device(TextureStore::Host);
+        let (mut e, device) = texture_device(Store::Host);
         // DXT1 16 by 16, three levels: 4 rows of 4 blocks, 2 of 2, 1 of 1 (8 bytes a block).
         let dxt = new_texture(&mut e, device, [16, 16, 3, 0, DXT1, 1]);
         let sizes = [128, 32, 8];
@@ -5668,7 +5717,7 @@ pub(crate) mod tests {
 
     #[test]
     fn default_pool_levels_have_nothing_to_lock_and_a_destroyed_lock_frees_its_block() {
-        let (mut e, device) = texture_device(TextureStore::Host);
+        let (mut e, device) = texture_device(Store::Host);
         let target = new_texture(&mut e, device, [8, 8, 1, 0, A8R8G8B8, 0]);
         assert_eq!(lock(&mut e, target, None, 0, None, 0).0, D3DERR_INVALIDCALL);
         let texture = new_texture(&mut e, device, [64, 64, 1, 0, A8R8G8B8, 1]);
@@ -5681,7 +5730,7 @@ pub(crate) mod tests {
     #[test]
     fn managed_levels_keep_their_bytes_across_a_reset() {
         let (mut e, d3d, present) = d3d();
-        set_texture_store(&mut e, TextureStore::Host);
+        set_texture_store(&mut e, Store::Host);
         let out = e.mem.alloc(4);
         e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out]);
         let device = e.mem.u32(out);
@@ -5697,7 +5746,7 @@ pub(crate) mod tests {
 
     #[test]
     fn color_fill_reaches_a_dynamic_level_kept_outside() {
-        for store in [TextureStore::Host, TextureStore::Guest] {
+        for store in [Store::Host, Store::Guest] {
             let (mut e, device) = texture_device(store);
             let texture = new_texture(&mut e, device, [4, 4, 1, 0x200, A8R8G8B8, 0]);
             let out = e.mem.alloc(4);
@@ -5730,7 +5779,7 @@ pub(crate) mod tests {
         let extra = "\nDomain\td2\t15,31545844\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td2\
                      \nCheckDeviceFormat\t0 1 16 0 5\t0\t\td2";
         let (mut e, device) = device_with(extra, 0x54);
-        set_texture_store(&mut e, TextureStore::Host);
+        set_texture_store(&mut e, Store::Host);
         if super::super::d3d9real::test_real_device(&mut e, device, 0x54).is_none() {
             return;
         }
@@ -5803,7 +5852,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_check_store_reports_a_write_after_the_unlock() {
-        let (mut e, device) = texture_device(TextureStore::Check);
+        let (mut e, device) = texture_device(Store::Check);
         let texture = new_texture(&mut e, device, [4, 4, 1, 0, A8R8G8B8, 1]);
         let (_, _, at) = lock(&mut e, texture, None, 0, None, 0);
         e.mem.write(at, &pattern(1, 64));
@@ -5825,5 +5874,292 @@ pub(crate) mod tests {
         assert_eq!(e.mem.block_size(at), None, "freed at the Present");
         // The texture has what it held at the unlock.
         assert_eq!(read_level(&mut e, texture, None, 0, 64), pattern(1, 64));
+    }
+
+    // Static buffers kept outside the game's memory (`d3d9resource::Kept`, ADR-0015 step 3).
+
+    /// `D3DLOCK_NOOVERWRITE`; `D3DUSAGE_WRITEONLY`, `D3DUSAGE_DYNAMIC`.
+    const NOOVERWRITE: u32 = 0x1000;
+    const WRITEONLY: u32 = 0x8;
+    const DYNAMIC: u32 = 0x200;
+
+    /// A device whose static buffers are kept as `store` says.
+    fn buffer_device(store: Store) -> (Engine, u32) {
+        let (mut e, d3d, present) = d3d();
+        set_buffer_store(&mut e, store);
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out]);
+        let device = e.mem.u32(out);
+        (e, device)
+    }
+
+    /// `CreateVertexBuffer` (FVF 0x142) or `CreateIndexBuffer` (16-bit): the buffer.
+    fn new_buffer(
+        e: &mut Engine,
+        device: u32,
+        index: bool,
+        length: u32,
+        usage: u32,
+        pool: u32,
+    ) -> u32 {
+        let out = e.mem.alloc(4);
+        let hr = if index {
+            e.vcall(device, 4 * 27, &[length, usage, 101, pool, out, 0])
+        } else {
+            e.vcall(device, 4 * 26, &[length, usage, 0x142, pool, out, 0])
+        }
+        .u32();
+        assert_eq!(hr, D3D_OK);
+        let buffer = e.mem.u32(out);
+        e.mem.free(out);
+        buffer
+    }
+
+    /// `Lock(offset, size, flags)` of a buffer: the answer and the address handed out.
+    fn lock_buffer(e: &mut Engine, buffer: u32, offset: u32, size: u32, flags: u32) -> (u32, u32) {
+        let out = e.mem.alloc(4);
+        let hr = e.vcall(buffer, 4 * 11, &[offset, size, out, flags]).u32();
+        let at = e.mem.u32(out);
+        e.mem.free(out);
+        (hr, at)
+    }
+
+    fn unlock_buffer(e: &mut Engine, buffer: u32) -> u32 {
+        e.vcall(buffer, 4 * 12, &[]).u32()
+    }
+
+    /// The bytes a whole-buffer `Lock(D3DLOCK_READONLY)` hands out (`length` of them).
+    fn read_buffer_bytes(e: &mut Engine, buffer: u32, length: u32) -> Vec<u8> {
+        let (hr, at) = lock_buffer(e, buffer, 0, 0, READONLY);
+        assert_eq!(hr, D3D_OK);
+        let bytes = e.mem.bytes(at, length);
+        assert_eq!(unlock_buffer(e, buffer), D3D_OK);
+        bytes
+    }
+
+    fn buffer_kept(e: &mut Engine, buffer: u32) -> &'static str {
+        state!(e).graphics.device_objects.buffer_kept(buffer).0
+    }
+
+    #[test]
+    fn a_static_buffer_is_in_the_games_memory_only_while_locked() {
+        let (mut e, device) = buffer_device(Store::Host);
+        for index in [false, true] {
+            let before = e.mem.heap_available();
+            let buffer = new_buffer(&mut e, device, index, 0x10000, WRITEONLY, 1);
+            let taken = before - e.mem.heap_available();
+            assert!(taken < 0x100, "only the object: {taken}");
+            assert_eq!(buffer_kept(&mut e, buffer), "host");
+            let (hr, at) = lock_buffer(&mut e, buffer, 0, 0, 0);
+            assert_eq!(hr, D3D_OK);
+            assert_eq!(e.mem.block_size(at), Some(0x10000), "a staging block");
+            assert_eq!(
+                e.mem.bytes(at, 0x10000),
+                vec![0; 0x10000],
+                "zero until written"
+            );
+            e.mem.write(at, &pattern(7, 0x10000));
+            assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+            assert_eq!(unlock_buffer(&mut e, buffer), D3DERR_INVALIDCALL);
+            // Readable just after the unlock, freed at the Present.
+            assert_eq!(e.mem.bytes(at, 64), pattern(7, 64));
+            assert_eq!(present(&mut e, device), D3D_OK);
+            assert_eq!(e.mem.block_size(at), None);
+            assert_eq!(before - e.mem.heap_available(), taken, "nothing kept");
+            assert_eq!(
+                read_buffer_bytes(&mut e, buffer, 0x10000),
+                pattern(7, 0x10000)
+            );
+            assert_eq!(present(&mut e, device), D3D_OK);
+            assert_eq!(e.vcall(buffer, 8, &[]).u32(), 0);
+        }
+        // A dynamic buffer stays in the game's memory: the same address each lock.
+        let dynamic = new_buffer(&mut e, device, false, 256, DYNAMIC | WRITEONLY, 0);
+        assert_eq!(buffer_kept(&mut e, dynamic), "guest");
+        let (_, first) = lock_buffer(&mut e, dynamic, 0, 0, DISCARD);
+        assert_eq!(unlock_buffer(&mut e, dynamic), D3D_OK);
+        let (_, again) = lock_buffer(&mut e, dynamic, 64, 32, NOOVERWRITE);
+        assert_eq!(again, first + 64);
+        assert_eq!(unlock_buffer(&mut e, dynamic), D3D_OK);
+        // The guest store keeps static buffers there too.
+        let (mut e, device) = buffer_device(Store::Guest);
+        let buffer = new_buffer(&mut e, device, false, 256, WRITEONLY, 1);
+        assert_eq!(buffer_kept(&mut e, buffer), "guest");
+    }
+
+    #[test]
+    fn buffer_ranges_nested_locks_and_flags_change_nothing_the_game_sees() {
+        for store in [Store::Host, Store::Guest] {
+            let (mut e, device) = buffer_device(store);
+            // Managed, default write-only, system memory, dynamic; vertex and index.
+            for (index, usage, pool) in [
+                (false, 0, 1),
+                (false, WRITEONLY, 0),
+                (true, 0, 2),
+                (false, DYNAMIC | WRITEONLY, 0),
+                (true, WRITEONLY, 1),
+            ] {
+                let what = format!("{store:?} index {index} usage {usage:#x} pool {pool}");
+                let length = 256;
+                let buffer = new_buffer(&mut e, device, index, length, usage, pool);
+                let mut expected = vec![0u8; length as usize];
+                for (i, flags) in [
+                    0,
+                    READONLY,
+                    DISCARD,
+                    NOOVERWRITE,
+                    NOSYSLOCK,
+                    DISCARD | NOSYSLOCK,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    // A range, the whole buffer (0, 0), and from an offset to the end (size 0).
+                    for (offset, size) in [(16, 32), (0, 0), (200, 0), (0, length)] {
+                        let what = format!("{what} flags {flags:#x} range {offset} {size}");
+                        let (hr, at) = lock_buffer(&mut e, buffer, offset, size, flags);
+                        assert_eq!(hr, D3D_OK, "{what}");
+                        let end = if size == 0 { length } else { offset + size };
+                        let range = offset as usize..end as usize;
+                        // The bytes as they were (after a discard too), and what is written is
+                        // kept (through a read-only lock too: the flags change nothing here).
+                        assert_eq!(
+                            e.mem.bytes(at, end - offset),
+                            expected[range.clone()],
+                            "{what}"
+                        );
+                        let bytes = pattern(i as u32 * 7 + offset, end - offset);
+                        e.mem.write(at, &bytes);
+                        expected[range].copy_from_slice(&bytes);
+                        assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                        assert_eq!(
+                            read_buffer_bytes(&mut e, buffer, length),
+                            expected,
+                            "{what}"
+                        );
+                    }
+                }
+                // Nested locks share one block: the inner one at its offset in it, every byte
+                // written through either kept at the last unlock.
+                let (_, outer) = lock_buffer(&mut e, buffer, 0, 128, 0);
+                let (_, inner) = lock_buffer(&mut e, buffer, 96, 64, NOOVERWRITE);
+                assert_eq!(inner, outer + 96, "{what}");
+                e.mem.write(inner, &pattern(1, 64));
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                assert!(e.mem.block_size(outer).is_some() || store == Store::Guest);
+                e.mem.write(outer, &pattern(2, 16));
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                expected[96..160].copy_from_slice(&pattern(1, 64));
+                expected[..16].copy_from_slice(&pattern(2, 16));
+                assert_eq!(
+                    read_buffer_bytes(&mut e, buffer, length),
+                    expected,
+                    "{what}"
+                );
+                // A range past the end and a null out are refused and leave nothing locked.
+                assert_eq!(lock_buffer(&mut e, buffer, 250, 8, 0).0, D3DERR_INVALIDCALL);
+                assert_eq!(
+                    e.vcall(buffer, 4 * 11, &[0, 0, 0, 0]).u32(),
+                    D3DERR_INVALIDCALL
+                );
+                assert_eq!(unlock_buffer(&mut e, buffer), D3DERR_INVALIDCALL);
+                assert_eq!(present(&mut e, device), D3D_OK);
+            }
+        }
+    }
+
+    #[test]
+    fn a_buffer_released_while_locked_frees_its_block_and_managed_ones_survive_a_reset() {
+        let (mut e, device) = buffer_device(Store::Host);
+        let buffer = new_buffer(&mut e, device, false, 4096, 0, 1);
+        let (_, at) = lock_buffer(&mut e, buffer, 0, 0, 0);
+        assert!(e.mem.block_size(at).is_some());
+        assert_eq!(e.vcall(buffer, 8, &[]).u32(), 0);
+        assert_eq!(e.mem.block_size(at), None);
+        // A managed index buffer's bytes across a Reset.
+        let buffer = new_buffer(&mut e, device, true, 64, WRITEONLY, 1);
+        let (_, at) = lock_buffer(&mut e, buffer, 0, 64, 0);
+        e.mem.write(at, &pattern(3, 64));
+        assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+        let present_parameters = e.mem.alloc(PRESENT_SIZE);
+        let parameters = device_present_parameters(&e, device).unwrap();
+        e.mem.write(present_parameters, &parameters);
+        assert_eq!(e.vcall(device, 4 * 16, &[present_parameters]).u32(), D3D_OK);
+        assert_eq!(read_buffer_bytes(&mut e, buffer, 64), pattern(3, 64));
+    }
+
+    #[test]
+    fn the_buffer_check_store_reports_a_write_after_the_last_unlock() {
+        let (mut e, device) = buffer_device(Store::Check);
+        let buffer = new_buffer(&mut e, device, false, 64, WRITEONLY, 1);
+        let (_, at) = lock_buffer(&mut e, buffer, 0, 0, 0);
+        e.mem.write(at, &pattern(1, 64));
+        assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+        assert_eq!(
+            state!(e).graphics.device_objects.buffer_kept(buffer).1,
+            [1, 0],
+            "read back the same"
+        );
+        assert!(e.mem.block_size(at).is_some(), "kept until the Present");
+        e.mem.set_u32(at + 8, 0xdead_beef);
+        assert_eq!(present(&mut e, device), D3D_OK);
+        assert!(written_after_unlock(&mut e, buffer));
+        assert_eq!(e.mem.block_size(at), None, "freed at the Present");
+        // The buffer has what it held at the unlock.
+        assert_eq!(read_buffer_bytes(&mut e, buffer, 64), pattern(1, 64));
+    }
+
+    /// On a real device (`NV_D3D9=real`), static buffers of every pool keep their bytes in host
+    /// memory, never read back from the real buffer (the game's are write-only, whose reads
+    /// Direct3D leaves undefined): what the game wrote comes back through its next locks, a
+    /// whole buffer, a range, nested locks and a write through a read-only lock alike, and
+    /// nothing the real device answered differed. Skipped where Direct3D 9 has no device (no
+    /// display adapter, as on CI).
+    #[cfg(windows)]
+    #[test]
+    fn static_buffers_on_a_real_device_keep_their_bytes_in_host_memory() {
+        let (mut e, device) = device_with("", 0x54);
+        set_buffer_store(&mut e, Store::Host);
+        if super::super::d3d9real::test_real_device(&mut e, device, 0x54).is_none() {
+            return;
+        }
+        for index in [false, true] {
+            // Write-only and managed, as the game's geometry chips; system memory; default.
+            for (usage, pool) in [(WRITEONLY, 1), (0, 2), (WRITEONLY, 0)] {
+                let length = 0x4000;
+                let buffer = new_buffer(&mut e, device, index, length, usage, pool);
+                assert_eq!(buffer_kept(&mut e, buffer), "host");
+                assert_eq!(
+                    read_buffer_bytes(&mut e, buffer, length),
+                    vec![0; length as usize]
+                );
+                let mut expected = pattern(4, length);
+                let (_, at) = lock_buffer(&mut e, buffer, 0, 0, 0);
+                e.mem.write(at, &expected);
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                assert_eq!(read_buffer_bytes(&mut e, buffer, length), expected);
+                let (_, outer) = lock_buffer(&mut e, buffer, 0x100, 0x40, 0);
+                let (_, inner) = lock_buffer(&mut e, buffer, 0x120, 0x10, NOSYSLOCK);
+                assert_eq!(inner, outer + 0x20);
+                e.mem.write(outer, &pattern(5, 0x40));
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                expected[0x100..0x140].copy_from_slice(&pattern(5, 0x40));
+                let (_, at) = lock_buffer(&mut e, buffer, 0, 0, READONLY);
+                e.mem.write(at, &[1, 2, 3]);
+                assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
+                expected[..3].copy_from_slice(&[1, 2, 3]);
+                assert_eq!(read_buffer_bytes(&mut e, buffer, length), expected);
+                assert_eq!(present(&mut e, device), D3D_OK);
+                assert_eq!(e.vcall(buffer, 8, &[]).u32(), 0);
+            }
+        }
+        assert!(
+            state!(e).graphics.real.logged_is_empty(),
+            "no answer of the real device differed"
+        );
+        eprintln!(
+            "static_buffers_on_a_real_device_keep_their_bytes_in_host_memory: ran on a real device"
+        );
     }
 }

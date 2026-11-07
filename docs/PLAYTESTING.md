@@ -57,6 +57,7 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 | `NV_SOUND=out` | The game's sound through DirectSound |
 | `NV_D3D9_BACKGROUND=1` | The window opens without taking the focus (scripted runs) |
 | `NV_D3D9_TEXTURES=guest` or `check` | Texture pixels in the game's 32-bit memory as before ADR-0015's step 3 (`guest`, for comparisons), or kept outside it with checks printed (`check`); the default keeps them outside it, in the game's memory only while a level is locked |
+| `NV_D3D9_BUFFERS=guest` or `check` | Static vertex and index buffers in the game's 32-bit memory as before (`guest`, for comparisons), or kept outside it with checks printed (`check`); the default keeps them outside it, in the game's memory only while a buffer is locked (dynamic buffers stay in it) |
 | `NV_MOVE_KEYS`, `NV_MOVE_MOUSE` | Scripted keys and mouse by main's frame (`crates/host/src/player_move.rs`) |
 | `NV_MOVE_TRACE` | The last calls before a stop, to a file (slow) |
 | `NV_SAVE_OUT=DIR` | The saves the game writes, copied out to DIR, and the ones it deletes removed there (`crates/host/src/save_out.rs`) |
