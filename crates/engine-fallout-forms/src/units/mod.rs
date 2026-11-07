@@ -30,6 +30,8 @@ pub use engine_speedtree::units::speedtree;
 
 /// Every registered function of this crate's units.
 pub fn funcs(out: &mut Vec<(u32, crate::AbiFn)>) {
+    // The typed family `topic_search`: registered over the translations by `typed::apply` when on.
+    engine_core::typed::provide(&crate::topic_search::TOPIC_SEARCH);
     fallout_shared::funcs(out);
     unplaced::funcs(out);
 }

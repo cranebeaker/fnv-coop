@@ -400,6 +400,12 @@ The migration of [ADR-0012](adr/0012-modern-64-bit-engine.md) and
 Rust, a family of functions at a time. `engine_core::typed` is the seam it plugs into. The first
 family is `leaves` (`typed/leaf.rs`): the small functions the translations call most, on since its
 speed gate passed (G1, 2026-11-06: Goodsprings +7.1%, Doc's room +3.0%); `NV_TYPED=off` turns it off.
+The second is `topic_search` (`crates/engine-fallout-forms/src/topic_search.rs`, provided from that
+crate): the search for the topic that holds a topic info (`TESTopic::GetOwnerTopic`) and the functions
+its loops call. A plugin that replaces dialogue runs it once per replaced info over every topic's infos
+(YUP: about 4,500 searches of about 68,000 infos each), so it is the bulk of such a plugin's extra
+load. On since its gate (2026-11-07, with YUP: process start to the first main frame 8.0-8.4 s in six
+runs against 9.2-20.9 s off; the menu, which the intro sets, and Continue the same within the spread).
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with
