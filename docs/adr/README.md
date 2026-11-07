@@ -20,3 +20,4 @@ A later decision that changes an earlier one says so and links back.
 | [0012](0012-modern-64-bit-engine.md) | Look and play exactly like the original; a modern 64-bit engine underneath | Accepted (maintainer, 2026-11-04) |
 | [0013](0013-cpp-exceptions-by-behaviour.md) | C++ exceptions by behaviour, no frames in guest memory | Accepted (maintainer, 2026-11-05) |
 | [0014](0014-typed-migration-in-two-stages.md) | The typed 64-bit migration goes in two stages, per system | Proposed (lead, 2026-11-06) |
+| [0015](0015-hand-typing-to-the-end-with-real-threads.md) | Every system is typed by hand to 64-bit, with real threads built in | Accepted (maintainer, 2026-11-07) |
