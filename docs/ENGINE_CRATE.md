@@ -389,8 +389,8 @@ $L scaffold "fallout/ai/processlists.cpp" # create its file (lead)
 The migration of [ADR-0012](adr/0012-modern-64-bit-engine.md) and
 [ADR-0014](adr/0014-typed-migration-in-two-stages.md) replaces a translation with typed, native
 Rust, a family of functions at a time. `engine_core::typed` is the seam it plugs into. The first
-family is `leaves` (`typed/leaf.rs`): the small functions the translations call most, off until its
-speed gate passes (`NV_TYPED=leaves` tries it).
+family is `leaves` (`typed/leaf.rs`): the small functions the translations call most, on since its
+speed gate passed (G1, 2026-11-06: Goodsprings +7.1%, Doc's room +3.0%); `NV_TYPED=off` turns it off.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

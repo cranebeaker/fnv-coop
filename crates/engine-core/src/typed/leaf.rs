@@ -21,11 +21,12 @@ use crate::Engine;
 /// This family's bit: what each `typed_call!` of it names.
 pub const FAMILY: FamilyId = FamilyId::new(0);
 
-/// `NV_TYPED=leaves`. Not past its gate until G1 passes.
+/// `NV_TYPED=leaves`. Past its gate G1 (2026-11-06: Goodsprings +7.1%, Doc's room +3.0%, both pairs up): on
+/// unless `NV_TYPED` says otherwise (`NV_TYPED=off` or `leaves:off`).
 pub static LEAVES: Family = Family {
     name: "leaves",
     id: FAMILY,
-    past_gate: false,
+    past_gate: true,
     threads: Threads::Both,
     funcs,
 };

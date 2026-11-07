@@ -629,14 +629,20 @@ mod tests {
         );
     }
 
-    /// `Engine::new` runs the seam: with no switch a family not past its gate changes nothing.
+    /// Which families are past their gate, and so on with no switch: `leaves` since G1 (2026-11-06), the rest
+    /// not; a family before its gate changes nothing unless the switch names it.
     #[test]
-    fn engine_new_leaves_a_family_before_its_gate_off() {
-        assert!(FAMILIES.iter().all(|f| !f.past_gate));
-        let e = Engine::new();
-        assert!(!e.typed.any_allowed());
-        assert_eq!(e.typed.direct, 0);
-        assert!(e.typed.members.is_empty());
+    fn families_past_their_gate_are_on_by_default() {
+        let past: Vec<&str> = FAMILIES
+            .iter()
+            .filter(|f| f.past_gate)
+            .map(|f| f.name)
+            .collect();
+        assert_eq!(past, ["leaves"]);
+        let defaults = parse_switch(None, FAMILIES).unwrap();
+        for (f, m) in FAMILIES.iter().zip(&defaults) {
+            assert_eq!(*m == Mode::On, f.past_gate, "{}", f.name);
+        }
     }
 
     /// A family that is on replaces the translation at its address; one that is off leaves it.
