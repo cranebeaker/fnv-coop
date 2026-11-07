@@ -382,10 +382,65 @@ struct Surface {
     desc: [u32; 8],
     /// The texture whose level this is (0 for none): its references are the texture's.
     container: u32,
-    /// The surface's memory for `LockRect` (0 for none) and its pitch.
+    /// The surface's memory for `LockRect` in the game's address space (0 for none) and its
+    /// pitch (the row's bytes, rows packed, for every lockable surface).
     bits: u32,
     pitch: u32,
     locked: bool,
+    /// A lockable texture level's pixels kept outside the game's address space (`bits` is then
+    /// 0): see [`Pixels`].
+    pixels: Option<Pixels>,
+    /// While such a level is locked: the block of the game's memory its lock handed out.
+    staging: u32,
+}
+
+/// Where a lockable texture level keeps its pixels between locks (ADR-0015, the bulk buffers
+/// first): not in the game's address space, which holds them only while the game has the level
+/// locked. `LockRect` copies them into a block of the game's memory (the staging block, rows
+/// packed, the pitch unchanged) and answers its address; `UnlockRect` copies the block back
+/// (and to the real level, as before); the block is freed at the next `Present`, so code that
+/// still reads through the lock's address just after the unlock reads the level's bytes, not
+/// freed memory (at most [`KEPT_STAGING_MAX`] bytes wait, the oldest freed first). What the game
+/// sees through its locks is the
+/// same as with the pixels in its memory: the pitch, the bytes (zero until written), the
+/// rectangle's offset; only the block's address changes from lock to lock, as Direct3D leaves
+/// it to the runtime. `NV_D3D9_TEXTURES=guest` keeps the levels in the game's memory instead
+/// (for comparisons), `NV_D3D9_TEXTURES=check` also reports a staging block written after its
+/// `UnlockRect` ([`TextureStore`]).
+#[derive(Debug, Clone)]
+enum Pixels {
+    /// In host memory; empty while every byte is 0.
+    Host(Vec<u8>),
+    /// In the real level behind this one (`NV_D3D9=real`; a managed or system-memory texture,
+    /// whose real levels Direct3D keeps in system memory and hands back as written); `written`
+    /// false while every byte is 0 (nothing unlocked yet).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Real { written: bool },
+}
+
+/// Where lockable texture levels keep their pixels (`NV_D3D9_TEXTURES`): outside the game's
+/// address space ([`Pixels`], the default), in it (`guest`, the layer before ADR-0015's step 3,
+/// for comparisons), or outside with checks (`check`, a diagnostic): at each `UnlockRect` the
+/// level is read back from where it keeps its bytes (host memory or the real level) and
+/// compared with the staging block, and when the block is freed (at the next `Present`, or
+/// earlier past [`KEPT_STAGING_MAX`]) it is compared with what it held at the unlock (a
+/// difference is game code writing through a lock's address after the unlock, which only the
+/// guest store would carry to the texture); a summary is printed every 2,000 unlocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextureStore {
+    Host,
+    Guest,
+    Check,
+}
+
+impl TextureStore {
+    fn from_env() -> TextureStore {
+        match std::env::var("NV_D3D9_TEXTURES").as_deref() {
+            Ok("guest") => TextureStore::Guest,
+            Ok("check") => TextureStore::Check,
+            _ => TextureStore::Host,
+        }
+    }
 }
 
 /// The devices and their resources (`State::graphics`).
@@ -402,6 +457,34 @@ pub struct Objects {
     pub(super) resources: super::d3d9resource::Resources,
     /// The queries (`super::d3d9query`).
     pub(super) queries: super::d3d9query::Queries,
+    /// Where texture levels keep their pixels: read from `NV_D3D9_TEXTURES` at the first texture.
+    texture_store: Option<TextureStore>,
+    /// The staging blocks unlocked since the last `Present`, still in the game's memory
+    /// ([`unstage`]): block, level, size, and with `NV_D3D9_TEXTURES=check` the bytes each held
+    /// at its unlock; and their bytes together.
+    unlocked_staging: std::collections::VecDeque<(u32, u32, u32, Vec<u8>)>,
+    unlocked_staging_bytes: u64,
+    /// `NV_D3D9_TEXTURES=check`: the levels already reported.
+    written_after_unlock: engine_core::AddrSet<u32>,
+    /// `NV_D3D9_TEXTURES=check`: the unlocks whose level read back the same as its staging
+    /// block, and those that did not; the bytes compared.
+    round_trips: [u64; 2],
+    round_trip_bytes: u64,
+}
+
+/// Where texture levels keep their pixels in this run ([`TextureStore`]).
+fn texture_store(e: &mut Engine) -> TextureStore {
+    *state!(e)
+        .graphics
+        .device_objects
+        .texture_store
+        .get_or_insert_with(TextureStore::from_env)
+}
+
+/// Sets where texture levels keep their pixels (tests), before the first texture.
+#[cfg(test)]
+pub(crate) fn set_texture_store(e: &mut Engine, store: TextureStore) {
+    state!(e).graphics.device_objects.texture_store = Some(store);
 }
 
 impl Objects {
@@ -513,6 +596,7 @@ fn fwd_create_texture(
             format,
             pool,
         );
+        pixels_to_real_levels(e, pool, &surfaces);
     }
     model
 }
@@ -547,6 +631,7 @@ fn fwd_create_cube_texture(
             format,
             pool,
         );
+        pixels_to_real_levels(e, pool, &surfaces);
     }
     model
 }
@@ -1050,6 +1135,8 @@ fn new_surface(e: &mut Engine, device: u32, implicit: bool, desc: [u32; 8]) -> u
             bits: 0,
             pitch: 0,
             locked: false,
+            pixels: None,
+            staging: 0,
         },
     );
     object
@@ -1800,6 +1887,15 @@ fn present(e: &mut Engine, this: Ptr, source: u32, dest: u32, window: u32, dirty
         // Diagnostic only (`NV_QUEUE_CHECK`, not exe behaviour): the frame ends here.
         crate::queue_check::frame(e);
     }
+    if !state!(e)
+        .graphics
+        .device_objects
+        .unlocked_staging
+        .is_empty()
+    {
+        // The texture levels' staging blocks unlocked in the frame.
+        free_all_unlocked_staging(e);
+    }
     let model = if device(e, this).in_scene || device(e, this).lost {
         D3DERR_INVALIDCALL
     } else {
@@ -2046,6 +2142,61 @@ fn level_layout(format: u32, width: u32, height: u32) -> (u32, u32) {
     (pitch, pitch * height.div_ceil(block))
 }
 
+/// A level of the texture `texture` described by `desc` (a `D3DSURFACE_DESC`): a surface of
+/// `device` whose references are the texture's; a `lockable` one gets its pitch and pixels
+/// (zero), kept as [`texture_store`] says: outside the game's address space ([`Pixels`]) or in
+/// it.
+fn new_level(e: &mut Engine, device: u32, texture: u32, desc: [u32; 8], lockable: bool) -> u32 {
+    let surface = new_surface(e, device, false, desc);
+    let (pitch, size) = if lockable {
+        level_layout(desc[0], desc[6], desc[7])
+    } else {
+        (0, 0)
+    };
+    let store = texture_store(e);
+    let bits = if lockable && store == TextureStore::Guest {
+        e.mem.alloc(size)
+    } else {
+        0
+    };
+    let s = surface_mut(e, surface);
+    s.container = texture;
+    s.bits = bits;
+    s.pitch = pitch;
+    if lockable && store != TextureStore::Guest {
+        s.pixels = Some(Pixels::Host(Vec::new()));
+    }
+    surface
+}
+
+/// The surface at `surface`.
+fn surface_mut(e: &mut Engine, surface: u32) -> &mut Surface {
+    state!(e)
+        .graphics
+        .device_objects
+        .surfaces
+        .get_mut(&surface)
+        .expect("a surface of this layer")
+}
+
+/// A managed or system-memory texture's levels kept in host memory, still all zero, whose real
+/// levels exist (`NV_D3D9=real` made them): from now on the real levels keep their pixels.
+#[cfg(windows)]
+fn pixels_to_real_levels(e: &mut Engine, pool: u32, levels: &[u32]) {
+    if pool != D3DPOOL_MANAGED && pool != D3DPOOL_SYSTEMMEM {
+        return;
+    }
+    for &level in levels {
+        if !super::d3d9real::has_surface(e, level) {
+            continue;
+        }
+        let s = surface_mut(e, level);
+        if matches!(&s.pixels, Some(Pixels::Host(v)) if v.is_empty()) && !s.locked {
+            s.pixels = Some(Pixels::Real { written: false });
+        }
+    }
+}
+
 /// A texture of this layer.
 #[derive(Debug, Clone)]
 struct Texture {
@@ -2092,8 +2243,9 @@ const D3DPTEXTURECAPS_POW2: u32 = 0x2;
 /// `D3DERR_INVALIDCALL`. Levels 0 is the full chain down to 1 by 1 (sides halved, rounding
 /// down, at least 1). Each level is a surface of the texture (`GetSurfaceLevel`, counted with
 /// the texture); levels the program can lock (any pool but `D3DPOOL_DEFAULT`, or dynamic) get
-/// memory in the game's address space, rows packed tightly (the pitch is the row's bytes: a
-/// value Direct3D leaves to the runtime; the game copies by it). Not provided (the run stops):
+/// zeroed pixels, rows packed tightly (the pitch is the row's bytes: a value Direct3D leaves to
+/// the runtime; the game copies by it), kept outside the game's address space between locks
+/// ([`Pixels`]). Not provided (the run stops):
 /// `D3DUSAGE_AUTOGENMIPMAP`, a side that is not a power of two on a device whose caps require
 /// them, and formats [`format_blocks`] doesn't size.
 #[allow(clippy::too_many_arguments)]
@@ -2171,23 +2323,7 @@ fn create_texture(
         .map(|level| {
             let (w, h) = ((width >> level).max(1), (height >> level).max(1));
             let desc = [format, D3DRTYPE_SURFACE, usage, pool, 0, 0, w, h];
-            let surface = new_surface(e, device_addr, false, desc);
-            let (pitch, size) = if lockable {
-                level_layout(format, w, h)
-            } else {
-                (0, 0)
-            };
-            let bits = if lockable { e.mem.alloc(size) } else { 0 };
-            let s = state!(e)
-                .graphics
-                .device_objects
-                .surfaces
-                .get_mut(&surface)
-                .expect("the level");
-            s.container = object;
-            s.bits = bits;
-            s.pitch = pitch;
-            surface
+            new_level(e, device_addr, object, desc, lockable)
         })
         .collect();
     state!(e).graphics.device_objects.textures.insert(
@@ -2288,23 +2424,7 @@ fn create_cube_texture(
         for level in 0..count {
             let side = (edge >> level).max(1);
             let desc = [format, D3DRTYPE_SURFACE, usage, pool, 0, 0, side, side];
-            let surface = new_surface(e, device_addr, false, desc);
-            let (pitch, size) = if lockable {
-                level_layout(format, side, side)
-            } else {
-                (0, 0)
-            };
-            let bits = if lockable { e.mem.alloc(size) } else { 0 };
-            let s = state!(e)
-                .graphics
-                .device_objects
-                .surfaces
-                .get_mut(&surface)
-                .expect("the level");
-            s.container = object;
-            s.bits = bits;
-            s.pitch = pitch;
-            surfaces.push(surface);
+            surfaces.push(new_level(e, device_addr, object, desc, lockable));
         }
     }
     state!(e).graphics.device_objects.textures.insert(
@@ -2624,15 +2744,35 @@ fn color_fill(e: &mut Engine, this: Ptr, surface: u32, rect: Ptr, colour: u32) -
     let Some([left, top, right, bottom]) = rect_inside(e, rect, s.desc[6], s.desc[7]) else {
         return D3DERR_INVALIDCALL;
     };
-    if s.bits != 0 {
+    if s.bits != 0 || s.pixels.is_some() {
         let word = match s.desc[0] {
             22 => colour & 0x00ff_ffff,
             21 => colour,
             f => panic!("IDirect3DDevice9::ColorFill of a surface of format {f} is not provided"),
         };
-        for y in top..bottom {
-            for x in left..right {
-                e.mem.set_u32(s.bits + y * s.pitch + 4 * x, word);
+        // A level kept outside the game's memory that is locked has its bytes in the lock's
+        // staging block.
+        let bits = if s.bits != 0 { s.bits } else { s.staging };
+        if bits != 0 {
+            for y in top..bottom {
+                for x in left..right {
+                    e.mem.set_u32(bits + y * s.pitch + 4 * x, word);
+                }
+            }
+        } else {
+            // A dynamic texture's level kept in host memory (the default pool is never the
+            // real level's to keep).
+            let size = level_size(&s) as usize;
+            let level = surface_mut(e, surface);
+            let Some(Pixels::Host(bytes)) = &mut level.pixels else {
+                unreachable!("a default-pool level keeps its pixels in host memory")
+            };
+            bytes.resize(size, 0);
+            for y in top..bottom {
+                for x in left..right {
+                    let at = (y * s.pitch + 4 * x) as usize;
+                    bytes[at..at + 4].copy_from_slice(&word.to_le_bytes());
+                }
             }
         }
     }
@@ -2673,6 +2813,22 @@ fn get_render_target_data(e: &mut Engine, this: Ptr, source: u32, destination: u
         to.bits,
         to.pitch,
     ) {
+        // A texture level kept outside the game's memory takes the real level's bytes.
+        match &to.pixels {
+            Some(Pixels::Real { .. }) => {
+                surface_mut(e, destination).pixels = Some(Pixels::Real { written: true });
+            }
+            Some(Pixels::Host(_)) => {
+                let size = level_size(&to);
+                let block = e.mem.alloc(size);
+                let read = super::d3d9real::read_surface(e, destination, block, size);
+                assert!(read, "GetRenderTargetData: the real level read back");
+                let bytes = e.mem.bytes(block, size);
+                e.mem.free(block);
+                surface_mut(e, destination).pixels = Some(Pixels::Host(bytes));
+            }
+            None => {}
+        }
         return D3D_OK;
     }
     let _ = this;
@@ -2943,6 +3099,8 @@ fn texture_destroy(e: &mut Engine, this: Ptr) {
                 .remove(&level)
                 .expect("the level");
             e.mem.free(s.bits);
+            // A level destroyed while locked: its staging block goes with it.
+            e.mem.free(s.staging);
             #[cfg(windows)]
             super::d3d9real::forget(e, level);
             e.mem.free(level);
@@ -3163,14 +3321,17 @@ fn texture_unlock_rect(e: &mut Engine, this: Ptr, level: u32) -> u32 {
 /// `D3DLOCKED_RECT` (pitch, then the address of the rectangle's first block: the whole surface
 /// for a null rectangle); one already locked, one without memory (`D3DPOOL_DEFAULT` and not
 /// dynamic, the back buffers) or a null out answers `D3DERR_INVALIDCALL`. The flags
-/// (`D3DLOCK_READONLY`, `D3DLOCK_DISCARD`, ...) change nothing here.
+/// (`D3DLOCK_READONLY`, `D3DLOCK_DISCARD`, `D3DLOCK_NO_DIRTY_UPDATE`, ...) change nothing here:
+/// the level's bytes are handed out as they are and every byte is kept at the unlock. A texture
+/// level kept outside the game's memory ([`Pixels`]) is handed out in a staging block.
 fn surface_lock_rect(e: &mut Engine, this: Ptr, locked: Ptr, rect: Ptr, _flags: u32) -> u32 {
     let s = surface(e, this);
-    if locked.is_null() || s.bits == 0 || s.locked {
+    if locked.is_null() || (s.bits == 0 && s.pixels.is_none()) || s.locked {
         return D3DERR_INVALIDCALL;
     }
     let (bits, pitch, format) = (s.bits, s.pitch, s.desc[0]);
     s.locked = true;
+    let bits = if bits != 0 { bits } else { stage(e, this) };
     let at = if rect.is_null() {
         bits
     } else {
@@ -3185,19 +3346,207 @@ fn surface_lock_rect(e: &mut Engine, this: Ptr, locked: Ptr, rect: Ptr, _flags: 
 }
 
 /// `UnlockRect()`: a locked surface is unlocked; one not locked answers `D3DERR_INVALIDCALL`.
+/// (`NV_D3D9=real`) the level's bytes go to the real surface; a texture level kept outside the
+/// game's memory takes its staging block's bytes back and the block is freed.
 fn surface_unlock_rect(e: &mut Engine, this: Ptr) -> u32 {
     let s = surface(e, this);
     if !s.locked {
         return D3DERR_INVALIDCALL;
     }
     s.locked = false;
+    let staging = std::mem::take(&mut s.staging);
+    let bits = if staging != 0 { staging } else { s.bits };
     #[cfg(windows)]
-    {
-        let (bits, pitch, desc) = (s.bits, s.pitch, s.desc);
+    let uploaded = {
+        let (pitch, desc) = (s.pitch, s.desc);
         let (_, size) = level_layout(desc[0], desc[6], desc[7]);
-        super::d3d9real::surface_unlocked(e, this.addr(), bits, pitch, pitch, size / pitch.max(1));
+        super::d3d9real::surface_unlocked(e, this.addr(), bits, pitch, pitch, size / pitch.max(1))
+    };
+    #[cfg(not(windows))]
+    let uploaded = false;
+    if staging != 0 {
+        unstage(e, this, staging, uploaded);
     }
+    let _ = (bits, uploaded);
     D3D_OK
+}
+
+/// The bytes of a level kept outside the game's memory (rows packed, `size` of them).
+fn level_size(s: &Surface) -> u32 {
+    level_layout(s.desc[0], s.desc[6], s.desc[7]).1
+}
+
+/// A lock of a level kept outside the game's memory: a staging block of the game's memory
+/// (zeroed) takes the level's bytes; its address, kept until the unlock.
+fn stage(e: &mut Engine, this: Ptr) -> u32 {
+    let size = level_size(surface(e, this));
+    let block = e.mem.alloc(size);
+    let s = state!(e)
+        .graphics
+        .device_objects
+        .surfaces
+        .get_mut(&this.addr())
+        .expect("the level");
+    s.staging = block;
+    let from_real = match &s.pixels {
+        Some(Pixels::Host(bytes)) => {
+            if !bytes.is_empty() {
+                e.mem.write(block, bytes);
+            }
+            false
+        }
+        Some(Pixels::Real { written }) => *written,
+        // Zero until written: the block is zeroed.
+        None => false,
+    };
+    #[cfg(windows)]
+    if from_real && !super::d3d9real::read_surface(e, this.addr(), block, size) {
+        panic!(
+            "IDirect3DSurface9::LockRect: the real level {:#x} could not be read back (not \
+             provided)",
+            this.addr()
+        );
+    }
+    let _ = from_real;
+    block
+}
+
+/// The staging blocks' bytes that may wait for the next `Present` after their unlock (16 MB, the
+/// largest level the game makes: 2048 by 2048 A8R8G8B8); past it the oldest are freed first,
+/// the newest block always waits. A load that unlocks many levels in one frame so holds at most
+/// this much more of the game's memory than with each block freed at its unlock.
+const KEPT_STAGING_MAX: u64 = 16 << 20;
+
+/// The unlock of a level kept outside the game's memory: the staging block's bytes are kept
+/// (in host memory, or by the real level when `uploaded` put them there), and the block waits
+/// for the next `Present` (or for [`KEPT_STAGING_MAX`]) to be freed, so code reading through the
+/// lock's address just after the unlock still reads the level's bytes
+/// (`NV_D3D9_TEXTURES=check`: the store read back and compared with the block, and the block
+/// compared again when it is freed).
+fn unstage(e: &mut Engine, this: Ptr, staging: u32, uploaded: bool) {
+    let size = level_size(surface(e, this));
+    let check = texture_store(e) == TextureStore::Check;
+    let s = state!(e)
+        .graphics
+        .device_objects
+        .surfaces
+        .get_mut(&this.addr())
+        .expect("the level");
+    match &mut s.pixels {
+        Some(Pixels::Real { written }) if uploaded => *written = true,
+        // A real level that did not take the bytes: they stay in host memory from now on.
+        Some(p @ Pixels::Real { .. }) => *p = Pixels::Host(e.mem.bytes(staging, size)),
+        Some(Pixels::Host(bytes)) => {
+            bytes.resize(size as usize, 0);
+            e.mem.read(staging, bytes);
+        }
+        None => unreachable!("a staged level"),
+    }
+    let held = if check {
+        check_round_trip(e, this, staging, size)
+    } else {
+        Vec::new()
+    };
+    let objects = &mut state!(e).graphics.device_objects;
+    objects
+        .unlocked_staging
+        .push_back((staging, this.addr(), size, held));
+    objects.unlocked_staging_bytes += u64::from(size);
+    loop {
+        let objects = &mut state!(e).graphics.device_objects;
+        if objects.unlocked_staging_bytes <= KEPT_STAGING_MAX || objects.unlocked_staging.len() < 2
+        {
+            break;
+        }
+        let oldest = objects
+            .unlocked_staging
+            .pop_front()
+            .expect("more than one block");
+        objects.unlocked_staging_bytes -= u64::from(oldest.2);
+        free_unlocked_staging(e, oldest);
+    }
+}
+
+/// `NV_D3D9_TEXTURES=check`, at an unlock: the level read back from where it keeps its bytes and
+/// compared with the staging block; the block's bytes, to compare again when it is freed.
+fn check_round_trip(e: &mut Engine, this: Ptr, staging: u32, size: u32) -> Vec<u8> {
+    let held = e.mem.bytes(staging, size);
+    let kept = stored_bytes(e, this, size);
+    let objects = &mut state!(e).graphics.device_objects;
+    let same = kept == held;
+    objects.round_trips[usize::from(!same)] += 1;
+    objects.round_trip_bytes += u64::from(size);
+    let [same_count, differ] = objects.round_trips;
+    if !same {
+        eprintln!(
+            "NV_D3D9_TEXTURES=check: the texture level {:#x} kept other bytes than its lock \
+             handed back ({size} bytes)",
+            this.addr()
+        );
+    }
+    if (same_count + differ) % 2000 == 0 {
+        eprintln!(
+            "NV_D3D9_TEXTURES=check: {} unlocks ({} MB) read back from where the levels keep \
+             them: {differ} differ; {} levels written after an unlock",
+            same_count + differ,
+            objects.round_trip_bytes >> 20,
+            objects.written_after_unlock.len()
+        );
+    }
+    held
+}
+
+/// `NV_D3D9_TEXTURES=check`: the bytes a level kept outside the game's memory holds, read back
+/// from where it keeps them (`size` bytes).
+fn stored_bytes(e: &mut Engine, this: Ptr, size: u32) -> Vec<u8> {
+    match &surface(e, this).pixels {
+        Some(Pixels::Host(bytes)) => bytes.clone(),
+        Some(Pixels::Real { .. }) => {
+            let block = e.mem.alloc(size);
+            #[cfg(windows)]
+            let read = super::d3d9real::read_surface(e, this.addr(), block, size);
+            #[cfg(not(windows))]
+            let read = false;
+            let bytes = e.mem.bytes(block, size);
+            e.mem.free(block);
+            if read {
+                bytes
+            } else {
+                Vec::new()
+            }
+        }
+        None => Vec::new(),
+    }
+}
+
+/// At each `Present`: the staging blocks unlocked since the last one are freed
+/// ([`free_unlocked_staging`]).
+fn free_all_unlocked_staging(e: &mut Engine) {
+    let objects = &mut state!(e).graphics.device_objects;
+    let kept = std::mem::take(&mut objects.unlocked_staging);
+    objects.unlocked_staging_bytes = 0;
+    for block in kept {
+        free_unlocked_staging(e, block);
+    }
+}
+
+/// Frees a staging block waiting since its unlock; with `NV_D3D9_TEXTURES=check` it is first
+/// compared with what it held at the unlock (a difference is printed once per level).
+fn free_unlocked_staging(e: &mut Engine, (block, level, size, held): (u32, u32, u32, Vec<u8>)) {
+    if !held.is_empty()
+        && e.mem.bytes(block, size) != held
+        && state!(e)
+            .graphics
+            .device_objects
+            .written_after_unlock
+            .insert(level)
+    {
+        eprintln!(
+            "NV_D3D9_TEXTURES=check: the texture level {level:#x} was written through its lock's \
+             address after UnlockRect (staging block {block:#x}, {size} bytes)"
+        );
+    }
+    e.mem.free(block);
 }
 
 /// The present parameters a device took (for the viewer and tests).
@@ -3727,8 +4076,10 @@ pub(crate) mod tests {
             e.vcall(texture, 4 * 19, &[0, locked, rect, 0]).u32(),
             D3D_OK
         );
-        assert_eq!(e.mem.u32(locked + 4), bits + 12);
-        assert_eq!(e.mem.u32(bits + 12), 0x1234_5678);
+        // The rectangle starts 12 bytes in (row 1 of 8 bytes, pixel 2 of 2 bytes): the word
+        // written there through the first lock (the lock's address itself is the runtime's).
+        let at = e.mem.u32(locked + 4);
+        assert_eq!(e.mem.u32(at), 0x1234_5678);
         assert_eq!(e.vcall(texture, 4 * 20, &[0]).u32(), D3D_OK);
         assert_eq!(e.vcall(level, 4 * 11, &[0, slot]).u32(), E_NOINTERFACE);
         // DXT1: blocks of 4 by 4 pixels, 8 bytes.
@@ -4881,10 +5232,15 @@ pub(crate) mod tests {
             (h ^ u64::from(w)).wrapping_mul(0x0100_0000_01b3)
         });
         assert_eq!(answers.len(), 2303);
-        assert_eq!(
-            digest, 9_009_626_195_373_671_558,
-            "the model's answers' digest"
-        );
+        // The answers include the objects' addresses (GetTexture, GetStreamSource, ...), which
+        // depend on what the layer allocates in the game's memory: 9_009_626_195_373_671_558
+        // with the texture levels in it (`NV_D3D9_TEXTURES=guest`), the same answers but for
+        // seven addresses.
+        let expected = match texture_store(&mut s.e) {
+            TextureStore::Guest => 9_009_626_195_373_671_558,
+            _ => 4_629_123_214_697_978_086,
+        };
+        assert_eq!(digest, expected, "the model's answers' digest");
     }
 
     /// The scene's device state as the game can read it back: each getter's answer and the
@@ -5027,5 +5383,447 @@ pub(crate) mod tests {
             best = best.min(t.elapsed().as_nanos() as f64 / f64::from(calls));
         }
         eprintln!("  SetVertexShaderConstantF of 90 registers: forwarded {best:.1} ns a call");
+    }
+
+    // Texture levels kept outside the game's memory (`TextureStore`, ADR-0015 step 3).
+
+    /// `D3DFMT_A8R8G8B8`, `DXT1`; `D3DLOCK_READONLY`, `D3DLOCK_DISCARD`,
+    /// `D3DLOCK_NO_DIRTY_UPDATE`, `D3DLOCK_NOSYSLOCK`.
+    const A8R8G8B8: u32 = 0x15;
+    const DXT1: u32 = u32::from_le_bytes(*b"DXT1");
+    const READONLY: u32 = 0x10;
+    const DISCARD: u32 = 0x2000;
+    const NO_DIRTY_UPDATE: u32 = 0x8000;
+    const NOSYSLOCK: u32 = 0x800;
+
+    /// A device whose levels are kept as `store` says, on the test table with A8R8G8B8 and DXT1
+    /// textures (managed, system memory or dynamic) and cube textures accepted (TEST DATA).
+    fn texture_device(store: TextureStore) -> (Engine, u32) {
+        let (mut e, d3d, present) = d3d();
+        set_texture_store(&mut e, store);
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out]);
+        let device = e.mem.u32(out);
+        let table = test_table()
+            + "\nDomain\td1\t15,31545844"
+            + "\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td1"
+            + "\nCheckDeviceFormat\t0 1 16 200 3\t0\t\td1"
+            + "\nCheckDeviceFormat\t0 1 16 0 5\t0\t\td1";
+        d3d9::load_adapter_table(&mut e, &table);
+        (e, device)
+    }
+
+    /// `CreateTexture(width, height, levels, usage, format, pool)`: the texture.
+    fn new_texture(e: &mut Engine, device: u32, words: [u32; 6]) -> u32 {
+        let out = e.mem.alloc(4);
+        let [w, h, levels, usage, format, pool] = words;
+        let hr = e
+            .vcall(device, 4 * 23, &[w, h, levels, usage, format, pool, out, 0])
+            .u32();
+        assert_eq!(hr, D3D_OK);
+        let texture = e.mem.u32(out);
+        e.mem.free(out);
+        texture
+    }
+
+    /// `LockRect` of a texture's level (`face` `Some` for a cube texture's), the rectangle
+    /// `rect` or the whole level: the answer, the pitch and the address handed out.
+    fn lock(
+        e: &mut Engine,
+        texture: u32,
+        face: Option<u32>,
+        level: u32,
+        rect: Option<[u32; 4]>,
+        flags: u32,
+    ) -> (u32, u32, u32) {
+        let locked = e.mem.alloc(8);
+        let r = rect.map_or(0, |r| {
+            let at = e.mem.alloc(16);
+            for (i, v) in r.iter().enumerate() {
+                e.mem.set_u32(at + 4 * i as u32, *v);
+            }
+            at
+        });
+        let hr = match face {
+            Some(f) => e.vcall(texture, 4 * 19, &[f, level, locked, r, flags]),
+            None => e.vcall(texture, 4 * 19, &[level, locked, r, flags]),
+        }
+        .u32();
+        let answer = (hr, e.mem.u32(locked), e.mem.u32(locked + 4));
+        e.mem.free(locked);
+        e.mem.free(r);
+        answer
+    }
+
+    fn unlock(e: &mut Engine, texture: u32, face: Option<u32>, level: u32) -> u32 {
+        match face {
+            Some(f) => e.vcall(texture, 4 * 20, &[f, level]),
+            None => e.vcall(texture, 4 * 20, &[level]),
+        }
+        .u32()
+    }
+
+    /// The bytes a whole-level `LockRect(D3DLOCK_READONLY)` hands out (`size` of them).
+    fn read_level(
+        e: &mut Engine,
+        texture: u32,
+        face: Option<u32>,
+        level: u32,
+        size: u32,
+    ) -> Vec<u8> {
+        let (hr, _, at) = lock(e, texture, face, level, None, READONLY);
+        assert_eq!(hr, D3D_OK);
+        let bytes = e.mem.bytes(at, size);
+        assert_eq!(unlock(e, texture, face, level), D3D_OK);
+        bytes
+    }
+
+    /// A pattern of `size` bytes from `seed`.
+    fn pattern(seed: u32, size: u32) -> Vec<u8> {
+        (0..size)
+            .map(|i| (i.wrapping_mul(31) ^ seed) as u8)
+            .collect()
+    }
+
+    #[test]
+    fn a_level_kept_outside_is_in_the_games_memory_only_while_locked() {
+        let (mut e, device) = texture_device(TextureStore::Host);
+        let before = e.mem.heap_available();
+        // 256 by 256 A8R8G8B8, the full chain (9 levels, 349,524 bytes), managed.
+        let texture = new_texture(&mut e, device, [256, 256, 0, 0, A8R8G8B8, 1]);
+        let taken = before - e.mem.heap_available();
+        assert!(taken < 4096, "only the objects: {taken} bytes");
+        let (hr, pitch, at) = lock(&mut e, texture, None, 0, None, 0);
+        assert_eq!((hr, pitch), (D3D_OK, 1024));
+        assert_eq!(e.mem.block_size(at), Some(256 * 1024), "a staging block");
+        assert_eq!(
+            e.mem.bytes(at, 256 * 1024),
+            vec![0; 256 * 1024],
+            "zero until written"
+        );
+        let bytes = pattern(7, 256 * 1024);
+        e.mem.write(at, &bytes);
+        // Locked once already: refused, the block stays.
+        assert_eq!(
+            lock(&mut e, texture, None, 0, None, 0).0,
+            D3DERR_INVALIDCALL
+        );
+        assert_eq!(e.mem.block_size(at), Some(256 * 1024));
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        // Until the next Present the block still holds the level's bytes (code reading through
+        // the lock's address just after the unlock reads them); then it is freed.
+        assert_eq!(e.mem.bytes(at, 256 * 1024), bytes);
+        assert_eq!(unlock(&mut e, texture, None, 0), D3DERR_INVALIDCALL);
+        assert_eq!(present(&mut e, device), D3D_OK);
+        assert_eq!(e.mem.block_size(at), None, "freed at the Present");
+        assert_eq!(before - e.mem.heap_available(), taken, "nothing kept");
+        assert_eq!(read_level(&mut e, texture, None, 0, 256 * 1024), bytes);
+        // The other levels are their own.
+        assert_eq!(
+            read_level(&mut e, texture, None, 1, 128 * 512),
+            vec![0; 128 * 512]
+        );
+        // A rectangle: (16, 8) is 8 rows of 1024 bytes and 16 pixels of 4 bytes in.
+        let (hr, pitch, at) = lock(&mut e, texture, None, 0, Some([16, 8, 32, 24]), 0);
+        assert_eq!((hr, pitch), (D3D_OK, 1024));
+        let start = 8 * 1024 + 16 * 4;
+        assert_eq!(e.mem.bytes(at, 64), bytes[start..start + 64]);
+        e.mem.write(at, &[0xee; 4]);
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        let mut expected = bytes.clone();
+        expected[start..start + 4].copy_from_slice(&[0xee; 4]);
+        assert_eq!(read_level(&mut e, texture, None, 0, 256 * 1024), expected);
+        // Released: every block it had is free.
+        assert_eq!(e.vcall(texture, 8, &[]).u32(), 0);
+        assert_eq!(present(&mut e, device), D3D_OK);
+        assert!(before - e.mem.heap_available() < taken);
+    }
+
+    /// `Present()` on the device (outside a scene).
+    fn present(e: &mut Engine, device: u32) -> u32 {
+        e.vcall(device, 4 * 17, &[0, 0, 0, 0]).u32()
+    }
+
+    #[test]
+    fn unlocked_staging_blocks_wait_for_the_present_up_to_16_mb() {
+        let (mut e, device) = texture_device(TextureStore::Host);
+        // Five 4 MB levels unlocked in one frame: 20 MB, so the oldest goes before the Present.
+        let mut blocks = Vec::new();
+        for i in 0..5 {
+            let texture = new_texture(&mut e, device, [1024, 1024, 1, 0, A8R8G8B8, 1]);
+            let (_, _, at) = lock(&mut e, texture, None, 0, None, 0);
+            e.mem.write(at, &pattern(i, 64));
+            assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+            assert_eq!(e.mem.bytes(at, 64), pattern(i, 64), "readable just after");
+            blocks.push(at);
+        }
+        assert_eq!(
+            e.mem.block_size(blocks[0]),
+            None,
+            "the oldest freed past 16 MB"
+        );
+        for &at in &blocks[1..] {
+            assert_eq!(e.mem.block_size(at), Some(4 << 20));
+        }
+        assert_eq!(present(&mut e, device), D3D_OK);
+        for &at in &blocks {
+            assert_eq!(e.mem.block_size(at), None);
+        }
+        // One level bigger than 16 MB still waits for the Present.
+        let big = new_texture(&mut e, device, [4096, 2048, 1, 0, A8R8G8B8, 1]);
+        let (_, _, at) = lock(&mut e, big, None, 0, None, 0);
+        assert_eq!(unlock(&mut e, big, None, 0), D3D_OK);
+        assert!(e.mem.block_size(at).is_some());
+        assert_eq!(present(&mut e, device), D3D_OK);
+        assert_eq!(e.mem.block_size(at), None);
+    }
+
+    #[test]
+    fn lock_flags_change_nothing_the_game_sees() {
+        for store in [TextureStore::Host, TextureStore::Guest] {
+            let (mut e, device) = texture_device(store);
+            // Dynamic in the default pool, and managed.
+            for (usage, pool) in [(0x200, 0), (0, 1)] {
+                let texture = new_texture(&mut e, device, [8, 8, 1, usage, A8R8G8B8, pool]);
+                let size = 8 * 32;
+                for (i, flags) in [
+                    0,
+                    READONLY,
+                    DISCARD,
+                    NO_DIRTY_UPDATE,
+                    NOSYSLOCK,
+                    READONLY | NO_DIRTY_UPDATE,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let before = read_level(&mut e, texture, None, 0, size);
+                    let (hr, pitch, at) = lock(&mut e, texture, None, 0, None, flags);
+                    assert_eq!((hr, pitch), (D3D_OK, 32), "{store:?} flags {flags:#x}");
+                    // The bytes as they were (a discard too), and what is written is kept (a
+                    // read-only lock's too: the flags change nothing here).
+                    assert_eq!(e.mem.bytes(at, size), before, "{store:?} flags {flags:#x}");
+                    let bytes = pattern(i as u32, size);
+                    e.mem.write(at, &bytes);
+                    assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+                    assert_eq!(read_level(&mut e, texture, None, 0, size), bytes);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mip_levels_cube_faces_and_blocks_are_kept_apart() {
+        let (mut e, device) = texture_device(TextureStore::Host);
+        // DXT1 16 by 16, three levels: 4 rows of 4 blocks, 2 of 2, 1 of 1 (8 bytes a block).
+        let dxt = new_texture(&mut e, device, [16, 16, 3, 0, DXT1, 1]);
+        let sizes = [128, 32, 8];
+        for (level, size) in sizes.iter().enumerate() {
+            let (hr, pitch, at) = lock(&mut e, dxt, None, level as u32, None, 0);
+            assert_eq!((hr, pitch), (D3D_OK, [32, 16, 8][level]));
+            e.mem.write(at, &pattern(level as u32, *size));
+            assert_eq!(unlock(&mut e, dxt, None, level as u32), D3D_OK);
+        }
+        for (level, size) in sizes.iter().enumerate() {
+            assert_eq!(
+                read_level(&mut e, dxt, None, level as u32, *size),
+                pattern(level as u32, *size)
+            );
+        }
+        // A rectangle of a DXT level starts at its block: (8, 4) is block row 1, block 2.
+        let (_, _, at) = lock(&mut e, dxt, None, 0, Some([8, 4, 12, 8]), 0);
+        assert_eq!(e.mem.bytes(at, 8), pattern(0, 128)[32 + 16..32 + 24]);
+        assert_eq!(unlock(&mut e, dxt, None, 0), D3D_OK);
+        // A cube texture of edge 4, two levels: twelve levels of their own.
+        let out = e.mem.alloc(4);
+        assert_eq!(
+            e.vcall(device, 4 * 25, &[4, 2, 0, A8R8G8B8, 1, out, 0])
+                .u32(),
+            D3D_OK
+        );
+        let cube = e.mem.u32(out);
+        for face in 0..6 {
+            for level in 0..2 {
+                let (hr, _, at) = lock(&mut e, cube, Some(face), level, None, 0);
+                assert_eq!(hr, D3D_OK);
+                e.mem
+                    .write(at, &pattern(face * 2 + level, [64, 16][level as usize]));
+                assert_eq!(unlock(&mut e, cube, Some(face), level), D3D_OK);
+            }
+        }
+        for face in 0..6 {
+            for level in 0..2 {
+                let size = [64, 16][level as usize];
+                assert_eq!(
+                    read_level(&mut e, cube, Some(face), level, size),
+                    pattern(face * 2 + level, size)
+                );
+            }
+        }
+        assert_eq!(
+            lock(&mut e, cube, Some(6), 0, None, 0).0,
+            D3DERR_INVALIDCALL
+        );
+    }
+
+    #[test]
+    fn default_pool_levels_have_nothing_to_lock_and_a_destroyed_lock_frees_its_block() {
+        let (mut e, device) = texture_device(TextureStore::Host);
+        let target = new_texture(&mut e, device, [8, 8, 1, 0, A8R8G8B8, 0]);
+        assert_eq!(lock(&mut e, target, None, 0, None, 0).0, D3DERR_INVALIDCALL);
+        let texture = new_texture(&mut e, device, [64, 64, 1, 0, A8R8G8B8, 1]);
+        let (_, _, at) = lock(&mut e, texture, None, 0, None, 0);
+        assert!(e.mem.block_size(at).is_some());
+        assert_eq!(e.vcall(texture, 8, &[]).u32(), 0);
+        assert_eq!(e.mem.block_size(at), None);
+    }
+
+    #[test]
+    fn managed_levels_keep_their_bytes_across_a_reset() {
+        let (mut e, d3d, present) = d3d();
+        set_texture_store(&mut e, TextureStore::Host);
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out]);
+        let device = e.mem.u32(out);
+        let table = test_table() + "\nDomain\td1\t15\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td1";
+        d3d9::load_adapter_table(&mut e, &table);
+        let texture = new_texture(&mut e, device, [4, 4, 1, 0, A8R8G8B8, 1]);
+        let (_, _, at) = lock(&mut e, texture, None, 0, None, 0);
+        e.mem.write(at, &pattern(3, 64));
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        assert_eq!(e.vcall(device, 4 * 16, &[present]).u32(), D3D_OK);
+        assert_eq!(read_level(&mut e, texture, None, 0, 64), pattern(3, 64));
+    }
+
+    #[test]
+    fn color_fill_reaches_a_dynamic_level_kept_outside() {
+        for store in [TextureStore::Host, TextureStore::Guest] {
+            let (mut e, device) = texture_device(store);
+            let texture = new_texture(&mut e, device, [4, 4, 1, 0x200, A8R8G8B8, 0]);
+            let out = e.mem.alloc(4);
+            assert_eq!(e.vcall(texture, 4 * 18, &[0, out]).u32(), D3D_OK);
+            let level = e.mem.u32(out);
+            let rect = e.mem.alloc(16);
+            for (i, v) in [1u32, 1, 3, 2].iter().enumerate() {
+                e.mem.set_u32(rect + 4 * i as u32, *v);
+            }
+            assert_eq!(
+                e.vcall(device, 4 * 35, &[level, rect, 0x1122_3344]).u32(),
+                D3D_OK
+            );
+            let bytes = read_level(&mut e, texture, None, 0, 64);
+            let mut expected = vec![0u8; 64];
+            for x in 1..3 {
+                expected[16 + 4 * x..16 + 4 * x + 4].copy_from_slice(&0x1122_3344u32.to_le_bytes());
+            }
+            assert_eq!(bytes, expected, "{store:?}");
+        }
+    }
+
+    /// On a real device (`NV_D3D9=real`), a managed texture's levels keep their bytes in the real
+    /// levels: what the game wrote comes back through its next locks (a rectangle's too), the real
+    /// level holds it, and a level never written comes back zero. Skipped where Direct3D 9 has no
+    /// device (no display adapter, as on CI).
+    #[cfg(windows)]
+    #[test]
+    fn real_levels_keep_the_bytes_of_managed_textures() {
+        let extra = "\nDomain\td2\t15,31545844\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td2\
+                     \nCheckDeviceFormat\t0 1 16 0 5\t0\t\td2";
+        let (mut e, device) = device_with(extra, 0x54);
+        set_texture_store(&mut e, TextureStore::Host);
+        if super::super::d3d9real::test_real_device(&mut e, device, 0x54).is_none() {
+            return;
+        }
+        let texture = new_texture(&mut e, device, [64, 32, 0, 0, A8R8G8B8, 1]);
+        let levels = state!(e).graphics.device_objects.textures[&texture]
+            .levels
+            .clone();
+        for &level in &levels {
+            assert!(matches!(
+                surface_mut(&mut e, level).pixels,
+                Some(Pixels::Real { written: false })
+            ));
+        }
+        let bytes = pattern(9, 64 * 32 * 4);
+        let (hr, pitch, at) = lock(&mut e, texture, None, 0, None, 0);
+        assert_eq!((hr, pitch), (D3D_OK, 256));
+        e.mem.write(at, &bytes);
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        assert!(matches!(
+            surface_mut(&mut e, levels[0]).pixels,
+            Some(Pixels::Real { written: true })
+        ));
+        assert_eq!(read_level(&mut e, texture, None, 0, 64 * 32 * 4), bytes);
+        assert_eq!(
+            read_level(&mut e, texture, None, 1, 32 * 16 * 4),
+            vec![0; 2048]
+        );
+        let (_, _, at) = lock(&mut e, texture, None, 0, Some([4, 2, 8, 4]), 0);
+        assert_eq!(e.mem.bytes(at, 16), bytes[2 * 256 + 16..2 * 256 + 32]);
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        // The real level itself.
+        let block = e.mem.alloc(64 * 32 * 4);
+        assert!(super::super::d3d9real::read_surface(
+            &mut e,
+            levels[0],
+            block,
+            64 * 32 * 4
+        ));
+        assert_eq!(e.mem.bytes(block, 64 * 32 * 4), bytes);
+        // A cube texture's faces, DXT1.
+        let out = e.mem.alloc(4);
+        assert_eq!(
+            e.vcall(device, 4 * 25, &[8, 1, 0, A8R8G8B8, 1, out, 0])
+                .u32(),
+            D3D_OK
+        );
+        let cube = e.mem.u32(out);
+        for face in 0..6 {
+            let (_, _, at) = lock(&mut e, cube, Some(face), 0, None, 0);
+            e.mem.write(at, &pattern(face, 256));
+            assert_eq!(unlock(&mut e, cube, Some(face), 0), D3D_OK);
+        }
+        for face in 0..6 {
+            assert_eq!(
+                read_level(&mut e, cube, Some(face), 0, 256),
+                pattern(face, 256)
+            );
+        }
+        let dxt = new_texture(&mut e, device, [8, 8, 1, 0, DXT1, 1]);
+        let (_, pitch, at) = lock(&mut e, dxt, None, 0, None, 0);
+        assert_eq!(pitch, 16);
+        e.mem.write(at, &pattern(5, 32));
+        assert_eq!(unlock(&mut e, dxt, None, 0), D3D_OK);
+        assert_eq!(read_level(&mut e, dxt, None, 0, 32), pattern(5, 32));
+        assert!(
+            state!(e).graphics.real.logged_is_empty(),
+            "no answer of the real device differed"
+        );
+    }
+
+    #[test]
+    fn the_check_store_reports_a_write_after_the_unlock() {
+        let (mut e, device) = texture_device(TextureStore::Check);
+        let texture = new_texture(&mut e, device, [4, 4, 1, 0, A8R8G8B8, 1]);
+        let (_, _, at) = lock(&mut e, texture, None, 0, None, 0);
+        e.mem.write(at, &pattern(1, 64));
+        assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
+        assert_eq!(
+            state!(e).graphics.device_objects.round_trips,
+            [1, 0],
+            "read back the same"
+        );
+        assert!(e.mem.block_size(at).is_some(), "kept until the Present");
+        e.mem.set_u32(at + 8, 0xdead_beef);
+        let level = state!(e).graphics.device_objects.textures[&texture].levels[0];
+        assert_eq!(e.vcall(device, 4 * 17, &[0, 0, 0, 0]).u32(), D3D_OK);
+        assert!(state!(e)
+            .graphics
+            .device_objects
+            .written_after_unlock
+            .contains(&level));
+        assert_eq!(e.mem.block_size(at), None, "freed at the Present");
+        // The texture has what it held at the unlock.
+        assert_eq!(read_level(&mut e, texture, None, 0, 64), pattern(1, 64));
     }
 }

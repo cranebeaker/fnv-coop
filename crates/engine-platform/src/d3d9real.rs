@@ -88,6 +88,14 @@ impl std::fmt::Debug for Real {
     }
 }
 
+impl Real {
+    /// Whether no answer of the real device has differed from the model's (tests).
+    #[cfg(test)]
+    pub(crate) fn logged_is_empty(&self) -> bool {
+        self.logged.is_empty()
+    }
+}
+
 fn real(e: &mut Engine) -> &mut Real {
     &mut state!(e).graphics.real
 }
@@ -1236,16 +1244,71 @@ pub fn surface_created(
     }
 }
 
-/// The game unlocked the modelled surface `surface`, whose memory in engine memory is `bits`
-/// (`rows` rows of `row` bytes, `pitch` apart): the bytes go to the real surface.
-pub fn surface_unlocked(e: &mut Engine, surface: u32, bits: u32, pitch: u32, row: u32, rows: u32) {
+/// Whether the modelled surface `surface` has a real one.
+pub fn has_surface(e: &Engine, surface: u32) -> bool {
+    matches!(
+        state_ref!(e).graphics.real.objects.get(&surface),
+        Some(Object::Surface(_))
+    )
+}
+
+/// The real surface behind the modelled `surface` read into engine memory at `at` (`size`
+/// bytes: its rows packed, `rows = size / row`), with `LockRect(D3DLOCK_READONLY)`; false when
+/// there is none or it can't be locked.
+pub fn read_surface(e: &mut Engine, surface: u32, at: u32, size: u32) -> bool {
     let Some(s) = surface_of(e, surface) else {
-        return;
+        return false;
+    };
+    let mut desc = D3DSURFACE_DESC::default();
+    if unsafe { s.GetDesc(&mut desc) }.is_err() {
+        return false;
+    }
+    let Some((block, bytes)) = super::d3d9device::format_blocks(desc.Format.0) else {
+        return false;
+    };
+    let row = desc.Width.div_ceil(block) * bytes;
+    let rows = desc.Height.div_ceil(block);
+    if row * rows != size {
+        return false;
+    }
+    let mut locked = D3DLOCKED_RECT::default();
+    let r = unsafe { s.LockRect(&mut locked, std::ptr::null(), D3DLOCK_READONLY as u32) };
+    if r.is_err() {
+        answer(e, "LockRect of the real surface to read", 0, hr(r));
+        return false;
+    }
+    for y in 0..rows {
+        let from = unsafe {
+            std::slice::from_raw_parts(
+                (locked.pBits as *const u8).add(y as usize * locked.Pitch as usize),
+                row as usize,
+            )
+        };
+        e.mem.write(at + y * row, from);
+    }
+    let _ = unsafe { s.UnlockRect() };
+    true
+}
+
+/// The game unlocked the modelled surface `surface`, whose memory in engine memory is `bits`
+/// (`rows` rows of `row` bytes, `pitch` apart): the bytes go to the real surface. Whether they
+/// did (false without a real surface or when it can't be locked).
+pub fn surface_unlocked(
+    e: &mut Engine,
+    surface: u32,
+    bits: u32,
+    pitch: u32,
+    row: u32,
+    rows: u32,
+) -> bool {
+    let Some(s) = surface_of(e, surface) else {
+        return false;
     };
     let mut locked = D3DLOCKED_RECT::default();
     let r = unsafe { s.LockRect(&mut locked, std::ptr::null(), 0) };
     if r.is_err() {
-        return answer(e, "LockRect of the real surface", 0, hr(r));
+        answer(e, "LockRect of the real surface", 0, hr(r));
+        return false;
     }
     for y in 0..rows {
         let to = unsafe {
@@ -1261,6 +1324,7 @@ pub fn surface_unlocked(e: &mut Engine, surface: u32, bits: u32, pitch: u32, row
         // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
         face_check_upload(e, surface, &s, bits, row, rows);
     }
+    true
 }
 
 // Buffers, shaders, declarations.
@@ -1893,8 +1957,8 @@ pub fn color_fill(e: &mut Engine, this: u32, surface: u32, at: u32, colour: u32,
 }
 
 /// `GetRenderTargetData` from the real render target into the real destination, whose rows are
-/// then copied into the destination's memory at `bits` (`pitch` apart); false without real
-/// surfaces (the caller stops).
+/// then copied into the destination's memory at `bits` (`pitch` apart; nothing copied for 0);
+/// false without real surfaces (the caller stops).
 pub fn get_render_target_data(
     e: &mut Engine,
     this: u32,
@@ -1911,6 +1975,10 @@ pub fn get_render_target_data(
     };
     let r = unsafe { d.GetRenderTargetData(&from, &to) };
     answer(e, "GetRenderTargetData", 0, hr(r));
+    if bits == 0 {
+        // A texture level kept outside engine memory: the caller takes the real level's bytes.
+        return true;
+    }
     let mut desc = D3DSURFACE_DESC::default();
     let mut locked = D3DLOCKED_RECT::default();
     unsafe {
