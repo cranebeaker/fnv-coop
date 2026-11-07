@@ -1,0 +1,40 @@
+This crate translates parts of xNVSE, the New Vegas Script Extender, into Rust (ADR-0016),
+with its authors' permission (the maintainer, 2026-11-03). Source: xNVSE 6.4.9,
+https://github.com/xNVSE/NVSE, commit 0ccd23a. No C++ is included.
+
+Credits, as xNVSE's README gives them:
+
+  The original NVSE was created and maintained by Ian Patterson, Stephen Abel, Paul Connelly,
+  and Hugues LE PORS (ianpatt, behippo, scruggsywuggsy the ferret, and hlp).
+
+  xNVSE is developed by korri123 (Kormákur), cnf13 (Confused), jazzisparis, and Demorome.
+
+  xNVSE has contributions from lStewieAl, c6, carxt, Into-The-Rough, Stentorious, and Wall_SoGB.
+
+xNVSE's src/common is under this notice, kept as it is:
+
+  Copyright (c) 2006-2011 Ian Patterson
+
+  This software is provided 'as-is', without any express or implied
+  warranty. In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+     1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+     2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+     3. This notice may not be removed or altered from any source
+     distribution.
+
+Third-party code inside xNVSE keeps its own licence. None is translated yet; when it is, its
+translation carries that licence in a file beside it: the MT19937 generator (BSD 3-clause,
+`LICENSE-mt19937`) with `Rand` and `PickOneOf` (batches X19 and X12), Algohol (MIT,
+`LICENSE-algohol`) with batch X20.

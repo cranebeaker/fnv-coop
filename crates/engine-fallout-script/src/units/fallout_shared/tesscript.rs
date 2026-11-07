@@ -3068,16 +3068,19 @@ pub fn fn_005ac7a0(
         let parameters = e.mem.u32(definition + 0x14);
         if parse != 0 {
             if parameters != 0 {
-                script_parse_parameters(
-                    e,
-                    parameters,
-                    code,
-                    offset,
-                    target,
-                    container,
-                    script,
-                    locals_to_use,
-                    &[],
+                // By address, as the exe calls `005accb0`: a built-in extender wraps it
+                // (ADR-0016).
+                e.call(
+                    0x005a_ccb0,
+                    &args![
+                        parameters,
+                        code,
+                        offset,
+                        target,
+                        container,
+                        script,
+                        locals_to_use
+                    ],
                 );
             }
             return false;
@@ -3085,8 +3088,11 @@ pub fn fn_005ac7a0(
         let needs_reference = e.mem.u8(definition + 0x10) != 0;
         if !needs_reference || target != 0 {
             let handler = e.mem.u32(definition + 0x18);
-            if handler != 0
-                && e.call(
+            if handler != 0 && {
+                // The seam before the handler call (`005ACB9D`, ADR-0016): words the opcode,
+                // the record and the result's address.
+                e.site(0x005a_cb9d, &[function_id, definition, out]);
+                e.call(
                     handler,
                     &args![
                         parameters,
@@ -3100,7 +3106,7 @@ pub fn fn_005ac7a0(
                     ],
                 )
                 .bool()
-            {
+            } {
                 return true;
             }
             return false;

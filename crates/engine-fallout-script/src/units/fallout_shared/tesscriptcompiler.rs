@@ -13,12 +13,15 @@ const SCRIPT_COMMANDS: u32 = 0x0119_0910;
 // Translated from 005b1120 (PC disassembly, FalloutNV.exe 1.4.0.525)
 /// `ScriptCompiler::GetFunctionDef` (Xbox PDB), `cdecl`: the address of the
 /// definition of a command opcode in the console table (0x100..=0x1cc) or
-/// the script table (0x1000..=0x127f), signed comparisons; null otherwise.
-pub fn script_compiler_get_function_def(_e: &mut Engine, opcode: i32) -> Ptr {
+/// the script table (0x1000..=0x127f), signed comparisons; null otherwise. The script table's
+/// end (`005B115E`) and start (`005B1172`) are immediates xNVSE patches: read from
+/// [`Engine::script_tables`] (ADR-0016), the exe's own unless a built-in extender moved them.
+pub fn script_compiler_get_function_def(e: &mut Engine, opcode: i32) -> Ptr {
+    let tables = e.script_tables();
     if (0x100..0x1cd).contains(&opcode) {
         Ptr::new(CONSOLE_COMMANDS + (opcode - 0x100) as u32 * 0x28)
-    } else if (0x1000..0x1280).contains(&opcode) {
-        Ptr::new(SCRIPT_COMMANDS + (opcode - 0x1000) as u32 * 0x28)
+    } else if (0x1000..tables.max_opcode as i32).contains(&opcode) {
+        Ptr::new(tables.record(opcode as u32))
     } else {
         Ptr::NULL
     }
@@ -27,6 +30,9 @@ pub fn script_compiler_get_function_def(_e: &mut Engine, opcode: i32) -> Ptr {
 /// The opcode word (+8) of the entry just past each table (0x1CD console
 /// entries, 0x280 script entries): the tables' end markers.
 const CONSOLE_END_OPCODE: u32 = 0x0119_08f0;
+/// The script table's end marker as the exe reads it; the code reads it through
+/// [`Engine::script_tables`] (`end + 8`).
+#[cfg(test)]
 const SCRIPT_END_OPCODE: u32 = 0x0119_6d18;
 /// `Error` (`0040fbe0`, engine map; `cdecl`, a format and its words) and the
 /// two messages: "The script function list doesn't have all the names
@@ -41,9 +47,11 @@ const CONSOLE_LIST_INCOMPLETE: u32 = 0x0103_7458;
 /// `ScriptCompiler::ScriptCompiler` (Xbox PDB; `thiscall`, no stack words):
 /// checks that the script command table ends with opcode `0x1280` and the
 /// console table with `0x1CD` (the entries past their ends), reporting each
-/// mismatch through `Error`. Returns `this`.
+/// mismatch through `Error`. Returns `this`. The script table's end (`005AEA59`) and its highest
+/// opcode (`005AEA5D`) are read from [`Engine::script_tables`] (ADR-0016).
 pub fn script_compiler_script_compiler(e: &mut Engine, this: Ptr) -> Ptr {
-    if e.mem.u32(SCRIPT_END_OPCODE) != 0x1280 {
+    let tables = e.script_tables();
+    if e.mem.u32(tables.end.wrapping_add(8)) != tables.max_opcode {
         typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SCRIPT_LIST_INCOMPLETE);
     }
     if e.mem.u32(CONSOLE_END_OPCODE) != 0x1cd {
@@ -3089,6 +3097,34 @@ mod tests {
             (-1, 0),
             (i32::MIN, 0),
             (0x10100, 0),
+        ];
+        for &(opcode, expected) in cases {
+            assert_eq!(
+                e.call(0x005b1120, &args![opcode]).u32(),
+                expected,
+                "{opcode:x}"
+            );
+        }
+    }
+
+    /// With the script table moved (a built-in extender, ADR-0016), the script range follows the
+    /// descriptor (xNVSE's patched immediates `005B115E`, `005B1172`); the console range does not
+    /// move.
+    #[test]
+    fn the_script_range_follows_the_moved_table() {
+        let mut e = Engine::new();
+        e.set_script_tables(engine_core::extend::ScriptTables {
+            start: 0x7f00_0000,
+            end: 0x7f00_0000 + 0x68e * 0x28,
+            max_opcode: 0x168e,
+        });
+        let cases: &[(i32, u32)] = &[
+            (0x100, 0x0118_e8e0),
+            (0x1000, 0x7f00_0000),
+            (0x1280, 0x7f00_0000 + 0x280 * 0x28),
+            (0x1400, 0x7f00_0000 + 0x400 * 0x28),
+            (0x168d, 0x7f00_0000 + 0x68d * 0x28),
+            (0x168e, 0),
         ];
         for &(opcode, expected) in cases {
             assert_eq!(

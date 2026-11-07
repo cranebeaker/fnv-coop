@@ -679,6 +679,10 @@ pub fn runner_evaluate_line(
         } else {
             let locals = e.mem.u32(this.addr() + 8);
             let container = e.mem.u32(this.addr());
+            // The seam before the block-type handler call (`005E16C3`, ADR-0016): words the
+            // block record's opcode, the record (`entry - 0x10`) and the result's address.
+            let record = entry - 0x10;
+            e.site(0x005e_16c3, &[e.mem.u32(record + 8), record, result.addr()]);
             e.call(
                 handler,
                 &args![parameters, data, reference, container, script, locals, result, cursor],
@@ -1101,8 +1105,11 @@ fn evaluate_command(e: &mut Engine, at: &Line, command: i32) -> bool {
         if e.mem.u8(definition + 0x25) != 0 {
             e.mem.set_u8(at.this.addr() + 0xa1, 1);
         }
-        let succeeded = handler != 0
-            && e.call(
+        let succeeded = handler != 0 && {
+            // The seam before the handler call (`005E2329`, ADR-0016): words the opcode, the
+            // record and the result's address. Nothing registered: the exe's code.
+            e.site(0x005e_2329, &[command as u32, definition, result.addr()]);
+            e.call(
                 handler,
                 &args![
                     parameters,
@@ -1115,7 +1122,8 @@ fn evaluate_command(e: &mut Engine, at: &Line, command: i32) -> bool {
                     cursor
                 ],
             )
-            .bool();
+            .bool()
+        };
         if !succeeded {
             let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, at.script));
             let name = e.vcall(at.script.addr(), 0x130, &args![]).u32();

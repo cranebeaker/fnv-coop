@@ -218,6 +218,9 @@ pub struct Engine {
     /// The typed migration's seam on this engine: which families are on and may go direct
     /// ([`crate::typed`]).
     pub(crate) typed: crate::typed::State,
+    /// The built-in extenders' state: extension slots, wrap chains and seam handlers
+    /// ([`crate::extend`]); empty unless an extender installs.
+    pub(crate) extend: crate::extend::ExtendState,
 }
 
 /// The bytes of each game thread's stack for `with_stack` locals.
@@ -340,6 +343,7 @@ impl Engine {
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
             typed: Default::default(),
+            extend: Default::default(),
         };
         // The platform layer's state, when the program links the layer (`units::platform::Layer`:
         // its `units::funcs`, run above with the other crates' functions, installs it).
@@ -505,18 +509,34 @@ impl Engine {
         self.funcs.contains_key(&addr) || crate::static_exit::runs(self, addr)
     }
 
-    /// Registers (or replaces) the function at `addr`. Tests use this for
-    /// doubles of callees that are not under test.
     /// Whether something (a translation, a platform function or a double) is registered at
     /// `addr`.
     pub fn is_registered(&self, addr: u32) -> bool {
         self.funcs.contains_key(&addr)
     }
 
+    /// Registers (or replaces) the function at `addr`. Tests use this for
+    /// doubles of callees that are not under test. A wrap chain at `addr`
+    /// ([`Engine::wrap`]) goes with what it wrapped.
     pub fn register(&mut self, addr: u32, f: AbiFn) {
+        self.extend.chains.remove(&addr);
+        self.put(addr, f);
+    }
+
+    /// Puts `f` at `addr` and empties its slot of the call cache.
+    pub(crate) fn put(&mut self, addr: u32, f: AbiFn) {
         self.funcs.insert(addr, Callable::Abi(f));
         self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
         self.typed.replaced(addr);
+    }
+
+    /// What is registered at `addr`: a plain function, `Err` for a test double, `None` for
+    /// nothing.
+    pub(crate) fn callable_at(&self, addr: u32) -> Option<Result<AbiFn, ()>> {
+        self.funcs.get(&addr).map(|c| match c {
+            Callable::Abi(f) => Ok(*f),
+            Callable::Double(_) => Err(()),
+        })
     }
 
     /// Registers a test double that keeps state (counts calls, returns a
@@ -527,6 +547,7 @@ impl Engine {
         addr: u32,
         f: impl FnMut(&mut Engine, &[u32]) -> Ret + 'static,
     ) {
+        self.extend.chains.remove(&addr);
         self.funcs
             .insert(addr, Callable::Double(Rc::new(RefCell::new(f))));
         self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));

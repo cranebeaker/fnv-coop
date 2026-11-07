@@ -98,6 +98,10 @@ impl Host {
         }
         // What differs from the exe in this run, registered over the translations (docs/FIXES.md).
         fixes::install(&mut engine, choice);
+        // xNVSE built in, in every preset (ADR-0016): after the rows, so its wraps wrap what is
+        // registered. Vanilla content calls no extender opcode, and every change it makes to
+        // vanilla commands is a row.
+        nvse::install(&mut engine);
         eprintln!("{}", choice.describe());
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).

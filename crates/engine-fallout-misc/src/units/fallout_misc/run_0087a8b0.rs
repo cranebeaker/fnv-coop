@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// The command table: 0x28-byte entries for commands from 0x1000, with the parameter count
 /// (`u16`) at `+2` and the parameter descriptors (0xc bytes each, the type at `+4`) at `+4`.
+#[cfg(test)]
 const COMMAND_TABLE_01190920: u32 = 0x0119_0920;
 
 // Translated from 0087a8b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -37,8 +38,13 @@ pub fn fn_0087a8b0(e: &mut Engine, queue: u32, command: u32, reference: u32, res
         e.mem.set_u32(task + 8, id);
         let mut next = arguments;
         let mut slot = 3u32;
-        let entry =
-            COMMAND_TABLE_01190920.wrapping_add(command.wrapping_sub(0x1000).wrapping_mul(0x28));
+        // The table's start plus 0x10, as the immediates `0087A909` and `0087A948` give it (moved
+        // by a built-in script extender, ADR-0016).
+        let entry = e
+            .script_tables()
+            .start
+            .wrapping_add(0x10)
+            .wrapping_add(command.wrapping_sub(0x1000).wrapping_mul(0x28));
         let count = e.mem.u16(entry.wrapping_add(2));
         let mut index = 0i32;
         while index < i32::from(count) {

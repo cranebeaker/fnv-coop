@@ -14,5 +14,7 @@ engine-platform = { path = "../engine-platform" }
 # The play loop's patched functions, registered over the engine's own at start-up
 # (crates/play-patch; empty on main).
 play-patch = { path = "../play-patch" }
+# xNVSE built in (ADR-0016): its commands and what they run on, installed after the fix rows.
+nvse = { path = "../nvse" }
 # The load order the game's forms are read from (`player_move`).
 esm = { path = "../esm" }

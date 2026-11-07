@@ -67,6 +67,7 @@ pub mod census;
 pub mod cxx_exception;
 mod engine;
 pub mod exe;
+pub mod extend;
 pub mod mem;
 pub mod profile;
 pub mod ptr;

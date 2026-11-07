@@ -11,12 +11,23 @@ use crate::prelude::*;
 
 /// The function table's parameter count (`01190922`: the 16-bit word at
 /// +0x12 of the 0x28-byte entry per function number).
+#[cfg(test)]
 const FUNCTION_PARAM_COUNT: u32 = 0x0119_0922;
 /// The function table's parameter list (`01190924`: the word at +0x14 of
 /// the entry, the address of 0xc bytes per parameter; +4 is the
 /// parameter's type).
+#[cfg(test)]
 const FUNCTION_PARAM_LIST: u32 = 0x0119_0924;
 const FUNCTION_ENTRY_SIZE: u32 = 0x28;
+/// The function table's parameter count and list as the code reads them: the exe's
+/// `01190922` and `01190924` (`006820FF`, `0068228D`, `006822FF`, `006823B2`), moved with the table
+/// when a built-in script extender installs (ADR-0016, `ScriptTables`).
+fn param_count(e: &Engine) -> u32 {
+    e.script_tables().start.wrapping_add(0x12)
+}
+fn param_list(e: &Engine) -> u32 {
+    e.script_tables().start.wrapping_add(0x14)
+}
 const PARAM_ENTRY_SIZE: u32 = 0xc;
 const PARAM_ENTRY_TYPE: u32 = 4;
 /// The parameter type table (`0118cdd0`, 8 bytes per type: +0 a word that
@@ -106,7 +117,7 @@ fn param_type(e: &Engine, data: Ptr, index: u32) -> u32 {
     let number = e.mem.u16(data.addr()) as u32;
     let list = e
         .mem
-        .u32(FUNCTION_PARAM_LIST.wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE)));
+        .u32(param_list(e).wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE)));
     e.mem.u32(
         list.wrapping_add(index.wrapping_mul(PARAM_ENTRY_SIZE))
             .wrapping_add(PARAM_ENTRY_TYPE),
@@ -224,7 +235,7 @@ pub fn fn_00682270(e: &mut Engine, data: Ptr) -> u32 {
     }
     let number = e.mem.u16(data.addr()) as u32;
     e.mem
-        .u16(FUNCTION_PARAM_COUNT.wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE))) as u32
+        .u16(param_count(e).wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE))) as u32
 }
 
 // Translated from 006822a0 (decompiled, FalloutNV.exe 1.4.0.525)

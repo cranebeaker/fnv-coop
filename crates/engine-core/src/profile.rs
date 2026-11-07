@@ -523,7 +523,11 @@ pub fn kind_of(addr: u32) -> Option<String> {
         0x7e00_0800..=0x7e00_ffff => "DirectShow platform object",
         0x7e01_0000..=0x7e01_ffff => "loader platform procedure",
         0x7e04_0000..=0x7e04_ffff => "NVAPI platform object",
-        0x7e05_0000..=0x7fff_ffff => "other platform object",
+        // The built-in extenders' code (ADR-0016 §3): before the platform's catch-all, which
+        // ends where their range starts (`mem::EXTENDER_CODE`).
+        0x7e80_0000..=0x7efe_ffff => "built-in extender command",
+        0x7eff_0000..=0x7eff_ffff => "built-in extender routine",
+        0x7e05_0000..=0x7e7f_ffff => "other platform object",
         _ => {
             return import_names()
                 .lock()
@@ -3722,6 +3726,35 @@ mod tests {
             Some("DirectSound platform object")
         );
         assert_eq!(kind_of(0x0086_e650), None);
+        // The platform's other objects, below the extenders' range.
+        assert_eq!(
+            kind_of(crate::units::platform::loader::KERNEL32_MODULE).as_deref(),
+            Some("other platform object")
+        );
+        assert_eq!(
+            kind_of(0x7e7f_fffc).as_deref(),
+            Some("other platform object")
+        );
+    }
+
+    /// One address of each built-in extender range has its kind (ADR-0016 §3): a handler, an
+    /// eval and a routine; above the routines (the built-ins' data) is no code.
+    #[test]
+    fn extender_addresses_have_kinds() {
+        use crate::extend::{EVAL_BASE, EXECUTE_BASE, ROUTINE_BASE};
+        assert_eq!(
+            kind_of(EXECUTE_BASE + 4 * 653).as_deref(),
+            Some("built-in extender command")
+        );
+        assert_eq!(
+            kind_of(EVAL_BASE + 4 * 87).as_deref(),
+            Some("built-in extender command")
+        );
+        assert_eq!(
+            kind_of(ROUTINE_BASE + 8).as_deref(),
+            Some("built-in extender routine")
+        );
+        assert_eq!(kind_of(crate::mem::BUILTIN_DATA.start), None);
     }
 
     /// The table counts phases, threads, kinds and self and inclusive samples as sampled.

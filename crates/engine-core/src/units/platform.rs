@@ -4109,8 +4109,11 @@ mod tests {
         // next 16 MiB step).
         assert_eq!(reserve(&mut e, 0x0100_0000), 0);
         assert_eq!(reserve(&mut e, 0x2000_0000), 0);
-        // The platform's addresses between the heap's ranges, and the upper range.
+        // The platform's addresses between the heap's ranges (the extenders' code addresses and
+        // the built-ins' data among them), and the upper range.
         assert_eq!(reserve(&mut e, 0x7e00_0000), 0);
+        assert_eq!(reserve(&mut e, crate::mem::EXTENDER_CODE.start), 0);
+        assert_eq!(reserve(&mut e, crate::mem::BUILTIN_DATA.start), 0);
         assert_eq!(reserve(&mut e, 0x8000_0000), 0);
         assert_eq!(reserve(&mut e, 0xeff0_0000), 0);
         // Above the heap: free.

@@ -44,6 +44,8 @@
 005d2860	1	JIP
 005e0d20	0	script or frame function
 005e1160	0	script or frame function
+005e13a0	0	xNVSE built in (ADR-0016)
+005e1550	0	xNVSE built in (ADR-0016)
 005e4810	2	ITR
 006047c0	1	JIP
 006155f0	1	ITR

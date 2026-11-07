@@ -68,7 +68,8 @@ shows what's left.
 | ✅ | **Fixes:** bug fixes on by default, the original's behaviour one setting away | First fixes in |
 | ✅ | **Windows preview** | [Released](https://github.com/slaterain/nv-rs/releases) |
 | 🔨 | **Native 64-bit code:** speed, no memory limit, every core in use | Started |
-| ⬜ | **Modern graphics (wgpu), built-in script extender, more platforms, co-op, VR** | Planned |
+| 🔨 | **Built-in script extender:** xNVSE's and JIP LN's script commands, with nothing to install | Started |
+| ⬜ | **Modern graphics (wgpu), more platforms, co-op, VR** | Planned |
 
 ✅ means working, not free of bugs. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
 [docs/MILESTONES.md](docs/MILESTONES.md).

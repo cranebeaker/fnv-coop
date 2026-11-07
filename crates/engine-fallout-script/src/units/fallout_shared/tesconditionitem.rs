@@ -151,7 +151,15 @@ const FORMAT_NO_GLOBAL: u32 = 0x0106_9378;
 /// The function table (`01190910`, 0x28 bytes per function number): +0 the
 /// name, +0x20 a word that is zero for a function that is not a condition
 /// function.
+#[cfg(test)]
 const FUNCTION_TABLE: u32 = 0x0119_0910;
+/// The entry of function `number` as the exe's immediates `00681AEB` and `00681CDE` give the
+/// table's start (moved by a built-in script extender, ADR-0016).
+fn function_entry(e: &Engine, number: u32) -> u32 {
+    e.script_tables()
+        .start
+        .wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE))
+}
 const FUNCTION_ENTRY_SIZE: u32 = 0x28;
 const FUNCTION_ENTRY_CONDITION: u32 = 0x20;
 /// `005eb680` (`ECX` = item): the function number at +8, zero-extended.
@@ -377,12 +385,12 @@ pub fn tes_condition_item_init_item(e: &mut Engine, this: Ptr<TesConditionItem>,
         });
     }
     let number = e.call(FUNCTION_NUMBER, &args![this]).u32();
-    let entry = FUNCTION_TABLE.wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE));
+    let entry = function_entry(e, number);
     if e.mem.u32(entry.wrapping_add(FUNCTION_ENTRY_CONDITION)) == 0 {
         e.with_stack(DESCRIPTION_SIZE, |e, buffer| {
             describe_owner(e, owner, buffer, false);
             let number = e.call(FUNCTION_NUMBER, &args![this]).u32();
-            let entry = FUNCTION_TABLE.wrapping_add(number.wrapping_mul(FUNCTION_ENTRY_SIZE));
+            let entry = function_entry(e, number);
             let function_name = e.mem.u32(entry);
             let file = e.call(GET_FILE, &args![owner, ANY_FILE]).u32();
             let file_name = e.call(FILE_NAME, &args![file]).u32();

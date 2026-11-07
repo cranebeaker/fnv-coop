@@ -1,0 +1,10 @@
+[package]
+name = "nvse"
+version = "0.1.0"
+description = "xNVSE (the New Vegas Script Extender) built in: its script commands and what they run on (ADR-0016)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+engine-core = { path = "../engine-core" }

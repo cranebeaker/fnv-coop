@@ -321,8 +321,10 @@ pub fn expression_next_token(
             break;
         }
         if byte == b'X' {
-            let opcode = e.mem.i16(source.wrapping_add(1));
-            if (0x1000..0x1280).contains(&opcode) {
+            let opcode = i32::from(e.mem.i16(source.wrapping_add(1)));
+            // The highest opcode is the immediate `0059390A`, moved with the table by a built-in
+            // script extender (ADR-0016).
+            if (0x1000..e.script_tables().max_opcode as i32).contains(&opcode) {
                 let size = e.mem.i16(source.wrapping_add(3)).wrapping_add(5) as i32;
                 e.call(MEMCPY, &args![write, source, size]);
                 write = write.wrapping_add(size as u32);

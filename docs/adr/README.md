@@ -21,3 +21,4 @@ A later decision that changes an earlier one says so and links back.
 | [0013](0013-cpp-exceptions-by-behaviour.md) | C++ exceptions by behaviour, no frames in guest memory | Accepted (maintainer, 2026-11-05) |
 | [0014](0014-typed-migration-in-two-stages.md) | The typed 64-bit migration goes in two stages, per system | Proposed (lead, 2026-11-06) |
 | [0015](0015-hand-typing-to-the-end-with-real-threads.md) | Every system is typed by hand to 64-bit, with real threads built in | Accepted (maintainer, 2026-11-07) |
+| [0016](0016-script-extenders-built-in.md) | xNVSE's and JIP LN NVSE's script commands built in | Accepted (lead, 2026-11-07) |

@@ -89,7 +89,10 @@
 //!   ([`PLATFORM_AREA`]): the code addresses of its COM objects and procedures (DirectInput,
 //!   DirectSound, DirectShow, Direct3D 9, NVAPI, `GetProcAddress` answers, from 0x7E000000),
 //!   module handles (0x7E100000..0x7E130000), the Bink state page (0x7E140000, mapped) and the
-//!   D3DX handles (from 0x7E300000, never mapped). The heap never comes here, and a
+//!   D3DX handles (from 0x7E300000, never mapped); then the built-in script extenders' code
+//!   addresses ([`EXTENDER_CODE`], 0x7E800000..0x7F000000) and the built-ins' static data
+//!   ([`BUILTIN_DATA`], 0x7F000000..0x80000000: command tables, their strings and parameter
+//!   lists; ADR-0016). The heap never comes here, and a
 //!   `VirtualAlloc` at a chosen address here fails;
 //! - [`HEAP_HIGH_BASE`]`..`[`HEAP_END`]: the heap's upper range, used only once the lower one
 //!   cannot serve a request (`mem/heap.rs`), so a run that fits in the lower range places
@@ -516,6 +519,18 @@ pub const HEAP_HIGH_BASE: u32 = 0x8000_0000;
 pub const HEAP_END: u32 = 0xF000_0000;
 /// The platform layer's own addresses, between the heap's two ranges (module documentation).
 pub const PLATFORM_AREA: std::ops::Range<u32> = HEAP_LOW_END..HEAP_HIGH_BASE;
+/// The built-in extenders' code addresses inside [`PLATFORM_AREA`]: their commands' handlers,
+/// evals and routines ([`crate::extend::EXECUTE_BASE`] and the rest; ADR-0016). Above every
+/// platform object address (the D3DX handles count up from 0x7E300000 in steps of 4).
+pub const EXTENDER_CODE: std::ops::Range<u32> = 0x7E80_0000..0x7F00_0000;
+/// The built-ins' static data inside [`PLATFORM_AREA`]: command tables, their strings and
+/// parameter lists, mapped by the extender that installs (ADR-0016).
+pub const BUILTIN_DATA: std::ops::Range<u32> = 0x7F00_0000..HEAP_HIGH_BASE;
+const _: () = assert!(
+    PLATFORM_AREA.start < EXTENDER_CODE.start
+        && EXTENDER_CODE.end == BUILTIN_DATA.start
+        && BUILTIN_DATA.end == PLATFORM_AREA.end
+);
 /// The most bytes one heap block can have: the larger of the heap's two ranges (a block never
 /// spans both).
 pub const HEAP_LARGEST_BLOCK: u32 = {
@@ -2111,6 +2126,22 @@ impl Mem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The extenders' code addresses and the built-ins' data lie in the platform's area, above
+    /// the platform's own code and module addresses, so no heap block can be one of them and no
+    /// reservation at a chosen address lands there (ADR-0016).
+    #[test]
+    fn the_extender_ranges_lie_in_the_platform_area() {
+        for code in [
+            crate::units::platform::loader::PROC_CODE,
+            crate::units::platform::loader::KERNEL32_MODULE,
+        ] {
+            assert!(PLATFORM_AREA.contains(&code), "{code:08x}");
+            assert!(code < EXTENDER_CODE.start, "{code:08x}");
+        }
+        assert!(PLATFORM_AREA.contains(&EXTENDER_CODE.start));
+        assert!(PLATFORM_AREA.contains(&(BUILTIN_DATA.end - 1)));
+    }
 
     /// A word written just past a guarded block is found when the block is freed, with the
     /// functions that allocated and freed it; writes inside it are not.

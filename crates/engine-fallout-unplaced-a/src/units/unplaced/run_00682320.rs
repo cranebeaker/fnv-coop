@@ -10,6 +10,9 @@ use crate::prelude::*;
 const COMMAND_PARAMETER_COUNT: u32 = 0x0068_2270;
 /// The parameter-table pointer of command record 0 (+0x24 of the 0x28-byte
 /// records from `01190900` on, indexed by the command's first `u16`).
+/// The code reads it as the table's start plus 0x14 (the immediate `00682352`, moved by a
+/// built-in script extender, ADR-0016).
+#[cfg(test)]
 const COMMAND_PARAMETERS: u32 = 0x0119_0924;
 /// The size of one command record.
 const COMMAND_RECORD_SIZE: u32 = 0x28;
@@ -30,9 +33,12 @@ pub fn fn_00682320(e: &mut Engine, command: Ptr, index: u32) -> bool {
         return false;
     }
     let opcode = u32::from(e.mem.u16(command.addr()));
-    let table = e
-        .mem
-        .u32(COMMAND_PARAMETERS.wrapping_add(opcode.wrapping_mul(COMMAND_RECORD_SIZE)));
+    let table = e.mem.u32(
+        e.script_tables()
+            .start
+            .wrapping_add(0x14)
+            .wrapping_add(opcode.wrapping_mul(COMMAND_RECORD_SIZE)),
+    );
     let kind = e.mem.u32(
         table
             .wrapping_add(index.wrapping_mul(PARAMETER_SIZE))

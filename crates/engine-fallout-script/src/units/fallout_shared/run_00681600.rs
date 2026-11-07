@@ -22,6 +22,7 @@ const FUNCTION_DATA: u32 = 0x0041_3f40;
 const PARAMETER_TAKES_TARGET: u32 = 0x0068_2320;
 /// The script function table (`01190910`, `SCRIPT_FUNCTION` (Xbox PDB),
 /// 0x28 bytes, indexed by the function number at +8).
+#[cfg(test)]
 const FUNCTION_TABLE: u32 = 0x0119_0910;
 const FUNCTION_ENTRY_SIZE: u32 = 0x28;
 /// `SCRIPT_FUNCTION::bReferenceFunction` (Xbox PDB, +0x10).
@@ -123,7 +124,12 @@ pub fn fn_00681600(
     if first == 0 && e.call(PARAMETER_TAKES_TARGET, &args![data, 0u32]).u8() != 0 {
         first = target;
     }
-    let entry = FUNCTION_TABLE + u32::from(e.mem.u16(data)) * FUNCTION_ENTRY_SIZE;
+    // The table's start as the exe's immediates `0068170B`, `00681722` and `00681752` give it
+    // (moved by a built-in script extender, ADR-0016).
+    let entry = e
+        .script_tables()
+        .start
+        .wrapping_add(u32::from(e.mem.u16(data)).wrapping_mul(FUNCTION_ENTRY_SIZE));
     let condition = e.mem.u32(entry + ENTRY_CONDITION_FUNCTION);
     if condition == 0 {
         return result;
