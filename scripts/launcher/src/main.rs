@@ -1055,10 +1055,10 @@ fn play(
     {
         package.log("settings.ini's NV_FIXES line is not used: Preset= chooses the fixes");
     }
-    for raw in ["NV_PRESET", "NV_FRAME_LIMIT"] {
+    for raw in ["NV_PRESET", "NV_FRAME_LIMIT", "NV_MENU_FRAME_LIMIT"] {
         if settings.0.keys().any(|k| k.eq_ignore_ascii_case(raw)) {
             package.log(&format!(
-                "settings.ini's {raw} line is not used: Preset= and FrameLimit= choose them (Settings.cmd)"
+                "settings.ini's {raw} line is not used: Preset=, FrameLimit= and MenuFrameLimit= choose them (Settings.cmd)"
             ));
         }
     }
@@ -1126,10 +1126,11 @@ fn play(
     }
 
     package.log(&format!(
-        "starting the game on {}; preset {}, frame limit {}; log {}",
+        "starting the game on {}; preset {}, frame limit {}, menu frame limit {}; log {}",
         data_argument.display(),
         game_switches[0].1,
         game_switches[1].1,
+        game_switches[2].1,
         log_path.display()
     ));
     let mut child = command.spawn().map_err(|e| Stop {
@@ -1176,13 +1177,15 @@ fn play(
 }
 
 /// The switches the launcher sets itself: a `NV_` line in settings.ini can't replace them (it
-/// could point the saves or settings anywhere). `NV_PRESET` and `NV_FRAME_LIMIT` come from the
-/// `Preset=` and `FrameLimit=` lines Settings.cmd writes, so a second, raw line can't disagree with
+/// could point the saves or settings anywhere). `NV_PRESET`, `NV_FRAME_LIMIT` and
+/// `NV_MENU_FRAME_LIMIT` come from the `Preset=`, `FrameLimit=` and `MenuFrameLimit=` lines
+/// Settings.cmd writes, so a second, raw line can't disagree with
 /// what Settings.cmd shows. `NV_FIXES` was never a switch of the game's (an early name for the
 /// preset, in a test): it is dropped, so a stale line can't look as if it did something.
-const OWN_SWITCHES: [&str; 14] = [
+const OWN_SWITCHES: [&str; 15] = [
     "NV_PRESET",
     "NV_FRAME_LIMIT",
+    "NV_MENU_FRAME_LIMIT",
     "NV_FIXES",
     "NV_D3D9",
     "NV_SOUND",
@@ -1479,17 +1482,18 @@ mod tests {
 
     #[test]
     fn the_preset_reaches_the_game_only_from_the_preset_line() {
-        // Raw NV_PRESET / NV_FRAME_LIMIT lines and a stale NV_FIXES don't go through; Preset= and
-        // FrameLimit= do, as the game's switches.
+        // Raw NV_PRESET / NV_FRAME_LIMIT / NV_MENU_FRAME_LIMIT lines and a stale NV_FIXES don't go
+        // through; Preset=, FrameLimit= and MenuFrameLimit= do, as the game's switches.
         let settings = Settings::parse(
-            "Preset=vanilla\nFrameLimit=90\nNV_PRESET=fixes\nnv_frame_limit=30\nNV_FIXES=vnv\n",
+            "Preset=vanilla\nFrameLimit=90\nMenuFrameLimit=60\nNV_PRESET=fixes\nnv_frame_limit=30\nNV_MENU_FRAME_LIMIT=0\nNV_FIXES=vnv\n",
         );
         assert!(user_switches(&settings).is_empty());
         assert_eq!(
             settings.game_switches().unwrap(),
             [
                 ("NV_PRESET", "vanilla".to_string()),
-                ("NV_FRAME_LIMIT", "90".to_string())
+                ("NV_FRAME_LIMIT", "90".to_string()),
+                ("NV_MENU_FRAME_LIMIT", "60".to_string())
             ]
         );
     }

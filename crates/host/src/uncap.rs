@@ -35,6 +35,26 @@
 //! under 16 ms, integrates once more for the rest of two 16 ms frames. Other frames run `Move` as
 //! it is, and the world's own Havok steps are not touched: they are 16 ms at any frame rate.
 //!
+//! **The menu frame limit (`NV_MENU_CAP`).** Uncapped, a menu runs at 170 frames a second and more
+//! for nothing. With this row the uncapped step paces the main timer by what the frame shows, the
+//! way the game itself tells (`Main::OnIdle`, `0086e650`): a menu is the menu-mode byte `011dea2b`
+//! the frame set at its start (`Interface::IsInMenuMode` or the Pip-Boy opening); loading is the
+//! loading menu up (`LoadingMenu::pMe`) with neither the main menu (`XUIIsUp`) nor the credits
+//! (`0086efa0`) over it, the frames in which `OnIdle` asks whether the load is done. A menu runs at
+//! most `MenuFrameLimit` frames a second (120 unless set, 0 for none; the player's `FrameLimit`
+//! when lower), a loading screen with no limit at all, and play at the player's `FrameLimit`. The
+//! row registers nothing of its own: it rides on the uncapped step, so with that off the original's
+//! own pacing runs and this does nothing.
+//!
+//! **Dragged bodies (`NV_GRAB_PUSH`).** The grab update (`00960520`, run once a rendered frame by
+//! the player's update, the dropped-object spring and telekinesis) gives a held body that is more
+//! than `fZKeyComplexHelperMinDistance` (6) units from where it should be a velocity of
+//! `(distance - 6) x fZKeyComplexHelperScale (2) / distance` times -1.0 times a weight factor, added
+//! to the body's velocity once a frame: at 144 frames a second it is pulled 2.4 times as hard as at
+//! 60. The override runs the grab update's three entries with `fZKeyComplexHelperScale` scaled by
+//! the frame's seconds times 60, at most 4 (TEMPO's rule in Fallout 3), and gives the setting back.
+//! The grab update is the setting's only reader.
+//!
 
 use crate::fixes::Fix;
 use engine::prelude::*;
@@ -42,6 +62,9 @@ use engine::units::bscore::bstimer::{fn_00aa4e40, fn_00aa4ee0, BSTimer};
 use engine::units::bshavok::bhkcharactercontroller::{
     bhk_character_controller_move, bhk_character_proxy_integrate,
     BhkCharacterController as Controller,
+};
+use engine::units::fallout_ai::playercharacter_p3::{
+    fn_0095f6c0, fn_00960520, player_character_update_drop_spring,
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
@@ -80,12 +103,120 @@ fn uncapped_entry(e: &mut Engine, a: &[u32]) -> Ret {
 /// Frames a second at most (0: no limit), bound once before the first frame
 /// ([`crate::fixes::install`]). A run has one host.
 static FRAME_LIMIT: AtomicU32 = AtomicU32::new(0);
+/// The menu frame limit when [`MENU_FIX`] is on (0: none), [`MENU_LIMIT_OFF`] when it is off.
+static MENU_FRAME_LIMIT: AtomicU32 = AtomicU32::new(MENU_LIMIT_OFF);
+const MENU_LIMIT_OFF: u32 = u32::MAX;
 /// When the next frame may start, on the microsecond clock.
 static NEXT_FRAME_US: AtomicU64 = AtomicU64::new(0);
 
 /// Binds the frame limit.
 pub fn set_frame_limit(frames_a_second: u32) {
     FRAME_LIMIT.store(frames_a_second, Ordering::Relaxed);
+}
+
+/// Binds the menu frame limit: `None` when [`MENU_FIX`] is off, else frames a second (0: none).
+pub fn set_menu_frame_limit(frames_a_second: Option<u32>) {
+    MENU_FRAME_LIMIT.store(
+        frames_a_second.map_or(MENU_LIMIT_OFF, |n| n.min(MENU_LIMIT_OFF - 1)),
+        Ordering::Relaxed,
+    );
+}
+
+/// The row in [`crate::fixes::FIXES`].
+pub const MENU_FIX: Fix = Fix {
+    name: "menu frame limit",
+    env: "NV_MENU_CAP",
+    addresses: &[],
+    summary: "menus at most MenuFrameLimit frames a second, loading screens unlimited",
+    install: install_menu_limit,
+};
+
+/// Registers nothing: [`crate::fixes::install`] binds the limit, which the uncapped step reads.
+pub fn install_menu_limit(_: &mut Engine) {}
+
+/// What a frame of the main loop shows, as the game tells (module documentation).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    Play,
+    Menu,
+    Loading,
+}
+
+impl Screen {
+    /// Its name in the frame log.
+    pub fn name(self) -> &'static str {
+        match self {
+            Screen::Play => "play",
+            Screen::Menu => "menu",
+            Screen::Loading => "loading",
+        }
+    }
+}
+
+/// The menu-mode byte `Main::OnIdle` sets at the start of each frame.
+const MENU_MODE: u32 = 0x011d_ea2b;
+/// `LoadingMenu::pMe`.
+const LOADING_MENU: u32 = 0x011d_a0c0;
+/// `StartMenu::pMe` and its flag word: `XUIIsUp` (`0070edf0`) is the menu there without bit 0 (the
+/// main menu, not the pause menu), `0086efa0` the menu with bit `0x10000` (the credits).
+const START_MENU: u32 = 0x011d_aac0;
+const START_MENU_FLAGS: u32 = 0x1a8;
+const START_MENU_IN_GAME: u32 = 1;
+const START_MENU_CREDITS: u32 = 0x1_0000;
+
+/// What this frame shows: `OnIdle`'s own tests, read from memory (`0086e89c` to `0086e8d3` for
+/// loading, `011dea2b` for a menu).
+pub fn screen(e: &Engine) -> Screen {
+    if e.mem.u32(LOADING_MENU) != 0 {
+        let start = e.mem.u32(START_MENU);
+        let flags = if start == 0 {
+            0
+        } else {
+            e.mem.u32(start + START_MENU_FLAGS)
+        };
+        let credits = start != 0 && flags & START_MENU_CREDITS != 0;
+        let main_menu = start != 0 && flags & START_MENU_IN_GAME == 0;
+        if !credits && !main_menu {
+            return Screen::Loading;
+        }
+    }
+    if e.mem.u8(MENU_MODE) != 0 {
+        Screen::Menu
+    } else {
+        Screen::Play
+    }
+}
+
+/// Frames a second at most for a frame showing `screen` (0: no limit): the player's limit in play,
+/// the lower of the two in a menu (either 0 is no limit of its own), none while loading.
+pub fn frame_limit_for(screen: Screen, player: u32, menu: u32) -> u32 {
+    match screen {
+        Screen::Play => player,
+        Screen::Loading => 0,
+        Screen::Menu => match (player, menu) {
+            (0, menu) => menu,
+            (player, 0) => player,
+            (player, menu) => player.min(menu),
+        },
+    }
+}
+
+/// The main timer's limit this frame.
+fn main_frame_limit(e: &Engine) -> u32 {
+    let menu = match MENU_FRAME_LIMIT.load(Ordering::Relaxed) {
+        MENU_LIMIT_OFF => None,
+        menu => Some(menu),
+    };
+    limit_this_frame(e, FRAME_LIMIT.load(Ordering::Relaxed), menu)
+}
+
+/// The limit for this frame with the player's limit and the menu limit (`None`: the row is off, and
+/// the player's limit holds everywhere, as before it).
+fn limit_this_frame(e: &Engine, player: u32, menu: Option<u32>) -> u32 {
+    match menu {
+        None => player,
+        Some(menu) => frame_limit_for(screen(e), player, menu),
+    }
 }
 
 /// The player's frame limit, at the main timer's step: gives the other game threads their turn
@@ -176,8 +307,12 @@ pub fn uncapped_step(e: &mut Engine, this: Ptr<BSTimer>, now: u32) {
         fn_00aa4ee0(e, this, now);
         return;
     }
-    let limit = FRAME_LIMIT.load(Ordering::Relaxed);
-    let paced = limit != 0 && this.addr() == MAIN_TIMER;
+    let limit = if this.addr() == MAIN_TIMER {
+        main_frame_limit(e)
+    } else {
+        0
+    };
+    let paced = limit != 0;
     if paced {
         wait_for_frame_limit(e, limit);
     }
@@ -368,6 +503,83 @@ fn time_multiplier_ramp(e: &mut Engine) {
     e.mem.set_f32(GLOBAL_TIME_MULTIPLIER, moved);
 }
 
+/// The row in [`crate::fixes::FIXES`].
+pub const GRAB_FIX: Fix = Fix {
+    name: "dragged bodies by time",
+    env: "NV_GRAB_PUSH",
+    addresses: &[PLAYER_GRAB_UPDATE, DROP_SPRING_UPDATE, GRAB_UPDATE],
+    summary: "a held body's per-frame pull scaled by the frame's time, as at 60 frames a second",
+    install: install_grab,
+};
+
+/// The player's grab handling (`0095f6c0`, `PlayerCharacter::Update` once a frame), the dropped-object
+/// spring (`PlayerCharacter::UpdateDropSpring`) and the grab update itself, which telekinesis
+/// (`TelekinesisEffect::Update`) calls: the three entries to the pull, each given the frame's seconds.
+/// The first two call the grab update in Rust, so each is wrapped.
+const PLAYER_GRAB_UPDATE: u32 = 0x0095_f6c0;
+const DROP_SPRING_UPDATE: u32 = 0x0096_13c0;
+const GRAB_UPDATE: u32 = 0x0096_0520;
+/// `fZKeyComplexHelperScale`'s value (the setting object at `011d0808`, its float at `+4`): read
+/// only by the grab update's pull (`00960e2a`).
+const HELPER_SCALE: u32 = 0x011d_0808 + 4;
+/// The frame the pull was made for, and TEMPO's cap on the scale.
+const GRAB_FRAMES_A_SECOND: f32 = 60.0;
+const MOST_GRAB_SCALE: f32 = 4.0;
+thread_local! {
+    /// Entries under way on this thread: a nested one (none today) keeps the outer one's scale.
+    static GRAB_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Registers the three entries.
+pub fn install_grab(e: &mut Engine) {
+    e.register(PLAYER_GRAB_UPDATE, |e, a| {
+        let seconds = f32::from_bits(a[1]);
+        with_grab_scale(e, seconds, |e| fn_0095f6c0(e, Ptr::new(a[0]), seconds));
+        Ret::default()
+    });
+    e.register(DROP_SPRING_UPDATE, |e, a| {
+        let seconds = f32::from_bits(a[1]);
+        with_grab_scale(e, seconds, |e| {
+            player_character_update_drop_spring(e, Ptr::new(a[0]), seconds)
+        })
+        .into_ret()
+    });
+    e.register(GRAB_UPDATE, |e, a| {
+        let seconds = f32::from_bits(a[1]);
+        with_grab_scale(e, seconds, |e| fn_00960520(e, Ptr::new(a[0]), seconds));
+        Ret::default()
+    });
+}
+
+/// How much of the 60-frames-a-second pull this frame gets: its seconds times 60, at most 4; a time
+/// that isn't a number keeps the pull as it is.
+fn grab_scale(seconds: f32) -> f32 {
+    if seconds.is_nan() {
+        return 1.0;
+    }
+    (seconds * GRAB_FRAMES_A_SECOND).clamp(0.0, MOST_GRAB_SCALE)
+}
+
+/// Runs `run` with `fZKeyComplexHelperScale` scaled for this frame, then gives the setting back
+/// (unless something set it meanwhile), also when a C++ throw unwinds through.
+fn with_grab_scale<R>(e: &mut Engine, seconds: f32, run: impl FnOnce(&mut Engine) -> R) -> R {
+    let outer = GRAB_DEPTH.with(|d| d.replace(d.get() + 1)) == 0;
+    let kept = outer.then(|| {
+        let base = e.mem.f32(HELPER_SCALE);
+        let scaled = (f64::from(base) * f64::from(grab_scale(seconds))) as f32;
+        e.mem.set_f32(HELPER_SCALE, scaled);
+        (base, scaled)
+    });
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&mut *e)));
+    if let Some((base, scaled)) = kept {
+        if e.mem.f32(HELPER_SCALE).to_bits() == scaled.to_bits() {
+            e.mem.set_f32(HELPER_SCALE, base);
+        }
+    }
+    GRAB_DEPTH.with(|d| d.set(d.get() - 1));
+    result.unwrap_or_else(|p| std::panic::resume_unwind(p))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,12 +740,123 @@ mod tests {
         }
     }
 
+    /// An engine with the pages `screen` reads, and a start menu object at `0x7000`.
+    fn screen_engine() -> Engine {
+        let mut e = Engine::new();
+        for page in [LOADING_MENU, START_MENU, MENU_MODE] {
+            e.map(page & !0xfff, 0x1000);
+        }
+        e.map(0x7000, 0x1000);
+        e
+    }
+
+    /// `OnIdle`'s own tests: the menu byte is a menu; the loading menu is loading unless the main
+    /// menu or the credits are over it (the pause menu isn't).
+    #[test]
+    fn the_screen_is_what_the_main_loop_tests() {
+        let mut e = screen_engine();
+        assert_eq!(screen(&e), Screen::Play);
+        e.mem.set_u8(MENU_MODE, 1);
+        assert_eq!(screen(&e), Screen::Menu);
+        // A load: menu mode too, but loading first.
+        e.mem.set_u32(LOADING_MENU, 0x5000);
+        assert_eq!(screen(&e), Screen::Loading);
+        // The main menu over the loading menu (its background): a menu.
+        e.mem.set_u32(START_MENU, 0x7000);
+        e.mem.set_u32(0x7000 + START_MENU_FLAGS, 0);
+        assert_eq!(screen(&e), Screen::Menu);
+        // The pause menu (bit 0) doesn't hide a load; the credits do.
+        e.mem.set_u32(0x7000 + START_MENU_FLAGS, START_MENU_IN_GAME);
+        assert_eq!(screen(&e), Screen::Loading);
+        e.mem.set_u32(
+            0x7000 + START_MENU_FLAGS,
+            START_MENU_IN_GAME | START_MENU_CREDITS,
+        );
+        assert_eq!(screen(&e), Screen::Menu);
+        e.mem.set_u32(LOADING_MENU, 0);
+        e.mem.set_u8(MENU_MODE, 0);
+        assert_eq!(screen(&e), Screen::Play);
+    }
+
+    /// Menus at the menu limit unless the player's is lower, loading never limited, play at the
+    /// player's limit; either 0 is no limit of its own.
+    #[test]
+    fn the_limit_is_chosen_by_the_screen() {
+        use Screen::*;
+        assert_eq!(frame_limit_for(Play, 0, 120), 0);
+        assert_eq!(frame_limit_for(Play, 144, 120), 144);
+        assert_eq!(frame_limit_for(Menu, 0, 120), 120);
+        assert_eq!(frame_limit_for(Menu, 60, 120), 60);
+        assert_eq!(frame_limit_for(Menu, 144, 120), 120);
+        assert_eq!(frame_limit_for(Menu, 144, 0), 144);
+        assert_eq!(frame_limit_for(Menu, 0, 0), 0);
+        assert_eq!(frame_limit_for(Loading, 0, 120), 0);
+        assert_eq!(frame_limit_for(Loading, 60, 30), 0);
+
+        // With the row off the player's limit holds on every screen, as before it.
+        let mut e = screen_engine();
+        e.mem.set_u8(MENU_MODE, 1);
+        assert_eq!(limit_this_frame(&e, 0, None), 0);
+        assert_eq!(limit_this_frame(&e, 90, None), 90);
+        assert_eq!(limit_this_frame(&e, 0, Some(120)), 120);
+        e.mem.set_u32(LOADING_MENU, 0x5000);
+        assert_eq!(limit_this_frame(&e, 90, None), 90);
+        assert_eq!(limit_this_frame(&e, 90, Some(120)), 0);
+        e.mem.set_u32(LOADING_MENU, 0);
+        e.mem.set_u8(MENU_MODE, 0);
+        assert_eq!(limit_this_frame(&e, 90, Some(120)), 90);
+    }
+
+    /// The pull of a held body: the setting scaled by the frame's seconds times 60 while the grab
+    /// update runs, at most 4, given back afterwards.
+    #[test]
+    fn the_pull_follows_the_frame_time() {
+        let mut e = Engine::new();
+        e.map(HELPER_SCALE & !0xfff, 0x1000);
+        e.mem.set_f32(HELPER_SCALE, 2.0);
+        let seen =
+            |e: &mut Engine, seconds: f32| with_grab_scale(e, seconds, |e| e.mem.f32(HELPER_SCALE));
+        assert!((seen(&mut e, 1.0 / 60.0) - 2.0).abs() < 1e-6);
+        let at_144 = seen(&mut e, 1.0 / 144.0);
+        assert!((at_144 - 2.0 * 60.0 / 144.0).abs() < 1e-6, "{at_144}");
+        // A second's pull is the same: 144 frames of it against 60 at 60 frames a second.
+        assert!((144.0 * at_144 - 60.0 * 2.0).abs() < 1e-3);
+        // A slow frame (50 ms) pulls three frames' worth; 100 ms stops at 4 (TEMPO's cap).
+        assert!((seen(&mut e, 0.05) - 6.0).abs() < 1e-5);
+        assert_eq!(seen(&mut e, 0.1), 8.0);
+        // No time passed: no pull; a time that isn't a number: the pull as it is.
+        assert_eq!(seen(&mut e, 0.0), 0.0);
+        assert_eq!(seen(&mut e, f32::NAN), 2.0);
+        assert_eq!(e.mem.f32(HELPER_SCALE), 2.0);
+        // A nested entry keeps the outer scale.
+        let nested = with_grab_scale(&mut e, 1.0 / 120.0, |e| {
+            with_grab_scale(e, 1.0 / 30.0, |e| e.mem.f32(HELPER_SCALE))
+        });
+        assert_eq!(nested, 1.0);
+        assert_eq!(e.mem.f32(HELPER_SCALE), 2.0);
+        // Something that sets the setting meanwhile keeps its value.
+        with_grab_scale(&mut e, 1.0 / 144.0, |e| e.mem.set_f32(HELPER_SCALE, 3.0));
+        assert_eq!(e.mem.f32(HELPER_SCALE), 3.0);
+        // A throw through it gives the setting back.
+        e.mem.set_f32(HELPER_SCALE, 2.0);
+        let thrown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_grab_scale(&mut e, 1.0 / 144.0, |_| panic!("thrown"))
+        }));
+        assert!(thrown.is_err());
+        assert_eq!(e.mem.f32(HELPER_SCALE), 2.0);
+        assert_eq!(seen(&mut e, 1.0 / 30.0), 4.0);
+    }
+
     /// The limit holds whole frames at the main timer only, gives the other threads their turn
     /// first, and doesn't catch up after a long frame.
     #[test]
     fn the_frame_limit_paces_the_main_timer() {
         let (mut e, _, slept) = timer_engine();
         e.map(MAIN_TIMER & !0xfff, 0x1000);
+        // The pages the menu frame limit reads, should another test have bound it: all zero, play.
+        for page in [LOADING_MENU, START_MENU, MENU_MODE] {
+            e.map(page & !0xfff, 0x1000);
+        }
         let main: Ptr<BSTimer> = Ptr::new(MAIN_TIMER);
         e.set(main, BSTimer::iLastTime, 1000);
         NEXT_FRAME_US.store(0, Ordering::Relaxed);

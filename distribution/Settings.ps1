@@ -1,17 +1,19 @@
 # Settings for nv-rs. Writes userdata\settings.ini next to this file; Play.exe applies it at each
 # start, to its own copy of FalloutPrefs.ini (never your real Documents). A line this window doesn't
 # know stays in the file as it is, and Play.exe hands a line starting with NV_ to the game as a switch,
-# so new settings can join without a new window. Preset and FrameLimit are the game's fixes preset
-# (fixes or vanilla) and frame limit (0: none), which Play.exe passes on as NV_PRESET and NV_FRAME_LIMIT.
+# so new settings can join without a new window. Preset, FrameLimit and MenuFrameLimit are the game's
+# fixes preset (fixes or vanilla), frame limit (0: none) and frame limit in menus (120 unless chosen, 0:
+# none), which Play.exe passes on as NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT.
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $folder = Join-Path $PSScriptRoot 'userdata'
 $file = Join-Path $folder 'settings.ini'
-$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit')
-# Play.exe makes the game's NV_PRESET and NV_FRAME_LIMIT from Preset and FrameLimit, and NV_FIXES was
-# never one of the game's switches: such lines would only look as if they did something.
-$dropped = @('NV_PRESET', 'NV_FRAME_LIMIT', 'NV_FIXES')
+$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit', 'MenuFrameLimit')
+# Play.exe makes the game's NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT from Preset, FrameLimit and
+# MenuFrameLimit, and NV_FIXES was never one of the game's switches: such lines would only look as if
+# they did something.
+$dropped = @('NV_PRESET', 'NV_FRAME_LIMIT', 'NV_MENU_FRAME_LIMIT', 'NV_FIXES')
 $cur = @{}
 $kept = New-Object System.Collections.Generic.List[string]
 if (Test-Path -LiteralPath $file) {
@@ -34,7 +36,7 @@ $form.Text = 'nv-rs settings'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(360, 362)
+$form.ClientSize = New-Object System.Drawing.Size(360, 398)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $y = 16
@@ -76,6 +78,13 @@ $limit = Get-Setting 'FrameLimit' '0'
 if ($limit -match '^\d+$' -and $limit -ne '0' -and $limits -notcontains $limit) { $limits += $limit }
 $fl = New-Combo $limits $(if ($limit -eq '0' -or $limit -eq '') { 'No limit' } else { $limit })
 Add-Row 'Frame rate limit' $fl
+# Menus (main menu, Pip-Boy, dialogue, pause): 120 unless chosen; the frame limit above wins when lower.
+$menuLimits = @('No limit', '30', '60', '90', '120', '144', '165', '240')
+$menuLimit = Get-Setting 'MenuFrameLimit' '120'
+if ($menuLimit -eq '') { $menuLimit = '120' }
+if ($menuLimit -match '^\d+$' -and $menuLimit -ne '0' -and $menuLimits -notcontains $menuLimit) { $menuLimits += $menuLimit }
+$ml = New-Combo $menuLimits $(if ($menuLimit -eq '0') { 'No limit' } else { $menuLimit })
+Add-Row 'Frame rate limit in menus' $ml
 
 $note = New-Object System.Windows.Forms.Label
 $note.Text = "`"$own`" keeps what the game has now.`nBorderless fullscreen covers the main monitor."
@@ -85,13 +94,13 @@ $form.Controls.Add($note)
 
 $save = New-Object System.Windows.Forms.Button
 $save.Text = 'Save'
-$save.Location = New-Object System.Drawing.Point(184, 322)
+$save.Location = New-Object System.Drawing.Point(184, 358)
 $save.DialogResult = 'OK'
 $form.Controls.Add($save)
 $form.AcceptButton = $save
 $cancel = New-Object System.Windows.Forms.Button
 $cancel.Text = 'Cancel'
-$cancel.Location = New-Object System.Drawing.Point(268, 322)
+$cancel.Location = New-Object System.Drawing.Point(268, 358)
 $cancel.DialogResult = 'Cancel'
 $form.Controls.Add($cancel)
 $form.CancelButton = $cancel
@@ -106,6 +115,7 @@ if ($form.ShowDialog() -eq 'OK') {
         "VSync=$($vs.SelectedItem)"
         "Preset=$(if ($pr.SelectedIndex -eq 1) { 'vanilla' } else { 'fixes' })"
         "FrameLimit=$(if ($fl.SelectedIndex -eq 0) { 0 } else { $fl.SelectedItem })"
+        "MenuFrameLimit=$(if ($ml.SelectedIndex -eq 0) { 0 } else { $ml.SelectedItem })"
     ) + $kept
     [void][IO.Directory]::CreateDirectory($folder)
     [IO.File]::WriteAllLines($file, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))

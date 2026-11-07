@@ -56,12 +56,14 @@ Bug fixes
 ---------
 Bug fixes are on by default. With them, the frame rate isn't held to the original's limit, the game's
 time keeps pace with real time at high frame rates (the original runs fast there), and your character
-lands on the floor after a jump instead of hovering a little above it.
+lands on the floor after a jump instead of hovering a little above it. Menus run at up to 120 frames a
+second (loading screens as fast as they can), and a dragged body is pulled as hard at any frame rate.
 
 To play the original game's behaviour instead, open Settings.cmd and choose "Vanilla (the original
 game)" under Game fixes. Settings.cmd can also set a frame limit (60, 120, 144 and so on) or no limit,
-which is the default. The frame limit only works with the fixes on. Settings.cmd keeps both in
-userdata\settings.ini, as Preset=fixes or Preset=vanilla and FrameLimit=0 (no limit) or a number.
+which is the default, and a frame limit in menus (120 unless you choose another, or none). The frame
+limits only work with the fixes on. Settings.cmd keeps them in userdata\settings.ini, as Preset=fixes
+or Preset=vanilla, FrameLimit=0 (no limit) or a number, and MenuFrameLimit=120, 0 or a number.
 
 
 What works

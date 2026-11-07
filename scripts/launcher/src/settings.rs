@@ -2,9 +2,12 @@
 //! Names the launcher doesn't know are kept by Settings.cmd and ignored here, so a new setting can
 //! join without a new launcher. A name starting with `NV_` goes to the game's environment as it is
 //! (but the launcher's own switches: `main.rs`'s `OWN_SWITCHES`), which is how a switch of the
-//! game's own can join Settings later. `Preset` and `FrameLimit` become the game's `NV_PRESET` and
-//! `NV_FRAME_LIMIT` ([`Settings::game_switches`]).
+//! game's own can join Settings later. `Preset`, `FrameLimit` and `MenuFrameLimit` become the game's
+//! `NV_PRESET`, `NV_FRAME_LIMIT` and `NV_MENU_FRAME_LIMIT` ([`Settings::game_switches`]).
 use std::collections::BTreeMap;
+
+/// Menus' frames a second at most with no `MenuFrameLimit=` line: the game's default.
+const MENU_FRAME_LIMIT: u32 = 120;
 
 /// The file's text as the game decodes it (host `fixes.rs`): a UTF-8 byte order mark dropped,
 /// UTF-16 (what PowerShell 5.1's `>` writes) decoded, anything else read as UTF-8 with bad bytes
@@ -72,12 +75,13 @@ impl Settings {
             .map(|(_, v)| v.as_str())
     }
 
-    /// The game's fixes preset and frame limit as its switches, `NV_PRESET` (`fixes` or `vanilla`)
-    /// and `NV_FRAME_LIMIT` (frames a second, 0 for no limit), from `Preset=` and `FrameLimit=`:
-    /// the fixes and no limit when a line is missing or empty. Always both, so a test switch in the
+    /// The game's fixes preset and frame limits as its switches, `NV_PRESET` (`fixes` or `vanilla`),
+    /// `NV_FRAME_LIMIT` and `NV_MENU_FRAME_LIMIT` (frames a second, 0 for no limit), from
+    /// `Preset=`, `FrameLimit=` and `MenuFrameLimit=`: the fixes, no limit and menus at 120 (the
+    /// game's own default, host `fixes.rs`) when a line is missing or empty. Always both, so a test switch in the
     /// file or the launcher's own environment can't turn the player's game to vanilla unasked. A
     /// value the game wouldn't take is an error the player reads, never a silent default.
-    pub fn game_switches(&self) -> Result<[(&'static str, String); 2], String> {
+    pub fn game_switches(&self) -> Result<[(&'static str, String); 3], String> {
         let preset = match self.get_any_case("Preset").map(str::trim) {
             None | Some("") => "fixes".to_string(),
             Some(v) if v.eq_ignore_ascii_case("fixes") => "fixes".to_string(),
@@ -90,7 +94,17 @@ impl Settings {
                 .parse::<u32>()
                 .map_err(|_| format!("FrameLimit={v} (it can be a number, 0 for no limit)"))?,
         };
-        Ok([("NV_PRESET", preset), ("NV_FRAME_LIMIT", limit.to_string())])
+        let menu = match self.get_any_case("MenuFrameLimit").map(str::trim) {
+            None | Some("") => MENU_FRAME_LIMIT,
+            Some(v) => v
+                .parse::<u32>()
+                .map_err(|_| format!("MenuFrameLimit={v} (it can be a number, 0 for no limit)"))?,
+        };
+        Ok([
+            ("NV_PRESET", preset),
+            ("NV_FRAME_LIMIT", limit.to_string()),
+            ("NV_MENU_FRAME_LIMIT", menu.to_string()),
+        ])
     }
 
     /// The game's environment switches from the file (`NV_...=...`).
@@ -223,10 +237,33 @@ mod tests {
     }
 
     fn pair(preset: &str, limit: &str) -> Vec<(&'static str, String)> {
+        with_menu(preset, limit, "120")
+    }
+
+    fn with_menu(preset: &str, limit: &str, menu: &str) -> Vec<(&'static str, String)> {
         vec![
             ("NV_PRESET", preset.to_string()),
             ("NV_FRAME_LIMIT", limit.to_string()),
+            ("NV_MENU_FRAME_LIMIT", menu.to_string()),
         ]
+    }
+
+    #[test]
+    fn the_menu_frame_limit_becomes_the_games_switch() {
+        assert_eq!(
+            switches("MenuFrameLimit=\n"),
+            Ok(with_menu("fixes", "0", "120"))
+        );
+        assert_eq!(
+            switches("FrameLimit=144\nMenuFrameLimit=60\n"),
+            Ok(with_menu("fixes", "144", "60"))
+        );
+        assert_eq!(
+            switches("menuframelimit = 0\n"),
+            Ok(with_menu("fixes", "0", "0"))
+        );
+        let e = switches("MenuFrameLimit=fast\n").unwrap_err();
+        assert!(e.contains("MenuFrameLimit=fast"), "{e}");
     }
 
     #[test]

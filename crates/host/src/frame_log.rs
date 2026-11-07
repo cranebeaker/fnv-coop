@@ -1,5 +1,6 @@
 //! `NV_FRAME_LOG=FILE`: one line for each of main's frames, a measuring aid (docs/FIXES.md): the
-//! microsecond clock, the main timer's step, the Havok accumulator and the player's position.
+//! microsecond clock, the main timer's step, the Havok accumulator, the player's position and
+//! whether the frame shows play, a menu or a loading screen (`uncap::screen`).
 //! It reads guest memory between frames, so unlike a trace it sends no call down the slow path and
 //! the frame rate stays the player's. Off, nothing runs.
 
@@ -33,7 +34,10 @@ impl FrameLog {
             }
         };
         let mut out = std::io::BufWriter::new(file);
-        let _ = writeln!(out, "frame\tus\tm_fdelta\thk_count\thk_time\tpx\tpy\tpz");
+        let _ = writeln!(
+            out,
+            "frame\tus\tm_fdelta\thk_count\thk_time\tpx\tpy\tpz\tscreen"
+        );
         Some(FrameLog { out, frame: 0 })
     }
 
@@ -51,8 +55,12 @@ impl FrameLog {
         };
         let _ = writeln!(
             self.out,
-            "{}\t{us}\t{delta}\t{count}\t{time}\t{}\t{}\t{}",
-            self.frame, at[0], at[1], at[2]
+            "{}\t{us}\t{delta}\t{count}\t{time}\t{}\t{}\t{}\t{}",
+            self.frame,
+            at[0],
+            at[1],
+            at[2],
+            crate::uncap::screen(e).name()
         );
         self.frame += 1;
     }

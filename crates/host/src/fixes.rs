@@ -33,7 +33,12 @@ pub static FIXES: &[Fix] = &[
     crate::uncap::FIX,
     crate::uncap::PHYSICS_FIX,
     crate::uncap::SLOW_MOTION_FIX,
+    crate::uncap::MENU_FIX,
+    crate::uncap::GRAB_FIX,
 ];
+
+/// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
+pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
 
 /// The player's one line: the fixes set, or the original's behaviour.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -70,6 +75,9 @@ pub struct Choice {
     /// Frames a second at most, 0 for no limit. Only the uncapped step reads it: the original's
     /// own limit is its sleep, which vanilla keeps.
     pub frame_limit: u32,
+    /// Frames a second at most in a menu, 0 for no limit of its own: read by the menu frame limit
+    /// ([`crate::uncap::MENU_FIX`]), which rides on the uncapped step.
+    pub menu_frame_limit: u32,
     /// Fixes one environment variable turned on or off, by [`Fix::env`].
     overrides: Vec<(&'static str, bool)>,
 }
@@ -81,12 +89,14 @@ impl Choice {
         Choice {
             preset: Preset::Vanilla,
             frame_limit: 0,
+            menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
         }
     }
 
     /// The choice from the settings file ([`settings_file`]) and the environment, which wins:
-    /// `NV_PRESET=vanilla|fixes`, `NV_FRAME_LIMIT=n`, and each [`Fix::env`]. Anything it can't
+    /// `NV_PRESET=vanilla|fixes`, `NV_FRAME_LIMIT=n`, `NV_MENU_FRAME_LIMIT=n`, and each
+    /// [`Fix::env`]. Anything it can't
     /// read stops the start with a message, so a misspelt pin never runs the wrong game.
     pub fn read() -> Result<Choice, String> {
         Choice::from_file(settings_file().as_deref(), |name| std::env::var(name).ok())
@@ -123,6 +133,7 @@ impl Choice {
         let mut choice = Choice {
             preset: Preset::Fixes,
             frame_limit: 0,
+            menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
         };
         for line in settings.unwrap_or("").lines() {
@@ -144,10 +155,19 @@ impl Choice {
                     continue;
                 }
                 choice.frame_limit = parse_limit(value, "settings.ini's FrameLimit")?;
+            } else if key.eq_ignore_ascii_case("MenuFrameLimit") {
+                // An empty line is the default, as the launcher reads it.
+                if env("NV_MENU_FRAME_LIMIT").is_some() || value.trim().is_empty() {
+                    continue;
+                }
+                choice.menu_frame_limit = parse_limit(value, "settings.ini's MenuFrameLimit")?;
             }
         }
         if let Some(value) = env("NV_FRAME_LIMIT") {
             choice.frame_limit = parse_limit(&value, "NV_FRAME_LIMIT")?;
+        }
+        if let Some(value) = env("NV_MENU_FRAME_LIMIT") {
+            choice.menu_frame_limit = parse_limit(&value, "NV_MENU_FRAME_LIMIT")?;
         }
         for fix in FIXES {
             match env(fix.env).as_deref().map(str::trim) {
@@ -170,6 +190,12 @@ impl Choice {
         Ok(choice)
     }
 
+    /// The menu frame limit the uncapped step gets: `None` when [`crate::uncap::MENU_FIX`] is off.
+    pub fn bound_menu_frame_limit(&self) -> Option<u32> {
+        self.is_on(&crate::uncap::MENU_FIX)
+            .then_some(self.menu_frame_limit)
+    }
+
     /// Whether this fix runs: its environment variable if set, else the preset.
     pub fn is_on(&self, fix: &Fix) -> bool {
         self.overrides
@@ -185,10 +211,16 @@ impl Choice {
             .filter(|f| self.is_on(f))
             .map(|f| f.name)
             .collect();
-        let limit = if self.frame_limit == 0 || !on.contains(&crate::uncap::FIX.name) {
-            String::new()
+        let uncapped = on.contains(&crate::uncap::FIX.name);
+        let menu = match self.bound_menu_frame_limit() {
+            Some(0) if uncapped => ", menus no limit of their own".to_string(),
+            Some(n) if uncapped => format!(", menu limit {n}"),
+            _ => String::new(),
+        };
+        let limit = if self.frame_limit == 0 || !uncapped {
+            menu
         } else {
-            format!(", frame limit {}", self.frame_limit)
+            format!("{menu}, frame limit {}", self.frame_limit)
         };
         format!(
             "Preset {}: {}{limit}",
@@ -284,6 +316,7 @@ fn parse_limit(value: &str, source: &str) -> Result<u32, String> {
 /// for the whole run.
 pub fn install(e: &mut Engine, choice: &Choice) {
     crate::uncap::set_frame_limit(choice.frame_limit);
+    crate::uncap::set_menu_frame_limit(choice.bound_menu_frame_limit());
     for fix in FIXES.iter().filter(|f| choice.is_on(f)) {
         (fix.install)(e);
     }
@@ -498,6 +531,70 @@ mod tests {
         assert_eq!(choice.preset, Preset::Fixes);
     }
 
+    /// Menus at 120 unless the file or the environment says otherwise; its own switch turns it off,
+    /// and vanilla binds nothing.
+    #[test]
+    fn the_menu_frame_limit_and_its_switch() {
+        let limit = |text: Option<&str>, pairs: &'static [(&'static str, &'static str)]| {
+            Choice::from_parts(text, env_of(pairs))
+                .unwrap()
+                .bound_menu_frame_limit()
+        };
+        assert_eq!(limit(None, &[]), Some(DEFAULT_MENU_FRAME_LIMIT));
+        assert_eq!(limit(Some("MenuFrameLimit=60\n"), &[]), Some(60));
+        assert_eq!(limit(Some("menuframelimit = 0\n"), &[]), Some(0));
+        assert_eq!(limit(Some("MenuFrameLimit=\n"), &[]), Some(120));
+        assert_eq!(
+            limit(Some("MenuFrameLimit=60\n"), &[("NV_MENU_FRAME_LIMIT", "0")]),
+            Some(0)
+        );
+        assert_eq!(
+            limit(
+                Some("MenuFrameLimit=fast\n"),
+                &[("NV_MENU_FRAME_LIMIT", "90")]
+            ),
+            Some(90)
+        );
+        assert!(Choice::from_parts(Some("MenuFrameLimit=fast\n"), no_env).is_err());
+        assert!(Choice::from_parts(None, env_of(&[("NV_MENU_FRAME_LIMIT", "-1")])).is_err());
+        // Vanilla and the row's own switch: nothing bound, and the uncapped step stays.
+        assert_eq!(Choice::vanilla().bound_menu_frame_limit(), None);
+        assert_eq!(
+            limit(Some("Preset=vanilla\nMenuFrameLimit=60\n"), &[]),
+            None
+        );
+        let choice = Choice::from_parts(
+            None,
+            env_of(&[("NV_PRESET", "fixes"), ("NV_MENU_CAP", "0")]),
+        )
+        .unwrap();
+        assert_eq!(choice.bound_menu_frame_limit(), None);
+        assert!(choice.is_on(&crate::uncap::FIX));
+        assert!(!choice.describe().contains("menu"), "{}", choice.describe());
+        // The start-up line says it, and says nothing when the uncapped step is off.
+        let line = Choice::from_parts(None, no_env).unwrap().describe();
+        assert!(line.ends_with(", menu limit 120"), "{line}");
+        let line = Choice::from_parts(None, env_of(&[("NV_PRESET", "fixes"), ("NV_UNCAP", "0")]))
+            .unwrap()
+            .describe();
+        assert!(!line.contains("menu limit"), "{line}");
+    }
+
+    /// The fixes preset turns the dragged-body row on; vanilla and its own switch leave it off.
+    #[test]
+    fn the_grab_row_follows_the_preset_and_its_switch() {
+        let fixes = Choice::from_parts(None, no_env).unwrap();
+        assert!(fixes.is_on(&crate::uncap::GRAB_FIX));
+        assert!(!Choice::vanilla().is_on(&crate::uncap::GRAB_FIX));
+        let off = Choice::from_parts(
+            None,
+            env_of(&[("NV_PRESET", "fixes"), ("NV_GRAB_PUSH", "0")]),
+        )
+        .unwrap();
+        assert!(!off.is_on(&crate::uncap::GRAB_FIX));
+        assert!(off.is_on(&crate::uncap::FIX));
+    }
+
     #[test]
     fn vanilla_and_a_log_line() {
         assert_eq!(Choice::vanilla().describe(), "Preset vanilla: no fix on");
@@ -514,7 +611,12 @@ mod tests {
     fn every_fix_address_is_listed_as_overridable() {
         let table = include_str!("../../engine-core/data/overridable.tsv");
         for fix in FIXES {
-            assert!(!fix.addresses.is_empty(), "{}", fix.name);
+            // The menu frame limit registers nothing: it paces the uncapped step.
+            assert!(
+                !fix.addresses.is_empty() || fix.name == crate::uncap::MENU_FIX.name,
+                "{}",
+                fix.name
+            );
             for address in fix.addresses {
                 let hex = format!("{address:08x}\t");
                 assert!(
