@@ -36,6 +36,7 @@ pub static FIXES: &[Fix] = &[
     crate::uncap::MENU_FIX,
     crate::uncap::GRAB_FIX,
     crate::phys_blend::FIX,
+    crate::mod_fit_worn::FIX,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
