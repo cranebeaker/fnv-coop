@@ -754,7 +754,7 @@ mod tests {
     /// menu or the credits are over it (the pause menu isn't).
     #[test]
     fn the_screen_is_what_the_main_loop_tests() {
-        let mut e = screen_engine();
+        let e = screen_engine();
         assert_eq!(screen(&e), Screen::Play);
         e.mem.set_u8(MENU_MODE, 1);
         assert_eq!(screen(&e), Screen::Menu);
@@ -794,7 +794,7 @@ mod tests {
         assert_eq!(frame_limit_for(Loading, 60, 30), 0);
 
         // With the row off the player's limit holds on every screen, as before it.
-        let mut e = screen_engine();
+        let e = screen_engine();
         e.mem.set_u8(MENU_MODE, 1);
         assert_eq!(limit_this_frame(&e, 0, None), 0);
         assert_eq!(limit_this_frame(&e, 90, None), 90);

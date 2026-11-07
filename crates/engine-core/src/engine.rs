@@ -842,7 +842,7 @@ impl Engine {
 
     /// Field write through a typed pointer.
     pub fn set<S, T: Scalar>(&mut self, p: Ptr<S>, f: Field<S, T>, v: T) {
-        v.store(&mut self.mem, p.0.wrapping_add(f.off))
+        v.store(&self.mem, p.0.wrapping_add(f.off))
     }
 
     /// A global variable at its exe address (in `.data`/`.rdata`).
@@ -851,7 +851,7 @@ impl Engine {
     }
 
     pub fn set_global<T: Scalar>(&mut self, addr: u32, v: T) {
-        v.store(&mut self.mem, addr)
+        v.store(&self.mem, addr)
     }
 
     /// A zeroed heap block the size of `T` (tests and allocators).

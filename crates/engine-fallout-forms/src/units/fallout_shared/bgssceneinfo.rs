@@ -2684,7 +2684,7 @@ mod tests {
     /// budget of `budget` bytes, wasteland adjustment 0x100000, city
     /// adjustment 0x40000, actor budget 0x200000.
     fn budget_engine(budget: u32) -> Engine {
-        let mut e = scene_engine();
+        let e = scene_engine();
         e.mem
             .set_u32(SETTING_LOADED_AREA_NON_ACTOR_BUDGET + 4, budget);
         e.mem

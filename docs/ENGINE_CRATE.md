@@ -29,7 +29,16 @@ each function belongs to.
   and room for reservations at a chosen address. `GetSystemInfo` answers the
   4 GB process's highest address, 0xFFFEFFFF, and `GlobalMemoryStatus(Ex)` its
   total virtual size, 0xFFFE0000. A stopgap: the modern systems lift the limit
-  for good. `mem.rs` has the whole layout.
+  for good. `mem.rs` has the whole layout. Every guest load and store takes
+  `&self`, ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem`
+  is `Send`, not `Sync`, until then): guest values are plain host loads and
+  stores through raw pointers, the exe's own `mov`s, so unsynchronised guest
+  races are undefined behaviour in Rust's model and the game's own
+  synchronisation (interlocked operations, locks, waits: calls the compiler
+  cannot see through) must order them; the table of mapped pages changes
+  only through `&mut self` (`map`, `unmap`, the heap). Real threads need a
+  real stop-the-world for it (`mem.rs`, "Threads"). The diagnostics (write
+  watch, block check, touch census) run stepped only.
 - **The exe's data**: `Engine::with_exe(path)` maps `.rdata`, `.data`,
   `.tls` and `CONST` of the player's installed FalloutNV.exe (checked
   against 1.4.0.525) at their addresses. Constants, strings, vtables and
@@ -460,7 +469,9 @@ with who ran when, per frame, beside the status line (`thread calls: N order: id
 **A risk for later.** The thread host hands over at calls by address: the time slice counts them and
 its hook runs at them. A typed loop that waits on guest memory for another game thread, making only
 direct calls or none, never reaches that hook, so it hangs where the translation handed off. Such
-a loop has to make a call by address, or the platform wait the exe makes, in each pass. The same
+a loop has to make a call by address, or the platform wait the exe makes, in each pass. With real
+threads it is also a correctness rule: guest memory is plain loads and stores (`mem.rs`, "Threads"),
+so without an opaque call in the loop the compiler may read the memory once and never again. The same
 count is why each batch of direct calls checks `WAKE_DELAY_CALLS` and the hand-offs per frame.
 
 Measured on 2026-11-06 (`spread_dispatch_speed`, 48,000 functions registered, 8,000 called, release

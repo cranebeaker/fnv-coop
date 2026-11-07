@@ -786,7 +786,7 @@ mod tests {
 
     /// Scale factors 0.5, 0.25, 3.0 and 0.5 in the settings; the roots floats at `+0x4c`.
     fn timed_rig(first: f32, second: f32, toi: f32) -> Rig {
-        let mut r = rig();
+        let r = rig();
         r.e.mem.set_u32(r.settings + 0x10, 1);
         r.e.mem.set_f32(r.settings + 0x18, 0.5);
         r.e.mem.set_f32(r.settings + 0x1c, 0.25);

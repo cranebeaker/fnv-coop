@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn rig() -> (Engine, JobRig) {
-        let (mut e, rig) = job_rig();
+        let (e, rig) = job_rig();
         e.mem.set_u32(FLOAT_MAX, 0x7f7f_ffee);
         e.mem.set_u32(FLOAT_EPSILON, 0x3400_0000);
         e.mem.set_f64(HALF, 0.5);

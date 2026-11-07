@@ -29,7 +29,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
-use super::{Mem, MAPPED, PAGES, PAGE_BITS};
+use super::{lock, Mem, MAPPED, PAGES, PAGE_BITS};
 
 /// A page's byte in the table of mapped pages when the page is mapped and holds part of a tagged
 /// object: an access to it takes the slow path, which counts it ([`Mem::touch_note`]). Its low bit
@@ -140,13 +140,20 @@ struct Object {
 
 pub(super) struct Touch {
     spec: TouchSpec,
+    /// What the census changes as it runs, behind a lock: loads count through `&Mem`, and a store
+    /// through `&Mem` tags (the census runs with stepped threads only, so the lock is never
+    /// waited on).
+    live: Mutex<Live>,
+}
+
+/// The touch census's changing state ([`Touch::live`]).
+struct Live {
     /// Tagged objects by start (they don't overlap: a new one replaces those it overlaps).
     objects: BTreeMap<u32, Object>,
     /// Tagged objects on each page.
     pages: Vec<u16>,
-    /// The accesses counted so far. Loads count through `&Mem`, so behind a lock (only the thread
-    /// holding the engine takes it).
-    hits: Mutex<HashMap<TouchHit, u64>>,
+    /// The accesses counted so far.
+    hits: HashMap<TouchHit, u64>,
     /// Objects tagged so far, by tag.
     tagged: Vec<u64>,
 }
@@ -156,18 +163,52 @@ impl Touch {
         let tags = spec.names.len();
         Touch {
             spec,
-            objects: BTreeMap::new(),
-            pages: vec![0; PAGES],
-            hits: Mutex::new(HashMap::new()),
-            tagged: vec![0; tags],
+            live: Mutex::new(Live {
+                objects: BTreeMap::new(),
+                pages: vec![0; PAGES],
+                hits: HashMap::new(),
+                tagged: vec![0; tags],
+            }),
         }
+    }
+}
+
+impl Live {
+    /// Drops the tags of the objects that overlap `[addr, addr + len)`; answers the pages left
+    /// with none, to be plainly mapped again.
+    fn forget(&mut self, addr: u32, len: u32) -> Vec<usize> {
+        let end = addr as u64 + len.max(1) as u64;
+        let mut gone = Vec::new();
+        if let Some((&start, o)) = self.objects.range(..addr).next_back() {
+            if o.end > addr {
+                gone.push(start);
+            }
+        }
+        gone.extend(
+            self.objects
+                .range(addr..)
+                .take_while(|(&s, _)| (s as u64) < end)
+                .map(|(&s, _)| s),
+        );
+        let mut freed = Vec::new();
+        for s in gone {
+            let o = self.objects.remove(&s).expect("listed");
+            for p in (s >> PAGE_BITS) as usize..=((o.end - 1) >> PAGE_BITS) as usize {
+                self.pages[p] = self.pages[p].saturating_sub(1);
+                if self.pages[p] == 0 {
+                    freed.push(p);
+                }
+            }
+        }
+        freed
     }
 }
 
 impl Mem {
     /// Turns the touch census on with `spec` ([module documentation](self)). Needs the block check
     /// for the running function and the allocation paths: turns it on (reporting, not stopping, and
-    /// checking at frees only) when it is off.
+    /// checking at frees only) when it is off. A diagnostic of stepped threads only: a store marks
+    /// pages ([`Mem::touch_mark`]).
     pub fn enable_touch(&mut self, spec: TouchSpec) {
         if self.check.is_none() {
             self.enable_block_check(false, false);
@@ -194,7 +235,7 @@ impl Mem {
     pub fn touch_tagged(&self) -> Vec<u64> {
         self.touch
             .as_deref()
-            .map(|t| t.tagged.clone())
+            .map(|t| lock(&t.live).tagged.clone())
             .unwrap_or_default()
     }
 
@@ -203,82 +244,79 @@ impl Mem {
         let Some(t) = self.touch.as_deref() else {
             return Vec::new();
         };
-        let hits = t.hits.lock().unwrap_or_else(|p| p.into_inner());
-        let mut v: Vec<_> = hits.iter().map(|(h, n)| (*h, *n)).collect();
+        let mut v: Vec<_> = lock(&t.live).hits.iter().map(|(h, n)| (*h, *n)).collect();
         v.sort();
         v
     }
 
     /// Tags `[addr, addr + len)` with tag `tag` and class `class` (what the spec's rules do; for a
-    /// tool or test that tags by hand). Objects it overlaps lose their tags.
-    pub fn touch_tag(&mut self, addr: u32, len: u32, tag: u16, class: u32) {
-        let Some(t) = self.touch.as_deref_mut() else {
+    /// test that tags by hand). Objects it overlaps lose their tags. Changes the table of mapped pages
+    /// through `&self` ([`Mem::touch_mark`]), so not public: only the census's own paths call it.
+    pub(super) fn touch_tag(&self, addr: u32, len: u32, tag: u16, class: u32) {
+        let Some(t) = self.touch.as_deref() else {
             return;
         };
         let end = addr.saturating_add(len.max(1));
-        if let Some((&start, o)) = t.objects.range(..=addr).next_back() {
-            if start == addr && o.end == end && o.tag == tag && o.class == class {
-                return;
-            }
-        }
-        self.touch_forget(addr, end - addr);
-        let t = self.touch.as_deref_mut().expect("touch is on");
-        t.objects.insert(addr, Object { end, tag, class });
-        if let Some(n) = t.tagged.get_mut(tag as usize) {
-            *n += 1;
-        }
         let pages: Vec<usize> =
             ((addr >> PAGE_BITS) as usize..=((end - 1) >> PAGE_BITS) as usize).collect();
-        for &p in &pages {
-            t.pages[p] = t.pages[p].saturating_add(1);
+        let freed = {
+            let mut live = lock(&t.live);
+            if let Some((&start, o)) = live.objects.range(..=addr).next_back() {
+                if start == addr && o.end == end && o.tag == tag && o.class == class {
+                    return;
+                }
+            }
+            let freed = live.forget(addr, end - addr);
+            live.objects.insert(addr, Object { end, tag, class });
+            if let Some(n) = live.tagged.get_mut(tag as usize) {
+                *n += 1;
+            }
+            for &p in &pages {
+                live.pages[p] = live.pages[p].saturating_add(1);
+            }
+            freed
+        };
+        for p in freed {
+            self.touch_mark(p, TOUCH, MAPPED);
         }
         for p in pages {
-            if self.page_state(p) == MAPPED {
-                self.set_state(p, p + 1, TOUCH);
-            }
+            self.touch_mark(p, MAPPED, TOUCH);
         }
     }
 
     /// Drops the tags of the objects that overlap `[addr, addr + len)`; a page left with none is
     /// plainly mapped again.
-    pub(super) fn touch_forget(&mut self, addr: u32, len: u32) {
-        let Some(t) = self.touch.as_deref_mut() else {
+    pub(super) fn touch_forget(&self, addr: u32, len: u32) {
+        let Some(t) = self.touch.as_deref() else {
             return;
         };
-        let end = addr as u64 + len.max(1) as u64;
-        let mut gone = Vec::new();
-        if let Some((&start, o)) = t.objects.range(..addr).next_back() {
-            if o.end > addr {
-                gone.push(start);
-            }
-        }
-        gone.extend(
-            t.objects
-                .range(addr..)
-                .take_while(|(&s, _)| (s as u64) < end)
-                .map(|(&s, _)| s),
-        );
-        let mut freed = Vec::new();
-        for s in gone {
-            let o = t.objects.remove(&s).expect("listed");
-            for p in (s >> PAGE_BITS) as usize..=((o.end - 1) >> PAGE_BITS) as usize {
-                t.pages[p] = t.pages[p].saturating_sub(1);
-                if t.pages[p] == 0 {
-                    freed.push(p);
-                }
-            }
-        }
+        let freed = lock(&t.live).forget(addr, len);
         for p in freed {
-            if self.page_state(p) == TOUCH {
-                self.set_state(p, p + 1, MAPPED);
-            }
+            self.touch_mark(p, TOUCH, MAPPED);
+        }
+    }
+
+    /// Page `p`'s byte in the table of mapped pages set to `to` when it is `from` ([`MAPPED`] and
+    /// [`TOUCH`], the one pair the census changes). The one change of the table not made through
+    /// `&mut self` (the module documentation's rule for threads): a store tags, and the census
+    /// runs with stepped threads only, so no other thread is in a guest access meanwhile. The
+    /// kept-group bits ([`Mem::set_state`]) need no change: neither state is [`super::KEPT`].
+    fn touch_mark(&self, p: usize, from: u8, to: u8) {
+        debug_assert!(
+            self.touch.is_some() && matches!((from, to), (MAPPED, TOUCH) | (TOUCH, MAPPED))
+        );
+        if self.page_state(p) == from {
+            // SAFETY: the table holds a byte for each of the `PAGES` pages (`p` is below), committed
+            // while the block lives; with stepped threads (the census's condition) no other thread
+            // reads it meanwhile, and no reference to it lives across this call.
+            unsafe { *self.space.flag(p) = to };
         }
     }
 
     /// A store of the word `v` at `a` with the touch census on: a vtable in the spec tags the
     /// object it starts.
     #[cold]
-    pub(super) fn touch_store_word(&mut self, a: u32, v: u32) {
+    pub(super) fn touch_store_word(&self, a: u32, v: u32) {
         let Some(t) = self.touch.as_deref() else {
             return;
         };
@@ -294,7 +332,7 @@ impl Mem {
 
     /// A heap block `[addr, addr + asked)` just handed out, allocated along `path` (innermost
     /// first): tagged whole when its allocating function is in the spec.
-    pub(super) fn touch_alloc(&mut self, addr: u32, asked: u32, path: &[u32]) {
+    pub(super) fn touch_alloc(&self, addr: u32, asked: u32, path: &[u32]) {
         let Some(t) = self.touch.as_deref() else {
             return;
         };
@@ -324,7 +362,8 @@ impl Mem {
         };
         let (function, caller) = self.check_frame();
         let end = a as u64 + n.max(1) as u64;
-        let mut hits = t.hits.lock().unwrap_or_else(|p| p.into_inner());
+        let mut live = lock(&t.live);
+        let Live { objects, hits, .. } = &mut *live;
         let mut count = |start: u32, o: &Object| {
             let from = a.max(start);
             let to = end.min(o.end as u64);
@@ -339,14 +378,13 @@ impl Mem {
             };
             *hits.entry(key).or_insert(0) += 1;
         };
-        if let Some((&s, o)) = t.objects.range(..=a).next_back() {
+        if let Some((&s, o)) = objects.range(..=a).next_back() {
             if o.end > a {
                 count(s, o);
             }
         }
         if end > a as u64 + 1 {
-            for (&s, o) in t
-                .objects
+            for (&s, o) in objects
                 .range(a.saturating_add(1)..)
                 .take_while(|(&s, _)| (s as u64) < end)
             {

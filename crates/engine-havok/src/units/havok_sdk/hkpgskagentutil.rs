@@ -410,7 +410,7 @@ mod tests {
     }
 
     fn engine() -> Engine {
-        let mut e = base_engine();
+        let e = base_engine();
         for lane in 0..3 {
             e.mem.set_u32(NEGATE_XYZ_MASK + 4 * lane, 0x8000_0000);
         }

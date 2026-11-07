@@ -2705,7 +2705,7 @@ mod tests {
 
     /// The same, with no manager object.
     fn engine_without_manager() -> Engine {
-        let (mut e, _) = ui_engine();
+        let (e, _) = ui_engine();
         e.mem.set_u32(0x011d_8a80, 0);
         e
     }

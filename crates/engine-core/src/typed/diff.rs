@@ -1011,7 +1011,7 @@ fn memory_hash(e: &Engine, stack: Option<(u32, u32)>, nan_payloads: bool, loose:
         if on_stack(page) && on_stack(page + 0xfff) {
             continue;
         }
-        let bytes = comparable_page(page, e.mem.page_bytes(page), stack, nan_payloads, loose);
+        let bytes = comparable_page(page, &e.mem.page_bytes(page), stack, nan_payloads, loose);
         hash = hash_bytes(hash ^ u64::from(page), &bytes);
     }
     hash
@@ -1161,8 +1161,8 @@ fn compare_memory(
             (Some(&pa), Some(&pb)) if pa == pb => {
                 let (bytes_a, bytes_b) = (mem_a.page_bytes(pa), mem_b.page_bytes(pa));
                 if bytes_a != bytes_b {
-                    let bytes_a = comparable_page(pa, bytes_a, a.stack, nan_payloads, loose);
-                    let bytes_b = comparable_page(pa, bytes_b, a.stack, nan_payloads, loose);
+                    let bytes_a = comparable_page(pa, &bytes_a, a.stack, nan_payloads, loose);
+                    let bytes_b = comparable_page(pa, &bytes_b, a.stack, nan_payloads, loose);
                     compare_page(pa, &bytes_a, &bytes_b, found);
                 }
                 i += 1;

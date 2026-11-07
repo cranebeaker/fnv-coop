@@ -147,7 +147,7 @@ mod tests {
     }
 
     fn engine_with_mask() -> Engine {
-        let mut e = engine();
+        let e = engine();
         for lane in 0..4u32 {
             let sign = if lane < 3 { 0x8000_0000 } else { 0 };
             e.mem.set_u32(NEGATE_MASK + 4 * lane, sign);

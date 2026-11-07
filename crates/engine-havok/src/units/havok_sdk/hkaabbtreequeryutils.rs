@@ -1631,7 +1631,7 @@ mod tests {
 
     #[test]
     fn inverse_direction_replaces_zero_lanes() {
-        let mut s = setup();
+        let s = setup();
         let origin = [0.0; 4];
         let target = [4.0, 0.0, -8.0, 0.0];
         let inverse = ray_inverse_direction(&s.e, origin, target);

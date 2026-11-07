@@ -9595,7 +9595,7 @@ mod tests {
     #[test]
     fn depth_is_wanted_for_the_40000000_flag_with_the_static_object_filled() {
         let flags = 0x0800_0000 | 0x1000_0000 | 0x200 | 0x4000_0000;
-        let mut s = scene();
+        let s = scene();
         s.e.mem.set_u32(WATER_OBJECT_011CA13C, 1);
         assert!(depth_wanted(s, flags));
         let s = scene();

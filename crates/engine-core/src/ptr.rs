@@ -87,7 +87,7 @@ impl<T> Default for Ptr<T> {
 pub trait Scalar: Copy {
     const SIZE: u32;
     fn load(m: &Mem, a: u32) -> Self;
-    fn store(self, m: &mut Mem, a: u32);
+    fn store(self, m: &Mem, a: u32);
 }
 
 macro_rules! scalar {
@@ -99,7 +99,7 @@ macro_rules! scalar {
                 m.$get(a)
             }
             #[inline]
-            fn store(self, m: &mut Mem, a: u32) {
+            fn store(self, m: &Mem, a: u32) {
                 m.$set(a, self)
             }
         }
@@ -122,7 +122,7 @@ impl Scalar for bool {
         m.u8(a) != 0
     }
     #[inline]
-    fn store(self, m: &mut Mem, a: u32) {
+    fn store(self, m: &Mem, a: u32) {
         m.set_u8(a, self as u8)
     }
 }
@@ -134,7 +134,7 @@ impl<T> Scalar for Ptr<T> {
         Ptr::new(m.u32(a))
     }
     #[inline]
-    fn store(self, m: &mut Mem, a: u32) {
+    fn store(self, m: &Mem, a: u32) {
         m.set_u32(a, self.0)
     }
 }
