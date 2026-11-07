@@ -615,6 +615,25 @@ No bytes from the DLL are in the repository. The constant is the `f32` value of
 `engine-platform/src/vorbisfile.rs` decodes at the calling thread's precision: 24 or 53
 bits. 64-bit precision is not provided (not measured).
 
+### Decoding ahead (`NV_SOUND_DECODE`)
+
+The game decodes each voice or sound file whole on its IO thread (`00af2100`, from the
+audio load task). The original's IO thread does that on its own core while the main thread
+draws frames; here the game's threads take turns on the main core, so a long file's decode
+landed inside one frame (in Goodsprings the two longest frames, 114 and 120 ms, were almost
+all `ov_read`). In the running game (the real clock on) each opened file is now decoded ahead
+on a host worker thread, and `ov_read` answers from what the worker decoded: the same bytes,
+the same return values, errors and the end at the same reads (the decoder's own call
+fetches a block only when none is ready, so the worker's reads of whole blocks cut the
+stream where it would). A game thread whose read finds nothing decoded yet gives up its
+turn (`Sleep(1)`) until a batch is ready; the main thread goes on with its frames. The game
+sees only its IO task take time, as on the original. `NV_SOUND_DECODE=inline` decodes inside
+the call as before; the tests and platform-clock runs always do.
+
+Measured on the Goodsprings stutter route (one build, ahead then inline, 2026-11-07): the town's
+p99 frame 27.9 ms (inline 30.5), p99.9 35.1 (56.1), frames over 33 ms 9.8 a minute (18.6), over
+50 ms 1.5 a minute (4.5); the median frame (21.7 ms) and Doc's house (about 112 fps) unchanged.
+
 ## Bink with sound
 
 The game calls `BinkSetSoundSystem(BinkOpenDirectSound, 0)` (`00ec1680`). An
