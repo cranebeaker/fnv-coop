@@ -472,6 +472,11 @@ fn window_input(_window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
     let button = |i: &mut Input, b: usize, down: bool| i.buttons[b] = down;
     match message {
         WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
+            // F12 (the first press, not its repeats): a report for the player to send
+            // ([`shot::report_at_present`]). The key still reaches the game, as every key does.
+            if message == WM_KEYDOWN && wparam.0 == 0x7b && lparam.0 & (1 << 30) == 0 {
+                shot::report_asked();
+            }
             if let Some(code) = dik(lparam.0) {
                 i.keys[code as usize] = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
             }
@@ -887,6 +892,8 @@ pub fn present(
         // Diagnostic only (`NV_SHOT`, not exe behaviour): the frame the game just drew.
         shot::at_present(&d, shots);
     }
+    // Diagnostic only (`NV_REPORT_DIR`, not exe behaviour): the player pressed F12.
+    shot::report_at_present(&d);
     let (source, dest) = (rect(e, source), rect(e, dest));
     let window = match window {
         0 => HWND::default(),
@@ -2069,6 +2076,84 @@ mod shot {
                 }
             }
             Err(error) => eprintln!("NV_SHOT: frame {frame}: {error}"),
+        }
+    }
+
+    /// `NV_REPORT_DIR=DIR`: where F12 puts a report for the player to send, read once.
+    fn report_dir() -> Option<&'static PathBuf> {
+        static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+        DIR.get_or_init(|| std::env::var_os("NV_REPORT_DIR").map(PathBuf::from))
+            .as_ref()
+    }
+
+    static REPORT_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// F12 on the window's thread: the next `Present` makes the report.
+    pub(super) fn report_asked() {
+        if report_dir().is_some() {
+            REPORT_ASKED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// The first unused numbered folder under `dir`, made (`001`, `002`, ...).
+    pub(super) fn new_report_folder(dir: &std::path::Path) -> Option<PathBuf> {
+        std::fs::create_dir_all(dir).ok()?;
+        (1..10_000).find_map(|n| {
+            let folder = dir.join(format!("{n:03}"));
+            std::fs::create_dir(&folder).ok().map(|()| folder)
+        })
+    }
+
+    /// The last `bytes` of the file at `path`, from a line's start.
+    pub(super) fn tail(path: &std::path::Path, bytes: u64) -> Option<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(path).ok()?;
+        let size = file.metadata().ok()?.len();
+        file.seek(SeekFrom::Start(size.saturating_sub(bytes)))
+            .ok()?;
+        let mut text = Vec::new();
+        file.read_to_end(&mut text).ok()?;
+        if size > bytes {
+            let line = text.iter().position(|&b| b == b'\n').map_or(0, |at| at + 1);
+            text.drain(..line);
+        }
+        Some(text)
+    }
+
+    /// At a `Present` after F12: `NV_REPORT_DIR\NNN\` with the frame (`picture.bmp`), the log's
+    /// end (`log.txt`, from the file `NV_REPORT_LOG` names) and a `note.txt` for the player's own
+    /// words; a beep says it is done. The game's state and the model are not touched.
+    pub(super) fn report_at_present(d: &IDirect3DDevice9) {
+        if !REPORT_ASKED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let Some(folder) = report_dir().and_then(|dir| new_report_folder(dir)) else {
+            eprintln!("F12: the report's folder could not be made");
+            return;
+        };
+        match capture(d) {
+            Ok((width, height, pixels)) => {
+                let _ = std::fs::write(folder.join("picture.bmp"), bmp(width, height, &pixels));
+            }
+            Err(error) => eprintln!("F12: no picture: {error}"),
+        }
+        if let Some(text) = std::env::var_os("NV_REPORT_LOG")
+            .and_then(|path| tail(std::path::Path::new(&path), 256 * 1024))
+        {
+            let _ = std::fs::write(folder.join("log.txt"), text);
+        }
+        let _ = std::fs::write(
+            folder.join("note.txt"),
+            "Write here what went wrong and what you did just before it:\r\n\r\n",
+        );
+        eprintln!("F12: report in {}", folder.display());
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBeep(kind: u32) -> i32;
+        }
+        // SAFETY: no pointers; 0 is `MB_OK`, the default sound.
+        unsafe {
+            MessageBeep(0);
         }
     }
 

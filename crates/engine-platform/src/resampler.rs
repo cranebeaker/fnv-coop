@@ -62,30 +62,46 @@ pub fn tables() -> Option<&'static Tables> {
 }
 
 impl Tables {
-    /// The tables of a `RESAMPLEDMO.DLL` file: the four pointers at `1009760c`, `10097610`,
-    /// `10097628` and `1009762c` (32-bit build of Windows 11 10.0.26200), checked by the masks
-    /// and shifts beside them; `None` for another build.
+    /// The tables of a `RESAMPLEDMO.DLL` file: the four pointers beside the masks and shifts that
+    /// describe them (in the 32-bit build of Windows 11 10.0.26200 the pointers are at `1009760c`,
+    /// `10097610`, `10097628` and `1009762c`, those words at `10097618` and `10097634`). Another
+    /// build puts the block elsewhere, so it is found by those words (2026-11-06, for the preview
+    /// package: with fixed addresses no other Windows build could use this converter). `None` when
+    /// no block is there or its tables don't read as the two curves.
     pub fn read(file: &[u8]) -> Option<Tables> {
         let pe = Pe::new(file)?;
-        let word = |va: u32| pe.word(va);
-        let layout = [
-            (0x1009_7618, 0x3fff_0000),
-            (0x1009_761c, 16),
-            (0x1009_7620, 0xffff),
-            (0x1009_7634, 0x3ff0_0000),
-            (0x1009_7638, 20),
-            (0x1009_763c, 0xf_ffff),
-        ];
-        if layout.iter().any(|&(va, v)| word(va) != Some(v)) {
-            return None;
-        }
-        let floats = |va: u32, n: usize| pe.floats(word(va)?, n);
-        Some(Tables {
-            sinc_offset: floats(0x1009_760c, 16384)?,
-            sinc_slope: floats(0x1009_7610, 16384)?,
-            window_offset: floats(0x1009_7628, 1024)?,
-            window_slope: floats(0x1009_762c, 1024)?,
-        })
+        const SINC: [u32; 3] = [0x3fff_0000, 16, 0xffff];
+        const WINDOW: [u32; 3] = [0x3ff0_0000, 20, 0xf_ffff];
+        (12..file.len().saturating_sub(0x28))
+            .step_by(4)
+            .filter(|&at| words_at(file, at, &SINC) && words_at(file, at + 0x1c, &WINDOW))
+            .find_map(|at| {
+                let pointer = |o: usize| {
+                    let b = file.get(o..o + 4)?;
+                    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                };
+                let tables = Tables {
+                    sinc_offset: pe.floats(pointer(at - 12)?, 16384)?,
+                    sinc_slope: pe.floats(pointer(at - 8)?, 16384)?,
+                    window_offset: pe.floats(pointer(at + 0x10)?, 1024)?,
+                    window_slope: pe.floats(pointer(at + 0x14)?, 1024)?,
+                };
+                tables.reads_as_the_curves().then_some(tables)
+            })
+    }
+
+    /// Every value is finite and both curves start near 1 (the centre of a sinc and of a window).
+    fn reads_as_the_curves(&self) -> bool {
+        [
+            &self.sinc_offset,
+            &self.sinc_slope,
+            &self.window_offset,
+            &self.window_slope,
+        ]
+        .iter()
+        .all(|t| t.iter().all(|v| v.is_finite()))
+            && (self.sinc_offset[0] - 1.0).abs() < 0.01
+            && (self.window_offset[0] - 1.0).abs() < 0.01
     }
 
     /// The Kaiser window at `t` (`|t| < 1`), else 0.
@@ -139,7 +155,15 @@ impl Tables {
     }
 }
 
-/// Enough of a PE file to read words and floats at virtual addresses.
+/// Whether `file` holds these little-endian words at `at`.
+fn words_at(file: &[u8], at: usize, words: &[u32; 3]) -> bool {
+    words.iter().enumerate().all(|(i, w)| {
+        file.get(at + 4 * i..at + 4 * i + 4)
+            .is_some_and(|b| b == w.to_le_bytes())
+    })
+}
+
+/// Enough of a PE file to read floats at virtual addresses.
 struct Pe<'a> {
     file: &'a [u8],
     base: u32,
@@ -184,13 +208,6 @@ impl<'a> Pe<'a> {
             (rva >= at && rva < end && (rva - at) as usize + len <= raw_size as usize)
                 .then(|| (raw + rva - at) as usize)
         })
-    }
-
-    fn word(&self, va: u32) -> Option<u32> {
-        let o = self.offset(va, 4)?;
-        Some(u32::from_le_bytes(
-            self.file.get(o..o + 4)?.try_into().ok()?,
-        ))
     }
 
     fn floats(&self, va: u32, n: usize) -> Option<Vec<f32>> {
@@ -1456,11 +1473,81 @@ mod tests {
         assert_eq!(1.073_741_8e9_f32, (1u32 << 30) as f32);
     }
 
+    /// A 32-bit PE made here: one section with the tables and the block at `block`.
+    fn pe_with_tables(block: usize) -> Vec<u8> {
+        const BASE: u32 = 0x1000_0000;
+        const RVA: u32 = 0x1000;
+        const RAW: usize = 0x200;
+        let mut file = vec![0u8; RAW];
+        file[0x3c] = 0x40;
+        file[0x40..0x44].copy_from_slice(b"PE\0\0");
+        file[0x44..0x46].copy_from_slice(&0x14cu16.to_le_bytes());
+        file[0x46..0x48].copy_from_slice(&1u16.to_le_bytes());
+        file[0x54..0x56].copy_from_slice(&0xe0u16.to_le_bytes());
+        file[0x58 + 28..0x58 + 32].copy_from_slice(&BASE.to_le_bytes());
+        let size = 2 * (16384 + 1024) * 4 + 0x1000;
+        let section = 0x58 + 0xe0;
+        file[section + 8..section + 12].copy_from_slice(&(size as u32).to_le_bytes());
+        file[section + 12..section + 16].copy_from_slice(&RVA.to_le_bytes());
+        file[section + 16..section + 20].copy_from_slice(&(size as u32).to_le_bytes());
+        file[section + 20..section + 24].copy_from_slice(&(RAW as u32).to_le_bytes());
+        file.resize(RAW + size, 0);
+        let va = |at: usize| BASE + RVA + at as u32;
+        let (sinc, slope, window, window_slope) = (
+            0x1000usize,
+            0x1000 + 16384 * 4,
+            0x1000 + 2 * 16384 * 4,
+            0x1000 + 2 * 16384 * 4 + 1024 * 4,
+        );
+        for (at, count, value) in [
+            (sinc, 16384, 1.0f32),
+            (slope, 16384, 0.5),
+            (window, 1024, 1.0),
+            (window_slope, 1024, 0.25),
+        ] {
+            for i in 0..count {
+                file[RAW + at + 4 * i..RAW + at + 4 * i + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut put = |o: usize, w: u32| {
+            file[RAW + block + o..RAW + block + o + 4].copy_from_slice(&w.to_le_bytes());
+        };
+        put(0, va(sinc));
+        put(4, va(slope));
+        put(0xc, 0x3fff_0000);
+        put(0x10, 16);
+        put(0x14, 0xffff);
+        put(0x1c, va(window));
+        put(0x20, va(window_slope));
+        put(0x28, 0x3ff0_0000);
+        put(0x2c, 20);
+        put(0x30, 0xf_ffff);
+        file
+    }
+
+    #[test]
+    fn the_tables_are_found_wherever_a_build_puts_them() {
+        for block in [0x40, 0x804] {
+            let t = Tables::read(&pe_with_tables(block)).expect("the block");
+            assert_eq!((t.sinc_offset[9], t.sinc_slope[9]), (1.0, 0.5));
+            assert_eq!((t.window_offset[9], t.window_slope[9]), (1.0, 0.25));
+        }
+        // No block, or one whose tables aren't the curves.
+        let mut file = pe_with_tables(0x40);
+        file[0x200 + 0x40 + 0xc + 2] = 0;
+        assert!(Tables::read(&file).is_none());
+        let mut file = pe_with_tables(0x40);
+        file[0x200 + 0x1000..0x200 + 0x1004].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(Tables::read(&file).is_none());
+    }
+
     #[test]
     fn the_first_converter_designs_as_the_dll_does() {
         let Some(t) = tables() else {
-            return; // no RESAMPLEDMO.DLL on this machine
+            eprintln!("SKIPPED: no RESAMPLEDMO.DLL on this machine");
+            return;
         };
+        eprintln!("RAN against RESAMPLEDMO.DLL's tables");
         let d = design(t, 44100.0, 48000.0, 0.0, true, &mut None);
         assert_eq!(
             (d.l, d.m, d.fc, d.taps, 2 * d.span + 500),
@@ -1480,8 +1567,10 @@ mod tests {
     #[test]
     fn the_first_converter_asks_for_what_the_dll_asks_for() {
         let Some(mut c) = Dmo::new(44100, 48000, 1).filter(|_| tables().is_some()) else {
+            eprintln!("SKIPPED: no RESAMPLEDMO.DLL on this machine");
             return;
         };
+        eprintln!("RAN against RESAMPLEDMO.DLL's tables");
         let x = signal(4000);
         let mut out = vec![Vec::new()];
         let mut fed = Vec::new();
@@ -1496,8 +1585,10 @@ mod tests {
     #[test]
     fn the_first_converter_gives_the_measured_samples() {
         let Some(c) = Dmo::new(44100, 48000, 1) else {
+            eprintln!("SKIPPED: no RESAMPLEDMO.DLL on this machine");
             return;
         };
+        eprintln!("RAN against RESAMPLEDMO.DLL's tables");
         let x = signal(22100);
         let out = run(Converter::Dmo(Box::new(c)), &x, 51);
         for (at, bits) in DMO_44100 {

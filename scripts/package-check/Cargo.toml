@@ -1,0 +1,10 @@
+[package]
+name = "package-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Checks a package's files before the ZIP is made: no traces of the build machine, no data of the game's program."
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

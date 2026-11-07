@@ -6,6 +6,9 @@
 
 use crate::{Engine, Ptr};
 
+/// `ERROR_MOD_NOT_FOUND`.
+const ERROR_MOD_NOT_FOUND: u32 = 126;
+
 // Platform: replaces KERNEL32.DLL LoadLibraryA (import)
 /// `LoadLibraryA(name)`: `D3D9.DLL` (any case, with or without `.DLL`, no path) is
 /// [`super::d3d9::D3D9_MODULE`], the platform's Direct3D 9 layer; `nvapi.dll` answers from the
@@ -17,6 +20,17 @@ pub fn load_library_a(e: &mut Engine, name: Ptr) -> u32 {
     }
     if text == "NVAPI.DLL" || text == "NVAPI" {
         return super::nvapi::load_library(e);
+    }
+    // An AMD card's libraries: the multi-GPU probe's `ATIMGPUD.dll` (`Renderer::Init`, vendor word
+    // 2) and, with bEnableEyefinity, ADL's two (`004dd2c0`). They are the player's 32-bit DLLs,
+    // which this 64-bit process can't load, and the exe goes on without them. So on AMD the game
+    // starts as on a card with one GPU and no Eyefinity: Windows' answer for a missing DLL.
+    if matches!(
+        text.as_str(),
+        "ATIMGPUD.DLL" | "ATIADLXX.DLL" | "ATIADLXY.DLL"
+    ) {
+        e.kernel.last_error = ERROR_MOD_NOT_FOUND;
+        return 0;
     }
     panic!("LoadLibraryA({text:?}) is not provided");
 }
@@ -61,6 +75,18 @@ mod tests {
         let mut e = Engine::new();
         e.mem.map(0x1000, 0x1000);
         e
+    }
+
+    /// An AMD card's libraries aren't there for the game, which goes on without them.
+    #[test]
+    fn an_amd_cards_libraries_answer_as_missing() {
+        for name in ["ATIMGPUD.dll", "atiadlxx.dll", "atiadlxy.dll"] {
+            let mut e = engine();
+            e.mem.write(0x1000, name.as_bytes());
+            e.mem.write(0x1000 + name.len() as u32, b"\0");
+            assert_eq!(load_library_a(&mut e, Ptr::new(0x1000)), 0);
+            assert_eq!(e.kernel.last_error, ERROR_MOD_NOT_FOUND);
+        }
     }
 
     /// The renderer frees the `D3D9.DLL` it loaded when the game exits (00e6ec6d): the module

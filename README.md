@@ -100,12 +100,23 @@ nearly all compiler-made error handling.
 
 ## Try it
 
-nv-rs needs Fallout: New Vegas version 1.4.0.525 installed, and for now a Windows PC and a
-build from source: the game's code answers Windows' questions from tables measured on the
-machine it runs on, and the packages do not make them yet
-([docs/PLAYTESTING.md](docs/PLAYTESTING.md)). The packages on
-[Releases](https://github.com/slaterain/nv-rs/releases) from before November 2026 are of the
-earlier hand-written viewer, which has been removed.
+nv-rs needs Fallout: New Vegas version 1.4.0.525 installed, on a Windows PC.
+
+### The Windows preview
+
+A package you unzip and play, with nothing to build:
+`nv-rs-preview-<version>-windows-x64.zip`. Extract it to a folder of its own (for example
+`C:\Games\nv-rs`) and double-click `Play.exe`. It finds your game (Steam, GOG, Epic, or it asks),
+checks the version, reads your graphics card and sound device, and starts the game. It never
+writes to your game folder, Documents or AppData: saves and settings stay in its own folder.
+Its `READ ME.txt` says what works and what doesn't.
+
+It is a labelled preview ahead of the wgpu release, which will be the big cross-platform one. It
+is unsigned, so Windows may warn about it, and **so far it has only been run on one PC, the
+maintainer's**; other graphics cards, sound setups, GOG and Epic copies, other languages and
+Windows 10 are unverified ([what to test](docs/PREVIEW_TESTERS.md)). No package is published yet: the
+packages on [Releases](https://github.com/slaterain/nv-rs/releases) from before November 2026 are of
+the earlier hand-written viewer, which has been removed.
 
 ### Build from source
 
@@ -116,8 +127,8 @@ rustup fetches it), then:
 cargo build --profile play -p nv-viewer
 ```
 
-Make the machine's tables (`scripts/d3d9-capture`, `scripts/dsound-capture`; see
-[docs/PLAYTESTING.md](docs/PLAYTESTING.md)), then in PowerShell:
+Make the machine's tables (`scripts/d3d9-capture`, `scripts/nvapi-capture`, `scripts/dsound-capture`;
+see [docs/PLAYTESTING.md](docs/PLAYTESTING.md)), then in PowerShell:
 
 ```powershell
 $env:NV_D3D9 = 'real'; $env:NV_SOUND = 'out'

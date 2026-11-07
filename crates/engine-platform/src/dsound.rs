@@ -1419,7 +1419,7 @@ pub fn note(e: &mut Engine, what: &str) {
 /// `RESAMPLEDMO.DLL` is another build than the one `super::resampler` reads.
 fn unheard(e: &mut Engine, example: &str) {
     if state!(e).sound.noted.insert("resampling") {
-        eprintln!("sound: not heard: another rate without this build of RESAMPLEDMO.DLL (first: {example}); see docs/SOUND.md");
+        eprintln!("sound: not exact: this Windows' RESAMPLEDMO.DLL tables were not found, so sound at another rate goes through DirectSound's second converter (first: {example}); see docs/SOUND.md");
     }
 }
 

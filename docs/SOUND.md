@@ -103,8 +103,10 @@ device's state:
   designed again (as the curve if a table was made before); after a pass-through its history is
   silence, as in the DLL. Its sinc and window are two piecewise-linear tables that are constant
   data in the DLL: the platform reads them from the player's `SysWOW64\RESAMPLEDMO.DLL` (no
-  byte of them is in the repository). With another build of the DLL a buffer that needs them
-  is not heard (named once on stderr).
+  byte of them is in the repository), finding them by the masks and shifts stored beside them, as
+  builds put them at different addresses (checked on 10.0.26100.1 and .9549, whose files both hold
+  them, at different offsets). Where they aren't found, a buffer that needs them goes through the
+  second converter below: heard, not exact (named once on stderr).
 - **Second: "APL high-performance SRC"**, a 4-point Lagrange interpolator in `dsound.dll`.
   `SetFrequency` (or Doppler) moving a buffer's rate by more than 1/500 of it, or a buffer
   made while two or more exist ("More than two channels" below), turns it on for the whole

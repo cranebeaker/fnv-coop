@@ -1,0 +1,20 @@
+Mods for nv-rs
+==============
+
+Put a mod's files here exactly as they would go in the game's Data folder: its .esp or .esm,
+its .bsa, and folders such as Meshes, Textures or Sound. Then start "Play with mods.cmd".
+
+Your game folder is never changed. Each start builds a whole game folder in userdata\modgame:
+your game's files linked, not copied, plus these on top. For that the nv-rs folder must be on
+the same drive as the game, on a normal Windows (NTFS) drive. A link is another name for the same
+file, so if you uninstall the game while userdata\modgame is still here, the disk space stays used
+until you delete the nv-rs folder (or only userdata\modgame) too.
+
+Which plugins are on: the DLC a mod needs (read from the mod itself), then the mods' .esm files,
+then their .esp files. The game itself orders them by file date, as the original does. To choose
+yourself, put a plugins.txt here (one file name per line, like the game's own plugins.txt).
+
+Saves made with mods stay apart from your other nv-rs saves (userdata\mods).
+
+Regular .esp and .esm mods work. Mods that need xNVSE, JIP, or other plugins (.dll files) don't
+work yet: their script commands are not built in yet, and those files are not used.

@@ -31,6 +31,10 @@ hand-translated function has been compared with the exe and fnv_decomp, and the 
 found are fixed, apart from a few left on purpose (docs/HANDOFF.md). The typed migration is
 starting. Rounding differences found by the audit are left to it, since it rewrites that maths.
 
+An interim Windows preview (maintainer, 2026-11-06) can be built with `scripts/package-playtest.ps1`:
+a ZIP a player can run with no build, labelled a preview, wgpu remaining the big release. It has only
+run on this PC; the maintainer decides on a release ([testers' checklist](PREVIEW_TESTERS.md)).
+
 | Area | Goal |
 | --- | --- |
 | Memory and loading | No 4 GB limit (big mod lists, 4K/8K textures); more of the world loaded; memory-mapped archives, background loading, cached cells; per-thread allocators |

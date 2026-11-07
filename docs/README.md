@@ -10,7 +10,8 @@ function by function into Rust (`crates/engine*`), started on the player's own e
 | --- | --- |
 | [MILESTONES.md](MILESTONES.md) | The plan and how each step is judged done |
 | [HANDOFF.md](HANDOFF.md) | Where the work stands, session by session |
-| [PLAYTESTING.md](PLAYTESTING.md) | Building and running the play build, the machine's tables, the settings |
+| [PLAYTESTING.md](PLAYTESTING.md) | Building and running the play build, the machine's tables, the settings, the Windows preview's launcher |
+| [PREVIEW_TESTERS.md](PREVIEW_TESTERS.md) | The checklist for testing the Windows preview on another PC |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to contribute ([CONTRIBUTING.md](CONTRIBUTING.md) points there) |
 
 ## The engine port

@@ -29,6 +29,9 @@ OPTIONS:
                              and when the game's main ends)
     --movement-probe         for testing: the game's code goes on past functions not
                              translated yet (with zero results) to list more of them
+    --check                  only check the installation (FalloutNV.exe is 1.4.0.525) and
+                             what the run will find, print it and end: status 0 when the
+                             game can start, 1 when not
     -h, --help               print this
 
 Other arguments (the removed viewer's place name, --walk, --physics, --wait, --background,
@@ -46,6 +49,8 @@ struct Args {
     data: PathBuf,
     movement_missing: Option<PathBuf>,
     movement_probe: bool,
+    /// `--check`: check the installation and end.
+    check: bool,
     /// The removed viewer's arguments, ignored.
     ignored: Vec<String>,
 }
@@ -59,6 +64,7 @@ fn parse(raw: &[String]) -> Result<Option<Args>, String> {
         match raw[i].as_str() {
             "-h" | "--help" => return Ok(None),
             "--movement-probe" => args.movement_probe = true,
+            "--check" => args.check = true,
             "--movement-missing" => {
                 i += 1;
                 let file = raw.get(i).ok_or("--movement-missing needs a FILE")?;
@@ -150,6 +156,20 @@ fn main() {
             std::process::exit(1);
         }
     };
+    if args.check {
+        match host::check_installation(&data) {
+            Ok(lines) => {
+                for line in lines {
+                    println!("{line}");
+                }
+                return;
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     // The game's own code runs on the player's FalloutNV.exe, read from the same installation
     // as Data: any build but 1.4.0.525 is refused here, with the reason (2026-10-13). Starting
     // runs main's first frame. What differs from the exe: the fixes preset unless the settings or
@@ -255,5 +275,11 @@ mod tests {
         assert_eq!(parse(&strings(&["--help"])), Ok(None));
         assert!(parse(&strings(&["--movement-probe"])).is_err());
         assert!(parse(&strings(&["--movement-missing"])).is_err());
+        assert!(
+            parse(&strings(&["--check", r"C:\Games\Data"]))
+                .unwrap()
+                .unwrap()
+                .check
+        );
     }
 }

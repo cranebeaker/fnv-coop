@@ -1,0 +1,14 @@
+[package]
+name = "launcher"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The preview package's Play.exe: finds the player's game, makes this PC's tables, keeps every file the game writes in the package's own folder, starts the game and says plainly what went wrong. Windows only."
+
+[[bin]]
+name = "Play"
+path = "src/main.rs"
+
+# Standalone tool, not part of the root workspace. No dependencies.
+[workspace]

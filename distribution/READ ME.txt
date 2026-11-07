@@ -1,0 +1,129 @@
+nv-rs Windows preview
+=====================
+
+nv-rs runs Fallout: New Vegas from your own copy of the game, on the game's code translated to
+Rust. This is a PREVIEW: Windows only, with bugs left. It has only been run on one PC so far, the
+maintainer's, so your PC may turn up problems nobody has seen. Please tell us (see the end).
+
+nv-rs is an independent project. It is not affiliated with, endorsed by or sponsored by Bethesda,
+ZeniMax, Obsidian or Microsoft. This package has no game files in it. You need your own installed
+Fallout: New Vegas, version 1.4.0.525 (the last update).
+
+
+Start
+-----
+1. Extract the whole ZIP to a folder of its own that is NOT inside Documents, AppData, Program Files
+   or the game's folder. For example C:\Games\nv-rs. It doesn't need administrator rights.
+2. Double-click Play.exe.
+
+Windows will probably warn you, because the program is new and not signed. See "If Windows or your
+antivirus objects" below.
+
+The first start finds your game (Steam, GOG, Epic, or it asks), checks its version, reads your
+graphics card and sound device (about 20 seconds; a small window says what it is doing) and starts
+the game. Later starts take a moment. When your graphics card, drivers, monitors, sound device,
+Windows language or Windows version change, nv-rs notices and reads them again.
+
+  Play.exe               the game
+  Play with mods.cmd     the game with the mods in the mods folder (see mods\READ ME.txt)
+  Settings.cmd           window or borderless, resolution, anti-aliasing, game fixes, frame limit
+                         and more (next start)
+  Import my saves.cmd    copies your saves from Documents\My Games\FalloutNV. Those stay as they are
+
+Use Exit Game in the game's menu to quit. Saves reach the disk within about 5 seconds of being made,
+so wait a moment after saving before you close the window with its X.
+
+
+Your files
+----------
+nv-rs never writes to your game folder, your Documents or your AppData. Saves, settings, logs and
+reports all stay in the userdata folder here. To go back to the original game, just start it: nothing
+of it has changed. To remove nv-rs, delete this folder (your saves in userdata go with it).
+Playing with mods links your game's files into userdata\modgame rather than copying them. A link is
+another name for the same file, so if you uninstall the game while that folder is still here, the
+disk space stays used until you delete the nv-rs folder too.
+
+Your real saves are only read, and only when you run Import my saves.cmd. Saves you make here are in
+userdata\game\Documents\My Games\FalloutNV\Saves. They are normal saves; nv-rs doesn't copy them back
+for you.
+
+The first start takes your settings from the game's own launcher if you have run it (it copies them,
+and your real ones stay as they are). If not, it starts on the game's High preset at your desktop's
+size, in a borderless window. Settings.cmd and the game's own menu change them.
+
+
+Bug fixes
+---------
+Bug fixes are on by default. With them, the frame rate isn't held to the original's limit, the game's
+time keeps pace with real time at high frame rates (the original runs fast there), and your character
+lands on the floor after a jump instead of hovering a little above it.
+
+To play the original game's behaviour instead, open Settings.cmd and choose "Vanilla (the original
+game)" under Game fixes. Settings.cmd can also set a frame limit (60, 120, 144 and so on) or no limit,
+which is the default. The frame limit only works with the fixes on. Settings.cmd keeps both in
+userdata\settings.ini, as Preset=fixes or Preset=vanilla and FrameLimit=0 (no limit) or a number.
+
+
+What works
+----------
+The whole game runs on its translated code: the opening, the open world, quests, combat, V.A.T.S.,
+the Pip-Boy, saves and the DLCs, with the original graphics and sound through your own DirectX 9.
+Regular .esp and .esm mods work.
+
+
+What doesn't yet
+----------------
+- Mods that need xNVSE, JIP or other plugins (.dll files) don't work yet.
+- Controllers don't work yet: keyboard and mouse only.
+- It is slower than the original. On the maintainer's PC (a laptop with an RTX 5070 Ti, at 2560x1440
+  with 8x anti-aliasing), with the bug fixes on, about 103 frames a second in Doc Mitchell's house and
+  about 44 in Goodsprings. The original runs at about 120 in Doc's house. Your numbers will differ.
+- Memory: the game's code still has the original's 4 GB limit, about 3.2 GB of it for the game's own
+  use. A very heavy mod list can run out, as in the original. Removing this limit is planned.
+- Known bugs: fitting a second weapon mod can stop the game. Sound can crackle when frames are slow.
+  Some settings may not change anything. There are others we don't know about.
+- A Steam, GOG or Epic overlay, achievements and the game's launcher are not used.
+- Not tested yet, because they have only one PC to run on: other graphics cards (AMD, Intel, older
+  NVIDIA), sound set to anything but 7.1 or stereo, GOG and Epic copies, languages other than English,
+  Windows 10. GOG, Epic and some regional copies may be refused, with a message that says so.
+
+
+Problems at the start
+---------------------
+When nv-rs can't start it says why in a window, for example: no game found; the wrong version of the
+game; DirectX's d3dx9_38.dll missing (install "DirectX End-User Runtimes (June 2010)" from Microsoft);
+the folder's path too long or in a place it shouldn't be. With no sound device the game starts silently.
+Everything it said is in userdata\logs\launcher.log.
+
+
+If Windows or your antivirus objects
+------------------------------------
+The programs here are not signed, and few people have run them, so:
+- Windows SmartScreen may say "Windows protected your PC". Click "More info", then "Run anyway",
+  once you have decided you trust this download.
+- On Windows 11 with Smart App Control turned on, unsigned programs are blocked and there is no such
+  button. nv-rs can't run on such a PC without turning that off, and we don't ask you to.
+- An antivirus may stop or remove Play.exe or app\FalloutNV.exe, because they are new and start other
+  programs. Download only from the project's own page. Compare the ZIP's SHA256 with the one published
+  with it. The source for every file is at https://github.com/slaterain/nv-rs (BUILD.txt names the exact
+  version).
+Don't turn off your security software for this.
+
+app\FalloutNV.exe is nv-rs's own program, not the game's. It has that name because NVIDIA's driver fixes
+and Windows' sound settings for the game go by the name.
+
+
+Reporting a problem
+-------------------
+https://github.com/slaterain/nv-rs/issues
+
+Press F12 in the game when you see something wrong. You hear a beep, and a numbered folder appears
+in userdata\reports with a picture and the log so far. Add your words to its note.txt and attach the
+folder, zipped. If the game stopped, attach the newest game-*.log from userdata\logs, and launcher.log.
+Say what you did just before, and your graphics card, Windows version and game store.
+
+Logs can show your Windows user name in folder paths: look through them first if that matters to you.
+Never attach game files. Please compare with the original game when you can: if it behaves the same
+there, it isn't an nv-rs bug.
+
+Licence terms and notices are in LICENSE, LEGAL.md, THIRD-PARTY-NOTICES.txt and the licenses folder.

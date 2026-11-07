@@ -28,6 +28,10 @@ To run nv-rs you need your own legally obtained copy of Fallout: New Vegas.
 nv-rs reads that copy's `Data` folder at runtime and never modifies the
 installation.
 
+In a Windows package, `app\FalloutNV.exe` is nv-rs's own program under that name
+(graphics drivers' game fixes and Windows' per-program sound go by the name), not
+the game's; the game's own program is read from the player's installation.
+
 ## How the game's behaviour is learned
 
 nv-rs reproduces the original game's behaviour. Its sources are the game's

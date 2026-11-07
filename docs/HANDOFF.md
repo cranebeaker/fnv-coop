@@ -7,6 +7,12 @@ machinery runs.
 
 ## Resume here
 
+### Claude, 2026-11-06 (the Windows preview package)
+
+- **What it is:** `scripts/package-playtest.ps1` makes one ZIP: `Play.exe` (`scripts/launcher`), `app\FalloutNV.exe` (nv-viewer `--release`, static C runtime, build paths remapped), the three table tools, launchers, the settings tool, the READ ME and the notices. docs/PLAYTESTING.md says what `Play.exe` does and what the tables can't cover; docs/MAINTAINING.md lists the ZIP's contents and why each is allowed; docs/PREVIEW_TESTERS.md is the checklist for other PCs. Nothing is released: the maintainer decides.
+- **Fixes it needed in the port:** `LoadLibraryA("ATIMGPUD.dll")` stopped the game on every AMD card (answered as missing now); the resampler's tables were read at one Windows build's addresses (found by their words now, DirectSound's second converter when they aren't there); `NV_SAVE_OUT` deletes what the game deleted, keeps the name's case and allows OneDrive's Desktop; `NV_PREFS_OUT` keeps the game's own settings; F12 reports are back (`NV_REPORT_DIR`); `nv-viewer --check`.
+- **Test scripts and results:** private, `build43-scratch\measure\preview` (NOTES.md).
+
 ### Claude, 2026-11-03 (the old layer removed: nv-viewer runs the engine port only; read this first)
 
 - **What went (ADR-0011, the maintainer's decision of 2026-11-03):** the hand-written reimplementation (crates `world`, `preview`, `cellview`, `physics`, `ui`, `shaders`, `speedtree`, `script`, `scriptgen`, `nif`, `dds`, `assets`, `testdata`), the Bevy viewer's game layer and renderer, the `nvinspect` commands, host's quest bridges (`quest_vm` and the form wrappers), `scripts/acceptance.ps1`, `scripts/dlc-data-pass.ps1`, `characters/`, the Bevy viewer's Linux and macOS CI jobs and dependency notices, and 52 docs of the old layer ([history/README.md](history/README.md): each is `git show 93922e5a:docs/NAME.md`). Contributor work on the old layer went with it: #29 (open, Primm deputy route: close it), the routes of #50 and #87, #91 (Wayland), #108 (macOS), Chazm's and Playcon's systems. #62's engine-core part (Linux paths in `files.rs`) still applies as a smaller PR.

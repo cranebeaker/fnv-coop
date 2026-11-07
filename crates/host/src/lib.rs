@@ -205,6 +205,44 @@ impl Host {
     }
 }
 
+/// What `nv-viewer --check` reports for the installation whose `Data` folder is `data`, without
+/// starting anything: an error when its `FalloutNV.exe` is missing or is not 1.4.0.525
+/// ([`engine::exe::verify`]), else a line for each thing that decides how the run will go.
+pub fn check_installation(data: &Path) -> Result<Vec<String>, String> {
+    let exe = engine::exe::installed_exe(data);
+    if !exe.is_file() {
+        return Err(format!("{}: not found", exe.display()));
+    }
+    engine::exe::verify(&exe)?;
+    let converter = if engine_platform::resampler::tables().is_some() {
+        "found"
+    } else {
+        "not found"
+    };
+    // Asked under this program's own name: on some devices Windows answers by the name.
+    let device = match engine_platform::sound_out::device_mix() {
+        None => "none".to_string(),
+        Some((rate, layout)) => format!(
+            "{rate} Hz, {} channels, speaker mask {:#x}, {}",
+            layout.channels,
+            layout.mask,
+            if layout.provided() {
+                "provided".to_string()
+            } else {
+                format!(
+                    "not provided: {}",
+                    engine_platform::sound_out::not_provided(layout)
+                )
+            }
+        ),
+    };
+    Ok(vec![
+        format!("game: {} is 1.4.0.525", exe.display()),
+        format!("sound device: {device}"),
+        format!("sound converter tables: {converter}"),
+    ])
+}
+
 /// `main` (Xbox PDB, `0086a850`), the game's `WinMain`.
 const WIN_MAIN: u32 = 0x0086_a850;
 
