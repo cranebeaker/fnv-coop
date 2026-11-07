@@ -35,6 +35,7 @@ pub static FIXES: &[Fix] = &[
     crate::uncap::SLOW_MOTION_FIX,
     crate::uncap::MENU_FIX,
     crate::uncap::GRAB_FIX,
+    crate::phys_blend::FIX,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
@@ -254,6 +255,7 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_SHOT",
     "NV_TICK_COUNT",
     "NV_FRAME_LOG",
+    "NV_PHYS_BLEND_LOG",
     "NV_BENCH_CALLS",
     "NV_BENCH_CALL_COUNTS",
     "NV_PROFILE",

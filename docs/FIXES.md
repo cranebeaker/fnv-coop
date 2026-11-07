@@ -39,6 +39,11 @@ without a per-call cost, so the frame rate stays the player's. The game's own `i
 (`[General]`, 1 to 199) gives exact frame steps at any wall rate, which is how a recording sees a
 high frame rate's steps: a trace itself holds the game near 30 frames a second.
 
+`NV_PHYS_BLEND_LOG=FILE`, with the smooth physics drawing on (say `NV_PRESET=fixes`: the variable pins
+vanilla otherwise), writes per drawn frame each free body's node as the original draws it and as the
+fix draws it, with the drawing time and the world's last step end; `NV_SHOT_FRAMES=FROM-TO` limits
+`NV_SHOT` to those presents, so a short stretch can be taken every frame.
+
 ## The fixes
 
 The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no wait, which the uncapped step doesn't pace, so a recording with `iFPSClamp` runs as fast as it can.
@@ -50,6 +55,7 @@ The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no
 | High-frame-rate slow motion | `00aa4e40` | `NV_HF_SLOWMO` | The time multiplier moves to its target by the time passed, not by the frame |
 | Menu frame limit | none of its own (paces the uncapped step) | `NV_MENU_CAP` | A menu (main menu, Pip-Boy, dialogue, inventory, pause, message boxes) runs at most `MenuFrameLimit` frames a second (120 unless set; `FrameLimit` when lower), a loading screen with no limit, even under a `FrameLimit` (the maintainer, 2026-11-07). What a frame shows is the game's own test (`Main::OnIdle`, `0086e650`): a menu is the menu-mode byte `011dea2b` the frame sets first (`Interface::IsInMenuMode` or the Pip-Boy opening); loading is the loading menu up (`LoadingMenu::pMe`) with neither the main menu (`XUIIsUp`) nor the credits over it, the frames in which `OnIdle` asks `TES` whether the load is done. The load's own work, while the main thread is busy and the loading menu's thread draws, has no main-timer step and was never limited. With the uncapped step off nothing changes. `NV_FRAME_LOG` has a `screen` column (play, menu, loading) |
 | Dragged bodies by time | `0095f6c0`, `009613c0`, `00960520` | `NV_GRAB_PUSH` | The grab update (`00960520`) pulls a held body that is more than `fZKeyComplexHelperMinDistance` (6) units from its place by adding `(distance - 6) x fZKeyComplexHelperScale (2) / distance x -1.0 x` a weight factor (`fZKeyComplexHelperWeightMin` 0 to `Max` 100) to its velocity, once a rendered frame (`AddVelocity` for a ragdoll or a flagged body, the velocity plus the pull for others), so at 144 frames a second it is pulled 2.4 times as hard as at 60. Its three entries (the player's grab handling and the dropped-object spring, which call it in Rust, and the grab update itself, which telekinesis calls) run with `fZKeyComplexHelperScale` scaled by the frame's seconds times 60, at most 4 (TEMPO's rule in Fallout 3), and the setting back afterwards; the grab update is its only reader. The spring itself is a Havok action on the 16 ms steps and is left alone |
+| Smooth physics drawing | `00c65a80`, `008706b0` | `NV_PHYS_BLEND` | Free bodies (dropped and thrown items, ragdolls, debris) are drawn between Havok's 16 ms steps instead of frozen on frames without a step: around the frame's drawing only, each moving body's node shows the body at the game's time minus one step, blended with Havok's own swept-transform formula, and is put back after. The simulation and what game logic reads are the original's. Bodies are drawn one step (16 ms) behind the clock, about 5 ms later than the original on average. Below |
 
 ### What high frame rates do to the original's code
 
@@ -118,6 +124,42 @@ A load draws on the loading menu's own thread (a round every 50 ms, as the origi
 thread does the load, so there is no main-timer step to limit: the save load has no frame of its own
 and a `coc` cell load one (with `FrameLimit=90`), which ran unpaced. The loading screens' speed is the
 original's either way.
+
+### Smooth physics drawing
+
+Havok steps the world 16 ms at a time at any frame rate, and the original draws each free body as the
+scene graph's update last set its node (`hktoNiTransform`, `00c65a80`): above 62.5 frames a second many
+frames have no step, so dropped items, ragdolls and debris stand still on them and jump on the next. The
+fix keeps the simulation and every node game logic reads exactly as the original's; only around the
+frame's drawing (`008706b0`) it writes each moving body's node as the body was one step before the game's
+time, blended between the two Havok steps around it with Havok's own swept-transform formula
+(`approxTransformAt`: centre of mass and rotation moved linearly, rotation normalised), refreshes the
+nodes below it with the game's own world update, draws, and puts every node and bound back as it was
+(`crates/host/src/phys_blend.rs`). Nodes whose class has its own world update (world-space particle systems,
+fixed-rotation `BSValueNode`s, billboards) and everything below them, and keyframed bodies, are drawn as the
+original draws them.
+The original's nodes are set before the frame's world step, so they show the body 11 ms behind the game's
+clock on average (0 to 23 ms at 144 frames a second); the fix draws it 16 ms behind, about 5 ms later.
+
+Measured on the hf-motion route in Doc's hall (three dropped items and Doc's ragdoll, 60 to 76 moving
+bodies; `NV_PHYS_BLEND_LOG`, both series from the same frames; 2026-11-07). Frozen: a frame in which the
+body's path moves and the drawn body doesn't. Shown/ideal: the drawn move in a frame against the path's.
+
+| Frames | Frozen, original | Frozen, fix | Over 1.5 times the path's move, original / fix | Shown/ideal p10, p50, p90, original | Fix |
+| --- | --- | --- | --- | --- | --- |
+| Exactly 144 (`iFPSClamp`) | 56.6% | 0.4% | 43.2% / 0.5% | 0.00, 0.00, 2.31 | 0.98, 1.00, 1.02 |
+| Limit 60 (68.5 a second of game time measured) | 7.7% | 0.0% | 9.9% / 1.0% | 0.53, 1.03, 1.50 | 0.99, 1.00, 1.03 |
+
+The fix's frozen frames are bodies that just woke or were moved by the game (a `SetPosition`): they are
+drawn from their first step's start until the drawing time reaches it, one or two frames. Off the path:
+0.04 units (rms) at 144 against the original's 0.75. With `NV_PHYS_BLEND=0` the same route shows 56.5%
+frozen, as before the fix, and the three dropped items settle step for step as with the fix on (same
+steps active, speeds and resting places). Vanilla at exactly 60: one step in 95.8% of frames, two in 4.2%,
+as before.
+
+On screen (`NV_SHOT` every frame at exactly 144, looking down at the dropped shovel): with the fix off every
+second frame of its fall is the same picture as the one before and the next moves twice as far; with the fix
+on the picture changes every frame, by half as much (one frame stays still where the shovel hits the floor).
 
 ## Credits
 

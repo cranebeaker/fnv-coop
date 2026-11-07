@@ -2064,8 +2064,9 @@ pub fn texture_set_lod(e: &mut Engine, texture: u32, lod: u32, model: u32) {
 // frames on the real device: at a `Present`, at most every `every_ms` (default 5000) of wall
 // time, the back buffer is copied to a system-memory surface (`GetRenderTargetData`; a
 // multisampled back buffer is first resolved into a plain render target with `StretchRect`)
-// and written to `DIR` as a 32-bit BMP named `frame-NNNNNN-<unix ms>.bmp`. Nothing is read or
-// made when `NV_SHOT` is unset; the game's state and the model are not touched.
+// and written to `DIR` as a 32-bit BMP named `frame-NNNNNN-<unix ms>.bmp`. `NV_SHOT_FRAMES=FROM-TO`
+// takes them only at those presents (counted from 1), so a short stretch can be taken every frame.
+// Nothing is read or made when `NV_SHOT` is unset; the game's state and the model are not touched.
 // ---------------------------------------------------------------------------------------------
 mod shot {
     use super::*;
@@ -2077,6 +2078,14 @@ mod shot {
     pub(super) struct Shots {
         pub dir: PathBuf,
         pub every: Duration,
+        /// `NV_SHOT_FRAMES=FROM-TO`: only these presents (both included).
+        pub frames: Option<(u64, u64)>,
+    }
+
+    /// `NV_SHOT_FRAMES=FROM-TO`: the first and last present to take.
+    pub(super) fn parse_frames(value: &str) -> Option<(u64, u64)> {
+        let (from, to) = value.trim().split_once('-')?;
+        Some((from.trim().parse().ok()?, to.trim().parse().ok()?))
     }
 
     /// `NV_SHOT=DIR[,every_ms]`: the directory and interval (5000 ms when not given).
@@ -2095,6 +2104,7 @@ mod shot {
         Some(Shots {
             dir: PathBuf::from(dir),
             every: Duration::from_millis(every.max(1)),
+            frames: None,
         })
     }
 
@@ -2102,7 +2112,10 @@ mod shot {
         static SHOTS: OnceLock<Option<Shots>> = OnceLock::new();
         SHOTS
             .get_or_init(|| {
-                let shots = std::env::var("NV_SHOT").ok().and_then(|v| parse(&v))?;
+                let mut shots = std::env::var("NV_SHOT").ok().and_then(|v| parse(&v))?;
+                shots.frames = std::env::var("NV_SHOT_FRAMES")
+                    .ok()
+                    .and_then(|v| parse_frames(&v));
                 let _ = std::fs::create_dir_all(&shots.dir);
                 Some(shots)
             })
@@ -2143,6 +2156,13 @@ mod shot {
         let frame = {
             let mut t = timing();
             t.0 += 1;
+            let frame = t.0;
+            if shots
+                .frames
+                .is_some_and(|(from, to)| frame < from || frame > to)
+            {
+                return;
+            }
             if t.1.is_some_and(|last| last.elapsed() < shots.every) {
                 return;
             }
@@ -2852,6 +2872,9 @@ mod tests {
         let s = shot::parse("D:\\a,b").unwrap();
         assert_eq!(s.dir, std::path::PathBuf::from("D:\\a,b"));
         assert!(shot::parse(" ").is_none());
+        assert_eq!(shot::parse_frames("17100-17500"), Some((17100, 17500)));
+        assert_eq!(shot::parse_frames(" 5 - 9 "), Some((5, 9)));
+        assert!(shot::parse_frames("17100").is_none());
         let file = shot::bmp(2, 1, &[1, 2, 3, 0, 4, 5, 6, 0]);
         assert_eq!(&file[0..2], b"BM");
         assert_eq!(file.len(), 54 + 8);

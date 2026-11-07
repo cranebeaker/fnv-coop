@@ -63,7 +63,7 @@
 0086c600	2	HeapReplacer
 0086e650	0	script or frame function
 0086ff70	1	script or frame function
-008706b0	1	JIP
+008706b0	2	JIP, nv-rs smooth physics drawing
 008a06c0	0	ITR
 008a8dd0	2	JIP
 008b39f0	0	ITR
@@ -132,6 +132,7 @@
 00bdf3e0	1	VanillaPlusTerrain
 00be0fe0	0	ShaderLoader
 00be1750	0	ShaderLoader
+00c65a80	1	nv-rs smooth physics drawing
 00c73170	1	nv-rs high-frame-rate landing
 00cad480	5	ITR
 00caf4d0	0	ITR
